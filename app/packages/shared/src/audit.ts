@@ -6,11 +6,24 @@ import type { GameServer } from './tfvars.js';
  * exposed by the `game_servers` write endpoints in `@hyveon/desktop-main`,
  * plus `plan` for a dry-run `terraform plan` invocation that touched no
  * infrastructure, `approve` for marking a successful `plan` run approved
- * for a later `apply` (see `TerraformController.approve`, issue #109), and
+ * for a later `apply` (see `TerraformController.approve`, issue #109),
  * `apply` for a `terraform apply` invocation that actually mutated
- * infrastructure (see `TerraformController.apply`, issue #109).
+ * infrastructure (see `TerraformController.apply`, issue #109), and
+ * `destroy` for a confirmed `terraform destroy` invocation that was
+ * initiated to tear down every managed resource — recorded once the run
+ * starts, not once it's confirmed successful (see `TerraformController.destroy`, issue #307), and
+ * `rollback` for restoring a historic tfvars version as a new head (see
+ * `TerraformController.confirmRollback`, issue #112).
  */
-export type AuditAction = 'add' | 'edit' | 'remove' | 'plan' | 'approve' | 'apply';
+export type AuditAction =
+  | 'add'
+  | 'edit'
+  | 'remove'
+  | 'plan'
+  | 'approve'
+  | 'apply'
+  | 'destroy'
+  | 'rollback';
 
 /**
  * A single row in the DynamoDB audit log (`${project_name}-audit` table,

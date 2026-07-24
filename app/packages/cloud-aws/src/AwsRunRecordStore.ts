@@ -190,6 +190,7 @@ export class AwsRunRecordStore implements RunRecordStore {
           ...(record.planHash !== undefined ? { planHash: record.planHash } : {}),
           ...(record.approvedBy !== undefined ? { approvedBy: record.approvedBy } : {}),
           ...(record.approvedAt !== undefined ? { approvedAt: record.approvedAt } : {}),
+          ...(record.rolledBackFrom !== undefined ? { rolledBackFrom: record.rolledBackFrom } : {}),
           ...(record.logInline !== undefined ? { logInline: record.logInline } : {}),
           ...(record.logS3Key !== undefined ? { logS3Key: record.logS3Key } : {}),
         },
@@ -327,6 +328,9 @@ export class AwsRunRecordStore implements RunRecordStore {
     };
     if (item['tfvarsVersionId'] !== undefined) {
       record.tfvarsVersionId = item['tfvarsVersionId'] as string;
+    }
+    if (item['rolledBackFrom'] !== undefined) {
+      record.rolledBackFrom = item['rolledBackFrom'] as string;
     }
     if (item['planHash'] !== undefined) {
       record.planHash = item['planHash'] as string;

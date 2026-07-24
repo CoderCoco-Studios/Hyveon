@@ -59,9 +59,13 @@ import type {
   LogChunk,
   TerraformApplyPayload,
   TerraformApproveAck,
+  TerraformDestroyMintAck,
+  TerraformDestroyPayload,
   TerraformInitConfig,
   TerraformPlanAck,
   TerraformPlanPayload,
+  TerraformRollbackConfirmAck,
+  TerraformRollbackResolveAck,
   TerraformRunChunk,
   TerraformRunsGetResult,
   TerraformRunsListOpts,
@@ -604,6 +608,8 @@ const api: GsdApi = {
     plan: (opts?: TerraformPlanPayload) => invoke<TerraformPlanAck>('terraform.plan', opts),
     approve: (opts: { planRunId: string }) => invoke<TerraformApproveAck>('terraform.approve', opts),
     apply: (payload: TerraformApplyPayload) => invoke<TerraformPlanAck>('terraform.apply', payload),
+    mintDestroyToken: () => invoke<TerraformDestroyMintAck>('terraform.destroy.mintToken'),
+    destroy: (payload: TerraformDestroyPayload) => invoke<TerraformPlanAck>('terraform.destroy', payload),
     output: (force?: boolean) => invoke<TfOutputs | null>('terraform.output', { force }),
     runs: {
       get: (runId: string) => invoke<TerraformRunsGetResult>('terraform.runs.get', { runId }),
@@ -611,6 +617,12 @@ const api: GsdApi = {
       list: (opts?: TerraformRunsListOpts) => invoke<RunHistoryPageResult>('terraform.runs.list', opts),
       logUrl: (logKey: string, expiresInSeconds?: number) =>
         invoke<{ url: string }>('terraform.runs.logUrl', { logKey, expiresInSeconds }).then((r) => r.url),
+    },
+    rollback: {
+      resolve: (opts: { applyRunId: string }) =>
+        invoke<TerraformRollbackResolveAck>('terraform.rollback.resolve', opts),
+      confirm: (opts: { applyRunId: string }) =>
+        invoke<TerraformRollbackConfirmAck>('terraform.rollback.confirm', opts),
     },
   },
 };
