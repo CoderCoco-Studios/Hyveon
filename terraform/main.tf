@@ -71,8 +71,6 @@ module "cloud" {
   vpc_cidr     = var.vpc_cidr
   game_servers = var.game_servers
 
-  acm_certificate_domain = var.acm_certificate_domain
-
   watchdog_interval_minutes = var.watchdog_interval_minutes
   watchdog_idle_checks      = var.watchdog_idle_checks
   watchdog_min_packets      = var.watchdog_min_packets

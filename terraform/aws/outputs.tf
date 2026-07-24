@@ -72,16 +72,6 @@ output "efs_access_points" {
   }
 }
 
-output "alb_dns_name" {
-  description = "ALB DNS name (only when HTTPS games exist)"
-  value       = local.enable_alb ? aws_lb.game_servers[0].dns_name : null
-}
-
-output "acm_certificate_arn" {
-  description = "ACM certificate ARN (only when HTTPS games exist)"
-  value       = local.enable_alb ? aws_acm_certificate.game_servers[0].arn : null
-}
-
 # ── Discord serverless outputs ───────────────────────────────────────────────
 
 output "discord_table_name" {

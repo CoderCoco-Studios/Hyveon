@@ -40,7 +40,7 @@ variable "game_servers" {
     ports           = list(object({ container = number, protocol = string }))
     environment     = optional(list(object({ name = string, value = string })), [])
     volumes         = list(object({ name = string, container_path = string }))
-    https           = optional(bool, false) # If true, traffic is routed through ALB with TLS termination
+    https           = optional(bool, false) # If true, an in-task Caddy sidecar terminates TLS via Let's Encrypt
     connect_message = optional(string)      # Discord connect hint; supports {host}, {ip}, {port}, {game} placeholders
     file_seeds = optional(list(object({
       path           = string                   # In-container path, e.g. "/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
@@ -59,14 +59,6 @@ variable "game_servers" {
     ])
     error_message = "Each game server must have at least one volume entry with non-empty name and container_path."
   }
-}
-
-# ── HTTPS / ALB ─────────────────────────────────────────────────────────────
-
-variable "acm_certificate_domain" {
-  description = "Domain for the ACM TLS certificate used by the ALB (e.g. *.example.com). Defaults to *.{hosted_zone_name} when null."
-  type        = string
-  default     = null # When null, defaults to *.{hosted_zone_name}
 }
 
 # ── Watchdog tuning ──────────────────────────────────────────────────────────

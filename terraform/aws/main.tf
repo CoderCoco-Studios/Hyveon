@@ -74,18 +74,10 @@ locals {
     ])) : pair.key => pair
   }
 
-  # Ports for HTTPS games — only allow traffic from the ALB
-  https_game_ports = {
-    for pair in distinct(flatten([
-      for name, cfg in var.game_servers : [
-        for p in cfg.ports : {
-          key      = "${p.container}-${p.protocol}"
-          port     = p.container
-          protocol = p.protocol
-        }
-      ] if cfg.https
-    ])) : pair.key => pair
-  }
+  # HTTPS games — TLS terminates in-task via a Caddy sidecar (see
+  # aws_ecs_task_definition.game); their raw container port never gets public
+  # ingress, only 443/80 do (below).
+  https_games = { for name, cfg in var.game_servers : name => cfg if cfg.https }
 }
 
 resource "aws_security_group" "game_servers" {
@@ -105,15 +97,18 @@ resource "aws_security_group" "game_servers" {
     }
   }
 
-  # HTTPS game ports — only allow traffic from the ALB
+  # HTTPS games — public 443/80 for the in-task Caddy sidecar (443 serves
+  # the game, 80 handles the ACME HTTP-01 challenge + HTTP→HTTPS redirect).
+  # The raw container port gets no ingress rule at all — the sidecar reaches
+  # it over localhost inside the task.
   dynamic "ingress" {
-    for_each = local.enable_alb ? local.https_game_ports : {}
+    for_each = length(local.https_games) > 0 ? { "443" = 443, "80" = 80 } : {}
     content {
-      description     = "ALB to game port ${ingress.value.port}/${ingress.value.protocol}"
-      from_port       = ingress.value.port
-      to_port         = ingress.value.port
-      protocol        = ingress.value.protocol
-      security_groups = [aws_security_group.alb[0].id]
+      description = "Caddy sidecar (HTTPS/ACME) port ${ingress.value}/tcp"
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
     }
   }
 
@@ -231,6 +226,30 @@ resource "aws_efs_access_point" "game" {
   tags = { Name = each.key }
 }
 
+# One access point per HTTPS game — persists the Caddy sidecar's issued
+# Let's Encrypt certificate + ACME account key across task restarts so
+# issuance is a rare event instead of a fresh ACME order on every boot.
+resource "aws_efs_access_point" "caddy_data" {
+  for_each       = local.https_games
+  file_system_id = aws_efs_file_system.saves.id
+
+  posix_user {
+    uid = 1000
+    gid = 1000
+  }
+
+  root_directory {
+    path = "/${each.key}/caddy-data"
+    creation_info {
+      owner_uid   = 1000
+      owner_gid   = 1000
+      permissions = "0755"
+    }
+  }
+
+  tags = { Name = "${each.key}-certs" }
+}
+
 # ── CloudWatch Log Groups ─────────────────────────────────────────────────────
 
 resource "aws_cloudwatch_log_group" "game" {
@@ -308,34 +327,87 @@ resource "aws_ecs_task_definition" "game" {
     }
   }
 
-  container_definitions = jsonencode([{
-    name      = each.key
-    image     = each.value.image
-    essential = true
-
-    portMappings = [for p in each.value.ports : {
-      containerPort = p.container
-      hostPort      = p.container
-      protocol      = p.protocol
-    }]
-
-    environment = each.value.environment
-
-    mountPoints = [for vol in each.value.volumes : {
-      sourceVolume  = "${each.key}-${vol.name}"
-      containerPath = vol.container_path
-      readOnly      = false
-    }]
-
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.game[each.key].name
-        "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = "ecs"
+  # Cert-storage volume for the Caddy sidecar — HTTPS games only.
+  dynamic "volume" {
+    for_each = each.value.https ? [each.key] : []
+    content {
+      name = "${each.key}-caddy-data"
+      efs_volume_configuration {
+        file_system_id     = aws_efs_file_system.saves.id
+        transit_encryption = "ENABLED"
+        authorization_config {
+          access_point_id = aws_efs_access_point.caddy_data[each.key].id
+          iam             = "DISABLED"
+        }
       }
     }
-  }])
+  }
+
+  container_definitions = jsonencode(concat(
+    [{
+      name      = each.key
+      image     = each.value.image
+      essential = true
+
+      portMappings = [for p in each.value.ports : {
+        containerPort = p.container
+        hostPort      = p.container
+        protocol      = p.protocol
+      }]
+
+      environment = each.value.environment
+
+      mountPoints = [for vol in each.value.volumes : {
+        sourceVolume  = "${each.key}-${vol.name}"
+        containerPath = vol.container_path
+        readOnly      = false
+      }]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.game[each.key].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+    }],
+    # Caddy reverse-proxy sidecar — TLS termination for HTTPS games only.
+    # `essential = true` so a dead proxy stops the whole task (the game's
+    # raw port has no public ingress, so an unreachable-but-billing zombie
+    # task is strictly worse than the whole task cycling through STOPPED).
+    each.value.https ? [{
+      name      = "caddy"
+      image     = "caddy:2-alpine"
+      essential = true
+
+      portMappings = [
+        { containerPort = 443, hostPort = 443, protocol = "tcp" },
+        { containerPort = 80, hostPort = 80, protocol = "tcp" },
+      ]
+
+      command = [
+        "caddy", "reverse-proxy",
+        "--from", "${each.key}.${var.hosted_zone_name}",
+        "--to", "localhost:${each.value.ports[0].container}",
+      ]
+
+      mountPoints = [{
+        sourceVolume  = "${each.key}-caddy-data"
+        containerPath = "/data"
+        readOnly      = false
+      }]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.game[each.key].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "caddy"
+        }
+      }
+    }] : []
+  ))
 
   tags = { Name = "${each.key}-server" }
 }
