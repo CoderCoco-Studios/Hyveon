@@ -20,9 +20,14 @@ This command (from the repo root):
 ```text
 Playwright test process (single Node process, no HTTP server, no BrowserWindow)
   ├── ipc (IpcHarness) ─────────────────────────── NestFactory.createApplicationContext(AppModule)
-  │     └── dispatch(Controller, 'method', ...) ── invokes the controller instance directly
-  └── serverMocks (ServerMocks) ────────────────── pushes into the shared MockStore singleton
-        └── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
+  │     ├── dispatch(Controller, 'method', ...) ── invokes the controller instance directly
+  │     └── get(Provider) ────────────────────────  resolves a provider (e.g. TerraformService) straight from the container
+  ├── serverMocks (ServerMocks) ────────────────── pushes into the shared MockStore singleton
+  │     └── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
+  ├── runRecordMockStore ────────────────────────── stateful pk=RUN / pk=LOCK item store
+  │     └── aws-sdk-client-mock (DynamoDBDocumentClient prototype patched) ── installRunRecordDynamoMock()
+  └── terraformFixture ──────────────────────────── PATH-shim dir + TF_DIR/RUNS_DIR_PATH/TFVARS_PATH temp dirs
+        └── fake-terraform.mjs ──────────────────── resolved as the `terraform` binary via the shim wrapper
 ```
 
 ### Key Files
@@ -31,11 +36,14 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
 |------|---------|
 | `app/packages/desktop-main/src/test-mocks/mock-store.ts` | In-process `MockStore` singleton with per-command FIFO queues. |
 | `app/packages/desktop-main/src/test-mocks/ecs-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `ECSClient`, wired to `MockStore`. |
-| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `NestFactory.createApplicationContext(AppModule)`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. |
+| `app/packages/desktop-main/src/test-mocks/run-record-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `DynamoDBDocumentClient`, backed by the stateful `runRecordMockStore` singleton (`pk = RUN` run records + the single `pk = LOCK` apply-lock item) — see [DynamoDB Run-Record Mock](#dynamodb-run-record-mock) below. |
+| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `NestFactory.createApplicationContext(AppModule)`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Also exposes `get(Provider)` to resolve a provider (e.g. `TerraformService`) directly from the container. |
 | `app/packages/web/e2e/fixtures/server-mocks.ts` | `ServerMocks` class + extended `test` with `serverMocks` and `ipc` fixtures. |
+| `app/packages/web/e2e/fixtures/terraform-shim.ts` | Extended `test` (`terraformFixture` + an `ipc` override that waits on it) that prepends a `terraform` PATH shim and points `TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`/`FAKE_TERRAFORM_SCRIPT` at fresh per-spec temp dirs before the `ipc` harness is built — see [PATH-Shim Injection](#path-shim-injection) below. |
+| `app/packages/web/e2e/fixtures/terraform-fixtures.ts` | Builder functions (`successfulPlanEntry`, `failedPlanEntry`, `successfulApplyEntry`, `successfulDestroyEntry`, `successfulOutputEntry`, `ansiPlanEntry`, `versionEntry`) and `writeFixture()` for scripting `fake-terraform.mjs` responses from orchestrator specs. |
 | `app/packages/web/playwright.integration.config.ts` | Playwright config: `testDir: e2e/integration-specs`, `workers: 1`, no `webServer`, no `projects`. |
-| `app/packages/web/e2e/fixtures/tfstate.fixture.json` | Synthetic Terraform state (`minecraft` + `valheim`, `us-east-1`, `test.example.com`), injected via `TF_STATE_PATH` when the `ipc` harness boots. |
-| `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect` from `./index.js`, not `@playwright/test`. |
+| `app/packages/web/e2e/fixtures/tfstate.fixture.json` | Synthetic Terraform state (`minecraft` + `valheim`, `us-east-1`, `test.example.com`, including `runs_table_name`), injected via `TF_STATE_PATH` when the `ipc` harness boots. |
+| `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect` from `./index.js` (or, for orchestrator specs, `../fixtures/terraform-shim.js`), not `@playwright/test`. |
 
 ## How Mock Responses Work
 
@@ -83,12 +91,16 @@ await serverMocks.pushRunTask({
 | `status-polling.spec.ts` | Pushing RUNNING mock responses causes the next `GamesController.listStatus` dispatch to reflect the state change (the in-process analogue of the dashboard's poller). |
 | `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
 | `can-run.spec.ts` | Placeholder — skipped until Discord permission enforcement (`canRun()`) is wired into the `ipc` test harness. |
+| `terraform-plan.spec.ts` | `TerraformService.plan()` produces a `.tfplan` artifact + SHA-256 `planHash` on success; a failing plan yields `TerraformPlanError` with no `planHash`; binary/version resolution succeeds through the PATH shim. |
+| `terraform-apply.spec.ts` | `TerraformController.apply` rejects an unapproved, expired-approval, or hash-mismatched plan without spawning `terraform` (verified via the fake binary's own end-channel message and `readRunRecord`); a fresh, matching approval applies and streams the scripted `apply` to completion. |
+| `terraform-destroy.spec.ts` | `TerraformService.destroy()` throws `DestroyNotConfirmedError` without a token or once a token is reused; a fresh token streams the scripted destroy to completion. |
+| `terraform-streaming.spec.ts` | ANSI escape sequences and stdout/stderr attribution survive streaming chunks and the persisted `terraform.log` byte-for-byte. |
+| `terraform-run-records.spec.ts` | `run.json` is written for both successful and failed runs (with/without `planHash`); the `RunRecordStore` record embeds the log inline (no S3 offload key) and is retrievable via `TerraformRunsController.get`. |
+| `terraform-output.spec.ts` | `TerraformController.output` returns the parsed outputs from a scripted `terraform output -json` response. |
 
 ## `fake-terraform.mjs` — Scripted Terraform Stand-In
 
-`app/test/fake-terraform.mjs` is a scripted stand-in for the real `terraform` binary. It lets the integration tier (and any orchestrator unit tests) exercise `TerraformService` against realistic `stdout`/`stderr` output and exit codes without shelling out to real Terraform or touching real AWS.
-
-**Wiring this into `TerraformService` integration coverage (stale-plan rejection, destroy confirmation gate, ANSI passthrough, run-record persistence) is deferred to #204** — this doc only covers the script's contract as implemented in #201.
+`app/test/fake-terraform.mjs` is a scripted stand-in for the real `terraform` binary. It lets the integration tier (and any orchestrator unit tests) exercise `TerraformService` against realistic `stdout`/`stderr` output and exit codes without shelling out to real Terraform or touching real AWS. The orchestrator specs (`terraform-*.spec.ts`) wire it in via the PATH shim described below.
 
 ### Invocation
 
@@ -124,6 +136,44 @@ The fixture is a JSON object keyed by subcommand name:
 | `lines[].stream` | `"stdout"` \| `"stderr"` | `"stdout"` | Any value other than `"stderr"` is treated as `"stdout"`. |
 | `lines[].text` | `string` | — | Written followed by a newline. |
 | `lines[].delayMs` | `number` | `0` | Awaited immediately before that line is written, per-line, so fixtures can simulate realistic Terraform timing (e.g. a slow `plan` refresh before later output). |
+| `<subcommand>.outFileContent` | `string` | *(unset)* | Opt-in artifact-writing field: when present, its bytes are written verbatim to the path supplied via a `-out=<path>` CLI argument once every scripted line has been emitted — e.g. a `plan` fixture sets this so the caller's SHA-256 `planHash` has a real `.tfplan` artifact on disk to hash. If `outFileContent` is scripted but no `-out=` argument was passed, the process exits `1` with a descriptive stderr message instead of silently dropping the artifact. Absent entirely, existing fixtures are unaffected — no file is written. |
+
+## PATH-Shim Injection
+
+`app/packages/web/e2e/fixtures/terraform-shim.ts` exports an extended `test` (`terraformFixture` fixture, plus an `ipc` override) that orchestrator specs import instead of `./index.js`:
+
+```ts
+import { test, expect } from '../fixtures/terraform-shim.js';
+import { successfulPlanEntry, versionEntry, writeFixture } from '../fixtures/terraform-fixtures.js';
+
+test('should ...', async ({ ipc, terraformFixture }) => {
+  writeFixture(terraformFixture.scriptPath, {
+    version: versionEntry(),
+    plan: successfulPlanEntry(),
+  });
+  const terraform = ipc.get(TerraformService);
+  // ...drive terraform.plan() directly, or ipc.dispatch(TerraformController, 'plan', ...)
+});
+```
+
+`terraformFixture` runs *before* `ipc` (the fixture's own `ipc` override depends on it purely for ordering) because `TerraformService` resolves its binary path — and reads the `TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`/`FAKE_TERRAFORM_SCRIPT` env seams — lazily on first use, but the shim must already be in place by the time anything in the built container could trigger that resolution. Per spec, `terraformFixture`:
+
+1. Creates three temp dirs: a shim dir (holding an executable `terraform` wrapper that `exec`s `node app/test/fake-terraform.mjs "$@"`, plus the JSON fixture file and a placeholder `terraform.tfvars`), a `TF_DIR` composer dir (left empty — the fake binary ignores cwd contents), and a `RUNS_DIR_PATH` run-artifacts dir.
+2. Prepends the shim dir to `process.env.PATH` and sets `FAKE_TERRAFORM_SCRIPT`/`TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`, snapshotting prior values first.
+3. On teardown, restores every snapshotted env var (deleting keys that were previously unset) and removes all three temp dirs.
+
+Safe under the tier's `workers: 1`, `fullyParallel: false` config — env mutation windows never overlap between specs.
+
+## DynamoDB Run-Record Mock
+
+`app/packages/desktop-main/src/test-mocks/run-record-mock.ts` installs `aws-sdk-client-mock` interceptors on the `DynamoDBDocumentClient` prototype (`installRunRecordDynamoMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`), backed by the exported `runRecordMockStore` singleton. Unlike `MockStore`'s FIFO queues, this is a genuinely **stateful** table: a plan run persisted via `TerraformService.plan()` (through the real `RunRecordService`) is retrievable by a later `TerraformController.approve`/`apply` call in the same spec, exactly like production.
+
+- **`pk = RUN` items** — `PutCommand`/`QueryCommand` mirror `AwsRunRecordStore`'s `putRecord`/`getRecordByRunId`/`listRuns` request shapes (upsert-by-`sk`, filter by `runId`/`before`/`status`, `Limit`).
+- **`pk = LOCK` / `sk = CURRENT` item** — the single apply-lock item `RunService.createRun`/`releaseRun` acquire/release via `acquireRunLock`/`releaseRunLock`. `PutCommand`'s conditional-put semantics (`attribute_not_exists(pk) OR expiresAt < :now`) are reproduced, throwing `ConditionalCheckFailedException` when another unexpired lock is held — the same exception `AwsRunRecordStore.acquireRunLock` catches and converts to `RunLockHeldError`.
+- **`runRecordMockStore.patchApprovedAt(runId, isoString)`** — directly overwrites a stored record's `approvedAt`, letting a spec simulate an approval minted outside the 15-minute apply window without fake timers (which never reach the spawned fake-terraform child process).
+- **Reset per harness** — `createIpcHarness()` calls `runRecordMockStore.reset()` before installing the mock, so no plan/apply/destroy record or apply lock leaks from one spec's `AppModule` context into the next.
+
+Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also intercepts `AuditService`'s DynamoDB traffic (harmless — audit items land in the same in-memory item list but are excluded from every `runId`-filtered query).
 
 ## Design Constraints
 

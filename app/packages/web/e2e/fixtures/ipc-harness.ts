@@ -9,6 +9,10 @@ import { AppModule } from '@hyveon/desktop-main/dist/app.module.js';
 import { installEcsMock } from '@hyveon/desktop-main/dist/test-mocks/ecs-mock.js';
 import { mockStore } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
 import type { MockResponse } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
+import {
+  installRunRecordDynamoMock,
+  runRecordMockStore,
+} from '@hyveon/desktop-main/dist/test-mocks/run-record-mock.js';
 
 /** Absolute path to the Terraform state fixture bundled alongside this harness. */
 const DEFAULT_TF_STATE_PATH = fileURLToPath(new URL('./tfstate.fixture.json', import.meta.url));
@@ -56,6 +60,16 @@ export interface IpcHarness {
   ): Promise<HandlerResult<TController, TMethod>>;
 
   /**
+   * Resolves `token` directly from the container-built `AppModule` context —
+   * e.g. `harness.get(TerraformService)` — so a spec can drive a service's
+   * own async generators (`plan`/`apply`/`destroy`) or call methods a
+   * controller doesn't expose 1:1, while still exercising the exact same
+   * instance (and its injected `RunRecordService`/`ConfigService`/etc.) the
+   * IPC transport would resolve at runtime.
+   */
+  get<TProvider>(token: Type<TProvider>): TProvider;
+
+  /**
    * Queues mock ECS SDK responses, consumed FIFO by the interceptor installed
    * via `installEcsMock()`. Thin wrapper over the shared `mockStore` so specs
    * never need to know the HTTP-tier's `/api/test/mocks/*` control surface.
@@ -78,13 +92,18 @@ export interface IpcHarness {
  * Sets `TF_STATE_PATH` to `tfStatePath` (defaulting to the fixture next to
  * this file — the same fixture the HTTP integration tier uses) so
  * `ConfigService` resolves tfstate-fixture-driven data instead of requiring a
- * real Terraform state file, then installs the ECS mock interceptor and
- * builds the `AppModule` application context.
+ * real Terraform state file, then installs the ECS and run-record DynamoDB
+ * mock interceptors and builds the `AppModule` application context. The
+ * run-record mock's backing store (`runRecordMockStore`) is reset first so a
+ * prior spec's plan/apply/destroy records and apply lock never leak into a
+ * freshly built context.
  */
 export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PATH): Promise<IpcHarness> {
   process.env['TF_STATE_PATH'] = tfStatePath;
 
   installEcsMock();
+  runRecordMockStore.reset();
+  installRunRecordDynamoMock();
 
   const context: INestApplicationContext = await NestFactory.createApplicationContext(AppModule, {
     logger: false,
@@ -103,6 +122,9 @@ export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PA
       }
       const result = await (handler as (...a: unknown[]) => unknown).apply(instance, args);
       return result as HandlerResult<TController, TMethod>;
+    },
+    get<TProvider>(token: Type<TProvider>): TProvider {
+      return context.get(token, { strict: false });
     },
     mocks: {
       pushListTasks: (response) => mockStore.pushListTasks(response),
