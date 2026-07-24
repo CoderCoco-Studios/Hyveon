@@ -35,9 +35,21 @@
  * line is written, so callers can simulate realistic terraform timing.
  * "exitCode" (default 0) is the process exit code once every line has
  * been written.
+ *
+ * "outFileContent" (optional, string) is an opt-in artifact-writing field:
+ * when present, its bytes are written verbatim to the path supplied via a
+ * `-out=<path>` CLI argument (e.g. `plan -out=/runs/abc/abc.tfplan`) after
+ * all scripted lines have been emitted. This lets `plan` fixtures produce a
+ * real file on disk for callers that hash the resulting artifact (e.g.
+ * TerraformService's SHA-256 planHash). Existing fixtures that omit
+ * "outFileContent" are unaffected — no file is written and `-out=` (if
+ * present) is otherwise ignored, exactly as before. If "outFileContent" is
+ * scripted but no `-out=` argument was passed, the process fails instead of
+ * silently dropping the artifact.
  */
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /** Subcommand names TerraformService is documented to invoke. */
 const KNOWN_SUBCOMMANDS = ['init', 'plan', 'apply', 'destroy', 'output'];
@@ -142,6 +154,47 @@ async function emitLines(entry) {
 }
 
 /**
+ * Extracts the path passed via a `-out=<path>` CLI argument, if present.
+ *
+ * @param argv - The subcommand's CLI arguments (i.e. `process.argv.slice(3)`).
+ * @returns The path following `-out=`, or null if no such argument exists.
+ */
+function parseOutPath(argv) {
+  const outArg = argv.find((arg) => arg.startsWith('-out='));
+  return outArg ? outArg.slice('-out='.length) : null;
+}
+
+/**
+ * Writes the scripted "outFileContent" for the given entry to the path
+ * supplied via `-out=`, if the entry scripts one. No-ops when
+ * "outFileContent" is absent (backwards-compatible default). Marks the
+ * process to exit with a clear stderr message via fail() when
+ * "outFileContent" is scripted but no `-out=` argument was supplied.
+ *
+ * @param entry - The scripted response for the invoked subcommand.
+ * @param argv - The subcommand's CLI arguments (i.e. `process.argv.slice(3)`).
+ * @param subcommand - The invoked subcommand name, used in the error message.
+ * @returns true if writing succeeded (or was a no-op), false if it failed.
+ */
+function writeOutFile(entry, argv, subcommand) {
+  if (typeof entry.outFileContent !== 'string') {
+    return true;
+  }
+
+  const outPath = parseOutPath(argv);
+  if (!outPath) {
+    fail(
+      `subcommand "${subcommand}" scripts "outFileContent" but no -out=<path> argument was passed.`,
+    );
+    return false;
+  }
+
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, entry.outFileContent);
+  return true;
+}
+
+/**
  * Entry point: resolves the requested subcommand against the scripted
  * fixture and replays its stdout/stderr lines before exiting with the
  * scripted exit code.
@@ -170,6 +223,10 @@ async function main() {
   }
 
   await emitLines(entry);
+
+  if (!writeOutFile(entry, process.argv.slice(3), subcommand)) {
+    return;
+  }
 
   const exitCode = typeof entry.exitCode === 'number' ? entry.exitCode : 0;
   // Set exitCode and let the process exit naturally instead of calling

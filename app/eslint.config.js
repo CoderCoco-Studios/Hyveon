@@ -121,6 +121,7 @@ export default tseslint.config(
       'packages/desktop-main/src/services/EcsService.ts',
       'packages/desktop-main/src/services/EcsService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
+      'packages/desktop-main/src/test-mocks/run-record-mock.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': ['error', {

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -182,5 +182,52 @@ describe('fake-terraform.mjs', () => {
     // than emitting both lines immediately (which would make this a no-op
     // assertion on delay behaviour despite the test name).
     expect(elapsedMs).toBeGreaterThanOrEqual(scriptedDelayMs);
+  });
+
+  describe('outFileContent', () => {
+    it('should write the scripted bytes to the path passed via -out= when outFileContent is set', () => {
+      const fixturePath = writeFixture({
+        plan: {
+          exitCode: 0,
+          lines: [],
+          outFileContent: 'scripted-plan-bytes',
+        },
+      });
+      const dir = mkdtempSync(join(tmpdir(), 'fake-terraform-outfile-'));
+      tempDirs.push(dir);
+      const outPath = join(dir, 'runs', 'run-1', 'run-1.tfplan');
+
+      const { exitCode } = runFakeTerraform(['plan', `-out=${outPath}`], fixturePath);
+
+      expect(exitCode).toBe(0);
+      expect(readFileSync(outPath, 'utf8')).toBe('scripted-plan-bytes');
+    });
+
+    it('should not write any file when outFileContent is absent, even if -out= is passed', () => {
+      const fixturePath = writeFixture({
+        plan: { exitCode: 0, lines: [] },
+      });
+      const dir = mkdtempSync(join(tmpdir(), 'fake-terraform-outfile-'));
+      tempDirs.push(dir);
+      const outPath = join(dir, 'run-1.tfplan');
+
+      const { exitCode } = runFakeTerraform(['plan', `-out=${outPath}`], fixturePath);
+
+      expect(exitCode).toBe(0);
+      expect(() => readFileSync(outPath, 'utf8')).toThrow();
+    });
+
+    it('should exit 1 and report a stderr message when outFileContent is scripted but -out= is missing', () => {
+      const fixturePath = writeFixture({
+        plan: { exitCode: 0, lines: [], outFileContent: 'scripted-plan-bytes' },
+      });
+
+      const { exitCode, stderr } = runFakeTerraform(['plan'], fixturePath);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain(
+        'subcommand "plan" scripts "outFileContent" but no -out=<path> argument was passed.',
+      );
+    });
   });
 });

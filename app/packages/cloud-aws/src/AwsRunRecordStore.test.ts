@@ -135,6 +135,36 @@ describe('AwsRunRecordStore', () => {
       expect(input.Item).not.toHaveProperty('logS3Key');
     });
 
+    it('should include planHash, approvedBy, and approvedAt on the written item when present on the record', async () => {
+      ddbMock.on(PutCommand).resolves({});
+
+      const store = makeStore();
+      const record = makeRecord({
+        kind: 'plan',
+        planHash: 'sha256-abc',
+        approvedBy: 'alice',
+        approvedAt: '2026-07-17T00:10:00.000Z',
+      });
+      await store.putRecord(record);
+
+      const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(input.Item?.['planHash']).toBe('sha256-abc');
+      expect(input.Item?.['approvedBy']).toBe('alice');
+      expect(input.Item?.['approvedAt']).toBe('2026-07-17T00:10:00.000Z');
+    });
+
+    it('should omit planHash, approvedBy, and approvedAt from the written item when absent on the record', async () => {
+      ddbMock.on(PutCommand).resolves({});
+
+      const store = makeStore();
+      await store.putRecord(makeRecord());
+
+      const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
+      expect(input.Item).not.toHaveProperty('planHash');
+      expect(input.Item).not.toHaveProperty('approvedBy');
+      expect(input.Item).not.toHaveProperty('approvedAt');
+    });
+
     it('should include rolledBackFrom on the written item when present on the record', async () => {
       ddbMock.on(PutCommand).resolves({});
 
