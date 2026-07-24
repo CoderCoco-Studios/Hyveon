@@ -59,6 +59,19 @@ variable "game_servers" {
     ])
     error_message = "Each game server must have at least one volume entry with non-empty name and container_path."
   }
+
+  validation {
+    # The Caddy sidecar's `reverse-proxy` command always targets
+    # ports[0].container over HTTP — it has no non-HTTP TCP/UDP proxying
+    # support (that needs the third-party layer4 plugin, which isn't used
+    # here). An HTTPS game with no ports, or a non-tcp first port, would
+    # either fail to plan or silently become unreachable.
+    condition = alltrue([
+      for cfg in values(var.game_servers) :
+      !cfg.https || (length(cfg.ports) > 0 && lower(cfg.ports[0].protocol) == "tcp")
+    ])
+    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (the Caddy sidecar proxies ports[0] over HTTP)."
+  }
 }
 
 # ── Watchdog tuning ──────────────────────────────────────────────────────────

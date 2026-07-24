@@ -434,6 +434,14 @@ that puts this file in a private parent repo.
 
 ## 5. Apply the infrastructure
 
+**If you're upgrading an existing deployment that has an HTTPS game running
+behind the old ALB** (i.e. applying this for the first time after the
+Caddy-sidecar migration), **stop that game first.** This one-time apply
+deletes the ALB/ACM certificate and static DNS alias while changing public
+ingress — applying with the game still running can cause downtime or a
+partial migration. This warning does not apply to a fresh install, which has
+no ALB to migrate away from.
+
 ```bash
 cd terraform
 terraform plan
