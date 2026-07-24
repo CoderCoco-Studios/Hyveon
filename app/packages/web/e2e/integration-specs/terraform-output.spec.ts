@@ -6,6 +6,7 @@ test.describe('TerraformController.output (integration)', () => {
   test('should return the parsed outputs from the scripted terraform output -json response', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),

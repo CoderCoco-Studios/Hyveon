@@ -29,6 +29,7 @@ test.describe('TerraformService.plan (integration)', () => {
   test('should produce a .tfplan artifact and a SHA-256 planHash matching the artifact bytes on a successful plan', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
@@ -58,6 +59,7 @@ test.describe('TerraformService.plan (integration)', () => {
   test('should reject with TerraformPlanError and persist no planHash when the plan process exits non-zero', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
@@ -73,6 +75,7 @@ test.describe('TerraformService.plan (integration)', () => {
   test('should resolve the terraform binary and version through the PATH shim before spawning plan', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),

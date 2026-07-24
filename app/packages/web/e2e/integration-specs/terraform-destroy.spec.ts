@@ -16,6 +16,7 @@ test.describe('TerraformService.destroy (integration)', () => {
   test('should throw DestroyNotConfirmedError and never spawn terraform when no confirmation token was minted', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
@@ -27,7 +28,7 @@ test.describe('TerraformService.destroy (integration)', () => {
     await expect(drive(terraform.destroy('some-random-token'))).rejects.toThrow(DestroyNotConfirmedError);
   });
 
-  test('should reject reusing an already-consumed confirmation token', async ({ ipc, terraformFixture }) => {
+  test('should reject reusing an already-consumed confirmation token', async ({ ipc, terraformFixture, serverMocks: _serverMocks }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
       destroy: successfulDestroyEntry({ destroyed: 2 }),
@@ -42,7 +43,7 @@ test.describe('TerraformService.destroy (integration)', () => {
     await expect(drive(terraform.destroy(token))).rejects.toThrow(DestroyNotConfirmedError);
   });
 
-  test('should stream the scripted destroy to completion for a freshly minted token', async ({ ipc, terraformFixture }) => {
+  test('should stream the scripted destroy to completion for a freshly minted token', async ({ ipc, terraformFixture, serverMocks: _serverMocks }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
       destroy: successfulDestroyEntry({ destroyed: 5 }),

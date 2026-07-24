@@ -50,7 +50,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<vo
 }
 
 test.describe('TerraformController.apply (integration)', () => {
-  test('should reject an unapproved plan run without spawning terraform apply', async ({ ipc, terraformFixture }) => {
+  test('should reject an unapproved plan run without spawning terraform apply', async ({ ipc, terraformFixture, serverMocks: _serverMocks }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
       plan: successfulPlanEntry(),
@@ -71,7 +71,7 @@ test.describe('TerraformController.apply (integration)', () => {
     expect(record?.kind).toBe('plan');
   });
 
-  test('should reject an apply once the approval window has expired', async ({ ipc, terraformFixture }) => {
+  test('should reject an apply once the approval window has expired', async ({ ipc, terraformFixture, serverMocks: _serverMocks }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
       plan: successfulPlanEntry(),
@@ -96,7 +96,7 @@ test.describe('TerraformController.apply (integration)', () => {
     expect(record?.kind).toBe('plan');
   });
 
-  test('should reject an apply whose planHash does not match the approved plan record', async ({ ipc, terraformFixture }) => {
+  test('should reject an apply whose planHash does not match the approved plan record', async ({ ipc, terraformFixture, serverMocks: _serverMocks }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
       plan: successfulPlanEntry(),
@@ -127,6 +127,7 @@ test.describe('TerraformController.apply (integration)', () => {
   test('should apply a fresh, matching approved plan and run the scripted apply to completion', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),

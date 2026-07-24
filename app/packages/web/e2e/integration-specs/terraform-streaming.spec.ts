@@ -20,6 +20,7 @@ test.describe('TerraformService streaming (integration)', () => {
   test('should preserve ANSI escape sequences and stream attribution byte-for-byte in chunks and terraform.log', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),

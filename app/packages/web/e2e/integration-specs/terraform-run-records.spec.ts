@@ -20,6 +20,7 @@ test.describe('Terraform run-record persistence (integration)', () => {
   test('should write run.json with kind, exitCode, and planHash for a successful plan run', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
@@ -42,6 +43,7 @@ test.describe('Terraform run-record persistence (integration)', () => {
   test('should still persist run.json with a non-zero exitCode and no planHash for a failed run', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
@@ -68,6 +70,7 @@ test.describe('Terraform run-record persistence (integration)', () => {
   test('should persist an inline log on the RunRecordStore record and expose the run via the runs IPC surface', async ({
     ipc,
     terraformFixture,
+    serverMocks: _serverMocks,
   }) => {
     writeFixture(terraformFixture.scriptPath, {
       version: versionEntry(),
