@@ -75,15 +75,6 @@ resource "aws_iam_role_policy" "dns_updater_lambda" {
         ]
       },
       {
-        Effect = "Allow"
-        Action = [
-          "elasticloadbalancing:RegisterTargets",
-          "elasticloadbalancing:DeregisterTargets",
-          "elasticloadbalancing:DescribeTargetHealth",
-        ]
-        Resource = "*"
-      },
-      {
         # Pending-interaction lookup/delete for Discord followups
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:DeleteItem"]
@@ -104,16 +95,14 @@ resource "aws_lambda_function" "dns_updater" {
 
   environment {
     variables = {
-      HOSTED_ZONE_ID    = data.aws_route53_zone.main.zone_id
-      DOMAIN_NAME       = var.hosted_zone_name
-      GAME_NAMES        = join(",", keys(var.game_servers))
-      DNS_TTL           = tostring(var.dns_ttl)
-      AWS_REGION_       = var.aws_region
-      HTTPS_GAMES       = join(",", keys(local.https_games))
-      ALB_TARGET_GROUPS = jsonencode({ for name, _ in local.https_games : name => aws_lb_target_group.game[name].arn })
-      TABLE_NAME        = aws_dynamodb_table.discord.name
-      CONNECT_MESSAGES  = jsonencode({ for g, cfg in var.game_servers : g => cfg.connect_message if cfg.connect_message != null })
-      GAME_PORTS        = jsonencode({ for g, cfg in var.game_servers : g => cfg.ports[0].container if length(cfg.ports) > 0 })
+      HOSTED_ZONE_ID   = data.aws_route53_zone.main.zone_id
+      DOMAIN_NAME      = var.hosted_zone_name
+      GAME_NAMES       = join(",", keys(var.game_servers))
+      DNS_TTL          = tostring(var.dns_ttl)
+      AWS_REGION_      = var.aws_region
+      TABLE_NAME       = aws_dynamodb_table.discord.name
+      CONNECT_MESSAGES = jsonencode({ for g, cfg in var.game_servers : g => cfg.connect_message if cfg.connect_message != null })
+      GAME_PORTS       = jsonencode({ for g, cfg in var.game_servers : g => cfg.ports[0].container if length(cfg.ports) > 0 })
     }
   }
 

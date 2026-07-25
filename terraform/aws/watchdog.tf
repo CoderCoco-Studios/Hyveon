@@ -7,7 +7,9 @@
 #   1. Reads CloudWatch NetworkPacketsIn on the task's ENI.
 #   2. If packets < watchdog_min_packets → increments idle_checks ECS task tag.
 #   3. After watchdog_idle_checks consecutive idle checks → stops the task and
-#      removes the Route 53 record (or deregisters from the ALB for HTTPS games).
+#      removes the Route 53 record (same path for every game — HTTPS games'
+#      TLS terminates in-task via a Caddy sidecar, no load balancer target to
+#      deregister).
 #
 # Total idle grace period = watchdog_interval_minutes × watchdog_idle_checks.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -75,14 +77,6 @@ resource "aws_iam_role_policy" "watchdog_lambda" {
           "arn:aws:route53:::change/*",
         ]
       },
-      {
-        Effect = "Allow"
-        Action = [
-          "elasticloadbalancing:DeregisterTargets",
-          "elasticloadbalancing:DescribeTargetHealth",
-        ]
-        Resource = "*"
-      },
     ]
   })
 }
@@ -106,8 +100,6 @@ resource "aws_lambda_function" "watchdog" {
       MIN_PACKETS          = tostring(var.watchdog_min_packets)
       CHECK_WINDOW_MINUTES = tostring(var.watchdog_interval_minutes)
       AWS_REGION_          = var.aws_region
-      HTTPS_GAMES          = join(",", keys(local.https_games))
-      ALB_TARGET_GROUPS    = jsonencode({ for name, _ in local.https_games : name => aws_lb_target_group.game[name].arn })
     }
   }
 

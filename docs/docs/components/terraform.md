@@ -30,11 +30,10 @@ the composer.
 | `outputs.tf` | Re-exports every `module.cloud[0].*` output by the same name — `ConfigService.getTfOutputs()` reads these from root-level `terraform.tfstate`, where module outputs don't appear. |
 | `moved.tf` | A module-level `moved` block mapping `module.cloud` → `module.cloud[0]` (added when the module gained `count`), plus one `moved` block per resource living in `terraform/aws/`, mapping its pre-split root address to `module.cloud.<type>.<name>` so existing deployments `plan` cleanly instead of proposing a destroy/recreate. |
 | `terraform.tfvars.example` | Starting point for your `terraform.tfvars`. |
-| `aws/main.tf` | VPC, Internet Gateway, two public subnets across AZs, route table, IAM execution role, EFS filesystem + mount targets + **per-game access points**, ECS cluster, **one Fargate task definition per game**, CloudWatch log groups, game-server + file-manager + EFS security groups. |
+| `aws/main.tf` | VPC, Internet Gateway, two public subnets across AZs, route table, IAM execution role, EFS filesystem + mount targets + **per-game access points** (including a `{game}-certs` access point per HTTPS game), ECS cluster, **one Fargate task definition per game** (HTTPS games get a second, Caddy sidecar container — see [Variables](#variables)), CloudWatch log groups, game-server + file-manager + EFS security groups. |
 | `aws/versions.tf` | Module-local `required_providers` (aws, archive), including the `aws.us_east_1` `configuration_aliases` entry the root passes in. |
 | `aws/variables.tf` | Module input declarations — every root variable except `tags` (which only the root's `default_tags` needs). |
 | `aws/outputs.tf` | Every value the management app (and humans) consume, including the four outputs that used to be stray blocks in `interactions.tf`, `discord-domain.tf`, `route53.tf`, and `watchdog.tf`. |
-| `aws/alb.tf` | Conditional on any game having `https = true`: ACM certificate (DNS-validated), ALB + target groups per HTTPS game, HTTPS listener + HTTP→HTTPS redirect, Route 53 ALIAS records. |
 | `aws/route53.tf` | Route 53 zone **data source** (zone must exist); the `update-dns` Lambda with its IAM, EventBridge rule on `ECS Task State Change`. |
 | `aws/watchdog.tf` | `watchdog` Lambda with its IAM, EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. |
 | `aws/efs-seeder.tf` | Conditional on any game having `file_seeds`: shared seeder SG, per-game IAM role + policy, CloudWatch log group, Lambda (VPC + EFS mount), and `aws_lambda_invocation` that re-triggers only when seed content changes. |
@@ -134,9 +133,8 @@ id and etag:
 | `aws_region` | `string` | `us-east-1` | AWS region for all resources. |
 | `project_name` | `string` | `hyveon` | Prefix for named resources and the Secrets Manager paths. |
 | `vpc_cidr` | `string` | `10.0.0.0/16` | Parent CIDR; subnets are /24s within it. |
-| `game_servers` | `map(object)` | — | The single source of truth. Per-game: `image`, `cpu`, `memory`, `ports[]`, `environment[]`, `volumes[]` (`name` + `container_path`), `https`, `connect_message` (optional), `file_seeds[]` (optional). Each `volumes` entry creates its own EFS access point rooted at `/${game}/${name}`. `connect_message` controls the Discord connection hint shown when a server reaches RUNNING; supports `{host}`, `{ip}`, `{port}`, and `{game}` placeholders. See `game_servers[].file_seeds` below. |
+| `game_servers` | `map(object)` | — | The single source of truth. Per-game: `image`, `cpu`, `memory`, `ports[]`, `environment[]`, `volumes[]` (`name` + `container_path`), `https`, `connect_message` (optional), `file_seeds[]` (optional). Each `volumes` entry creates its own EFS access point rooted at `/${game}/${name}`. Setting `https = true` adds an in-task Caddy reverse-proxy sidecar (ports 443/80) that obtains a Let's Encrypt certificate for `{game}.{hosted_zone_name}` via automatic HTTPS and persists it on a dedicated `{game}-certs` EFS access point — no load balancer or ACM resources involved. `connect_message` controls the Discord connection hint shown when a server reaches RUNNING; supports `{host}`, `{ip}`, `{port}`, and `{game}` placeholders. See `game_servers[].file_seeds` below. |
 | `hosted_zone_name` | `string` | _(required)_ | Existing Route 53 zone looked up as a data source (e.g. `example.com`). |
-| `acm_certificate_domain` | `string` | `null` → `*.{hosted_zone_name}` | Wildcard ACM cert for the ALB listener. |
 | `dns_ttl` | `number` | `30` | TTL on Route 53 A records the update-dns Lambda writes. Keep low for fast task churn. |
 | `watchdog_interval_minutes` | `number` | `15` | How often the watchdog schedule fires. |
 | `watchdog_idle_checks` | `number` | `4` | Consecutive idle windows before `StopTask`. |
@@ -179,7 +177,6 @@ When `file_seeds` is non-empty, `efs-seeder.tf` creates a seeder Lambda for the 
 | `applied_game_servers` (sensitive) | Management app drift detection — the full per-game `game_servers` configuration object (image, cpu, memory, ports, env, volumes, `file_seeds`, etc.) as last applied by Terraform, for field-level comparison against the currently declared tfvars config. Only present in `terraform.tfstate` after the next `terraform apply`. |
 | `task_definitions` | Ops (`aws ecs run-task --task-definition palworld-server`). |
 | `hosted_zone_id`, `domain_name`, `dns_records` | update-dns / watchdog Lambda env + DNS checks. |
-| `alb_dns_name`, `acm_certificate_arn` | Null if no HTTPS games; public reference otherwise. |
 | `discord_table_name`, `discord_bot_token_secret_arn`, `discord_public_key_secret_arn` | Management app reads via the parsed tfstate to reach DynamoDB + Secrets. |
 | `interactions_invoke_url` | Pasted into Discord Developer Portal → General Information → Interactions Endpoint URL. |
 | `watchdog_function_name` | Ops / debugging. |
@@ -188,9 +185,9 @@ When `file_seeds` is non-empty, `efs-seeder.tf` creates a seeder Lambda for the 
 ## AWS services in use
 
 - **Compute**: ECS (cluster + per-game Fargate task definitions), Lambda (4 functions).
-- **Networking**: VPC, subnets, route tables, IGW, security groups, ALB + target groups + listener rules (if HTTPS games).
-- **Storage**: EFS filesystem, mount targets, per-game access points.
-- **DNS / TLS**: Route 53 zone (data source) + Lambda-managed A records, ACM cert (DNS-validated), ALB ALIAS records.
+- **Networking**: VPC, subnets, route tables, IGW, security groups (443/80 opened publicly only when at least one HTTPS game exists).
+- **Storage**: EFS filesystem, mount targets, per-game access points (including per-HTTPS-game cert storage).
+- **DNS / TLS**: Route 53 zone (data source) + Lambda-managed A records for every game. TLS for HTTPS games terminates in-task via a Caddy sidecar with Let's Encrypt automatic HTTPS — no ALB, no ACM certificate.
 - **Events**: EventBridge rule (ECS task state change), EventBridge schedule (watchdog).
 - **State**: DynamoDB (CONFIG + PENDING rows with TTL), Secrets Manager (bot token + public key).
 - **Observability**: CloudWatch log groups (`/ecs/{game}-server` + Lambda logs), CloudWatch metrics (`NetworkPacketsIn`), Cost Explorer (read from the management app).
@@ -203,11 +200,17 @@ When `file_seeds` is non-empty, `efs-seeder.tf` creates a seeder Lambda for the 
   are an init-time error.
 - **`AWS_REGION_` (trailing underscore)** on every Lambda env var set from
   Terraform. `AWS_REGION` is reserved by the runtime.
-- **DNS A records for non-HTTPS games are NOT Terraform resources.** The
-  update-dns Lambda owns them on task state change. Adding
-  `aws_route53_record` for them would cause a loop.
-- **HTTPS games get ALB ALIAS records in Terraform**, plus the Lambda
-  registers/deregisters the ENI IP as an ALB target on RUNNING/STOPPED.
+- **DNS A records are NOT Terraform resources, for any game.** The
+  update-dns Lambda owns them on task state change (UPSERT on RUNNING,
+  DELETE on STOPPED) — HTTPS games use the exact same path as everything
+  else. Adding `aws_route53_record` for them would cause a loop.
+- **HTTPS games' first boot needs a couple of minutes for cert issuance.**
+  The Caddy sidecar can't request a Let's Encrypt certificate until DNS for
+  `{game}.{hosted_zone_name}` resolves, which only happens after the task
+  reports RUNNING and the update-dns Lambda upserts the record. Caddy
+  retries with backoff; subsequent boots reuse the certificate persisted on
+  the `{game}-certs` EFS access point, so this delay is a once-per-game
+  event rather than something you hit on every start.
 - **EFS access points are UID/GID 1000 and mode 0755.** Game images that
   run as a different UID will fail to write to the volume.
 - **Secrets use `recovery_window_in_days = 0`** so `terraform destroy` +

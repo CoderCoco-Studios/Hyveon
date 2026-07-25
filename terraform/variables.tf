@@ -40,7 +40,7 @@ variable "game_servers" {
     ports           = list(object({ container = number, protocol = string }))
     environment     = optional(list(object({ name = string, value = string })), [])
     volumes         = list(object({ name = string, container_path = string }))
-    https           = optional(bool, false) # If true, traffic is routed through ALB with TLS termination
+    https           = optional(bool, false) # If true, an in-task Caddy sidecar terminates TLS via Let's Encrypt
     connect_message = optional(string)      # Discord connect hint; supports {host}, {ip}, {port}, {game} placeholders
     file_seeds = optional(list(object({
       path           = string                   # In-container path, e.g. "/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
@@ -59,14 +59,36 @@ variable "game_servers" {
     ])
     error_message = "Each game server must have at least one volume entry with non-empty name and container_path."
   }
-}
 
-# ── HTTPS / ALB ─────────────────────────────────────────────────────────────
-
-variable "acm_certificate_domain" {
-  description = "Domain for the ACM TLS certificate used by the ALB (e.g. *.example.com). Defaults to *.{hosted_zone_name} when null."
-  type        = string
-  default     = null # When null, defaults to *.{hosted_zone_name}
+  validation {
+    # The Caddy sidecar's `reverse-proxy` command always targets
+    # ports[0].container over HTTP — it has no non-HTTP TCP/UDP proxying
+    # support (that needs the third-party layer4 plugin, which isn't used
+    # here). An HTTPS game with no ports, or a non-tcp first port, would
+    # either fail to plan or silently become unreachable. protocol must be
+    # exact-case "tcp" (not just case-insensitively equal) because main.tf
+    # passes cfg.ports[*].protocol straight through to ECS portMappings,
+    # which requires lowercase tcp/udp — a case-insensitive check here would
+    # let e.g. "TCP" pass validation and then fail terraform apply. Ports 80
+    # and 443 are rejected on every declared port (not just ports[0])
+    # because in awsvpc mode every container in the task shares one ENI, so
+    # any port colliding with the sidecar's own 80/443 host bindings breaks
+    # task placement. Every port (not just ports[0]) must use a valid ECS
+    # protocol value — ports[1+] are allowed to be "udp" (they get no public
+    # ingress either way, per the SG rules above), but an unsupported value
+    # would still fail terraform apply since main.tf passes it through
+    # unchanged to portMappings.
+    condition = alltrue([
+      for cfg in values(var.game_servers) :
+      !cfg.https || (
+        length(cfg.ports) > 0 &&
+        cfg.ports[0].protocol == "tcp" &&
+        alltrue([for p in cfg.ports : contains(["tcp", "udp"], p.protocol)]) &&
+        alltrue([for p in cfg.ports : p.container != 80 && p.container != 443])
+      )
+    ])
+    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (exact lowercase), every port using a valid protocol (\"tcp\" or \"udp\"), and no port using 80 or 443 (reserved for the Caddy sidecar)."
+  }
 }
 
 # ── Watchdog tuning ──────────────────────────────────────────────────────────

@@ -24,9 +24,6 @@ watchdog_interval_minutes = 15
 watchdog_idle_checks      = 4
 watchdog_min_packets      = 100
 
-# ACM certificate domain for HTTPS game servers (default: *.{hosted_zone_name})
-# acm_certificate_domain = "*.example.com"
-
 # Discord bot credentials (optional — leave commented out to configure via the web UI).
 # If set here, they seed the backing stores on the first `terraform apply`.
 # terraform.tfvars is gitignored, so it's safe to put real values here.

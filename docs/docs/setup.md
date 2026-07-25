@@ -403,10 +403,16 @@ Rules worth knowing before you save:
   ]
   ```
 
-- **`https = true`** routes the game through an ALB + ACM + Route 53 ALIAS.
-  Only set it on games that actually serve HTTP(S); UDP games (most game
-  servers) must stay `false`. The ALB is only created if at least one game
-  has `https = true`.
+- **`https = true`** adds an in-task Caddy reverse-proxy sidecar that
+  terminates TLS for the game via Let's Encrypt automatic HTTPS, opening
+  443/tcp and 80/tcp publicly on the game's security group (80 is required
+  for the ACME HTTP-01 challenge and the HTTP→HTTPS redirect). Only set it
+  on games that actually serve HTTP(S); UDP games (most game servers) must
+  stay `false`. On a game's first-ever boot, expect the sidecar to take a
+  couple of minutes after the server reaches RUNNING before HTTPS is live —
+  it can't request a certificate until the update-dns Lambda's DNS record
+  for the game propagates, and it retries with backoff. Certificates persist
+  on EFS, so this delay does not recur on subsequent restarts.
 - **CPU / memory** must be a valid Fargate pair (see the
   [Fargate task size table](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#task_size)).
 - **Do not write `aws_route53_record` resources** — the update-dns Lambda
@@ -428,6 +434,14 @@ that puts this file in a private parent repo.
 
 ## 5. Apply the infrastructure
 
+**If you're upgrading an existing deployment that has an HTTPS game running
+behind the old ALB** (i.e. applying this for the first time after the
+Caddy-sidecar migration), **stop that game first.** This one-time apply
+deletes the ALB/ACM certificate and static DNS alias while changing public
+ingress — applying with the game still running can cause downtime or a
+partial migration. This warning does not apply to a fresh install, which has
+no ALB to migrate away from.
+
 ```bash
 cd terraform
 terraform plan
@@ -436,13 +450,16 @@ terraform apply
 
 `apply` takes 5–10 minutes end-to-end. It creates the VPC, two public
 subnets, an ECS cluster, one task definition + EFS access point +
-CloudWatch log group **per game**, the four Lambdas, three DynamoDB tables
-(Discord config/state, the audit log, and the Terraform-runs history — see
+CloudWatch log group **per game** (HTTPS games get a second, Caddy sidecar
+container plus a dedicated cert-storage EFS access point in the same task
+definition — no separate load balancer or ACM certificate resource), the
+four Lambdas, three DynamoDB tables (Discord config/state, the audit log,
+and the Terraform-runs history — see
 [step 7](#7-optional-wire-up-the-discord-bot)), two Secrets Manager secrets,
-the EventBridge rule + schedule, and (if any game has `https = true`) an ALB
-with an ACM certificate. The deploy IAM policy's existing `dynamodb:*`
-statement (see [step 1](#1-create-and-authorise-an-iam-user)) already covers
-all three tables — no policy change was needed for the runs table.
+and the EventBridge rule + schedule. The deploy IAM policy's existing
+`dynamodb:*` statement (see [step 1](#1-create-and-authorise-an-iam-user))
+already covers all three tables — no policy change was needed for the runs
+table.
 
 When it finishes, note two outputs:
 

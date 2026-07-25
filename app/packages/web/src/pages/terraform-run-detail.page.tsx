@@ -78,7 +78,18 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
   useEffect(() => {
     setChunks([]);
     setSource('none');
-    if (!runId || !record || !window.gsd) {
+    if (!runId || !window.gsd) {
+      setLoading(false);
+      return;
+    }
+    if (record === undefined) {
+      // useHistoryRecord's fetch is still in flight — stay in the loading
+      // state rather than flipping false here, which would otherwise let
+      // this effect's *next* run (once record resolves) render a transient
+      // "no log" flash before it has a chance to set loading back to true.
+      return;
+    }
+    if (!record) {
       setLoading(false);
       return;
     }

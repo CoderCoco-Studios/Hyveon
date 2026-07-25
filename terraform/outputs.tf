@@ -69,16 +69,6 @@ output "efs_access_points" {
   value       = module.cloud[0].efs_access_points
 }
 
-output "alb_dns_name" {
-  description = "ALB DNS name (only when HTTPS games exist)"
-  value       = module.cloud[0].alb_dns_name
-}
-
-output "acm_certificate_arn" {
-  description = "ACM certificate ARN (only when HTTPS games exist)"
-  value       = module.cloud[0].acm_certificate_arn
-}
-
 # ── Discord serverless outputs ───────────────────────────────────────────────
 
 output "discord_table_name" {
