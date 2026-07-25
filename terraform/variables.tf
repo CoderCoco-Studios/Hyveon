@@ -65,12 +65,24 @@ variable "game_servers" {
     # ports[0].container over HTTP — it has no non-HTTP TCP/UDP proxying
     # support (that needs the third-party layer4 plugin, which isn't used
     # here). An HTTPS game with no ports, or a non-tcp first port, would
-    # either fail to plan or silently become unreachable.
+    # either fail to plan or silently become unreachable. protocol must be
+    # exact-case "tcp" (not just case-insensitively equal) because main.tf
+    # passes cfg.ports[*].protocol straight through to ECS portMappings,
+    # which requires lowercase tcp/udp — a case-insensitive check here would
+    # let e.g. "TCP" pass validation and then fail terraform apply. Ports 80
+    # and 443 are rejected on every declared port (not just ports[0])
+    # because in awsvpc mode every container in the task shares one ENI, so
+    # any port colliding with the sidecar's own 80/443 host bindings breaks
+    # task placement.
     condition = alltrue([
       for cfg in values(var.game_servers) :
-      !cfg.https || (length(cfg.ports) > 0 && lower(cfg.ports[0].protocol) == "tcp")
+      !cfg.https || (
+        length(cfg.ports) > 0 &&
+        cfg.ports[0].protocol == "tcp" &&
+        alltrue([for p in cfg.ports : p.container != 80 && p.container != 443])
+      )
     ])
-    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (the Caddy sidecar proxies ports[0] over HTTP)."
+    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (exact lowercase) and no port using 80 or 443 (reserved for the Caddy sidecar)."
   }
 }
 
