@@ -73,16 +73,21 @@ variable "game_servers" {
     # and 443 are rejected on every declared port (not just ports[0])
     # because in awsvpc mode every container in the task shares one ENI, so
     # any port colliding with the sidecar's own 80/443 host bindings breaks
-    # task placement.
+    # task placement. Every port (not just ports[0]) must use a valid ECS
+    # protocol value — ports[1+] are allowed to be "udp" (they get no public
+    # ingress either way, per the SG rules above), but an unsupported value
+    # would still fail terraform apply since main.tf passes it through
+    # unchanged to portMappings.
     condition = alltrue([
       for cfg in values(var.game_servers) :
       !cfg.https || (
         length(cfg.ports) > 0 &&
         cfg.ports[0].protocol == "tcp" &&
+        alltrue([for p in cfg.ports : contains(["tcp", "udp"], p.protocol)]) &&
         alltrue([for p in cfg.ports : p.container != 80 && p.container != 443])
       )
     ])
-    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (exact lowercase) and no port using 80 or 443 (reserved for the Caddy sidecar)."
+    error_message = "Each https = true game server must declare at least one port, with the first port entry using protocol = \"tcp\" (exact lowercase), every port using a valid protocol (\"tcp\" or \"udp\"), and no port using 80 or 443 (reserved for the Caddy sidecar)."
   }
 }
 
