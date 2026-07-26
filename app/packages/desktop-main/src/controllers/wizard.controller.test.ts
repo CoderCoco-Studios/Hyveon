@@ -21,7 +21,10 @@ function makePrerequisites(report: PrerequisitesReport = SATISFIED_REPORT): Prer
 
 /** Build an AwsProfileService stub whose `listProfiles()` resolves to the given profiles. */
 function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsProfileService {
-  return { listProfiles: vi.fn().mockResolvedValue(profiles) } as Partial<AwsProfileService> as AwsProfileService;
+  return {
+    listProfiles: vi.fn().mockResolvedValue(profiles),
+    savePastedCredentials: vi.fn().mockReturnValue({ profileName: 'gsd-pasted' }),
+  } as Partial<AwsProfileService> as AwsProfileService;
 }
 
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
@@ -49,6 +52,11 @@ describe('WizardController', () => {
     it('should register listAwsProfiles on the "wizard.aws.listProfiles" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.listAwsProfiles);
       expect(pattern).toEqual(['wizard.aws.listProfiles']);
+    });
+
+    it('should register saveCredentials on the "wizard.aws.saveCredentials" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveCredentials);
+      expect(pattern).toEqual(['wizard.aws.saveCredentials']);
     });
   });
 
@@ -78,6 +86,30 @@ describe('WizardController', () => {
     it('should propagate an empty profile list unchanged', async () => {
       const result = await makeController({ awsProfiles: makeAwsProfiles([]) }).listAwsProfiles();
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('saveCredentials', () => {
+    it('should delegate to AwsProfileService.savePastedCredentials and return only the profile name', () => {
+      const awsProfiles = makeAwsProfiles();
+      const body = { accessKeyId: 'AKID', secretAccessKey: 'SECRET', region: 'us-east-1' };
+
+      const result = makeController({ awsProfiles }).saveCredentials(body);
+
+      expect(awsProfiles.savePastedCredentials).toHaveBeenCalledWith(body);
+      expect(result).toEqual({ profileName: 'gsd-pasted' });
+    });
+
+    it('should propagate a thrown SafeStorageUnavailableError rather than swallowing it', () => {
+      const awsProfiles = {
+        savePastedCredentials: vi.fn().mockImplementation(() => {
+          throw new Error('safeStorage unavailable');
+        }),
+      } as Partial<AwsProfileService> as AwsProfileService;
+
+      expect(() =>
+        makeController({ awsProfiles }).saveCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
+      ).toThrow('safeStorage unavailable');
     });
   });
 });

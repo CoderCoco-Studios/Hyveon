@@ -1,7 +1,11 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { PrerequisiteService, type PrerequisitesReport } from '../services/PrerequisiteService.js';
-import { AwsProfileService, type AwsProfileSummary } from '../services/AwsProfileService.js';
+import {
+  AwsProfileService,
+  type AwsProfileSummary,
+  type SavePastedCredentialsInput,
+} from '../services/AwsProfileService.js';
 
 /**
  * IPC-only controller for the first-run wizard (see
@@ -28,5 +32,15 @@ export class WizardController {
   @MessagePattern('wizard.aws.listProfiles')
   listAwsProfiles(): Promise<AwsProfileSummary[]> {
     return this.awsProfiles.listProfiles();
+  }
+
+  /**
+   * Saves pasted AWS credentials (the wizard's "paste keys instead" flow).
+   * Only the resolved profile name is returned — the decrypted/plaintext
+   * values passed in are never echoed back over IPC.
+   */
+  @MessagePattern('wizard.aws.saveCredentials')
+  saveCredentials(@Payload() body: SavePastedCredentialsInput): { profileName: string } {
+    return this.awsProfiles.savePastedCredentials(body);
   }
 }
