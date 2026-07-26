@@ -120,7 +120,11 @@ export function BootstrapStep({
                 variant="ghost"
                 size="sm"
                 className="absolute top-2 right-2"
-                onClick={() => void navigator.clipboard.writeText(iamCheck.policyJson!)}
+                onClick={() =>
+                  void navigator.clipboard.writeText(iamCheck.policyJson!).catch(() => {
+                    /* clipboard denial is non-critical; the policy JSON is still visible above */
+                  })
+                }
                 aria-label="Copy required IAM JSON"
               >
                 <Copy className="size-3" />

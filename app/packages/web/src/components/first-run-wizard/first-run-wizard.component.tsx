@@ -158,13 +158,15 @@ export function FirstRunWizard() {
   }
 
   /**
-   * Runs the three bootstrap IPC calls sequentially (state bucket → lock
-   * table → tfvars bucket), updating each resource's status as its call
+   * Runs the three bootstrap IPC calls concurrently (state bucket, lock
+   * table, tfvars bucket), updating each resource's status as its call
    * settles. A failure on one resource doesn't stop the others from running.
    */
   async function runBootstrap() {
     if (!window.gsd) {
-      setResourceMessages({ stateBucket: 'IPC bridge (window.gsd) is not available in this context.' });
+      const bridgeUnavailable = 'IPC bridge (window.gsd) is not available in this context.';
+      setResourceStatuses({ stateBucket: 'failed', lockTable: 'failed', tfvarsBucket: 'failed' });
+      setResourceMessages({ stateBucket: bridgeUnavailable, lockTable: bridgeUnavailable, tfvarsBucket: bridgeUnavailable });
       return;
     }
     setBootstrapping(true);

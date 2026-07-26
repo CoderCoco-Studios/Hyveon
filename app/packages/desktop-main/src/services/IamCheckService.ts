@@ -94,7 +94,23 @@ export class IamCheckService {
     if (!response.Arn) {
       throw new Error('sts:GetCallerIdentity did not return an ARN for the configured credentials.');
     }
-    return response.Arn;
+    return this.toPolicySourceArn(response.Arn);
+  }
+
+  /**
+   * `SimulatePrincipalPolicy`'s `PolicySourceArn` only accepts an IAM user,
+   * group, or role ARN — but `sts:GetCallerIdentity` returns an STS
+   * assumed-role session ARN (`arn:aws:sts::ACCOUNT:assumed-role/ROLE/SESSION`)
+   * for role/SSO credentials. Convert that to the underlying IAM role ARN;
+   * other ARN types (IAM user) pass through unchanged.
+   */
+  private toPolicySourceArn(arn: string): string {
+    const match = /^arn:aws:sts::(\d+):assumed-role\/([^/]+)\/.+$/.exec(arn);
+    if (!match) {
+      return arn;
+    }
+    const [, accountId, roleName] = match;
+    return `arn:aws:iam::${accountId}:role/${roleName}`;
   }
 
   private buildPolicyJson(actions: string[]): string {

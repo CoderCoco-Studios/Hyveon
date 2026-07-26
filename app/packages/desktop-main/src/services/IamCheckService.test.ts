@@ -106,6 +106,20 @@ describe('IamCheckService', () => {
       );
     });
 
+    it('should normalize an STS assumed-role session ARN to the underlying IAM role ARN', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Arn: 'arn:aws:sts::123456789012:assumed-role/hyveon-role/hyveon-session',
+      });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      await service.checkPermissions();
+
+      expect(iamMock.commandCalls(SimulatePrincipalPolicyCommand)[0]!.args[0].input.PolicySourceArn).toBe(
+        'arn:aws:iam::123456789012:role/hyveon-role',
+      );
+    });
+
     it('should degrade to a warning when GetCallerIdentity fails', async () => {
       stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
       const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
