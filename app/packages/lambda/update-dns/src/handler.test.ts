@@ -1,9 +1,10 @@
 /**
  * Tests for the update-dns Lambda — TypeScript port of update_dns.py.
  *
- * Covers DNS upsert/delete, ALB register/deregister for HTTPS games, and
- * the new Discord follow-up that PATCHes the original interaction message
- * when a task reaches RUNNING with a pending row in DynamoDB.
+ * Covers DNS upsert/delete (including HTTPS-flagged games, which now follow
+ * the same plain A-record path since TLS terminates in-task via a Caddy
+ * sidecar) and the Discord follow-up that PATCHes the original interaction
+ * message when a task reaches RUNNING with a pending row in DynamoDB.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
@@ -15,11 +16,6 @@ import {
   DescribeNetworkInterfacesCommand,
   EC2Client,
 } from '@aws-sdk/client-ec2';
-import {
-  ElasticLoadBalancingV2Client,
-  RegisterTargetsCommand,
-  DeregisterTargetsCommand,
-} from '@aws-sdk/client-elastic-load-balancing-v2';
 import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
@@ -39,14 +35,11 @@ vi.mock('@hyveon/shared', async () => {
 
 const ecsMock = mockClient(ECSClient);
 const ec2Mock = mockClient(EC2Client);
-const elbv2Mock = mockClient(ElasticLoadBalancingV2Client);
 const route53Mock = mockClient(Route53Client);
 
 process.env['HOSTED_ZONE_ID'] = 'Z123';
 process.env['DOMAIN_NAME'] = 'example.com';
 process.env['GAME_NAMES'] = 'palworld,foundryvtt';
-process.env['HTTPS_GAMES'] = 'foundryvtt';
-process.env['ALB_TARGET_GROUPS'] = JSON.stringify({ foundryvtt: 'arn:tg-foundry' });
 process.env['TABLE_NAME'] = 'test-discord';
 process.env['DNS_TTL'] = '30';
 process.env['AWS_REGION_'] = 'us-east-1';
@@ -90,7 +83,6 @@ function stubTaskWithEni(eniId = 'eni-xyz') {
 beforeEach(() => {
   ecsMock.reset();
   ec2Mock.reset();
-  elbv2Mock.reset();
   route53Mock.reset();
   fetchMock.mockReset();
   getPendingMock.mockReset();
@@ -149,34 +141,35 @@ describe('update-dns handler: direct (non-HTTPS) game', () => {
   });
 });
 
-describe('update-dns handler: HTTPS (ALB) game', () => {
-  it('should register the private IP with the ALB target group on RUNNING', async () => {
+describe('update-dns handler: HTTPS-flagged game', () => {
+  it('should follow the plain A-record path like any other game on RUNNING', async () => {
     stubTaskWithEni();
     ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
-      NetworkInterfaces: [{ PrivateIpAddress: '10.0.0.5' }],
+      NetworkInterfaces: [{ Association: { PublicIp: '5.6.7.8' } }],
     });
-    elbv2Mock.on(RegisterTargetsCommand).resolves({});
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
 
     const result = await handler(stateChange({ game: 'foundryvtt', lastStatus: 'RUNNING' }));
 
-    expect(result).toMatchObject({ status: 'registered', game: 'foundryvtt', ip: '10.0.0.5' });
-    const regs = elbv2Mock.commandCalls(RegisterTargetsCommand);
-    expect(regs).toHaveLength(1);
-    expect(regs[0]!.args[0]!.input.TargetGroupArn).toBe('arn:tg-foundry');
-    expect(regs[0]!.args[0]!.input.Targets![0]!.Id).toBe('10.0.0.5');
+    expect(result).toMatchObject({ status: 'upserted', game: 'foundryvtt', ip: '5.6.7.8' });
+    const changes = route53Mock.commandCalls(ChangeResourceRecordSetsCommand);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.args[0]!.input.ChangeBatch!.Changes![0]!.ResourceRecordSet!.Name).toBe(
+      'foundryvtt.example.com',
+    );
   });
 
-  it('should deregister the private IP from the ALB on STOPPED', async () => {
-    stubTaskWithEni();
-    ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
-      NetworkInterfaces: [{ PrivateIpAddress: '10.0.0.5' }],
+  it('should delete the A record on STOPPED', async () => {
+    route53Mock.on(ListResourceRecordSetsCommand).resolves({
+      ResourceRecordSets: [
+        { Name: 'foundryvtt.example.com.', Type: 'A', ResourceRecords: [{ Value: '5.6.7.8' }], TTL: 30 },
+      ],
     });
-    elbv2Mock.on(DeregisterTargetsCommand).resolves({});
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
 
     const result = await handler(stateChange({ game: 'foundryvtt', lastStatus: 'STOPPED' }));
 
-    expect(result).toMatchObject({ status: 'deregistered', game: 'foundryvtt' });
-    expect(elbv2Mock.commandCalls(DeregisterTargetsCommand)).toHaveLength(1);
+    expect(result).toMatchObject({ status: 'deleted', game: 'foundryvtt' });
   });
 });
 

@@ -15,8 +15,6 @@
     },
     "domain_name":                    { "value": "test.example.com",   "type": "string" },
     "game_names":                     { "value": ["minecraft", "valheim"], "type": ["tuple", ["string", "string"]] },
-    "alb_dns_name":                   { "value": null,                  "type": "string" },
-    "acm_certificate_arn":            { "value": null,                  "type": "string" },
     "discord_table_name":             { "value": "test-discord-table",  "type": "string" },
     "audit_table_name":               { "value": "test-audit-table",    "type": "string" },
     "runs_table_name":                { "value": "test-runs-table",     "type": "string" },

@@ -6,10 +6,11 @@
 # task it:
 #   1. Reads CloudWatch NetworkPacketsIn on the task's ENI.
 #   2. If packets < watchdog_min_packets → increments idle_checks ECS task tag.
-#   3. After watchdog_idle_checks consecutive idle checks → stops the task and
-#      removes the Route 53 record (same path for every game — HTTPS games'
-#      TLS terminates in-task via a Caddy sidecar, no load balancer target to
-#      deregister).
+#   3. After watchdog_idle_checks consecutive idle checks → stops the task
+#      (same path for every game — HTTPS games' TLS terminates in-task via a
+#      Caddy sidecar, no load balancer target to deregister). DNS cleanup is
+#      handled by the update-dns Lambda reacting to the resulting STOPPED
+#      state-change event, not by this Lambda directly.
 #
 # Total idle grace period = watchdog_interval_minutes × watchdog_idle_checks.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -66,17 +67,6 @@ resource "aws_iam_role_policy" "watchdog_lambda" {
         Action   = ["cloudwatch:GetMetricStatistics"]
         Resource = "*"
       },
-      {
-        Effect = "Allow"
-        Action = [
-          "route53:ChangeResourceRecordSets",
-          "route53:ListResourceRecordSets",
-        ]
-        Resource = [
-          "arn:aws:route53:::hostedzone/${data.aws_route53_zone.main.zone_id}",
-          "arn:aws:route53:::change/*",
-        ]
-      },
     ]
   })
 }
@@ -93,8 +83,6 @@ resource "aws_lambda_function" "watchdog" {
   environment {
     variables = {
       ECS_CLUSTER          = aws_ecs_cluster.main.name
-      HOSTED_ZONE_ID       = data.aws_route53_zone.main.zone_id
-      DOMAIN_NAME          = var.hosted_zone_name
       GAME_NAMES           = join(",", keys(var.game_servers))
       IDLE_CHECKS          = tostring(var.watchdog_idle_checks)
       MIN_PACKETS          = tostring(var.watchdog_min_packets)

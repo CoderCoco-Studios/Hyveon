@@ -99,7 +99,11 @@ When adding a game, only edit `terraform.tfvars`. Don't hand-write new resources
 
 ### DNS is Lambda-managed, not Terraform-managed
 
-`terraform/aws/route53.tf` creates the zone data source and the updater Lambda, but **no `aws_route53_record` resources**. An EventBridge rule on `ECS Task State Change` fires `@hyveon/lambda-update-dns`, which UPSERTs a record for `{game}.{hosted_zone_name}` on `RUNNING` and DELETEs on `STOPPED`. Terraform would fight the Lambda — keep DNS records out of Terraform.
+`terraform/aws/route53.tf` creates the zone data source and the updater Lambda, but **no `aws_route53_record` resources**. An EventBridge rule on `ECS Task State Change` fires `@hyveon/lambda-update-dns`, which UPSERTs a record for `{game}.{hosted_zone_name}` on `RUNNING` and DELETEs on `STOPPED`. Terraform would fight the Lambda — keep DNS records out of Terraform. This path is uniform for every game, including `https = true` ones (see below) — there's no separate ALB-registration branch.
+
+### HTTPS terminates in-task via a Caddy sidecar, not an ALB
+
+Games flagged `https = true` in the `game_servers` map get a second container in their `aws_ecs_task_definition.game` — an official `caddy` image running `caddy reverse-proxy --from {game}.{hosted_zone_name} --to localhost:{port}`, which handles Let's Encrypt issuance/renewal automatically (HTTP-01/TLS-ALPN-01) and proxies to the game container over `localhost` (both containers share the task's awsvpc ENI). Issued certs persist on a dedicated `{game}-certs` EFS access point mounted at Caddy's `/data` so restarts don't re-trigger issuance and Let's Encrypt rate limits stay out of reach. There is **no ALB, target group, or ACM certificate anywhere in the stack** — the security group opens 443/80 publicly for HTTPS games (the raw game port loses public ingress; only the sidecar reaches it via `localhost`), and the task's single public IP serves both the game port and 443, so `@hyveon/lambda-update-dns` needs no special-casing for HTTPS games.
 
 ### Watchdog state lives in ECS task tags
 

@@ -3,16 +3,13 @@
  *
  * Triggered by EventBridge on `ECS Task State Change`.
  *
- * For non-HTTPS games (direct Fargate IP):
+ * For every game (HTTPS games terminate TLS in-task via a Caddy sidecar and
+ * share the task's public IP, so they use the same path as everything else):
  *   - RUNNING → resolve ENI public IP → UPSERT Route 53 A record
  *   - STOPPED → DELETE Route 53 A record
  *
- * For HTTPS games (ALB-fronted):
- *   - RUNNING → resolve private IP → register with ALB target group
- *   - STOPPED → deregister from ALB target group
- *
  * New behaviour added in the serverless-Discord migration: on RUNNING, after
- * the DNS/ALB update, look up a pending Discord interaction by task ARN and
+ * the DNS update, look up a pending Discord interaction by task ARN and
  * PATCH the original message with the resolved hostname/IP, then delete the
  * pending row. The Discord interaction token in the pending row is valid for
  * up to 15 minutes — same window as the ECS provisioning timeline.
@@ -27,11 +24,6 @@ import {
   DescribeNetworkInterfacesCommand,
 } from '@aws-sdk/client-ec2';
 import {
-  ElasticLoadBalancingV2Client,
-  RegisterTargetsCommand,
-  DeregisterTargetsCommand,
-} from '@aws-sdk/client-elastic-load-balancing-v2';
-import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
   ListResourceRecordSetsCommand,
@@ -42,12 +34,6 @@ const HOSTED_ZONE_ID = requireEnv('HOSTED_ZONE_ID');
 const DOMAIN_NAME = requireEnv('DOMAIN_NAME');
 const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const DNS_TTL = parseInt(process.env['DNS_TTL'] ?? '30', 10);
-const HTTPS_GAMES = new Set(
-  (process.env['HTTPS_GAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-);
-const ALB_TARGET_GROUPS: Record<string, string> = JSON.parse(
-  process.env['ALB_TARGET_GROUPS'] ?? '{}',
-);
 const TABLE_NAME = process.env['TABLE_NAME'] ?? '';
 
 /** Per-game connect message templates from Terraform, keyed by game name. */
@@ -75,7 +61,6 @@ function region(): string {
 
 const ec2 = new EC2Client({ region: region() });
 const ecs = new ECSClient({ region: region() });
-const elbv2 = new ElasticLoadBalancingV2Client({ region: region() });
 const route53 = new Route53Client({});
 
 function extractEniId(task: Task): string | null {
@@ -93,22 +78,13 @@ async function getEniPublicIp(eniId: string): Promise<string | null> {
   return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
 }
 
-async function getEniPrivateIp(eniId: string): Promise<string | null> {
-  const resp = await ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }));
-  return resp.NetworkInterfaces?.[0]?.PrivateIpAddress ?? null;
-}
-
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Retry a few times since ENI association can lag behind the RUNNING event.
  * Mirrors the 5-attempt loop with 3s sleeps from update_dns.py.
  */
-async function resolveIp(
-  taskArn: string,
-  clusterArn: string,
-  kind: 'public' | 'private',
-): Promise<string | null> {
+async function resolvePublicIp(taskArn: string, clusterArn: string): Promise<string | null> {
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       const resp = await ecs.send(new DescribeTasksCommand({ cluster: clusterArn, tasks: [taskArn] }));
@@ -122,7 +98,7 @@ async function resolveIp(
         await sleep(3000);
         continue;
       }
-      const ip = kind === 'public' ? await getEniPublicIp(eniId) : await getEniPrivateIp(eniId);
+      const ip = await getEniPublicIp(eniId);
       if (ip) return ip;
     } catch (err) {
       console.error(`IP resolution attempt ${attempt} failed`, { err });
@@ -206,18 +182,6 @@ async function deleteDns(dnsName: string): Promise<void> {
   }
 }
 
-async function registerAlb(tgArn: string, ip: string): Promise<void> {
-  await elbv2.send(new RegisterTargetsCommand({ TargetGroupArn: tgArn, Targets: [{ Id: ip }] }));
-}
-
-async function deregisterAlb(tgArn: string, ip: string): Promise<void> {
-  try {
-    await elbv2.send(new DeregisterTargetsCommand({ TargetGroupArn: tgArn, Targets: [{ Id: ip }] }));
-  } catch (err) {
-    console.warn('Could not deregister ALB target', { tgArn, ip, err });
-  }
-}
-
 const DISCORD_API = 'https://discord.com/api/v10';
 
 async function patchOriginal(
@@ -240,14 +204,11 @@ async function patchOriginal(
 /**
  * If a Discord interaction is pending for this task, PATCH it with the
  * resolved hostname/IP and delete the pending row.
- *
- * `publicIp` is omitted for HTTPS games because only the private IP is known
- * at this point — the public entry point is always the ALB hostname.
  */
 async function notifyDiscordIfPending(
   taskArn: string,
   game: string,
-  publicIp?: string,
+  publicIp: string,
 ): Promise<void> {
   if (!TABLE_NAME) return;
   try {
@@ -291,7 +252,7 @@ async function handleDirect(
   lastStatus: string,
 ): Promise<HandlerResult> {
   if (lastStatus === 'RUNNING') {
-    const ip = await resolveIp(taskArn, clusterArn, 'public');
+    const ip = await resolvePublicIp(taskArn, clusterArn);
     if (!ip) {
       console.warn(`Could not resolve public IP for ${taskArn}`);
       return { status: 'error', reason: 'no_ip' };
@@ -307,37 +268,12 @@ async function handleDirect(
   return { status: 'no_action', lastStatus };
 }
 
-async function handleHttps(
-  game: string,
-  taskArn: string,
-  clusterArn: string,
-  lastStatus: string,
-): Promise<HandlerResult> {
-  const tgArn = ALB_TARGET_GROUPS[game];
-  if (!tgArn) {
-    console.error(`No ALB target group configured for HTTPS game ${game}`);
-    return { status: 'error', reason: 'no_target_group' };
-  }
-  if (lastStatus === 'RUNNING') {
-    const ip = await resolveIp(taskArn, clusterArn, 'private');
-    if (!ip) return { status: 'error', reason: 'no_ip' };
-    await registerAlb(tgArn, ip);
-    await notifyDiscordIfPending(taskArn, game); // private IP intentionally omitted — use hostname only
-    return { status: 'registered', game, ip };
-  }
-  if (lastStatus === 'STOPPED') {
-    const ip = await resolveIp(taskArn, clusterArn, 'private');
-    if (ip) await deregisterAlb(tgArn, ip);
-    return { status: 'deregistered', game };
-  }
-  return { status: 'no_action', lastStatus };
-}
-
 /**
  * Fired by an EventBridge rule on `ECS Task State Change`. UPSERTs a Route 53 record
  * for `{game}.{hosted_zone_name}` on RUNNING and DELETEs on STOPPED — DNS is owned by
  * this Lambda rather than Terraform so records follow ephemeral task IPs without
- * fighting state. HTTPS games route through an ALB target group instead, and on
+ * fighting state. HTTPS games terminate TLS in-task via a Caddy sidecar sharing the
+ * task's public IP, so they follow the same A-record path as every other game. On
  * RUNNING this also PATCHes any `PENDING#{taskArn}` Discord interaction in DynamoDB
  * so the user sees the resolved address in the same message they clicked on.
  */
@@ -356,9 +292,6 @@ export const handler = async (event: EcsStateChangeEvent): Promise<HandlerResult
   }
 
   const dnsName = `${game}.${DOMAIN_NAME}`;
-  const isHttps = HTTPS_GAMES.has(game);
 
-  return isHttps
-    ? handleHttps(game, taskArn, clusterArn, lastStatus)
-    : handleDirect(game, dnsName, taskArn, clusterArn, lastStatus);
+  return handleDirect(game, dnsName, taskArn, clusterArn, lastStatus);
 };
