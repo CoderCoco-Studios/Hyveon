@@ -1389,8 +1389,6 @@ describe('preload dispatcher', () => {
       efs_access_points: { minecraft: 'fsap-1' },
       domain_name: 'example.com',
       game_names: ['minecraft'],
-      alb_dns_name: null,
-      acm_certificate_arn: null,
       discord_table_name: 'hyveon-discord',
       audit_table_name: 'hyveon-audit',
       discord_bot_token_secret_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:bot-token',

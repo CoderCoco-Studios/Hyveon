@@ -65,8 +65,6 @@ On the AWS side you need:
         "events:*",
         "route53:*",
         "ce:*",
-        "elasticloadbalancing:*",
-        "acm:*",
         "dynamodb:*",
         "secretsmanager:*",
         "s3:*",
