@@ -996,6 +996,11 @@ export interface BootstrapLockTableInput {
   tableName: string;
 }
 
+/** Payload accepted by {@link GsdWizardApi.bootstrapTfvarsBucket}. */
+export interface BootstrapTfvarsBucketInput {
+  bucketName: string;
+}
+
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
@@ -1037,6 +1042,12 @@ export interface GsdWizardApi {
    * credentials step.
    */
   bootstrapLockTable: (input: BootstrapLockTableInput) => Promise<BootstrapResult>;
+  /**
+   * Idempotently creates/ensures the versioned tfvars S3 bucket (versioning +
+   * 90-day noncurrent-version-expiration lifecycle rule) using the
+   * credentials/region chosen in the credentials step.
+   */
+  bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) => Promise<BootstrapResult>;
 }
 
 /**

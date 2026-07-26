@@ -19,6 +19,11 @@ export interface BootstrapLockTableInput {
   tableName: string;
 }
 
+/** Payload accepted by {@link WizardController.bootstrapTfvarsBucket}. */
+export interface BootstrapTfvarsBucketInput {
+  bucketName: string;
+}
+
 /**
  * The credentials step's chosen source, as persisted to `ElectronStoreService.aws`.
  * `profile` names either a real `~/.aws` profile (the "pick an existing
@@ -168,5 +173,15 @@ export class WizardController {
   @MessagePattern('wizard.bootstrap.lockTable')
   bootstrapLockTable(@Payload() body: BootstrapLockTableInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureLockTable(body.tableName);
+  }
+
+  /**
+   * Idempotently creates/ensures the versioned tfvars S3 bucket (versioning +
+   * 90-day noncurrent-version-expiration lifecycle rule). See
+   * `BootstrapService.ensureTfvarsBucket` for the full idempotency mapping.
+   */
+  @MessagePattern('wizard.bootstrap.tfvarsBucket')
+  bootstrapTfvarsBucket(@Payload() body: BootstrapTfvarsBucketInput): Promise<BootstrapResult> {
+    return this.bootstrap.ensureTfvarsBucket(body.bucketName);
   }
 }
