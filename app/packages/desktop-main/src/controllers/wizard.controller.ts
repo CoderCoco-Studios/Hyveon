@@ -7,6 +7,7 @@ import {
   type SavePastedCredentialsInput,
 } from '../services/AwsProfileService.js';
 import { BootstrapService, type BootstrapResult } from '../services/BootstrapService.js';
+import { IamCheckService, type IamCheckResult } from '../services/IamCheckService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 
 /** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
@@ -67,6 +68,7 @@ export class WizardController {
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
     private readonly bootstrap: BootstrapService,
+    private readonly iamCheck: IamCheckService,
   ) {}
 
   /**
@@ -183,5 +185,15 @@ export class WizardController {
   @MessagePattern('wizard.bootstrap.tfvarsBucket')
   bootstrapTfvarsBucket(@Payload() body: BootstrapTfvarsBucketInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureTfvarsBucket(body.bucketName);
+  }
+
+  /**
+   * Runs the wizard's best-effort IAM permission dry-run against the
+   * `GameServerDeployAll` action set. See `IamCheckService.checkPermissions`
+   * for the passed/missing/warning result mapping.
+   */
+  @MessagePattern('wizard.iam.simulate')
+  simulateIamPermissions(): Promise<IamCheckResult> {
+    return this.iamCheck.checkPermissions();
   }
 }

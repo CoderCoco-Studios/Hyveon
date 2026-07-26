@@ -9,6 +9,10 @@ const gsdMock = {
     saveState: vi.fn(),
     listAwsProfiles: vi.fn(),
     saveCredentials: vi.fn(),
+    bootstrapStateBucket: vi.fn(),
+    bootstrapLockTable: vi.fn(),
+    bootstrapTfvarsBucket: vi.fn(),
+    simulateIamPermissions: vi.fn(),
   },
 };
 vi.stubGlobal('gsd', gsdMock);
@@ -35,6 +39,10 @@ beforeEach(() => {
   gsdMock.wizard.saveState.mockReset();
   gsdMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
   gsdMock.wizard.saveCredentials.mockReset();
+  gsdMock.wizard.bootstrapStateBucket.mockReset();
+  gsdMock.wizard.bootstrapLockTable.mockReset();
+  gsdMock.wizard.bootstrapTfvarsBucket.mockReset();
+  gsdMock.wizard.simulateIamPermissions.mockReset();
 });
 
 /** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
@@ -52,6 +60,16 @@ async function advanceToCredentials(): Promise<void> {
   await advanceToPickCloud();
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
   await screen.findByText(/choose the aws credentials/i);
+}
+
+/** Advances the wizard from prerequisites through pick-cloud and credentials (profile path) to the bootstrap step. */
+async function advanceToBootstrap(): Promise<void> {
+  gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
+  await advanceToCredentials();
+  const select = await screen.findByLabelText('Profile');
+  await userEvent.selectOptions(select, 'default');
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+  await screen.findByLabelText('Terraform state bucket name');
 }
 
 afterEach(() => {
@@ -277,6 +295,76 @@ describe('FirstRunWizard', () => {
       await waitFor(() =>
         expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'gsd-pasted', region: 'us-west-2' } }),
       );
+    });
+  });
+
+  describe('bootstrap step', () => {
+    it('should disable Next until all three resources are created or already exist', async () => {
+      await advanceToBootstrap();
+
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
+    it('should call all three bootstrap IPC methods with the current resource names when the bootstrap button is clicked', async () => {
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      await waitFor(() =>
+        expect(gsdMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
+      );
+      expect(gsdMock.wizard.bootstrapLockTable).toHaveBeenCalledWith({ tableName: 'hyveon-tflock' });
+      expect(gsdMock.wizard.bootstrapTfvarsBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
+    });
+
+    it('should enable Next once all three resources report created or exists', async () => {
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'exists' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+    });
+
+    it('should keep Next disabled and show a failure message when one resource fails', async () => {
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      expect(await screen.findByText('bucket taken')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
+    it('should run the IAM check via wizard.iam.simulate and render a passed result', async () => {
+      gsdMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /check permissions/i }));
+
+      expect(await screen.findByText(/all required permissions are present/i)).toBeInTheDocument();
+    });
+
+    it('should not block Next on a failed or missing IAM check — only the three bootstrap resources gate progression', async () => {
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'missing', policyJson: '{}' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /check permissions/i }));
+
+      expect(await screen.findByText(/some permissions are missing/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
     });
   });
 });

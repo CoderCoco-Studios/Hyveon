@@ -1001,6 +1001,24 @@ export interface BootstrapTfvarsBucketInput {
   bucketName: string;
 }
 
+/** Outcome of {@link GsdWizardApi.simulateIamPermissions}. */
+export type IamCheckStatus = 'passed' | 'missing' | 'warning';
+
+/** Result of the wizard's best-effort IAM permission dry-run against the `GameServerDeployAll` action set. */
+export interface IamCheckResult {
+  status: IamCheckStatus;
+  /**
+   * Present when `status` is `'missing'` — a minimal pasteable IAM policy
+   * JSON document covering exactly the denied actions.
+   */
+  policyJson?: string;
+  /**
+   * Present when `status` is `'warning'` — an actionable message explaining
+   * why simulation itself could not run.
+   */
+  message?: string;
+}
+
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
@@ -1048,6 +1066,12 @@ export interface GsdWizardApi {
    * credentials/region chosen in the credentials step.
    */
   bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) => Promise<BootstrapResult>;
+  /**
+   * Runs the wizard's best-effort IAM permission dry-run against the
+   * `GameServerDeployAll` action set (`sts:GetCallerIdentity` +
+   * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
+   */
+  simulateIamPermissions: () => Promise<IamCheckResult>;
 }
 
 /**

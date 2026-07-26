@@ -6,6 +6,7 @@ import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfil
 import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
+import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 
 const SATISFIED_REPORT: PrerequisitesReport = {
   terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
@@ -56,18 +57,25 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
   } as Partial<BootstrapService> as BootstrapService;
 }
 
+/** Build an IamCheckService stub whose `checkPermissions()` resolves to the given result. */
+function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckService {
+  return { checkPermissions: vi.fn().mockResolvedValue(result) } as Partial<IamCheckService> as IamCheckService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
   prerequisites?: PrerequisiteService;
   awsProfiles?: AwsProfileService;
   store?: ElectronStoreService;
   bootstrap?: BootstrapService;
+  iamCheck?: IamCheckService;
 } = {}): WizardController {
   return new WizardController(
     overrides.prerequisites ?? makePrerequisites(),
     overrides.awsProfiles ?? makeAwsProfiles(),
     overrides.store ?? makeStore(),
     overrides.bootstrap ?? makeBootstrap(),
+    overrides.iamCheck ?? makeIamCheck(),
   );
 }
 
@@ -118,6 +126,11 @@ describe('WizardController', () => {
     it('should register bootstrapTfvarsBucket on the "wizard.bootstrap.tfvarsBucket" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapTfvarsBucket);
       expect(pattern).toEqual(['wizard.bootstrap.tfvarsBucket']);
+    });
+
+    it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.simulateIamPermissions);
+      expect(pattern).toEqual(['wizard.iam.simulate']);
     });
   });
 
@@ -335,6 +348,33 @@ describe('WizardController', () => {
       const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+  });
+
+  describe('simulateIamPermissions', () => {
+    it('should delegate to IamCheckService.checkPermissions and return the result unchanged', async () => {
+      const iamCheck = makeIamCheck({ status: 'passed' });
+
+      const result = await makeController({ iamCheck }).simulateIamPermissions();
+
+      expect(iamCheck.checkPermissions).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ status: 'passed' });
+    });
+
+    it('should propagate a missing-permissions result with its policy JSON unchanged', async () => {
+      const iamCheck = makeIamCheck({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+
+      const result = await makeController({ iamCheck }).simulateIamPermissions();
+
+      expect(result).toEqual({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+    });
+
+    it('should propagate a warning result unchanged rather than throwing', async () => {
+      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied' });
+
+      const result = await makeController({ iamCheck }).simulateIamPermissions();
+
+      expect(result).toEqual({ status: 'warning', message: 'access denied' });
     });
   });
 });

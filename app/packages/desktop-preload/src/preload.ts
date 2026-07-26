@@ -81,6 +81,7 @@ import type {
   BootstrapLockTableInput,
   BootstrapTfvarsBucketInput,
   BootstrapResult,
+  IamCheckResult,
 } from './gsd-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
@@ -612,6 +613,7 @@ const api: GsdApi = {
       invoke<BootstrapResult>('wizard.bootstrap.lockTable', input),
     bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) =>
       invoke<BootstrapResult>('wizard.bootstrap.tfvarsBucket', input),
+    simulateIamPermissions: () => invoke<IamCheckResult>('wizard.iam.simulate'),
   },
 
   drift: {
