@@ -120,6 +120,20 @@ describe('IamCheckService', () => {
       );
     });
 
+    it('should preserve the partition and full role path when normalizing a GovCloud path-based-role ARN', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Arn: 'arn:aws-us-gov:sts::123456789012:assumed-role/engineering/hyveon-role/hyveon-session',
+      });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-gov-west-1' }));
+
+      await service.checkPermissions();
+
+      expect(iamMock.commandCalls(SimulatePrincipalPolicyCommand)[0]!.args[0].input.PolicySourceArn).toBe(
+        'arn:aws-us-gov:iam::123456789012:role/engineering/hyveon-role',
+      );
+    });
+
     it('should degrade to a warning when GetCallerIdentity fails', async () => {
       stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
       const service = new IamCheckService(makeStore({ region: 'us-west-2' }));

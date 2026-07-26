@@ -105,12 +105,12 @@ export class IamCheckService {
    * other ARN types (IAM user) pass through unchanged.
    */
   private toPolicySourceArn(arn: string): string {
-    const match = /^arn:aws:sts::(\d+):assumed-role\/([^/]+)\/.+$/.exec(arn);
+    const match = /^arn:(aws[a-zA-Z0-9-]*):sts::(\d+):assumed-role\/(.+)\/[^/]+$/.exec(arn);
     if (!match) {
       return arn;
     }
-    const [, accountId, roleName] = match;
-    return `arn:aws:iam::${accountId}:role/${roleName}`;
+    const [, partition, accountId, roleNameWithPath] = match;
+    return `arn:${partition}:iam::${accountId}:role/${roleNameWithPath}`;
   }
 
   private buildPolicyJson(actions: string[]): string {
