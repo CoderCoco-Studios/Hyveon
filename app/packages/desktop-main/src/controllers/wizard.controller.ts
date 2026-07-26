@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
 import { PrerequisiteService, type PrerequisitesReport } from '../services/PrerequisiteService.js';
+import { AwsProfileService, type AwsProfileSummary } from '../services/AwsProfileService.js';
 
 /**
  * IPC-only controller for the first-run wizard (see
@@ -12,11 +13,20 @@ import { PrerequisiteService, type PrerequisitesReport } from '../services/Prere
  */
 @Controller()
 export class WizardController {
-  constructor(private readonly prerequisites: PrerequisiteService) {}
+  constructor(
+    private readonly prerequisites: PrerequisiteService,
+    private readonly awsProfiles: AwsProfileService,
+  ) {}
 
   /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
   @MessagePattern('wizard.prereqs.check')
   checkPrereqs(): Promise<PrerequisitesReport> {
     return this.prerequisites.check();
+  }
+
+  /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
+  @MessagePattern('wizard.aws.listProfiles')
+  listAwsProfiles(): Promise<AwsProfileSummary[]> {
+    return this.awsProfiles.listProfiles();
   }
 }

@@ -73,6 +73,7 @@ import type {
   TfOutputs,
   UpdateGamePayload,
   PrerequisitesReport,
+  AwsProfileSummary,
 } from './gsd-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
@@ -593,6 +594,7 @@ const api: GsdApi = {
 
   wizard: {
     checkPrereqs: () => invoke<PrerequisitesReport>('wizard.prereqs.check'),
+    listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
   },
 
   drift: {

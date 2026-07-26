@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrerequisiteService } from '../services/PrerequisiteService.js';
+import { AwsProfileService } from '../services/AwsProfileService.js';
 
 /**
  * Groups the first-run wizard's providers (see
@@ -9,7 +10,7 @@ import { PrerequisiteService } from '../services/PrerequisiteService.js';
  * `AppModule.controllers` alongside every other controller in this codebase.
  */
 @Module({
-  providers: [PrerequisiteService],
-  exports: [PrerequisiteService],
+  providers: [PrerequisiteService, AwsProfileService],
+  exports: [PrerequisiteService, AwsProfileService],
 })
 export class WizardModule {}
