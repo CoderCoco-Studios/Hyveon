@@ -120,6 +120,11 @@ export default tseslint.config(
       'packages/desktop-main/src/services/FileManagerService.test.ts',
       'packages/desktop-main/src/services/EcsService.ts',
       'packages/desktop-main/src/services/EcsService.test.ts',
+      // First-run wizard bootstrap (epic #139): deliberately AWS-SDK-direct,
+      // not part of the cloud-agnostic RunTask/StopTask contract — see
+      // openspec/changes/add-first-run-wizard/design.md decision 6.
+      'packages/desktop-main/src/services/BootstrapService.ts',
+      'packages/desktop-main/src/services/BootstrapService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
     ],

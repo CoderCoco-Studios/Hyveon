@@ -63,13 +63,13 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 7. Issue #200 — SDK bootstrap: S3 state bucket (desktop-main)
 
-- [ ] 7.1 Create worktree: `git worktree add .worktrees/claude/issue-200-bootstrap-state-bucket -b claude/issue-200-bootstrap-state-bucket`
-- [ ] 7.2 Add `@aws-sdk/client-s3` to `@hyveon/desktop-main`; add the ESLint `no-restricted-imports` rule banning `@aws-sdk/*` in `packages/web/**` (renderer never touches the SDK)
-- [ ] 7.3 Implement `BootstrapService.ensureStateBucket()`: `CreateBucket` + `PutBucketVersioning` + `PutBucketEncryption`; idempotent (`BucketAlreadyOwnedByYou` ⇒ ensure settings and succeed); clear error when the name is owned by another account; SDK client built from the credentials/region chosen in the wizard
-- [ ] 7.4 Add `@MessagePattern('wizard.bootstrap.stateBucket')` + preload/`gsd-api.ts` mirror returning per-resource status (`created`/`exists`/`failed` + message)
-- [ ] 7.5 Vitest specs with `aws-sdk-client-mock`: fresh-create path, already-owned no-op, foreign-owner error, versioning + SSE always ensured
-- [ ] 7.6 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 7.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #200`
+- [x] 7.1 Create worktree: `git worktree add .worktrees/claude/issue-200-bootstrap-state-bucket -b claude/issue-200-bootstrap-state-bucket`
+- [x] 7.2 Add `@aws-sdk/client-s3` to `@hyveon/desktop-main`; add the ESLint `no-restricted-imports` rule banning `@aws-sdk/*` in `packages/web/**` (renderer never touches the SDK)
+- [x] 7.3 Implement `BootstrapService.ensureStateBucket()`: `CreateBucket` + `PutBucketVersioning` + `PutBucketEncryption`; idempotent (`BucketAlreadyOwnedByYou` ⇒ ensure settings and succeed); clear error when the name is owned by another account; SDK client built from the credentials/region chosen in the wizard
+- [x] 7.4 Add `@MessagePattern('wizard.bootstrap.stateBucket')` + preload/`gsd-api.ts` mirror returning per-resource status (`created`/`exists`/`failed` + message)
+- [x] 7.5 Vitest specs with `aws-sdk-client-mock`: fresh-create path, already-owned no-op, foreign-owner error, versioning + SSE always ensured
+- [x] 7.6 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 7.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #200`
 
 ## 8. Issue #203 — SDK bootstrap: DynamoDB lock table (desktop-main)
 

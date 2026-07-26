@@ -77,6 +77,8 @@ import type {
   SavePastedCredentialsInput,
   WizardState,
   SaveWizardStateInput,
+  BootstrapStateBucketInput,
+  BootstrapResult,
 } from './gsd-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
@@ -602,6 +604,8 @@ const api: GsdApi = {
       invoke<{ profileName: string }>('wizard.aws.saveCredentials', input),
     getState: () => invoke<WizardState>('wizard.state.get'),
     saveState: (input: SaveWizardStateInput) => invoke<WizardState>('wizard.state.save', input),
+    bootstrapStateBucket: (input: BootstrapStateBucketInput) =>
+      invoke<BootstrapResult>('wizard.bootstrap.stateBucket', input),
   },
 
   drift: {

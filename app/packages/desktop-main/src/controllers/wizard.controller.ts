@@ -6,7 +6,13 @@ import {
   type AwsProfileSummary,
   type SavePastedCredentialsInput,
 } from '../services/AwsProfileService.js';
+import { BootstrapService, type BootstrapResult } from '../services/BootstrapService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
+
+/** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
+export interface BootstrapStateBucketInput {
+  bucketName: string;
+}
 
 /**
  * The credentials step's chosen source, as persisted to `ElectronStoreService.aws`.
@@ -50,6 +56,7 @@ export class WizardController {
     private readonly prerequisites: PrerequisiteService,
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
+    private readonly bootstrap: BootstrapService,
   ) {}
 
   /**
@@ -137,5 +144,15 @@ export class WizardController {
   @MessagePattern('wizard.aws.saveCredentials')
   saveCredentials(@Payload() body: SavePastedCredentialsInput): { profileName: string } {
     return this.awsProfiles.savePastedCredentials(body);
+  }
+
+  /**
+   * Idempotently creates/ensures the Terraform S3 state bucket (versioning +
+   * default encryption). See `BootstrapService.ensureStateBucket` for the
+   * full idempotency mapping.
+   */
+  @MessagePattern('wizard.bootstrap.stateBucket')
+  bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
+    return this.bootstrap.ensureStateBucket(body.bucketName);
   }
 }
