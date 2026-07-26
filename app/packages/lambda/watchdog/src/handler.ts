@@ -6,9 +6,12 @@
  *     `CHECK_WINDOW_MINUTES` window.
  *   - If packets &lt; `MIN_PACKETS`, increments the per-task `idle_checks` ECS
  *     resource tag. After `IDLE_CHECKS` consecutive idle windows, the task is
- *     stopped (which triggers the DNS cleanup via the update-dns Lambda).
- *   - We delete the Route 53 record directly here so the DNS removal isn't
- *     racy with task teardown.
+ *     stopped.
+ *   - DNS cleanup is NOT done here: stopping the task emits an
+ *     `ECS Task State Change` event that the update-dns Lambda reacts to,
+ *     deleting the record on its `STOPPED` path. Deleting it here first
+ *     would leave a dangling task with no DNS record if `StopTask` then
+ *     failed.
  */
 import {
   ECSClient,
@@ -20,18 +23,11 @@ import {
   type Task,
 } from '@aws-sdk/client-ecs';
 import {
-  Route53Client,
-  ChangeResourceRecordSetsCommand,
-  ListResourceRecordSetsCommand,
-} from '@aws-sdk/client-route-53';
-import {
   CloudWatchClient,
   GetMetricStatisticsCommand,
 } from '@aws-sdk/client-cloudwatch';
 
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
-const HOSTED_ZONE_ID = process.env['HOSTED_ZONE_ID'] ?? '';
-const DOMAIN_NAME = process.env['DOMAIN_NAME'] ?? '';
 const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
 const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
@@ -55,7 +51,6 @@ function region(): string {
 }
 
 const ecs = new ECSClient({ region: region() });
-const route53 = new Route53Client({});
 const cloudwatch = new CloudWatchClient({ region: region() });
 
 function getEniId(task: Task): string | null {
@@ -122,39 +117,6 @@ async function setIdleCount(taskArn: string, count: number): Promise<void> {
   }
 }
 
-async function deleteDns(game: string): Promise<void> {
-  if (!HOSTED_ZONE_ID || !DOMAIN_NAME) return;
-  const dnsName = `${game}.${DOMAIN_NAME}`;
-  try {
-    const resp = await route53.send(
-      new ListResourceRecordSetsCommand({
-        HostedZoneId: HOSTED_ZONE_ID,
-        StartRecordName: dnsName,
-        StartRecordType: 'A',
-        MaxItems: 1,
-      }),
-    );
-    for (const rrs of resp.ResourceRecordSets ?? []) {
-      if (rrs.Name?.replace(/\.$/, '') === dnsName && rrs.Type === 'A') {
-        await route53.send(
-          new ChangeResourceRecordSetsCommand({
-            HostedZoneId: HOSTED_ZONE_ID,
-            ChangeBatch: {
-              Comment: `Watchdog auto-shutdown: ${game}`,
-              Changes: [{ Action: 'DELETE', ResourceRecordSet: rrs }],
-            },
-          }),
-        );
-        console.log(`Deleted DNS record: ${dnsName}`);
-        return;
-      }
-    }
-    console.log(`No DNS record found for ${dnsName}`);
-  } catch (err) {
-    console.warn(`DNS cleanup failed for ${game}`, { err });
-  }
-}
-
 async function listAllRunningTaskArns(): Promise<string[]> {
   const arns: string[] = [];
   let nextToken: string | undefined;
@@ -174,7 +136,7 @@ async function listAllRunningTaskArns(): Promise<string[]> {
  * `NetworkPacketsIn` on its ENI via CloudWatch and bumps a consecutive-idle counter
  * stored as an ECS task tag (no DynamoDB/SSM state). After `watchdog_idle_checks`
  * consecutive idle intervals, the task is stopped — which triggers the DNS-delete
- * path in `@hyveon/lambda-update-dns`.
+ * path in `@hyveon/lambda-update-dns` via the resulting `STOPPED` state-change event.
  */
 export const handler = async (): Promise<{ checked: number }> => {
   console.log(`Watchdog running — cluster: ${ECS_CLUSTER}, games: ${GAME_NAMES.join(',')}`);
@@ -210,7 +172,6 @@ export const handler = async (): Promise<{ checked: number }> => {
         console.log(
           `${game}: shutting down after ${idleCount} idle checks (${idleCount * CHECK_WINDOW_MINUTES} minutes idle)`,
         );
-        await deleteDns(game);
         await ecs.send(
           new StopTaskCommand({
             cluster: ECS_CLUSTER,

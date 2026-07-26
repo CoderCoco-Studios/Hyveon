@@ -149,8 +149,10 @@ Event shape (simplified):
 
 Failure modes:
 
-- IP not available after 5 retries → log warning, skip. Next state change
-  will retry; meanwhile the task is up but unreachable by DNS.
+- IP not available after 5 retries → log warning, skip; the handler returns
+  `{status: 'error', reason: 'no_ip'}`. No retry is scheduled — the task stays
+  up but unreachable by DNS until another `RUNNING`/`STOPPED` state-change
+  event fires for it (e.g. the task is stopped and started again).
 - Route 53 call fails → log, continue. The STOPPED path is eventually
   consistent because the watchdog cleans up too.
 - Pending row missing (expired / never written / `stop` flow) → skip the
@@ -164,8 +166,8 @@ Failure modes:
 | **Package** | `@hyveon/lambda-watchdog` |
 | **Trigger** | EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. No event payload. |
 | **Terraform** | `terraform/aws/watchdog.tf`. |
-| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`, `route53:ChangeResourceRecordSets` / `ListResourceRecordSets`. |
-| **Env vars** | `ECS_CLUSTER`, `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`. |
+| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`. |
+| **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`. |
 
 ### Behaviour
 
@@ -179,8 +181,11 @@ Failure modes:
    - If `packets < MIN_PACKETS`:
      - Increment the `idle_checks` tag.
      - If the counter reaches `IDLE_CHECKS`:
-       - Delete the Route 53 record.
-       - `StopTask` with reason `Watchdog: idle for {N} minutes`.
+       - `StopTask` with reason `Watchdog: idle for {N} minutes`. This Lambda
+         does not touch DNS directly — the resulting `STOPPED` state-change
+         event is what triggers update-dns's record deletion. Deleting the
+         record here first would risk leaving a running task unreachable by
+         DNS if `StopTask` then failed.
      - Otherwise persist the incremented counter via `TagResource`.
    - Else (active), if the counter is non-zero, reset it to 0.
 
