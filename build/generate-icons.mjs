@@ -36,6 +36,27 @@ const SMALL_VARIANT_MAX = 32;
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
 /**
+ * libvips only sniffs the head of a file when detecting SVG, so an `<svg>` tag
+ * pushed past that window by a long leading comment makes the file look like an
+ * unknown binary format. Fail with an explanation instead of sharp's opaque
+ * "Input file contains unsupported image format".
+ *
+ * @param {string} file Absolute path to a source SVG.
+ */
+const assertSniffable = (file) => {
+  const head = readFileSync(file).subarray(0, 1000).toString('utf8');
+  if (!head.includes('<svg')) {
+    throw new Error(
+      `${file}: the <svg> tag must appear within the first 1000 bytes — shorten the ` +
+        'leading comment and move the detail inside the element.',
+    );
+  }
+};
+
+assertSniffable(MASTER);
+assertSniffable(SMALL);
+
+/**
  * Renders one of the two source SVGs to a square PNG buffer.
  *
  * @param {number} size Edge length in pixels.
