@@ -78,7 +78,7 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 - [x] 8.3 Add `@MessagePattern('wizard.bootstrap.lockTable')` + preload/`gsd-api.ts` mirror with per-resource status
 - [x] 8.4 Vitest specs with `aws-sdk-client-mock`: fresh create + ACTIVE wait, already-exists no-op, failure surfaces `failed` status; assert key schema matches Terraform S3-backend locking requirements
 - [x] 8.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 8.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #203`
+- [x] 8.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #203` — [PR #326](https://github.com/CoderCoco/Hyveon/pull/326)
 
 ## 9. Issue #205 — SDK bootstrap: versioned S3 tfvars bucket (desktop-main)
 
