@@ -231,6 +231,22 @@ describe('FirstRunWizard', () => {
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
     });
 
+    it('should invalidate a successful paste save when a field is edited afterward, disabling Next again', async () => {
+      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
+      await advanceToCredentials();
+
+      await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
+      await userEvent.type(screen.getByLabelText('Access key ID'), 'AKID');
+      await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
+      await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
+      await screen.findByText(/saved as profile "gsd-pasted"/i);
+
+      await userEvent.type(screen.getByLabelText('Secret access key'), '2');
+
+      expect(screen.queryByText(/saved as profile/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
     it('should show a paste error and keep Next disabled when saveCredentials fails', async () => {
       gsdMock.wizard.saveCredentials.mockRejectedValue(new Error('OS keychain unavailable'));
       await advanceToCredentials();

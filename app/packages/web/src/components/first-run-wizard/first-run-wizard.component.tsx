@@ -107,6 +107,7 @@ export function FirstRunWizard() {
     if (field === 'accessKeyId') setPasteAccessKeyId(value);
     else if (field === 'secretAccessKey') setPasteSecretAccessKey(value);
     else setPasteRegion(value);
+    setPastedProfileName(null);
   }
 
   /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec. */
