@@ -18,6 +18,16 @@ export interface TerraformInitStepProps {
   backendConfig: TerraformInitConfig;
   /** Invoked once `terraform init` succeeds and `wizard.complete` has been persisted. */
   onFinished: () => void;
+  /**
+   * Awaited before `wizard.complete` runs, on the same "Finish" click. Used
+   * by Settings' Reconfigure flow (#211) to commit its buffered
+   * `wizard.state.save` call in one shot rather than persisting each step as
+   * the operator advances — a rejection here surfaces via the same
+   * `finishError` path as a `wizard.complete` failure, and `wizard.complete`
+   * is never called if it rejects. Omitted (and skipped) during the regular
+   * first-run flow, which already persists `pick-cloud`/`credentials` as it goes.
+   */
+  onBeforeFinish?: () => Promise<void>;
 }
 
 /**
@@ -30,7 +40,7 @@ export interface TerraformInitStepProps {
  * without throwing); a failed run shows the captured log plus a Retry
  * button rather than silently blocking wizard progression.
  */
-export function TerraformInitStep({ backendConfig, onFinished }: TerraformInitStepProps) {
+export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }: TerraformInitStepProps) {
   const [chunks, setChunks] = useState<TerraformRunChunk[]>([]);
   const [status, setStatus] = useState<TerraformInitStatus>('running');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -81,6 +91,7 @@ export function TerraformInitStep({ backendConfig, onFinished }: TerraformInitSt
     setFinishing(true);
     setFinishError(null);
     try {
+      await onBeforeFinish?.();
       await window.gsd.wizard.complete();
       onFinished();
     } catch (err) {

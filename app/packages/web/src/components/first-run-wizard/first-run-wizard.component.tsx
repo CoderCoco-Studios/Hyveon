@@ -11,6 +11,7 @@
  * wizard).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import type { AwsProfileSummary, IamCheckResult, PrerequisitesReport, TerraformInitConfig } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { PrerequisitesStep } from './prerequisites-step.component.js';
@@ -22,6 +23,7 @@ import {
   WIZARD_STEPS,
   arePrerequisitesSatisfied,
   defaultBootstrapResourceNames,
+  reconfigureSteps,
   type BootstrapResourceKey,
   type BootstrapResourceState,
   type WizardStep,
@@ -36,10 +38,40 @@ const STEP_LABELS: Record<WizardStep, string> = {
   'terraform-init': 'Finish setup',
 };
 
+/**
+ * Steps in this list start collapsed to a completed summary (with an Edit
+ * affordance) in `mode: 'reconfigure'`, since Settings only offers
+ * Reconfigure once the wizard has already completed once — every one of
+ * these already has a real answer on record. `terraform-init` is excluded:
+ * it has no standalone "answer" to summarize, and reaching it is itself the
+ * explicit re-run the operator asked for by clicking through to it.
+ */
+const RECONFIGURE_PRE_COMPLETED_STEPS: WizardStep[] = ['pick-cloud', 'credentials', 'bootstrap'];
+
 /** Props for {@link FirstRunWizard}. */
 export interface FirstRunWizardProps {
   /** Invoked once the terraform-init step's `wizard.complete` call succeeds. */
   onComplete?: () => void;
+  /**
+   * `'first-run'` (default) gates the whole app and runs all five steps,
+   * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
+   * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
+   * launched from Settings) skips `prerequisites`, pre-marks
+   * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
+   * affordance, and buffers *edited* answers locally — a single
+   * `wizard.state.save` call, containing only the steps actually opened via
+   * Edit, commits right before `wizard.complete` runs. A step left collapsed
+   * is never included in that call, so Cancel never has anything to undo for
+   * it. This covers the durable answer data only, not every side effect: the
+   * credentials step's "paste keys instead" form and the bootstrap step's
+   * "Run bootstrap"/"Check permissions" buttons already perform real,
+   * idempotent IPC calls the moment they're clicked (same as `'first-run'`)
+   * — Cancel doesn't undo those either, it just never points the *active*
+   * `aws`/`bootstrap` config at their result.
+   */
+  mode?: 'first-run' | 'reconfigure';
+  /** `'reconfigure'`-only: invoked when the operator cancels without finishing. Never called in `'first-run'` mode. */
+  onCancel?: () => void;
 }
 
 /**
@@ -49,7 +81,8 @@ export interface FirstRunWizardProps {
  * paste form). Fetches an initial prerequisites check and AWS profile list
  * on mount.
  */
-export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
+export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: FirstRunWizardProps = {}) {
+  const steps = useMemo(() => (mode === 'reconfigure' ? reconfigureSteps() : WIZARD_STEPS), [mode]);
   const [stepIndex, setStepIndex] = useState(0);
   const [report, setReport] = useState<PrerequisitesReport | null>(null);
   const [checking, setChecking] = useState(false);
@@ -83,7 +116,14 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
   const [iamChecking, setIamChecking] = useState(false);
   const [iamError, setIamError] = useState<string | null>(null);
 
-  const step = WIZARD_STEPS[stepIndex];
+  // Reconfigure-only: which pre-completed steps are collapsed to a summary
+  // (present in the set) vs. expanded for editing (removed from it). Empty —
+  // and unused — in `'first-run'` mode.
+  const [completedSteps, setCompletedSteps] = useState<Set<WizardStep>>(
+    () => new Set(mode === 'reconfigure' ? RECONFIGURE_PRE_COMPLETED_STEPS : []),
+  );
+
+  const step = steps[stepIndex];
 
   // Guards the save-progress effect below until the resume-on-mount effect
   // has settled (resolved or rejected) — otherwise the two effects race to
@@ -104,7 +144,14 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
   // safe by comparison: its IPC calls read the region from the credentials
   // step's already-persisted `wizard.state.save` call, and worst case the
   // operator just has to re-click "Bootstrap AWS resources".
+  //
+  // Both this effect and the save-progress effect below are `'first-run'`-only:
+  // `userData/wizard-state.json` tracks resumable progress through the
+  // *gating* wizard, which is meaningless for Reconfigure (the app is already
+  // past the gate, and Reconfigure has its own pre-completed-steps/Cancel
+  // model instead of resume).
   useEffect(() => {
+    if (mode !== 'first-run') return;
     if (!window.gsd) {
       resumeSettledRef.current = true;
       return;
@@ -125,7 +172,7 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
         // Best-effort — starting over at step 1 is always a safe fallback.
         resumeSettledRef.current = true;
       });
-  }, []);
+  }, [mode]);
 
   // Persists the current step on every change (including the resume-on-mount
   // jump above) so `userData/wizard-state.json` stays in sync with what the
@@ -134,9 +181,62 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
   // Gated on `resumeSettledRef` so this can never race the resume effect's
   // own read of the same file (see that effect's comment).
   useEffect(() => {
-    if (!window.gsd || !resumeSettledRef.current) return;
+    if (mode !== 'first-run' || !window.gsd || !resumeSettledRef.current) return;
     window.gsd.wizard.saveProgress({ step }).catch(() => {});
-  }, [step]);
+  }, [mode, step]);
+
+  // Guards the reconfigure-prefill effect below so it applies exactly once,
+  // never re-running over an operator's in-progress edits once it has fired.
+  const prefillAppliedRef = useRef(false);
+
+  // Reconfigure-only: prefills the pick-cloud/credentials/bootstrap answers
+  // from the durably-stored `wizard.state.get` so the collapsed step
+  // summaries — and the `terraform-init` step's `backendConfig`, which reads
+  // `resourceNames` regardless of whether the bootstrap step was ever opened
+  // — reflect what's actually configured, not the first-run defaults.
+  // Without this, Reconfigure would always run `terraform init` against
+  // `defaultBootstrapResourceNames()` even when the operator renamed the
+  // bootstrap resources during first run.
+  //
+  // Waits for the `listAwsProfiles` fetch below to settle (`profiles` or
+  // `profilesError` set) before applying, rather than firing on mount: the
+  // `knownProfile` check needs a real list to tell an existing `~/.aws`
+  // profile apart from a `creds.aws.<profile>` pasted-key entry, and firing
+  // early would misclassify every profile as "pasted" on the first pass.
+  // `prefillAppliedRef` then ensures it only ever applies once — otherwise a
+  // later re-run (e.g. if `profiles` changed for some other reason) could
+  // clobber an edit the operator has already started making.
+  useEffect(() => {
+    if (mode !== 'reconfigure' || !window.gsd || prefillAppliedRef.current) return;
+    if (profiles === null && profilesError === null) return;
+    prefillAppliedRef.current = true;
+    window.gsd.wizard
+      .getState()
+      .then((state) => {
+        if (state.activeCloud) setSelectedCloud(state.activeCloud);
+        if (state.aws?.profile) {
+          const knownProfile = profiles?.some((p) => p.profileName === state.aws!.profile);
+          if (knownProfile) {
+            setCredentialMode('profile');
+            setSelectedProfileName(state.aws.profile);
+            setRegion(state.aws.region ?? '');
+          } else {
+            // Not in `~/.aws` — must be a `creds.aws.<profile>` pasted-key
+            // entry from a prior paste-flow save (see `AwsProfileService`).
+            setCredentialMode('paste');
+            setPastedProfileName(state.aws.profile);
+            setPasteRegion(state.aws.region ?? '');
+          }
+        }
+        if (state.bootstrap) setResourceNames(state.bootstrap);
+      })
+      .catch(() => {
+        // Best-effort — the steps just fall back to first-run defaults, and
+        // `commitReconfigureAnswers` below never sends an unedited step's
+        // (now-defaulted) values, so a failed prefill can't clobber what's
+        // actually stored.
+      });
+  }, [mode, profiles, profilesError]);
 
   const backendConfig = useMemo<TerraformInitConfig>(
     () => ({
@@ -169,8 +269,11 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
   }, []);
 
   useEffect(() => {
+    // `prerequisites` isn't a Reconfigure step — skip the check entirely
+    // rather than running it for no visible step.
+    if (mode !== 'first-run') return;
     void checkPrereqs();
-  }, [checkPrereqs]);
+  }, [mode, checkPrereqs]);
 
   useEffect(() => {
     async function fetchProfiles() {
@@ -305,8 +408,14 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
       ? selectedProfileName !== '' && region !== ''
       : pastedProfileName !== null && pasteRegion !== '';
 
-  const advanceDisabled =
-    step === 'prerequisites'
+  // A collapsed (completed, not being edited) Reconfigure step already has a
+  // real answer on record — Next should never be gated on this render's
+  // local form state, which for an unopened step may not even be prefilled yet.
+  const stepCollapsed = mode === 'reconfigure' && completedSteps.has(step);
+
+  const advanceDisabled = stepCollapsed
+    ? false
+    : step === 'prerequisites'
       ? !arePrerequisitesSatisfied(report)
       : step === 'credentials'
         ? !credentialsChosen
@@ -315,13 +424,18 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
           : false;
 
   /**
-   * Advances past the current step. When leaving `pick-cloud` or
-   * `credentials`, persists the choice via `wizard.state.save` first and
-   * stays put if that fails — every other step advances immediately
-   * (nothing to persist yet).
+   * Advances past the current step. In `'first-run'` mode, leaving
+   * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via
+   * `wizard.state.save` immediately and stays put if that fails (the
+   * `bootstrap` save is fire-and-forget, matching how `resourceNames` itself
+   * has no failure UI — the resource-creation calls it feeds are what
+   * actually gate progression). In `'reconfigure'` mode these answers are
+   * buffered in local state instead — see {@link commitReconfigureAnswers},
+   * called once from the terraform-init step's Finish button — so a
+   * mid-flow Cancel never has anything to undo.
    */
   async function goNext() {
-    if (step === 'pick-cloud') {
+    if (mode === 'first-run' && step === 'pick-cloud') {
       if (!window.gsd) {
         setSaveError('IPC bridge (window.gsd) is not available in this context.');
         return;
@@ -337,7 +451,7 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
       }
       setSaving(false);
     }
-    if (step === 'credentials') {
+    if (mode === 'first-run' && step === 'credentials') {
       if (!window.gsd) {
         setSaveError('IPC bridge (window.gsd) is not available in this context.');
         return;
@@ -355,86 +469,155 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
       }
       setSaving(false);
     }
-    setStepIndex((index) => Math.min(index + 1, WIZARD_STEPS.length - 1));
+    if (mode === 'first-run' && step === 'bootstrap' && window.gsd) {
+      // Durably records the (possibly operator-renamed) resource names so a
+      // later Reconfigure can rehydrate them instead of falling back to
+      // `defaultBootstrapResourceNames()`. Best-effort: nothing in this step
+      // depends on the save succeeding, so a failure here doesn't block
+      // progression the way the pick-cloud/credentials saves above do.
+      window.gsd.wizard.saveState({ bootstrap: resourceNames }).catch(() => {});
+    }
+    setStepIndex((index) => Math.min(index + 1, steps.length - 1));
   }
 
   function goBack() {
     setStepIndex((index) => Math.max(index - 1, 0));
   }
 
+  /**
+   * Reconfigure-only: commits whichever answers were actually opened via
+   * Edit in one `wizard.state.save` call, passed to {@link TerraformInitStep}
+   * as `onBeforeFinish` so it runs right before `wizard.complete` on the
+   * Finish click. A step left collapsed (never opened) is omitted from the
+   * payload entirely, not sent with its current — possibly still-default,
+   * possibly prefill-failed-and-empty — local state: `saveState` only
+   * touches the fields it's given, so this is what actually makes "Cancel
+   * never has anything to undo" and "editing one field preserves the rest"
+   * true, rather than merely re-submitting a (hopefully unchanged) copy of
+   * everything on every Finish.
+   */
+  async function commitReconfigureAnswers() {
+    if (!window.gsd) {
+      throw new Error('IPC bridge (window.gsd) is not available in this context.');
+    }
+    const payload: { activeCloud?: CloudOption; aws?: { profile?: string; region?: string }; bootstrap?: typeof resourceNames } = {};
+    if (!completedSteps.has('pick-cloud')) {
+      payload.activeCloud = selectedCloud;
+    }
+    if (!completedSteps.has('credentials')) {
+      const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
+      const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
+      payload.aws = { profile, region: chosenRegion || undefined };
+    }
+    if (!completedSteps.has('bootstrap')) {
+      payload.bootstrap = resourceNames;
+    }
+    if (Object.keys(payload).length === 0) return;
+    await window.gsd.wizard.saveState(payload);
+  }
+
+  /** Reconfigure-only: expands a pre-completed step's summary into its normal editable form. */
+  function startEdit(target: WizardStep) {
+    setCompletedSteps((current) => {
+      const next = new Set(current);
+      next.delete(target);
+      return next;
+    });
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-xl rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8 space-y-6">
         <div>
-          <h1 className="text-xl font-semibold">Welcome to Hyveon</h1>
+          <h1 className="text-xl font-semibold">{mode === 'reconfigure' ? 'Reconfigure Hyveon' : 'Welcome to Hyveon'}</h1>
           <p className="text-sm text-muted-foreground">
-            Step {stepIndex + 1} of {WIZARD_STEPS.length}: {STEP_LABELS[step]}
+            Step {stepIndex + 1} of {steps.length}: {STEP_LABELS[step]}
           </p>
         </div>
 
         {step === 'prerequisites' && (
           <PrerequisitesStep report={report} checking={checking} error={error} onRecheck={checkPrereqs} />
         )}
-        {step === 'pick-cloud' && (
-          <>
-            <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
-            {saveError && (
-              <p role="alert" className="text-sm text-[var(--color-red)]">
-                {saveError}
-              </p>
-            )}
-          </>
-        )}
-        {step === 'credentials' && (
-          <>
-            <CredentialsStep
-              mode={credentialMode}
-              onModeChange={setCredentialMode}
-              profiles={profiles}
-              profilesLoading={profilesLoading}
-              profilesError={profilesError}
-              selectedProfileName={selectedProfileName}
-              onSelectProfile={selectProfile}
-              region={region}
-              onRegionChange={setRegion}
-              pasteAccessKeyId={pasteAccessKeyId}
-              pasteSecretAccessKey={pasteSecretAccessKey}
-              pasteRegion={pasteRegion}
-              onPasteFieldChange={pasteFieldChange}
-              onSubmitPaste={submitPaste}
-              pasteSaving={pasteSaving}
-              pasteError={pasteError}
-              pastedProfileName={pastedProfileName}
+        {step === 'pick-cloud' &&
+          (stepCollapsed ? (
+            <CompletedStepSummary label={STEP_LABELS['pick-cloud']} onEdit={() => startEdit('pick-cloud')} />
+          ) : (
+            <>
+              <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
+              {saveError && (
+                <p role="alert" className="text-sm text-[var(--color-red)]">
+                  {saveError}
+                </p>
+              )}
+            </>
+          ))}
+        {step === 'credentials' &&
+          (stepCollapsed ? (
+            <CompletedStepSummary label={STEP_LABELS['credentials']} onEdit={() => startEdit('credentials')} />
+          ) : (
+            <>
+              <CredentialsStep
+                mode={credentialMode}
+                onModeChange={setCredentialMode}
+                profiles={profiles}
+                profilesLoading={profilesLoading}
+                profilesError={profilesError}
+                selectedProfileName={selectedProfileName}
+                onSelectProfile={selectProfile}
+                region={region}
+                onRegionChange={setRegion}
+                pasteAccessKeyId={pasteAccessKeyId}
+                pasteSecretAccessKey={pasteSecretAccessKey}
+                pasteRegion={pasteRegion}
+                onPasteFieldChange={pasteFieldChange}
+                onSubmitPaste={submitPaste}
+                pasteSaving={pasteSaving}
+                pasteError={pasteError}
+                pastedProfileName={pastedProfileName}
+              />
+              {saveError && (
+                <p role="alert" className="text-sm text-[var(--color-red)]">
+                  {saveError}
+                </p>
+              )}
+            </>
+          ))}
+        {step === 'bootstrap' &&
+          (stepCollapsed ? (
+            <CompletedStepSummary label={STEP_LABELS['bootstrap']} onEdit={() => startEdit('bootstrap')} />
+          ) : (
+            <BootstrapStep
+              names={resourceNames}
+              statuses={resourceStatuses}
+              messages={resourceMessages}
+              onNameChange={resourceNameChange}
+              onRunBootstrap={runBootstrap}
+              bootstrapping={bootstrapping}
+              iamCheck={iamCheck}
+              iamChecking={iamChecking}
+              iamError={iamError}
+              onRunIamCheck={runIamCheck}
             />
-            {saveError && (
-              <p role="alert" className="text-sm text-[var(--color-red)]">
-                {saveError}
-              </p>
-            )}
-          </>
-        )}
-        {step === 'bootstrap' && (
-          <BootstrapStep
-            names={resourceNames}
-            statuses={resourceStatuses}
-            messages={resourceMessages}
-            onNameChange={resourceNameChange}
-            onRunBootstrap={runBootstrap}
-            bootstrapping={bootstrapping}
-            iamCheck={iamCheck}
-            iamChecking={iamChecking}
-            iamError={iamError}
-            onRunIamCheck={runIamCheck}
-          />
-        )}
+          ))}
         {step === 'terraform-init' && (
-          <TerraformInitStep backendConfig={backendConfig} onFinished={handleFinished} />
+          <TerraformInitStep
+            backendConfig={backendConfig}
+            onFinished={handleFinished}
+            onBeforeFinish={mode === 'reconfigure' ? commitReconfigureAnswers : undefined}
+          />
         )}
 
         <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || saving}>
-            Back
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || saving}>
+              Back
+            </Button>
+            {mode === 'reconfigure' && onCancel && (
+              <Button type="button" variant="ghost" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+          </div>
           {step !== 'terraform-init' && (
             <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>
               Next
@@ -442,6 +625,21 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Reconfigure-only: collapsed view of a step that already has a stored answer, with an Edit affordance. */
+function CompletedStepSummary({ label, onEdit }: { label: string; onEdit: () => void }) {
+  return (
+    <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4">
+      <span className="flex items-center gap-2 text-sm">
+        <CheckCircle2 className="size-4 text-[var(--color-green)]" />
+        {label} is already configured.
+      </span>
+      <Button type="button" variant="outline" size="sm" onClick={onEdit}>
+        Edit
+      </Button>
     </div>
   );
 }

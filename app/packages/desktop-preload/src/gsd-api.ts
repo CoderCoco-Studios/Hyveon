@@ -1106,6 +1106,18 @@ export interface WizardAwsChoice {
   region?: string;
 }
 
+/**
+ * The bootstrap step's last-submitted resource names, as persisted to
+ * `ElectronStoreService.bootstrap`. Needed so Settings' Reconfigure flow
+ * (#211) can rehydrate a non-default name — resource names are
+ * operator-editable — before running `terraform init`.
+ */
+export interface WizardBootstrapNames {
+  stateBucket: string;
+  lockTable: string;
+  tfvarsBucket: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
@@ -1113,12 +1125,15 @@ export interface WizardState {
   activeCloud?: 'aws';
   /** The credential source chosen in the credentials step (#192), if any. */
   aws?: WizardAwsChoice;
+  /** The bootstrap step's last-submitted resource names, if any. */
+  bootstrap?: WizardBootstrapNames;
 }
 
 /** Payload accepted by {@link GsdWizardApi.saveState}. */
 export interface SaveWizardStateInput {
   activeCloud?: 'aws';
   aws?: WizardAwsChoice;
+  bootstrap?: WizardBootstrapNames;
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */

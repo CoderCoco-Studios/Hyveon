@@ -52,6 +52,19 @@ export interface AppStoreSchema {
     secretAccessKey?: string;
   };
   /**
+   * The bootstrap step's resource names, as last submitted (whether that
+   * submission succeeded or is still `pending`/`failed` for a given
+   * resource — this just records what the operator asked for). Names are
+   * operator-editable, so without this the Settings "Reconfigure" flow
+   * (#211) would have no way to rehydrate a non-default name and would run
+   * `terraform init` against the wrong bucket/table.
+   */
+  bootstrap?: {
+    stateBucket: string;
+    lockTable: string;
+    tfvarsBucket: string;
+  };
+  /**
    * Pasted-credentials profiles from the wizard's credentials step, keyed by
    * profile name (default `gsd-pasted` — see `AwsProfileService`). Separate
    * from `aws` above, which holds the *selected* profile/region for the

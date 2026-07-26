@@ -42,7 +42,12 @@ const SAMPLE_PROFILES: AwsProfileSummary[] = [
 
 beforeEach(() => {
   gsdMock.wizard.checkPrereqs.mockReset();
-  gsdMock.wizard.saveState.mockReset();
+  // Defaulted (not just reset): the bootstrap step's fire-and-forget
+  // `wizard.state.save({ bootstrap })` call (see `goNext`) uses a bare
+  // `.catch()`, not an awaited try/catch, so an unmocked call (returning
+  // `undefined`) would throw synchronously. Individual tests still override
+  // this with a more specific resolved value where the response shape matters.
+  gsdMock.wizard.saveState.mockReset().mockResolvedValue({ wizardCompleted: false });
   gsdMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
   gsdMock.wizard.saveCredentials.mockReset();
   gsdMock.wizard.bootstrapStateBucket.mockReset();
@@ -427,6 +432,24 @@ describe('FirstRunWizard', () => {
 
       expect(await screen.findByText(/some permissions are missing/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+
+    it('should persist the current resource names via wizard.state.save when advancing past bootstrap', async () => {
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false });
+      await advanceToBootstrap();
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      await waitFor(() =>
+        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({
+          bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', tfvarsBucket: 'hyveon-tfvars' },
+        }),
+      );
     });
   });
 
