@@ -4,15 +4,15 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 1. Issue #182 — prerequisite-detection service (desktop-main)
 
-- [ ] 1.1 Create worktree: `git worktree add .worktrees/claude/issue-182-prereq-detection -b claude/issue-182-prereq-detection`
-- [ ] 1.2 Add `MINIMUM_TERRAFORM_VERSION` constant to `@hyveon/shared` with TSDoc
-- [ ] 1.3 Implement `PrerequisiteService` in `desktop-main/src/services/PrerequisiteService.ts`: probe `terraform` and `aws` via `execFile` + existing `lookupCommandFor`; return `{ found, path?, version? }` per tool; environment/platform access behind protected seams for `vi.spyOn` (no raw `process.env`)
-- [ ] 1.4 Implement version parsing for Terraform 1.x (`Terraform vX.Y.Z`) and AWS CLI v2 (`aws-cli/X.Y.Z ...`); unparseable output degrades to `found: true` with undefined version; compare terraform against `MINIMUM_TERRAFORM_VERSION` and flag unsatisfied
-- [ ] 1.5 Add `WizardModule` (`desktop-main/src/modules/wizard.module.ts`) and IPC-only `WizardController` with `@MessagePattern('wizard.prereqs.check')`; wire into `AppModule`; gate any electron imports on `process.versions.electron`
-- [ ] 1.6 Add preload `gsd.wizard.checkPrereqs()` + typed mirror in `gsd-api.ts`
-- [ ] 1.7 Co-located vitest specs ("should …" names, TSDoc'd helpers): found/missing/spawn-failure paths, both version formats, minimum-version flagging, controller dispatch
-- [ ] 1.8 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 1.9 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #182`
+- [x] 1.1 Create worktree: `git worktree add .worktrees/claude/issue-182-prereq-detection -b claude/issue-182-prereq-detection`
+- [x] 1.2 Add `MINIMUM_TERRAFORM_VERSION` constant to `@hyveon/shared` with TSDoc
+- [x] 1.3 Implement `PrerequisiteService` in `desktop-main/src/services/PrerequisiteService.ts`: probe `terraform` and `aws` via `execFile` + existing `lookupCommandFor`; return `{ found, path?, version? }` per tool; environment/platform access behind protected seams for `vi.spyOn` (no raw `process.env`)
+- [x] 1.4 Implement version parsing for Terraform 1.x (`Terraform vX.Y.Z`) and AWS CLI v2 (`aws-cli/X.Y.Z ...`); unparseable output degrades to `found: true` with undefined version; compare terraform against `MINIMUM_TERRAFORM_VERSION` and flag unsatisfied
+- [x] 1.5 Add `WizardModule` (`desktop-main/src/modules/wizard.module.ts`) and IPC-only `WizardController` with `@MessagePattern('wizard.prereqs.check')`; wire into `AppModule`; gate any electron imports on `process.versions.electron`
+- [x] 1.6 Add preload `gsd.wizard.checkPrereqs()` + typed mirror in `gsd-api.ts`
+- [x] 1.7 Co-located vitest specs ("should …" names, TSDoc'd helpers): found/missing/spawn-failure paths, both version formats, minimum-version flagging, controller dispatch
+- [x] 1.8 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 1.9 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #182` — [PR #317](https://github.com/CoderCoco/Hyveon/pull/317)
 
 ## 2. Issue #189 — AwsProfileService (desktop-main)
 
