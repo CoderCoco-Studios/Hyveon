@@ -73,12 +73,12 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 8. Issue #203 — SDK bootstrap: DynamoDB lock table (desktop-main)
 
-- [ ] 8.1 Create worktree: `git worktree add .worktrees/claude/issue-203-bootstrap-lock-table -b claude/issue-203-bootstrap-lock-table`
-- [ ] 8.2 Implement `BootstrapService.ensureLockTable()` with `@aws-sdk/client-dynamodb`: `CreateTable` with `LockID` string hash key, waiter until `ACTIVE`; idempotent (`ResourceInUseException` ⇒ success)
-- [ ] 8.3 Add `@MessagePattern('wizard.bootstrap.lockTable')` + preload/`gsd-api.ts` mirror with per-resource status
-- [ ] 8.4 Vitest specs with `aws-sdk-client-mock`: fresh create + ACTIVE wait, already-exists no-op, failure surfaces `failed` status; assert key schema matches Terraform S3-backend locking requirements
-- [ ] 8.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 8.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #203`
+- [x] 8.1 Create worktree: `git worktree add .worktrees/claude/issue-203-bootstrap-lock-table -b claude/issue-203-bootstrap-lock-table`
+- [x] 8.2 Implement `BootstrapService.ensureLockTable()` with `@aws-sdk/client-dynamodb`: `CreateTable` with `LockID` string hash key, waiter until `ACTIVE`; idempotent (`ResourceInUseException` ⇒ success)
+- [x] 8.3 Add `@MessagePattern('wizard.bootstrap.lockTable')` + preload/`gsd-api.ts` mirror with per-resource status
+- [x] 8.4 Vitest specs with `aws-sdk-client-mock`: fresh create + ACTIVE wait, already-exists no-op, failure surfaces `failed` status; assert key schema matches Terraform S3-backend locking requirements
+- [x] 8.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 8.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #203` — [PR #326](https://github.com/CoderCoco/Hyveon/pull/326)
 
 ## 9. Issue #205 — SDK bootstrap: versioned S3 tfvars bucket (desktop-main)
 

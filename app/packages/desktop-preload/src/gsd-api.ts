@@ -991,6 +991,11 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link GsdWizardApi.bootstrapLockTable}. */
+export interface BootstrapLockTableInput {
+  tableName: string;
+}
+
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
@@ -1026,6 +1031,12 @@ export interface GsdWizardApi {
    * credentials step.
    */
   bootstrapStateBucket: (input: BootstrapStateBucketInput) => Promise<BootstrapResult>;
+  /**
+   * Idempotently creates/ensures the Terraform state-lock DynamoDB table
+   * (`LockID` string hash key) using the credentials/region chosen in the
+   * credentials step.
+   */
+  bootstrapLockTable: (input: BootstrapLockTableInput) => Promise<BootstrapResult>;
 }
 
 /**

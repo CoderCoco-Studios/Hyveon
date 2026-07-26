@@ -78,6 +78,7 @@ import type {
   WizardState,
   SaveWizardStateInput,
   BootstrapStateBucketInput,
+  BootstrapLockTableInput,
   BootstrapResult,
 } from './gsd-api.js';
 
@@ -606,6 +607,8 @@ const api: GsdApi = {
     saveState: (input: SaveWizardStateInput) => invoke<WizardState>('wizard.state.save', input),
     bootstrapStateBucket: (input: BootstrapStateBucketInput) =>
       invoke<BootstrapResult>('wizard.bootstrap.stateBucket', input),
+    bootstrapLockTable: (input: BootstrapLockTableInput) =>
+      invoke<BootstrapResult>('wizard.bootstrap.lockTable', input),
   },
 
   drift: {

@@ -14,6 +14,11 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link WizardController.bootstrapLockTable}. */
+export interface BootstrapLockTableInput {
+  tableName: string;
+}
+
 /**
  * The credentials step's chosen source, as persisted to `ElectronStoreService.aws`.
  * `profile` names either a real `~/.aws` profile (the "pick an existing
@@ -154,5 +159,14 @@ export class WizardController {
   @MessagePattern('wizard.bootstrap.stateBucket')
   bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureStateBucket(body.bucketName);
+  }
+
+  /**
+   * Idempotently creates/ensures the Terraform state-lock DynamoDB table.
+   * See `BootstrapService.ensureLockTable` for the full idempotency mapping.
+   */
+  @MessagePattern('wizard.bootstrap.lockTable')
+  bootstrapLockTable(@Payload() body: BootstrapLockTableInput): Promise<BootstrapResult> {
+    return this.bootstrap.ensureLockTable(body.tableName);
   }
 }
