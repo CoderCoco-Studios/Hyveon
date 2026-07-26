@@ -47,9 +47,12 @@ function makeStore(
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
-/** Build a BootstrapService stub whose `ensureStateBucket()` resolves to the given result. */
+/** Build a BootstrapService stub whose `ensureStateBucket()`/`ensureLockTable()` resolve to the given result. */
 function makeBootstrap(result: BootstrapResult = { status: 'created' }): BootstrapService {
-  return { ensureStateBucket: vi.fn().mockResolvedValue(result) } as Partial<BootstrapService> as BootstrapService;
+  return {
+    ensureStateBucket: vi.fn().mockResolvedValue(result),
+    ensureLockTable: vi.fn().mockResolvedValue(result),
+  } as Partial<BootstrapService> as BootstrapService;
 }
 
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
@@ -104,6 +107,11 @@ describe('WizardController', () => {
     it('should register bootstrapStateBucket on the "wizard.bootstrap.stateBucket" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapStateBucket);
       expect(pattern).toEqual(['wizard.bootstrap.stateBucket']);
+    });
+
+    it('should register bootstrapLockTable on the "wizard.bootstrap.lockTable" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapLockTable);
+      expect(pattern).toEqual(['wizard.bootstrap.lockTable']);
     });
   });
 
@@ -283,6 +291,25 @@ describe('WizardController', () => {
       const result = await makeController({ bootstrap }).bootstrapStateBucket({ bucketName: 'taken' });
 
       expect(result).toEqual({ status: 'failed', message: 'bucket taken' });
+    });
+  });
+
+  describe('bootstrapLockTable', () => {
+    it('should delegate to BootstrapService.ensureLockTable with the given table name', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      const result = await makeController({ bootstrap }).bootstrapLockTable({ tableName: 'my-lock-table' });
+
+      expect(bootstrap.ensureLockTable).toHaveBeenCalledWith('my-lock-table');
+      expect(result).toEqual({ status: 'created' });
+    });
+
+    it('should propagate a failed result unchanged rather than throwing', async () => {
+      const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
+
+      const result = await makeController({ bootstrap }).bootstrapLockTable({ tableName: 'my-lock-table' });
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
   });
 });

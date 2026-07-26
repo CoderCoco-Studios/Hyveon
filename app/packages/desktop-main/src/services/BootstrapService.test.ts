@@ -8,11 +8,15 @@ import {
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
 } from '@aws-sdk/client-s3';
+import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { BootstrapService, BootstrapCredentialsNotConfiguredError } from './BootstrapService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
 const s3Mock = mockClient(S3Client);
+
+/** Typed stand-in for the AWS DynamoDB SDK client, shared across the tests below. */
+const dynamoMock = mockClient(DynamoDBClient);
 
 /** Build an `ElectronStoreService` stub whose `get('aws')` resolves to the given choice. */
 function makeStore(
@@ -34,6 +38,7 @@ function awsError(name: string): Error {
 
 beforeEach(() => {
   s3Mock.reset();
+  dynamoMock.reset();
 });
 
 describe('BootstrapService', () => {
@@ -180,6 +185,52 @@ describe('BootstrapService', () => {
       await service.ensureStateBucket('my-state-bucket');
 
       expect(store.getPastedCredentials).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ensureLockTable', () => {
+    it('should create the lock table with a LockID string hash key and wait for it to become ACTIVE', async () => {
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock.on(DescribeTableCommand).resolves({ Table: { TableStatus: 'ACTIVE' } });
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureLockTable('my-lock-table');
+
+      expect(result).toEqual({ status: 'created' });
+      expect(dynamoMock.commandCalls(CreateTableCommand)[0]!.args[0].input).toEqual({
+        TableName: 'my-lock-table',
+        AttributeDefinitions: [{ AttributeName: 'LockID', AttributeType: 'S' }],
+        KeySchema: [{ AttributeName: 'LockID', KeyType: 'HASH' }],
+        BillingMode: 'PAY_PER_REQUEST',
+      });
+      expect(dynamoMock.commandCalls(DescribeTableCommand)).toHaveLength(1);
+    });
+
+    it('should treat ResourceInUseException as a success no-op without waiting', async () => {
+      dynamoMock.on(CreateTableCommand).rejects(awsError('ResourceInUseException'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureLockTable('my-lock-table');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(dynamoMock.commandCalls(DescribeTableCommand)).toHaveLength(0);
+    });
+
+    it('should report failure with the error message for an unexpected CreateTable error', async () => {
+      dynamoMock.on(CreateTableCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureLockTable('my-lock-table');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+      const service = new BootstrapService(makeStore(undefined));
+
+      await expect(service.ensureLockTable('my-lock-table')).rejects.toThrow(
+        BootstrapCredentialsNotConfiguredError,
+      );
     });
   });
 });

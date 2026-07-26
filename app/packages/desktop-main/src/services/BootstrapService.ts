@@ -8,8 +8,23 @@ import {
   type BucketLocationConstraint,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
+import { DynamoDBClient, CreateTableCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { ElectronStoreService } from './ElectronStoreService.js';
+
+/**
+ * How long `ensureLockTable` waits for a freshly-created lock table to reach
+ * `ACTIVE` before giving up and reporting `failed`.
+ */
+const LOCK_TABLE_ACTIVE_WAIT_SECONDS = 60;
+
+/**
+ * The credentials/region shape shared by every wizard-bootstrap SDK client
+ * (`S3Client`, `DynamoDBClient`, ...). `region` and `credentials` are
+ * structurally identical across `@aws-sdk/client-*` config types, so a
+ * single resolved value can construct any of them without a per-service cast.
+ */
+type WizardAwsClientConfig = Pick<S3ClientConfig, 'region' | 'credentials'>;
 
 /** Per-resource outcome returned by a `BootstrapService` operation over IPC. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
@@ -96,6 +111,52 @@ export class BootstrapService {
   }
 
   /**
+   * Idempotently ensures the Terraform state-lock DynamoDB table exists,
+   * with the `LockID` string hash key the S3 backend's native locking
+   * requires, waiting until the table reaches `ACTIVE` before reporting
+   * success on a fresh create.
+   *
+   * @param tableName - Name of the lock table to create/ensure.
+   */
+  async ensureLockTable(tableName: string): Promise<BootstrapResult> {
+    const client = this.createDynamoDbClient();
+    try {
+      const created = await this.createTable(client, tableName);
+      return { status: created ? 'created' : 'exists' };
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+  }
+
+  /**
+   * Creates the lock table and waits for it to become `ACTIVE`, returning
+   * `true` if this call created it and `false` if it already existed
+   * (`ResourceInUseException`) — both are success paths.
+   */
+  private async createTable(client: DynamoDBClient, tableName: string): Promise<boolean> {
+    try {
+      await client.send(
+        new CreateTableCommand({
+          TableName: tableName,
+          AttributeDefinitions: [{ AttributeName: 'LockID', AttributeType: 'S' }],
+          KeySchema: [{ AttributeName: 'LockID', KeyType: 'HASH' }],
+          BillingMode: 'PAY_PER_REQUEST',
+        }),
+      );
+      await waitUntilTableExists(
+        { client, maxWaitTime: LOCK_TABLE_ACTIVE_WAIT_SECONDS },
+        { TableName: tableName },
+      );
+      return true;
+    } catch (err) {
+      if (this.isAwsErrorCode(err, 'ResourceInUseException')) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Creates the bucket, returning `true` if this call created it and
    * `false` if it already existed under the caller's own account
    * (`BucketAlreadyOwnedByYou`) — both are success paths. Re-throws for
@@ -175,7 +236,16 @@ export class BootstrapService {
     return new S3Client(this.resolveClientConfig());
   }
 
-  private resolveClientConfig(): S3ClientConfig {
+  /**
+   * Builds a DynamoDB client from the same wizard-chosen credentials/region
+   * as {@link createS3Client}. Extracted as a protected seam so tests can
+   * stub it without touching real credentials.
+   */
+  protected createDynamoDbClient(): DynamoDBClient {
+    return new DynamoDBClient(this.resolveClientConfig());
+  }
+
+  private resolveClientConfig(): WizardAwsClientConfig {
     const aws = this.store.get('aws');
     if (!aws?.region) {
       throw new BootstrapCredentialsNotConfiguredError();
