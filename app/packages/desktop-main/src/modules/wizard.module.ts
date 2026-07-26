@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrerequisiteService } from '../services/PrerequisiteService.js';
 import { AwsProfileService } from '../services/AwsProfileService.js';
+import { BootstrapService } from '../services/BootstrapService.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 
 /**
@@ -9,13 +10,13 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * `TerraformModule`/`DiscordModule` — `providers`/`exports` only, no
  * `controllers` array; the IPC controller is wired directly into
  * `AppModule.controllers` alongside every other controller in this codebase.
- * Imports `ElectronStoreModule` so `AwsProfileService` can inject
- * `SafeStorageService`/`ElectronStoreService` for the pasted-credentials
- * save flow.
+ * Imports `ElectronStoreModule` so `AwsProfileService`/`BootstrapService` can
+ * inject `SafeStorageService`/`ElectronStoreService` for the
+ * pasted-credentials and credential-resolution flows.
  */
 @Module({
   imports: [ElectronStoreModule],
-  providers: [PrerequisiteService, AwsProfileService],
-  exports: [PrerequisiteService, AwsProfileService],
+  providers: [PrerequisiteService, AwsProfileService, BootstrapService],
+  exports: [PrerequisiteService, AwsProfileService, BootstrapService],
 })
 export class WizardModule {}

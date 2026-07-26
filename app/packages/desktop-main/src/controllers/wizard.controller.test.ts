@@ -5,6 +5,7 @@ import type { PrerequisiteService, PrerequisitesReport } from '../services/Prere
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
 import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
+import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 
 const SATISFIED_REPORT: PrerequisitesReport = {
   terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
@@ -46,16 +47,23 @@ function makeStore(
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
+/** Build a BootstrapService stub whose `ensureStateBucket()` resolves to the given result. */
+function makeBootstrap(result: BootstrapResult = { status: 'created' }): BootstrapService {
+  return { ensureStateBucket: vi.fn().mockResolvedValue(result) } as Partial<BootstrapService> as BootstrapService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
   prerequisites?: PrerequisiteService;
   awsProfiles?: AwsProfileService;
   store?: ElectronStoreService;
+  bootstrap?: BootstrapService;
 } = {}): WizardController {
   return new WizardController(
     overrides.prerequisites ?? makePrerequisites(),
     overrides.awsProfiles ?? makeAwsProfiles(),
     overrides.store ?? makeStore(),
+    overrides.bootstrap ?? makeBootstrap(),
   );
 }
 
@@ -91,6 +99,11 @@ describe('WizardController', () => {
     it('should register saveState on the "wizard.state.save" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveState);
       expect(pattern).toEqual(['wizard.state.save']);
+    });
+
+    it('should register bootstrapStateBucket on the "wizard.bootstrap.stateBucket" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapStateBucket);
+      expect(pattern).toEqual(['wizard.bootstrap.stateBucket']);
     });
   });
 
@@ -251,6 +264,25 @@ describe('WizardController', () => {
       controller.saveState({});
 
       expect(store.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bootstrapStateBucket', () => {
+    it('should delegate to BootstrapService.ensureStateBucket with the given bucket name', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      const result = await makeController({ bootstrap }).bootstrapStateBucket({ bucketName: 'my-state-bucket' });
+
+      expect(bootstrap.ensureStateBucket).toHaveBeenCalledWith('my-state-bucket');
+      expect(result).toEqual({ status: 'created' });
+    });
+
+    it('should propagate a failed result unchanged rather than throwing', async () => {
+      const bootstrap = makeBootstrap({ status: 'failed', message: 'bucket taken' });
+
+      const result = await makeController({ bootstrap }).bootstrapStateBucket({ bucketName: 'taken' });
+
+      expect(result).toEqual({ status: 'failed', message: 'bucket taken' });
     });
   });
 });

@@ -986,6 +986,21 @@ export interface SavePastedCredentialsInput {
   region?: string;
 }
 
+/** Payload accepted by {@link GsdWizardApi.bootstrapStateBucket}. */
+export interface BootstrapStateBucketInput {
+  bucketName: string;
+}
+
+/** Per-resource outcome of a `wizard.bootstrap.*` call. */
+export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
+
+/** Result of a single bootstrap operation (e.g. {@link GsdWizardApi.bootstrapStateBucket}). */
+export interface BootstrapResult {
+  status: BootstrapResourceStatus;
+  /** Present when `status` is `'failed'` — an actionable message for the wizard to display. */
+  message?: string;
+}
+
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface GsdWizardApi {
   /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
@@ -1005,6 +1020,12 @@ export interface GsdWizardApi {
    * directly from the response.
    */
   saveState: (input: SaveWizardStateInput) => Promise<WizardState>;
+  /**
+   * Idempotently creates/ensures the Terraform S3 state bucket (versioning +
+   * default encryption) using the credentials/region chosen in the
+   * credentials step.
+   */
+  bootstrapStateBucket: (input: BootstrapStateBucketInput) => Promise<BootstrapResult>;
 }
 
 /**
