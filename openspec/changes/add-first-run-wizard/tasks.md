@@ -87,7 +87,7 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 - [x] 9.3 Add `@MessagePattern('wizard.bootstrap.tfvarsBucket')` + preload/`gsd-api.ts` mirror; bucket name feeds the `RemoteFileStore` configuration
 - [x] 9.4 Vitest specs with `aws-sdk-client-mock`: fresh create with versioning + lifecycle, existing-bucket no-op with settings ensured, failure path
 - [x] 9.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 9.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #205`
+- [x] 9.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #205` — [PR #327](https://github.com/CoderCoco/Hyveon/pull/327)
 
 ## 10. Issue #208 — IAM SimulatePrincipalPolicy check (desktop-main + web panel)
 
