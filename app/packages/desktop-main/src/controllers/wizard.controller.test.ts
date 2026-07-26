@@ -1,0 +1,45 @@
+import 'reflect-metadata';
+import { describe, it, expect, vi } from 'vitest';
+import { WizardController } from './wizard.controller.js';
+import type { PrerequisiteService, PrerequisitesReport } from '../services/PrerequisiteService.js';
+
+const SATISFIED_REPORT: PrerequisitesReport = {
+  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
+  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
+};
+
+/** Build a PrerequisiteService stub whose `check()` resolves to the given report. */
+function makePrerequisites(report: PrerequisitesReport = SATISFIED_REPORT): PrerequisiteService {
+  return { check: vi.fn().mockResolvedValue(report) } as Partial<PrerequisiteService> as PrerequisiteService;
+}
+
+/**
+ * The metadata key NestJS stores on each method decorated with
+ * `@MessagePattern`. Asserting this value is the only automated guard
+ * that prevents a typo in the controller from silently breaking IPC.
+ */
+const PATTERN_METADATA_KEY = 'microservices:pattern';
+
+describe('WizardController', () => {
+  describe('@MessagePattern channel names', () => {
+    it('should register checkPrereqs on the "wizard.prereqs.check" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.checkPrereqs);
+      expect(pattern).toEqual(['wizard.prereqs.check']);
+    });
+  });
+
+  describe('checkPrereqs', () => {
+    it('should return the report produced by PrerequisiteService.check', async () => {
+      const prerequisites = makePrerequisites();
+      const result = await new WizardController(prerequisites).checkPrereqs();
+      expect(result).toEqual(SATISFIED_REPORT);
+      expect(prerequisites.check).toHaveBeenCalledTimes(1);
+    });
+
+    it('should propagate a report with a missing tool unchanged', async () => {
+      const report: PrerequisitesReport = { terraform: { found: false }, aws: { found: false } };
+      const result = await new WizardController(makePrerequisites(report)).checkPrereqs();
+      expect(result).toEqual(report);
+    });
+  });
+});

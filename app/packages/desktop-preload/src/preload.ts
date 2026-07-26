@@ -72,6 +72,7 @@ import type {
   RunHistoryPageResult,
   TfOutputs,
   UpdateGamePayload,
+  PrerequisitesReport,
 } from './gsd-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
@@ -588,6 +589,10 @@ const api: GsdApi = {
       watchdog_idle_checks?: number;
       watchdog_min_packets?: number;
     }) => invoke('config.update', body),
+  },
+
+  wizard: {
+    checkPrereqs: () => invoke<PrerequisitesReport>('wizard.prereqs.check'),
   },
 
   drift: {
