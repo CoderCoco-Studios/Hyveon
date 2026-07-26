@@ -115,7 +115,7 @@ export function FirstRunWizard() {
         )}
 
         <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0}>
+          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || saving}>
             Back
           </Button>
           <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>

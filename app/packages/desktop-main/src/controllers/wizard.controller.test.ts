@@ -198,5 +198,15 @@ describe('WizardController', () => {
       expect(store.set).not.toHaveBeenCalled();
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws' });
     });
+
+    it('should throw and write nothing when activeCloud is not the supported "aws" value', () => {
+      const store = makeStore({ wizardCompleted: false });
+      const controller = makeController({ store });
+
+      expect(() =>
+        controller.saveState({ activeCloud: 'gcp' as unknown as 'aws' }),
+      ).toThrow('Unsupported cloud provider: gcp');
+      expect(store.set).not.toHaveBeenCalled();
+    });
   });
 });

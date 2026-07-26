@@ -74,6 +74,12 @@ export class WizardController {
   @MessagePattern('wizard.state.save')
   saveState(@Payload() body: SaveWizardStateInput): WizardState {
     if (body.activeCloud !== undefined) {
+      // The `SaveWizardStateInput` union only constrains compile-time
+      // callers — an IPC payload is runtime data, so a malformed or
+      // malicious call could otherwise persist an unsupported value.
+      if (body.activeCloud !== 'aws') {
+        throw new Error(`Unsupported cloud provider: ${String(body.activeCloud)}`);
+      }
       this.store.set('activeCloud', body.activeCloud);
     }
     return this.getState();

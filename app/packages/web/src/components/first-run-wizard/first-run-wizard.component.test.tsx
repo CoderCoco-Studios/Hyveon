@@ -121,4 +121,21 @@ describe('FirstRunWizard', () => {
 
     expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
+
+  it('should disable Back while the cloud choice save is pending, to avoid a race with the step transition', async () => {
+    let resolveSave!: (value: { wizardCompleted: boolean; activeCloud: 'aws' }) => void;
+    gsdMock.wizard.saveState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    await advanceToPickCloud();
+
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /back/i })).toBeDisabled());
+
+    resolveSave({ wizardCompleted: false, activeCloud: 'aws' });
+    await waitFor(() => expect(screen.getByRole('button', { name: /back/i })).not.toBeDisabled());
+  });
 });
