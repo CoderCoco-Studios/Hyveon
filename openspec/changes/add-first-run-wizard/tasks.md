@@ -101,12 +101,12 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 11. Issue #210 — wizard step: terraform init with live log (web, after #200/#203/#205)
 
-- [ ] 11.1 Create worktree: `git worktree add .worktrees/claude/issue-210-wizard-terraform-init -b claude/issue-210-wizard-terraform-init`
-- [ ] 11.2 Implement `terraform-init-step.component.tsx` consuming the existing `gsd.terraform.init` async iterable with `backendConfig` (bucket/region/dynamodbTable) from the bootstrap step; live log pane with ANSI rendering (reuse the existing ANSI-to-HTML helper)
-- [ ] 11.3 Completion button enabled only on exit code 0; non-zero exit shows error UI with the captured log and a retry affordance
-- [ ] 11.4 Wire wizard completion: `FirstRunWizardService` persists answers + `wizardCompleted: true` (`wizard.complete` IPC) and the app navigates to the dashboard; resumable `userData/state.json` updated per step
-- [ ] 11.5 RTL/jsdom specs (mock the async iterable): streaming render, ANSI colors, enable-on-zero, error + retry on non-zero, completion invoking `wizard.complete`; service specs for state.json resume + corrupt-file fallback
-- [ ] 11.6 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 11.1 Create worktree: `git worktree add .worktrees/claude/issue-210-wizard-terraform-init -b claude/issue-210-wizard-terraform-init`
+- [x] 11.2 Implement `terraform-init-step.component.tsx` consuming the existing `gsd.terraform.init` async iterable with `backendConfig` (bucket/region/dynamodbTable) from the bootstrap step; live log pane with ANSI rendering (reuse the existing ANSI-to-HTML helper)
+- [x] 11.3 Completion button enabled only on exit code 0; non-zero exit shows error UI with the captured log and a retry affordance
+- [x] 11.4 Wire wizard completion: `FirstRunWizardService` persists answers + `wizardCompleted: true` (`wizard.complete` IPC) and the app navigates to the dashboard; resumable `userData/wizard-state.json` updated per step
+- [x] 11.5 RTL/jsdom specs (mock the async iterable): streaming render, ANSI colors, enable-on-zero, error + retry on non-zero, completion invoking `wizard.complete`; service specs for state.json resume + corrupt-file fallback
+- [x] 11.6 Verify `npm run app:test` and `npm run app:lint` pass
 - [ ] 11.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #210`
 
 ## 12. Issue #211 — Reconfigure entry point in Settings (web)
