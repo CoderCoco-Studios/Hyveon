@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   S3Client,
   CreateBucketCommand,
+  HeadBucketCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
   type BucketLocationConstraint,
@@ -99,9 +100,19 @@ export class BootstrapService {
    * `false` if it already existed under the caller's own account
    * (`BucketAlreadyOwnedByYou`) — both are success paths. Re-throws for
    * `BucketAlreadyExists` (owned by another account) and any other error.
+   *
+   * @remarks
+   * In `us-east-1`, `CreateBucket` uses legacy compatibility behaviour: a
+   * bucket already owned by the caller returns `200 OK` instead of throwing
+   * `BucketAlreadyOwnedByYou`, and — as a side effect — resets the bucket's
+   * ACLs. A `HeadBucket` pre-check sidesteps both the mis-reported `created`
+   * status and the ACL reset for that region.
    */
   private async createBucket(client: S3Client, bucketName: string): Promise<boolean> {
     const region = this.store.get('aws')?.region;
+    if ((!region || region === 'us-east-1') && (await this.bucketExists(client, bucketName))) {
+      return false;
+    }
     try {
       await client.send(
         new CreateBucketCommand({
@@ -124,6 +135,22 @@ export class BootstrapService {
         );
       }
       throw err;
+    }
+  }
+
+  /**
+   * Resolves `true` when `bucketName` already exists and is reachable by the
+   * caller's credentials. A `NotFound` response means the bucket is free to
+   * create; any other error (e.g. `Forbidden` for a bucket owned by another
+   * account) is treated as "not confirmed to exist" so `createBucket`'s own
+   * `CreateBucket` error handling still runs.
+   */
+  private async bucketExists(client: S3Client, bucketName: string): Promise<boolean> {
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: bucketName }));
+      return true;
+    } catch {
+      return false;
     }
   }
 

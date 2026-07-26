@@ -4,6 +4,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import {
   S3Client,
   CreateBucketCommand,
+  HeadBucketCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
 } from '@aws-sdk/client-s3';
@@ -63,6 +64,7 @@ describe('BootstrapService', () => {
     });
 
     it('should omit CreateBucketConfiguration when the region is us-east-1', async () => {
+      s3Mock.on(HeadBucketCommand).rejects(awsError('NotFound'));
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketEncryptionCommand).resolves({});
@@ -73,6 +75,19 @@ describe('BootstrapService', () => {
       expect(s3Mock.commandCalls(CreateBucketCommand)[0]!.args[0].input).toEqual({
         Bucket: 'my-state-bucket',
       });
+    });
+
+    it('should skip CreateBucket in us-east-1 when HeadBucket confirms the bucket already exists', async () => {
+      s3Mock.on(HeadBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-east-1' }));
+
+      const result = await service.ensureStateBucket('my-state-bucket');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(0);
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(1);
     });
 
     it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/encryption', async () => {
