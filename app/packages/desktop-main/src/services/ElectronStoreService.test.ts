@@ -8,7 +8,10 @@
  * the right branch.
  */
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type Store from 'electron-store';
 
 vi.mock('../logger.js', () => ({
@@ -229,5 +232,148 @@ describe('ElectronStoreService — round-trip', () => {
     const result = service.getSecretAccessKeyId();
 
     expect(result).toBe('AKID123');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pasted credentials — getPastedCredentials / setPastedCredentials
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — getPastedCredentials / setPastedCredentials', () => {
+  let service: ElectronStoreService;
+  let safeStorage: SafeStorageService;
+
+  beforeEach(() => {
+    safeStorage = makeSafeStorage();
+    service = new ElectronStoreService(safeStorage);
+    vi.spyOn(safeStorage, 'encrypt').mockImplementation((plaintext: string) => `enc-${plaintext}`);
+    vi.spyOn(safeStorage, 'decrypt').mockImplementation((ciphertext: string) =>
+      ciphertext.startsWith('enc-') ? ciphertext.slice(4) : ciphertext,
+    );
+  });
+
+  it('should encrypt accessKeyId/secretAccessKey before storing under creds.aws.<profileName>', () => {
+    service.setPastedCredentials('gsd-pasted', {
+      accessKeyId: 'AKID123',
+      secretAccessKey: 'SECRET456',
+      region: 'us-east-1',
+    });
+
+    const stored = service.get('creds')?.aws['gsd-pasted'];
+    expect(stored).toEqual({ accessKeyId: 'enc-AKID123', secretAccessKey: 'enc-SECRET456', region: 'us-east-1' });
+  });
+
+  it('should decrypt accessKeyId/secretAccessKey when reading a pasted profile', () => {
+    service.setPastedCredentials('gsd-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+
+    const result = service.getPastedCredentials('gsd-pasted');
+
+    expect(result).toEqual({ accessKeyId: 'AKID123', secretAccessKey: 'SECRET456', region: undefined });
+  });
+
+  it('should return undefined for a profile name that was never stored', () => {
+    expect(service.getPastedCredentials('nonexistent')).toBeUndefined();
+  });
+
+  it('should preserve other profiles already stored under creds.aws when writing a new one', () => {
+    service.setPastedCredentials('first', { accessKeyId: 'AKID_FIRST', secretAccessKey: 'SECRET_FIRST' });
+    service.setPastedCredentials('second', { accessKeyId: 'AKID_SECOND', secretAccessKey: 'SECRET_SECOND' });
+
+    expect(service.getPastedCredentials('first')).toEqual({
+      accessKeyId: 'AKID_FIRST',
+      secretAccessKey: 'SECRET_FIRST',
+      region: undefined,
+    });
+    expect(service.getPastedCredentials('second')).toEqual({
+      accessKeyId: 'AKID_SECOND',
+      secretAccessKey: 'SECRET_SECOND',
+      region: undefined,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration-style: the persisted store file never contains plaintext key
+// material. A minimal file-backed `Store` double is used instead of the real
+// `electron-store` package (which requires an Electron process to resolve its
+// default `userData` path) so this spec can write and re-read an actual file
+// on disk while still running under plain Node/vitest.
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal disk-backed stand-in for `electron-store`'s `get`/`set` surface,
+ * persisting the whole schema object as JSON on every `set()` — enough to
+ * let a test inspect the literal bytes written to disk, the way the real
+ * library would.
+ */
+class FileBackedStore {
+  constructor(private readonly filePath: string) {
+    writeFileSync(this.filePath, '{}', 'utf-8');
+  }
+
+  get<K extends keyof AppStoreSchema>(key: K): AppStoreSchema[K] | undefined {
+    const data = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AppStoreSchema>;
+    return data[key];
+  }
+
+  set<K extends keyof AppStoreSchema>(key: K, value: AppStoreSchema[K]): void {
+    const data = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AppStoreSchema>;
+    data[key] = value;
+    writeFileSync(this.filePath, JSON.stringify(data), 'utf-8');
+  }
+}
+
+describe('ElectronStoreService — persisted file contains no plaintext key material', () => {
+  let tempDir: string;
+  let filePath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'hyveon-electron-store-'));
+    filePath = join(tempDir, 'electron-store.json');
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should never write the plaintext accessKeyId/secretAccessKey to the store file', () => {
+    const safeStorage = makeSafeStorage();
+    // A real (non-identity) transform is essential here: if encrypt() were a
+    // no-op, the file WOULD legitimately contain the plaintext, and the
+    // assertion below would pass for the wrong reason.
+    vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(true);
+    vi.spyOn(safeStorage, 'encrypt').mockImplementation(
+      (plaintext: string) => Buffer.from(plaintext).toString('base64'),
+    );
+    vi.spyOn(safeStorage, 'decrypt').mockImplementation(
+      (ciphertext: string) => Buffer.from(ciphertext, 'base64').toString('utf-8'),
+    );
+
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { readIsElectron(): boolean },
+      'readIsElectron',
+    ).mockReturnValue(true);
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { createStore(): Store<AppStoreSchema> },
+      'createStore',
+    ).mockReturnValue(new FileBackedStore(filePath) as unknown as Store<AppStoreSchema>);
+
+    const service = new ElectronStoreService(safeStorage);
+    const secretAccessKeyId = 'AKIASENSITIVEEXAMPLE';
+    const secretAccessKey = 'super-secret-plaintext-value';
+
+    service.setSecretAccessKeyId(secretAccessKeyId);
+    service.setSecretAccessKey(secretAccessKey);
+    service.setPastedCredentials('gsd-pasted', {
+      accessKeyId: secretAccessKeyId,
+      secretAccessKey,
+      region: 'us-east-1',
+    });
+
+    const rawFileContents = readFileSync(filePath, 'utf-8');
+    expect(rawFileContents).not.toContain(secretAccessKeyId);
+    expect(rawFileContents).not.toContain(secretAccessKey);
+    // Sanity check the file isn't simply empty/unwritten.
+    expect(rawFileContents).toContain('region');
   });
 });

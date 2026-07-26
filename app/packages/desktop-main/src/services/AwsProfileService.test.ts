@@ -1,7 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
-import { describe, it, expect } from 'vitest';
-import { AwsProfileService } from './AwsProfileService.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  AwsProfileService,
+  DEFAULT_PASTED_PROFILE_NAME,
+  SafeStorageUnavailableError,
+  InvalidPastedCredentialsError,
+} from './AwsProfileService.js';
+import type { SafeStorageService } from './SafeStorageService.js';
+import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /**
  * Fixture "home directory" containing `.aws/credentials` and `.aws/config`
@@ -20,14 +27,35 @@ const FIXTURE_HOME = fileURLToPath(new URL('./__fixtures__/aws-profile', import.
  */
 const EMPTY_HOME = dirname(FIXTURE_HOME);
 
+/** Builds a `SafeStorageService` stub whose `isAvailable()` returns `available`. */
+function stubSafeStorage(available = true): SafeStorageService {
+  return {
+    isAvailable: vi.fn().mockReturnValue(available),
+    encrypt: vi.fn((v: string) => `enc-${v}`),
+    decrypt: vi.fn((v: string) => v),
+  } as Partial<SafeStorageService> as SafeStorageService;
+}
+
+/** Builds an `ElectronStoreService` stub with a spy-able `setPastedCredentials`. */
+function stubStore(): ElectronStoreService {
+  return {
+    setPastedCredentials: vi.fn(),
+    getPastedCredentials: vi.fn(),
+  } as Partial<ElectronStoreService> as ElectronStoreService;
+}
+
 /**
  * Fixture-specific `AwsProfileService` subclass overriding the protected
  * `homeDir()` seam to return a fixed directory, avoiding a `vi.spyOn` +
  * `as unknown as` cast to reach a protected method.
  */
 class FixtureAwsProfileService extends AwsProfileService {
-  constructor(private readonly home: string) {
-    super();
+  constructor(
+    private readonly home: string,
+    safeStorage: SafeStorageService,
+    store: ElectronStoreService,
+  ) {
+    super(safeStorage, store);
   }
 
   protected override homeDir(): string {
@@ -37,7 +65,7 @@ class FixtureAwsProfileService extends AwsProfileService {
 
 /** Builds an `AwsProfileService` whose `homeDir()` seam returns `home`. */
 function makeService(home: string): AwsProfileService {
-  return new FixtureAwsProfileService(home);
+  return new FixtureAwsProfileService(home, stubSafeStorage(), stubStore());
 }
 
 describe('AwsProfileService.listProfiles', () => {
@@ -81,5 +109,87 @@ describe('AwsProfileService.listProfiles', () => {
     const noregion = profiles.find((p) => p.profileName === 'noregion');
     expect(noregion).toEqual({ profileName: 'noregion' });
     expect(noregion).not.toHaveProperty('region');
+  });
+});
+
+describe('AwsProfileService.savePastedCredentials', () => {
+  it('should throw SafeStorageUnavailableError and write nothing when safeStorage is unavailable', () => {
+    const safeStorage = stubSafeStorage(false);
+    const store = stubStore();
+    const service = new AwsProfileService(safeStorage, store);
+
+    expect(() =>
+      service.savePastedCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
+    ).toThrow(SafeStorageUnavailableError);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should default the profile name to gsd-pasted when none is supplied', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    const result = service.savePastedCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' });
+
+    expect(result).toEqual({ profileName: DEFAULT_PASTED_PROFILE_NAME });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith(
+      DEFAULT_PASTED_PROFILE_NAME,
+      { accessKeyId: 'AKID', secretAccessKey: 'SECRET', region: undefined },
+    );
+  });
+
+  it('should use the supplied profile name when given', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    const result = service.savePastedCredentials({
+      profileName: 'my-profile',
+      accessKeyId: 'AKID',
+      secretAccessKey: 'SECRET',
+      region: 'eu-west-1',
+    });
+
+    expect(result).toEqual({ profileName: 'my-profile' });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith('my-profile', {
+      accessKeyId: 'AKID',
+      secretAccessKey: 'SECRET',
+      region: 'eu-west-1',
+    });
+  });
+
+  it('should fall back to the default profile name when profileName is blank or whitespace-only', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    const result = service.savePastedCredentials({
+      profileName: '   ',
+      accessKeyId: 'AKID',
+      secretAccessKey: 'SECRET',
+    });
+
+    expect(result).toEqual({ profileName: DEFAULT_PASTED_PROFILE_NAME });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith(
+      DEFAULT_PASTED_PROFILE_NAME,
+      expect.anything(),
+    );
+  });
+
+  it('should throw InvalidPastedCredentialsError and write nothing when accessKeyId is blank', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    expect(() =>
+      service.savePastedCredentials({ accessKeyId: '  ', secretAccessKey: 'SECRET' }),
+    ).toThrow(InvalidPastedCredentialsError);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should throw InvalidPastedCredentialsError and write nothing when secretAccessKey is blank', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    expect(() =>
+      service.savePastedCredentials({ accessKeyId: 'AKID', secretAccessKey: '' }),
+    ).toThrow(InvalidPastedCredentialsError);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 });

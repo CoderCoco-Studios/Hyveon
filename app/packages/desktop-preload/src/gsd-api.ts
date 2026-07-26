@@ -977,12 +977,26 @@ export interface AwsProfileSummary {
   region?: string;
 }
 
+/** Plaintext input to {@link GsdWizardApi.saveCredentials}. */
+export interface SavePastedCredentialsInput {
+  /** Defaults to `gsd-pasted` when omitted. */
+  profileName?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region?: string;
+}
+
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface GsdWizardApi {
   /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
   checkPrereqs: () => Promise<PrerequisitesReport>;
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   listAwsProfiles: () => Promise<AwsProfileSummary[]>;
+  /**
+   * Saves pasted AWS credentials (the wizard's "paste keys instead" flow).
+   * Only the resolved profile name comes back — never the values passed in.
+   */
+  saveCredentials: (input: SavePastedCredentialsInput) => Promise<{ profileName: string }>;
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */

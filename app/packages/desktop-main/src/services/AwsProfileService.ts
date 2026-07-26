@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import { parseKnownFiles } from '@smithy/shared-ini-file-loader';
 import type { ParsedIniData } from '@smithy/types';
+import { SafeStorageService } from './SafeStorageService.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
 
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
@@ -13,6 +15,49 @@ import type { ParsedIniData } from '@smithy/types';
 export interface AwsProfileSummary {
   profileName: string;
   region?: string;
+}
+
+/** Default profile name used for the wizard's "paste keys instead" flow when the operator doesn't supply one. */
+export const DEFAULT_PASTED_PROFILE_NAME = 'gsd-pasted';
+
+/** Plaintext input to {@link AwsProfileService.savePastedCredentials}. */
+export interface SavePastedCredentialsInput {
+  /** Defaults to {@link DEFAULT_PASTED_PROFILE_NAME} when omitted. */
+  profileName?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region?: string;
+}
+
+/**
+ * Thrown by {@link AwsProfileService.savePastedCredentials} when the OS
+ * keychain (via `SafeStorageService`) is unavailable. Pasted credentials are
+ * never persisted in plaintext, so this flow has no fallback — the caller
+ * must surface the error and refuse to save rather than silently degrading
+ * (unlike `ElectronStoreService`'s generic encrypted accessors, which
+ * transparently degrade to plaintext outside Electron for convenience in
+ * tests/CI).
+ */
+export class SafeStorageUnavailableError extends Error {
+  constructor() {
+    super(
+      'Cannot save pasted AWS credentials: the OS keychain (safeStorage) is unavailable. ' +
+        'Pasted keys are never stored in plaintext — pick an existing AWS CLI profile instead.',
+    );
+    this.name = 'SafeStorageUnavailableError';
+  }
+}
+
+/**
+ * Thrown by {@link AwsProfileService.savePastedCredentials} when
+ * `accessKeyId` or `secretAccessKey` is blank/whitespace-only — nothing is
+ * persisted in that case.
+ */
+export class InvalidPastedCredentialsError extends Error {
+  constructor(field: 'accessKeyId' | 'secretAccessKey') {
+    super(`Cannot save pasted AWS credentials: "${field}" must not be blank.`);
+    this.name = 'InvalidPastedCredentialsError';
+  }
 }
 
 /**
@@ -26,6 +71,11 @@ export interface AwsProfileSummary {
  */
 @Injectable()
 export class AwsProfileService {
+  constructor(
+    private readonly safeStorage: SafeStorageService,
+    private readonly store: ElectronStoreService,
+  ) {}
+
   /**
    * Lists every profile found across `~/.aws/credentials` and
    * `~/.aws/config`, sorted alphabetically by name. Only `profileName` and
@@ -40,6 +90,30 @@ export class AwsProfileService {
         const region = parsed[profileName]?.['region'];
         return region ? { profileName, region } : { profileName };
       });
+  }
+
+  /**
+   * Saves pasted AWS credentials from the wizard's "paste keys instead" flow.
+   * Defaults `profileName` to {@link DEFAULT_PASTED_PROFILE_NAME} when
+   * omitted. Throws {@link SafeStorageUnavailableError} — without writing
+   * anything — when the OS keychain is unavailable, rather than falling
+   * back to plaintext storage.
+   *
+   * @returns The profile name the credentials were saved under.
+   */
+  savePastedCredentials(input: SavePastedCredentialsInput): { profileName: string } {
+    if (!this.safeStorage.isAvailable()) {
+      throw new SafeStorageUnavailableError();
+    }
+    if (!input.accessKeyId.trim()) throw new InvalidPastedCredentialsError('accessKeyId');
+    if (!input.secretAccessKey.trim()) throw new InvalidPastedCredentialsError('secretAccessKey');
+    const profileName = input.profileName?.trim() || DEFAULT_PASTED_PROFILE_NAME;
+    this.store.setPastedCredentials(profileName, {
+      accessKeyId: input.accessKeyId,
+      secretAccessKey: input.secretAccessKey,
+      region: input.region,
+    });
+    return { profileName };
   }
 
   /**

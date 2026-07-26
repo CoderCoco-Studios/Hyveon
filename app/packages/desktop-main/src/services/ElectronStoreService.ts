@@ -12,14 +12,32 @@ const ElectronStoreModule = process.versions['electron']
   : undefined;
 
 /**
+ * A single pasted-credentials entry under `creds.aws.<profileName>`.
+ * `accessKeyId`/`secretAccessKey` are encrypted base64 blobs — do not read
+ * them directly; use {@link ElectronStoreService.getPastedCredentials} /
+ * {@link ElectronStoreService.setPastedCredentials}.
+ */
+export interface PastedAwsCredentials {
+  /** Stored as an encrypted base64 blob — do not read this field directly. */
+  accessKeyId: string;
+  /** Stored as an encrypted base64 blob — do not read this field directly. */
+  secretAccessKey: string;
+  region?: string;
+}
+
+/**
  * Typed schema for the application's persistent electron-store.
  *
- * Secret fields (`aws.accessKeyId`, `aws.secretAccessKey`) are stored
- * encrypted via {@link SafeStorageService} and must never be read or written
- * directly — always use {@link ElectronStoreService.getSecretAccessKeyId},
+ * Secret fields (`aws.accessKeyId`, `aws.secretAccessKey`,
+ * `creds.aws.<profileName>.accessKeyId`,
+ * `creds.aws.<profileName>.secretAccessKey`) are stored encrypted via
+ * {@link SafeStorageService} and must never be read or written directly —
+ * always use {@link ElectronStoreService.getSecretAccessKeyId},
  * {@link ElectronStoreService.setSecretAccessKeyId},
- * {@link ElectronStoreService.getSecretAccessKey}, and
- * {@link ElectronStoreService.setSecretAccessKey}.
+ * {@link ElectronStoreService.getSecretAccessKey},
+ * {@link ElectronStoreService.setSecretAccessKey},
+ * {@link ElectronStoreService.getPastedCredentials}, and
+ * {@link ElectronStoreService.setPastedCredentials}.
  */
 export interface AppStoreSchema {
   wizardCompleted: boolean;
@@ -32,6 +50,15 @@ export interface AppStoreSchema {
     accessKeyId?: string;
     /** Stored as an encrypted base64 blob — do not read this field directly. */
     secretAccessKey?: string;
+  };
+  /**
+   * Pasted-credentials profiles from the wizard's credentials step, keyed by
+   * profile name (default `gsd-pasted` — see `AwsProfileService`). Separate
+   * from `aws` above, which holds the *selected* profile/region for the
+   * "pick an existing profile" path.
+   */
+  creds: {
+    aws: Record<string, PastedAwsCredentials>;
   };
 }
 
@@ -146,6 +173,56 @@ export class ElectronStoreService {
     const current = this.get('aws') ?? {};
     this.set('aws', { ...current, secretAccessKey: encrypted });
     logger.debug('ElectronStoreService: aws.secretAccessKey written (encrypted)');
+  }
+
+  /**
+   * Read a pasted-credentials profile from `creds.aws.<profileName>`,
+   * decrypting `accessKeyId`/`secretAccessKey` via {@link SafeStorageService}.
+   *
+   * @remarks
+   * Decrypted values must only ever be consumed inside main-process SDK
+   * client factories (e.g. `CloudProviderModule`'s `useFactory` providers) —
+   * never returned over IPC to the renderer. Callers over IPC (see
+   * `WizardController.saveCredentials`) must not echo this method's return
+   * value back to the caller.
+   *
+   * @param profileName - The pasted-profile name to read.
+   * @returns The decrypted credentials, or `undefined` if the profile isn't stored.
+   */
+  getPastedCredentials(profileName: string): { accessKeyId: string; secretAccessKey: string; region?: string } | undefined {
+    const entry = this.get('creds')?.aws?.[profileName];
+    if (entry === undefined) return undefined;
+    return {
+      accessKeyId: this.safeStorage.decrypt(entry.accessKeyId),
+      secretAccessKey: this.safeStorage.decrypt(entry.secretAccessKey),
+      region: entry.region,
+    };
+  }
+
+  /**
+   * Write a pasted-credentials profile to `creds.aws.<profileName>`,
+   * encrypting `accessKeyId`/`secretAccessKey` via {@link SafeStorageService}
+   * before storage. Merges with any existing `creds.aws` map so other
+   * profiles are preserved.
+   *
+   * @param profileName - The pasted-profile name to write (default naming —
+   *   e.g. `gsd-pasted` — is the caller's responsibility; see `AwsProfileService`).
+   * @param value - Plaintext credentials to encrypt and store.
+   */
+  setPastedCredentials(profileName: string, value: { accessKeyId: string; secretAccessKey: string; region?: string }): void {
+    const currentCreds = this.get('creds') ?? { aws: {} };
+    this.set('creds', {
+      ...currentCreds,
+      aws: {
+        ...currentCreds.aws,
+        [profileName]: {
+          accessKeyId: this.safeStorage.encrypt(value.accessKeyId),
+          secretAccessKey: this.safeStorage.encrypt(value.secretAccessKey),
+          region: value.region,
+        },
+      },
+    });
+    logger.debug(`ElectronStoreService: creds.aws.${profileName} written (encrypted)`);
   }
 
   /**
