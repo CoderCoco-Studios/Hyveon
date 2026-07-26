@@ -23,6 +23,7 @@ export type {
   TerraformPrerequisiteCheckResult,
   PrerequisitesReport,
   WizardState,
+  SaveWizardStateInput,
 } from './gsd-api.js';
 
 declare global {

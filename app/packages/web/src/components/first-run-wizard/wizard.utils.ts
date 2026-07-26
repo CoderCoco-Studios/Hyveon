@@ -7,11 +7,11 @@
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 
 /**
- * Ordered wizard steps. Only `prerequisites` exists so far — later PRs in
- * this epic (#186 pick-cloud, #192 credentials, #200/#203/#205 bootstrap,
- * #208 IAM check, #210 terraform-init) append to this array.
+ * Ordered wizard steps. Later PRs in this epic (#192 credentials,
+ * #200/#203/#205 bootstrap, #208 IAM check, #210 terraform-init) append to
+ * this array.
  */
-export const WIZARD_STEPS = ['prerequisites'] as const;
+export const WIZARD_STEPS = ['prerequisites', 'pick-cloud'] as const;
 
 /** A single step in {@link WIZARD_STEPS}. */
 export type WizardStep = (typeof WIZARD_STEPS)[number];

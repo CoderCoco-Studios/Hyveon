@@ -236,6 +236,55 @@ describe('ElectronStoreService — round-trip', () => {
 });
 
 // ---------------------------------------------------------------------------
+// activeCloud — relaunch semantics
+// ---------------------------------------------------------------------------
+
+/**
+ * Stateful stand-in for the mocked `electron-store` `Store`, backed by a
+ * plain object so `get`/`set` actually persist across calls — needed to
+ * prove a value survives being read by a *second* `ElectronStoreService`
+ * instance pointed at the same underlying store, simulating an app relaunch
+ * (a fresh service instance is constructed on every app boot; only the
+ * on-disk store file — modeled here by this shared object — persists).
+ */
+function makeStatefulMockStore(): Store<AppStoreSchema> {
+  const data: Partial<AppStoreSchema> = {};
+  return {
+    get: vi.fn().mockImplementation((key: keyof AppStoreSchema) => data[key]),
+    set: vi.fn().mockImplementation((key: keyof AppStoreSchema, value: unknown) => {
+      (data as Record<string, unknown>)[key] = value;
+    }),
+  } as unknown as Store<AppStoreSchema>;
+}
+
+describe('ElectronStoreService — activeCloud persists across a simulated relaunch', () => {
+  it('should read back activeCloud from a new service instance pointed at the same store', () => {
+    const sharedMockStore = makeStatefulMockStore();
+    const safeStorage = makeSafeStorage();
+
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { readIsElectron(): boolean },
+      'readIsElectron',
+    ).mockReturnValue(true);
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { createStore(): Store<AppStoreSchema> },
+      'createStore',
+    ).mockReturnValue(sharedMockStore);
+
+    // First "launch": a service instance writes the operator's cloud choice.
+    const firstLaunch = new ElectronStoreService(safeStorage);
+    firstLaunch.set('activeCloud', 'aws');
+
+    // Second "launch": a brand-new instance, same underlying store — this is
+    // exactly what happens when the app restarts and re-constructs its
+    // providers from scratch.
+    const secondLaunch = new ElectronStoreService(safeStorage);
+
+    expect(secondLaunch.get('activeCloud')).toBe('aws');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Pasted credentials — getPastedCredentials / setPastedCredentials
 // ---------------------------------------------------------------------------
 

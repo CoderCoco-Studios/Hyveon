@@ -29,10 +29,18 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
   } as Partial<AwsProfileService> as AwsProfileService;
 }
 
-/** Build an ElectronStoreService stub whose `get('wizardCompleted')` returns the given value. */
-function makeStore(wizardCompleted: boolean | undefined = undefined): ElectronStoreService {
+/**
+ * Build an `ElectronStoreService` stub backed by a plain object so
+ * `set()` followed by `get()` (as `saveState` does) round-trips like the
+ * real service, instead of always returning a fixed value.
+ */
+function makeStore(seed: { wizardCompleted?: boolean; activeCloud?: 'aws' } = {}): ElectronStoreService {
+  const data: Record<string, unknown> = { ...seed };
   return {
-    get: vi.fn().mockImplementation((key: string) => (key === 'wizardCompleted' ? wizardCompleted : undefined)),
+    get: vi.fn().mockImplementation((key: string) => data[key]),
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
+      data[key] = value;
+    }),
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
@@ -76,6 +84,11 @@ describe('WizardController', () => {
     it('should register getState on the "wizard.state.get" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.getState);
       expect(pattern).toEqual(['wizard.state.get']);
+    });
+
+    it('should register saveState on the "wizard.state.save" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveState);
+      expect(pattern).toEqual(['wizard.state.save']);
     });
   });
 
@@ -134,29 +147,56 @@ describe('WizardController', () => {
 
   describe('getState', () => {
     it('should return wizardCompleted: false when the store has never set it and test mode is off', () => {
-      const controller = makeController({ store: makeStore(undefined) });
+      const controller = makeController({ store: makeStore() });
       vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(false);
 
-      expect(controller.getState()).toEqual({ wizardCompleted: false });
+      expect(controller.getState()).toEqual({ wizardCompleted: false, activeCloud: undefined });
     });
 
     it('should default to wizardCompleted: true when unset and HYVEON_TEST_MODE is active', () => {
-      const controller = makeController({ store: makeStore(undefined) });
+      const controller = makeController({ store: makeStore() });
       vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
 
-      expect(controller.getState()).toEqual({ wizardCompleted: true });
+      expect(controller.getState()).toEqual({ wizardCompleted: true, activeCloud: undefined });
     });
 
     it('should honor an explicitly-stored false value even under test mode', () => {
-      const controller = makeController({ store: makeStore(false) });
+      const controller = makeController({ store: makeStore({ wizardCompleted: false }) });
       vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
 
-      expect(controller.getState()).toEqual({ wizardCompleted: false });
+      expect(controller.getState()).toEqual({ wizardCompleted: false, activeCloud: undefined });
     });
 
     it('should return wizardCompleted: true once the store has it set', () => {
-      const result = makeController({ store: makeStore(true) }).getState();
-      expect(result).toEqual({ wizardCompleted: true });
+      const result = makeController({ store: makeStore({ wizardCompleted: true }) }).getState();
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined });
+    });
+
+    it('should include the stored activeCloud when present', () => {
+      const result = makeController({ store: makeStore({ wizardCompleted: true, activeCloud: 'aws' }) }).getState();
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws' });
+    });
+  });
+
+  describe('saveState', () => {
+    it('should persist activeCloud to the store and return the updated state', () => {
+      const store = makeStore({ wizardCompleted: false });
+      const controller = makeController({ store });
+
+      const result = controller.saveState({ activeCloud: 'aws' });
+
+      expect(store.set).toHaveBeenCalledWith('activeCloud', 'aws');
+      expect(result).toEqual({ wizardCompleted: false, activeCloud: 'aws' });
+    });
+
+    it('should not write to the store when activeCloud is omitted, but still return current state', () => {
+      const store = makeStore({ wizardCompleted: true, activeCloud: 'aws' });
+      const controller = makeController({ store });
+
+      const result = controller.saveState({});
+
+      expect(store.set).not.toHaveBeenCalled();
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws' });
     });
   });
 });

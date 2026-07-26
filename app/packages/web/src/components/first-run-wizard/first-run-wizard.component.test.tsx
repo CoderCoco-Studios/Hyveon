@@ -6,6 +6,7 @@ import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 const gsdMock = {
   wizard: {
     checkPrereqs: vi.fn(),
+    saveState: vi.fn(),
   },
 };
 vi.stubGlobal('gsd', gsdMock);
@@ -24,7 +25,17 @@ const UNSATISFIED: PrerequisitesReport = {
 
 beforeEach(() => {
   gsdMock.wizard.checkPrereqs.mockReset();
+  gsdMock.wizard.saveState.mockReset();
 });
+
+/** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
+async function advanceToPickCloud(): Promise<void> {
+  gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+  render(<FirstRunWizard />);
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+  await screen.findByText(/choose the cloud provider/i);
+}
 
 afterEach(() => {
   cleanup();
@@ -70,11 +81,44 @@ describe('FirstRunWizard', () => {
     expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
 
-  it('should disable Back on the first (and currently only) step', async () => {
+  it('should disable Back on the first step', async () => {
     gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
     render(<FirstRunWizard />);
     await waitFor(() => expect(gsdMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
 
     expect(screen.getByRole('button', { name: /back/i })).toBeDisabled();
+  });
+
+  it('should advance to the pick-cloud step once prerequisites are satisfied and Next is clicked', async () => {
+    await advanceToPickCloud();
+    expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
+  });
+
+  it('should persist the selected cloud via wizard.state.save when advancing past pick-cloud', async () => {
+    gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
+    await advanceToPickCloud();
+
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+    await waitFor(() => expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ activeCloud: 'aws' }));
+  });
+
+  it('should show an error and stay on pick-cloud when saving the cloud choice fails', async () => {
+    gsdMock.wizard.saveState.mockRejectedValue(new Error('disk full'));
+    await advanceToPickCloud();
+
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('disk full');
+    // Still on pick-cloud, not advanced further.
+    expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
+  });
+
+  it('should allow going back from pick-cloud to prerequisites', async () => {
+    await advanceToPickCloud();
+
+    await userEvent.click(screen.getByRole('button', { name: /back/i }));
+
+    expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
 });
