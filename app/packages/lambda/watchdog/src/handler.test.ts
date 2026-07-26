@@ -2,8 +2,9 @@
  * Tests for the watchdog Lambda — TypeScript port of watchdog.py.
  *
  * Covers: idle counter increment via ECS task tags, threshold-based shutdown
- * (with DNS delete for direct games and ALB deregister for HTTPS games), and
- * counter reset when activity is detected.
+ * with DNS delete (uniform for every game, including HTTPS-flagged ones now
+ * that TLS terminates in-task via a Caddy sidecar), and counter reset when
+ * activity is detected.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
@@ -16,14 +17,6 @@ import {
   TagResourceCommand,
 } from '@aws-sdk/client-ecs';
 import {
-  DescribeNetworkInterfacesCommand,
-  EC2Client,
-} from '@aws-sdk/client-ec2';
-import {
-  ElasticLoadBalancingV2Client,
-  DeregisterTargetsCommand,
-} from '@aws-sdk/client-elastic-load-balancing-v2';
-import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
   ListResourceRecordSetsCommand,
@@ -34,8 +27,6 @@ import {
 } from '@aws-sdk/client-cloudwatch';
 
 const ecsMock = mockClient(ECSClient);
-const ec2Mock = mockClient(EC2Client);
-const elbv2Mock = mockClient(ElasticLoadBalancingV2Client);
 const route53Mock = mockClient(Route53Client);
 const cwMock = mockClient(CloudWatchClient);
 
@@ -46,8 +37,6 @@ process.env['GAME_NAMES'] = 'palworld,foundryvtt';
 process.env['IDLE_CHECKS'] = '4';
 process.env['MIN_PACKETS'] = '100';
 process.env['CHECK_WINDOW_MINUTES'] = '15';
-process.env['HTTPS_GAMES'] = 'foundryvtt';
-process.env['ALB_TARGET_GROUPS'] = JSON.stringify({ foundryvtt: 'arn:tg-foundry' });
 process.env['AWS_REGION_'] = 'us-east-1';
 
 const { handler } = await import('./handler.js');
@@ -68,8 +57,6 @@ function runningTask(opts: { taskArn: string; game: string; eniId?: string }) {
 
 beforeEach(() => {
   ecsMock.reset();
-  ec2Mock.reset();
-  elbv2Mock.reset();
   route53Mock.reset();
   cwMock.reset();
 });
@@ -169,10 +156,9 @@ describe('watchdog handler: shutdown threshold', () => {
 
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
     expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(1);
-    expect(elbv2Mock.commandCalls(DeregisterTargetsCommand)).toHaveLength(0);
   });
 
-  it('should stop the task and deregister the ALB target for HTTPS games at the threshold', async () => {
+  it('should stop the task and delete its DNS record for an HTTPS-flagged game at the threshold, same as any other game', async () => {
     const taskArn = 'arn:task/dead';
     ecsMock.on(ListTasksCommand).resolves({ taskArns: [taskArn] });
     ecsMock.on(DescribeTasksCommand).resolves({
@@ -181,16 +167,15 @@ describe('watchdog handler: shutdown threshold', () => {
     cwMock.on(GetMetricStatisticsCommand).resolves({ Datapoints: [{ Sum: 0 }] });
     ecsMock.on(ListTagsForResourceCommand).resolves({ tags: [{ key: 'idle_checks', value: '3' }] });
     ecsMock.on(StopTaskCommand).resolves({});
-    ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
-      NetworkInterfaces: [{ PrivateIpAddress: '10.0.0.5' }],
+    route53Mock.on(ListResourceRecordSetsCommand).resolves({
+      ResourceRecordSets: [{ Name: 'foundryvtt.example.com.', Type: 'A', ResourceRecords: [{ Value: '5.6.7.8' }] }],
     });
-    elbv2Mock.on(DeregisterTargetsCommand).resolves({});
+    route53Mock.on(ChangeResourceRecordSetsCommand).resolves({});
 
     await handler();
 
     expect(ecsMock.commandCalls(StopTaskCommand)).toHaveLength(1);
-    expect(elbv2Mock.commandCalls(DeregisterTargetsCommand)).toHaveLength(1);
-    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(0);
+    expect(route53Mock.commandCalls(ChangeResourceRecordSetsCommand)).toHaveLength(1);
   });
 
   it('should treat missing CloudWatch datapoints as active (no shutdown of brand-new tasks)', async () => {

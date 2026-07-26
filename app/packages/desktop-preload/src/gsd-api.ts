@@ -816,8 +816,6 @@ export interface TfOutputs {
   efs_access_points: Record<string, string>;
   domain_name: string;
   game_names: string[];
-  alb_dns_name: string | null;
-  acm_certificate_arn: string | null;
   discord_table_name: string;
   audit_table_name: string;
   discord_bot_token_secret_arn: string;

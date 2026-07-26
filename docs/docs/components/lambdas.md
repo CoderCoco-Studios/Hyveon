@@ -116,8 +116,8 @@ Failure modes:
 | **Package** | `@hyveon/lambda-update-dns` |
 | **Trigger** | EventBridge rule on `source: aws.ecs`, `detail-type: 'ECS Task State Change'`, `lastStatus` in `['RUNNING', 'STOPPED']`. |
 | **Terraform** | `terraform/aws/route53.tf`. |
-| **IAM** | `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`, `ecs:DescribeTasks`, `ec2:DescribeNetworkInterfaces`, `elasticloadbalancing:RegisterTargets` / `DeregisterTargets`, `dynamodb:GetItem` / `DeleteItem`. |
-| **Env vars** | `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `AWS_REGION_`, `HTTPS_GAMES`, `ALB_TARGET_GROUPS` (JSON map game → target group ARN), `TABLE_NAME`. |
+| **IAM** | `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`, `ecs:DescribeTasks`, `ec2:DescribeNetworkInterfaces`, `dynamodb:GetItem` / `DeleteItem`. |
+| **Env vars** | `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `AWS_REGION_`, `TABLE_NAME`. |
 
 ### Behaviour
 
@@ -135,29 +135,24 @@ Event shape (simplified):
 ```
 
 1. Parse the task family from `detail.group`, map to a game via
-   `FAMILY_TO_GAME`. Skip unknown families.
-2. Determine whether the game is **HTTPS** (present in `HTTPS_GAMES`) or
-   **direct**.
-3. **Direct games**:
-   - On `RUNNING`: `resolveIp('public')` — retries up to 5 times with
-     3-second sleeps to survive ENI attach lag; then `upsertDns()` writes
-     an A record `{game}.{domain}` → IP with `DNS_TTL`.
-   - On `STOPPED`: read the current record, verify its IP, `deleteDns()`.
-4. **HTTPS games**:
-   - On `RUNNING`: resolve the **private** IP, `registerAlb()` (adds it to
-     the target group).
-   - On `STOPPED`: `deregisterAlb()`.
-5. On `RUNNING`, regardless of game type: call `notifyDiscordIfPending()`
-   — look up `PENDING#{taskArn}` in DynamoDB, format a final status
-   message, PATCH the original Discord interaction, delete the pending
-   row.
+   `FAMILY_TO_GAME`. Skip unknown families. Every game — including
+   `https = true` ones, which terminate TLS in-task via a Caddy sidecar and
+   share the task's public IP — follows the same path below.
+2. On `RUNNING`: `resolvePublicIp()` — retries up to 5 times with
+   3-second sleeps to survive ENI attach lag; then `upsertDns()` writes
+   an A record `{game}.{domain}` → IP with `DNS_TTL`.
+3. On `STOPPED`: read the current record, verify its IP, `deleteDns()`.
+4. On `RUNNING`: call `notifyDiscordIfPending()` — look up
+   `PENDING#{taskArn}` in DynamoDB, format a final status message
+   (including the resolved public IP), PATCH the original Discord
+   interaction, delete the pending row.
 
 Failure modes:
 
 - IP not available after 5 retries → log warning, skip. Next state change
   will retry; meanwhile the task is up but unreachable by DNS.
-- Route 53 / ALB call fails → log, continue. The STOPPED path is
-  eventually consistent because the watchdog cleans up too.
+- Route 53 call fails → log, continue. The STOPPED path is eventually
+  consistent because the watchdog cleans up too.
 - Pending row missing (expired / never written / `stop` flow) → skip the
   Discord PATCH; no user-visible issue.
 - Discord PATCH fails (stale token) → log, continue.
@@ -169,8 +164,8 @@ Failure modes:
 | **Package** | `@hyveon/lambda-watchdog` |
 | **Trigger** | EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. No event payload. |
 | **Terraform** | `terraform/aws/watchdog.tf`. |
-| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`, `route53:ChangeResourceRecordSets` / `ListResourceRecordSets`, `elasticloadbalancing:DeregisterTargets`, `ec2:DescribeNetworkInterfaces`. |
-| **Env vars** | `ECS_CLUSTER`, `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`, `HTTPS_GAMES`, `ALB_TARGET_GROUPS`. |
+| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`, `route53:ChangeResourceRecordSets` / `ListResourceRecordSets`. |
+| **Env vars** | `ECS_CLUSTER`, `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`. |
 
 ### Behaviour
 
@@ -184,8 +179,7 @@ Failure modes:
    - If `packets < MIN_PACKETS`:
      - Increment the `idle_checks` tag.
      - If the counter reaches `IDLE_CHECKS`:
-       - HTTPS game → `DeregisterTargets`.
-       - Direct game → delete the Route 53 record.
+       - Delete the Route 53 record.
        - `StopTask` with reason `Watchdog: idle for {N} minutes`.
      - Otherwise persist the incremented counter via `TagResource`.
    - Else (active), if the counter is non-zero, reset it to 0.

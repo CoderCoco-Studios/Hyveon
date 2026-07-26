@@ -101,7 +101,6 @@ describe('ConfigService', () => {
       expect(outputs!.ecs_cluster_name).toBe('my-cluster');
       expect(outputs!.game_names).toEqual(['minecraft', 'factorio']);
       expect(outputs!.subnet_ids).toBe('');
-      expect(outputs!.alb_dns_name).toBeNull();
       expect(outputs!.efs_access_points).toEqual({});
       expect(outputs!.applied_game_servers).toBeNull();
     });

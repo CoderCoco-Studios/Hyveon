@@ -26,8 +26,6 @@ const DEFAULT_OUTPUTS: TfOutputs = {
   efs_access_points: { minecraft: 'fsap-mc' },
   domain_name: 'example.com',
   game_names: ['minecraft'],
-  alb_dns_name: null,
-  acm_certificate_arn: null,
 };
 
 /**

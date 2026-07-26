@@ -6,11 +6,9 @@
  *     `CHECK_WINDOW_MINUTES` window.
  *   - If packets &lt; `MIN_PACKETS`, increments the per-task `idle_checks` ECS
  *     resource tag. After `IDLE_CHECKS` consecutive idle windows, the task is
- *     stopped (which triggers the DNS/ALB cleanup via the update-dns Lambda).
- *   - For HTTPS games we also deregister the ALB target before stopping so
- *     the LB doesn't keep healthchecking a dying task.
- *   - For non-HTTPS games we delete the Route 53 record directly here so the
- *     DNS removal isn't racy with task teardown.
+ *     stopped (which triggers the DNS cleanup via the update-dns Lambda).
+ *   - We delete the Route 53 record directly here so the DNS removal isn't
+ *     racy with task teardown.
  */
 import {
   ECSClient,
@@ -21,14 +19,6 @@ import {
   ListTagsForResourceCommand,
   type Task,
 } from '@aws-sdk/client-ecs';
-import {
-  EC2Client,
-  DescribeNetworkInterfacesCommand,
-} from '@aws-sdk/client-ec2';
-import {
-  ElasticLoadBalancingV2Client,
-  DeregisterTargetsCommand,
-} from '@aws-sdk/client-elastic-load-balancing-v2';
 import {
   Route53Client,
   ChangeResourceRecordSetsCommand,
@@ -46,12 +36,6 @@ const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.tri
 const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
 const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
 const CHECK_WINDOW_MINUTES = parseInt(process.env['CHECK_WINDOW_MINUTES'] ?? '15', 10);
-const HTTPS_GAMES = new Set(
-  (process.env['HTTPS_GAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-);
-const ALB_TARGET_GROUPS: Record<string, string> = JSON.parse(
-  process.env['ALB_TARGET_GROUPS'] ?? '{}',
-);
 
 const FAMILY_TO_GAME = new Map<string, string>(GAME_NAMES.map((g) => [`${g}-server`, g]));
 
@@ -71,8 +55,6 @@ function region(): string {
 }
 
 const ecs = new ECSClient({ region: region() });
-const ec2 = new EC2Client({ region: region() });
-const elbv2 = new ElasticLoadBalancingV2Client({ region: region() });
 const route53 = new Route53Client({});
 const cloudwatch = new CloudWatchClient({ region: region() });
 
@@ -173,27 +155,6 @@ async function deleteDns(game: string): Promise<void> {
   }
 }
 
-async function deregisterAlbTarget(game: string, task: Task): Promise<void> {
-  const tgArn = ALB_TARGET_GROUPS[game];
-  if (!tgArn) {
-    console.log(`No ALB target group configured for ${game}`);
-    return;
-  }
-  const eniId = getEniId(task);
-  if (!eniId) return;
-  try {
-    const resp = await ec2.send(new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }));
-    const privateIp = resp.NetworkInterfaces?.[0]?.PrivateIpAddress;
-    if (!privateIp) return;
-    await elbv2.send(
-      new DeregisterTargetsCommand({ TargetGroupArn: tgArn, Targets: [{ Id: privateIp }] }),
-    );
-    console.log(`Deregistered ALB target ${privateIp} for ${game}`);
-  } catch (err) {
-    console.warn(`ALB deregistration failed for ${game}`, { err });
-  }
-}
-
 async function listAllRunningTaskArns(): Promise<string[]> {
   const arns: string[] = [];
   let nextToken: string | undefined;
@@ -249,11 +210,7 @@ export const handler = async (): Promise<{ checked: number }> => {
         console.log(
           `${game}: shutting down after ${idleCount} idle checks (${idleCount * CHECK_WINDOW_MINUTES} minutes idle)`,
         );
-        if (HTTPS_GAMES.has(game)) {
-          await deregisterAlbTarget(game, task);
-        } else {
-          await deleteDns(game);
-        }
+        await deleteDns(game);
         await ecs.send(
           new StopTaskCommand({
             cluster: ECS_CLUSTER,
