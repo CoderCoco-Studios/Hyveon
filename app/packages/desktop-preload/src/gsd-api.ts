@@ -948,6 +948,34 @@ export interface GsdConfigApi {
   }) => Promise<WatchdogConfigResult>;
 }
 
+/** Detection result for a single first-run-wizard prerequisite binary. */
+export interface PrerequisiteCheckResult {
+  /** Whether the binary was located on `PATH`. */
+  found: boolean;
+  /** Absolute path to the binary, present only when `found` is `true`. */
+  path?: string;
+  /** Parsed semver string, present only when the version output was parseable. */
+  version?: string;
+}
+
+/** Detection result for `terraform`, extending the base shape with a minimum-version flag. */
+export interface TerraformPrerequisiteCheckResult extends PrerequisiteCheckResult {
+  /** Whether `version` satisfies the app's minimum supported Terraform version. */
+  minimumVersionSatisfied?: boolean;
+}
+
+/** Combined report returned by the first-run wizard's prerequisite-detection step. */
+export interface PrerequisitesReport {
+  terraform: TerraformPrerequisiteCheckResult;
+  aws: PrerequisiteCheckResult;
+}
+
+/** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
+export interface GsdWizardApi {
+  /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
+  checkPrereqs: () => Promise<PrerequisitesReport>;
+}
+
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
 export interface GsdDriftApi {
   /** Returns the current drift report — games out of sync between declared and deployed state. */
@@ -1259,6 +1287,8 @@ export interface GsdApi {
   env: GsdEnvApi;
   /** Watchdog configuration stored in server_config.json. */
   config: GsdConfigApi;
+  /** First-run wizard endpoints: prerequisite detection, credentials, cloud bootstrap. */
+  wizard: GsdWizardApi;
   /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
   drift: GsdDriftApi;
   /** Local application log diagnostics: tail recent lines or retrieve the log file path. */

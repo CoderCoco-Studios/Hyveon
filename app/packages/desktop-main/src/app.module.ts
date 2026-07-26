@@ -6,6 +6,7 @@ import { AwsModule } from './modules/aws.module.js';
 import { DiscordModule } from './modules/discord.module.js';
 import { TfvarsModule } from './modules/tfvars.module.js';
 import { TerraformModule } from './modules/terraform.module.js';
+import { WizardModule } from './modules/wizard.module.js';
 import { GamesController } from './controllers/games.controller.js';
 import { GamesHttpController } from './controllers/games-http.controller.js';
 import { ConfigController } from './controllers/config.controller.js';
@@ -27,6 +28,7 @@ import { AuditController } from './controllers/audit.controller.js';
 import { AuditHttpController } from './controllers/audit-http.controller.js';
 import { TerraformController } from './controllers/terraform.controller.js';
 import { TerraformRunsController } from './controllers/terraform-runs.controller.js';
+import { WizardController } from './controllers/wizard.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DriftService } from './services/DriftService.js';
 import { GamesWriteService } from './services/GamesWriteService.js';
@@ -36,10 +38,10 @@ import { AuditService } from './services/AuditService.js';
 
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
- * `TfvarsModule`, `TerraformModule`) to the IPC controllers.
+ * `TfvarsModule`, `TerraformModule`, `WizardModule`) to the IPC controllers.
  */
 @Module({
-  imports: [AwsModule, DiscordModule, TfvarsModule, TerraformModule],
+  imports: [AwsModule, DiscordModule, TfvarsModule, TerraformModule, WizardModule],
   controllers: [
     GamesController,
     GamesHttpController,
@@ -62,6 +64,7 @@ import { AuditService } from './services/AuditService.js';
     AuditHttpController,
     TerraformController,
     TerraformRunsController,
+    WizardController,
   ],
   providers: [
     {
