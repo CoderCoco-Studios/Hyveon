@@ -6,6 +6,14 @@ import { lookupCommandFor } from './TerraformService.js';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Timeout applied to every CLI probe (`which`/`where.exe` lookups and
+ * `terraform`/`aws` version invocations). Without one, a hung subprocess
+ * would leave {@link PrerequisiteService.check} pending indefinitely instead
+ * of degrading to a reported status.
+ */
+const PROBE_TIMEOUT_MS = 10_000;
+
 /** Detection result for a single prerequisite binary. */
 export interface PrerequisiteCheckResult {
   /** Whether the binary was located on `PATH`. */
@@ -80,7 +88,7 @@ export class PrerequisiteService {
   protected async locate(binary: string): Promise<string | null> {
     const lookupCommand = lookupCommandFor(this.readPlatform());
     try {
-      const { stdout } = await execFileAsync(lookupCommand, [binary]);
+      const { stdout } = await execFileAsync(lookupCommand, [binary], { timeout: PROBE_TIMEOUT_MS });
       const firstLine = stdout
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -101,7 +109,7 @@ export class PrerequisiteService {
    */
   protected async readTerraformVersion(binaryPath: string): Promise<string | undefined> {
     try {
-      const { stdout } = await execFileAsync(binaryPath, ['version', '-json']);
+      const { stdout } = await execFileAsync(binaryPath, ['version', '-json'], { timeout: PROBE_TIMEOUT_MS });
       const parsed = JSON.parse(stdout) as { terraform_version?: unknown };
       if (typeof parsed.terraform_version === 'string' && parsed.terraform_version.length > 0) {
         return parsed.terraform_version;
@@ -110,7 +118,7 @@ export class PrerequisiteService {
       // `-json` output missing/unparseable — fall back to plain-text parsing below.
     }
     try {
-      const { stdout } = await execFileAsync(binaryPath, ['version']);
+      const { stdout } = await execFileAsync(binaryPath, ['version'], { timeout: PROBE_TIMEOUT_MS });
       const match = /Terraform\s+v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)/.exec(stdout);
       return match?.[1];
     } catch {
@@ -127,7 +135,7 @@ export class PrerequisiteService {
    */
   protected async readAwsVersion(binaryPath: string): Promise<string | undefined> {
     try {
-      const { stdout, stderr } = await execFileAsync(binaryPath, ['--version']);
+      const { stdout, stderr } = await execFileAsync(binaryPath, ['--version'], { timeout: PROBE_TIMEOUT_MS });
       const match = /aws-cli\/(\d+\.\d+\.\d+)/.exec(`${stdout}${stderr}`);
       return match?.[1];
     } catch {
@@ -145,9 +153,11 @@ export class PrerequisiteService {
 
   /**
    * Lightweight `major.minor.patch` comparison — `true` when `version` is
-   * greater than or equal to `minimum`. Pre-release suffixes on `version`
-   * (e.g. `1.9.0-beta1`) are ignored for the comparison; `minimum` is always
-   * a plain `X.Y.Z` constant.
+   * greater than or equal to `minimum`. `minimum` is always a plain `X.Y.Z`
+   * constant. When the numeric core is equal, a pre-release suffix on
+   * `version` (e.g. `1.5.0-beta1`) does *not* satisfy the minimum — matching
+   * SemVer precedence, where a pre-release sorts below the corresponding
+   * stable release (`1.5.0-beta1 < 1.5.0`).
    */
   static isVersionAtLeast(version: string, minimum: string): boolean {
     const a = (version.split('-')[0] ?? '').split('.').map((n) => Number(n) || 0);
@@ -157,6 +167,6 @@ export class PrerequisiteService {
       const bv = b[i] ?? 0;
       if (av !== bv) return av > bv;
     }
-    return true;
+    return !version.includes('-');
   }
 }

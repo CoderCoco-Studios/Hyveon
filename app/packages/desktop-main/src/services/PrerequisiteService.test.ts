@@ -48,13 +48,20 @@ function routeExecFile(handler: (file: string, args: string[]) => RouteResult): 
   });
 }
 
-/** Builds a `PrerequisiteService` with `readPlatform` stubbed to `linux` (so `which` is used). */
+/**
+ * Test-only subclass overriding the protected `readPlatform` seam to always
+ * report `linux` (so `which`, not `where.exe`, is used), avoiding a double
+ * `as unknown as` cast to reach a protected method from a plain spy.
+ */
+class LinuxPrerequisiteService extends PrerequisiteService {
+  protected override readPlatform(): NodeJS.Platform {
+    return 'linux';
+  }
+}
+
+/** Builds a `PrerequisiteService` that resolves the platform as `linux`. */
 function makeService(): PrerequisiteService {
-  const service = new PrerequisiteService();
-  vi.spyOn(service as unknown as { readPlatform(): NodeJS.Platform }, 'readPlatform').mockReturnValue(
-    'linux',
-  );
-  return service;
+  return new LinuxPrerequisiteService();
 }
 
 const TERRAFORM_PATH = '/usr/local/bin/terraform';
@@ -77,8 +84,12 @@ describe('PrerequisiteService.isVersionAtLeast', () => {
     expect(PrerequisiteService.isVersionAtLeast('1.4.9', '1.5.0')).toBe(false);
   });
 
-  it('should ignore a pre-release suffix on the version being compared', () => {
-    expect(PrerequisiteService.isVersionAtLeast('1.5.0-beta1', '1.5.0')).toBe(true);
+  it('should treat an equal-core pre-release as below the stable minimum', () => {
+    expect(PrerequisiteService.isVersionAtLeast('1.5.0-beta1', '1.5.0')).toBe(false);
+  });
+
+  it('should still allow a pre-release to satisfy a lower minimum via the numeric core', () => {
+    expect(PrerequisiteService.isVersionAtLeast('1.9.0-beta1', '1.5.0')).toBe(true);
   });
 
   it('should compare minor and patch components independently of major', () => {
