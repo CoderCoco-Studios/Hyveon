@@ -32,12 +32,20 @@ wait, and re-triggers the review once the cooldown has actually elapsed.
 
 ```bash
 gh pr view <PR_NUMBER> --json comments --jq '
-  .comments[]
-  | select(.author.login | test("coderabbit"))
-  | select(.body | test("rate limited by coderabbit\\.ai"))
+  [.comments[]
+    | select(.author.login == "coderabbitai" or .author.login == "coderabbit[bot]" or .author.login == "coderabbitai[bot]")
+    | select((.body | test("rate limited by coderabbit\\.ai")) or (.body | test("Review limit reached")))
+  ]
+  | sort_by(.createdAt)
+  | last // empty
   | {body, createdAt}
 '
 ```
+
+Matches the exact bot login (never a loose substring — a lookalike account like
+`coderabbit-support` must not be able to trigger this flow), matches both the HTML-marker and
+human-readable "Review limit reached" forms of the comment, and — since a PR can accumulate
+more than one rate-limit comment over time — sorts by `createdAt` and keeps only the newest.
 
 If nothing matches, there is no active rate limit — stop here and tell the user so (don't
 guess a wait time or comment blind).
@@ -85,9 +93,15 @@ again and burning another cooldown cycle.
 
 ### 4. Handle a repeat rate limit
 
-Sustained high review volume can trigger the limit again right after a retry. If the comment
-posted after step 3 is *also* a rate-limit comment, repeat from step 1 with the new comment
-— don't loop blindly on a fixed guess.
+Sustained high review volume can trigger the limit again right after a retry. Cap retries at
+**3 attempts** total per skill invocation. If the comment posted after step 3 is *also* a
+rate-limit comment:
+
+- Under the cap: repeat from step 1 against the new comment — re-read its own `createdAt` and
+  stated cooldown fresh each time, don't reuse the previous guess.
+- At the cap: stop. Tell the user CodeRabbit is still rate-limited after 3 attempts, with the
+  latest available-at time, and let them decide whether to keep waiting — don't keep spawning
+  background retries unattended.
 
 ### 5. Report outcome
 
