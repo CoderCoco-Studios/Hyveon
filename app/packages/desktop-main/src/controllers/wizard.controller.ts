@@ -11,6 +11,13 @@ import { ElectronStoreService } from '../services/ElectronStoreService.js';
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
+  /** The cloud chosen in the pick-cloud step. Locked to `'aws'` for v1; `undefined` before that step runs. */
+  activeCloud?: 'aws';
+}
+
+/** Payload accepted by {@link WizardController.saveState}. */
+export interface SaveWizardStateInput {
+  activeCloud?: 'aws';
 }
 
 /**
@@ -53,8 +60,29 @@ export class WizardController {
   @MessagePattern('wizard.state.get')
   getState(): WizardState {
     const stored = this.store.get('wizardCompleted');
-    if (stored !== undefined) return { wizardCompleted: stored };
-    return { wizardCompleted: this.isTestMode() };
+    const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
+    return { wizardCompleted, activeCloud: this.store.get('activeCloud') };
+  }
+
+  /**
+   * Persists wizard-flow answers into `ElectronStoreService`. Only
+   * `activeCloud` exists so far (the pick-cloud step); later PRs in this
+   * epic extend the payload as more steps need to durably save a choice.
+   * Returns the same shape as {@link getState} so the renderer can update
+   * its local state directly from the response.
+   */
+  @MessagePattern('wizard.state.save')
+  saveState(@Payload() body: SaveWizardStateInput): WizardState {
+    if (body.activeCloud !== undefined) {
+      // The `SaveWizardStateInput` union only constrains compile-time
+      // callers — an IPC payload is runtime data, so a malformed or
+      // malicious call could otherwise persist an unsupported value.
+      if (body.activeCloud !== 'aws') {
+        throw new Error(`Unsupported cloud provider: ${String(body.activeCloud)}`);
+      }
+      this.store.set('activeCloud', body.activeCloud);
+    }
+    return this.getState();
   }
 
   /**

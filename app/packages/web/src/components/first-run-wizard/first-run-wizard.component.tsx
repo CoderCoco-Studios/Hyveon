@@ -6,30 +6,35 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Only the prerequisites step exists so far; later PRs in this epic append
- * more steps to `WIZARD_STEPS` and this shell's render body.
+ * Only prerequisites and pick-cloud exist so far; later PRs in this epic
+ * append more steps to `WIZARD_STEPS` and this shell's render body.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { PrerequisitesStep } from './prerequisites-step.component.js';
+import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { WIZARD_STEPS, arePrerequisitesSatisfied, type WizardStep } from './wizard.utils.js';
 
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
   prerequisites: 'Install prerequisites',
+  'pick-cloud': 'Choose your cloud',
 };
 
 /**
- * Self-contained first-run wizard: owns its own step index and the
- * prerequisites-check state (report/checking/error), and fetches an initial
- * check on mount.
+ * Self-contained first-run wizard: owns its own step index, the
+ * prerequisites-check state (report/checking/error), and the pick-cloud
+ * selection. Fetches an initial prerequisites check on mount.
  */
 export function FirstRunWizard() {
   const [stepIndex, setStepIndex] = useState(0);
   const [report, setReport] = useState<PrerequisitesReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedCloud, setSelectedCloud] = useState<CloudOption>('aws');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const step = WIZARD_STEPS[stepIndex];
 
@@ -56,7 +61,28 @@ export function FirstRunWizard() {
 
   const advanceDisabled = step === 'prerequisites' ? !arePrerequisitesSatisfied(report) : false;
 
-  function goNext() {
+  /**
+   * Advances past the current step. When leaving `pick-cloud`, persists the
+   * selection via `wizard.state.save` first and stays put if that fails —
+   * every other step advances immediately (nothing to persist yet).
+   */
+  async function goNext() {
+    if (step === 'pick-cloud') {
+      if (!window.gsd) {
+        setSaveError('IPC bridge (window.gsd) is not available in this context.');
+        return;
+      }
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await window.gsd.wizard.saveState({ activeCloud: selectedCloud });
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'Failed to save your cloud choice.');
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
     setStepIndex((index) => Math.min(index + 1, WIZARD_STEPS.length - 1));
   }
 
@@ -77,12 +103,22 @@ export function FirstRunWizard() {
         {step === 'prerequisites' && (
           <PrerequisitesStep report={report} checking={checking} error={error} onRecheck={checkPrereqs} />
         )}
+        {step === 'pick-cloud' && (
+          <>
+            <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
+            {saveError && (
+              <p role="alert" className="text-sm text-[var(--color-red)]">
+                {saveError}
+              </p>
+            )}
+          </>
+        )}
 
         <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0}>
+          <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || saving}>
             Back
           </Button>
-          <Button type="button" onClick={goNext} disabled={advanceDisabled}>
+          <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>
             Next
           </Button>
         </div>

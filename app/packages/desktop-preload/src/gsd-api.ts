@@ -999,11 +999,24 @@ export interface GsdWizardApi {
   saveCredentials: (input: SavePastedCredentialsInput) => Promise<{ profileName: string }>;
   /** Whether the first-run wizard has completed — used to gate the app router. */
   getState: () => Promise<WizardState>;
+  /**
+   * Persists wizard-flow answers (currently just `activeCloud`). Returns the
+   * same shape as {@link getState} so the caller can update local state
+   * directly from the response.
+   */
+  saveState: (input: SaveWizardStateInput) => Promise<WizardState>;
 }
 
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
+  /** The cloud chosen in the pick-cloud step. Locked to `'aws'` for v1; `undefined` before that step runs. */
+  activeCloud?: 'aws';
+}
+
+/** Payload accepted by {@link GsdWizardApi.saveState}. */
+export interface SaveWizardStateInput {
+  activeCloud?: 'aws';
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
