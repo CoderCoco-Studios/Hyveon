@@ -19,6 +19,10 @@ export type {
   TerraformDestroyMintAck,
   TerraformRollbackResolveAck,
   TerraformRollbackConfirmAck,
+  PrerequisiteCheckResult,
+  TerraformPrerequisiteCheckResult,
+  PrerequisitesReport,
+  WizardState,
 } from './gsd-api.js';
 
 declare global {

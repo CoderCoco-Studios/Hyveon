@@ -997,6 +997,13 @@ export interface GsdWizardApi {
    * Only the resolved profile name comes back — never the values passed in.
    */
   saveCredentials: (input: SavePastedCredentialsInput) => Promise<{ profileName: string }>;
+  /** Whether the first-run wizard has completed — used to gate the app router. */
+  getState: () => Promise<WizardState>;
+}
+
+/** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
+export interface WizardState {
+  wizardCompleted: boolean;
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
