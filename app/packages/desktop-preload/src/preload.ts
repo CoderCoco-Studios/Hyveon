@@ -82,6 +82,8 @@ import type {
   BootstrapTfvarsBucketInput,
   BootstrapResult,
   IamCheckResult,
+  WizardProgress,
+  SaveWizardProgressInput,
 } from './gsd-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
@@ -614,6 +616,9 @@ const api: GsdApi = {
     bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) =>
       invoke<BootstrapResult>('wizard.bootstrap.tfvarsBucket', input),
     simulateIamPermissions: () => invoke<IamCheckResult>('wizard.iam.simulate'),
+    getProgress: () => invoke<WizardProgress>('wizard.progress.get'),
+    saveProgress: (input: SaveWizardProgressInput) => invoke<void>('wizard.progress.save', input),
+    complete: () => invoke<WizardState>('wizard.complete'),
   },
 
   drift: {

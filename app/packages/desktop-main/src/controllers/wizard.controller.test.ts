@@ -7,6 +7,7 @@ import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
+import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
 
 const SATISFIED_REPORT: PrerequisitesReport = {
   terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
@@ -62,6 +63,16 @@ function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckSe
   return { checkPermissions: vi.fn().mockResolvedValue(result) } as Partial<IamCheckService> as IamCheckService;
 }
 
+/** Build a FirstRunWizardService stub whose `getProgress()` resolves to the given progress. */
+function makeFirstRunWizard(progress: WizardProgress = { step: 'prerequisites' }): FirstRunWizardService {
+  const service: Partial<FirstRunWizardService> = {
+    getProgress: vi.fn().mockResolvedValue(progress),
+    recordStep: vi.fn().mockResolvedValue(undefined),
+    complete: vi.fn().mockResolvedValue(undefined),
+  };
+  return service as FirstRunWizardService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
   prerequisites?: PrerequisiteService;
@@ -69,6 +80,7 @@ function makeController(overrides: {
   store?: ElectronStoreService;
   bootstrap?: BootstrapService;
   iamCheck?: IamCheckService;
+  firstRunWizard?: FirstRunWizardService;
 } = {}): WizardController {
   return new WizardController(
     overrides.prerequisites ?? makePrerequisites(),
@@ -76,6 +88,7 @@ function makeController(overrides: {
     overrides.store ?? makeStore(),
     overrides.bootstrap ?? makeBootstrap(),
     overrides.iamCheck ?? makeIamCheck(),
+    overrides.firstRunWizard ?? makeFirstRunWizard(),
   );
 }
 
@@ -131,6 +144,21 @@ describe('WizardController', () => {
     it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.simulateIamPermissions);
       expect(pattern).toEqual(['wizard.iam.simulate']);
+    });
+
+    it('should register getProgress on the "wizard.progress.get" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.getProgress);
+      expect(pattern).toEqual(['wizard.progress.get']);
+    });
+
+    it('should register saveProgress on the "wizard.progress.save" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveProgress);
+      expect(pattern).toEqual(['wizard.progress.save']);
+    });
+
+    it('should register complete on the "wizard.complete" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
+      expect(pattern).toEqual(['wizard.complete']);
     });
   });
 
@@ -375,6 +403,38 @@ describe('WizardController', () => {
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
       expect(result).toEqual({ status: 'warning', message: 'access denied' });
+    });
+  });
+
+  describe('getProgress', () => {
+    it('should return the progress produced by FirstRunWizardService.getProgress', async () => {
+      const firstRunWizard = makeFirstRunWizard({ step: 'bootstrap' });
+
+      const result = await makeController({ firstRunWizard }).getProgress();
+
+      expect(result).toEqual({ step: 'bootstrap' });
+    });
+  });
+
+  describe('saveProgress', () => {
+    it('should delegate to FirstRunWizardService.recordStep with the given step', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+
+      await makeController({ firstRunWizard }).saveProgress({ step: 'credentials' });
+
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials');
+    });
+  });
+
+  describe('complete', () => {
+    it('should call FirstRunWizardService.complete and return the resulting wizard state', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const store = makeStore({ wizardCompleted: true, activeCloud: 'aws' });
+
+      const result = await makeController({ firstRunWizard, store }).complete();
+
+      expect(firstRunWizard.complete).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws', aws: undefined });
     });
   });
 });

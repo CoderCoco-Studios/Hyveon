@@ -1019,6 +1019,19 @@ export interface IamCheckResult {
   message?: string;
 }
 
+/** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/web`'s `wizard.utils.ts`. */
+export type WizardStepName = 'prerequisites' | 'pick-cloud' | 'credentials' | 'bootstrap' | 'terraform-init';
+
+/** Resumable wizard progress persisted to `userData/wizard-state.json`. */
+export interface WizardProgress {
+  step: WizardStepName;
+}
+
+/** Payload accepted by {@link GsdWizardApi.saveProgress}. */
+export interface SaveWizardProgressInput {
+  step: WizardStepName;
+}
+
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
@@ -1072,6 +1085,15 @@ export interface GsdWizardApi {
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
    */
   simulateIamPermissions: () => Promise<IamCheckResult>;
+  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  getProgress: () => Promise<WizardProgress>;
+  /** Persists the current step so the wizard resumes here if the app closes before completion. */
+  saveProgress: (input: SaveWizardProgressInput) => Promise<void>;
+  /**
+   * Marks the wizard complete (`wizardCompleted: true`), gating the app
+   * router past the wizard. Returns the same shape as {@link getState}.
+   */
+  complete: () => Promise<WizardState>;
 }
 
 /**

@@ -13,6 +13,12 @@ const gsdMock = {
     bootstrapLockTable: vi.fn(),
     bootstrapTfvarsBucket: vi.fn(),
     simulateIamPermissions: vi.fn(),
+    getProgress: vi.fn(),
+    saveProgress: vi.fn(),
+    complete: vi.fn(),
+  },
+  terraform: {
+    init: vi.fn(),
   },
 };
 vi.stubGlobal('gsd', gsdMock);
@@ -43,6 +49,13 @@ beforeEach(() => {
   gsdMock.wizard.bootstrapLockTable.mockReset();
   gsdMock.wizard.bootstrapTfvarsBucket.mockReset();
   gsdMock.wizard.simulateIamPermissions.mockReset();
+  // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
+  // effects — present on every render regardless of which step a test cares
+  // about — never throw on an unmocked call.
+  gsdMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+  gsdMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
+  gsdMock.wizard.complete.mockReset();
+  gsdMock.terraform.init.mockReset();
 });
 
 /** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
@@ -70,6 +83,21 @@ async function advanceToBootstrap(): Promise<void> {
   await userEvent.selectOptions(select, 'default');
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
   await screen.findByLabelText('Terraform state bucket name');
+}
+
+/** Advances the wizard all the way to the terraform-init step, with all three bootstrap resources succeeding. */
+async function advanceToTerraformInit(): Promise<void> {
+  gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+  gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+  gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+  gsdMock.terraform.init.mockImplementation(async function* () {
+    // No chunks needed by default — individual tests override this.
+  });
+  await advanceToBootstrap();
+  await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+  await screen.findByRole('button', { name: /finish setup/i });
 }
 
 afterEach(() => {
@@ -200,6 +228,26 @@ describe('FirstRunWizard', () => {
       expect(screen.getByLabelText('Region')).toHaveValue('us-east-1');
     });
 
+    it('should keep Next disabled when the selected profile has no region configured', async () => {
+      await advanceToCredentials();
+      const select = await screen.findByLabelText('Profile');
+
+      await userEvent.selectOptions(select, 'personal');
+
+      expect(screen.getByLabelText('Region')).toHaveValue('');
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+    });
+
+    it('should enable Next once an operator fills in a region for a profile that had none', async () => {
+      await advanceToCredentials();
+      const select = await screen.findByLabelText('Profile');
+      await userEvent.selectOptions(select, 'personal');
+
+      await userEvent.type(screen.getByLabelText('Region'), 'eu-central-1');
+
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+
     it('should persist the selected profile and region via wizard.state.save when advancing', async () => {
       gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
       await advanceToCredentials();
@@ -236,17 +284,31 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
       await userEvent.type(screen.getByLabelText('Access key ID'), 'AKID');
       await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
+      await userEvent.type(screen.getByLabelText('Region'), 'us-west-2');
       await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
 
       await waitFor(() =>
         expect(gsdMock.wizard.saveCredentials).toHaveBeenCalledWith({
           accessKeyId: 'AKID',
           secretAccessKey: 'SECRET',
-          region: undefined,
+          region: 'us-west-2',
         }),
       );
       expect(await screen.findByText(/saved as profile "gsd-pasted"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+
+    it('should keep Next disabled after a successful paste save when no region was entered', async () => {
+      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
+      await advanceToCredentials();
+
+      await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
+      await userEvent.type(screen.getByLabelText('Access key ID'), 'AKID');
+      await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
+      await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
+
+      expect(await screen.findByText(/saved as profile "gsd-pasted"/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
     it('should invalidate a successful paste save when a field is edited afterward, disabling Next again', async () => {
@@ -365,6 +427,110 @@ describe('FirstRunWizard', () => {
 
       expect(await screen.findByText(/some permissions are missing/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+  });
+
+  describe('terraform-init step', () => {
+    it('should hide the shared Next button once on the terraform-init step', async () => {
+      await advanceToTerraformInit();
+
+      expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
+    });
+
+    it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
+      gsdMock.terraform.init.mockImplementation(async function* () {
+        yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
+      });
+      gsdMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      const onComplete = vi.fn();
+      render(<FirstRunWizard onComplete={onComplete} />);
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/choose the cloud provider/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/choose the aws credentials/i);
+      await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByLabelText('Terraform state bucket name');
+      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
+
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+      expect(onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should persist each step via wizard.progress.save as the wizard advances', async () => {
+      await advanceToBootstrap();
+
+      await waitFor(() => expect(gsdMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'bootstrap' }));
+    });
+  });
+
+  describe('resume-on-mount', () => {
+    it('should start at prerequisites when wizard.progress.get resolves to the prerequisites step', async () => {
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'prerequisites' });
+
+      render(<FirstRunWizard />);
+
+      expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
+    });
+
+    it('should jump straight to the recorded step when wizard.progress.get resolves to a later step', async () => {
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      gsdMock.wizard.listAwsProfiles.mockResolvedValue(SAMPLE_PROFILES);
+      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'credentials' });
+
+      render(<FirstRunWizard />);
+
+      expect(await screen.findByText(/choose the aws credentials/i)).toBeInTheDocument();
+    });
+
+    it('should stay on prerequisites when wizard.progress.get rejects', async () => {
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      gsdMock.wizard.getProgress.mockRejectedValue(new Error('state file corrupt'));
+
+      render(<FirstRunWizard />);
+
+      expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
+    });
+
+    it('should clamp a recorded terraform-init step down to bootstrap, rather than auto-running terraform init on mount', async () => {
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'terraform-init' });
+
+      render(<FirstRunWizard />);
+
+      expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
+      expect(gsdMock.terraform.init).not.toHaveBeenCalled();
+    });
+
+    it('should not save progress before the resume check has settled, so a fast render never clobbers a resumed step', async () => {
+      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      let resolveProgress!: (value: { step: 'credentials' }) => void;
+      gsdMock.wizard.getProgress.mockReturnValue(
+        new Promise((resolve) => {
+          resolveProgress = resolve;
+        }),
+      );
+
+      render(<FirstRunWizard />);
+      // The mount-time synchronous pass must not have persisted anything yet —
+      // resume hasn't settled, so writing here could race the pending read.
+      expect(gsdMock.wizard.saveProgress).not.toHaveBeenCalled();
+
+      resolveProgress({ step: 'credentials' });
+
+      await waitFor(() => expect(gsdMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
     });
   });
 });
