@@ -35,6 +35,15 @@ export function arePrerequisitesSatisfied(report: PrerequisitesReport | null): b
   return report.terraform.found && report.terraform.minimumVersionSatisfied !== false && report.aws.found;
 }
 
+/**
+ * `WIZARD_STEPS` minus `prerequisites`, for Settings' "Reconfigure" entry
+ * point (#211): prerequisite detection isn't repeated once the app is
+ * already installed and working, per the wizard-flow spec.
+ */
+export function reconfigureSteps(): WizardStep[] {
+  return WIZARD_STEPS.filter((step) => step !== 'prerequisites');
+}
+
 /** A backend bootstrap resource the wizard's bootstrap step creates. */
 export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'tfvarsBucket';
 

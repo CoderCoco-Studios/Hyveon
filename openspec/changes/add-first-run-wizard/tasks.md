@@ -111,9 +111,9 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 12. Issue #211 — Reconfigure entry point in Settings (web)
 
-- [ ] 12.1 Create worktree: `git worktree add .worktrees/claude/issue-211-settings-reconfigure -b claude/issue-211-settings-reconfigure`
-- [ ] 12.2 Add a "Reconfigure" section to `settings.page.tsx` (alongside Watchdog + Diagnostics) launching the wizard shell in `mode: 'reconfigure'` (steps 2–5; prerequisites not repeated); also surface the resolved Terraform version + pinned minimum in Settings
-- [ ] 12.3 Reconfigure semantics: steps pre-marked complete from stored state with per-step "Edit" affordances; edits buffered in component state and committed in a single IPC on finish so mid-flow cancel writes nothing and preserves all unchanged config
-- [ ] 12.4 RTL/jsdom specs (via `renderPage()` for the Settings page): Reconfigure entry renders, completed-step Edit affordances, single-field edit preserves everything else, mid-flow cancel commits nothing, version display
-- [ ] 12.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 12.1 Create worktree: `git worktree add .worktrees/claude/issue-211-settings-reconfigure -b claude/issue-211-settings-reconfigure`
+- [x] 12.2 Add a "Reconfigure" section to `settings.page.tsx` (alongside Watchdog + Diagnostics) launching the wizard shell in `mode: 'reconfigure'` (steps 2–5; prerequisites not repeated); also surface the resolved Terraform version + pinned minimum in Settings
+- [x] 12.3 Reconfigure semantics: steps pre-marked complete from stored state with per-step "Edit" affordances; edits buffered in component state and committed in a single IPC on finish so mid-flow cancel writes nothing and preserves all unchanged config
+- [x] 12.4 RTL/jsdom specs (via `renderPage()` for the Settings page): Reconfigure entry renders, completed-step Edit affordances, single-field edit preserves everything else, mid-flow cancel commits nothing, version display
+- [x] 12.5 Verify `npm run app:test` and `npm run app:lint` pass
 - [ ] 12.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #211`; if this PR completes the last open child of epic #139, also include `Closes #139` on its own line
