@@ -8,16 +8,32 @@ import {
 } from '../services/AwsProfileService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 
+/**
+ * The credentials step's chosen source, as persisted to `ElectronStoreService.aws`.
+ * `profile` names either a real `~/.aws` profile (the "pick an existing
+ * profile" path) or a `creds.aws.<profileName>` pasted-credentials entry
+ * (the "paste keys instead" path, e.g. `gsd-pasted`) — the two are
+ * distinguished later by whether `creds.aws.<profile>` exists, not by a
+ * separate flag here.
+ */
+export interface WizardAwsChoice {
+  profile?: string;
+  region?: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
   /** The cloud chosen in the pick-cloud step. Locked to `'aws'` for v1; `undefined` before that step runs. */
   activeCloud?: 'aws';
+  /** The credential source chosen in the credentials step (#192), if any. */
+  aws?: WizardAwsChoice;
 }
 
 /** Payload accepted by {@link WizardController.saveState}. */
 export interface SaveWizardStateInput {
   activeCloud?: 'aws';
+  aws?: WizardAwsChoice;
 }
 
 /**
@@ -61,15 +77,18 @@ export class WizardController {
   getState(): WizardState {
     const stored = this.store.get('wizardCompleted');
     const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
-    return { wizardCompleted, activeCloud: this.store.get('activeCloud') };
+    return { wizardCompleted, activeCloud: this.store.get('activeCloud'), aws: this.store.get('aws') };
   }
 
   /**
-   * Persists wizard-flow answers into `ElectronStoreService`. Only
-   * `activeCloud` exists so far (the pick-cloud step); later PRs in this
-   * epic extend the payload as more steps need to durably save a choice.
-   * Returns the same shape as {@link getState} so the renderer can update
-   * its local state directly from the response.
+   * Persists wizard-flow answers into `ElectronStoreService`. `activeCloud`
+   * (pick-cloud step) and `aws` (credentials step, #192 — the chosen
+   * profile/region) exist so far; later PRs in this epic extend the payload
+   * as more steps need to durably save a choice. `aws` is merged onto any
+   * existing stored value so unrelated fields (e.g. encrypted key material
+   * written by other flows) survive. Returns the same shape as
+   * {@link getState} so the renderer can update its local state directly
+   * from the response.
    */
   @MessagePattern('wizard.state.save')
   saveState(@Payload() body: SaveWizardStateInput): WizardState {
@@ -81,6 +100,10 @@ export class WizardController {
         throw new Error(`Unsupported cloud provider: ${String(body.activeCloud)}`);
       }
       this.store.set('activeCloud', body.activeCloud);
+    }
+    if (body.aws !== undefined) {
+      const current = this.store.get('aws') ?? {};
+      this.store.set('aws', { ...current, ...body.aws });
     }
     return this.getState();
   }

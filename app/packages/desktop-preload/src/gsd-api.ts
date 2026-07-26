@@ -1007,16 +1007,29 @@ export interface GsdWizardApi {
   saveState: (input: SaveWizardStateInput) => Promise<WizardState>;
 }
 
+/**
+ * The credentials step's chosen source. `profile` names either a real
+ * `~/.aws` profile (the "pick an existing profile" path) or a pasted-
+ * credentials profile name (the "paste keys instead" path, e.g. `gsd-pasted`).
+ */
+export interface WizardAwsChoice {
+  profile?: string;
+  region?: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
   /** The cloud chosen in the pick-cloud step. Locked to `'aws'` for v1; `undefined` before that step runs. */
   activeCloud?: 'aws';
+  /** The credential source chosen in the credentials step (#192), if any. */
+  aws?: WizardAwsChoice;
 }
 
 /** Payload accepted by {@link GsdWizardApi.saveState}. */
 export interface SaveWizardStateInput {
   activeCloud?: 'aws';
+  aws?: WizardAwsChoice;
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */

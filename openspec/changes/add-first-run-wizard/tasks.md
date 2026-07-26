@@ -4,62 +4,62 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 1. Issue #182 — prerequisite-detection service (desktop-main)
 
-- [ ] 1.1 Create worktree: `git worktree add .worktrees/claude/issue-182-prereq-detection -b claude/issue-182-prereq-detection`
-- [ ] 1.2 Add `MINIMUM_TERRAFORM_VERSION` constant to `@hyveon/shared` with TSDoc
-- [ ] 1.3 Implement `PrerequisiteService` in `desktop-main/src/services/PrerequisiteService.ts`: probe `terraform` and `aws` via `execFile` + existing `lookupCommandFor`; return `{ found, path?, version? }` per tool; environment/platform access behind protected seams for `vi.spyOn` (no raw `process.env`)
-- [ ] 1.4 Implement version parsing for Terraform 1.x (`Terraform vX.Y.Z`) and AWS CLI v2 (`aws-cli/X.Y.Z ...`); unparseable output degrades to `found: true` with undefined version; compare terraform against `MINIMUM_TERRAFORM_VERSION` and flag unsatisfied
-- [ ] 1.5 Add `WizardModule` (`desktop-main/src/modules/wizard.module.ts`) and IPC-only `WizardController` with `@MessagePattern('wizard.prereqs.check')`; wire into `AppModule`; gate any electron imports on `process.versions.electron`
-- [ ] 1.6 Add preload `gsd.wizard.checkPrereqs()` + typed mirror in `gsd-api.ts`
-- [ ] 1.7 Co-located vitest specs ("should …" names, TSDoc'd helpers): found/missing/spawn-failure paths, both version formats, minimum-version flagging, controller dispatch
-- [ ] 1.8 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 1.9 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #182`
+- [x] 1.1 Create worktree: `git worktree add .worktrees/claude/issue-182-prereq-detection -b claude/issue-182-prereq-detection`
+- [x] 1.2 Add `MINIMUM_TERRAFORM_VERSION` constant to `@hyveon/shared` with TSDoc
+- [x] 1.3 Implement `PrerequisiteService` in `desktop-main/src/services/PrerequisiteService.ts`: probe `terraform` and `aws` via `execFile` + existing `lookupCommandFor`; return `{ found, path?, version? }` per tool; environment/platform access behind protected seams for `vi.spyOn` (no raw `process.env`)
+- [x] 1.4 Implement version parsing for Terraform 1.x (`Terraform vX.Y.Z`) and AWS CLI v2 (`aws-cli/X.Y.Z ...`); unparseable output degrades to `found: true` with undefined version; compare terraform against `MINIMUM_TERRAFORM_VERSION` and flag unsatisfied
+- [x] 1.5 Add `WizardModule` (`desktop-main/src/modules/wizard.module.ts`) and IPC-only `WizardController` with `@MessagePattern('wizard.prereqs.check')`; wire into `AppModule`; gate any electron imports on `process.versions.electron`
+- [x] 1.6 Add preload `gsd.wizard.checkPrereqs()` + typed mirror in `gsd-api.ts`
+- [x] 1.7 Co-located vitest specs ("should …" names, TSDoc'd helpers): found/missing/spawn-failure paths, both version formats, minimum-version flagging, controller dispatch
+- [x] 1.8 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 1.9 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #182` — [PR #317](https://github.com/CoderCoco/Hyveon/pull/317)
 
 ## 2. Issue #189 — AwsProfileService (desktop-main)
 
-- [ ] 2.1 Create worktree: `git worktree add .worktrees/claude/issue-189-aws-profile-service -b claude/issue-189-aws-profile-service`
-- [ ] 2.2 Implement `AwsProfileService` in `desktop-main/src/services/AwsProfileService.ts` parsing `~/.aws/credentials` + `~/.aws/config` (prefer `@aws-sdk/shared-ini-file-loader`) into `{ profileName, region? }` summaries; home-dir resolution behind a service seam; missing files return `[]`; never expose key material
-- [ ] 2.3 Add `@MessagePattern('wizard.aws.listProfiles')` to the wizard IPC controller (or create it here if #182 has not merged) + preload `gsd.wizard.listAwsProfiles()` + `gsd-api.ts` mirror
-- [ ] 2.4 Co-located vitest specs: profiles from both files with `profile <name>` aliasing, region pickup, missing files, assertion that responses contain no key material; parity with `aws configure list-profiles` semantics via fixtures
-- [ ] 2.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 2.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #189`
+- [x] 2.1 Create worktree: `git worktree add .worktrees/claude/issue-189-aws-profile-service -b claude/issue-189-aws-profile-service`
+- [x] 2.2 Implement `AwsProfileService` in `desktop-main/src/services/AwsProfileService.ts` parsing `~/.aws/credentials` + `~/.aws/config` (prefer `@aws-sdk/shared-ini-file-loader`) into `{ profileName, region? }` summaries; home-dir resolution behind a service seam; missing files return `[]`; never expose key material
+- [x] 2.3 Add `@MessagePattern('wizard.aws.listProfiles')` to the wizard IPC controller (or create it here if #182 has not merged) + preload `gsd.wizard.listAwsProfiles()` + `gsd-api.ts` mirror
+- [x] 2.4 Co-located vitest specs: profiles from both files with `profile <name>` aliasing, region pickup, missing files, assertion that responses contain no key material; parity with `aws configure list-profiles` semantics via fixtures
+- [x] 2.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 2.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #189` — [PR #319](https://github.com/CoderCoco/Hyveon/pull/319)
 
 ## 3. Issue #197 — safeStorage paste-flow (desktop-main)
 
-- [ ] 3.1 Create worktree: `git worktree add .worktrees/claude/issue-197-safestorage-paste-flow -b claude/issue-197-safestorage-paste-flow`
-- [ ] 3.2 Extend `ElectronStoreService` schema with `creds.aws.<profileName>` entries (encrypted accessKeyId/secretAccessKey + region), reusing its existing encrypted-accessor pattern and `SafeStorageService`
-- [ ] 3.3 Implement paste-flow save in the wizard service layer: encrypt via `SafeStorageService`, default profile name `gsd-pasted`; surface an explicit error when safeStorage is unavailable (no plaintext fallback)
-- [ ] 3.4 Add `@MessagePattern('wizard.aws.saveCredentials')` + preload/`gsd-api.ts` mirror; decrypted values never returned over IPC
-- [ ] 3.5 Ensure decryption is consumed only in main-process factories (`CloudProviderModule` / SDK-client factory seam) with TSDoc noting the constraint
-- [ ] 3.6 Vitest specs: round-trip encrypt/decrypt returns original strings, default profile naming, safeStorage-unavailable error; integration-style spec asserting the persisted store file contains no plaintext key material
-- [ ] 3.7 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 3.8 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #197`
+- [x] 3.1 Create worktree: `git worktree add .worktrees/claude/issue-197-safestorage-paste-flow -b claude/issue-197-safestorage-paste-flow`
+- [x] 3.2 Extend `ElectronStoreService` schema with `creds.aws.<profileName>` entries (encrypted accessKeyId/secretAccessKey + region), reusing its existing encrypted-accessor pattern and `SafeStorageService`
+- [x] 3.3 Implement paste-flow save in the wizard service layer: encrypt via `SafeStorageService`, default profile name `gsd-pasted`; surface an explicit error when safeStorage is unavailable (no plaintext fallback)
+- [x] 3.4 Add `@MessagePattern('wizard.aws.saveCredentials')` + preload/`gsd-api.ts` mirror; decrypted values never returned over IPC
+- [x] 3.5 Ensure decryption is consumed only in main-process factories (`CloudProviderModule` / SDK-client factory seam) with TSDoc noting the constraint
+- [x] 3.6 Vitest specs: round-trip encrypt/decrypt returns original strings, default profile naming, safeStorage-unavailable error; integration-style spec asserting the persisted store file contains no plaintext key material
+- [x] 3.7 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 3.8 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #197` — [PR #320](https://github.com/CoderCoco/Hyveon/pull/320)
 
 ## 4. Issue #184 — wizard step: install prerequisites (web, after #182)
 
-- [ ] 4.1 Create worktree: `git worktree add .worktrees/claude/issue-184-wizard-prereq-step -b claude/issue-184-wizard-prereq-step`
-- [ ] 4.2 Scaffold the first-run wizard shell (`web/src/components/first-run-wizard/first-run-wizard.component.tsx`) mirroring the add-game-wizard step-flow pattern (shell + per-step components + pure utils), with router gating on `wizardCompleted`
-- [ ] 4.3 Implement `prerequisites-step.component.tsx`: per-tool detection results, OS-specific install instructions (macOS/Windows/Linux) with vendor links, Re-check button invoking `gsd.wizard.checkPrereqs()`, Next disabled until both tools satisfied, no auto-install path
-- [ ] 4.4 React Testing Library/jsdom specs (co-located, "should …" names, `gsd` stubbed via the test-mock-registry pattern): blocked progression when missing, Re-check re-invocation, per-platform instructions, enable-on-green
-- [ ] 4.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 4.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #184`
+- [x] 4.1 Create worktree: `git worktree add .worktrees/claude/issue-184-wizard-prereq-step -b claude/issue-184-wizard-prereq-step`
+- [x] 4.2 Scaffold the first-run wizard shell (`web/src/components/first-run-wizard/first-run-wizard.component.tsx`) mirroring the add-game-wizard step-flow pattern (shell + per-step components + pure utils), with router gating on `wizardCompleted`
+- [x] 4.3 Implement `prerequisites-step.component.tsx`: per-tool detection results, OS-specific install instructions (macOS/Windows/Linux) with vendor links, Re-check button invoking `gsd.wizard.checkPrereqs()`, Next disabled until both tools satisfied, no auto-install path
+- [x] 4.4 React Testing Library/jsdom specs (co-located, "should …" names, `gsd` stubbed via the test-mock-registry pattern): blocked progression when missing, Re-check re-invocation, per-platform instructions, enable-on-green
+- [x] 4.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 4.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #184` — [PR #321](https://github.com/CoderCoco/Hyveon/pull/321)
 
 ## 5. Issue #186 — wizard step: pick cloud (web)
 
-- [ ] 5.1 Create worktree: `git worktree add .worktrees/claude/issue-186-wizard-pick-cloud -b claude/issue-186-wizard-pick-cloud`
-- [ ] 5.2 Implement `pick-cloud-step.component.tsx`: options driven by a list (AWS only in v1) with "more clouds coming" footer; persist `activeCloud: 'aws'` via a `wizard.state.save`-style IPC into `ElectronStoreService`
-- [ ] 5.3 Add/extend the IPC + preload surface for persisting the cloud choice (`gsd.wizard.*`), with `ElectronStoreService.activeCloud` as the durable store
-- [ ] 5.4 RTL/jsdom specs: single AWS option renders, footer present, confirm persists choice; service spec asserting persistence survives a store reload (relaunch semantics)
-- [ ] 5.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 5.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #186`
+- [x] 5.1 Create worktree: `git worktree add .worktrees/claude/issue-186-wizard-pick-cloud -b claude/issue-186-wizard-pick-cloud`
+- [x] 5.2 Implement `pick-cloud-step.component.tsx`: options driven by a list (AWS only in v1) with "more clouds coming" footer; persist `activeCloud: 'aws'` via a `wizard.state.save`-style IPC into `ElectronStoreService`
+- [x] 5.3 Add/extend the IPC + preload surface for persisting the cloud choice (`gsd.wizard.*`), with `ElectronStoreService.activeCloud` as the durable store
+- [x] 5.4 RTL/jsdom specs: single AWS option renders, footer present, confirm persists choice; service spec asserting persistence survives a store reload (relaunch semantics)
+- [x] 5.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 5.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #186` — [PR #322](https://github.com/CoderCoco/Hyveon/pull/322)
 
 ## 6. Issue #192 — wizard step: pick or paste credentials (web, after #189 + #197)
 
-- [ ] 6.1 Create worktree: `git worktree add .worktrees/claude/issue-192-wizard-credentials-step -b claude/issue-192-wizard-credentials-step`
-- [ ] 6.2 Implement `credentials-step.component.tsx`: profile dropdown from `gsd.wizard.listAwsProfiles()`, "paste keys instead" toggle opening a key-ID/secret/region form, region selector defaulting from the selected profile with override
-- [ ] 6.3 Wire submission: profile selection persists `{ profileName, region }`; paste form invokes `gsd.wizard.saveCredentials` (safeStorage flow from #197)
-- [ ] 6.4 RTL/jsdom specs: dropdown population, paste toggle, region default + override, both submission paths round-tripping through the mocked `gsd.wizard` namespace
-- [ ] 6.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 6.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #192`
+- [x] 6.1 Create worktree: `git worktree add .worktrees/claude/issue-192-wizard-credentials-step -b claude/issue-192-wizard-credentials-step`
+- [x] 6.2 Implement `credentials-step.component.tsx`: profile dropdown from `gsd.wizard.listAwsProfiles()`, "paste keys instead" toggle opening a key-ID/secret/region form, region selector defaulting from the selected profile with override
+- [x] 6.3 Wire submission: profile selection persists `{ profileName, region }`; paste form invokes `gsd.wizard.saveCredentials` (safeStorage flow from #197)
+- [x] 6.4 RTL/jsdom specs: dropdown population, paste toggle, region default + override, both submission paths round-tripping through the mocked `gsd.wizard` namespace
+- [x] 6.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 6.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #192`
 
 ## 7. Issue #200 — SDK bootstrap: S3 state bucket (desktop-main)
 
