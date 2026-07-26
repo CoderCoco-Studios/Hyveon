@@ -107,7 +107,7 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 - [x] 11.4 Wire wizard completion: `FirstRunWizardService` persists answers + `wizardCompleted: true` (`wizard.complete` IPC) and the app navigates to the dashboard; resumable `userData/wizard-state.json` updated per step
 - [x] 11.5 RTL/jsdom specs (mock the async iterable): streaming render, ANSI colors, enable-on-zero, error + retry on non-zero, completion invoking `wizard.complete`; service specs for state.json resume + corrupt-file fallback
 - [x] 11.6 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 11.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #210`
+- [x] 11.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #210` — [PR #329](https://github.com/CoderCoco/Hyveon/pull/329)
 
 ## 12. Issue #211 — Reconfigure entry point in Settings (web)
 
