@@ -50,7 +50,7 @@ The tfvars types, `gamesWrite.ts` payloads, the preload bridge and `gsd-api.ts`,
 
 - `wizard-form.utils.test.ts`, `networking-step.component.test.tsx`, `edit-game-form.component.test.tsx`, `review-step.component.test.tsx`
 - `gameServerValidator.test.ts` — one case per new rule, plus a case proving the rules are inert when `https` is false or absent.
-- `TfvarsService.write.test.ts` — assert `https` survives an update and that flipping it `false → true` rewrites the entry.
+- `TfvarsService.write.test.ts` — assert `https` survives an update, that flipping it `false → true` rewrites the entry, and that enabling it on an entry with no `https` attribute at all emits `https = true`.
 
 **Operator-visible behaviour**
 

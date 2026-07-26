@@ -49,7 +49,7 @@ Concretely:
 |---|---|
 | `WizardDraft` | add `https: boolean` (non-optional in the draft, even though the wire type is optional) |
 | `createEmptyWizardDraft()` | seed `https: false` |
-| `draftFromGameServer()` | `https: game.https ?? false` |
+| `draftFromGameServer()` | `https: game.https === true` |
 | `draftToPayload()` | emit `https` into the config |
 | `toProposedEntry()` | include `https` so validation sees it |
 | `stepForIssuePath()` | map `ports`-rooted paths to the networking step |
@@ -97,7 +97,7 @@ Accessibility follows the `Field` helper already in `identity-step.component.tsx
 
 `@cdktf/hcl2json` does not evaluate expressions. A tfvars entry written by hand as `https = length("valheim") > 0 ? true : false` parses back as a *string*, and `TfvarsService.test.ts` documents exactly this. Such an entry already fails `z.boolean()` in `validateGameServer` today, so it cannot be saved through the app at all — with or without this change.
 
-`draftFromGameServer` therefore uses `game.https ?? false`, which yields `false` for a string value rather than a truthy checkbox. This is deliberate and worth stating: the form shows what it can honestly represent, and any save through the form replaces the expression with a literal. That is the only behaviour consistent with a checkbox, and the pre-existing zod rejection means the alternative is not "preserve the expression" but "cannot use the form on this game at all".
+`draftFromGameServer` therefore normalises with `game.https === true`, which yields `false` for a string value rather than a truthy checkbox. `?? false` would not do this — it only substitutes for `null` and `undefined`, so a parsed expression string would survive into the draft and render the checkbox as checked. This is deliberate and worth stating: the form shows what it can honestly represent, and any save through the form replaces the expression with a literal. That is the only behaviour consistent with a checkbox, and the pre-existing zod rejection means the alternative is not "preserve the expression" but "cannot use the form on this game at all".
 
 ## Risks / Trade-offs
 

@@ -10,7 +10,7 @@ half-finished branch never ships a control that can save a Terraform-invalid dec
 
 ## 2. Draft plumbing (`@hyveon/web`)
 
-- [ ] 2.1 In `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts`, add `https: boolean` to `WizardDraft`; seed `https: false` in `createEmptyWizardDraft()`; read `https: game.https ?? false` in `draftFromGameServer()`; emit `https` from `draftToPayload()`; include it in `toProposedEntry()` so validation sees it.
+- [ ] 2.1 In `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts`, add `https: boolean` to `WizardDraft`; seed `https: false` in `createEmptyWizardDraft()`; read `https: game.https === true` in `draftFromGameServer()` — an explicit strict-equality normalisation, not `?? false`, so a non-boolean parsed value (design D6) becomes `false` rather than surviving as a truthy string; emit `https` from `draftToPayload()`; include it in `toProposedEntry()` so validation sees it.
 - [ ] 2.2 Update `stepForIssuePath()` so `ports`-rooted paths (`ports`, `ports[N]`) resolve to the `networking` step rather than falling through to `review`, and confirm existing port-collision issues still route correctly.
 - [ ] 2.3 Extend `wizard-form.utils.test.ts`: round-trip a `GameServer` with `https: true` through `draftFromGameServer` → `draftToPayload`; assert a game with no `https` yields a `false` draft and an explicit `https: false` payload; assert a string-valued `https` (the `hcl2json` expression case from design D6) coerces to `false`; assert `stepForIssuePath` maps `ports[1]` to `networking`.
 
@@ -34,7 +34,7 @@ half-finished branch never ships a control that can save a Terraform-invalid dec
 
 ## 6. Write-path coverage (`@hyveon/desktop-main`)
 
-- [ ] 6.1 Add `https` coverage to `TfvarsService.write.test.ts`, which currently has none: an update that flips `false → true` emits `https = true`; an update that flips `true → false` emits `https = false` rather than dropping the attribute; an unrelated field edit on an HTTPS game leaves `https = true` and the surrounding attributes intact.
+- [ ] 6.1 Add `https` coverage to `TfvarsService.write.test.ts`, which currently has none: an update that enables HTTPS on an entry omitting `https` entirely emits `https = true` (the common case, since the attribute is optional and most existing entries lack it); an update that flips `false → true` emits `https = true`; an update that flips `true → false` emits `https = false` rather than dropping the attribute; an unrelated field edit on an HTTPS game leaves `https = true` and the surrounding attributes intact.
 
 ## 7. Gates and PR
 
