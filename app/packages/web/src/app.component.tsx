@@ -60,7 +60,10 @@ function useWizardCompleted(): boolean | null {
  * Gates the whole app behind the first-run wizard: while
  * `wizardCompleted` is `false`, renders only {@link FirstRunWizard} (no
  * routing, no polling providers — there's nothing to poll before AWS is
- * bootstrapped). Once complete, renders the routed dashboard shell:
+ * bootstrapped). The wizard's terraform-init step calls `onComplete` once
+ * `wizard.complete` succeeds, which flips this component straight to the
+ * routed dashboard shell below without waiting on another `wizard.state.get`
+ * round-trip. Once complete, renders the routed dashboard shell:
  *   - `/` → Dashboard (game cards + panels)
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
@@ -74,10 +77,15 @@ function useWizardCompleted(): boolean | null {
  *   - `/audit` → Audit log
  */
 export default function App() {
-  const wizardCompleted = useWizardCompleted();
+  const fetchedWizardCompleted = useWizardCompleted();
+  // Set directly once the wizard's Finish step succeeds, rather than
+  // re-fetching `wizard.state.get` — the wizard already knows the outcome,
+  // and this avoids a redundant IPC round-trip on the completion path.
+  const [wizardJustCompleted, setWizardJustCompleted] = useState(false);
+  const wizardCompleted = wizardJustCompleted ? true : fetchedWizardCompleted;
 
   if (wizardCompleted === null) return null;
-  if (!wizardCompleted) return <FirstRunWizard />;
+  if (!wizardCompleted) return <FirstRunWizard onComplete={() => setWizardJustCompleted(true)} />;
 
   return (
     <PollingProvider>

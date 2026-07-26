@@ -67,8 +67,8 @@ describe('TerraformInitStep', () => {
   });
 
   it('should keep Finish setup disabled while the run is in progress', () => {
+    // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to keep the run "in progress" for this test
     gsdMock.terraform.init.mockImplementation(async function* () {
-      // Never yields or completes within this test.
       await new Promise(() => {});
     });
 
@@ -93,6 +93,7 @@ describe('TerraformInitStep', () => {
 
   it('should re-invoke gsd.terraform.init when Retry is clicked after a failure', async () => {
     gsdMock.terraform.init
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a failed first attempt
       .mockImplementationOnce(async function* () {
         throw new Error('first attempt failed');
       })
