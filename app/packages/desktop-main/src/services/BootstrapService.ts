@@ -5,6 +5,7 @@ import {
   HeadBucketCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
+  PutBucketLifecycleConfigurationCommand,
   type BucketLocationConstraint,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
@@ -17,6 +18,13 @@ import { ElectronStoreService } from './ElectronStoreService.js';
  * `ACTIVE` before giving up and reporting `failed`.
  */
 const LOCK_TABLE_ACTIVE_WAIT_SECONDS = 60;
+
+/**
+ * How many days a noncurrent tfvars object version is retained before
+ * expiring — matches `terraform/bootstrap/main.tf`'s
+ * `aws_s3_bucket_lifecycle_configuration.tfvars` rule.
+ */
+const TFVARS_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
 
 /**
  * The credentials/region shape shared by every wizard-bootstrap SDK client
@@ -126,6 +134,58 @@ export class BootstrapService {
     } catch (err) {
       return { status: 'failed', message: this.describeError(err) };
     }
+  }
+
+  /**
+   * Idempotently ensures the versioned tfvars S3 bucket exists with a
+   * lifecycle rule expiring noncurrent object versions after 90 days.
+   *
+   * @remarks
+   * Mirrors `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
+   * / `aws_s3_bucket_lifecycle_configuration.tfvars` resources so the SDK
+   * and HCL provisioning paths stay behaviourally consistent (design.md
+   * decision 6) — the resulting bucket is the canonical `RemoteFileStore`.
+   *
+   * @param bucketName - Name of the tfvars bucket to create/ensure.
+   */
+  async ensureTfvarsBucket(bucketName: string): Promise<BootstrapResult> {
+    const client = this.createS3Client();
+    let created: boolean;
+    try {
+      created = await this.createBucket(client, bucketName);
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+
+    try {
+      await client.send(
+        new PutBucketVersioningCommand({
+          Bucket: bucketName,
+          VersioningConfiguration: { Status: 'Enabled' },
+        }),
+      );
+      await client.send(
+        new PutBucketLifecycleConfigurationCommand({
+          Bucket: bucketName,
+          LifecycleConfiguration: {
+            Rules: [
+              {
+                ID: 'expire-noncurrent-versions',
+                Status: 'Enabled',
+                Filter: {},
+                NoncurrentVersionExpiration: {
+                  NoncurrentDays: TFVARS_NONCURRENT_VERSION_EXPIRATION_DAYS,
+                },
+              },
+            ],
+          },
+        }),
+      );
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+
+    return { status: created ? 'created' : 'exists' };
   }
 
   /**

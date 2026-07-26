@@ -7,6 +7,7 @@ import {
   HeadBucketCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
+  PutBucketLifecycleConfigurationCommand,
 } from '@aws-sdk/client-s3';
 import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { BootstrapService, BootstrapCredentialsNotConfiguredError } from './BootstrapService.js';
@@ -229,6 +230,95 @@ describe('BootstrapService', () => {
       const service = new BootstrapService(makeStore(undefined));
 
       await expect(service.ensureLockTable('my-lock-table')).rejects.toThrow(
+        BootstrapCredentialsNotConfiguredError,
+      );
+    });
+  });
+
+  describe('ensureTfvarsBucket', () => {
+    it('should create the bucket with versioning and a 90-day noncurrent-version lifecycle rule on a fresh bucket', async () => {
+      s3Mock.on(CreateBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureTfvarsBucket('my-tfvars-bucket');
+
+      expect(result).toEqual({ status: 'created' });
+      expect(s3Mock.commandCalls(CreateBucketCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-tfvars-bucket',
+        CreateBucketConfiguration: { LocationConstraint: 'us-west-2' },
+      });
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-tfvars-bucket',
+        VersioningConfiguration: { Status: 'Enabled' },
+      });
+      expect(s3Mock.commandCalls(PutBucketLifecycleConfigurationCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-tfvars-bucket',
+        LifecycleConfiguration: {
+          Rules: [
+            {
+              ID: 'expire-noncurrent-versions',
+              Status: 'Enabled',
+              Filter: {},
+              NoncurrentVersionExpiration: { NoncurrentDays: 90 },
+            },
+          ],
+        },
+      });
+    });
+
+    it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/lifecycle', async () => {
+      s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyOwnedByYou'));
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureTfvarsBucket('my-tfvars-bucket');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutBucketLifecycleConfigurationCommand)).toHaveLength(1);
+    });
+
+    it('should skip CreateBucket in us-east-1 when HeadBucket confirms the bucket already exists', async () => {
+      s3Mock.on(HeadBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-east-1' }));
+
+      const result = await service.ensureTfvarsBucket('my-tfvars-bucket');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(0);
+    });
+
+    it('should report a clear failure when the bucket name is owned by another account', async () => {
+      s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyExists'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureTfvarsBucket('taken-bucket-name');
+
+      expect(result.status).toBe('failed');
+      expect(result.message).toMatch(/already taken by another AWS account/i);
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(0);
+    });
+
+    it('should report failure with the error message when the lifecycle rule cannot be applied after a successful create', async () => {
+      s3Mock.on(CreateBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureTfvarsBucket('my-tfvars-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+      const service = new BootstrapService(makeStore(undefined));
+
+      await expect(service.ensureTfvarsBucket('my-tfvars-bucket')).rejects.toThrow(
         BootstrapCredentialsNotConfiguredError,
       );
     });

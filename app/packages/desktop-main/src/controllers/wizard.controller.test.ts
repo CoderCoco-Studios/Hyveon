@@ -47,11 +47,12 @@ function makeStore(
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
-/** Build a BootstrapService stub whose `ensureStateBucket()`/`ensureLockTable()` resolve to the given result. */
+/** Build a BootstrapService stub whose `ensure*` methods resolve to the given result. */
 function makeBootstrap(result: BootstrapResult = { status: 'created' }): BootstrapService {
   return {
     ensureStateBucket: vi.fn().mockResolvedValue(result),
     ensureLockTable: vi.fn().mockResolvedValue(result),
+    ensureTfvarsBucket: vi.fn().mockResolvedValue(result),
   } as Partial<BootstrapService> as BootstrapService;
 }
 
@@ -112,6 +113,11 @@ describe('WizardController', () => {
     it('should register bootstrapLockTable on the "wizard.bootstrap.lockTable" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapLockTable);
       expect(pattern).toEqual(['wizard.bootstrap.lockTable']);
+    });
+
+    it('should register bootstrapTfvarsBucket on the "wizard.bootstrap.tfvarsBucket" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapTfvarsBucket);
+      expect(pattern).toEqual(['wizard.bootstrap.tfvarsBucket']);
     });
   });
 
@@ -308,6 +314,25 @@ describe('WizardController', () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
       const result = await makeController({ bootstrap }).bootstrapLockTable({ tableName: 'my-lock-table' });
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+  });
+
+  describe('bootstrapTfvarsBucket', () => {
+    it('should delegate to BootstrapService.ensureTfvarsBucket with the given bucket name', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
+
+      expect(bootstrap.ensureTfvarsBucket).toHaveBeenCalledWith('my-tfvars-bucket');
+      expect(result).toEqual({ status: 'created' });
+    });
+
+    it('should propagate a failed result unchanged rather than throwing', async () => {
+      const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
+
+      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });

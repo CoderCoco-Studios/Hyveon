@@ -82,11 +82,11 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 9. Issue #205 — SDK bootstrap: versioned S3 tfvars bucket (desktop-main)
 
-- [ ] 9.1 Create worktree: `git worktree add .worktrees/claude/issue-205-bootstrap-tfvars-bucket -b claude/issue-205-bootstrap-tfvars-bucket`
-- [ ] 9.2 Implement `BootstrapService.ensureTfvarsBucket()`: create-if-missing, `PutBucketVersioning`, `PutBucketLifecycleConfiguration` expiring noncurrent versions after 90 days; idempotent; TSDoc noting behavioral parity with `terraform/bootstrap/`
-- [ ] 9.3 Add `@MessagePattern('wizard.bootstrap.tfvarsBucket')` + preload/`gsd-api.ts` mirror; bucket name feeds the `RemoteFileStore` configuration
-- [ ] 9.4 Vitest specs with `aws-sdk-client-mock`: fresh create with versioning + lifecycle, existing-bucket no-op with settings ensured, failure path
-- [ ] 9.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 9.1 Create worktree: `git worktree add .worktrees/claude/issue-205-bootstrap-tfvars-bucket -b claude/issue-205-bootstrap-tfvars-bucket`
+- [x] 9.2 Implement `BootstrapService.ensureTfvarsBucket()`: create-if-missing, `PutBucketVersioning`, `PutBucketLifecycleConfiguration` expiring noncurrent versions after 90 days; idempotent; TSDoc noting behavioral parity with `terraform/bootstrap/`
+- [x] 9.3 Add `@MessagePattern('wizard.bootstrap.tfvarsBucket')` + preload/`gsd-api.ts` mirror; bucket name feeds the `RemoteFileStore` configuration
+- [x] 9.4 Vitest specs with `aws-sdk-client-mock`: fresh create with versioning + lifecycle, existing-bucket no-op with settings ensured, failure path
+- [x] 9.5 Verify `npm run app:test` and `npm run app:lint` pass
 - [ ] 9.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #205`
 
 ## 10. Issue #208 — IAM SimulatePrincipalPolicy check (desktop-main + web panel)
