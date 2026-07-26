@@ -968,10 +968,21 @@ export interface PrerequisitesReport {
   aws: PrerequisiteCheckResult;
 }
 
+/**
+ * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
+ * `~/.aws/config`. Never carries key material.
+ */
+export interface AwsProfileSummary {
+  profileName: string;
+  region?: string;
+}
+
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface GsdWizardApi {
   /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
   checkPrereqs: () => Promise<PrerequisitesReport>;
+  /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
+  listAwsProfiles: () => Promise<AwsProfileSummary[]>;
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
