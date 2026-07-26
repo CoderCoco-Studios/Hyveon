@@ -7,10 +7,10 @@
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 
 /**
- * Ordered wizard steps. Later PRs in this epic (#200/#203/#205 bootstrap,
- * #208 IAM check, #210 terraform-init) append to this array.
+ * Ordered wizard steps. Later PRs in this epic (#210 terraform-init) append
+ * to this array.
  */
-export const WIZARD_STEPS = ['prerequisites', 'pick-cloud', 'credentials'] as const;
+export const WIZARD_STEPS = ['prerequisites', 'pick-cloud', 'credentials', 'bootstrap'] as const;
 
 /** A single step in {@link WIZARD_STEPS}. */
 export type WizardStep = (typeof WIZARD_STEPS)[number];
@@ -39,4 +39,30 @@ export function detectOs(userAgent: string = navigator.userAgent): DetectedOs {
 export function arePrerequisitesSatisfied(report: PrerequisitesReport | null): boolean {
   if (!report) return false;
   return report.terraform.found && report.terraform.minimumVersionSatisfied !== false && report.aws.found;
+}
+
+/** A backend bootstrap resource the wizard's bootstrap step creates. */
+export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'tfvarsBucket';
+
+/**
+ * Client-side status for a single bootstrap resource row. Extends the
+ * backend's `created`/`exists`/`failed` (`BootstrapResult['status']`) with
+ * `pending` (not yet run) and `creating` (call in flight) — states the
+ * backend has no need to represent since it only ever returns a final result.
+ */
+export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exists' | 'failed';
+
+/**
+ * Sensible default resource names for the bootstrap step's editable name
+ * fields, derived from the operator's project name (defaults to `hyveon`,
+ * matching `terraform/variables.tf`'s `project_name` default). Per design.md's
+ * open questions, these are operator-editable rather than fixed — the
+ * defaults just save typing in the common case.
+ */
+export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<BootstrapResourceKey, string> {
+  return {
+    stateBucket: `${projectName}-tfstate`,
+    lockTable: `${projectName}-tflock`,
+    tfvarsBucket: `${projectName}-tfvars`,
+  };
 }

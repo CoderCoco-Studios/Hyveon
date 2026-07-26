@@ -125,6 +125,8 @@ export default tseslint.config(
       // openspec/changes/add-first-run-wizard/design.md decision 6.
       'packages/desktop-main/src/services/BootstrapService.ts',
       'packages/desktop-main/src/services/BootstrapService.test.ts',
+      'packages/desktop-main/src/services/IamCheckService.ts',
+      'packages/desktop-main/src/services/IamCheckService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
     ],

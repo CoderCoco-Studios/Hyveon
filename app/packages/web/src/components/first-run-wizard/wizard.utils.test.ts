@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectOs, arePrerequisitesSatisfied } from './wizard.utils.js';
+import { detectOs, arePrerequisitesSatisfied, defaultBootstrapResourceNames } from './wizard.utils.js';
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 
 describe('detectOs', () => {
@@ -58,5 +58,23 @@ describe('arePrerequisitesSatisfied', () => {
         terraform: { found: true, path: '/usr/local/bin/terraform' },
       }),
     ).toBe(true);
+  });
+});
+
+describe('defaultBootstrapResourceNames', () => {
+  it('should derive resource names from the default project name when none is given', () => {
+    expect(defaultBootstrapResourceNames()).toEqual({
+      stateBucket: 'hyveon-tfstate',
+      lockTable: 'hyveon-tflock',
+      tfvarsBucket: 'hyveon-tfvars',
+    });
+  });
+
+  it('should derive resource names from a custom project name', () => {
+    expect(defaultBootstrapResourceNames('my-project')).toEqual({
+      stateBucket: 'my-project-tfstate',
+      lockTable: 'my-project-tflock',
+      tfvarsBucket: 'my-project-tfvars',
+    });
   });
 });

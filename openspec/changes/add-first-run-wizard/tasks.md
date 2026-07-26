@@ -91,12 +91,12 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 10. Issue #208 — IAM SimulatePrincipalPolicy check (desktop-main + web panel)
 
-- [ ] 10.1 Create worktree: `git worktree add .worktrees/claude/issue-208-iam-simulate-check -b claude/issue-208-iam-simulate-check`
-- [ ] 10.2 Extract the `GameServerDeployAll` action set from `docs/docs/setup.md` (single source of truth) into a shared constant, with a test asserting the constant stays in sync with the doc's policy JSON
-- [ ] 10.3 Implement `IamCheckService`: `sts:GetCallerIdentity` → batched `iam:SimulatePrincipalPolicy` calls (~50 actions per request); diff denied actions into minimal pasteable policy JSON; simulation errors degrade to a non-blocking warning with the full checklist; never auto-grant
-- [ ] 10.4 Add `@MessagePattern('wizard.iam.simulate')` + preload/`gsd-api.ts` mirror; render the "Required IAM JSON" panel in the bootstrap wizard step (passed / missing-actions JSON / best-effort warning states)
-- [ ] 10.5 Vitest specs with `aws-sdk-client-mock`: all-allowed, partial-deny JSON generation, batching across >50 actions, simulate-access-denied warning path; RTL specs for the three panel states
-- [ ] 10.6 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 10.1 Create worktree: `git worktree add .worktrees/claude/issue-208-iam-simulate-check -b claude/issue-208-iam-simulate-check`
+- [x] 10.2 Extract the `GameServerDeployAll` action set from `docs/docs/setup.md` (single source of truth) into a shared constant, with a test asserting the constant stays in sync with the doc's policy JSON
+- [x] 10.3 Implement `IamCheckService`: `sts:GetCallerIdentity` → batched `iam:SimulatePrincipalPolicy` calls (~50 actions per request); diff denied actions into minimal pasteable policy JSON; simulation errors degrade to a non-blocking warning with the full checklist; never auto-grant
+- [x] 10.4 Add `@MessagePattern('wizard.iam.simulate')` + preload/`gsd-api.ts` mirror; render the "Required IAM JSON" panel in the bootstrap wizard step (passed / missing-actions JSON / best-effort warning states) — also builds `bootstrap-step.component.tsx` itself (wiring #200/#203/#205's IPC calls), since no prior task in this plan created it
+- [x] 10.5 Vitest specs with `aws-sdk-client-mock`: all-allowed, partial-deny JSON generation, batching across >50 actions, simulate-access-denied warning path; RTL specs for the three panel states
+- [x] 10.6 Verify `npm run app:test` and `npm run app:lint` pass
 - [ ] 10.7 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #208`
 
 ## 11. Issue #210 — wizard step: terraform init with live log (web, after #200/#203/#205)

@@ -6,22 +6,31 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Only prerequisites, pick-cloud, and credentials exist so far; later PRs in
- * this epic append more steps to `WIZARD_STEPS` and this shell's render body.
+ * Prerequisites, pick-cloud, credentials, and bootstrap exist so far; a
+ * later PR in this epic (#210) appends the terraform-init step.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary, IamCheckResult, PrerequisitesReport } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { PrerequisitesStep } from './prerequisites-step.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep, type CredentialMode, type PasteField } from './credentials-step.component.js';
-import { WIZARD_STEPS, arePrerequisitesSatisfied, type WizardStep } from './wizard.utils.js';
+import { BootstrapStep } from './bootstrap-step.component.js';
+import {
+  WIZARD_STEPS,
+  arePrerequisitesSatisfied,
+  defaultBootstrapResourceNames,
+  type BootstrapResourceKey,
+  type BootstrapResourceState,
+  type WizardStep,
+} from './wizard.utils.js';
 
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
   prerequisites: 'Install prerequisites',
   'pick-cloud': 'Choose your cloud',
   credentials: 'AWS credentials',
+  bootstrap: 'Bootstrap AWS resources',
 };
 
 /**
@@ -52,6 +61,18 @@ export function FirstRunWizard() {
   const [pasteSaving, setPasteSaving] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pastedProfileName, setPastedProfileName] = useState<string | null>(null);
+
+  const [resourceNames, setResourceNames] = useState(defaultBootstrapResourceNames());
+  const [resourceStatuses, setResourceStatuses] = useState<Record<BootstrapResourceKey, BootstrapResourceState>>({
+    stateBucket: 'pending',
+    lockTable: 'pending',
+    tfvarsBucket: 'pending',
+  });
+  const [resourceMessages, setResourceMessages] = useState<Partial<Record<BootstrapResourceKey, string>>>({});
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [iamCheck, setIamCheck] = useState<IamCheckResult | null>(null);
+  const [iamChecking, setIamChecking] = useState(false);
+  const [iamError, setIamError] = useState<string | null>(null);
 
   const step = WIZARD_STEPS[stepIndex];
 
@@ -132,6 +153,72 @@ export function FirstRunWizard() {
     }
   }
 
+  function resourceNameChange(resource: BootstrapResourceKey, name: string) {
+    setResourceNames((current) => ({ ...current, [resource]: name }));
+  }
+
+  /**
+   * Runs the three bootstrap IPC calls sequentially (state bucket → lock
+   * table → tfvars bucket), updating each resource's status as its call
+   * settles. A failure on one resource doesn't stop the others from running.
+   */
+  async function runBootstrap() {
+    if (!window.gsd) {
+      setResourceMessages({ stateBucket: 'IPC bridge (window.gsd) is not available in this context.' });
+      return;
+    }
+    setBootstrapping(true);
+    setResourceStatuses({ stateBucket: 'creating', lockTable: 'creating', tfvarsBucket: 'creating' });
+    setResourceMessages({});
+
+    const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
+      ['stateBucket', () => window.gsd!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
+      ['lockTable', () => window.gsd!.wizard.bootstrapLockTable({ tableName: resourceNames.lockTable })],
+      ['tfvarsBucket', () => window.gsd!.wizard.bootstrapTfvarsBucket({ bucketName: resourceNames.tfvarsBucket })],
+    ];
+
+    await Promise.all(
+      calls.map(async ([resource, call]) => {
+        try {
+          const result = await call();
+          setResourceStatuses((current) => ({ ...current, [resource]: result.status as BootstrapResourceState }));
+          if (result.message) {
+            setResourceMessages((current) => ({ ...current, [resource]: result.message }));
+          }
+        } catch (err) {
+          setResourceStatuses((current) => ({ ...current, [resource]: 'failed' }));
+          setResourceMessages((current) => ({
+            ...current,
+            [resource]: err instanceof Error ? err.message : `Failed to bootstrap ${resource}.`,
+          }));
+        }
+      }),
+    );
+    setBootstrapping(false);
+  }
+
+  /** Runs the best-effort IAM permission dry-run. Never blocks wizard progression. */
+  async function runIamCheck() {
+    if (!window.gsd) {
+      setIamError('IPC bridge (window.gsd) is not available in this context.');
+      return;
+    }
+    setIamChecking(true);
+    setIamError(null);
+    try {
+      const result = await window.gsd.wizard.simulateIamPermissions();
+      setIamCheck(result);
+    } catch (err) {
+      setIamError(err instanceof Error ? err.message : 'Failed to run the IAM permission check.');
+    } finally {
+      setIamChecking(false);
+    }
+  }
+
+  const bootstrapComplete = (['stateBucket', 'lockTable', 'tfvarsBucket'] as BootstrapResourceKey[]).every(
+    (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
+  );
+
   const credentialsChosen =
     credentialMode === 'profile' ? selectedProfileName !== '' : pastedProfileName !== null;
 
@@ -140,7 +227,9 @@ export function FirstRunWizard() {
       ? !arePrerequisitesSatisfied(report)
       : step === 'credentials'
         ? !credentialsChosen
-        : false;
+        : step === 'bootstrap'
+          ? !bootstrapComplete
+          : false;
 
   /**
    * Advances past the current step. When leaving `pick-cloud` or
@@ -240,6 +329,20 @@ export function FirstRunWizard() {
               </p>
             )}
           </>
+        )}
+        {step === 'bootstrap' && (
+          <BootstrapStep
+            names={resourceNames}
+            statuses={resourceStatuses}
+            messages={resourceMessages}
+            onNameChange={resourceNameChange}
+            onRunBootstrap={runBootstrap}
+            bootstrapping={bootstrapping}
+            iamCheck={iamCheck}
+            iamChecking={iamChecking}
+            iamError={iamError}
+            onRunIamCheck={runIamCheck}
+          />
         )}
 
         <div className="flex justify-between">
