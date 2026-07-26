@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { createRequire } from 'module';
@@ -56,11 +56,15 @@ export class FirstRunWizardService {
   /**
    * Marks the wizard complete. Setting `wizardCompleted: true` in
    * `ElectronStoreService` is what actually gates the app router past the
-   * wizard (`WizardController.getState`) — the resume file is left in place
-   * but becomes irrelevant once this flag is set.
+   * wizard (`WizardController.getState`). Also clears the resume file —
+   * without this, a future re-entry into the wizard (e.g. #211's Settings
+   * "Reconfigure" flow) would call `getProgress()` and jump straight back
+   * to whatever step was last recorded (often `terraform-init`), skipping
+   * every earlier step with none of their answers rehydrated.
    */
-  complete(): void {
+  async complete(): Promise<void> {
     this.store.set('wizardCompleted', true);
+    await rm(this.stateFilePath(), { force: true });
   }
 
   /** Absolute path to the resumable state file. Extracted as a seam so tests can `vi.spyOn` it. */
@@ -70,10 +74,17 @@ export class FirstRunWizardService {
 
   /**
    * Resolves a writable per-user directory: the Electron `userData` path
-   * when running inside Electron, or the OS temp directory in
+   * when running inside Electron, or a namespaced OS temp subdirectory in
    * plain-Node/test contexts. Mirrors `ConfigService.readUserDataPath`'s
    * dynamic-require seam so this module has no static `electron` import
    * (which would fail to resolve outside an Electron process).
+   *
+   * @remarks
+   * The tmpdir fallback is namespaced under `hyveon-wizard` (mirroring
+   * `ConfigService.getRunsDir`'s `hyveon-runs` prefix) rather than writing
+   * directly into the bare, world-writable `tmpdir()` root — an unnamespaced
+   * path there is guessable and poses a symlink-pre-creation risk, since
+   * `writeFile` follows symlinks.
    */
   protected userDataPath(): string {
     if (process.versions['electron']) {
@@ -85,6 +96,6 @@ export class FirstRunWizardService {
         // Fall through to the tmpdir fallback below.
       }
     }
-    return tmpdir();
+    return join(tmpdir(), 'hyveon-wizard');
   }
 }

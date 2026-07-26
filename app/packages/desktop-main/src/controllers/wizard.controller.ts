@@ -222,8 +222,8 @@ export class WizardController {
    * {@link getState} so the renderer can update its local state directly.
    */
   @MessagePattern('wizard.complete')
-  complete(): WizardState {
-    this.firstRunWizard.complete();
+  async complete(): Promise<WizardState> {
+    await this.firstRunWizard.complete();
     return this.getState();
   }
 }

@@ -6,10 +6,11 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Prerequisites, pick-cloud, credentials, and bootstrap exist so far; a
- * later PR in this epic (#210) appends the terraform-init step.
+ * Five steps: prerequisites, pick-cloud, credentials, bootstrap, and
+ * terraform-init (the last of which runs `terraform init` and finishes the
+ * wizard).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AwsProfileSummary, IamCheckResult, PrerequisitesReport, TerraformInitConfig } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { PrerequisitesStep } from './prerequisites-step.component.js';
@@ -84,20 +85,45 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
 
   const step = WIZARD_STEPS[stepIndex];
 
+  // Guards the save-progress effect below until the resume-on-mount effect
+  // has settled (resolved or rejected) — otherwise the two effects race to
+  // read/write the same file, and if the save ever won that race it would
+  // clobber a real resumed step back down to `prerequisites`. Also used to
+  // clamp how far resume is allowed to jump (see the resume effect).
+  const resumeSettledRef = useRef(false);
+
   // Resume-on-mount: jump straight to the last-recorded step instead of
   // always restarting at `prerequisites`, so closing and reopening the app
   // mid-flow doesn't lose progress. Any failure (including a missing IPC
-  // bridge) leaves `stepIndex` at its default of 0.
+  // bridge) leaves `stepIndex` at its default of 0. Clamped to at most the
+  // `bootstrap` step: none of this component's answer state (region,
+  // selected profile, bootstrap resource names) is itself persisted or
+  // rehydrated here, only which step the operator was on — jumping straight
+  // into `terraform-init` would run `terraform init` on mount against a
+  // `backendConfig` built from blank defaults. Resuming to `bootstrap` is
+  // safe by comparison: its IPC calls read the region from the credentials
+  // step's already-persisted `wizard.state.save` call, and worst case the
+  // operator just has to re-click "Bootstrap AWS resources".
   useEffect(() => {
-    if (!window.gsd) return;
+    if (!window.gsd) {
+      resumeSettledRef.current = true;
+      return;
+    }
     window.gsd.wizard
       .getProgress()
       .then((progress) => {
         const index = WIZARD_STEPS.indexOf(progress.step);
-        if (index > 0) setStepIndex(index);
+        const maxResumableIndex = WIZARD_STEPS.indexOf('bootstrap');
+        if (index > 0) setStepIndex(Math.min(index, maxResumableIndex));
+        // Set in the same microtask as the `setStepIndex` call above (rather
+        // than a subsequent `.finally()`), so this is guaranteed true before
+        // React processes that batched update — the save effect's re-run
+        // must never observe `resumeSettledRef.current` still `false`.
+        resumeSettledRef.current = true;
       })
       .catch(() => {
         // Best-effort — starting over at step 1 is always a safe fallback.
+        resumeSettledRef.current = true;
       });
   }, []);
 
@@ -105,8 +131,10 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
   // jump above) so `userData/wizard-state.json` stays in sync with what the
   // operator is actually looking at. Fire-and-forget: a failed write here
   // shouldn't block the wizard, only degrade resume on the next launch.
+  // Gated on `resumeSettledRef` so this can never race the resume effect's
+  // own read of the same file (see that effect's comment).
   useEffect(() => {
-    if (!window.gsd) return;
+    if (!window.gsd || !resumeSettledRef.current) return;
     window.gsd.wizard.saveProgress({ step }).catch(() => {});
   }, [step]);
 
@@ -268,8 +296,14 @@ export function FirstRunWizard({ onComplete }: FirstRunWizardProps = {}) {
     (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
   );
 
+  // Requires a non-empty region in both modes — `backendConfig.region` (fed
+  // to `terraform init` on the final step) is computed straight from
+  // `region`/`pasteRegion` with no other fallback, so an empty region here
+  // would otherwise silently reach `terraform init` as `-backend-config=region=`.
   const credentialsChosen =
-    credentialMode === 'profile' ? selectedProfileName !== '' : pastedProfileName !== null;
+    credentialMode === 'profile'
+      ? selectedProfileName !== '' && region !== ''
+      : pastedProfileName !== null && pasteRegion !== '';
 
   const advanceDisabled =
     step === 'prerequisites'

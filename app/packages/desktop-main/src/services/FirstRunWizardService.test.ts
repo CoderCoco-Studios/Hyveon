@@ -6,10 +6,13 @@ import { tmpdir } from 'os';
 import { FirstRunWizardService } from './FirstRunWizardService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
-/** Test-only subclass exposing the protected `stateFilePath` seam so tests can point it at a real scratch directory. */
+/** Test-only subclass exposing the protected `stateFilePath`/`userDataPath` seams so tests can point them at a real scratch directory or assert their composition directly. */
 class TestableFirstRunWizardService extends FirstRunWizardService {
   public override stateFilePath(): string {
     return super.stateFilePath();
+  }
+  public override userDataPath(): string {
+    return super.userDataPath();
   }
 }
 
@@ -88,9 +91,38 @@ describe('FirstRunWizardService', () => {
   });
 
   describe('complete', () => {
-    it('should set wizardCompleted to true in ElectronStoreService', () => {
-      service.complete();
+    it('should set wizardCompleted to true in ElectronStoreService', async () => {
+      await service.complete();
       expect(store.set).toHaveBeenCalledWith('wizardCompleted', true);
+    });
+
+    it('should clear the resume file, so a future re-entry (e.g. Settings Reconfigure) starts clean', async () => {
+      await service.recordStep('terraform-init');
+      expect(existsSync(statePath)).toBe(true);
+
+      await service.complete();
+
+      expect(existsSync(statePath)).toBe(false);
+      expect(await service.getProgress()).toEqual({ step: 'prerequisites' });
+    });
+
+    it('should not throw when the resume file never existed', async () => {
+      await expect(service.complete()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('userDataPath', () => {
+    it('should compose stateFilePath from userDataPath and the fixed filename', () => {
+      const unspiedService = new TestableFirstRunWizardService(makeStore());
+      vi.spyOn(unspiedService, 'userDataPath').mockReturnValue('/fake/userData');
+
+      expect(unspiedService.stateFilePath()).toBe(join('/fake/userData', 'wizard-state.json'));
+    });
+
+    it('should fall back to a hyveon-wizard-namespaced OS temp directory outside Electron', () => {
+      const unspiedService = new TestableFirstRunWizardService(makeStore());
+
+      expect(unspiedService.userDataPath()).toBe(join(tmpdir(), 'hyveon-wizard'));
     });
   });
 });

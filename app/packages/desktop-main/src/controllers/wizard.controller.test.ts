@@ -68,7 +68,7 @@ function makeFirstRunWizard(progress: WizardProgress = { step: 'prerequisites' }
   return {
     getProgress: vi.fn().mockResolvedValue(progress),
     recordStep: vi.fn().mockResolvedValue(undefined),
-    complete: vi.fn(),
+    complete: vi.fn().mockResolvedValue(undefined),
   } as Partial<FirstRunWizardService> as FirstRunWizardService;
 }
 
