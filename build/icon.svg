@@ -17,8 +17,8 @@
 
     This file is the single source of truth for every packaged icon. After
     editing it, run `npm run icons:generate` to rebuild icon.png / icon.ico /
-    icon.icns and the web favicons. Sizes at or below 32px use icon-small.svg
-    instead: the seven cells collapse into a blur at that scale.
+    icon.icns and the web favicons. Sizes at or below 24px use icon-small.svg
+    instead: the seven cells stop resolving below 32px and blur together.
   -->
   <defs>
     <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">

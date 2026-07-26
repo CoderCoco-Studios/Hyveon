@@ -574,16 +574,16 @@ works from a clean checkout without extra steps:
 
 | File | Source | Used by |
 |---|---|---|
-| `build/icon.svg` | hand-authored master | everything at 48px and above |
-| `build/icon-small.svg` | hand-authored 16–32px variant | small `.ico` entries, browser tab |
+| `build/icon.svg` | hand-authored master | everything at 32px and above |
+| `build/icon-small.svg` | hand-authored 16–24px variant | the two smallest `.ico` entries, browser tab |
 | `build/icon.png` | generated, 1024×1024 | Linux AppImage, and the runtime window icon via `extraResources` |
 | `build/icon.ico` | generated, 16–256px | NSIS installer, Windows Explorer, taskbar |
 | `build/icon.icns` | generated | macOS DMG and dock |
 | `app/packages/web/public/favicon.svg` + `favicon-32.png` + `apple-touch-icon.png` | generated | browser tab in `desktop:dev` and Vite preview |
 
 To change the artwork, edit `build/icon.svg` (and `build/icon-small.svg`, which
-carries a simplified version of the same mark for sizes where the seven-cell
-honeycomb blurs together), then regenerate:
+carries a simplified version of the same mark for the 16px and 24px slots, where
+the seven-cell honeycomb blurs together), then regenerate:
 
 ```bash
 npm run icons:generate

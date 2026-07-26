@@ -12,8 +12,8 @@
  *   app/packages/web/public/favicon-32.png      browser tab (raster fallback)
  *   app/packages/web/public/apple-touch-icon.png  iOS/macOS bookmark tile
  *
- * Sizes at or below 32px are rendered from icon-small.svg: the seven-cell
- * honeycomb of the master needs ~48px before it reads as anything but a smudge.
+ * Sizes at or below 24px are rendered from icon-small.svg: below that the
+ * master's seven cells stop resolving and blur into a single smudge.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -29,8 +29,11 @@ const WEB_PUBLIC = join(REPO_ROOT, 'app', 'packages', 'web', 'public');
 const MASTER = join(BUILD_DIR, 'icon.svg');
 const SMALL = join(BUILD_DIR, 'icon-small.svg');
 
-/** Below this edge length the small-size variant is used instead of the master. */
-const SMALL_VARIANT_MAX = 32;
+/**
+ * At or below this edge length the small-size variant is used instead of the
+ * master. 32px still resolves the master's seven cells; 24px does not.
+ */
+const SMALL_VARIANT_MAX = 24;
 
 /** Every size embedded in build/icon.ico, smallest first. */
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];

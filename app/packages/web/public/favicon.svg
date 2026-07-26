@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Hyveon app icon — small-size variant (16px / 24px / 32px).
+  Hyveon app icon — small-size variant (16px and 24px).
 
-  The seven cells of icon.svg need roughly 48px before they read as a honeycomb;
-  below that they blur into a single smudge. This variant keeps the same idea —
-  a lit cell inside the hive — but states it with one heavy hexagon ring and one
-  solid core, which survives a 16×16 taskbar slot and browser tab.
+  The seven cells of icon.svg still resolve at 32px, but below that they blur
+  into a single smudge. This variant keeps the same idea — a lit cell inside the
+  hive — but states it with one heavy hexagon ring and one solid core, which
+  survives a 16×16 taskbar slot and browser tab.
 
   Keep the palette and the ground in sync with icon.svg whenever either changes.
 -->
