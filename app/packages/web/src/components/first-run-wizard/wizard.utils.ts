@@ -5,14 +5,9 @@
  * component.
  */
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
+import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
 
-/**
- * Ordered wizard steps.
- */
-export const WIZARD_STEPS = ['prerequisites', 'pick-cloud', 'credentials', 'bootstrap', 'terraform-init'] as const;
-
-/** A single step in {@link WIZARD_STEPS}. */
-export type WizardStep = (typeof WIZARD_STEPS)[number];
+export { WIZARD_STEPS, type WizardStep };
 
 /** Operating systems the prerequisites step can tailor install instructions for. */
 export type DetectedOs = 'macos' | 'windows' | 'linux' | 'unknown';

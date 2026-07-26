@@ -3,18 +3,11 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { createRequire } from 'module';
+import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
 
-/**
- * Ordered first-run wizard steps whose progress is resumable via
- * `userData/wizard-state.json`. Mirrors `WIZARD_STEPS` in
- * `@hyveon/web`'s `wizard.utils.ts` — that file is the renderer's source of
- * truth for step ordering; keep this list in sync with it.
- */
-export const WIZARD_STEP_NAMES = ['prerequisites', 'pick-cloud', 'credentials', 'bootstrap', 'terraform-init'] as const;
-
-/** A single first-run wizard step name (see {@link WIZARD_STEP_NAMES}). */
-export type WizardStepName = (typeof WIZARD_STEP_NAMES)[number];
+/** A single first-run wizard step name (see {@link WIZARD_STEPS} in `@hyveon/shared`, the single source of truth for step ordering). */
+export type WizardStepName = WizardStep;
 
 /** Resumable wizard progress persisted to `userData/wizard-state.json`. */
 export interface WizardProgress {
@@ -44,7 +37,7 @@ export class FirstRunWizardService {
     try {
       const raw = await readFile(this.stateFilePath(), 'utf-8');
       const parsed = JSON.parse(raw) as Partial<WizardProgress>;
-      if (parsed.step && (WIZARD_STEP_NAMES as readonly string[]).includes(parsed.step)) {
+      if (parsed.step && WIZARD_STEPS.includes(parsed.step)) {
         return { step: parsed.step };
       }
       return DEFAULT_PROGRESS;
