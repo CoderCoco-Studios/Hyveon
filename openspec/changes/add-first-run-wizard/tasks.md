@@ -116,4 +116,4 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 - [x] 12.3 Reconfigure semantics: steps pre-marked complete from stored state with per-step "Edit" affordances; edits buffered in component state and committed in a single IPC on finish so mid-flow cancel writes nothing and preserves all unchanged config
 - [x] 12.4 RTL/jsdom specs (via `renderPage()` for the Settings page): Reconfigure entry renders, completed-step Edit affordances, single-field edit preserves everything else, mid-flow cancel commits nothing, version display
 - [x] 12.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 12.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #211`; if this PR completes the last open child of epic #139, also include `Closes #139` on its own line
+- [x] 12.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #211`; if this PR completes the last open child of epic #139, also include `Closes #139` on its own line — [PR #331](https://github.com/CoderCoco/Hyveon/pull/331)
