@@ -28,7 +28,13 @@ function useWizardCompleted(): boolean | null {
 
   useEffect(() => {
     let cancelled = false;
-    if (!window.gsd) {
+    // Optional chaining matters here, not just the `window.gsd` presence
+    // check: a `window.gsd` stub built before this namespace existed (e.g.
+    // the chromium e2e tier's stub bridge) has no `.wizard` property, and
+    // `window.gsd.wizard.getState()` would throw synchronously — before
+    // there's even a promise to `.catch()` — permanently stalling this
+    // component at `wizardCompleted === null` (renders nothing, forever).
+    if (!window.gsd?.wizard) {
       setWizardCompleted(true);
       return;
     }
