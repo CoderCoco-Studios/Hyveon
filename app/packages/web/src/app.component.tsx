@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from './components/app-layout.component.js';
 import { DashboardPage } from './pages/dashboard.page.js';
@@ -14,9 +15,52 @@ import { AuditPage } from './pages/audit.page.js';
 import { PollingProvider } from './polling/polling-provider.component.js';
 import { GameStatusProvider } from './polling/game-status-provider.component.js';
 import { Toaster } from './components/ui/sonner.component.js';
+import { FirstRunWizard } from './components/first-run-wizard/first-run-wizard.component.js';
 
 /**
- * Root component. Renders the routed dashboard shell. Routes:
+ * Fetches the wizard's completion flag once on mount. Defaults to `true`
+ * (i.e. skip the wizard) on any failure — a missing `window.gsd` bridge or a
+ * failed IPC call must never lock an otherwise-working install out of its
+ * own dashboard. Returns `null` while the check is in flight.
+ */
+function useWizardCompleted(): boolean | null {
+  const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Optional chaining matters here, not just the `window.gsd` presence
+    // check: a `window.gsd` stub built before this namespace existed (e.g.
+    // the chromium e2e tier's stub bridge) has no `.wizard` property, and
+    // `window.gsd.wizard.getState()` would throw synchronously — before
+    // there's even a promise to `.catch()` — permanently stalling this
+    // component at `wizardCompleted === null` (renders nothing, forever).
+    if (!window.gsd?.wizard) {
+      setWizardCompleted(true);
+      return;
+    }
+    window.gsd.wizard
+      .getState()
+      .then((state) => {
+        if (!cancelled) setWizardCompleted(state.wizardCompleted);
+      })
+      .catch(() => {
+        if (!cancelled) setWizardCompleted(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return wizardCompleted;
+}
+
+/**
+ * Root component.
+ *
+ * Gates the whole app behind the first-run wizard: while
+ * `wizardCompleted` is `false`, renders only {@link FirstRunWizard} (no
+ * routing, no polling providers — there's nothing to poll before AWS is
+ * bootstrapped). Once complete, renders the routed dashboard shell:
  *   - `/` → Dashboard (game cards + panels)
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
@@ -30,6 +74,11 @@ import { Toaster } from './components/ui/sonner.component.js';
  *   - `/audit` → Audit log
  */
 export default function App() {
+  const wizardCompleted = useWizardCompleted();
+
+  if (wizardCompleted === null) return null;
+  if (!wizardCompleted) return <FirstRunWizard />;
+
   return (
     <PollingProvider>
       <GameStatusProvider>

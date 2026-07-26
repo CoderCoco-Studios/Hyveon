@@ -4,6 +4,7 @@ import { WizardController } from './wizard.controller.js';
 import type { PrerequisiteService, PrerequisitesReport } from '../services/PrerequisiteService.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
 import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
+import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 
 const SATISFIED_REPORT: PrerequisitesReport = {
   terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
@@ -28,11 +29,23 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
   } as Partial<AwsProfileService> as AwsProfileService;
 }
 
+/** Build an ElectronStoreService stub whose `get('wizardCompleted')` returns the given value. */
+function makeStore(wizardCompleted: boolean | undefined = undefined): ElectronStoreService {
+  return {
+    get: vi.fn().mockImplementation((key: string) => (key === 'wizardCompleted' ? wizardCompleted : undefined)),
+  } as Partial<ElectronStoreService> as ElectronStoreService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
-function makeController(overrides: { prerequisites?: PrerequisiteService; awsProfiles?: AwsProfileService } = {}): WizardController {
+function makeController(overrides: {
+  prerequisites?: PrerequisiteService;
+  awsProfiles?: AwsProfileService;
+  store?: ElectronStoreService;
+} = {}): WizardController {
   return new WizardController(
     overrides.prerequisites ?? makePrerequisites(),
     overrides.awsProfiles ?? makeAwsProfiles(),
+    overrides.store ?? makeStore(),
   );
 }
 
@@ -58,6 +71,11 @@ describe('WizardController', () => {
     it('should register saveCredentials on the "wizard.aws.saveCredentials" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.saveCredentials);
       expect(pattern).toEqual(['wizard.aws.saveCredentials']);
+    });
+
+    it('should register getState on the "wizard.state.get" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.getState);
+      expect(pattern).toEqual(['wizard.state.get']);
     });
   });
 
@@ -111,6 +129,34 @@ describe('WizardController', () => {
       expect(() =>
         makeController({ awsProfiles }).saveCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
       ).toThrow(SafeStorageUnavailableError);
+    });
+  });
+
+  describe('getState', () => {
+    it('should return wizardCompleted: false when the store has never set it and test mode is off', () => {
+      const controller = makeController({ store: makeStore(undefined) });
+      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(false);
+
+      expect(controller.getState()).toEqual({ wizardCompleted: false });
+    });
+
+    it('should default to wizardCompleted: true when unset and HYVEON_TEST_MODE is active', () => {
+      const controller = makeController({ store: makeStore(undefined) });
+      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
+
+      expect(controller.getState()).toEqual({ wizardCompleted: true });
+    });
+
+    it('should honor an explicitly-stored false value even under test mode', () => {
+      const controller = makeController({ store: makeStore(false) });
+      vi.spyOn(controller as unknown as { isTestMode(): boolean }, 'isTestMode').mockReturnValue(true);
+
+      expect(controller.getState()).toEqual({ wizardCompleted: false });
+    });
+
+    it('should return wizardCompleted: true once the store has it set', () => {
+      const result = makeController({ store: makeStore(true) }).getState();
+      expect(result).toEqual({ wizardCompleted: true });
     });
   });
 });
