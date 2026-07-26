@@ -34,7 +34,9 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
  * `set()` followed by `get()` (as `saveState` does) round-trips like the
  * real service, instead of always returning a fixed value.
  */
-function makeStore(seed: { wizardCompleted?: boolean; activeCloud?: 'aws' } = {}): ElectronStoreService {
+function makeStore(
+  seed: { wizardCompleted?: boolean; activeCloud?: 'aws'; aws?: { profile?: string; region?: string } } = {},
+): ElectronStoreService {
   const data: Record<string, unknown> = { ...seed };
   return {
     get: vi.fn().mockImplementation((key: string) => data[key]),
@@ -176,6 +178,16 @@ describe('WizardController', () => {
       const result = makeController({ store: makeStore({ wizardCompleted: true, activeCloud: 'aws' }) }).getState();
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws' });
     });
+
+    it('should include the stored aws credential choice when present', () => {
+      const store = makeStore({ wizardCompleted: true, aws: { profile: 'default', region: 'us-east-1' } });
+      const result = makeController({ store }).getState();
+      expect(result).toEqual({
+        wizardCompleted: true,
+        activeCloud: undefined,
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+    });
   });
 
   describe('saveState', () => {
@@ -206,6 +218,38 @@ describe('WizardController', () => {
       expect(() =>
         controller.saveState({ activeCloud: 'gcp' as unknown as 'aws' }),
       ).toThrow('Unsupported cloud provider: gcp');
+      expect(store.set).not.toHaveBeenCalled();
+    });
+
+    it('should persist the aws credential choice and return the updated state', () => {
+      const store = makeStore({ wizardCompleted: false });
+      const controller = makeController({ store });
+
+      const result = controller.saveState({ aws: { profile: 'default', region: 'us-east-1' } });
+
+      expect(store.set).toHaveBeenCalledWith('aws', { profile: 'default', region: 'us-east-1' });
+      expect(result).toEqual({
+        wizardCompleted: false,
+        activeCloud: undefined,
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+    });
+
+    it('should merge a partial aws update onto the existing stored value', () => {
+      const store = makeStore({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
+      const controller = makeController({ store });
+
+      controller.saveState({ aws: { region: 'eu-west-1' } });
+
+      expect(store.set).toHaveBeenCalledWith('aws', { profile: 'default', region: 'eu-west-1' });
+    });
+
+    it('should not write to the store when aws is omitted', () => {
+      const store = makeStore({ wizardCompleted: true });
+      const controller = makeController({ store });
+
+      controller.saveState({});
+
       expect(store.set).not.toHaveBeenCalled();
     });
   });

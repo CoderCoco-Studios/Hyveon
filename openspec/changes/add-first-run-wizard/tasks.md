@@ -54,12 +54,12 @@ One PR per GitHub issue (12 issues → 12 PRs). Groups 1–3 (#182, #189, #197) 
 
 ## 6. Issue #192 — wizard step: pick or paste credentials (web, after #189 + #197)
 
-- [ ] 6.1 Create worktree: `git worktree add .worktrees/claude/issue-192-wizard-credentials-step -b claude/issue-192-wizard-credentials-step`
-- [ ] 6.2 Implement `credentials-step.component.tsx`: profile dropdown from `gsd.wizard.listAwsProfiles()`, "paste keys instead" toggle opening a key-ID/secret/region form, region selector defaulting from the selected profile with override
-- [ ] 6.3 Wire submission: profile selection persists `{ profileName, region }`; paste form invokes `gsd.wizard.saveCredentials` (safeStorage flow from #197)
-- [ ] 6.4 RTL/jsdom specs: dropdown population, paste toggle, region default + override, both submission paths round-tripping through the mocked `gsd.wizard` namespace
-- [ ] 6.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 6.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #192`
+- [x] 6.1 Create worktree: `git worktree add .worktrees/claude/issue-192-wizard-credentials-step -b claude/issue-192-wizard-credentials-step`
+- [x] 6.2 Implement `credentials-step.component.tsx`: profile dropdown from `gsd.wizard.listAwsProfiles()`, "paste keys instead" toggle opening a key-ID/secret/region form, region selector defaulting from the selected profile with override
+- [x] 6.3 Wire submission: profile selection persists `{ profileName, region }`; paste form invokes `gsd.wizard.saveCredentials` (safeStorage flow from #197)
+- [x] 6.4 RTL/jsdom specs: dropdown population, paste toggle, region default + override, both submission paths round-tripping through the mocked `gsd.wizard` namespace
+- [x] 6.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 6.6 Open PR via `/pr` with Conventional Commits title (<70 chars); PR body FIRST line `Closes #192`
 
 ## 7. Issue #200 — SDK bootstrap: S3 state bucket (desktop-main)
 
