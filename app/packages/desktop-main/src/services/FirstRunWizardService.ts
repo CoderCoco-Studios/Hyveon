@@ -46,8 +46,18 @@ export class FirstRunWizardService {
     }
   }
 
-  /** Persists `step` so the wizard resumes here if the app is closed and reopened before completion. */
+  /**
+   * Persists `step` so the wizard resumes here if the app is closed and
+   * reopened before completion. `step`'s compile-time type is erased at the
+   * IPC boundary — the caller in `WizardController.saveProgress` is only as
+   * trustworthy as the renderer process — so this validates against
+   * {@link WIZARD_STEPS} before writing, rather than silently persisting an
+   * unsupported value that `getProgress` would later discard anyway.
+   */
   async recordStep(step: WizardStepName): Promise<void> {
+    if (!WIZARD_STEPS.includes(step)) {
+      throw new Error(`Unsupported wizard step: ${String(step)}`);
+    }
     const path = this.stateFilePath();
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, JSON.stringify({ step } satisfies WizardProgress), 'utf-8');
@@ -61,10 +71,19 @@ export class FirstRunWizardService {
    * "Reconfigure" flow) would call `getProgress()` and jump straight back
    * to whatever step was last recorded (often `terraform-init`), skipping
    * every earlier step with none of their answers rehydrated.
+   *
+   * @remarks
+   * The resume file is removed *before* setting the completion flag, not
+   * after: if `rm` were to throw with the flag already set, the caller
+   * would see `complete()` reject (a failure) while the store already says
+   * the wizard is done — a future launch would then skip the wizard
+   * entirely despite the IPC call having reported failure, with the stale
+   * resume file still lingering. Removing first means any failure here
+   * leaves the wizard genuinely incomplete, matching what the caller was told.
    */
   async complete(): Promise<void> {
-    this.store.set('wizardCompleted', true);
     await rm(this.stateFilePath(), { force: true });
+    this.store.set('wizardCompleted', true);
   }
 
   /** Absolute path to the resumable state file. Extracted as a seam so tests can `vi.spyOn` it. */

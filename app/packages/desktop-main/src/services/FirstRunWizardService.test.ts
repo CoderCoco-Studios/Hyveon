@@ -18,7 +18,8 @@ class TestableFirstRunWizardService extends FirstRunWizardService {
 
 /** Build an `ElectronStoreService` stub whose `set()` calls are observable. */
 function makeStore(): ElectronStoreService {
-  return { set: vi.fn() } as Partial<ElectronStoreService> as ElectronStoreService;
+  const store: Partial<ElectronStoreService> = { set: vi.fn() };
+  return store as ElectronStoreService;
 }
 
 describe('FirstRunWizardService', () => {
@@ -72,6 +73,14 @@ describe('FirstRunWizardService', () => {
       await service.recordStep('credentials');
 
       expect(JSON.parse(readFileSync(statePath, 'utf-8'))).toEqual({ step: 'credentials' });
+    });
+
+    it('should reject a step name outside WIZARD_STEPS rather than writing it', async () => {
+      // The IPC boundary erases WizardStepName's compile-time guarantee, so a
+      // malformed/unexpected value must be rejected explicitly at runtime.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately bypassing the compile-time type to exercise the runtime guard
+      await expect(service.recordStep('not-a-real-step' as any)).rejects.toThrow('Unsupported wizard step');
+      expect(existsSync(statePath)).toBe(false);
     });
 
     it('should be resumable: a later getProgress reflects the step recorded by an earlier recordStep', async () => {

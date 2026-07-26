@@ -65,11 +65,12 @@ function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckSe
 
 /** Build a FirstRunWizardService stub whose `getProgress()` resolves to the given progress. */
 function makeFirstRunWizard(progress: WizardProgress = { step: 'prerequisites' }): FirstRunWizardService {
-  return {
+  const service: Partial<FirstRunWizardService> = {
     getProgress: vi.fn().mockResolvedValue(progress),
     recordStep: vi.fn().mockResolvedValue(undefined),
     complete: vi.fn().mockResolvedValue(undefined),
-  } as Partial<FirstRunWizardService> as FirstRunWizardService;
+  };
+  return service as FirstRunWizardService;
 }
 
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
