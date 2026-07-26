@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './errors.js';
 export * from './terraformVersion.js';
+export * from './iamPolicy.js';
 export * from './tfvars.js';
 export * from './gameServerValidator.js';
 export * from './gamesWrite.js';
