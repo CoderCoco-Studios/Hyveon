@@ -3,6 +3,7 @@ import { PrerequisiteService } from '../services/PrerequisiteService.js';
 import { AwsProfileService } from '../services/AwsProfileService.js';
 import { BootstrapService } from '../services/BootstrapService.js';
 import { IamCheckService } from '../services/IamCheckService.js';
+import { FirstRunWizardService } from '../services/FirstRunWizardService.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 
 /**
@@ -12,12 +13,13 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * `controllers` array; the IPC controller is wired directly into
  * `AppModule.controllers` alongside every other controller in this codebase.
  * Imports `ElectronStoreModule` so `AwsProfileService`/`BootstrapService`/
- * `IamCheckService` can inject `SafeStorageService`/`ElectronStoreService`
- * for the pasted-credentials and credential-resolution flows.
+ * `IamCheckService`/`FirstRunWizardService` can inject
+ * `SafeStorageService`/`ElectronStoreService` for the pasted-credentials,
+ * credential-resolution, and wizard-completion flows.
  */
 @Module({
   imports: [ElectronStoreModule],
-  providers: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService],
-  exports: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService],
+  providers: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
+  exports: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
 })
 export class WizardModule {}

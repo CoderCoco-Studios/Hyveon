@@ -8,6 +8,7 @@ import {
 } from '../services/AwsProfileService.js';
 import { BootstrapService, type BootstrapResult } from '../services/BootstrapService.js';
 import { IamCheckService, type IamCheckResult } from '../services/IamCheckService.js';
+import { FirstRunWizardService, type WizardProgress, type WizardStepName } from '../services/FirstRunWizardService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
 
 /** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
@@ -23,6 +24,11 @@ export interface BootstrapLockTableInput {
 /** Payload accepted by {@link WizardController.bootstrapTfvarsBucket}. */
 export interface BootstrapTfvarsBucketInput {
   bucketName: string;
+}
+
+/** Payload accepted by {@link WizardController.saveProgress}. */
+export interface SaveWizardProgressInput {
+  step: WizardStepName;
 }
 
 /**
@@ -69,6 +75,7 @@ export class WizardController {
     private readonly store: ElectronStoreService,
     private readonly bootstrap: BootstrapService,
     private readonly iamCheck: IamCheckService,
+    private readonly firstRunWizard: FirstRunWizardService,
   ) {}
 
   /**
@@ -89,8 +96,8 @@ export class WizardController {
    * still override this via `window.gsd.__test.mock('wizard.state.get', ...)`
    * — the mock registry is consulted before this controller is ever reached.
    * This is a plain read of `ElectronStoreService` either way — the fuller
-   * resumable step-progress state (`userData/state.json`, owned by
-   * `FirstRunWizardService`) lands in a later PR of this epic.
+   * resumable step-progress state (`userData/wizard-state.json`, owned by
+   * `FirstRunWizardService`) is exposed separately via `wizard.progress.get`.
    */
   @MessagePattern('wizard.state.get')
   getState(): WizardState {
@@ -195,5 +202,28 @@ export class WizardController {
   @MessagePattern('wizard.iam.simulate')
   simulateIamPermissions(): Promise<IamCheckResult> {
     return this.iamCheck.checkPermissions();
+  }
+
+  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  @MessagePattern('wizard.progress.get')
+  getProgress(): Promise<WizardProgress> {
+    return this.firstRunWizard.getProgress();
+  }
+
+  /** Persists the current step so the wizard resumes here if the app closes before completion. */
+  @MessagePattern('wizard.progress.save')
+  saveProgress(@Payload() body: SaveWizardProgressInput): Promise<void> {
+    return this.firstRunWizard.recordStep(body.step);
+  }
+
+  /**
+   * Marks the wizard complete (`wizardCompleted: true`), which is what
+   * actually gates the app router past the wizard. Returns the same shape as
+   * {@link getState} so the renderer can update its local state directly.
+   */
+  @MessagePattern('wizard.complete')
+  complete(): WizardState {
+    this.firstRunWizard.complete();
+    return this.getState();
   }
 }
