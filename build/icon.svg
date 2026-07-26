@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hyveon app icon — master artwork (1024×1024).
+
+  Concept: seven honeycomb cells make up the hive (the fleet of game servers);
+  exactly one cell is lit, because Hyveon runs a server only while you want it
+  running. Palette is taken verbatim from the app's design tokens in
+  app/packages/web/src/index.css so the icon matches the UI it opens.
+
+  This file is the single source of truth for every packaged icon. After editing
+  it, run `npm run icons:generate` to rebuild icon.png / icon.ico / icon.icns and
+  the web favicons. Sizes at or below 32px use icon-small.svg instead — the seven
+  cells collapse into a blur at that scale.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1f33"/>
+      <stop offset="1" stop-color="#0d0f18"/>
+    </linearGradient>
+    <linearGradient id="comb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.5" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#7c3aed" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#ground)"/>
+
+  <!-- Soft bloom behind the lit cell; a radial gradient rather than an SVG
+       filter so every rasteriser in the toolchain renders it identically. -->
+  <circle cx="512" cy="512" r="330" fill="url(#glow)"/>
+
+  <!-- Six dormant cells: stroked outlines, no fill. -->
+  <g fill="none" stroke="url(#comb)" stroke-width="40" stroke-linejoin="round" opacity="0.82">
+    <path d="M 768.34 374 L 887.85 443 L 887.85 581 L 768.34 650 L 648.83 581 L 648.83 443 Z"/>
+    <path d="M 640.17 596 L 759.68 665 L 759.68 803 L 640.17 872 L 520.66 803 L 520.66 665 Z"/>
+    <path d="M 383.83 596 L 503.34 665 L 503.34 803 L 383.83 872 L 264.32 803 L 264.32 665 Z"/>
+    <path d="M 255.66 374 L 375.17 443 L 375.17 581 L 255.66 650 L 136.15 581 L 136.15 443 Z"/>
+    <path d="M 383.83 152 L 503.34 221 L 503.34 359 L 383.83 428 L 264.32 359 L 264.32 221 Z"/>
+    <path d="M 640.17 152 L 759.68 221 L 759.68 359 L 640.17 428 L 520.66 359 L 520.66 221 Z"/>
+  </g>
+
+  <!-- The one running server. -->
+  <path d="M 512 374 L 631.51 443 L 631.51 581 L 512 650 L 392.49 581 L 392.49 443 Z" fill="url(#core)"/>
+</svg>

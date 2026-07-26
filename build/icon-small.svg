@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hyveon app icon — small-size variant (16px / 24px / 32px).
+
+  The seven cells of icon.svg need roughly 48px before they read as a honeycomb;
+  below that they blur into a single smudge. This variant keeps the same idea —
+  a lit cell inside the hive — but states it with one heavy hexagon ring and one
+  solid core, which survives a 16×16 taskbar slot and browser tab.
+
+  Keep the palette and the ground in sync with icon.svg whenever either changes.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1f33"/>
+      <stop offset="1" stop-color="#0d0f18"/>
+    </linearGradient>
+    <linearGradient id="comb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#ground)"/>
+
+  <!-- The hive, reduced to a single heavy cell wall. -->
+  <path d="M 512 180 L 800 346 L 800 678 L 512 844 L 224 678 L 224 346 Z"
+        fill="none" stroke="url(#comb)" stroke-width="118" stroke-linejoin="round"/>
+
+  <!-- The one running server. -->
+  <path d="M 512 366 L 638.44 439 L 638.44 585 L 512 658 L 385.56 585 L 385.56 439 Z"
+        fill="url(#core)"/>
+</svg>
