@@ -38,7 +38,12 @@ function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsPr
  * real service, instead of always returning a fixed value.
  */
 function makeStore(
-  seed: { wizardCompleted?: boolean; activeCloud?: 'aws'; aws?: { profile?: string; region?: string } } = {},
+  seed: {
+    wizardCompleted?: boolean;
+    activeCloud?: 'aws';
+    aws?: { profile?: string; region?: string };
+    bootstrap?: { stateBucket: string; lockTable: string; tfvarsBucket: string };
+  } = {},
 ): ElectronStoreService {
   const data: Record<string, unknown> = { ...seed };
   return {
@@ -256,6 +261,13 @@ describe('WizardController', () => {
         aws: { profile: 'default', region: 'us-east-1' },
       });
     });
+
+    it('should include the stored bootstrap resource names when present', () => {
+      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+      const store = makeStore({ wizardCompleted: true, bootstrap });
+      const result = makeController({ store }).getState();
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined, bootstrap });
+    });
   });
 
   describe('saveState', () => {
@@ -319,6 +331,30 @@ describe('WizardController', () => {
       controller.saveState({});
 
       expect(store.set).not.toHaveBeenCalled();
+    });
+
+    it('should persist the bootstrap resource names and return them in the updated state', () => {
+      const store = makeStore({ wizardCompleted: true });
+      const controller = makeController({ store });
+      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+
+      const result = controller.saveState({ bootstrap });
+
+      expect(store.set).toHaveBeenCalledWith('bootstrap', bootstrap);
+      expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined, aws: undefined, bootstrap });
+    });
+
+    it('should replace the stored bootstrap resource names wholesale rather than merging', () => {
+      const store = makeStore({
+        wizardCompleted: true,
+        bootstrap: { stateBucket: 'old-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' },
+      });
+      const controller = makeController({ store });
+      const bootstrap = { stateBucket: 'new-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' };
+
+      controller.saveState({ bootstrap });
+
+      expect(store.set).toHaveBeenCalledWith('bootstrap', bootstrap);
     });
   });
 

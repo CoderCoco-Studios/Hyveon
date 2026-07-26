@@ -44,6 +44,19 @@ export interface WizardAwsChoice {
   region?: string;
 }
 
+/**
+ * The bootstrap step's last-submitted resource names, as persisted to
+ * `ElectronStoreService.bootstrap`. Names are operator-editable, so Settings'
+ * Reconfigure flow (#211) needs these on record to run `terraform init`
+ * against the resources that actually exist rather than
+ * `defaultBootstrapResourceNames()`.
+ */
+export interface WizardBootstrapNames {
+  stateBucket: string;
+  lockTable: string;
+  tfvarsBucket: string;
+}
+
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
 export interface WizardState {
   wizardCompleted: boolean;
@@ -51,12 +64,15 @@ export interface WizardState {
   activeCloud?: 'aws';
   /** The credential source chosen in the credentials step (#192), if any. */
   aws?: WizardAwsChoice;
+  /** The bootstrap step's last-submitted resource names, if any. */
+  bootstrap?: WizardBootstrapNames;
 }
 
 /** Payload accepted by {@link WizardController.saveState}. */
 export interface SaveWizardStateInput {
   activeCloud?: 'aws';
   aws?: WizardAwsChoice;
+  bootstrap?: WizardBootstrapNames;
 }
 
 /**
@@ -103,18 +119,26 @@ export class WizardController {
   getState(): WizardState {
     const stored = this.store.get('wizardCompleted');
     const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
-    return { wizardCompleted, activeCloud: this.store.get('activeCloud'), aws: this.store.get('aws') };
+    return {
+      wizardCompleted,
+      activeCloud: this.store.get('activeCloud'),
+      aws: this.store.get('aws'),
+      bootstrap: this.store.get('bootstrap'),
+    };
   }
 
   /**
    * Persists wizard-flow answers into `ElectronStoreService`. `activeCloud`
-   * (pick-cloud step) and `aws` (credentials step, #192 — the chosen
-   * profile/region) exist so far; later PRs in this epic extend the payload
-   * as more steps need to durably save a choice. `aws` is merged onto any
-   * existing stored value so unrelated fields (e.g. encrypted key material
-   * written by other flows) survive. Returns the same shape as
-   * {@link getState} so the renderer can update its local state directly
-   * from the response.
+   * (pick-cloud step), `aws` (credentials step, #192 — the chosen
+   * profile/region), and `bootstrap` (bootstrap step, #211 — the last
+   * submitted resource names) exist so far; later PRs in this epic extend
+   * the payload as more steps need to durably save a choice. `aws` is merged
+   * onto any existing stored value so unrelated fields (e.g. encrypted key
+   * material written by other flows) survive; `bootstrap` is replaced
+   * wholesale since a caller always submits all three resource names
+   * together (there's no partial-name concept to preserve). Returns the same
+   * shape as {@link getState} so the renderer can update its local state
+   * directly from the response.
    */
   @MessagePattern('wizard.state.save')
   saveState(@Payload() body: SaveWizardStateInput): WizardState {
@@ -130,6 +154,9 @@ export class WizardController {
     if (body.aws !== undefined) {
       const current = this.store.get('aws') ?? {};
       this.store.set('aws', { ...current, ...body.aws });
+    }
+    if (body.bootstrap !== undefined) {
+      this.store.set('bootstrap', body.bootstrap);
     }
     return this.getState();
   }

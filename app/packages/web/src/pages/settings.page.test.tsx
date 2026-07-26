@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, cleanup, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
 
@@ -75,10 +75,6 @@ describe('SettingsPage', () => {
     gsdMock.terraform.init.mockReset().mockImplementation(async function* () {
       // No chunks needed by default — the Reconfigure tests below just need it to succeed.
     });
-  });
-
-  afterEach(() => {
-    cleanup();
   });
 
   it('should render the Settings heading', () => {
@@ -159,11 +155,61 @@ describe('SettingsPage', () => {
 
       await waitFor(() =>
         expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({
-          activeCloud: 'aws',
           aws: { profile: 'default', region: 'eu-west-1' },
         }),
       );
+      // pick-cloud and bootstrap were never opened via Edit — omitted from
+      // the payload entirely, not resubmitted with their current (unedited)
+      // values, so the stored `activeCloud`/`bootstrap` are untouched.
       expect(gsdMock.wizard.saveState).toHaveBeenCalledTimes(1);
+    });
+
+    it('should commit only the edited step, and rehydrate stored bootstrap resource names into terraform init, when the bootstrap step is left collapsed', async () => {
+      gsdMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+        bootstrap: { stateBucket: 'renamed-tfstate', lockTable: 'renamed-tflock', tfvarsBucket: 'renamed-tfvars' },
+      });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
+      await screen.findByText(/choose your cloud is already configured/i);
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+      expect(gsdMock.wizard.saveState).not.toHaveBeenCalled();
+      expect(gsdMock.terraform.init).toHaveBeenCalledWith(
+        { bucket: 'renamed-tfstate', region: 'us-east-1', dynamodbTable: 'renamed-tflock' },
+        expect.anything(),
+      );
+    });
+
+    it('should not clobber stored config on Finish when the prefill itself fails and nothing was edited', async () => {
+      gsdMock.wizard.getState.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
+      await screen.findByText(/choose your cloud is already configured/i);
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+      // Every step stayed collapsed (never opened via Edit), so even though
+      // the prefill never populated real values, nothing gets sent to
+      // overwrite what's actually stored.
+      expect(gsdMock.wizard.saveState).not.toHaveBeenCalled();
     });
 
     it('should commit nothing and return to Settings when Reconfigure is cancelled mid-flow', async () => {

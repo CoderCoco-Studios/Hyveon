@@ -54,13 +54,20 @@ export interface FirstRunWizardProps {
   onComplete?: () => void;
   /**
    * `'first-run'` (default) gates the whole app and runs all five steps,
-   * persisting `pick-cloud`/`credentials` answers immediately via
+   * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
    * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
    * launched from Settings) skips `prerequisites`, pre-marks
    * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
-   * affordance, and buffers any edited answers locally — committed in one
-   * `wizard.state.save` call right before `wizard.complete` runs, so a
-   * mid-flow Cancel writes nothing.
+   * affordance, and buffers *edited* answers locally — a single
+   * `wizard.state.save` call, containing only the steps actually opened via
+   * Edit, commits right before `wizard.complete` runs. A step left collapsed
+   * is never included in that call, so Cancel never has anything to undo for
+   * it. This covers the durable answer data only, not every side effect: the
+   * credentials step's "paste keys instead" form and the bootstrap step's
+   * "Run bootstrap"/"Check permissions" buttons already perform real,
+   * idempotent IPC calls the moment they're clicked (same as `'first-run'`)
+   * — Cancel doesn't undo those either, it just never points the *active*
+   * `aws`/`bootstrap` config at their result.
    */
   mode?: 'first-run' | 'reconfigure';
   /** `'reconfigure'`-only: invoked when the operator cancels without finishing. Never called in `'first-run'` mode. */
@@ -178,14 +185,31 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     window.gsd.wizard.saveProgress({ step }).catch(() => {});
   }, [mode, step]);
 
-  // Reconfigure-only: prefills the pick-cloud/credentials answers from the
-  // durably-stored `wizard.state.get` so the collapsed step summaries (and
-  // any step the operator opens for editing) reflect what's actually
-  // configured, not the first-run defaults. Runs once; if it fails, the
-  // steps simply keep their first-run defaults and the operator can still
-  // fill them in via Edit like any other value.
+  // Guards the reconfigure-prefill effect below so it applies exactly once,
+  // never re-running over an operator's in-progress edits once it has fired.
+  const prefillAppliedRef = useRef(false);
+
+  // Reconfigure-only: prefills the pick-cloud/credentials/bootstrap answers
+  // from the durably-stored `wizard.state.get` so the collapsed step
+  // summaries — and the `terraform-init` step's `backendConfig`, which reads
+  // `resourceNames` regardless of whether the bootstrap step was ever opened
+  // — reflect what's actually configured, not the first-run defaults.
+  // Without this, Reconfigure would always run `terraform init` against
+  // `defaultBootstrapResourceNames()` even when the operator renamed the
+  // bootstrap resources during first run.
+  //
+  // Waits for the `listAwsProfiles` fetch below to settle (`profiles` or
+  // `profilesError` set) before applying, rather than firing on mount: the
+  // `knownProfile` check needs a real list to tell an existing `~/.aws`
+  // profile apart from a `creds.aws.<profile>` pasted-key entry, and firing
+  // early would misclassify every profile as "pasted" on the first pass.
+  // `prefillAppliedRef` then ensures it only ever applies once — otherwise a
+  // later re-run (e.g. if `profiles` changed for some other reason) could
+  // clobber an edit the operator has already started making.
   useEffect(() => {
-    if (mode !== 'reconfigure' || !window.gsd) return;
+    if (mode !== 'reconfigure' || !window.gsd || prefillAppliedRef.current) return;
+    if (profiles === null && profilesError === null) return;
+    prefillAppliedRef.current = true;
     window.gsd.wizard
       .getState()
       .then((state) => {
@@ -204,13 +228,15 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
             setPasteRegion(state.aws.region ?? '');
           }
         }
+        if (state.bootstrap) setResourceNames(state.bootstrap);
       })
       .catch(() => {
-        // Best-effort — the step just falls back to first-run defaults.
+        // Best-effort — the steps just fall back to first-run defaults, and
+        // `commitReconfigureAnswers` below never sends an unedited step's
+        // (now-defaulted) values, so a failed prefill can't clobber what's
+        // actually stored.
       });
-    // Depends on `profiles` too, so this re-runs once the list resolves and
-    // the `knownProfile` check above isn't stuck on `null` from before it loaded.
-  }, [mode, profiles]);
+  }, [mode, profiles, profilesError]);
 
   const backendConfig = useMemo<TerraformInitConfig>(
     () => ({
@@ -399,11 +425,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   /**
    * Advances past the current step. In `'first-run'` mode, leaving
-   * `pick-cloud` or `credentials` persists the choice via `wizard.state.save`
-   * immediately and stays put if that fails. In `'reconfigure'` mode these
-   * answers are buffered in local state instead — see
-   * {@link commitReconfigureAnswers}, called once from the terraform-init
-   * step's Finish button — so a mid-flow Cancel never has anything to undo.
+   * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via
+   * `wizard.state.save` immediately and stays put if that fails (the
+   * `bootstrap` save is fire-and-forget, matching how `resourceNames` itself
+   * has no failure UI — the resource-creation calls it feeds are what
+   * actually gate progression). In `'reconfigure'` mode these answers are
+   * buffered in local state instead — see {@link commitReconfigureAnswers},
+   * called once from the terraform-init step's Finish button — so a
+   * mid-flow Cancel never has anything to undo.
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
@@ -440,6 +469,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       }
       setSaving(false);
     }
+    if (mode === 'first-run' && step === 'bootstrap' && window.gsd) {
+      // Durably records the (possibly operator-renamed) resource names so a
+      // later Reconfigure can rehydrate them instead of falling back to
+      // `defaultBootstrapResourceNames()`. Best-effort: nothing in this step
+      // depends on the save succeeding, so a failure here doesn't block
+      // progression the way the pick-cloud/credentials saves above do.
+      window.gsd.wizard.saveState({ bootstrap: resourceNames }).catch(() => {});
+    }
     setStepIndex((index) => Math.min(index + 1, steps.length - 1));
   }
 
@@ -448,21 +485,35 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   }
 
   /**
-   * Reconfigure-only: commits the buffered `pick-cloud`/`credentials`
-   * answers in one `wizard.state.save` call, passed to {@link TerraformInitStep}
+   * Reconfigure-only: commits whichever answers were actually opened via
+   * Edit in one `wizard.state.save` call, passed to {@link TerraformInitStep}
    * as `onBeforeFinish` so it runs right before `wizard.complete` on the
-   * Finish click — the single commit point for this whole flow.
+   * Finish click. A step left collapsed (never opened) is omitted from the
+   * payload entirely, not sent with its current — possibly still-default,
+   * possibly prefill-failed-and-empty — local state: `saveState` only
+   * touches the fields it's given, so this is what actually makes "Cancel
+   * never has anything to undo" and "editing one field preserves the rest"
+   * true, rather than merely re-submitting a (hopefully unchanged) copy of
+   * everything on every Finish.
    */
   async function commitReconfigureAnswers() {
     if (!window.gsd) {
       throw new Error('IPC bridge (window.gsd) is not available in this context.');
     }
-    const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
-    const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
-    await window.gsd.wizard.saveState({
-      activeCloud: selectedCloud,
-      aws: { profile, region: chosenRegion || undefined },
-    });
+    const payload: { activeCloud?: CloudOption; aws?: { profile?: string; region?: string }; bootstrap?: typeof resourceNames } = {};
+    if (!completedSteps.has('pick-cloud')) {
+      payload.activeCloud = selectedCloud;
+    }
+    if (!completedSteps.has('credentials')) {
+      const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
+      const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
+      payload.aws = { profile, region: chosenRegion || undefined };
+    }
+    if (!completedSteps.has('bootstrap')) {
+      payload.bootstrap = resourceNames;
+    }
+    if (Object.keys(payload).length === 0) return;
+    await window.gsd.wizard.saveState(payload);
   }
 
   /** Reconfigure-only: expands a pre-completed step's summary into its normal editable form. */
@@ -561,7 +612,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
             <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || saving}>
               Back
             </Button>
-            {mode === 'reconfigure' && (
+            {mode === 'reconfigure' && onCancel && (
               <Button type="button" variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
