@@ -36,10 +36,10 @@ export class AwsProfileService {
     const parsed = await this.parseFiles();
     return Object.keys(parsed)
       .sort((a, b) => a.localeCompare(b))
-      .map((profileName) => ({
-        profileName,
-        region: parsed[profileName]?.['region'],
-      }));
+      .map((profileName) => {
+        const region = parsed[profileName]?.['region'];
+        return region ? { profileName, region } : { profileName };
+      });
   }
 
   /**
