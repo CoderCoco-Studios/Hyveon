@@ -49,6 +49,18 @@ export class SafeStorageUnavailableError extends Error {
 }
 
 /**
+ * Thrown by {@link AwsProfileService.savePastedCredentials} when
+ * `accessKeyId` or `secretAccessKey` is blank/whitespace-only — nothing is
+ * persisted in that case.
+ */
+export class InvalidPastedCredentialsError extends Error {
+  constructor(field: 'accessKeyId' | 'secretAccessKey') {
+    super(`Cannot save pasted AWS credentials: "${field}" must not be blank.`);
+    this.name = 'InvalidPastedCredentialsError';
+  }
+}
+
+/**
  * Discovers AWS CLI profiles for the first-run wizard's credentials step
  * (see `openspec/changes/add-first-run-wizard`). Delegates parsing to
  * `@smithy/shared-ini-file-loader`'s `parseKnownFiles` — the same loader the
@@ -93,7 +105,9 @@ export class AwsProfileService {
     if (!this.safeStorage.isAvailable()) {
       throw new SafeStorageUnavailableError();
     }
-    const profileName = input.profileName ?? DEFAULT_PASTED_PROFILE_NAME;
+    if (!input.accessKeyId.trim()) throw new InvalidPastedCredentialsError('accessKeyId');
+    if (!input.secretAccessKey.trim()) throw new InvalidPastedCredentialsError('secretAccessKey');
+    const profileName = input.profileName?.trim() || DEFAULT_PASTED_PROFILE_NAME;
     this.store.setPastedCredentials(profileName, {
       accessKeyId: input.accessKeyId,
       secretAccessKey: input.secretAccessKey,

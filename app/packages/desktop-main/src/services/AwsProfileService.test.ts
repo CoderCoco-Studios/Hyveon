@@ -5,6 +5,7 @@ import {
   AwsProfileService,
   DEFAULT_PASTED_PROFILE_NAME,
   SafeStorageUnavailableError,
+  InvalidPastedCredentialsError,
 } from './AwsProfileService.js';
 import type { SafeStorageService } from './SafeStorageService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
@@ -153,5 +154,42 @@ describe('AwsProfileService.savePastedCredentials', () => {
       secretAccessKey: 'SECRET',
       region: 'eu-west-1',
     });
+  });
+
+  it('should fall back to the default profile name when profileName is blank or whitespace-only', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    const result = service.savePastedCredentials({
+      profileName: '   ',
+      accessKeyId: 'AKID',
+      secretAccessKey: 'SECRET',
+    });
+
+    expect(result).toEqual({ profileName: DEFAULT_PASTED_PROFILE_NAME });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith(
+      DEFAULT_PASTED_PROFILE_NAME,
+      expect.anything(),
+    );
+  });
+
+  it('should throw InvalidPastedCredentialsError and write nothing when accessKeyId is blank', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    expect(() =>
+      service.savePastedCredentials({ accessKeyId: '  ', secretAccessKey: 'SECRET' }),
+    ).toThrow(InvalidPastedCredentialsError);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should throw InvalidPastedCredentialsError and write nothing when secretAccessKey is blank', () => {
+    const store = stubStore();
+    const service = new AwsProfileService(stubSafeStorage(true), store);
+
+    expect(() =>
+      service.savePastedCredentials({ accessKeyId: 'AKID', secretAccessKey: '' }),
+    ).toThrow(InvalidPastedCredentialsError);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 });

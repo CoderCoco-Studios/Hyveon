@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { WizardController } from './wizard.controller.js';
 import type { PrerequisiteService, PrerequisitesReport } from '../services/PrerequisiteService.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
+import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
 
 const SATISFIED_REPORT: PrerequisitesReport = {
   terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
@@ -103,13 +104,13 @@ describe('WizardController', () => {
     it('should propagate a thrown SafeStorageUnavailableError rather than swallowing it', () => {
       const awsProfiles = {
         savePastedCredentials: vi.fn().mockImplementation(() => {
-          throw new Error('safeStorage unavailable');
+          throw new SafeStorageUnavailableError();
         }),
       } as Partial<AwsProfileService> as AwsProfileService;
 
       expect(() =>
         makeController({ awsProfiles }).saveCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
-      ).toThrow('safeStorage unavailable');
+      ).toThrow(SafeStorageUnavailableError);
     });
   });
 });
