@@ -35,8 +35,6 @@ export interface TfOutputs {
   efs_access_points: Record<string, string>;
   domain_name: string;
   game_names: string[];
-  alb_dns_name: string | null;
-  acm_certificate_arn: string | null;
   discord_table_name: string;
   audit_table_name: string;
   runs_table_name: string;
@@ -96,8 +94,6 @@ export function projectTfOutputs(raw: RawTfState): TfOutputs | null {
     efs_access_points: get('efs_access_points', {}),
     domain_name: get('domain_name', ''),
     game_names: get('game_names', []),
-    alb_dns_name: get('alb_dns_name', null),
-    acm_certificate_arn: get('acm_certificate_arn', null),
     discord_table_name: get('discord_table_name', ''),
     audit_table_name: get('audit_table_name', ''),
     runs_table_name: get('runs_table_name', ''),

@@ -36,8 +36,6 @@ const TF_OUTPUTS: TfOutputs = {
   efs_access_points: {},
   domain_name: 'example.com',
   game_names: ['minecraft'],
-  alb_dns_name: null,
-  acm_certificate_arn: null,
   discord_table_name: 'discord-table',
   discord_bot_token_secret_arn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
   discord_public_key_secret_arn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',

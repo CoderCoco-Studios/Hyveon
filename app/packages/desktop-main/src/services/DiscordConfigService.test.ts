@@ -40,8 +40,6 @@ const TF: TfOutputs = {
   efs_access_points: {},
   domain_name: '',
   game_names: [],
-  alb_dns_name: null,
-  acm_certificate_arn: null,
   discord_table_name: 'test-discord',
   discord_bot_token_secret_arn: 'arn:bot-token',
   discord_public_key_secret_arn: 'arn:public-key',
