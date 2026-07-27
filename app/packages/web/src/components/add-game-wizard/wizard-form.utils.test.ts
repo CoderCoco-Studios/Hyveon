@@ -26,6 +26,7 @@ function makeValidDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [],
+    https: false,
     ...overrides,
   };
 }
@@ -54,6 +55,7 @@ describe('createEmptyWizardDraft', () => {
       ports: [],
       volumes: [],
       file_seeds: [],
+      https: false,
     });
   });
 });
@@ -67,6 +69,7 @@ describe('stepForIssuePath', () => {
     ['memory', 'resources'],
     ['ports', 'networking'],
     ['ports[0]', 'networking'],
+    ['ports[1]', 'networking'],
     ['ports[1].protocol', 'networking'],
     ['volumes', 'storage'],
     ['volumes[0].container_path', 'storage'],
@@ -203,6 +206,25 @@ describe('validateNetworkingStep', () => {
     const issues = validateNetworkingStep(makeValidDraft({ name: '', cpu: null, volumes: [] }), []);
     expect(issues).toEqual([]);
   });
+
+  it('should flag an https first port that is not tcp even while volumes is still empty (wizard Networking-before-Storage ordering)', () => {
+    // Regression: on a fresh wizard, Networking is reached before Storage
+    // supplies `volumes`, so the structural schema parse always fails on
+    // the empty volumes array. The HTTPS rules must not be silently
+    // skipped as a result — they only depend on `ports`/`https`.
+    const issues = validateNetworkingStep(
+      makeValidDraft({ https: true, ports: [{ container: 8080, protocol: 'udp' }], volumes: [] }),
+      [],
+    );
+    expect(issues.some((issue) => issue.path === 'ports[0]')).toBe(true);
+  });
+
+  it('should flag an https game with no ports even while volumes is still empty', () => {
+    const issues = validateNetworkingStep(makeValidDraft({ https: true, ports: [], volumes: [] }), []);
+    expect(
+      issues.some((issue) => issue.path === 'ports' && issue.message.includes('at least one port')),
+    ).toBe(true);
+  });
 });
 
 describe('validateStorageStep', () => {
@@ -256,6 +278,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       volumes: [{ name: 'data', container_path: '/data' }],
       connect_message: 'Connect at {ip}:{port}',
       file_seeds: [{ path: '/data/config.yml', content: 'foo: bar', content_base64: 'Zm9v', mode: '0644' }],
+      https: true,
     });
 
     const draft = draftFromGameServer(game);
@@ -271,6 +294,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
         volumes: game.volumes,
         connect_message: game.connect_message,
         file_seeds: game.file_seeds,
+        https: true,
       },
     });
   });
@@ -291,6 +315,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
         volumes: game.volumes,
         connect_message: undefined,
         file_seeds: undefined,
+        https: false,
       },
     });
   });
@@ -307,7 +332,31 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       ports: game.ports,
       volumes: game.volumes,
       file_seeds: [],
+      https: false,
     });
+  });
+
+  it('should default https to false when the declared GameServer omits the flag', () => {
+    const game = makeExistingGame({ name: 'valheim', https: undefined });
+
+    const draft = draftFromGameServer(game);
+    expect(draft.https).toBe(false);
+
+    const payload = draftToPayload(draft);
+    expect(payload.config.https).toBe(false);
+  });
+
+  it('should coerce a non-boolean parsed https value (an unevaluated hcl2json expression) to false', () => {
+    // `@cdktf/hcl2json` doesn't evaluate expressions, so a hand-written
+    // `https = length(x) > 0 ? true : false` parses back as a string. The
+    // draft must show false rather than a truthy checkbox (design D6).
+    const game = makeExistingGame({
+      name: 'valheim',
+      https: 'length(x) > 0 ? true : false',
+    } as unknown as Partial<GameServer>);
+
+    const draft = draftFromGameServer(game);
+    expect(draft.https).toBe(false);
   });
 });
 

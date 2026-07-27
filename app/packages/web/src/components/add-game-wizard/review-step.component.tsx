@@ -1,12 +1,22 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card.component';
+import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import type { WizardDraft } from './wizard-form.utils.js';
 
 /** Props for {@link ReviewStep}. */
 export interface ReviewStepProps {
   /** The fully-assembled wizard draft to summarize before submit. */
   draft: WizardDraft;
+  /**
+   * Every outstanding validation issue across the whole draft (i.e.
+   * `validateStep('review', draft, existingGames)`), rendered so a disabled
+   * Submit button has a visible reason instead of a silent dead-end — e.g. a
+   * business rule (HTTPS port constraints, Fargate cpu/memory pairing) that
+   * only became violated on an earlier step but wasn't caught there because
+   * the draft was still structurally incomplete at the time.
+   */
+  issues?: GameServerValidationIssue[];
   /** Server-side error message from a failed submit attempt (e.g. a name collision), surfaced above the summary so the operator can fix and retry without losing the draft. Submit/navigation controls themselves live in the wizard shell's footer, not here. */
   submitError?: string | null;
 }
@@ -27,13 +37,17 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
  * Storage steps. Optional fields that were left blank — `connect_message`
  * and `file_seeds` — are omitted entirely rather than shown with a
  * placeholder, so the summary only surfaces what the operator actually
- * configured. A `submitError` from a failed submit attempt (surfaced by the
- * wizard container after `POST /api/games` fails) is rendered as an alert
- * below the summary so the draft isn't lost. This component is purely
- * presentational — Submit/navigation controls are owned exclusively by the
- * wizard shell's footer, not by this step.
+ * configured. Outstanding validation `issues` (every issue across the whole
+ * draft, not just Review's own) are listed as an alert so a disabled Submit
+ * button always has a visible reason — some business rules only become
+ * violated once every step is filled in, so their first (and, on some
+ * paths, only) visible surface is here. A `submitError` from a failed submit
+ * attempt (surfaced by the wizard container after `POST /api/games` fails)
+ * is rendered as a second alert below it so the draft isn't lost. This
+ * component is purely presentational — Submit/navigation controls are owned
+ * exclusively by the wizard shell's footer, not by this step.
  */
-export function ReviewStep({ draft, submitError = null }: ReviewStepProps) {
+export function ReviewStep({ draft, issues = [], submitError = null }: ReviewStepProps) {
   const hasConnectMessage = draft.connect_message.trim().length > 0;
   const hasFileSeeds = draft.file_seeds.length > 0;
 
@@ -64,7 +78,8 @@ export function ReviewStep({ draft, submitError = null }: ReviewStepProps) {
         <CardHeader>
           <CardTitle>Networking</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <SummaryRow label="HTTPS" value={draft.https ? 'Enabled' : 'Disabled'} />
           {draft.ports.length === 0 ? (
             <p className="text-sm text-[var(--color-muted-foreground)]">No ports configured.</p>
           ) : (
@@ -116,6 +131,23 @@ export function ReviewStep({ draft, submitError = null }: ReviewStepProps) {
           )}
         </CardContent>
       </Card>
+
+      {issues.length > 0 && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--color-red)] bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
+        >
+          <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-medium">Fix the following before submitting:</p>
+            <ul className="list-disc pl-4">
+              {issues.map((issue, index) => (
+                <li key={index}>{issue.message}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {submitError && (
         <div
