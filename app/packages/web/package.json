@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test:e2e": "npm run desktop:build --prefix ../../../ && playwright test",

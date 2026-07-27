@@ -25,7 +25,7 @@ the composer.
 
 | File | What it provisions |
 |---|---|
-| `main.tf` | Root composer: `terraform`/`backend "s3"` block, both `provider "aws"` blocks (default + `us_east_1` alias for CloudFront ACM certs), and the `module "cloud"` block — conditionally counted on `var.active_cloud` — wiring all 16 inputs through to `./aws`. |
+| `main.tf` | Root composer: `terraform`/`backend "s3"` block, both `provider "aws"` blocks (default + `us_east_1` alias for CloudFront ACM certs), and the `module "cloud"` block — conditionally counted on `var.active_cloud` — wiring all 17 inputs through to `./aws`. |
 | `variables.tf` | Every configurable input (passed straight through to the module), plus `active_cloud` which selects the composed cloud module and isn't forwarded to `./aws`. See the table below. |
 | `outputs.tf` | Re-exports every `module.cloud[0].*` output by the same name — `ConfigService.getTfOutputs()` reads these from root-level `terraform.tfstate`, where module outputs don't appear. |
 | `moved.tf` | A module-level `moved` block mapping `module.cloud` → `module.cloud[0]` (added when the module gained `count`), plus one `moved` block per resource living in `terraform/aws/`, mapping its pre-split root address to `module.cloud.<type>.<name>` so existing deployments `plan` cleanly instead of proposing a destroy/recreate. |
@@ -40,6 +40,8 @@ the composer.
 | `aws/interactions.tf` | `interactions` Lambda with IAM + Function URL (`auth_type = NONE`, CORS for `https://discord.com`). Exposes `interactions_invoke_url`. |
 | `aws/followup.tf` | `followup` Lambda with IAM (`ecs:RunTask`, `StopTask`, `DescribeTasks`, `iam:PassRole`, `dynamodb:GetItem`/`PutItem`, `ec2:DescribeNetworkInterfaces`). Async-invoked by interactions. |
 | `aws/discord_store.tf` | DynamoDB table (pk+sk, TTL on `expiresAt`), two Secrets Manager secrets (`${project_name}/discord/bot-token`, `/discord/public-key`) with `recovery_window_in_days = 0` and `lifecycle.ignore_changes` on seeded secret values. Optional `CONFIG#discord` DynamoDB item seeded from tfvars. Optional `BASE#discord` item holding the Terraform-managed base allowlist/admins (see `base_allowed_guilds` / `base_admin_*` variables). When `discord_bot_token`, `discord_application_id`, and at least one `base_allowed_guilds` entry are set, a `null_resource` runs `curl` to register slash commands in each base guild during apply; re-runs on token rotation or command-descriptor changes. |
+| `aws/discord-domain.tf` | Custom `discord.{hosted_zone_name}` domain fronting the interactions Lambda Function URL — an ACM certificate (via the `aws.us_east_1` provider alias, since Lambda Function URLs can't be Route 53 ALIAS targets directly), a CloudFront distribution with caching fully disabled and Discord's signature headers forwarded via the `AllViewerExceptHostHeader` origin request policy, and the Route 53 A/AAAA ALIAS records pointing at it. This is the one Terraform-managed Route 53 record in the whole stack — it fronts the Discord bot endpoint, not a game. |
+| `aws/audit_store.tf` | Pay-per-request DynamoDB table (`audit_table_name`, default `${project_name}-audit`) recording game-server config mutations (add/edit/remove) made through the management app's UI. Single fixed partition `pk = "AUDIT"`, sort key `<ISO timestamp>#<ULID>`, so a query with `ScanIndexForward: false` returns entries newest-first. See `AwsAuditLogStore` in `app/packages/cloud-aws/src/AwsAuditLogStore.ts`. |
 | `aws/runs_store.tf` | Pay-per-request DynamoDB table recording each Terraform plan/apply run triggered through the management app's apply pipeline — who triggered it, plan hash, status (pending/running/success/failed), approver, approved-at, and a plan-diff summary — for the web app's apply-history view. Keyed with a fixed `pk = "RUN"` and `sk = "<ISO timestamp>#<ULID>"`, so a query against that single partition with `ScanIndexForward: false` returns runs newest-first. The `status-index` GSI projects `status` as its hash key and `startedAt` as its range key, so callers can find in-flight runs without scanning the table. Point-in-time recovery enabled. |
 
 ## Bootstrap module (`terraform/bootstrap/`)
@@ -184,14 +186,14 @@ When `file_seeds` is non-empty, `efs-seeder.tf` creates a seeder Lambda for the 
 
 ## AWS services in use
 
-- **Compute**: ECS (cluster + per-game Fargate task definitions), Lambda (4 functions).
+- **Compute**: ECS (cluster + per-game Fargate task definitions), Lambda (4 always-on functions, plus one conditional `efs-seeder` function per game that declares `file_seeds`).
 - **Networking**: VPC, subnets, route tables, IGW, security groups (443/80 opened publicly only when at least one HTTPS game exists).
 - **Storage**: EFS filesystem, mount targets, per-game access points (including per-HTTPS-game cert storage).
-- **DNS / TLS**: Route 53 zone (data source) + Lambda-managed A records for every game. TLS for HTTPS games terminates in-task via a Caddy sidecar with Let's Encrypt automatic HTTPS — no ALB, no ACM certificate.
+- **DNS / TLS**: Route 53 zone (data source) + Lambda-managed A records for every game, plus one Terraform-managed ALIAS record for the Discord custom domain (`aws/discord-domain.tf`). TLS for HTTPS games terminates in-task via a Caddy sidecar with Let's Encrypt automatic HTTPS — no ALB, no ACM certificate for game traffic (the Discord domain's CloudFront distribution has its own ACM certificate, unrelated to game HTTPS).
 - **Events**: EventBridge rule (ECS task state change), EventBridge schedule (watchdog).
-- **State**: DynamoDB (CONFIG + PENDING rows with TTL), Secrets Manager (bot token + public key).
+- **State**: DynamoDB — the Discord table (CONFIG + PENDING rows with TTL, `aws/discord_store.tf`), the audit log table (`aws/audit_store.tf`), and the Terraform runs table (`aws/runs_store.tf`) — plus Secrets Manager (bot token + public key).
 - **Observability**: CloudWatch log groups (`/ecs/{game}-server` + Lambda logs), CloudWatch metrics (`NetworkPacketsIn`), Cost Explorer (read from the management app).
-- **IAM**: task execution role, four per-Lambda execution roles, inline policies (least-privilege).
+- **IAM**: task execution role, one execution role per always-on Lambda (four), one execution role per game with `file_seeds` (efs-seeder — conditional, not fixed), inline policies (least-privilege).
 
 ## Gotchas
 

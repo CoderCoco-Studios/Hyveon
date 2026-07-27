@@ -338,8 +338,12 @@ export interface DriftReport {
 }
 
 /**
- * The kind of mutation an {@link AuditEntry} records, plus `plan` for a
- * dry-run `terraform plan` invocation that touched no infrastructure.
+ * The kind of mutation an {@link AuditEntry} records: `add` | `edit` | `remove`
+ * for game-server CRUD, `plan` for a dry-run `terraform plan` that touched no
+ * infrastructure, `approve` for marking a `plan` run approved for a later
+ * `apply`, `apply` for a `terraform apply` that mutated infrastructure,
+ * `destroy` for a confirmed `terraform destroy`, and `rollback` for restoring
+ * a historic tfvars version as a new head.
  *
  * Mirrors `AuditAction` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.

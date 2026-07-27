@@ -8,13 +8,39 @@
  *
  * Channel naming convention: `<namespace>.<action>`
  *
- * Log streaming exposes a single async iterable: `logs.stream(game, signal)`
- * invokes main to open a stream (returning an opaque `streamId`), then wraps
- * the per-stream `logs.stream.<id>.chunk` / `.end` IPC events in an async
- * generator. Aborting the supplied `AbortSignal` — or breaking out of the
+ * ## Streaming channels and the contextBridge clone boundary
+ *
+ * `contextBridge.exposeInMainWorld` structured-clones every value crossing
+ * the isolated-world boundary. Neither a raw `AsyncGenerator` nor a raw
+ * `AbortSignal` survives that clone: a generator throws synchronously
+ * (`Uncaught Error: An object could not be cloned.`) the instant a bridged
+ * function returns one, and a signal arrives on the other side as an inert
+ * object with no own keys (its `aborted` getter and `addEventListener`
+ * method live on its prototype, which the clone drops). Every streaming
+ * channel below is therefore split into two layers:
+ *
+ * - A **preload-internal** `async function*` (`streamLogs`,
+ *   `streamTerraformInit`, `streamTerraformRunLogs`) that does the real IPC
+ *   listener wiring and still accepts a real `AbortSignal` — this signal is
+ *   always minted *inside* preload by a `bridgeStream` wrapper, so it never
+ *   itself crosses the bridge.
+ * - A thin **bridge-facing wrapper** (`openLogsStream`, `openTerraformInitStream`,
+ *   `openTerraformRunLogsStream`) that mints an `AbortController`, calls the
+ *   internal generator with its signal, and hands the renderer a
+ *   {@link HyveonStreamHandle} — a plain object with an own `next()`, an own
+ *   `cancel()`, and an own `[Symbol.asyncIterator]` returning itself. This
+ *   shape was empirically verified to survive the clone boundary intact and
+ *   remains directly usable in a renderer-side `for await` loop over the
+ *   handle. `cancel()` aborts the wrapper's internal controller, driving the
+ *   same cancellation path the internal generator already had.
+ *
+ * Log streaming: `openLogsStream(game)` invokes main to open a stream
+ * (returning an opaque `streamId`), then wraps the per-stream
+ * `logs.stream.<id>.chunk` / `.end` IPC events in an async generator.
+ * Calling the returned handle's `cancel()` — or breaking out of the
  * `for await` loop — sends `logs.stream.<id>.cancel` to stop the main loop.
  *
- * `terraform.init(config, signal)` streams similarly, but `TerraformController.init`
+ * `openTerraformInitStream(config)` streams similarly, but `TerraformController.init`
  * pushes chunks/end messages on fixed `terraform.init.chunk` / `terraform.init.end`
  * side channels shared by every call rather than per-call channel names.
  * `invoke('terraform.init', config)` resolves with a `streamId` minted by the
@@ -23,8 +49,8 @@
  * generator ignores any message whose `streamId` doesn't match its own, so a
  * rejected concurrent call or a late message from an abandoned stream can
  * never resolve/terminate a different call's generator. There is no dedicated
- * cancel channel — aborting simply stops the generator from consuming further
- * chunks, since the main process has nothing to tear down early.
+ * cancel channel — `cancel()` simply stops the generator from consuming
+ * further chunks, since the main process has nothing to tear down early.
  *
  * `terraform.plan(opts)` is a plain `invoke` — unlike `terraform.init`, it does
  * not itself stream progress. It resolves the immediate `TerraformPlanAck`
@@ -35,8 +61,8 @@
  *
  * `terraform.runs.get(runId)` is a plain `invoke('terraform.runs.get', { runId })`
  * call — it resolves a single `TerraformRunsGetResult` snapshot with no
- * streaming involved. `terraform.runs.streamLogs(runId, signal)` mirrors
- * `terraform.init`'s fixed-side-channel streaming shape: `TerraformRunsController.logs`
+ * streaming involved. `openTerraformRunLogsStream(runId)` mirrors
+ * `openTerraformInitStream`'s fixed-side-channel streaming shape: `TerraformRunsController.logs`
  * pushes chunk/end messages on fixed `terraform.runs.logs.chunk` /
  * `terraform.runs.logs.end` side channels shared by every call, each tagged
  * with the `streamId` minted for that call, so overlapping subscriptions to
@@ -55,6 +81,7 @@ import type {
   CreateGamePayload,
   DeleteGamePayload,
   HyveonApi,
+  HyveonStreamHandle,
   HyveonTestApi,
   LogChunk,
   TerraformApplyPayload,
@@ -139,8 +166,9 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 /**
- * Bridges the per-stream chunk/end/cancel IPC channels into an
- * {@link AsyncIterable} of log chunks.
+ * Preload-internal — never exposed to the renderer directly (see
+ * {@link openLogsStream}, its bridge-facing wrapper). Bridges the per-stream
+ * chunk/end/cancel IPC channels into an {@link AsyncIterable} of log chunks.
  *
  * When a mock is registered for the `'logs.stream'` channel (test mode only),
  * the mock handler is called with `(game, signal)` and its return value is
@@ -159,7 +187,7 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
  * which is the only point the chunk/end channel names are known — identical to
  * the prior callback implementation, so there is no new dropped-chunk window.
  */
-async function* streamLogs(game: string, signal?: AbortSignal): AsyncIterable<LogChunk> {
+async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<LogChunk> {
   const streamMock = mockRegistry.get('logs.stream');
   if (streamMock !== undefined) {
     const mockIterable = streamMock(game, signal) as AsyncIterable<LogChunk>;
@@ -228,7 +256,9 @@ async function* streamLogs(game: string, signal?: AbortSignal): AsyncIterable<Lo
 }
 
 /**
- * Bridges `TerraformController.init`'s fixed `terraform.init.chunk` /
+ * Preload-internal — never exposed to the renderer directly (see
+ * {@link openTerraformInitStream}, its bridge-facing wrapper). Bridges
+ * `TerraformController.init`'s fixed `terraform.init.chunk` /
  * `terraform.init.end` side channels into an {@link AsyncIterable} of
  * {@link TerraformRunChunk}.
  *
@@ -271,7 +301,7 @@ async function* streamLogs(game: string, signal?: AbortSignal): AsyncIterable<Lo
  * `terraform init` run itself keeps running to completion in the background,
  * but the generator stops yielding further chunks to the caller.
  */
-async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortSignal): AsyncIterable<TerraformRunChunk> {
+async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortSignal): AsyncGenerator<TerraformRunChunk> {
   const initMock = mockRegistry.get('terraform.init');
   if (initMock !== undefined) {
     const mockIterable = initMock(config, signal) as AsyncIterable<TerraformRunChunk>;
@@ -390,7 +420,9 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
 }
 
 /**
- * Bridges `TerraformRunsController.logs`'s fixed `terraform.runs.logs.chunk` /
+ * Preload-internal — never exposed to the renderer directly (see
+ * {@link openTerraformRunLogsStream}, its bridge-facing wrapper). Bridges
+ * `TerraformRunsController.logs`'s fixed `terraform.runs.logs.chunk` /
  * `terraform.runs.logs.end` side channels into an {@link AsyncIterable} of
  * {@link TerraformRunChunk} for a single run identified by `runId`.
  *
@@ -424,7 +456,7 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
  * its log tailing in the main process) keeps going in the background; only
  * this caller's consumption stops.
  */
-async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): AsyncIterable<TerraformRunChunk> {
+async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): AsyncGenerator<TerraformRunChunk> {
   const logsMock = mockRegistry.get('terraform.runs.logs');
   if (logsMock !== undefined) {
     const mockIterable = logsMock(runId, signal) as AsyncIterable<TerraformRunChunk>;
@@ -539,6 +571,64 @@ async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): Asy
   }
 }
 
+/**
+ * Wraps a preload-internal `AsyncGenerator` in a plain, contextBridge-safe
+ * {@link HyveonStreamHandle} — see the module doc comment's "Streaming
+ * channels and the contextBridge clone boundary" section for why a raw
+ * `AsyncGenerator` can't be returned to the renderer directly.
+ *
+ * `next()` delegates straight to `source.next()`. `cancel()` aborts
+ * `controller`, which is the same (real, preload-internal-only)
+ * `AbortSignal` source `source` was created with — from `source`'s own
+ * perspective this is indistinguishable from the renderer aborting a signal
+ * it had been handed directly, so none of the three generators' existing
+ * `signal.aborted` / `signal.addEventListener('abort', …)` cancellation
+ * logic needed to change.
+ *
+ * @param source - The preload-internal async generator to wrap.
+ * @param controller - The `AbortController` `source` was invoked with; never exposed to the renderer.
+ */
+function bridgeStream<T>(source: AsyncGenerator<T>, controller: AbortController): HyveonStreamHandle<T> {
+  const handle: HyveonStreamHandle<T> = {
+    next: () => source.next(),
+    cancel: () => controller.abort(),
+    [Symbol.asyncIterator]: () => handle,
+  };
+  return handle;
+}
+
+/**
+ * Bridge-facing wrapper for {@link streamLogs}. Mints an `AbortController`
+ * that never leaves preload and returns a {@link HyveonStreamHandle} in
+ * place of the raw async generator — see {@link bridgeStream}.
+ */
+function openLogsStream(game: string): HyveonStreamHandle<LogChunk> {
+  const controller = new AbortController();
+  return bridgeStream(streamLogs(game, controller.signal), controller);
+}
+
+/**
+ * Bridge-facing wrapper for {@link streamTerraformInit}. Mints an
+ * `AbortController` that never leaves preload and returns a
+ * {@link HyveonStreamHandle} in place of the raw async generator — see
+ * {@link bridgeStream}.
+ */
+function openTerraformInitStream(config: TerraformInitConfig): HyveonStreamHandle<TerraformRunChunk> {
+  const controller = new AbortController();
+  return bridgeStream(streamTerraformInit(config, controller.signal), controller);
+}
+
+/**
+ * Bridge-facing wrapper for {@link streamTerraformRunLogs}. Mints an
+ * `AbortController` that never leaves preload and returns a
+ * {@link HyveonStreamHandle} in place of the raw async generator — see
+ * {@link bridgeStream}.
+ */
+function openTerraformRunLogsStream(runId: string): HyveonStreamHandle<TerraformRunChunk> {
+  const controller = new AbortController();
+  return bridgeStream(streamTerraformRunLogs(runId, controller.signal), controller);
+}
+
 const api: HyveonApi = {
   games: {
     list: () => invoke('games.list'),
@@ -561,7 +651,7 @@ const api: HyveonApi = {
 
   logs: {
     get: (game: string, limit?: number) => invoke('logs.get', { game, limit }),
-    stream: streamLogs,
+    stream: openLogsStream,
   },
 
   files: {
@@ -635,7 +725,7 @@ const api: HyveonApi = {
   },
 
   terraform: {
-    init: streamTerraformInit,
+    init: openTerraformInitStream,
     plan: (opts?: TerraformPlanPayload) => invoke<TerraformPlanAck>('terraform.plan', opts),
     approve: (opts: { planRunId: string }) => invoke<TerraformApproveAck>('terraform.approve', opts),
     apply: (payload: TerraformApplyPayload) => invoke<TerraformPlanAck>('terraform.apply', payload),
@@ -644,7 +734,7 @@ const api: HyveonApi = {
     output: (force?: boolean) => invoke<TfOutputs | null>('terraform.output', { force }),
     runs: {
       get: (runId: string) => invoke<TerraformRunsGetResult>('terraform.runs.get', { runId }),
-      streamLogs: streamTerraformRunLogs,
+      streamLogs: openTerraformRunLogsStream,
       list: (opts?: TerraformRunsListOpts) => invoke<RunHistoryPageResult>('terraform.runs.list', opts),
       logUrl: (logKey: string, expiresInSeconds?: number) =>
         invoke<{ url: string }>('terraform.runs.logUrl', { logKey, expiresInSeconds }).then((r) => r.url),

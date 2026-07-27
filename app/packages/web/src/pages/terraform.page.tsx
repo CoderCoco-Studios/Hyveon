@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import type {
+  HyveonStreamHandle,
   RunDetailStatus,
   TerraformPlanPayload,
   TerraformRunChunk,
@@ -105,12 +106,21 @@ interface RunLogState {
   chunks: TerraformRunChunk[];
   /** True once the stream's `for await` loop has completed — the run reached a terminal status (or the run was never attached). */
   ended: boolean;
+  /**
+   * Set when the stream itself threw before completing — distinct from the
+   * run's own failed/aborted terminal status, which is derived separately
+   * (once `ended` flips true) via a follow-up `runs.get` call. A `null`
+   * `TerraformRunChunk` stream failure (e.g. the local run artifacts
+   * disappeared mid-tail) would otherwise vanish silently, leaving the
+   * operator staring at a log that just stops with no explanation.
+   */
+  error: string | null;
 }
 
 /**
  * Attaches to `hyveon.terraform.runs.streamLogs(runId)` for the lifetime of
  * `runId`, accumulating chunks in order. Mirrors `LogsPage`'s
- * `for await` + `AbortController`-in-a-ref streaming idiom. Re-attaches
+ * `for await` + stream-handle-in-a-ref streaming idiom. Re-attaches
  * automatically if `runId` changes; tears the previous subscription down
  * first.
  */
@@ -118,25 +128,28 @@ function useTerraformRunLog(runId: string | null): RunLogState {
   // The accumulated log is tagged with the run it belongs to, so switching
   // runs discards the previous output at render time. Previously the effect
   // cleared `chunks`/`ended` synchronously on every `runId` change, which is
-  // what `react-hooks/set-state-in-effect` flags.
+  // what `react-hooks/set-state-in-effect` flags. `error` is tagged the same
+  // way so a stream failure on one run cannot bleed onto the next.
   const [log, setLog] = useState<{
     runId: string;
     chunks: TerraformRunChunk[];
     ended: boolean;
+    error: string | null;
   } | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const streamRef = useRef<HyveonStreamHandle<TerraformRunChunk> | null>(null);
 
   const isCurrent = log !== null && log.runId === runId;
   const chunks = isCurrent ? log.chunks : [];
   const ended = isCurrent ? log.ended : false;
+  const error = isCurrent ? log.error : null;
 
   useEffect(() => {
-    abortRef.current?.abort();
+    streamRef.current?.cancel();
 
     if (!runId || !window.hyveon) return;
 
-    const ac = new AbortController();
-    abortRef.current = ac;
+    const handle = window.hyveon.terraform.runs.streamLogs(runId);
+    streamRef.current = handle;
     let cancelled = false;
 
     /**
@@ -145,26 +158,32 @@ function useTerraformRunLog(runId: string | null): RunLogState {
      * itself on top of the new run's output.
      */
     const update = (
-      apply: (prev: { chunks: TerraformRunChunk[]; ended: boolean }) => {
+      apply: (prev: { chunks: TerraformRunChunk[]; ended: boolean; error: string | null }) => {
         chunks: TerraformRunChunk[];
         ended: boolean;
+        error: string | null;
       },
     ) =>
       setLog((prev) => {
-        const base = prev && prev.runId === runId ? prev : { runId, chunks: [], ended: false };
+        const base = prev && prev.runId === runId ? prev : { runId, chunks: [], ended: false, error: null };
         return { runId, ...apply(base) };
       });
 
     void (async () => {
       try {
-        for await (const chunk of window.hyveon!.terraform.runs.streamLogs(runId, ac.signal)) {
+        for await (const chunk of handle) {
           if (cancelled) break;
           update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk] }));
         }
-      } catch {
+      } catch (err) {
         // The run's own failure is already visible in the accumulated log
         // output and surfaced via the follow-up `runs.get` status check —
-        // nothing further to report here.
+        // but a *stream* failure (as opposed to the run failing) would
+        // otherwise vanish here silently, so still surface it.
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : String(err);
+          update((prev) => ({ ...prev, error: message }));
+        }
       } finally {
         if (!cancelled) update((prev) => ({ ...prev, ended: true }));
       }
@@ -172,11 +191,14 @@ function useTerraformRunLog(runId: string | null): RunLogState {
 
     return () => {
       cancelled = true;
-      ac.abort();
+      // Optional chaining guards against a test double that stubbed
+      // `terraform.runs.streamLogs` without configuring a return value
+      // (`undefined`) — the real bridge always returns a handle.
+      handle?.cancel();
     };
   }, [runId]);
 
-  return { chunks, ended };
+  return { chunks, ended, error };
 }
 
 /** Subcommand name a BUSY rejection reports as already holding the shared workspace. */
@@ -510,6 +532,8 @@ export function TerraformPage() {
 
           <AnsiLogViewer chunks={planLog.chunks} emptyMessage="Waiting for plan output…" />
 
+          {planLog.error && <ErrorBanner message={`Log stream error: ${planLog.error}`} />}
+
           {planFailed && (
             <ErrorBanner
               message={`terraform plan ${planStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
@@ -568,6 +592,8 @@ export function TerraformPage() {
               </div>
 
               <AnsiLogViewer chunks={applyLog.chunks} emptyMessage="Waiting for apply output…" />
+
+              {applyLog.error && <ErrorBanner message={`Log stream error: ${applyLog.error}`} />}
 
               {applyStatus === 'failed' || applyStatus === 'aborted' ? (
                 <ErrorBanner
@@ -649,6 +675,8 @@ export function TerraformPage() {
             </div>
 
             <AnsiLogViewer chunks={destroyLog.chunks} emptyMessage="Waiting for destroy output…" />
+
+            {destroyLog.error && <ErrorBanner message={`Log stream error: ${destroyLog.error}`} />}
 
             {destroyStatus === 'failed' || destroyStatus === 'aborted' ? (
               <ErrorBanner

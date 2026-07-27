@@ -21,7 +21,7 @@
  */
 
 import type { Page } from '@playwright/test';
-import type { DiscordConfigRedacted } from '@/api.js';
+import type { DiscordConfigRedacted } from '@/api.service.js';
 
 /**
  * Seeds all Discord IPC channels in the Electron mock registry with canned
@@ -39,7 +39,7 @@ import type { DiscordConfigRedacted } from '@/api.js';
  */
 export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted): Promise<void> {
   await win.evaluate((cfg) => {
-    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+    const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
       __test: { mock: (channel: string, handler: unknown) => void };
     };
 
@@ -112,7 +112,7 @@ export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted)
  */
 export async function clearElectronMocks(win: Page): Promise<void> {
   await win.evaluate(() => {
-    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+    const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
       __test: { clearMocks: () => void };
     };
     hyveon.__test.clearMocks();

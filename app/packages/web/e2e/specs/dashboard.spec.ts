@@ -39,7 +39,7 @@ test.describe('dashboard', () => {
   test.afterEach(async () => {
     if (!win) return;
     await win.evaluate(() => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { clearMocks: () => void };
       };
       hyveon.__test.clearMocks();
@@ -91,12 +91,12 @@ test.describe('dashboard', () => {
     // Override the games.start mock with one that records the call before
     // resolving, using window.__calledChannels as the in-browser flag store.
     await win.evaluate(() => {
-      (window as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      (window as unknown as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       hyveon.__test.mock('games.start', () => {
-        ((window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
+        ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.start'
         ] = true;
         return Promise.resolve({ success: true, message: 'Started' });
@@ -111,7 +111,7 @@ test.describe('dashboard', () => {
         win.evaluate(
           () =>
             (
-              (window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>
+              (window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>
             )['games.start'] === true,
         ),
       )
@@ -200,12 +200,12 @@ test.describe('dashboard', () => {
     // Override the games.stop mock with one that records the call before
     // resolving, using window.__calledChannels as the in-browser flag store.
     await win.evaluate(() => {
-      (window as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      (window as unknown as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       hyveon.__test.mock('games.stop', () => {
-        ((window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
+        ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.stop'
         ] = true;
         return Promise.resolve({ success: true, message: 'Stopped' });
@@ -226,7 +226,7 @@ test.describe('dashboard', () => {
         win.evaluate(
           () =>
             (
-              (window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>
+              (window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>
             )['games.stop'] === true,
         ),
       )

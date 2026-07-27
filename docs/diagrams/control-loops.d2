@@ -12,7 +12,6 @@ watchdog: "watchdog Lambda"
 r53: "Route 53" {
   shape: cylinder
 }
-alb: "ALB target groups"
 ddb: "DynamoDB\nPENDING#arn" {
   shape: cylinder
 }
@@ -25,11 +24,8 @@ eb -> update_dns: "RUNNING / STOPPED"
 eb -> watchdog: "rate(N min)"
 
 update_dns -> r53: "UPSERT / DELETE A"
-update_dns -> alb: "register / deregister"
 update_dns -> ddb: "get + delete PENDING#arn"
 update_dns -> discord: "PATCH @original"
 
 watchdog -> cw: "GetMetricStatistics"
-watchdog -> ecs: "StopTask + idle_checks tag"
-watchdog -> r53: "cleanup"
-watchdog -> alb: "cleanup"
+watchdog -> ecs: "StopTask + idle_checks tag\n(idle_checks >= threshold)"

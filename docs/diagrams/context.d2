@@ -1,9 +1,11 @@
 direction: right
 
 operator: "Operator's laptop" {
-  ui: "React dashboard"
-  api: "Nest.js API"
-  ui -> api: "bearer token"
+  app: "Hyveon desktop app\n(Electron)" {
+    ui: "React dashboard\n(renderer)"
+    api: "desktop-main\n(Nest.js, main process)"
+    ui -> api: "Electron IPC\n(window.hyveon)"
+  }
 }
 
 discord: "Discord" {
@@ -27,8 +29,8 @@ aws: "AWS account" {
   loops -> r53: "UPSERT / DELETE A"
 }
 
-operator.api -> aws.ecs: "Start / Stop / Describe"
-operator.api -> aws.bot: "write config"
+operator.app.api -> aws.ecs: "Start / Stop / Describe"
+operator.app.api -> aws.bot: "write config"
 discord -> aws.bot: "slash commands"
 aws.bot -> discord: "PATCH @original"
 player -> aws.ecs: "UDP / TCP / HTTPS"

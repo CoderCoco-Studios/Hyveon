@@ -11,8 +11,10 @@ const config: Config = {
   organizationName: 'CoderCoco',
   projectName: 'Hyveon',
 
-  onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  favicon: 'img/favicon.ico',
+
+  onBrokenLinks: 'throw',
+  onBrokenMarkdownLinks: 'throw',
 
   markdown: {
     mermaid: true,
@@ -52,12 +54,21 @@ const config: Config = {
     },
     navbar: {
       title: 'Hyveon',
+      logo: {
+        alt: 'Hyveon logo',
+        src: 'img/logo.svg',
+      },
       items: [
         {
           type: 'docSidebar',
           sidebarId: 'docsSidebar',
           position: 'left',
           label: 'Docs',
+        },
+        {
+          to: '/app',
+          position: 'left',
+          label: 'Using the App',
         },
         {
           href: 'https://github.com/CoderCoco/Hyveon',

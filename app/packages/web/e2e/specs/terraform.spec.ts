@@ -59,7 +59,7 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
 
   await win.evaluate(
     ({ planAck, planLines, planStatus, planHash, approveAck, applyAck, applyLines, applyStatus, planRunId, applyRunId }) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 
@@ -135,7 +135,7 @@ test.describe('terraform page', () => {
   test.afterEach(async () => {
     if (!win) return;
     await win.evaluate(() => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { clearMocks: () => void };
       };
       hyveon.__test.clearMocks();

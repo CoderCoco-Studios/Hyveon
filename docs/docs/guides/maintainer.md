@@ -18,33 +18,46 @@ This page is documentation over the top of them, not a replacement.
 
 ```text
 Hyveon/
-├── app/                                 # npm-workspaces monorepo
-│   ├── package.json                     # workspaces root; `npm run` scripts fan out
+├── package.json                         # npm-workspaces ROOT — `npm run` scripts fan out from here
+├── tsconfig.base.json                   # shared TS config
+├── scripts/                             # @hyveon/scripts — init-parent.ts submodule scaffolder
+├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs
+├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
+├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
+├── openspec/                            # OpenSpec change proposals/specs for this repo
+├── app/                                 # @hyveon/app — Electron desktop app workspace
 │   ├── eslint.config.js                 # flat config; recommended TS + React presets
-│   ├── tsconfig.base.json               # shared TS config
 │   ├── vitest.config.ts
 │   └── packages/
 │       ├── shared/                      # @hyveon/shared — pure TS + DDB/Secrets helpers
-│       ├── desktop-main/                # @hyveon/desktop-main — Nest.js API
-│       ├── web/                         # @hyveon/web   — React + Vite dashboard
+│       ├── cloud-aws/                   # @hyveon/cloud-aws — AWS impl of the cloud-agnostic contracts
+│       ├── desktop-main/                # @hyveon/desktop-main — Nest.js IPC microservice
+│       ├── desktop-preload/             # @hyveon/desktop-preload — contextBridge preload script
+│       ├── web/                         # @hyveon/web   — React + Vite dashboard renderer
 │       └── lambda/
 │           ├── interactions/            # esbuild → dist/handler.cjs
 │           ├── followup/
 │           ├── update-dns/
-│           └── watchdog/
+│           ├── watchdog/
+│           └── efs-seeder/              # conditional, one function per game with file_seeds
 ├── terraform/                           # root composer: backend/providers + module "cloud"
 │   ├── main.tf variables.tf outputs.tf moved.tf
 │   ├── terraform.tfvars.example
 │   └── aws/                             # all AWS infra (the "cloud" module)
-│       ├── main.tf alb.tf route53.tf watchdog.tf interactions.tf followup.tf
-│       ├── discord_store.tf variables.tf outputs.tf versions.tf
-│       └── discord-domain.tf efs-seeder.tf
+│       ├── main.tf route53.tf watchdog.tf interactions.tf followup.tf
+│       ├── discord_store.tf discord-domain.tf variables.tf outputs.tf versions.tf
+│       ├── audit_store.tf runs_store.tf
+│       └── efs-seeder.tf
 ├── docs/                                # this site
-└── .github/workflows/                   # lint.yml, test.yml, docusaurus-gh-pages.yml
+└── .github/workflows/                   # lint.yml, test.yml, e2e.yml, integration.yml,
+                                          # package.yml, docs-build.yml, docusaurus-gh-pages.yml
 ```
 
-`app/` is a single npm workspace. One `npm install` at the root installs
-everything. Lambdas are built via esbuild to single-file CJS bundles at
+The repository **root** `package.json` is the npm-workspaces root — its
+`workspaces` array lists `app`, `app/packages/*`, `app/packages/lambda/*`,
+and `scripts`. One `npm install` at the root installs everything; `app/`
+itself is just one workspace (`@hyveon/app`) among several, not a nested
+workspaces root. Lambdas are built via esbuild to single-file CJS bundles at
 `app/packages/lambda/*/dist/handler.cjs`; Terraform's `archive_file`
 zips them at apply time, so CI and local dev must build them before any
 terraform operation.
@@ -55,6 +68,10 @@ terraform operation.
 # One-time (from the repo root — a single npm-workspaces tree)
 npm install
 cd terraform && terraform init && cd ..
+# ^ Manual first init. In practice most people never run this by hand — the
+#   in-app first-run wizard (see the setup guide) bootstraps the S3 state
+#   backend and runs `terraform init` for you the first time you launch the
+#   app. Use the command above only if you're skipping the wizard.
 
 # Electron desktop app in dev mode — HMR on renderer saves, auto-restarts main+preload
 npm run app:dev
@@ -68,14 +85,22 @@ cd terraform && terraform fmt -check -recursive && terraform validate && tflint
 
 | Command | What it does |
 |---|---|
-| `npm run app:dev` | Launches the Electron app in dev mode (delegates to `desktop:dev`). |
-| `npm run app:build` | Compiles shared → desktop-main → web TypeScript. |
+| `npm run app:dev` | Launches the Electron app in dev mode. Runs the `dev` script in the `@hyveon/app` workspace (`electron-vite dev --config ../electron.vite.config.ts`) — it does **not** literally delegate to the root `desktop:dev` script, though both ultimately invoke `electron-vite dev` against the same config, so behaviour is equivalent. |
+| `npm run app:build` | Compiles shared → cloud-aws → desktop-main → web TypeScript. |
+| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. |
 | `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
-| `npm run app:build:lambdas` | esbuild every Lambda to `dist/handler.cjs`. Required before `terraform apply`. |
+| `npm run desktop:package` | Runs `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
+| `npm run app:build:lambdas` | esbuild every Lambda (including `efs-seeder`) to `dist/handler.cjs`. Required before `terraform apply`. |
 | `npm run app:start` | Runs the built Electron app (requires `desktop:build` first). |
 | `npm run app:test` | `vitest run` across every workspace. |
 | `npm run app:test:watch` | Same but watch mode. |
+| `npm run app:test:coverage` | `vitest run --coverage` in the `@hyveon/app` workspace. |
+| `npm run app:test:e2e` | Builds `shared` + `cloud-aws`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
+| `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
+| `npm run scripts:init-parent` | Runs the interactive submodule-parent-repo scaffolder — see the [submodule guide](/guides/submodule). |
+| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`check`/`migrate`) for the optional S3 tfvars backend — see the [S3 tfvars storage guide](/guides/s3-tfvars). |
+| `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
 
 ## Test + naming conventions (short form)
 
@@ -106,14 +131,22 @@ See `CONTRIBUTING.md` for the full list. Two things that bite people:
 
 ## CI
 
-Three workflows live in `.github/workflows/`:
+Seven workflows live in `.github/workflows/`:
 
 - **`lint.yml`** — ESLint + `tflint` + `terraform fmt -check -recursive` +
-  `terraform validate`. Runs on every push/PR.
-- **`test.yml`** — `vitest run` across all workspaces.
+  `terraform validate`. Runs on every push/PR. Node 24.
+- **`test.yml`** — `vitest run` across all workspaces. Node 24.
+- **`e2e.yml`** — the Playwright e2e suite (`chromium` + `electron`
+  projects) against a built app. Node 24.
+- **`integration.yml`** — the tier-2 Playwright integration suite dispatching
+  directly into the Nest.js DI container. Node 24.
+- **`package.yml`** — builds the packaged Electron installer on a
+  Linux/macOS/Windows matrix; runs on every PR and on `v*` tags. Node 24.
+- **`docs-build.yml`** — a docs-only build check (`docs/**` paths); catches
+  broken Docusaurus builds on a PR before merge. Node 20.
 - **`docusaurus-gh-pages.yml`** — publishes this site. Only triggers on
   `docs/**` and the workflow itself on `main`, plus `workflow_dispatch`.
-  To preview doc changes locally, run `cd docs && npm install && npm start`.
+  Node 20. To preview doc changes locally, run `cd docs && npm install && npm start`.
 
 There is also CodeQL security analysis configured at the org level (see
 `CONTRIBUTING.md`).
@@ -132,20 +165,22 @@ with `StopTask`. Adding `aws_ecs_service` anywhere means you pay for a task
 ### 2. `game_servers` is the single source of truth
 
 Every per-game resource — task definition, EFS access point, CloudWatch log
-group, security-group rules, the `GAME_NAMES` env var on three Lambdas — is
-driven by `for_each` over `var.game_servers`. Do not hand-write new
-per-game resources. To add a game, a user edits `terraform.tfvars` and
-that's it.
+group, security-group rules, the `GAME_NAMES` env var on four Lambdas
+(interactions, followup, update-dns, watchdog) — is driven by `for_each`
+over `var.game_servers`. Do not hand-write new per-game resources. To add a
+game, a user edits `terraform.tfvars` and that's it.
 
 ### 3. DNS is Lambda-managed, not Terraform-managed
 
 `route53.tf` has a `data "aws_route53_zone"` and the updater Lambda, but no
 `aws_route53_record` resources for the game hostnames. The update-dns
-Lambda creates and deletes them on ECS task state changes.
-
-Exception: for HTTPS games, Route 53 ALIAS records pointing to the ALB *are*
-Terraform-managed (in `alb.tf`); the Lambda only manages ALB target
-membership for those.
+Lambda creates and deletes them on ECS task state changes, uniformly for
+every game — including `https = true` ones, which terminate TLS in-task via
+a Caddy sidecar and share the task's public IP. There is no ALB anywhere in
+this stack and no exception to this rule: **no** Route 53 record for **any**
+game is Terraform-managed. (The one Terraform-managed Route 53 record in the
+whole repo, `aws/discord-domain.tf`'s CloudFront ALIAS, fronts the Discord
+bot endpoint — an unrelated, fixed, non-per-game resource — not a game.)
 
 ### 4. Watchdog state lives in ECS task tags
 
@@ -155,11 +190,15 @@ persistent storage.
 
 ### 5. `AWS_REGION_` has a trailing underscore
 
-Lambda reserves `AWS_REGION`. All four Lambdas read `process.env.AWS_REGION_`
-instead. Check every Terraform file that sets Lambda env vars and every
-Lambda handler. The shared `ddb/client.ts` has a fallback chain
-(`AWS_REGION_` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`) so
-shared code works in both the server and the Lambdas.
+Lambda reserves `AWS_REGION`. Terraform sets `AWS_REGION_` on all five
+Lambda functions' env vars; the four core Lambdas (interactions, followup,
+update-dns, watchdog) read `process.env.AWS_REGION_`. `efs-seeder` has the
+same env var set for consistency but never reads it — it makes no AWS SDK
+calls at all (see [Lambdas](/components/lambdas#efs-seeder)). Check every
+Terraform file that sets Lambda env vars and every Lambda handler. The
+shared `ddb/client.ts` has a fallback chain (`AWS_REGION_` → `AWS_REGION` →
+`AWS_DEFAULT_REGION` → `us-east-1`) so shared code works in both the server
+and the Lambdas.
 
 ### 6. Secrets never leave AWS
 
@@ -216,12 +255,13 @@ If you tighten the policy later, keep those three actions.
 
 Every time:
 
-1. `cd app && npm run build:lambdas` — esbuild emits
-   `app/packages/lambda/*/dist/handler.cjs`.
-2. `cd terraform && terraform apply` — `data "archive_file"` reads the CJS
-   bundle, zips it, and uploads it to each `aws_lambda_function`. The
-   function URL, IAM role, env vars, and EventBridge rule are all in the
-   matching `.tf` file.
+1. `npm run app:build:lambdas` (from the repo root) — esbuild emits
+   `app/packages/lambda/*/dist/handler.cjs` for all five Lambda packages.
+2. `cd terraform && terraform apply` — `data "archive_file"` reads each CJS
+   bundle, zips it, and uploads it to the matching `aws_lambda_function`
+   (or, for `efs-seeder`, one per game with `file_seeds`). The function URL
+   (where applicable), IAM role, env vars, and EventBridge rule are all in
+   the matching `.tf` file.
 
 Because the zip hash is derived from the file content, `terraform plan`
 will only report a Lambda change when the bundle bytes actually change.
@@ -252,6 +292,15 @@ in the PR body — least-privilege roles are easy to silently widen.
 - New AWS call → add a method to the appropriate service under
   `services/`. Services are `@Injectable()` and wired through `AwsModule` /
   `DiscordModule`.
+- New **cloud-facing** call (anything that would otherwise mean
+  instantiating an `@aws-sdk/*` client directly) → prefer routing it through
+  one of the six `CloudProviderModule` injection tokens (`CLOUD_PROVIDER`,
+  `SECRETS_STORE`, `REMOTE_FILE_STORE`, `DISCORD_RECEIVER`,
+  `AUDIT_LOG_STORE`, `RUN_RECORD_STORE`) and depend only on the
+  `@hyveon/shared` interface it's typed against, not the concrete
+  `@hyveon/cloud-aws` class. This is what keeps a future non-AWS cloud
+  provider a one-module change instead of a call-site hunt — see
+  [Management app](/components/management-app) for the module graph.
 - Use Winston (`logger` from `logger.ts`) for structured logs. No
   `console.log` in production paths.
 - Wrap environment access behind a service method — don't reach for
@@ -266,6 +315,39 @@ in the PR body — least-privilege roles are easy to silently widen.
   There is no `fetch`, no bearer token, and no 401/re-auth flow to bypass.
 - New IPC-channel wrappers keep the same shape as existing ones (one method
   per channel, return a typed promise).
+
+## Refreshing the documentation screenshots
+
+The screenshots embedded under [Using the app](/app) live in
+`docs/static/img/app/` and are captured by a dedicated Playwright harness at
+`app/packages/web/e2e/screenshots/` that drives the real packaged Electron
+app (not a browser tab) via `_electron.launch()`, seeding every screen with
+deterministic demo data through the `window.hyveon.__test.mock()` seam.
+
+Prerequisite — build the Electron app first:
+
+```bash
+npm run desktop:build
+```
+
+Then capture:
+
+```bash
+npm run docs:screenshots
+```
+
+On Linux this needs a display: WSLg (WSL2 with GUI support) works out of the
+box; on a headless Linux box or CI runner, wrap the command with `xvfb-run`:
+
+```bash
+xvfb-run -a npm run docs:screenshots
+```
+
+Refresh screenshots whenever a documented screen's visual layout changes —
+a new panel, a moved control, a restyled state — not for every unrelated
+code change. The harness is isolated from the regular e2e run (its own
+Playwright config, its own test directory), so `npm run app:test:e2e` never
+executes it and CI's e2e job never writes to `docs/static/img/app/`.
 
 ## Release / deploy
 

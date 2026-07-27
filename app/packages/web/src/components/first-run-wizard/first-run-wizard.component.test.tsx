@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
 
 const hyveonMock = {
   wizard: {
@@ -95,9 +96,11 @@ async function advanceToTerraformInit(): Promise<void> {
   hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
-  hyveonMock.terraform.init.mockImplementation(async function* () {
-    // No chunks needed by default — individual tests override this.
-  });
+  hyveonMock.terraform.init.mockImplementation(
+    toStreamHandleMock(async function* () {
+      // No chunks needed by default — individual tests override this.
+    }),
+  );
   await advanceToBootstrap();
   await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
@@ -461,9 +464,11 @@ describe('FirstRunWizard', () => {
     });
 
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
-      hyveonMock.terraform.init.mockImplementation(async function* () {
-        yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
-      });
+      hyveonMock.terraform.init.mockImplementation(
+        toStreamHandleMock(async function* () {
+          yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
+        }),
+      );
       hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
       hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       const onComplete = vi.fn();

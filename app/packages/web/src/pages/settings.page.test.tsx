@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
   status: vi.fn(),
@@ -72,9 +73,11 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
     hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
-    hyveonMock.terraform.init.mockReset().mockImplementation(async function* () {
-      // No chunks needed by default — the Reconfigure tests below just need it to succeed.
-    });
+    hyveonMock.terraform.init.mockReset().mockImplementation(
+      toStreamHandleMock(async function* () {
+        // No chunks needed by default — the Reconfigure tests below just need it to succeed.
+      }),
+    );
   });
 
   it('should render the Settings heading', () => {
@@ -185,10 +188,13 @@ describe('SettingsPage', () => {
 
       await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
-      expect(hyveonMock.terraform.init).toHaveBeenCalledWith(
-        { bucket: 'renamed-tfstate', region: 'us-east-1', dynamodbTable: 'renamed-tflock' },
-        expect.anything(),
-      );
+      // No second (AbortSignal) argument — cancellation now goes through the
+      // returned HyveonStreamHandle's `cancel()` instead.
+      expect(hyveonMock.terraform.init).toHaveBeenCalledWith({
+        bucket: 'renamed-tfstate',
+        region: 'us-east-1',
+        dynamodbTable: 'renamed-tflock',
+      });
     });
 
     it('should not clobber stored config on Finish when the prefill itself fails and nothing was edited', async () => {

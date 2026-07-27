@@ -125,7 +125,7 @@ function Stat({ label, value, mono }: StatRowProps) {
  * 1. Gradient top-accent rule colored by state.
  * 2. Header — game name (Outfit 17/700) above hostname (DM Mono) with copy
  *    button, right-aligned status badge (icon + text + pulsing dot).
- * 3. 2×2 stats grid — Last run, Players, $/hr, Task short-id.
+ * 3. 3-column stats grid — Last run, $/hr, Task short-id.
  * 4. Actions — Start / Stop primary (gradient) + Files / Logs secondary.
  *
  * After Start/Stop the card schedules a 3-second `onRefresh` to give the
@@ -194,7 +194,6 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   }
 
   const connectStr = status.hostname ?? status.publicIp ?? null;
-  const playersLabel = '—';
   const costPerHourLabel = estimate ? `$${estimate.costPerHour.toFixed(3)}` : '—';
 
   return (
@@ -255,10 +254,9 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
           </Badge>
         </div>
 
-        {/* 2x2 stats grid */}
-        <div className="px-5 pb-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--color-border)] pt-4">
+        {/* 3-column stats grid */}
+        <div className="px-5 pb-4 grid grid-cols-3 gap-x-4 gap-y-3 border-t border-[var(--color-border)] pt-4">
           <Stat label="Last run" value={lastRunLabel(state)} />
-          <Stat label="Players" value={playersLabel} />
           <Stat label="$ per hour" value={costPerHourLabel} />
           <Stat label="Task" value={taskShortId(status.taskArn)} mono />
         </div>

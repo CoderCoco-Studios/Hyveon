@@ -18,6 +18,7 @@ import {
   type DiscordAdmins,
   type DiscordConfigRedacted,
   type DiscordGamePermission,
+  type DiscordMutationResult,
 } from '../api.service.js';
 import { Button } from '@/components/ui/button.component';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card.component';
@@ -166,6 +167,50 @@ export function DiscordPage() {
     }
   }
 
+  /**
+   * Register-commands-specific counterpart to `wrap()`.
+   *
+   * `DiscordCommandRegistrar.registerForGuild` (the desktop-main service
+   * behind `discord.registerCommands`) never throws — every failure mode
+   * (malformed snowflake, missing token, Discord's own 4xx/5xx) resolves as
+   * `{ success: false, message }` instead of a rejected promise, precisely so
+   * the IPC controller can pass it straight through without the exception
+   * ever crossing the Electron IPC boundary (a thrown `BadRequestException`
+   * there does not reliably reach the renderer with a usable message — the
+   * NestJS microservices context wraps it in an RxJS `Observable` that
+   * neither `nestjs-electron-ipc-transport` nor `ipcMain.handle` unwraps).
+   * `wrap()` alone can't see this: it only reacts to *thrown* errors, so a
+   * Discord-rejected registration would still resolve `fn()` successfully and
+   * fire the "success" toast. This wrapper inspects `result.success`
+   * directly instead, and folds a genuine transport-level rejection into the
+   * same `{ success: false, message }` shape so callers only ever have to
+   * check one field. The guild ID is threaded through so a failure toast
+   * always says which guild it was — this matters for the "Register commands
+   * in all guilds" bulk button, where multiple calls can be in flight/queued.
+   */
+  async function wrapRegisterResult(
+    guildId: string,
+    fn: () => Promise<DiscordMutationResult>,
+  ): Promise<DiscordMutationResult> {
+    setBusy(true);
+    try {
+      const result = await fn();
+      await refresh();
+      if (result.success) {
+        toast.success('Commands registered');
+      } else {
+        toast.error(`Registration failed for guild ${guildId}`, { description: result.message });
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      toast.error(`Registration failed for guild ${guildId}`, { description: message });
+      return { success: false, message };
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!cfg) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
@@ -224,7 +269,7 @@ export function DiscordPage() {
             busy={busy}
             onAdd={(g) => { void wrap(() => api.discordAddGuild(g), 'Guild added').catch(() => undefined); }}
             onRemove={(g) => { void wrap(() => api.discordRemoveGuild(g), 'Guild removed').catch(() => undefined); }}
-            onRegister={(g) => wrap(() => api.discordRegisterCommands(g), 'Commands registered')}
+            onRegister={(g) => wrapRegisterResult(g, () => api.discordRegisterCommands(g))}
           />
         </TabsContent>
 
@@ -568,7 +613,7 @@ function GuildsSection({
   busy: boolean;
   onAdd: (g: string) => void;
   onRemove: (g: string) => void;
-  onRegister: (g: string) => Promise<void>;
+  onRegister: (g: string) => Promise<DiscordMutationResult>;
 }) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -615,19 +660,29 @@ function GuildsSection({
 
   /**
    * Dispatch the register-commands API call, then mark the guild as
-   * registered-this-session only if the call resolved successfully. Failures
-   * leave the badge in the "not registered" state so the operator can retry.
+   * registered-this-session only if `result.success` is true. `onRegister`
+   * (wired to `wrapRegisterResult` in the parent) never throws — both a
+   * Discord-reported failure (`{ success: false, message }`) and a genuine
+   * transport-level rejection resolve through the same shape — so the badge
+   * simply mirrors `result.success` and stays "not registered" on any
+   * failure, letting the operator see it and retry.
    */
   async function handleRegister(guildId: string) {
-    try {
-      await onRegister(guildId);
+    const result = await onRegister(guildId);
+    if (result.success) {
       setRegistered((prev) => new Set(prev).add(guildId));
-    } catch {
-      // Stay marked unregistered on failure — the operator can retry.
     }
   }
 
-  /** Bulk-register every allowlisted guild — sequential so partial failures are visible. */
+  /**
+   * Bulk-register every allowlisted guild — sequential (not `Promise.all`) so
+   * each row's badge and toast update one at a time as results come back.
+   * Continues past a failed guild rather than aborting the loop: one guild's
+   * Discord-side error (bad token, rate limit, etc.) shouldn't block the rest
+   * of the allowlist from picking up the current command set, and
+   * `wrapRegisterResult`'s guild-scoped toast title makes each failure
+   * individually attributable even when several fire in the same run.
+   */
   async function handleRegisterAll() {
     for (const g of allGuilds) {
       await handleRegister(g.id);

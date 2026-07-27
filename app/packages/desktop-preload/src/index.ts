@@ -2,9 +2,12 @@ export type {
   HyveonApi,
   HyveonTestApi,
   HyveonMockNamespaces,
+  HyveonStreamHandle,
+  LogChunk,
   TerraformRunChunk,
   TerraformRunKind,
   TerraformRunRecord,
+  TerraformInitConfig,
   RunDetailStatus,
   TerraformRunsGetResult,
   TerraformRunsListOpts,
@@ -22,11 +25,10 @@ export type {
   PrerequisiteCheckResult,
   TerraformPrerequisiteCheckResult,
   PrerequisitesReport,
-  WizardState,
-  SaveWizardStateInput,
-  TerraformInitConfig,
   AwsProfileSummary,
   IamCheckResult,
+  WizardState,
+  SaveWizardStateInput,
 } from './hyveon-api.js';
 
 declare global {

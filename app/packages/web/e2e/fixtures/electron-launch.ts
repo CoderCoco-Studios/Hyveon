@@ -112,7 +112,13 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
   const config: WatchdogConfig = opts.config ?? WATCHDOG_CONFIG;
   const startResult: ActionResult = opts.startResult ?? { success: true, message: 'Started' };
   const discord: DiscordConfigRedacted = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
-  const games: string[] = opts.games ?? statuses.map((s) => s.game);
+  // `opts.games` (shared with the chromium-tier `stubApis`) may hold plain
+  // names or full `GameListEntry` objects; this mock's `games.list` handler
+  // always resolves `{ games: string[] }` (see the doc comment above), so
+  // normalise either shape down to names.
+  const games: string[] = (opts.games ?? statuses.map((s) => s.game)).map((g) =>
+    typeof g === 'string' ? g : g.name,
+  );
   const actualCostsFn: (days: number) => ActualCosts =
     typeof opts.actualCosts === 'function'
       ? opts.actualCosts
@@ -143,7 +149,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       watchdogConfig: WatchdogConfig;
       actualCostsMap: Record<string, ActualCosts>;
     }) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 

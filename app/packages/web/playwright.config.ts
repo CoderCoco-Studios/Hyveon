@@ -43,8 +43,10 @@ export const electronEnv: Record<string, string> = {
  *
  * `electron-smoke.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
- * (migrated in #191), `discord.spec.ts` (migrated in #194), and
- * `terraform.spec.ts` (new route, issue #110) are matched only by the
+ * (migrated in #191), `discord.spec.ts` (migrated in #194),
+ * `terraform.spec.ts` (new route, issue #110), and
+ * `streaming-handle-roundtrip.spec.ts` (regression guard for the streaming-IPC
+ * contextBridge clone bug — see its own doc comment) are matched only by the
  * `electron` project and ignored by `chromium`; every other spec is the
  * reverse.
  */
@@ -52,6 +54,7 @@ const ELECTRON_SPECS = [
   '**/electron-smoke.spec.ts',
   '**/electron-ipc-roundtrip.spec.ts',
   '**/ipc-mock.spec.ts',
+  '**/streaming-handle-roundtrip.spec.ts',
   '**/dashboard.spec.ts',
   '**/costs.spec.ts',
   '**/logs.spec.ts',

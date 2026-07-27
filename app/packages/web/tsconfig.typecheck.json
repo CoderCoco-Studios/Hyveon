@@ -1,0 +1,20 @@
+{
+  // Widens the base project to everything that should be typechecked but sits
+  // outside `vite build`'s program: the Vite/Playwright configs and the e2e
+  // specs. Inherits the base's deliberate absence of `rootDir` — see the
+  // comment there; setting one here makes TypeScript reject the
+  // desktop-preload sources reached through the base's `paths` mapping.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "playwright.integration.config.ts",
+    "playwright.screenshots.config.ts",
+    "e2e/**/*"
+  ]
+}

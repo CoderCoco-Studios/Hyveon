@@ -10,7 +10,7 @@ import type {
   GameListEntry,
   DriftReport,
   AuditPageResult,
-} from '@/api.js';
+} from '@/api.service.js';
 import {
   ENV_DATA,
   STOPPED_GAME,
@@ -26,6 +26,7 @@ export type {
   GameStatus,
   CostEstimates,
   EnvInfo,
+  ActionResult,
   WatchdogConfig,
   ActualCosts,
   DiscordConfigRedacted,
@@ -257,8 +258,8 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   // live chunks — specs drive off the seeded snapshot only.
   await page.addInitScript(
     ({ lines }: { lines: Record<string, string[]> }) => {
-      const existing = (window as Record<string, unknown>)['hyveon'] as Record<string, unknown> | undefined;
-      (window as Record<string, unknown>)['hyveon'] = {
+      const existing = (window as unknown as Record<string, unknown>)['hyveon'] as Record<string, unknown> | undefined;
+      (window as unknown as Record<string, unknown>)['hyveon'] = {
         ...(existing ?? {}),
         logs: {
           get: (game: string) =>

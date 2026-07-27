@@ -16,10 +16,13 @@ is silent except for a handful of near-free Lambdas.
 - **On-demand Fargate tasks** per game (no persistent ECS service, no idle cost).
 - **EFS with per-game access points** so each world is isolated yet persistent.
 - **Auto-DNS** — a Lambda UPSERTs `{game}.{yourdomain}` on task start and
-  DELETEs it on stop. Optional ALB with ACM for HTTPS-fronted games.
+  DELETEs it on stop. HTTPS-fronted games terminate TLS via an in-task Caddy
+  sidecar (Let's Encrypt automatic HTTPS) — no load balancer or ACM
+  certificate anywhere in the stack.
 - **Watchdog Lambda** that stops servers after a configurable idle window.
-- **Local Nest.js + React dashboard** to start/stop, edit config, stream logs,
-  and track costs.
+- **Packaged Electron desktop app** (Nest.js backend + React dashboard) to
+  start/stop, edit config, stream logs, and track costs — no HTTP server, the
+  renderer talks to the backend over Electron IPC.
 - **Serverless Discord bot** — two Node.js Lambdas plus DynamoDB and Secrets
   Manager handle every slash command; no 24/7 bot process.
 
@@ -51,8 +54,8 @@ Deep-dives on each piece, for when the guides hand-wave past something:
   file, variables, outputs, and AWS services touched.
 - [Management app](/components/management-app) — the
   Nest.js API, React dashboard, and `@hyveon/shared` library.
-- [Lambdas](/components/lambdas) — the four Node.js
-  Lambdas (interactions, followup, update-dns, watchdog).
+- [Lambdas](/components/lambdas) — the five Node.js
+  Lambdas (interactions, followup, update-dns, watchdog, efs-seeder).
 
 ## High-level architecture
 
@@ -69,19 +72,30 @@ the `/server-start` sequence) see the
 
 ## Repository map
 
+The repository root is the npm-workspaces root — one `package.json` at the
+top installs every workspace below in a single `npm install`.
+
 ```text
 Hyveon/
-├── app/                       # Nest.js + React monorepo (npm workspaces)
+├── app/                        # Electron desktop app (Nest.js + React)
 │   └── packages/
-│       ├── shared/            # @hyveon/shared
-│       ├── desktop-main/      # @hyveon/desktop-main (Nest.js API)
-│       ├── web/               # @hyveon/web   (React + Vite)
+│       ├── shared/             # @hyveon/shared
+│       ├── cloud-aws/          # @hyveon/cloud-aws — AWS implementations of the cloud-agnostic contracts
+│       ├── desktop-main/       # @hyveon/desktop-main (Nest.js IPC microservice)
+│       ├── desktop-preload/    # @hyveon/desktop-preload — contextBridge preload script (window.hyveon)
+│       ├── web/                # @hyveon/web   (React + Vite renderer)
 │       └── lambda/
-│           ├── interactions/  # Discord Function URL entry point
-│           ├── followup/      # async ECS work + Discord PATCH
-│           ├── update-dns/    # Route 53 + ALB on task state change
-│           └── watchdog/      # idle detection + auto-stop
-├── terraform/                 # all AWS infra (VPC, ECS, EFS, Lambdas, DDB...)
-├── docs/                      # this site
+│           ├── interactions/   # Discord Function URL entry point
+│           ├── followup/       # async ECS work + Discord PATCH
+│           ├── update-dns/     # Route 53 on task state change
+│           ├── watchdog/       # idle detection + auto-stop
+│           └── efs-seeder/     # writes declarative file_seeds to a game's EFS volume
+├── terraform/                  # all AWS infra (VPC, ECS, EFS, Lambdas, DDB...)
+├── scripts/                    # @hyveon/scripts — init-parent.ts submodule scaffolder
+├── build/                      # icon source art + generator for packaging
+├── docs/                       # this site
+├── openspec/                   # OpenSpec change proposals/specs for this repo
+├── electron.vite.config.ts     # electron-vite build config (main/preload/renderer)
+├── electron-builder.yml        # packaged-installer config
 └── README.md
 ```

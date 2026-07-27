@@ -27,9 +27,10 @@ jobs:
   # Nothing else in CI ran the TypeScript compiler: `app:test` transpiles
   # without typechecking, and both `desktop:build` and `desktop:package` go
   # through electron-vite/esbuild, which strips types rather than checking
-  # them. `app:build` runs `tsc` over shared, cloud-aws, desktop-main and
-  # desktop-preload, then `tsc --noEmit` over web, so a type error in any
-  # workspace now fails the PR instead of surfacing at runtime.
+  # them. `app:typecheck` builds the packages whose declarations the rest
+  # depend on, then runs `tsc --noEmit` over web (including its Playwright
+  # configs and e2e specs), all five Lambda packages, and scripts — so a type
+  # error in any workspace now fails the PR instead of surfacing at runtime.
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +49,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run app:build
+      - run: npm run app:typecheck
 
   tflint:
     runs-on: ubuntu-latest

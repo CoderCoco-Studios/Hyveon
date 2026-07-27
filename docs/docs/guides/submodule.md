@@ -73,9 +73,11 @@ Makefile.
 
 ## Quick start (interactive scaffolder)
 
-The public repo ships an interactive TypeScript script that writes the four
-files above for you. It only needs Node.js 20+, which you already need for
-the rest of the project.
+The public repo ships an interactive TypeScript script that writes three of
+the files above for you — `Makefile`, `terraform.tfvars`, and `.gitignore`
+(`.gitmodules` is created by `git submodule add` in step 2 below, and
+`.make/` is written later by `make setup`, not by this script). It only
+needs Node.js 22.12+, which you already need for the rest of the project.
 
 ```bash
 # 1. Create a private repo on GitHub, then clone it.
@@ -129,7 +131,7 @@ inside the submodule. Eight targets, no surprises:
 
 | Target | What it does |
 |---|---|
-| `make setup` | One-time bootstrap. Runs `git submodule update --init --recursive`, `npm install` and `npm run app:build:lambdas` in the submodule, derives `project_name`/`aws_region` from `terraform.tfvars`, creates the Terraform state S3 bucket + DynamoDB lock table if they don't already exist (same `aws s3api`/`aws dynamodb` calls the old `setup.sh` used), optionally bootstraps a versioned S3 bucket for `terraform.tfvars` itself via the submodule's `terraform/bootstrap/` module, then runs `terraform init` with the matching `-backend-config` flags. If it just bootstrapped a versioned S3 tfvars backend, `setup` also pulls `terraform.tfvars` down afterwards; on a first bootstrap against an empty bucket the pull can't find anything yet, so it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
+| `make setup` | One-time bootstrap. Runs `git submodule update --init --recursive`, `npm install` and `npm run app:build:lambdas` in the submodule, derives `project_name`/`aws_region` from `terraform.tfvars`, creates the Terraform state S3 bucket + DynamoDB lock table if they don't already exist (the same `aws s3api`/`aws dynamodb` calls a standalone bootstrap script would make — this Makefile inlines that logic rather than shelling out to one), optionally bootstraps a versioned S3 bucket for `terraform.tfvars` itself via the submodule's `terraform/bootstrap/` module, then runs `terraform init` with the matching `-backend-config` flags. If it just bootstrapped a versioned S3 tfvars backend, `setup` also pulls `terraform.tfvars` down afterwards; on a first bootstrap against an empty bucket the pull can't find anything yet, so it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
 | `make plan` | Copies `terraform.tfvars` into `Hyveon/terraform/terraform.tfvars`, rebuilds the Lambda bundles, then runs `terraform plan` directly. When an S3 tfvars backend is detected, it auto-pulls the latest tfvars first so a stale local copy can't silently drive the plan; set `NO_PULL=1` to skip the pull for one invocation. |
 | `make apply` | Same as `plan`, but runs `terraform apply` and prints a post-deploy checklist with the Discord interactions URL when it finishes. When an S3 tfvars backend is detected, it first asserts the local tfvars are still in sync with S3 (via the `tfvars-sync` CLI's `check` subcommand), refusing to apply against drifted vars; set `FORCE_APPLY=1` to skip the check for one invocation. |
 | `make update` | Bumps the submodule to the tip of `main` (`git submodule update --remote --merge`), then unconditionally re-runs `terraform init` — cheap and idempotent, so there's no drift-detection stamp deciding whether to rerun it. Reminds you to commit the new submodule pointer. |
@@ -276,7 +278,7 @@ location, checked only after its `.hyveon` counterpart is confirmed absent.
 (`git submodule update --remote --merge`), then unconditionally re-runs
 `terraform init` using the `tf-project`/`tf-region` stamps `make setup`
 wrote (it exits early with "Run 'make setup' first." if those are missing)
-— no sha comparison against `setup.sh`. `terraform init` is
+— there's no version-comparison check against anything. `terraform init` is
 cheap and idempotent (it no-ops when the backend config and providers are
 already current), so there's no need to detect whether the bootstrap logic
 itself changed upstream before deciding whether to rerun anything. If
@@ -374,7 +376,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: make setup
       - run: make plan
 ```

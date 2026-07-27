@@ -39,7 +39,7 @@ export function installHyveonHttpBridge(): void {
     body: JSON.stringify(body),
   });
 
-  (window as Record<string, unknown>)['hyveon'] = {
+  (window as unknown as Record<string, unknown>)['hyveon'] = {
     env: { get: () => call('/api/env') },
     games: {
       list: () => call('/api/games'),

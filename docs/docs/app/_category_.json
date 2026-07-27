@@ -1,0 +1,8 @@
+{
+  "label": "Using the app",
+  "position": 3.5,
+  "link": {
+    "type": "doc",
+    "id": "app/index"
+  }
+}
