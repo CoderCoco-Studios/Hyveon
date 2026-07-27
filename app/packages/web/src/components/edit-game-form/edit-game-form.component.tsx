@@ -18,10 +18,11 @@
  *   declared game (the entry being edited is excluded from the collision
  *   list by name, mirroring `checkPortCollisions`'s own self-exclusion in
  *   `@hyveon/shared/gameServerValidator`).
- * - `environment`/`https` aren't covered by the wizard's draft shape (#99
- *   never built fields for them), so whatever the declaration already had is
- *   carried forward unmodified in the submitted payload rather than being
- *   silently dropped.
+ * - `environment` isn't covered by the wizard's draft shape (#99 never built
+ *   a field for it), so whatever the declaration already had is carried
+ *   forward unmodified in the submitted payload rather than being silently
+ *   dropped. `https` *is* an editable draft field (see
+ *   `add-https-toggle-to-game-form`) and needs no such carry-forward.
  *
  * Every {@link GameWriteResult} branch on submit is handled the same way the
  * add wizard handles it: `ok: true` invokes `onSaved` with the fresh result;
@@ -128,11 +129,11 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
       const { config } = draftToPayload(draft);
       const payload: UpdateGamePayload = {
         name: game.name,
-        // `environment`/`https` aren't editable fields on this form (the
-        // wizard draft never had a place for them) — carry the existing
-        // declaration's values forward so saving other fields doesn't wipe
-        // them out.
-        config: { ...config, environment: game.environment, https: game.https },
+        // `environment` isn't an editable field on this form (the wizard
+        // draft never had a place for it) — carry the existing declaration's
+        // value forward so saving other fields doesn't wipe it out. `https`
+        // is owned by the draft now, so it's already in `config`.
+        config: { ...config, environment: game.environment },
       };
       const result = await api.updateGame(payload);
 
@@ -186,7 +187,13 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
           <CardTitle>Networking</CardTitle>
         </CardHeader>
         <CardContent>
-          <NetworkingStep ports={draft.ports} issues={issues} onChange={(ports) => patchDraft({ ports })} />
+          <NetworkingStep
+            ports={draft.ports}
+            issues={issues}
+            onChange={(ports) => patchDraft({ ports })}
+            https={draft.https}
+            onHttpsChange={(https) => patchDraft({ https })}
+          />
         </CardContent>
       </Card>
 

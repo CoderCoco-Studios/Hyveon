@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
+import { initUpdater } from './updater.js';
+import { ElectronStoreService } from './services/ElectronStoreService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
@@ -65,10 +67,18 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   bootstrap()
-    .then(() => {
+    .then((nestApp) => {
       if (isTestMode()) {
         console.log('[desktop-main] HYVEON_TEST_MODE active — test seam enabled');
       }
+
+      // initUpdater is designed to never reject (see updater.ts), but this
+      // catch is a second, independent guarantee that a startup-blocking
+      // unhandled rejection can never reach the Electron main process from
+      // here, even if that contract is ever violated.
+      initUpdater(nestApp.get(ElectronStoreService)).catch((err: unknown) => {
+        console.error('[desktop-main] updater init failed:', err);
+      });
 
       createWindow();
 

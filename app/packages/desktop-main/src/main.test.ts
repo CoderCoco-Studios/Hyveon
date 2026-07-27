@@ -156,6 +156,14 @@ describe('main bootstrap', () => {
     expect(fakeApp.listen).toHaveBeenCalledOnce();
   });
 
+  it('should return the Nest microservice app instance so callers can resolve providers', async () => {
+    vi.resetModules();
+    const { bootstrap } = await import('./main.js');
+    const result = await bootstrap();
+
+    expect(result).toBe(fakeApp);
+  });
+
   it('should invoke registerIpcMainBridges once with the transport strategy after app.listen()', async () => {
     vi.resetModules();
     const { bootstrap } = await import('./main.js');

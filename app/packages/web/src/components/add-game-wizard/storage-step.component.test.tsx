@@ -15,6 +15,7 @@ function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [],
+    https: false,
     ...overrides,
   };
 }

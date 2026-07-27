@@ -230,10 +230,16 @@ export function AddGameWizard() {
           <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={stepIssues} onChange={patchDraft} />
         )}
         {step === 'networking' && (
-          <NetworkingStep ports={draft.ports} issues={stepIssues} onChange={(ports) => patchDraft({ ports })} />
+          <NetworkingStep
+            ports={draft.ports}
+            issues={stepIssues}
+            onChange={(ports) => patchDraft({ ports })}
+            https={draft.https}
+            onHttpsChange={(https) => patchDraft({ https })}
+          />
         )}
         {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
-        {step === 'review' && <ReviewStep draft={draft} submitError={submitError} />}
+        {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || submitting}>

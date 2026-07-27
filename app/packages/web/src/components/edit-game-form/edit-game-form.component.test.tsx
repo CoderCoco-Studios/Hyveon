@@ -164,4 +164,50 @@ describe('EditGameForm', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(result));
   });
+
+  describe('https field', () => {
+    it('should render the HTTPS control enabled for a game declared with https: true', async () => {
+      renderForm(<EditGameForm game={sampleGame({ https: true })} />);
+
+      expect(await screen.findByLabelText('Enable HTTPS (Caddy sidecar)')).toBeChecked();
+    });
+
+    it('should render the HTTPS control disabled for a game declared with https: false', async () => {
+      renderForm(<EditGameForm game={sampleGame({ https: false })} />);
+
+      expect(await screen.findByLabelText('Enable HTTPS (Caddy sidecar)')).not.toBeChecked();
+    });
+
+    it('should send https: false rather than carrying the previous true forward when the control is disabled and saved', async () => {
+      apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+      renderForm(<EditGameForm game={sampleGame({ https: true })} />);
+
+      await userEvent.click(await screen.findByLabelText('Enable HTTPS (Caddy sidecar)'));
+      await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() =>
+        expect(apiMock.updateGame).toHaveBeenCalledWith({
+          name: 'mygame',
+          config: { ...samplePayloadConfig(), https: false },
+        }),
+      );
+    });
+
+    it('should still send https: true when only an unrelated field (image) is edited on an https: true game', async () => {
+      apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+      renderForm(<EditGameForm game={sampleGame({ https: true })} />);
+
+      const imageField = await screen.findByLabelText('Image');
+      await userEvent.clear(imageField);
+      await userEvent.type(imageField, 'itzg/minecraft-server-2');
+      await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() =>
+        expect(apiMock.updateGame).toHaveBeenCalledWith({
+          name: 'mygame',
+          config: { ...samplePayloadConfig(), image: 'itzg/minecraft-server-2', https: true },
+        }),
+      );
+    });
+  });
 });

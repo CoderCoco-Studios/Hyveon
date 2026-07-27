@@ -14,7 +14,7 @@ function makePorts(): WizardDraftPort[] {
 
 describe('NetworkingStep', () => {
   it('should render "No ports configured yet" when the ports array is empty', () => {
-    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} />);
+    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} />);
 
     expect(screen.getByText('No ports configured yet.')).toBeInTheDocument();
   });
@@ -22,7 +22,15 @@ describe('NetworkingStep', () => {
   it('should append a blank row when "Add port" is clicked', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<NetworkingStep ports={makePorts()} issues={[]} onChange={onChange} />);
+    render(
+      <NetworkingStep
+        ports={makePorts()}
+        issues={[]}
+        onChange={onChange}
+        https={false}
+        onHttpsChange={vi.fn()}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Add port' }));
 
@@ -36,7 +44,15 @@ describe('NetworkingStep', () => {
   it('should remove the corresponding row when its "Remove" button is clicked', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<NetworkingStep ports={makePorts()} issues={[]} onChange={onChange} />);
+    render(
+      <NetworkingStep
+        ports={makePorts()}
+        issues={[]}
+        onChange={onChange}
+        https={false}
+        onHttpsChange={vi.fn()}
+      />,
+    );
 
     const removeButtons = screen.getAllByRole('button', { name: /Remove port/ });
     await user.click(removeButtons[0]);
@@ -46,7 +62,15 @@ describe('NetworkingStep', () => {
 
   it('should update the container port for the edited row when its number input changes', () => {
     const onChange = vi.fn();
-    render(<NetworkingStep ports={makePorts()} issues={[]} onChange={onChange} />);
+    render(
+      <NetworkingStep
+        ports={makePorts()}
+        issues={[]}
+        onChange={onChange}
+        https={false}
+        onHttpsChange={vi.fn()}
+      />,
+    );
 
     const containerInput = screen.getByLabelText('Container port', {
       selector: '#port-container-1',
@@ -62,7 +86,15 @@ describe('NetworkingStep', () => {
   it('should update the protocol for the edited row when its select changes', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<NetworkingStep ports={makePorts()} issues={[]} onChange={onChange} />);
+    render(
+      <NetworkingStep
+        ports={makePorts()}
+        issues={[]}
+        onChange={onChange}
+        https={false}
+        onHttpsChange={vi.fn()}
+      />,
+    );
 
     const protocolSelect = screen.getByLabelText('Protocol', { selector: '#port-protocol-0' });
     await user.selectOptions(protocolSelect, 'udp');
@@ -79,6 +111,8 @@ describe('NetworkingStep', () => {
         ports={makePorts()}
         issues={[{ path: 'ports[1]', message: 'Port 25566/udp collides with ports[0].' }]}
         onChange={vi.fn()}
+        https={false}
+        onHttpsChange={vi.fn()}
       />,
     );
 
@@ -96,6 +130,8 @@ describe('NetworkingStep', () => {
         ports={makePorts()}
         issues={[{ path: 'ports[0].container', message: 'Expected number, received null' }]}
         onChange={vi.fn()}
+        https={false}
+        onHttpsChange={vi.fn()}
       />,
     );
 
@@ -105,5 +141,87 @@ describe('NetworkingStep', () => {
     expect(firstRow.className).toContain('border-[var(--color-red)]');
     expect(secondRow.className).not.toContain('border-[var(--color-red)]');
     expect(screen.getByRole('alert')).toHaveTextContent('Expected number, received null');
+  });
+
+  describe('HTTPS toggle', () => {
+    it('should render unchecked and without a callout by default', () => {
+      render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} />);
+
+      expect(screen.getByLabelText('Enable HTTPS (Caddy sidecar)')).not.toBeChecked();
+      expect(screen.queryByText(/opens ports 443 and 80/)).not.toBeInTheDocument();
+    });
+
+    it('should fire onHttpsChange with true when the toggle is checked', async () => {
+      const user = userEvent.setup();
+      const onHttpsChange = vi.fn();
+      render(
+        <NetworkingStep
+          ports={makePorts()}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={onHttpsChange}
+        />,
+      );
+
+      await user.click(screen.getByLabelText('Enable HTTPS (Caddy sidecar)'));
+
+      expect(onHttpsChange).toHaveBeenCalledWith(true);
+    });
+
+    it('should fire onHttpsChange with false when an enabled toggle is unchecked', async () => {
+      const user = userEvent.setup();
+      const onHttpsChange = vi.fn();
+      render(
+        <NetworkingStep
+          ports={makePorts()}
+          issues={[]}
+          onChange={vi.fn()}
+          https={true}
+          onHttpsChange={onHttpsChange}
+        />,
+      );
+
+      await user.click(screen.getByLabelText('Enable HTTPS (Caddy sidecar)'));
+
+      expect(onHttpsChange).toHaveBeenCalledWith(false);
+    });
+
+    it('should render the warning callout, describing all three consequences, only when enabled', () => {
+      render(
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} />,
+      );
+
+      const callout = screen.getByText(/opens ports 443 and 80/);
+      expect(callout).toHaveTextContent('opens ports 443 and 80 to the internet for the whole stack');
+      expect(callout).toHaveTextContent('loses its public ingress rule');
+      expect(callout).toHaveTextContent("Let's Encrypt (ACME) issuance");
+    });
+
+    it('should reference the callout via aria-describedby on the toggle while it is shown', () => {
+      render(
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} />,
+      );
+
+      const toggle = screen.getByLabelText('Enable HTTPS (Caddy sidecar)');
+      expect(toggle).toHaveAttribute('aria-describedby', expect.stringContaining('https-callout'));
+    });
+
+    it('should mark the toggle invalid and surface the message when the no-ports HTTPS rule is violated', () => {
+      render(
+        <NetworkingStep
+          ports={[]}
+          issues={[{ path: 'ports', message: 'An https = true game server must declare at least one port.' }]}
+          onChange={vi.fn()}
+          https={true}
+          onHttpsChange={vi.fn()}
+        />,
+      );
+
+      const toggle = screen.getByLabelText('Enable HTTPS (Caddy sidecar)');
+      expect(toggle).toHaveAttribute('aria-invalid', 'true');
+      expect(toggle).toHaveAttribute('aria-describedby', expect.stringContaining('https-error'));
+      expect(screen.getByText('An https = true game server must declare at least one port.')).toBeInTheDocument();
+    });
   });
 });

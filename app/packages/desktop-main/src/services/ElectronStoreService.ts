@@ -43,6 +43,13 @@ export interface AppStoreSchema {
   wizardCompleted: boolean;
   /** Locked to `'aws'` for v1. */
   activeCloud: 'aws';
+  /**
+   * Gates `electron-updater` update checks (see `updater.ts`). Absent or
+   * `false` means disabled — the default for v1, since unsigned builds would
+   * fail Gatekeeper/SmartScreen regardless. No renderer/settings UI exposes
+   * this yet; flipping it is a manual electron-store edit.
+   */
+  enableAutoUpdate?: boolean;
   aws: {
     region?: string;
     profile?: string;

@@ -38,10 +38,30 @@
     "scripts:tfvars-sync": "npm run tfvars-sync  -w @hyveon/scripts",
     "desktop:dev": "electron-vite dev",
     "desktop:build": "electron-vite build",
-    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml",
+    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --publish never",
     "icons:generate": "node build/generate-icons.mjs"
   },
   "allowScripts": {
     "@swc/core@1.15.43": true
+  },
+  "overrides": {
+    "typescript-eslint": {
+      "typescript": "$typescript"
+    },
+    "@typescript-eslint/parser": {
+      "typescript": "$typescript"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "typescript": "$typescript"
+    },
+    "@typescript-eslint/eslint-plugin": {
+      "typescript": "$typescript"
+    },
+    "@typescript-eslint/utils": {
+      "typescript": "$typescript"
+    },
+    "@typescript-eslint/type-utils": {
+      "typescript": "$typescript"
+    }
   }
 }

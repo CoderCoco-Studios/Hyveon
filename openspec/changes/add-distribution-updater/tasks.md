@@ -1,52 +1,67 @@
 ## 1. Housekeeping — verify and close #202 (no PR)
 
-- [ ] 1.1 Review `.github/workflows/package.yml` against #202's acceptance criteria: triggers on `v*` tag push, builds NSIS/DMG/AppImage on the 3-OS matrix, uploads all three artifacts to a draft GitHub Release named after the tag (`softprops/action-gh-release@v2` with `draft: true`)
-- [ ] 1.2 If a `v*` tag run exists, confirm the run produced a draft release with all three artifacts attached; otherwise note that the workflow logic satisfies the criteria and the next tag will exercise it
-- [ ] 1.3 Close #202 with an evidence comment (`gh issue close 202 --comment ...`) citing the workflow file, its trigger/matrix/release steps, and any verified run — no PR needed
+- [x] 1.1 Review `.github/workflows/package.yml` against #202's acceptance criteria: triggers on `v*` tag push, builds NSIS/DMG/AppImage on the 3-OS matrix, uploads all three artifacts to a draft GitHub Release named after the tag (`softprops/action-gh-release@v2` with `draft: true`)
+- [x] 1.2 If a `v*` tag run exists, confirm the run produced a draft release with all three artifacts attached; otherwise note that the workflow logic satisfies the criteria and the next tag will exercise it
+- [x] 1.3 Close #202 with an evidence comment (`gh issue close 202 --comment ...`) citing the workflow file, its trigger/matrix/release steps, and any verified run — no PR needed
 
 ## 2. Issue #206 — electron-updater wired with disabled feature flag
 
-- [ ] 2.1 Create branch and worktree: `git worktree add .worktrees/claude/issue-206-electron-updater -b claude/issue-206-electron-updater`
-- [ ] 2.2 Add `electron-updater` as a dependency of `@hyveon/desktop-main`
-- [ ] 2.3 Extend `AppStoreSchema` in `app/packages/desktop-main/src/services/ElectronStoreService.ts` with `enableAutoUpdate: boolean`; add unit tests proving absent-key reads default to disabled and the flag round-trips through both the electron-store and Map backings
-- [ ] 2.4 Create `app/packages/desktop-main/src/updater.ts`: `initUpdater(store)` that no-ops outside Electron (`process.versions.electron` guard, dynamic `import('electron-updater')`), logs a single "updater disabled" line and never calls `checkForUpdates` when `enableAutoUpdate` is falsy, and wires `checkForUpdates` + update-event logging only when the flag is `true`
-- [ ] 2.5 Invoke `initUpdater` from `electron-entry.ts` startup; confirm the plain-Node integration harness and vitest suites still boot (no Electron-only import evaluated)
-- [ ] 2.6 Add `publish: github` (owner/repo provider block) to `electron-builder.yml`; ensure `desktop:package` and the CI Package workflow run with publish disabled (`--publish never`) so only the tag-release job uploads artifacts
-- [ ] 2.7 Add unit tests for `updater.ts`: flag-off never invokes `checkForUpdates`, flag-on invokes it once, non-Electron environment is a no-op (test names read as "should ..." sentences)
-- [ ] 2.8 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 2.9 Open PR via `/pr` with Conventional Commits title (<70 chars), e.g. `feat(desktop-main): wire electron-updater behind disabled flag`; PR body FIRST line `Closes #206`
+> Deviation from plan: implemented in a single shared worktree/branch
+> (`claude/add-distribution-updater`) alongside #207 and #209, and shipped as
+> one combined PR rather than one PR per issue — explicit operator direction
+> to bundle the remaining distribution work into one PR.
+
+- [x] 2.1 ~~Create branch and worktree~~ — done in the shared `claude/add-distribution-updater` worktree
+- [x] 2.2 Add `electron-updater` as a dependency of `@hyveon/desktop-main`
+- [x] 2.3 Extend `AppStoreSchema` in `app/packages/desktop-main/src/services/ElectronStoreService.ts` with `enableAutoUpdate: boolean`; add unit tests proving absent-key reads default to disabled and the flag round-trips through both the electron-store and Map backings
+- [x] 2.4 Create `app/packages/desktop-main/src/updater.ts`: `initUpdater(store)` that no-ops outside Electron (`process.versions.electron` guard, dynamic `import('electron-updater')`), logs a single "updater disabled" line and never calls `checkForUpdates` when `enableAutoUpdate` is falsy, and wires `checkForUpdates` + update-event logging only when the flag is `true`
+- [x] 2.5 Invoke `initUpdater` from `electron-entry.ts` startup; confirm the plain-Node integration harness and vitest suites still boot (no Electron-only import evaluated)
+- [x] 2.6 Add `publish: github` (owner/repo provider block) to `electron-builder.yml`; ensure `desktop:package` and the CI Package workflow run with publish disabled (`--publish never`) so only the tag-release job uploads artifacts
+- [x] 2.7 Add unit tests for `updater.ts`: flag-off never invokes `checkForUpdates`, flag-on invokes it once, non-Electron environment is a no-op (test names read as "should ..." sentences)
+- [x] 2.8 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 2.9 Open PR via `/pr` — combined with #207 and #209 into a single PR (see deviation note above); PR body includes `Closes #206`
 
 ## 3. Issue #207 — unsigned-MVP install instructions per OS
 
-- [ ] 3.1 Create branch and worktree: `git worktree add .worktrees/claude/issue-207-install-docs -b claude/issue-207-install-docs`
-- [ ] 3.2 Write `docs/docs/install.md`: where to download release artifacts (GitHub Releases), why unsigned-binary warnings appear, and per-OS steps — macOS right-click → Open (Gatekeeper), Windows SmartScreen "More info → Run anyway", Linux AppImage `chmod +x` + run; screenshots if reasonable
-- [ ] 3.3 Link the new page from the "Option C — packaged Electron app" section of `docs/docs/setup.md`
-- [ ] 3.4 Add a top-level "Install" link in `README.md` pointing at the published install page
-- [ ] 3.5 Build the Docusaurus site locally and confirm the page renders in the autogenerated sidebar with all three OS sections
-- [ ] 3.6 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 3.7 Open PR via `/pr` with Conventional Commits title (<70 chars), e.g. `docs: unsigned-MVP install instructions per OS`; PR body FIRST line `Closes #207`
+- [x] 3.1 ~~Create branch and worktree~~ — done in the shared `claude/add-distribution-updater` worktree
+- [x] 3.2 Write `docs/docs/install.md`: where to download release artifacts (GitHub Releases), why unsigned-binary warnings appear, and per-OS steps — macOS right-click → Open (Gatekeeper), Windows SmartScreen "More info → Run anyway", Linux AppImage `chmod +x` + run; screenshots if reasonable
+- [x] 3.3 Link the new page from the packaged-Electron-app section of `docs/docs/setup.md` (titled "Option B" in the current doc, not "Option C" as originally worded here)
+- [x] 3.4 Add a top-level "Install" link in `README.md` pointing at the published install page
+- [x] 3.5 Build the Docusaurus site locally and confirm the page renders in the autogenerated sidebar with all three OS sections
+- [x] 3.6 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 3.7 Open PR via `/pr` — combined with #206 and #209 into a single PR; PR body includes `Closes #207`
 
 ## 4. Issue #209 — code-signing roadmap (last epic #141 child)
 
-- [ ] 4.1 Create branch and worktree: `git worktree add .worktrees/claude/issue-209-signing-roadmap -b claude/issue-209-signing-roadmap`
-- [ ] 4.2 Write `docs/docs/code-signing-roadmap.md`: macOS plan (Apple Developer ~$99/yr, electron-builder notarize config), Windows plan (Azure Trusted Signing ~$10/month), per-platform costs, ownership notes, and current blockers
-- [ ] 4.3 Document the auto-update enablement flow once signing lands (flip `enableAutoUpdate`, signed-feed expectations) and the caveat that `hardenedRuntime: false` in `electron-builder.yml` stays until macOS signing is in place
-- [ ] 4.4 Build the Docusaurus site locally and confirm the page renders
-- [ ] 4.5 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 4.6 Open PR via `/pr` with Conventional Commits title (<70 chars), e.g. `docs: code-signing roadmap for signed releases`; PR body FIRST line `Closes #209`, and — since this completes the last open child of epic #141 — also include `Closes #141`
+- [x] 4.1 ~~Create branch and worktree~~ — done in the shared `claude/add-distribution-updater` worktree
+- [x] 4.2 Write `docs/docs/code-signing-roadmap.md`: macOS plan (Apple Developer ~$99/yr, electron-builder notarize config), Windows plan (Azure Trusted Signing ~$10/month), per-platform costs, ownership notes, and current blockers
+- [x] 4.3 Document the auto-update enablement flow once signing lands (flip `enableAutoUpdate`, signed-feed expectations) and the caveat that `hardenedRuntime: false` in `electron-builder.yml` stays until macOS signing is in place
+- [x] 4.4 Build the Docusaurus site locally and confirm the page renders
+- [x] 4.5 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 4.6 Open PR via `/pr` — combined with #206 and #207 into a single PR; PR body includes `Closes #209`. **Note:** epic #141 was already closed on 2026-07-23 (prematurely — via PR #308, which explicitly did not close it) while #202/#206/#207/#209 were all still open; this PR is what actually finishes #141's scope. Flagged in the PR body rather than silently left unaddressed.
 
 ## 5. Issue #275 — Hyveon app icon and web favicon
 
-- [ ] 5.1 Create branch and worktree: `git worktree add .worktrees/claude/issue-275-app-icon -b claude/issue-275-app-icon`
-- [ ] 5.2 Obtain the master icon artwork (≥1024×1024) — operator supplies final art or explicitly approves a placeholder; record which in the PR
-- [ ] 5.3 Generate and commit the derived asset set: `build/icon.icns` (macOS), `build/icon.ico` (Windows multi-size 16/32/48/256), `build/icon.png` (Linux ≥512×512); note the regeneration steps alongside the assets
-- [ ] 5.4 Wire `win.icon`, `mac.icon`, and `linux.icon` into `electron-builder.yml`
-- [ ] 5.5 Add the favicon asset to `app/packages/web/` and a `<link rel="icon">` to `app/packages/web/index.html`; confirm the dev/preview tab shows it
-- [ ] 5.6 Run `npm run desktop:package` locally and verify the installer and running app show the icon (taskbar/dock, and Explorer exe icon on Windows); document any platforms not verifiable locally as covered by the CI matrix
-- [ ] 5.7 Verify `npm run app:test` and `npm run app:lint` pass
-- [ ] 5.8 Open PR via `/pr` with Conventional Commits title (<70 chars), e.g. `chore(desktop): wire Hyveon app icon and web favicon`; PR body FIRST line `Closes #275`
+> Already complete before this session started — shipped via PR #334
+> (`claude/issue-275-app-icon`, merged 2026-07-27), independently of this
+> change's task breakdown. #275 is closed. No further action needed here;
+> a stale leftover worktree/branch for it was cleaned up as part of this
+> session.
+
+- [x] 5.1 Create branch and worktree (PR #334)
+- [x] 5.2 Obtain the master icon artwork (≥1024×1024) — operator supplies final art or explicitly approves a placeholder; record which in the PR (PR #334)
+- [x] 5.3 Generate and commit the derived asset set: `build/icon.icns` (macOS), `build/icon.ico` (Windows multi-size 16/32/48/256), `build/icon.png` (Linux ≥512×512); note the regeneration steps alongside the assets (PR #334)
+- [x] 5.4 Wire `win.icon`, `mac.icon`, and `linux.icon` into `electron-builder.yml` (PR #334)
+- [x] 5.5 Add the favicon asset to `app/packages/web/` and a `<link rel="icon">` to `app/packages/web/index.html`; confirm the dev/preview tab shows it (PR #334)
+- [x] 5.6 Run `npm run desktop:package` locally and verify the installer and running app show the icon (taskbar/dock, and Explorer exe icon on Windows); document any platforms not verifiable locally as covered by the CI matrix (PR #334 — not performed by this PR)
+- [x] 5.7 Verify `npm run app:test` and `npm run app:lint` pass (PR #334)
+- [x] 5.8 Open PR via `/pr` — PR #334, `Closes #275`
 
 ## 6. Close out initiative #214 (no PR)
 
 - [ ] 6.1 Verify epics #138, #139, #140, #141 and issue #275 are all closed (`gh issue view` each)
 - [ ] 6.2 If all are closed, close initiative #214 with a completion comment summarizing the delivered milestones (`gh issue close 214 --comment ...`); if any remain open, list the blockers instead of closing
+
+**Deferred until the combined #206/#207/#209 PR (section 2-4) merges** — closing
+the initiative before that PR lands would be premature even though epic #141
+is already (prematurely) closed.

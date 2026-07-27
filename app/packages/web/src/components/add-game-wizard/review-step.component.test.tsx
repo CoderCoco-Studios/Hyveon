@@ -14,6 +14,7 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
+    https: false,
     ...overrides,
   };
 }
@@ -65,6 +66,47 @@ describe('ReviewStep — empty optional sections', () => {
     render(<ReviewStep draft={makeFullDraft({ volumes: [] })} />);
 
     expect(screen.getByText('No volumes configured.')).toBeInTheDocument();
+  });
+});
+
+describe('ReviewStep — HTTPS summary', () => {
+  it('should show HTTPS as Enabled when the draft has https: true', () => {
+    render(<ReviewStep draft={makeFullDraft({ https: true })} />);
+
+    expect(screen.getByText('HTTPS')).toBeInTheDocument();
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
+
+  it('should show HTTPS as Disabled when the draft has https: false', () => {
+    render(<ReviewStep draft={makeFullDraft({ https: false })} />);
+
+    expect(screen.getByText('HTTPS')).toBeInTheDocument();
+    expect(screen.getByText('Disabled')).toBeInTheDocument();
+  });
+});
+
+describe('ReviewStep — outstanding validation issues', () => {
+  it('should not render an issues alert when issues is empty or omitted', () => {
+    render(<ReviewStep draft={makeFullDraft()} />);
+    expect(screen.queryByText('Fix the following before submitting:')).not.toBeInTheDocument();
+  });
+
+  it('should list every outstanding issue so a disabled Submit has a visible reason', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft()}
+        issues={[
+          { path: 'ports[0]', message: 'The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).' },
+          { path: 'memory', message: 'memory 100 MiB is not a valid Fargate pairing for cpu=1024.' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Fix the following before submitting:')).toBeInTheDocument();
+    expect(
+      screen.getByText('The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('memory 100 MiB is not a valid Fargate pairing for cpu=1024.')).toBeInTheDocument();
   });
 });
 
