@@ -40,4 +40,4 @@ half-finished branch never ships a control that can save a Terraform-invalid dec
 
 - [x] 7.1 Gate: `npm run app:test` and `npm run app:lint` pass from the repo root. (2130/2130 tests, 0 lint errors — 3 pre-existing unrelated warnings in `ConfigService.ts`.)
 - [x] 7.2 Manually drive the flow in the app (`npm run app:dev`): enable HTTPS on a game, confirm the callout appears, confirm a `udp` first port blocks the save with the issue on the right row, correct it, save, and verify the game detail page's read-only HTTPS field flips to Enabled without a refetch. (Driven via a Playwright `_electron` REPL under xvfb against the packaged app with mocked `games.list`/`games.update` IPC — all 5 sub-steps verified with screenshots.)
-- [ ] 7.3 Open PR via `/pr`: title `feat(web): allow setting the HTTPS flag from the game form`, body first line `Closes #335`.
+- [x] 7.3 Open PR via `/pr`: title `feat(web): allow setting the HTTPS flag from the game form`, body first line `Closes #335`. (PR #344.)
