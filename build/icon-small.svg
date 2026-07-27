@@ -1,37 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Hyveon app icon — small-size variant (16px and 24px).
-
-  The seven cells of icon.svg still resolve at 32px, but below that they blur
-  into a single smudge. This variant keeps the same idea — a lit cell inside the
-  hive — but states it with one heavy hexagon ring and one solid core, which
-  survives a 16×16 taskbar slot and browser tab.
-
-  Keep the palette and the ground in sync with icon.svg whenever either changes.
--->
+<!-- Hyveon app icon — small-size variant (16px and 24px). Keep this header
+     short: libvips sniffs only the first 1000 bytes for the <svg> tag. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    The seven cells of icon.svg still resolve at 32px, but below that they blur
+    into a single smudge. This variant keeps the same idea — a lit cell inside
+    the hive — but states it with one heavy cell wall and a solid core, which
+    survives a 16×16 taskbar slot and a browser tab.
+
+    Like the master it carries no background tile, so the wall runs lighter than
+    the master's cells (lavender into violet) to stay legible against a dark
+    taskbar, and the core keeps the same bright lavender-into-cyan lift. Both
+    files share the 1.09 scale, so the two drawings occupy the same footprint
+    when a platform puts them side by side.
+
+    Regenerate with `npm run icons:generate` after editing.
+  -->
   <defs>
-    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b1f33"/>
-      <stop offset="1" stop-color="#0d0f18"/>
-    </linearGradient>
     <linearGradient id="comb" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c4b5fd"/>
-      <stop offset="1" stop-color="#7c3aed"/>
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#6d28d9"/>
     </linearGradient>
     <linearGradient id="core" x1="0.1" y1="0" x2="0.9" y2="1">
-      <stop offset="0" stop-color="#a78bfa"/>
-      <stop offset="1" stop-color="#06b6d4"/>
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#22d3ee"/>
     </linearGradient>
   </defs>
 
-  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#ground)"/>
+  <g transform="translate(512 512) scale(1.09) translate(-512 -512)">
+    <!-- The hive, reduced to a single heavy cell wall. -->
+    <path d="M 512 180 L 800 346 L 800 678 L 512 844 L 224 678 L 224 346 Z"
+          fill="none" stroke="url(#comb)" stroke-width="118" stroke-linejoin="round"/>
 
-  <!-- The hive, reduced to a single heavy cell wall. -->
-  <path d="M 512 180 L 800 346 L 800 678 L 512 844 L 224 678 L 224 346 Z"
-        fill="none" stroke="url(#comb)" stroke-width="118" stroke-linejoin="round"/>
-
-  <!-- The one running server. -->
-  <path d="M 512 366 L 638.44 439 L 638.44 585 L 512 658 L 385.56 585 L 385.56 439 Z"
-        fill="url(#core)"/>
+    <!-- The one running server. -->
+    <path d="M 512 366 L 638.44 439 L 638.44 585 L 512 658 L 385.56 585 L 385.56 439 Z"
+          fill="url(#core)"/>
+  </g>
 </svg>

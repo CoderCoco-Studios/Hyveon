@@ -9,11 +9,18 @@
     running. The palette is taken verbatim from the app's design tokens in
     app/packages/web/src/index.css so the icon matches the UI it opens.
 
-    Geometry: cells sit on a 281.7-unit lattice and are drawn at radius 128 with
-    a 34-wide stroke, leaving a 26-unit channel of background between adjacent
-    cell walls. Those numbers are linked — the visible gap is
-    `spacing - sqrt(3) * radius - stroke` — so changing one without re-deriving
-    the others makes neighbouring cells bleed into each other.
+    No background tile. The mark floats directly on whatever the taskbar, dock
+    or installer paints behind it, which is why the dormant cells are solid
+    shapes rather than outlines — outlines this thin only read against a known
+    dark ground, and turn lacy below 48px on a light one. For the same reason
+    the lit cell runs brighter (lavender into cyan) than the surrounding cells:
+    nothing behind it is doing the work of pushing it forward.
+
+    Geometry: cells sit on a 281.7-unit lattice and are drawn at radius 145,
+    which leaves a 30.5-unit channel of background between neighbours — the gap
+    is `spacing - sqrt(3) * radius`, so changing one without re-deriving the
+    other makes adjacent cells fuse into a single blob. The whole group is
+    scaled 1.09 about the centre to take back the padding the tile used to need.
 
     This file is the single source of truth for every packaged icon. After
     editing it, run `npm run icons:generate` to rebuild icon.png / icon.ico /
@@ -21,30 +28,29 @@
     instead: the seven cells stop resolving below 32px and blur together.
   -->
   <defs>
-    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b1f33"/>
-      <stop offset="1" stop-color="#0d0f18"/>
+    <linearGradient id="cell" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#4c1d95"/>
     </linearGradient>
     <linearGradient id="core" x1="0.1" y1="0" x2="0.9" y2="1">
-      <stop offset="0" stop-color="#a78bfa"/>
-      <stop offset="0.55" stop-color="#7c3aed"/>
-      <stop offset="1" stop-color="#06b6d4"/>
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.5" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
     </linearGradient>
   </defs>
 
-  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#ground)"/>
+  <g transform="translate(512 512) scale(1.09) translate(-512 -512)">
+    <!-- Six dormant cells, fading violet into indigo across the hive. -->
+    <g fill="url(#cell)">
+      <path d="M 793.7 367 L 919.27 439.5 L 919.27 584.5 L 793.7 657 L 668.13 584.5 L 668.13 439.5 Z"/>
+      <path d="M 652.85 610.96 L 778.42 683.46 L 778.42 828.46 L 652.85 900.96 L 527.28 828.46 L 527.28 683.46 Z"/>
+      <path d="M 371.15 610.96 L 496.72 683.46 L 496.72 828.46 L 371.15 900.96 L 245.58 828.46 L 245.58 683.46 Z"/>
+      <path d="M 230.3 367 L 355.87 439.5 L 355.87 584.5 L 230.3 657 L 104.73 584.5 L 104.73 439.5 Z"/>
+      <path d="M 371.15 123.04 L 496.72 195.54 L 496.72 340.54 L 371.15 413.04 L 245.58 340.54 L 245.58 195.54 Z"/>
+      <path d="M 652.85 123.04 L 778.42 195.54 L 778.42 340.54 L 652.85 413.04 L 527.28 340.54 L 527.28 195.54 Z"/>
+    </g>
 
-  <!-- Six dormant cells: stroked outlines, no fill. -->
-  <g fill="none" stroke="#7c3aed" stroke-width="34" stroke-linejoin="round" opacity="0.55">
-    <path d="M 793.7 384 L 904.55 448 L 904.55 576 L 793.7 640 L 682.85 576 L 682.85 448 Z"/>
-    <path d="M 652.85 627.96 L 763.7 691.96 L 763.7 819.96 L 652.85 883.96 L 542 819.96 L 542 691.96 Z"/>
-    <path d="M 371.15 627.96 L 482 691.96 L 482 819.96 L 371.15 883.96 L 260.3 819.96 L 260.3 691.96 Z"/>
-    <path d="M 230.3 384 L 341.15 448 L 341.15 576 L 230.3 640 L 119.45 576 L 119.45 448 Z"/>
-    <path d="M 371.15 140.04 L 482 204.04 L 482 332.04 L 371.15 396.04 L 260.3 332.04 L 260.3 204.04 Z"/>
-    <path d="M 652.85 140.04 L 763.7 204.04 L 763.7 332.04 L 652.85 396.04 L 542 332.04 L 542 204.04 Z"/>
+    <!-- The one running server. -->
+    <path d="M 512 367 L 637.57 439.5 L 637.57 584.5 L 512 657 L 386.43 584.5 L 386.43 439.5 Z" fill="url(#core)"/>
   </g>
-
-  <!-- The one running server. Drawn at radius 145 — the cell radius plus half a
-       stroke — so its silhouette matches the outer edge of the dormant cells. -->
-  <path d="M 512 367 L 637.57 439.5 L 637.57 584.5 L 512 657 L 386.43 584.5 L 386.43 439.5 Z" fill="url(#core)"/>
 </svg>

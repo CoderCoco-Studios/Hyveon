@@ -570,7 +570,13 @@ into the installer.
 
 The icon is authored as vector art in `build/` and rasterised into the formats
 each packager expects. All of the generated files are committed, so packaging
-works from a clean checkout without extra steps:
+works from a clean checkout without extra steps.
+
+Every asset is transparent — there is no background tile — so the mark sits
+directly on the taskbar, dock or installer chrome the way a native app icon
+does. That constrains the artwork: the cells are solid shapes rather than thin
+outlines, because outlines only hold up against a known dark background and go
+lacy on a light one.
 
 | File | Source | Used by |
 |---|---|---|
