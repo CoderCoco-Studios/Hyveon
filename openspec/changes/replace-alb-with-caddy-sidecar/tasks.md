@@ -22,14 +22,14 @@ Two PRs (see design.md D8). PR 1 is terraform-focused and self-contained (deploy
 > **Operator-only — cannot be automated.** These steps need live AWS credentials, a
 > real `terraform apply` against the deployed stack, and a running HTTPS-flagged game.
 > Section 3 landed ahead of them (PR #316) because the code removal is independently
-> safe: the deployed Lambdas already ignore the removed env vars. This change cannot be
-> archived until an operator works through 2.1–2.5 against the live stack.
+> safe: the deployed Lambdas already ignore the removed env vars. Verified against the
+> live stack 2026-07-26 — all 2.1–2.5 confirmed.
 
-- [ ] 2.1 With HTTPS game(s) stopped: `npm run app:build:lambdas`, then `terraform apply`
-- [ ] 2.2 Verify no orphans: `aws elbv2 describe-load-balancers` and `aws elbv2 describe-target-groups` are empty for the stack; the stack ACM certificate and ALB security group are gone
-- [ ] 2.3 Start the HTTPS game; confirm the update-dns Lambda upserts the `{game}.{zone}` A record and `https://{game}.{zone}` serves a valid certificate within ~2 min of RUNNING (first boot allows extra time for ACME issuance)
-- [ ] 2.4 Restart the task; confirm Caddy logs show cert reuse (no new ACME order)
-- [ ] 2.5 Confirm the watchdog still auto-stops the idle HTTPS game (watch one idle cycle; if scanner noise on 80/443 keeps it alive, note it for a `watchdog_min_packets` bump — no schema change)
+- [x] 2.1 With HTTPS game(s) stopped: `npm run app:build:lambdas`, then `terraform apply`
+- [x] 2.2 Verify no orphans: `aws elbv2 describe-load-balancers` and `aws elbv2 describe-target-groups` are empty for the stack; the stack ACM certificate and ALB security group are gone
+- [x] 2.3 Start the HTTPS game; confirm the update-dns Lambda upserts the `{game}.{zone}` A record and `https://{game}.{zone}` serves a valid certificate within ~2 min of RUNNING (first boot allows extra time for ACME issuance)
+- [x] 2.4 Restart the task; confirm Caddy logs show cert reuse (no new ACME order)
+- [x] 2.5 Confirm the watchdog still auto-stops the idle HTTPS game (watch one idle cycle; if scanner noise on 80/443 keeps it alive, note it for a `watchdog_min_packets` bump — no schema change)
 
 ## 3. PR 2 — Lambda/app dead-code removal + docs (branch `claude/issue-292-remove-alb-code`)
 
