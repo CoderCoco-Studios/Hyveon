@@ -6,7 +6,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  *
  * Asserts two things that prove the app launches correctly:
  *  1. A BrowserWindow is opened (firstWindow() resolves).
- *  2. `window.gsd` is defined — confirming the preload script ran and
+ *  2. `window.hyveon` is defined — confirming the preload script ran and
  *     exposed the IPC bridge to the renderer.
  *
  * Each test manages its own ElectronApplication lifecycle so the spec is
@@ -24,13 +24,13 @@ test.describe('electron smoke', () => {
     }
   });
 
-  test('should expose window.gsd from the preload script', async () => {
+  test('should expose window.hyveon from the preload script', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
       const win = await app.firstWindow();
-      const gsd = await win.evaluate(() => typeof (window as Record<string, unknown>)['gsd']);
-      expect(gsd).toBe('object');
+      const hyveon = await win.evaluate(() => typeof (window as Record<string, unknown>)['hyveon']);
+      expect(hyveon).toBe('object');
     } finally {
       await app.close();
     }

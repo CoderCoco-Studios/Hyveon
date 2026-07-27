@@ -32,7 +32,7 @@ export class TerraformPage {
     return this.page.getByRole('heading', { name: 'Terraform' });
   }
 
-  /** Trigger that submits `gsd.terraform.plan()`. */
+  /** Trigger that submits `hyveon.terraform.plan()`. */
   runPlanButton(): Locator {
     return this.page.getByRole('button', { name: /Run plan/ });
   }

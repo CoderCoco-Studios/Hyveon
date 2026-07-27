@@ -7,7 +7,7 @@ import { LogsPage } from '../pages/index.js';
  * `/logs` route specs migrated to the Electron project (issue #191).
  *
  * Each test manages its own `ElectronApplication` lifecycle and seeds IPC
- * responses exclusively via `window.gsd.__test.mock(channel, handler)` — the
+ * responses exclusively via `window.hyveon.__test.mock(channel, handler)` — the
  * mock seam provided by the preload script when `HYVEON_TEST_MODE=1`.
  *
  * The `logs.get` mock seeds the initial snapshot displayed by `LogsPage`.
@@ -35,27 +35,27 @@ async function setupLogsPage(
 ): Promise<void> {
   await win.evaluate(
     ({ games: g, logLines: ll, statuses }) => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 
       // Silence the background GameStatusProvider poller.
-      gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+      hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
 
       // Seed the game list for the combobox selector. `games.list` resolves
       // `GameListEntry[]`, not bare strings — see issue #92.
-      gsd.__test.mock('games.list', () =>
+      hyveon.__test.mock('games.list', () =>
         Promise.resolve({ games: g.map((name) => ({ name, declared: true, deployed: true })) }),
       );
 
       // Seed the initial log snapshot for each game.
-      gsd.__test.mock('logs.get', ({ game }: { game: string }) =>
+      hyveon.__test.mock('logs.get', ({ game }: { game: string }) =>
         Promise.resolve({ game, lines: ll[game] ?? [] }),
       );
 
       // Stream mock: async generator that yields nothing so specs drive off the
       // seeded snapshot and never wait for live chunks.
-      gsd.__test.mock('logs.stream', async function* () {});
+      hyveon.__test.mock('logs.stream', async function* () {});
     },
     { games, logLines, statuses: STOPPED_STATUSES },
   );

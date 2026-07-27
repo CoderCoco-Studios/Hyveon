@@ -5,7 +5,7 @@ import type { GameStatus } from '../fixtures/index.js';
 /**
  * Proves the IPC mock seam end-to-end inside the Electron shell.
  *
- * The preload script exposes `window.gsd.__test.mock(channel, handler)` when
+ * The preload script exposes `window.hyveon.__test.mock(channel, handler)` when
  * `HYVEON_TEST_MODE=1`. These specs verify that a mock registered via that
  * surface overrides the real IPC invoke path, so Playwright e2e tests can
  * control the main-process responses without modifying the main bundle.
@@ -14,14 +14,14 @@ import type { GameStatus } from '../fixtures/index.js';
  * self-contained and runnable independently of the global setup.
  */
 test.describe('IPC mock seam', () => {
-  test('should expose window.gsd.__test in test mode', async () => {
+  test('should expose window.hyveon.__test in test mode', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
       const win = await app.firstWindow();
       const hasTestSurface = await win.evaluate(
-        () => typeof (window as Record<string, unknown>)['gsd'] === 'object'
-          && typeof ((window as Record<string, unknown>)['gsd'] as Record<string, unknown>)['__test'] === 'object',
+        () => typeof (window as Record<string, unknown>)['hyveon'] === 'object'
+          && typeof ((window as Record<string, unknown>)['hyveon'] as Record<string, unknown>)['__test'] === 'object',
       );
       expect(hasTestSurface).toBe(true);
     } finally {
@@ -42,19 +42,19 @@ test.describe('IPC mock seam', () => {
 
       // Register a mock for the `games.status` channel via the test seam.
       await win.evaluate((statuses) => {
-        const gsd = (window as Record<string, unknown>)['gsd'] as {
+        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
         };
-        gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+        hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
       }, mockedStatuses);
 
-      // Call `window.gsd.games.status()` through the normal GsdApi surface and
+      // Call `window.hyveon.games.status()` through the normal HyveonApi surface and
       // confirm the mock value comes back — not a live ECS call.
       const result = await win.evaluate(async () => {
-        const gsd = (window as Record<string, unknown>)['gsd'] as {
+        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
           games: { status: () => Promise<unknown> };
         };
-        return gsd.games.status();
+        return hyveon.games.status();
       });
 
       expect(result).toEqual(mockedStatuses);
@@ -75,20 +75,20 @@ test.describe('IPC mock seam', () => {
       // Register the first mock, then override with a second.
       await win.evaluate(
         ({ first, second }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('games.status', () => Promise.resolve(first));
-          gsd.__test.mock('games.status', () => Promise.resolve(second));
+          hyveon.__test.mock('games.status', () => Promise.resolve(first));
+          hyveon.__test.mock('games.status', () => Promise.resolve(second));
         },
         { first: firstStatuses, second: secondStatuses },
       );
 
       const result = await win.evaluate(async () => {
-        const gsd = (window as Record<string, unknown>)['gsd'] as {
+        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
           games: { status: () => Promise<unknown> };
         };
-        return gsd.games.status();
+        return hyveon.games.status();
       });
 
       // Only the second (most-recently registered) mock should be active.

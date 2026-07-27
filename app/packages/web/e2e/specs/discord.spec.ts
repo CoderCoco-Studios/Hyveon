@@ -21,7 +21,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
 // ── Shared Electron application ──────────────────────────────────────────────
 //
 // A single ElectronApplication is launched once for the whole describe block.
-// Each test seeds its own IPC mocks via `window.gsd.__test.mock()`, navigates
+// Each test seeds its own IPC mocks via `window.hyveon.__test.mock()`, navigates
 // to `/discord`, drives the UI, then `clearElectronMocks()` in afterEach resets
 // the registry so stale handlers never bleed into the next test.
 
@@ -52,15 +52,15 @@ async function seedBaseMocks(
   statuses: Array<{ game: string; state: string; publicIp?: string }> = [STOPPED_GAME],
 ): Promise<void> {
   await page.evaluate((s) => {
-    const gsd = (window as Record<string, unknown>)['gsd'] as {
+    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
       __test: { mock: (channel: string, handler: unknown) => void };
     };
-    gsd.__test.mock('env.get', () =>
+    hyveon.__test.mock('env.get', () =>
       Promise.resolve({ region: 'us-east-1', domain: 'example.com', environment: 'dev' }),
     );
-    gsd.__test.mock('games.status', () => Promise.resolve(s));
+    hyveon.__test.mock('games.status', () => Promise.resolve(s));
     // `games.list` resolves `GameListEntry[]`, not bare strings — see issue #92.
-    gsd.__test.mock('games.list', () =>
+    hyveon.__test.mock('games.list', () =>
       Promise.resolve({
         games: (s as Array<{ game: string }>).map((x) => ({
           name: x.game,
@@ -69,17 +69,17 @@ async function seedBaseMocks(
         })),
       }),
     );
-    gsd.__test.mock('config.get', () =>
+    hyveon.__test.mock('config.get', () =>
       Promise.resolve({
         watchdog_interval_minutes: 15,
         watchdog_idle_checks: 4,
         watchdog_min_packets: 100,
       }),
     );
-    gsd.__test.mock('costs.estimate', () =>
+    hyveon.__test.mock('costs.estimate', () =>
       Promise.resolve({ games: {}, totalPerHourIfAllOn: 0 }),
     );
-    gsd.__test.mock('costs.actual', () =>
+    hyveon.__test.mock('costs.actual', () =>
       Promise.resolve({ daily: [], total: 0, currency: 'USD', days: 7 }),
     );
   }, statuses);
@@ -176,7 +176,7 @@ test.describe('discord settings', () => {
   // on the type. A live contract check (asserting that a *real* Nest server
   // response omits the raw secrets) belongs in tier-2 integration specs
   // (`e2e/integration-specs/`) where the Nest server actually answers the
-  // request, not here where `gsd.discord.getConfig()` is mocked to return the
+  // request, not here where `hyveon.discord.getConfig()` is mocked to return the
   // `CONFIGURED_DISCORD_CONFIG` fixture (typed as `DiscordConfigRedacted`),
   // making any `not.toHaveProperty('botToken')` assertion vacuously true.
 
@@ -196,11 +196,11 @@ test.describe('discord settings', () => {
 
     // Override discord.addGuild so we can detect if it was incorrectly invoked.
     await win.evaluate((guilds) => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       (window as Record<string, unknown>)['__discordAddGuildCalled'] = false;
-      gsd.__test.mock('discord.addGuild', () => {
+      hyveon.__test.mock('discord.addGuild', () => {
         (window as Record<string, unknown>)['__discordAddGuildCalled'] = true;
         return Promise.resolve({ success: true, guilds, baseGuilds: [] });
       });
@@ -228,11 +228,11 @@ test.describe('discord settings', () => {
     // Override discord.addGuild to capture the argument and return an updated
     // guild list, so the UI reflects the addition after refresh.
     await win.evaluate((args) => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       (window as Record<string, unknown>)['__discordAddGuildArg'] = null;
-      gsd.__test.mock('discord.addGuild', (payload: unknown) => {
+      hyveon.__test.mock('discord.addGuild', (payload: unknown) => {
         (window as Record<string, unknown>)['__discordAddGuildArg'] = (payload as { guildId: string }).guildId;
         return Promise.resolve({
           success: true,
@@ -287,11 +287,11 @@ test.describe('discord settings', () => {
     // Override discord.addGuild so we can detect if it was incorrectly invoked
     // when the UI should have blocked the duplicate with a client-side error.
     await win.evaluate((guilds) => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       (window as Record<string, unknown>)['__discordAddGuildCalled'] = false;
-      gsd.__test.mock('discord.addGuild', () => {
+      hyveon.__test.mock('discord.addGuild', () => {
         (window as Record<string, unknown>)['__discordAddGuildCalled'] = true;
         return Promise.resolve({ success: true, guilds, baseGuilds: [] });
       });
@@ -322,11 +322,11 @@ test.describe('discord settings', () => {
     // IPC call rejects. Tracks the invocation so the assertion can wait until
     // after the failure resolves.
     await win.evaluate(() => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
       (window as Record<string, unknown>)['__discordRegisterCalled'] = false;
-      gsd.__test.mock('discord.registerCommands', () => {
+      hyveon.__test.mock('discord.registerCommands', () => {
         (window as Record<string, unknown>)['__discordRegisterCalled'] = true;
         return Promise.reject(new Error('discord rejected'));
       });
@@ -379,15 +379,15 @@ test.describe('discord settings', () => {
     // that is when the row's local state must reset.
     await win.evaluate(
       ({ wp, wop }) => {
-        const gsd = (window as Record<string, unknown>)['gsd'] as {
+        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
         };
         let cleared = false;
-        gsd.__test.mock('discord.deletePermission', () => {
+        hyveon.__test.mock('discord.deletePermission', () => {
           cleared = true;
           return Promise.resolve({ success: true, permissions: wop.gamePermissions });
         });
-        gsd.__test.mock('discord.getConfig', () =>
+        hyveon.__test.mock('discord.getConfig', () =>
           Promise.resolve(cleared ? wop : wp),
         );
       },
@@ -413,10 +413,10 @@ test.describe('discord settings', () => {
     // Override discord.getConfig to reject — the page should surface the
     // friendly "infrastructure not deployed yet" state, just as a 404 would.
     await win.evaluate(() => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
-      gsd.__test.mock('discord.getConfig', () =>
+      hyveon.__test.mock('discord.getConfig', () =>
         Promise.reject(new Error('not deployed')),
       );
     });

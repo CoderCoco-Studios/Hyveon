@@ -12,24 +12,24 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  * wrapper rejects with "No handler registered for '<channel>'" once its
  * timeout elapses.
  *
- * This spec deliberately does NOT register a `window.gsd.__test.mock()`
+ * This spec deliberately does NOT register a `window.hyveon.__test.mock()`
  * override for `env.get` — it exercises the real IPC path end-to-end against
  * the actual `EnvController` running in the main process, proving
  * `registerIpcMainBridges` keeps the renderer and main process wired
  * together.
  */
 test.describe('electron IPC round-trip (unmocked)', () => {
-  test('should resolve window.gsd.env.get() against the real main process instead of rejecting', async () => {
+  test('should resolve window.hyveon.env.get() against the real main process instead of rejecting', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
       const win = await app.firstWindow();
 
       const result = await win.evaluate(async () => {
-        const gsd = (window as Record<string, unknown>)['gsd'] as {
+        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
           env: { get: () => Promise<{ region: string; domain: string; environment: string }> };
         };
-        return gsd.env.get();
+        return hyveon.env.get();
       });
 
       expect(result).toMatchObject({
