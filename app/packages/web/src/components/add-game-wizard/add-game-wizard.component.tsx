@@ -239,7 +239,7 @@ export function AddGameWizard() {
           />
         )}
         {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
-        {step === 'review' && <ReviewStep draft={draft} submitError={submitError} />}
+        {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || submitting}>

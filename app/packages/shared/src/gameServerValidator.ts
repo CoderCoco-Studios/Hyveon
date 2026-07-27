@@ -317,18 +317,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `https = true` must declare at least one port, its first port must use
  * protocol `tcp` (exact, lowercase — Terraform compares the literal string),
  * every port protocol must be `tcp` or `udp`, and no port may use container
- * port 80 or 443 (reserved for the in-task Caddy sidecar). Inert when
- * `https` is `false` or omitted. `terraform/aws/variables.tf` is the source
- * of truth these rules mirror — keep both in sync if either changes.
+ * port 80 or 443 (reserved for the in-task Caddy sidecar). `terraform/aws/variables.tf`
+ * is the source of truth these rules mirror — keep both in sync if either changes.
+ *
+ * Only needs `ports` to be structurally valid — like {@link checkPortCollisions},
+ * it's called independently of whether the rest of the entry parses, so a
+ * structurally incomplete draft (e.g. the add-game wizard's Networking step,
+ * reached before Storage supplies `volumes`) still gets HTTPS feedback rather
+ * than silently skipping every business rule because `gameServerSchema` failed
+ * on an unrelated field.
  */
-function checkHttpsPortRules(entry: GameServerEntryInput): GameServerValidationIssue[] {
-  if (entry.https !== true) {
-    return [];
-  }
-
+function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue[] {
   const issues: GameServerValidationIssue[] = [];
 
-  if (entry.ports.length === 0) {
+  if (ports.length === 0) {
     issues.push({
       path: 'ports',
       message: 'An https = true game server must declare at least one port.',
@@ -336,14 +338,14 @@ function checkHttpsPortRules(entry: GameServerEntryInput): GameServerValidationI
     return issues;
   }
 
-  if (entry.ports[0]?.protocol !== 'tcp') {
+  if (ports[0]?.protocol !== 'tcp') {
     issues.push({
       path: 'ports[0]',
       message: 'The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).',
     });
   }
 
-  entry.ports.forEach((port, index) => {
+  ports.forEach((port, index) => {
     if (port.protocol !== 'tcp' && port.protocol !== 'udp') {
       issues.push({
         path: `ports[${index}]`,
@@ -393,16 +395,21 @@ export function validateGameServer(
     issues.push(...checkFargateCpuMemoryPairing(parsed.data));
     issues.push(...checkAbsolutePaths(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
-    issues.push(...checkHttpsPortRules(parsed.data));
   }
 
-  // Port-collision detection only needs `ports` to be structurally valid, so
-  // run it independently of whether the rest of the entry parsed cleanly.
+  // Port-collision and HTTPS-rule detection only need `ports` (and, for
+  // HTTPS, the `https` flag) to be structurally valid, so both run
+  // independently of whether the rest of the entry parsed cleanly — a
+  // structurally incomplete draft (e.g. missing `volumes`) must not
+  // silently swallow HTTPS feedback.
   const portsResult = z
     .array(gameServerPortSchema)
     .safeParse(isRecord(proposed) ? proposed['ports'] : undefined);
   if (portsResult.success) {
     issues.push(...checkPortCollisions(name, portsResult.data, existingGameServers));
+    if (isRecord(proposed) && proposed['https'] === true) {
+      issues.push(...checkHttpsPortRules(portsResult.data));
+    }
   }
 
   if (issues.length > 0) {

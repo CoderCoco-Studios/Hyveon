@@ -237,7 +237,6 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
   };
 }
 
-
 /**
  * Validates `image` isn't blank. The shared `gameServerSchema` types `image`
  * as a plain `z.string()` with no minimum length (an empty string is a valid

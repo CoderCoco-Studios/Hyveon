@@ -206,6 +206,25 @@ describe('validateNetworkingStep', () => {
     const issues = validateNetworkingStep(makeValidDraft({ name: '', cpu: null, volumes: [] }), []);
     expect(issues).toEqual([]);
   });
+
+  it('should flag an https first port that is not tcp even while volumes is still empty (wizard Networking-before-Storage ordering)', () => {
+    // Regression: on a fresh wizard, Networking is reached before Storage
+    // supplies `volumes`, so the structural schema parse always fails on
+    // the empty volumes array. The HTTPS rules must not be silently
+    // skipped as a result — they only depend on `ports`/`https`.
+    const issues = validateNetworkingStep(
+      makeValidDraft({ https: true, ports: [{ container: 8080, protocol: 'udp' }], volumes: [] }),
+      [],
+    );
+    expect(issues.some((issue) => issue.path === 'ports[0]')).toBe(true);
+  });
+
+  it('should flag an https game with no ports even while volumes is still empty', () => {
+    const issues = validateNetworkingStep(makeValidDraft({ https: true, ports: [], volumes: [] }), []);
+    expect(
+      issues.some((issue) => issue.path === 'ports' && issue.message.includes('at least one port')),
+    ).toBe(true);
+  });
 });
 
 describe('validateStorageStep', () => {

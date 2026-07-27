@@ -119,7 +119,6 @@ export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }
         {https && (
           <div
             id="https-callout"
-            role="alert"
             className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
           >
             <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />

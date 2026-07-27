@@ -85,6 +85,31 @@ describe('ReviewStep — HTTPS summary', () => {
   });
 });
 
+describe('ReviewStep — outstanding validation issues', () => {
+  it('should not render an issues alert when issues is empty or omitted', () => {
+    render(<ReviewStep draft={makeFullDraft()} />);
+    expect(screen.queryByText('Fix the following before submitting:')).not.toBeInTheDocument();
+  });
+
+  it('should list every outstanding issue so a disabled Submit has a visible reason', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft()}
+        issues={[
+          { path: 'ports[0]', message: 'The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).' },
+          { path: 'memory', message: 'memory 100 MiB is not a valid Fargate pairing for cpu=1024.' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Fix the following before submitting:')).toBeInTheDocument();
+    expect(
+      screen.getByText('The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('memory 100 MiB is not a valid Fargate pairing for cpu=1024.')).toBeInTheDocument();
+  });
+});
+
 describe('ReviewStep — submit errors', () => {
   it('should not render an alert when submitError is not provided', () => {
     render(<ReviewStep draft={makeFullDraft()} />);
