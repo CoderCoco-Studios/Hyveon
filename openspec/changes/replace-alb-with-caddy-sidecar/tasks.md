@@ -19,6 +19,12 @@ Two PRs (see design.md D8). PR 1 is terraform-focused and self-contained (deploy
 
 ## 2. Migration verification (after PR 1 merges, before PR 2)
 
+> **Operator-only — cannot be automated.** These steps need live AWS credentials, a
+> real `terraform apply` against the deployed stack, and a running HTTPS-flagged game.
+> Section 3 landed ahead of them (PR #316) because the code removal is independently
+> safe: the deployed Lambdas already ignore the removed env vars. This change cannot be
+> archived until an operator works through 2.1–2.5 against the live stack.
+
 - [ ] 2.1 With HTTPS game(s) stopped: `npm run app:build:lambdas`, then `terraform apply`
 - [ ] 2.2 Verify no orphans: `aws elbv2 describe-load-balancers` and `aws elbv2 describe-target-groups` are empty for the stack; the stack ACM certificate and ALB security group are gone
 - [ ] 2.3 Start the HTTPS game; confirm the update-dns Lambda upserts the `{game}.{zone}` A record and `https://{game}.{zone}` serves a valid certificate within ~2 min of RUNNING (first boot allows extra time for ACME issuance)
@@ -27,11 +33,11 @@ Two PRs (see design.md D8). PR 1 is terraform-focused and self-contained (deploy
 
 ## 3. PR 2 — Lambda/app dead-code removal + docs (branch `claude/issue-292-remove-alb-code`)
 
-- [ ] 3.1 Create worktree: `git worktree add .worktrees/claude/issue-292-remove-alb-code -b claude/issue-292-remove-alb-code`
-- [ ] 3.2 `app/packages/lambda/update-dns`: delete `handleHttps`, `registerAlb`/`deregisterAlb`, the ELBv2 client and `ALB_TARGET_GROUPS`/`HTTPS_GAMES` parsing; route all games through `handleDirect`; restore public-IP inclusion in the Discord pending-interaction message for HTTPS games; update `handler.test.ts` (drop ALB describe/register specs, add a spec that an HTTPS-flagged game follows the plain A-record path)
-- [ ] 3.3 `app/packages/lambda/watchdog`: delete the ALB deregistration step and `ALB_TARGET_GROUPS`/`HTTPS_GAMES` parsing; update `handler.test.ts` accordingly
-- [ ] 3.4 Remove `alb_dns_name` / `acm_certificate_arn` from `TfOutputs` in `app/packages/desktop-main/src/services/ConfigService.ts` (declaration + parse), the mirror type in `app/packages/desktop-preload/src/gsd-api.ts`, and any references in tests (`ConfigService.test.ts`, `preload.test.ts`) and the e2e `tfstate.fixture.json`
-- [ ] 3.5 Trim `elasticloadbalancing:*` and `acm:*` from the `GameServerDeployAll` policy JSON in `docs/docs/setup.md` (only valid now that the destroy apply from task 2.1 has run)
-- [ ] 3.6 Update `CLAUDE.md` architecture notes: HTTPS is in-task (Caddy sidecar + Let's Encrypt on EFS), no ALB; DNS path is uniform for all games
-- [ ] 3.7 Gate: `npm run app:test` and `npm run app:lint` pass; `terraform fmt -check -recursive`, `terraform validate`, `tflint` still clean (no terraform edits expected, cheap to confirm)
-- [ ] 3.8 Open PR via `/pr`: title `refactor: remove ALB code paths after Caddy sidecar cutover`, body first line `Closes #292`
+- [x] 3.1 Create worktree: `git worktree add .worktrees/claude/issue-292-remove-alb-code -b claude/issue-292-remove-alb-code`
+- [x] 3.2 `app/packages/lambda/update-dns`: delete `handleHttps`, `registerAlb`/`deregisterAlb`, the ELBv2 client and `ALB_TARGET_GROUPS`/`HTTPS_GAMES` parsing; route all games through `handleDirect`; restore public-IP inclusion in the Discord pending-interaction message for HTTPS games; update `handler.test.ts` (drop ALB describe/register specs, add a spec that an HTTPS-flagged game follows the plain A-record path)
+- [x] 3.3 `app/packages/lambda/watchdog`: delete the ALB deregistration step and `ALB_TARGET_GROUPS`/`HTTPS_GAMES` parsing; update `handler.test.ts` accordingly
+- [x] 3.4 Remove `alb_dns_name` / `acm_certificate_arn` from `TfOutputs` in `app/packages/desktop-main/src/services/ConfigService.ts` (declaration + parse), the mirror type in `app/packages/desktop-preload/src/gsd-api.ts`, and any references in tests (`ConfigService.test.ts`, `preload.test.ts`) and the e2e `tfstate.fixture.json`
+- [x] 3.5 Trim `elasticloadbalancing:*` and `acm:*` from the `GameServerDeployAll` policy JSON in `docs/docs/setup.md` (only valid now that the destroy apply from task 2.1 has run)
+- [x] 3.6 Update `CLAUDE.md` architecture notes: HTTPS is in-task (Caddy sidecar + Let's Encrypt on EFS), no ALB; DNS path is uniform for all games
+- [x] 3.7 Gate: `npm run app:test` and `npm run app:lint` pass; `terraform fmt -check -recursive`, `terraform validate`, `tflint` still clean (no terraform edits expected, cheap to confirm)
+- [x] 3.8 Open PR via `/pr`: title `refactor: remove ALB code paths after Caddy sidecar cutover`, body first line `Closes #292` — [PR #316](https://github.com/CoderCoco/Hyveon/pull/316)

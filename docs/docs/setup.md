@@ -448,6 +448,39 @@ includes `aws/`, and this is the same data `ConfigService` requires in dev
 mode. Lambda bundles are deployed to AWS via Terraform and are not packaged
 into the installer.
 
+#### App icon
+
+The icon is authored as vector art in `build/` and rasterised into the formats
+each packager expects. All of the generated files are committed, so packaging
+works from a clean checkout without extra steps.
+
+Every asset is transparent — there is no background tile — so the mark sits
+directly on the taskbar, dock or installer chrome the way a native app icon
+does. That constrains the artwork: the cells are solid shapes rather than thin
+outlines, because outlines only hold up against a known dark background and go
+lacy on a light one.
+
+| File | Source | Used by |
+|---|---|---|
+| `build/icon.svg` | hand-authored master | everything at 32px and above |
+| `build/icon-small.svg` | hand-authored 16–24px variant | the two smallest `.ico` entries, browser tab |
+| `build/icon.png` | generated, 1024×1024 | Linux AppImage, and the runtime window icon via `extraResources` |
+| `build/icon.ico` | generated, 16–256px | NSIS installer, Windows Explorer, taskbar |
+| `build/icon.icns` | generated | macOS DMG and dock |
+| `app/packages/web/public/favicon.svg` + `favicon-32.png` + `apple-touch-icon.png` | generated | browser tab in `desktop:dev` and Vite preview |
+
+To change the artwork, edit `build/icon.svg` (and `build/icon-small.svg`, which
+carries a simplified version of the same mark for the 16px and 24px slots, where
+the seven-cell honeycomb blurs together), then regenerate:
+
+```bash
+npm run icons:generate
+```
+
+The generator lives at `build/generate-icons.mjs` and uses `sharp` to rasterise
+plus `png2icons` to assemble the macOS `.icns`; both are root devDependencies.
+Commit the regenerated binaries alongside the SVG change.
+
 ## 7. (Optional) Wire up the Discord bot
 
 The serverless bot is two Lambdas, one DynamoDB table (`discord_table_name`,
