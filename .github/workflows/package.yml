@@ -15,13 +15,31 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_glob: 'release/*.AppImage'
+            # latest-linux.yml is the electron-updater feed manifest;
+            # *.blockmap enables differential (not full) update downloads.
+            # Both are written by electron-builder alongside the installer
+            # whenever `publish` is configured, regardless of `--publish never`.
+            artifact_glob: |
+              release/*.AppImage
+              release/latest-linux.yml
+              release/*.blockmap
             artifact_name: linux-AppImage
           - os: macos-latest
-            artifact_glob: 'release/*.dmg'
+            # electron-updater's MacUpdater only ever fetches a `zip` asset
+            # (it ignores dmg/pkg outright), so the zip build + latest-mac.yml
+            # feed manifest must ship alongside the dmg installer.
+            artifact_glob: |
+              release/*.dmg
+              release/*.zip
+              release/latest-mac.yml
+              release/*.blockmap
             artifact_name: mac-dmg
           - os: windows-latest
-            artifact_glob: 'release/*.exe'
+            # latest.yml is the electron-updater feed manifest for NSIS.
+            artifact_glob: |
+              release/*.exe
+              release/latest.yml
+              release/*.blockmap
             artifact_name: win-nsis
 
     runs-on: ${{ matrix.os }}

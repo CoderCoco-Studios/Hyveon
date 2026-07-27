@@ -36,6 +36,7 @@ organised around three roles. Pick the one that matches what you need to do.
 
 | Guide | You are… |
 |---|---|
+| [**Install**](https://codercoco.github.io/Hyveon/install/) | Just want to download and run the packaged app. |
 | [**Setup guide**](https://codercoco.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
 | [**User guide**](https://codercoco.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
 | [**Maintainer guide**](https://codercoco.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
