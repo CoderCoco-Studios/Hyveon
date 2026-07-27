@@ -171,6 +171,24 @@ describe('electron-entry', () => {
     expect(bootstrapMock).toHaveBeenCalledOnce();
   });
 
+  it('should resolve ElectronStoreService from the bootstrapped Nest app and pass it to initUpdater', async () => {
+    vi.resetModules();
+    vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+    const { ElectronStoreService } = await import('./services/ElectronStoreService.js');
+    const fakeStore = { get: vi.fn() };
+    fakeNestApp.get.mockReturnValue(fakeStore);
+
+    await import('./electron-entry.js');
+    await flushPromises();
+    whenReadyCallbacks[0]!();
+    await flushPromises();
+
+    expect(fakeNestApp.get).toHaveBeenCalledWith(ElectronStoreService);
+    expect(initUpdaterMock).toHaveBeenCalledOnce();
+    expect(initUpdaterMock).toHaveBeenCalledWith(fakeStore);
+  });
+
   it('should call win.loadURL() with the dev server URL when ELECTRON_RENDERER_URL is set', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173');

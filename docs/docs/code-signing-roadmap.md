@@ -1,6 +1,6 @@
 ---
 title: Code-signing roadmap
-sidebar_position: 5
+sidebar_position: 7
 ---
 
 # Code-signing roadmap
@@ -74,9 +74,14 @@ electron-store flag, specifically because an unsigned updater would fail
 Gatekeeper checks on macOS regardless of what the update feed says. Once
 signing is in place:
 
-1. Confirm `publish: github` in `electron-builder.yml` is still correct (it
-   already embeds the `app-update.yml` feed metadata every packaged build
-   needs — no change required there).
+1. Confirm the release feed is actually reachable: `.github/workflows/package.yml`'s
+   `package` job uploads each platform's `latest*.yml` manifest (`latest.yml`
+   for Windows, `latest-mac.yml` for macOS, `latest-linux.yml` for Linux)
+   alongside the installer, and the macOS build produces a `zip` target
+   in addition to the `dmg` — `electron-updater`'s `MacUpdater` only ever
+   looks for a `zip` asset in the release feed and explicitly ignores
+   dmg/pkg, so without it macOS auto-update can never resolve an update no
+   matter how correct the signing is.
 2. Flip the `enableAutoUpdate` default to `true` (or add a Settings-page
    toggle — out of scope for this change) so new installs pick up updates
    automatically.

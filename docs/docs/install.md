@@ -1,6 +1,6 @@
 ---
 title: Install
-sidebar_position: 4
+sidebar_position: 6
 ---
 
 # Install
@@ -25,15 +25,21 @@ before it'll run. That's expected — it doesn't mean the build is broken or
 tampered with, just that nobody has paid for and configured a signing
 certificate yet. The steps below get you past each OS's warning.
 
-## macOS — right-click → Open
+## macOS — System Settings → "Open Anyway"
+
+macOS Sequoia (15) and later removed the old right-click → Open bypass for
+unsigned apps — Gatekeeper now requires going through System Settings on
+first launch:
 
 1. Double-click the downloaded `.dmg` and drag **Hyveon** into `Applications`.
-2. Gatekeeper blocks a plain double-click of an unsigned app the first time —
-   instead, **right-click (or Control-click) the app in `Applications` and
-   choose "Open"**.
-3. A dialog still warns the developer can't be verified, but this time it
-   offers an **"Open"** button. Click it. macOS remembers this choice — future
-   launches work with a normal double-click.
+2. Double-click **Hyveon** in `Applications`. Gatekeeper blocks it with a
+   dialog that has no "Open anyway" option — dismiss it.
+3. Open **System Settings → Privacy & Security**, scroll down to the
+   Security section, and click **"Open Anyway"** next to the message about
+   Hyveon. Authenticate as an administrator when prompted.
+4. Launch Hyveon again — it opens normally. This is only required once;
+   subsequent launches (and, on macOS 14 and earlier, right-click → Open)
+   work as normal from here on.
 
 ## Windows — SmartScreen "More info → Run anyway"
 

@@ -54,6 +54,12 @@ mac:
   hardenedRuntime: false
   target:
     - dmg
+    # electron-updater's MacUpdater only ever looks for a `zip` artifact in the
+    # release feed (it explicitly ignores dmg/pkg — see
+    # electron-updater/out/MacUpdater.js's `findFile(files, "zip", ["pkg", "dmg"])`),
+    # so a zip build is required for macOS auto-update to ever work, even
+    # though the dmg remains the distributed installer.
+    - zip
 
 linux:
   icon: build/icon.png

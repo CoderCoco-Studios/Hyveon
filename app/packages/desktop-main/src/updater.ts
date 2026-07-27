@@ -23,6 +23,12 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
   const { autoUpdater } = await import('electron-updater');
   autoUpdater.logger = logger;
 
+  // Manual-testing-only for v1 (no Settings UI flips this flag yet): a
+  // detected update must not download or install itself. Both default to
+  // `true` in electron-updater, so they're pinned off explicitly here.
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
   autoUpdater.on('error', (err: unknown) => {
     logger.error('[updater] update check failed', {
       error: err instanceof Error ? err.message : String(err),
@@ -38,5 +44,12 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
     logger.info('[updater] update downloaded', { version: info.version });
   });
 
-  await autoUpdater.checkForUpdates();
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch {
+    // electron-updater rethrows after emitting 'error' (see the listener
+    // above, which already logged it) — swallow it here so a failed check
+    // (offline, 404, malformed feed) surfaces as a log line, not an
+    // unhandled rejection in the main process.
+  }
 }

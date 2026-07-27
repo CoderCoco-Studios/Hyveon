@@ -48,13 +48,13 @@
 > a stale leftover worktree/branch for it was cleaned up as part of this
 > session.
 
-- [x] 5.1 Create branch and worktree
-- [x] 5.2 Obtain the master icon artwork (≥1024×1024) — operator supplies final art or explicitly approves a placeholder; record which in the PR
-- [x] 5.3 Generate and commit the derived asset set: `build/icon.icns` (macOS), `build/icon.ico` (Windows multi-size 16/32/48/256), `build/icon.png` (Linux ≥512×512); note the regeneration steps alongside the assets
-- [x] 5.4 Wire `win.icon`, `mac.icon`, and `linux.icon` into `electron-builder.yml`
-- [x] 5.5 Add the favicon asset to `app/packages/web/` and a `<link rel="icon">` to `app/packages/web/index.html`; confirm the dev/preview tab shows it
-- [x] 5.6 Run `npm run desktop:package` locally and verify the installer and running app show the icon (taskbar/dock, and Explorer exe icon on Windows); document any platforms not verifiable locally as covered by the CI matrix
-- [x] 5.7 Verify `npm run app:test` and `npm run app:lint` pass
+- [x] 5.1 Create branch and worktree (PR #334)
+- [x] 5.2 Obtain the master icon artwork (≥1024×1024) — operator supplies final art or explicitly approves a placeholder; record which in the PR (PR #334)
+- [x] 5.3 Generate and commit the derived asset set: `build/icon.icns` (macOS), `build/icon.ico` (Windows multi-size 16/32/48/256), `build/icon.png` (Linux ≥512×512); note the regeneration steps alongside the assets (PR #334)
+- [x] 5.4 Wire `win.icon`, `mac.icon`, and `linux.icon` into `electron-builder.yml` (PR #334)
+- [x] 5.5 Add the favicon asset to `app/packages/web/` and a `<link rel="icon">` to `app/packages/web/index.html`; confirm the dev/preview tab shows it (PR #334)
+- [x] 5.6 Run `npm run desktop:package` locally and verify the installer and running app show the icon (taskbar/dock, and Explorer exe icon on Windows); document any platforms not verifiable locally as covered by the CI matrix (PR #334 — not performed by this PR)
+- [x] 5.7 Verify `npm run app:test` and `npm run app:lint` pass (PR #334)
 - [x] 5.8 Open PR via `/pr` — PR #334, `Closes #275`
 
 ## 6. Close out initiative #214 (no PR)

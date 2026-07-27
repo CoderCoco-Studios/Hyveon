@@ -10,9 +10,11 @@ const { mockAutoUpdater, checkForUpdatesMock, onMock } = vi.hoisted(() => {
   const checkForUpdatesMock = vi.fn().mockResolvedValue(null);
   const onMock = vi.fn();
   const mockAutoUpdater = {
-    logger: null,
+    logger: null as unknown,
     on: onMock,
     checkForUpdates: checkForUpdatesMock,
+    autoDownload: true,
+    autoInstallOnAppQuit: true,
   };
   return { mockAutoUpdater, checkForUpdatesMock, onMock };
 });
@@ -77,5 +79,18 @@ describe('initUpdater', () => {
     expect(registeredEvents).toEqual(
       expect.arrayContaining(['error', 'update-available', 'update-not-available', 'update-downloaded']),
     );
+  });
+
+  it('should disable autoDownload and autoInstallOnAppQuit so a detected update never installs itself', async () => {
+    await initUpdater(makeStore(true));
+
+    expect(mockAutoUpdater.autoDownload).toBe(false);
+    expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it('should not reject when checkForUpdates rejects (electron-updater rethrows after emitting "error")', async () => {
+    checkForUpdatesMock.mockRejectedValueOnce(new Error('network unreachable'));
+
+    await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
   });
 });
