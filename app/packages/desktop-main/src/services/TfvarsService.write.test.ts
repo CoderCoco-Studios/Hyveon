@@ -215,6 +215,70 @@ describe('TfvarsService write path', () => {
     });
   });
 
+  describe('https round-trip', () => {
+    it('should emit https = true when enabling HTTPS on an entry that omits the attribute entirely', async () => {
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(FIXTURE_TFVARS);
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: true });
+
+      const written = mockWrite.mock.calls[0]![1] as string;
+      expect(written).toContain('https = true');
+    });
+
+    it('should emit https = true when flipping an entry from https = false to true', async () => {
+      const fixtureWithHttpsFalse = FIXTURE_TFVARS.replace(
+        'image  = "thijsvanloef/palworld-server-docker:latest"',
+        'image  = "thijsvanloef/palworld-server-docker:latest"\n    https  = false',
+      );
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(fixtureWithHttpsFalse);
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: true });
+
+      const written = mockWrite.mock.calls[0]![1] as string;
+      expect(written).toContain('https = true');
+      expect(written).not.toContain('https = false');
+    });
+
+    it('should emit https = false (not omit the attribute) when flipping an entry from https = true to false', async () => {
+      const fixtureWithHttpsTrue = FIXTURE_TFVARS.replace(
+        'image  = "thijsvanloef/palworld-server-docker:latest"',
+        'image  = "thijsvanloef/palworld-server-docker:latest"\n    https  = true',
+      );
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(fixtureWithHttpsTrue);
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: false });
+
+      const written = mockWrite.mock.calls[0]![1] as string;
+      expect(written).toContain('https = false');
+    });
+
+    it('should leave https = true and the surrounding attributes intact when an unrelated field is updated', async () => {
+      const fixtureWithHttpsTrue = FIXTURE_TFVARS.replace(
+        'image  = "thijsvanloef/palworld-server-docker:latest"',
+        'image  = "thijsvanloef/palworld-server-docker:latest"\n    https  = true',
+      );
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(fixtureWithHttpsTrue);
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, memory: 32768, https: true });
+
+      const written = mockWrite.mock.calls[0]![1] as string;
+      expect(written).toContain('https = true');
+      expect(written).toContain('memory = 32768');
+      expect(written).toContain('thijsvanloef/palworld-server-docker:v2');
+      // The untouched valheim entry survives byte-for-byte.
+      const valheimSpan = locateEntry(fixtureWithHttpsTrue, 'game_servers', 'valheim')!;
+      expect(written).toContain(fixtureWithHttpsTrue.slice(valheimSpan.start, valheimSpan.end));
+    });
+  });
+
   describe('local-mode write return value', () => {
     it('should resolve with versionId: undefined since the local filesystem has no versioning concept', async () => {
       mockExists.mockReturnValue(true);

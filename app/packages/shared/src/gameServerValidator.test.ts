@@ -282,6 +282,115 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('https port rules', () => {
+    it('should reject an https game server declaring no ports', () => {
+      const result = validateGameServer('game', makeProposed({ https: true, ports: [] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some((i) => i.path === 'ports' && i.message.includes('at least one port')),
+        ).toBe(true);
+      }
+    });
+
+    it('should reject an https game server whose first port is not protocol tcp', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'udp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]')).toBe(true);
+      }
+    });
+
+    it('should reject an https game server whose first port protocol is uppercase TCP', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'TCP' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]')).toBe(true);
+      }
+    });
+
+    it('should reject an https game server with a port protocol other than tcp or udp', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          ports: [
+            { container: 8080, protocol: 'tcp' },
+            { container: 8081, protocol: 'sctp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[1]')).toBe(true);
+      }
+    });
+
+    it('should reject an https game server using container port 443', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('443'))).toBe(true);
+      }
+    });
+
+    it('should reject an https game server using container port 80', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          ports: [
+            { container: 8080, protocol: 'tcp' },
+            { container: 80, protocol: 'tcp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[1]' && i.message.includes('80'))).toBe(true);
+      }
+    });
+
+    it('should not report any https rule when https is false, even with a violating port list', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: false, ports: [{ container: 443, protocol: 'udp' }] }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should not report any https rule when https is omitted, even with a violating port list', () => {
+      const proposed = makeProposed({ ports: [{ container: 443, protocol: 'udp' }] });
+      delete (proposed as Record<string, unknown>)['https'];
+      const result = validateGameServer('game', proposed, []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept a valid https game server with a first port of 8080/tcp', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe('structural (zod) failures', () => {
     it('should surface a missing required field with its JSON-path issue.path', () => {
       const proposed = makeProposed();
