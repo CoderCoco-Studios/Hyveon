@@ -50,7 +50,7 @@ The second wizard step SHALL present the cloud choice as a single-option selecti
 
 ### Requirement: Terraform init step with live log
 
-The final configuration step SHALL invoke `TerraformService.init({ backendConfig: { bucket, region, dynamodbTable } })` using the bootstrapped backend resources, streaming stdout/stderr live into a wizard log pane via the existing `terraform.init` streaming IPC channel (`gsd.terraform.init` async iterable). ANSI colors in the output MUST render correctly. The completion control SHALL enable only when the run exits with code 0; a non-zero exit SHALL surface an error state with the captured log and allow retry.
+The final configuration step SHALL invoke `TerraformService.init({ backendConfig: { bucket, region, dynamodbTable } })` using the bootstrapped backend resources, streaming stdout/stderr live into a wizard log pane via the existing `terraform.init` streaming IPC channel (`hyveon.terraform.init` async iterable). ANSI colors in the output MUST render correctly. The completion control SHALL enable only when the run exits with code 0; a non-zero exit SHALL surface an error state with the captured log and allow retry.
 
 #### Scenario: Successful init
 

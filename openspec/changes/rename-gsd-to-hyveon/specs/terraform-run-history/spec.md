@@ -1,10 +1,4 @@
-# terraform-run-history
-
-## Purpose
-
-Defines the Terraform run-history capability: a paginated, status-filterable run-listing API spanning the store, service, IPC, and preload layers; a `/terraform/history` route rendering that data with kind/status filters; and a read-only run-detail view that resolves each run's log from the best available source (live replay, inline text, or a presigned S3 URL).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Run listing API
 
@@ -43,20 +37,6 @@ The web app SHALL provide a `/terraform/history` route rendering a table of past
 
 - **WHEN** the operator requests more history and a `nextBefore` cursor was returned
 - **THEN** the next, older page of runs is fetched and appended to the table
-
-### Requirement: History filters
-
-The history view SHALL let the operator filter the listed runs by run kind (`plan` / `apply` / `destroy`) and by status.
-
-#### Scenario: Filter by kind
-
-- **WHEN** the operator filters the history to `apply` runs
-- **THEN** only apply runs are shown in the table
-
-#### Scenario: Filter by status
-
-- **WHEN** the operator filters the history to `failed` runs
-- **THEN** only failed runs are shown in the table
 
 ### Requirement: Read-only run detail from history
 

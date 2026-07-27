@@ -69,7 +69,7 @@ Operator-facing documentation SHALL describe only the Electron desktop workflow.
 
 ### Requirement: Test harnesses do not depend on the removed HTTP surface
 
-The test suite SHALL pass without the HTTP shim controllers. The tier-2 integration harness MUST dispatch only to IPC controllers via the DI container, and the five chromium Playwright specs (`audit.spec.ts`, `games.spec.ts`, `pending-changes-banner.spec.ts`, `polling.spec.ts`, `settings.spec.ts`) SHALL remain in the `chromium` project running self-contained against `vite preview` with browser-side `page.route()` stubs and the `gsd-http-bridge.ts` init-script shim — their migration to the `electron` project stays in Epic F (F.2–F.6) and is NOT part of this change.
+The test suite SHALL pass without the HTTP shim controllers. The tier-2 integration harness MUST dispatch only to IPC controllers via the DI container, and the five chromium Playwright specs (`audit.spec.ts`, `games.spec.ts`, `pending-changes-banner.spec.ts`, `polling.spec.ts`, `settings.spec.ts`) SHALL remain in the `chromium` project running self-contained against `vite preview` with browser-side `page.route()` stubs and the `hyveon-http-bridge.ts` init-script shim — their migration to the `electron` project stays in Epic F (F.2–F.6) and is NOT part of this change.
 
 #### Scenario: Integration harness targets IPC controllers only
 

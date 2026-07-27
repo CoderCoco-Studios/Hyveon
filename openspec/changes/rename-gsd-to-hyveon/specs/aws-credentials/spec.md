@@ -1,10 +1,4 @@
-# aws-credentials
-
-## Purpose
-
-Defines how the first-run wizard obtains AWS credentials for the operator: discovering existing `~/.aws` profiles without exposing key material, encrypting pasted access keys via `safeStorage` for ad-hoc credentials, and the pick-or-paste wizard step that lets the operator choose a credential source and region.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: AWS profile discovery
 

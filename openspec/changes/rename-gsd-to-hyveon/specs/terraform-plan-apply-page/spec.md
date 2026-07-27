@@ -1,19 +1,4 @@
-# terraform-plan-apply-page
-
-## Purpose
-
-Defines the `/terraform` Plan/Apply page: triggering a plan over IPC, streaming its ANSI output live, summarizing the resource-change counts, gating apply behind explicit approval and a plan-hash check, and replacing stale CLI instructions elsewhere in the app with links into this flow.
-
-## Requirements
-
-### Requirement: Terraform route and navigation
-
-The web app SHALL provide a `/terraform` route rendering the Plan/Apply page, reachable from the app's primary navigation, wired through the same provider stack (`PollingProvider` → `GameStatusProvider` → router) as the existing routed pages.
-
-#### Scenario: Operator opens the Terraform page
-
-- **WHEN** the operator clicks the Terraform entry in the app navigation
-- **THEN** the app navigates to `/terraform` and renders the Plan/Apply page with a Plan trigger and (when present) the most recent run's state
+## MODIFIED Requirements
 
 ### Requirement: Plan trigger over IPC
 
@@ -42,15 +27,6 @@ The run view SHALL stream the run's output live by consuming `hyveon.terraform.r
 
 - **WHEN** the run reaches a terminal state and the log stream's end message arrives
 - **THEN** the log viewer stops following and the page renders the run's terminal status
-
-### Requirement: Plan result summary
-
-When a plan run completes successfully, the run view SHALL display the resource-change summary (counts of resources to add, change, and destroy) prominently, with the full streamed plan output available in an expandable section.
-
-#### Scenario: Successful plan shows the change summary
-
-- **WHEN** a plan run ends with exit code 0 and a plan result carrying add/change/destroy counts
-- **THEN** the page shows those counts as a summary and offers the full log text in an expandable view
 
 ### Requirement: Approve gate before apply
 
@@ -84,12 +60,3 @@ The "Apply" action SHALL call `hyveon.terraform.apply({ planRunId, planHash })` 
 
 - **WHEN** the apply ack resolves `{ started: false, conflict }` because the workspace or the durable apply lock is held by another run
 - **THEN** the page shows the BUSY banner naming the conflict and does not stream any apply output
-
-### Requirement: Stale CLI copy replaced
-
-The game-edit and game-remove flows SHALL no longer instruct operators to run `terraform apply` / `make tf-apply` from a terminal; that copy MUST be replaced with a link (or navigation affordance) to the `/terraform` Plan/Apply flow.
-
-#### Scenario: Removing a game points at the Plan/Apply page
-
-- **WHEN** the operator reaches the remove-game confirmation that previously mentioned `make tf-apply`
-- **THEN** the confirmation instead directs them to the `/terraform` page to plan and apply the change
