@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "@hyveon/shared": "*",
-    "@noble/ed25519": "^2.1.0"
+    "@noble/ed25519": "^3.1.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-lambda": "^3.600.0",
+    "@aws-sdk/client-lambda": "^3.1095.0",
     "@types/aws-lambda": "^8.10.162"
   }
 }

@@ -55,6 +55,35 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
   public get messagePatternHandlers(): Map<string, MessageHandler> {
     return this.messageHandlers;
   }
+
+  /**
+   * Nest 11 promoted `on()` and `unwrap()` to abstract members of the
+   * `Server` base class. `nestjs-electron-ipc-transport` was written against
+   * Nest 8 and implements neither, so the concrete subclass has to supply
+   * them or `tsc` rejects the class as abstract-incomplete.
+   *
+   * Both throw rather than silently no-op. Neither is reachable from Nest's
+   * own bootstrap path — they exist for application code that wants to
+   * observe broker-level events or reach the underlying client — and this
+   * transport has neither an event emitter nor a native server object to
+   * hand back. A thrown error surfaces that immediately; a no-op `on()`
+   * would swallow the registration and leave the caller waiting on events
+   * that can never arrive.
+   */
+  public on(event: string | symbol): never {
+    throw new Error(
+      `BridgedElectronIPCTransport does not emit transport events (received "${String(event)}"). ` +
+        'Electron IPC has no broker-level event stream to subscribe to.',
+    );
+  }
+
+  /** See {@link on} — there is no underlying server instance to unwrap. */
+  public unwrap<T>(): T {
+    throw new Error(
+      'BridgedElectronIPCTransport has no underlying server instance to unwrap. ' +
+        "Import Electron's `ipcMain` directly if you need the raw IPC surface.",
+    );
+  }
 }
 
 /**
