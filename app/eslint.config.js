@@ -78,7 +78,24 @@ export default tseslint.config(
     files: ['packages/web/**/*.{ts,tsx}'],
     ignores: ['packages/web/e2e/**'],
     plugins: { 'react-hooks': reactHooks },
-    rules: reactHooks.configs.recommended.rules,
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks 7 folded the React Compiler rule set into
+      // its `recommended` config. Those three rules flag 22 pre-existing
+      // patterns across 16 renderer files (effects that call setState,
+      // render-phase ref writes, impure render bodies). They are legitimate
+      // findings, but adopting them means reworking component logic, which is
+      // out of scope for a dependency upgrade — turning them on and rewriting
+      // those components should be its own change so the diff is reviewable
+      // on its own merits.
+      //
+      // The classic rules the project already enforced —
+      // `react-hooks/rules-of-hooks` and `react-hooks/exhaustive-deps` —
+      // stay on via the spread above.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/refs': 'off',
+    },
   },
   {
     files: ['packages/web/**/*.{ts,tsx}'],
