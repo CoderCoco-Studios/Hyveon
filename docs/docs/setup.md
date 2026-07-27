@@ -171,8 +171,9 @@ wizard**:
 npm run app:dev
 ```
 
-The wizard walks you through picking a cloud provider, choosing (or pasting)
-AWS credentials, running an IAM permission simulation, and bootstrapping the
+The wizard walks you through picking a cloud provider (AWS is the only
+option today — more clouds are planned), choosing (or pasting) AWS
+credentials, running an IAM permission simulation, and bootstrapping the
 AWS resources the root Terraform config needs before its first `apply`:
 
 - The S3 state bucket (`{project_name}-tf-state`) and DynamoDB lock table

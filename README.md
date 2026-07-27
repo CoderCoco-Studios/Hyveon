@@ -55,13 +55,15 @@ Component deep-dives:
 npm install
 
 # 2. Launch the Electron app in dev mode and follow the in-app setup wizard
-#    (AWS credentials, S3/DynamoDB bootstrap, terraform init)
+#    (AWS credentials, S3/DynamoDB bootstrap, terraform init) — long-running,
+#    keep it in this terminal and run the rest below in a new one
 npm run app:dev
 
 # 3. Configure your servers
 $EDITOR terraform/terraform.tfvars        # game_servers, hosted_zone_name, ...
 
 # 4. Deploy infra
+npm run app:build:lambdas
 cd terraform && terraform apply
 ```
 

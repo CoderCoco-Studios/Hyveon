@@ -10,8 +10,8 @@ import { mergeGameLists } from '../services/mergeGameLists.js';
 /**
  * IPC-only game-server controller. Handles Electron main-process messages via
  * `@MessagePattern` / `@Payload` — no HTTP routes are registered here. It
- * delegates to the {@link ConfigService}, {@link EcsService}, and
- * {@link TfvarsService} providers.
+ * delegates to the {@link ConfigService}, {@link EcsService},
+ * {@link TfvarsService}, and {@link GamesWriteService} providers.
  */
 @Controller()
 export class GamesController {

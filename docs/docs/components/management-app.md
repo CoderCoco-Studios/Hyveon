@@ -188,7 +188,7 @@ Electron app's asar archive.
 
 ### Running e2e tests
 
-The web package ships a [Playwright](https://playwright.dev/) harness that runs specs against the **production build** (`vite build` + `vite preview`). Every `/api/*` call is stubbed at the network layer — the Nest server never starts.
+The web package ships a [Playwright](https://playwright.dev/) harness with two projects, migrating from the first to the second: `chromium` runs specs against the **production build** (`vite build` + `vite preview`), polyfilling `window.gsd` with an HTTP bridge so every `/api/*` call can be stubbed via `page.route()`; `electron` launches the packaged Electron app directly via `_electron.launch()` and stubs IPC responses through the `window.gsd.__test.mock()` test bridge instead. The Nest server never starts in either project.
 
 ```bash
 # One-off (builds the app, starts vite preview, runs specs, exits)

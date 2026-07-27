@@ -113,10 +113,9 @@ whose self-contained recipe bootstraps the S3-backed tfvars store.
 
 - Node.js 20+ (the same minimum the rest of the project enforces).
 - `git` on `$PATH` (used to detect `.gitmodules`).
-- AWS CLI and Terraform on `$PATH` — the generated Makefile's `setup`,
-  `plan`, `apply`, and `update` targets shell out to `aws` and `terraform`
-  directly; it no longer installs them for you the way the old `setup.sh`
-  did.
+- AWS CLI and Terraform on `$PATH` — `setup` shells out to `aws` directly to
+  bootstrap the state bucket/lock table (no longer installed for you the way
+  the old `setup.sh` did); `plan`/`apply`/`update` need `terraform` on `$PATH`.
 - Windows users should run this under WSL or Git Bash — the generated
   `Makefile` uses `bash` and `cp`, which mirrors standard Unix shell
   expectations.

@@ -143,7 +143,7 @@ generated wrapper `Makefile` drives the same CLI for you, plus wires it into
 | `make tfvars-diff` | Prints a unified diff between local and remote. Same fail-fast behavior when no backend is detected. |
 | `make plan` | Auto-pulls the latest tfvars from S3 first (when a backend is detected), gated behind the same git-dirty check as `make tfvars-pull` above (and subject to the same caveat). Set `NO_PULL=1` to skip the pull for one invocation. |
 | `make apply` | Asserts the local tfvars are still in sync with S3 first (`tfvars-sync check`), refusing to apply against drifted vars. Set `FORCE_APPLY=1` to skip the check for one invocation. |
-| `make setup` | If the submodule's own bootstrap step configured an S3 backend, also pulls `terraform.tfvars` afterwards, gated behind the same git-dirty check (and caveat) as `make tfvars-pull`. On a first bootstrap against an empty bucket the pull can't find anything yet — it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
+| `make setup` | If `make setup`'s own S3 tfvars-bootstrap step configured an S3 backend, also pulls `terraform.tfvars` afterwards, gated behind the same git-dirty check (and caveat) as `make tfvars-pull`. On a first bootstrap against an empty bucket the pull can't find anything yet — it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
 
 > **The git-dirty guard is not a full safety net.** `tfvars-pull`, `plan`'s
 > auto-pull, and `setup`'s post-bootstrap pull all shell out to
@@ -166,8 +166,8 @@ by `TFVARS_BACKEND`, resolved in this order:
 2. The **parent-root** `.gsd/tfvars-bucket` marker (written by
    `init-parent bootstrap --s3-tfvars` or `migrate --to-s3`, up front as
    part of scaffolding) — takes priority if present.
-3. The **submodule-local** `.gsd/tfvars-bucket` marker (written by the
-   submodule's own bootstrap step) — checked next.
+3. The **submodule-local** `.gsd/tfvars-bucket` marker (written by
+   `make setup`'s own S3 tfvars-bootstrap step) — checked next.
 4. Otherwise: `local`.
 
 In `local` mode the gates inside `setup`/`plan`/`apply` are silent no-ops —

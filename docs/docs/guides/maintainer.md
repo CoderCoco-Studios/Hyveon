@@ -269,10 +269,10 @@ in the PR body — least-privilege roles are easy to silently widen.
 
 ## Release / deploy
 
-There is no versioned release. "Deploying" = running `terraform apply` and
-then packaging/running the Electron app (`npm run desktop:package`, or
-`npm run app:build && npm run app:start`) from whatever machine holds the
-AWS credentials.
+There is no versioned release. "Deploying" = running `npm run app:build:lambdas`
+then `terraform apply`, and then packaging/running the Electron app
+(`npm run desktop:package`, or `npm run app:build && npm run app:start`)
+from whatever machine holds the AWS credentials.
 
 If you're wrapping this repo as a submodule inside a private parent repo
 that holds `terraform.tfvars` and state — which is the

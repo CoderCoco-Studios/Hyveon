@@ -7,8 +7,8 @@ import { EcsService } from '../services/EcsService.js';
 /**
  * Cost endpoints for the Electron main-process host. Every handler is bound to
  * an IPC channel via `@MessagePattern` / `@Payload` — no HTTP routes are
- * registered here. It delegates to the {@link CostService} / {@link EcsService}
- * providers.
+ * registered here. It delegates to the {@link ConfigService}, {@link CostService},
+ * and {@link EcsService} providers.
  */
 @Controller()
 export class CostsController {

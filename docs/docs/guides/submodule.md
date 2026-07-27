@@ -268,7 +268,9 @@ overrides both markers entirely when set.
 
 `make update` bumps the submodule to the tip of `main`
 (`git submodule update --remote --merge`), then unconditionally re-runs
-`terraform init` — no stamp file, no sha comparison. `terraform init` is
+`terraform init` using the `tf-project`/`tf-region` stamps `make setup`
+wrote (it exits early with "Run 'make setup' first." if those are missing)
+— no sha comparison against `setup.sh`. `terraform init` is
 cheap and idempotent (it no-ops when the backend config and providers are
 already current), so there's no need to detect whether the bootstrap logic
 itself changed upstream before deciding whether to rerun anything. If
@@ -400,4 +402,4 @@ than stashing long-lived keys. The role's policy is the same
 | `make update` silently pulls main and breaks apply | Upstream changed something incompatible | `update` only re-inits Terraform, it doesn't rebuild anything else — run `make plan` and read the diff. Pin to a SHA in `.gitmodules` if you want stricter control. |
 | After bumping upstream, Discord commands have wrong arguments | Descriptors in `@hyveon/shared/commands.ts` changed | Click **Register commands** for each guild in the dashboard. |
 | `make dev` complains it can't read tfstate | First-time run before `make apply` | Ignore — the recipe writes `null` and the app degrades gracefully until the first apply succeeds. |
-| CI plan shows a Lambda recreating every run | Bundle hash changes between builds | Run `npm ci` (not `npm install`) in CI in the submodule to pin dependencies — the generated Makefile's `setup`/`plan`/`apply` recipes use `npm install`, which is right for local dev but not deterministic in CI. |
+| CI plan shows a Lambda recreating every run | Bundle hash changes between builds | Run `npm ci` (not `npm install`) in CI in the submodule to pin dependencies — the generated Makefile's `setup` recipe uses `npm install`, which is right for local dev but not deterministic in CI. |
