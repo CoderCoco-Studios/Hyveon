@@ -283,11 +283,11 @@ If the plugin isn't loaded in the current environment, fetch the skill body from
 
 ## PR Review Workflow
 
-Copilot runs automatically on every push. Most suggestions are not actionable — expect to apply ~1 in 3.
+Most suggestions are not actionable — expect to apply ~1 in 3.
 
 - **Fix** if: genuinely buggy, insecure, crashes, or incorrect logic.
 - **Decline** if: style, naming, "consider", missing non-essential comment, minor nit — one-line reply ("Declined — stylistic, leaving as-is.") then resolve the thread.
 - **Ask** (`AskUserQuestion`) if: ambiguous or architecturally significant. Don't silently dismiss.
 - **Stop pushing** when the round is all nitpicks — the PR is ready. Reply to each thread and move on.
 
-Always reply on the thread (fix applied + SHA, or reason for decline) and resolve it with `mcp__github__resolve_review_thread`. Copilot's system behaviour is tuned via `.github/copilot-instructions.md` — keep that file and this section in sync.
+Every comment must resolve to an explicit **Fix** or **Decline** — never leave a thread open with a noncommittal reply like "tracking this" or "will consider." Always reply on the thread (fix applied + SHA, or reason for decline) and resolve it with `mcp__github__resolve_review_thread`.
