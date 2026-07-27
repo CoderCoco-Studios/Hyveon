@@ -316,7 +316,6 @@ export class ConfigService {
     if (envOverride) return envOverride;
 
     if (this.readIsPackaged()) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return join(this.readResourcesPath()!, 'terraform', 'aws', 'terraform.tfstate');
     }
 
@@ -350,7 +349,6 @@ export class ConfigService {
     if (envOverride) return envOverride;
 
     if (this.readIsPackaged()) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const bundledDir = join(this.readResourcesPath()!, 'terraform');
       const userData = this.readUserDataPath();
       if (userData) {
@@ -485,7 +483,6 @@ export class ConfigService {
     if (envOverride) return envOverride;
 
     if (this.readIsPackaged()) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return join(this.readResourcesPath()!, 'terraform', 'terraform.tfvars');
     }
 

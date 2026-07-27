@@ -17,8 +17,17 @@ const {
 } = vi.hoisted(() => {
   /** Fake NestJS microservice app returned by `NestFactory.createMicroservice`. */
   const fakeApp = { listen: vi.fn().mockResolvedValue(undefined) };
-  /** Spy constructor for ElectronIPCTransport — tracks `new` invocations. */
-  const ElectronIPCTransportMock = vi.fn().mockImplementation(() => ({}));
+  /**
+   * Spy constructor for ElectronIPCTransport — tracks `new` invocations.
+   *
+   * The implementation is a `function` expression, not an arrow: Vitest 4
+   * routes `new Mock()` through `Reflect.construct` on the implementation, and
+   * arrow functions are not constructible, so an arrow here throws
+   * "is not a constructor" from `main.ts`.
+   */
+  const ElectronIPCTransportMock = vi.fn().mockImplementation(function () {
+    return {};
+  });
   /** Spy for `NestFactory.createMicroservice`. */
   const createMicroserviceMock = vi.fn().mockResolvedValue(fakeApp);
   /** Spy for `applyFixPath` — verifies the fix-path bootstrap is called during startup. */
@@ -89,7 +98,9 @@ describe('main bootstrap', () => {
      * each test. Re-apply the return values here so they are set when main.ts
      * executes during the test body.
      */
-    ElectronIPCTransportMock.mockImplementation(() => ({}));
+    ElectronIPCTransportMock.mockImplementation(function () {
+      return {};
+    });
     createMicroserviceMock.mockResolvedValue(fakeApp);
     fakeApp.listen.mockResolvedValue(undefined);
     applyFixPathMock.mockImplementation(() => undefined);

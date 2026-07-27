@@ -21,8 +21,8 @@
     "@aws-sdk/client-sts": "^3.600.0",
     "@aws-sdk/credential-providers": "^3.600.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0",
-    "@smithy/shared-ini-file-loader": "^4.0.0",
-    "@smithy/types": "^4.0.0",
+    "@smithy/shared-ini-file-loader": "^4.6.14",
+    "@smithy/types": "^4.16.1",
     "@cdktf/hcl2json": "^0.21.0",
     "@grpc/proto-loader": "^0.8.1",
     "@hyveon/cloud-aws": "*",
@@ -34,12 +34,12 @@
     "fix-path": "^4.0.0",
     "nestjs-electron-ipc-transport": "^1.0.2",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "winston": "^3.13.0",
+    "rxjs": "^7.8.2",
+    "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "electron": "^36.0.0",
-    "tsx": "^4.15.7"
+    "tsx": "^4.23.1"
   }
 }

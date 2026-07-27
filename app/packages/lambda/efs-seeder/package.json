@@ -9,6 +9,6 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0"
+    "@types/node": "^26.1.1"
   }
 }
