@@ -168,7 +168,9 @@ by `TFVARS_BACKEND`, resolved in this order:
    part of scaffolding) — takes priority if present.
 3. The **submodule-local** `.hyveon/tfvars-bucket` marker (written by
    `make setup`'s own S3 tfvars-bootstrap step) — checked next.
-4. Otherwise: `local`.
+4. The legacy `.gsd/tfvars-bucket` path at either location above (pre-rename,
+   accepted with a one-time warning — run `mv .gsd .hyveon` to migrate).
+5. Otherwise: `local`.
 
 In `local` mode the gates inside `setup`/`plan`/`apply` are silent no-ops —
 nothing changes for a deployment that has never touched the S3 backend.

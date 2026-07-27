@@ -184,10 +184,12 @@ tsx scripts/tfvars-sync.ts check  [--bucket <name>] [--path <file>] [--key <key>
 2. The `HYVEON_TFVARS_BUCKET` environment variable.
 3. The contents of the nearest `.hyveon/tfvars-bucket` marker file, found by
    walking up from the current working directory.
+4. The legacy `.gsd/tfvars-bucket` marker at the same directory (pre-rename,
+   accepted with a one-time warning — run `mv .gsd .hyveon` to migrate).
 
 The CLI exits with an error (`--bucket is required (or set
-HYVEON_TFVARS_BUCKET, or create a .hyveon/tfvars-bucket marker file)`) if none of
-these resolve.
+HYVEON_TFVARS_BUCKET, or create a .hyveon/tfvars-bucket or legacy
+.gsd/tfvars-bucket marker file)`) if none of these resolve.
 
 ### Lock-file mechanism
 

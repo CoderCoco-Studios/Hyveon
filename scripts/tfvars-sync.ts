@@ -584,7 +584,8 @@ export function parseArgs(rawArgv: string[]): ParsedArgs {
   const resolvedBucket = resolveBucket(bucket);
   if (!resolvedBucket) {
     throw new Error(
-      `--bucket is required (or set ${BUCKET_ENV_VAR}, or create a ${join(...BUCKET_MARKER_PATH)} marker file)`,
+      `--bucket is required (or set ${BUCKET_ENV_VAR}, or create a ${join(...BUCKET_MARKER_PATH)} ` +
+        `or legacy ${join(...LEGACY_BUCKET_MARKER_PATH)} marker file)`,
     );
   }
 

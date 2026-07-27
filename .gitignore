@@ -56,3 +56,5 @@ release/
 
 # HYVEON bootstrap metadata (tfvars-bucket marker etc.)
 .hyveon/
+# legacy pre-rename marker dir — ignored during the .gsd -> .hyveon compat window
+.gsd/

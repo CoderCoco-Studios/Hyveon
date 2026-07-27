@@ -162,7 +162,10 @@ resolution in the generated Makefile:
   `.hyveon/tfvars-bucket` (written by `bootstrap --s3-tfvars` or
   `migrate --to-s3`) or the **submodule-local**
   `Hyveon/.hyveon/tfvars-bucket` (written by `make setup`'s own S3
-  tfvars-bootstrap step) — local otherwise.
+  tfvars-bootstrap step) — local otherwise. A legacy `.gsd/tfvars-bucket`
+  marker (pre-rename) is also accepted at each of those two locations, with a
+  one-time warning, if the `.hyveon` path isn't present — run `mv .gsd .hyveon`
+  to migrate and silence the warning.
 
 `HYVEON_TFVARS_BUCKET`, if set, wins over both marker files' contents when the
 wrapper needs to display or pass along the bucket name. Otherwise it reads
@@ -223,7 +226,8 @@ reading `terraform.tfvars` straight off disk:
 1. Resolves the target bucket the same way the generated Makefile's
    `TFVARS_BUCKET` does — `HYVEON_TFVARS_BUCKET` env var wins if set, otherwise
    the parent-root `.hyveon/tfvars-bucket` marker, otherwise the submodule-local
-   one written by `make setup`'s own S3 tfvars-bootstrap step. Exits `1` with
+   one written by `make setup`'s own S3 tfvars-bootstrap step, otherwise the
+   legacy `.gsd/tfvars-bucket` path at either location. Exits `1` with
    no changes if none resolve (already local, nothing to migrate).
 2. Pulls `terraform.tfvars` down from S3 first if it's missing locally — a
    parent repo that migrated to S3 a while ago may have no local copy at
@@ -262,7 +266,9 @@ always wins over the **submodule-local** marker
 tfvars-bootstrap step). An explicit parent-root marker reflects a deliberate
 operator choice, so it takes priority even before `setup` gets a chance to
 write its own submodule-local marker. `HYVEON_TFVARS_BACKEND=s3|local`
-overrides both markers entirely when set.
+overrides both markers entirely when set. The legacy `.gsd/tfvars-bucket`
+path follows the same parent-root-before-submodule-local precedence at each
+location, checked only after its `.hyveon` counterpart is confirmed absent.
 
 ## Submodule update re-inits Terraform unconditionally
 

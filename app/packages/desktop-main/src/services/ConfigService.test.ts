@@ -22,6 +22,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } from 'fs';
+import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 
 /** Strongly-typed mock handles for the `fs` module. */
@@ -443,6 +444,10 @@ describe('ConfigService', () => {
 
       expect(service.getTfvarsBucket()).toBe('legacy-bucket-name');
       expect(mockRead).toHaveBeenCalledWith(legacyMarkerPath, 'utf-8');
+      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+        expect.stringContaining('Using legacy .gsd/tfvars-bucket marker'),
+        expect.objectContaining({ path: legacyMarkerPath }),
+      );
     });
 
     it('should prefer the new .hyveon/tfvars-bucket marker over the legacy .gsd one when both exist', () => {
