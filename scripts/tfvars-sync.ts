@@ -20,8 +20,8 @@
  * key than the local file's basename.
  *
  * `--bucket` is resolved through a fallback chain when the flag is omitted:
- * the `GSD_TFVARS_BUCKET` environment variable, then the contents of the
- * nearest `.gsd/tfvars-bucket` marker file found walking up from the current
+ * the `HYVEON_TFVARS_BUCKET` environment variable, then the contents of the
+ * nearest `.hyveon/tfvars-bucket` marker file found walking up from the current
  * working directory. The CLI exits with an error if none of these resolve.
  *
  * A sidecar lock file (`${path}.lock`) records the S3 version id + etag
@@ -58,10 +58,10 @@ const DEFAULT_PATH = 'terraform/terraform.tfvars';
 const DEFAULT_KEY = 'terraform.tfvars';
 
 /** Environment variable consulted by the `--bucket` fallback chain. */
-const BUCKET_ENV_VAR = 'GSD_TFVARS_BUCKET';
+const BUCKET_ENV_VAR = 'HYVEON_TFVARS_BUCKET';
 
 /** Marker file (relative to a project root) holding the bucket name, as a last-resort fallback. */
-const BUCKET_MARKER_PATH = ['.gsd', 'tfvars-bucket'];
+const BUCKET_MARKER_PATH = ['.hyveon', 'tfvars-bucket'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -256,7 +256,7 @@ async function headRemote(s3: S3Client, bucket: string, key: string): Promise<Re
 }
 
 /**
- * Walks up from `startDir` looking for a `.gsd/tfvars-bucket` marker file.
+ * Walks up from `startDir` looking for a `.hyveon/tfvars-bucket` marker file.
  * Returns its trimmed contents (the bucket name) if found and non-empty.
  */
 function findBucketMarker(startDir: string): string | undefined {
@@ -275,8 +275,8 @@ function findBucketMarker(startDir: string): string | undefined {
 
 /**
  * Resolves the target S3 bucket: an explicit value wins, then the
- * `GSD_TFVARS_BUCKET` environment variable, then the contents of the
- * nearest `.gsd/tfvars-bucket` marker file walking up from `startDir`.
+ * `HYVEON_TFVARS_BUCKET` environment variable, then the contents of the
+ * nearest `.hyveon/tfvars-bucket` marker file walking up from `startDir`.
  */
 export function resolveBucket(explicit?: string, startDir: string = process.cwd()): string | undefined {
   if (explicit) return explicit;
@@ -510,8 +510,8 @@ function isCommand(value: string | undefined): value is Command {
  * Parses `<command> [--bucket <b>] [--path <p>] [--key <k>] [--region <r>]`
  * argv (excluding node + script). `--path` defaults to
  * `terraform/terraform.tfvars` and `--key` to `terraform.tfvars`. `--bucket`
- * is resolved via `resolveBucket()` (flag > `GSD_TFVARS_BUCKET` env var >
- * `.gsd/tfvars-bucket` marker file) and throws if nothing resolves.
+ * is resolved via `resolveBucket()` (flag > `HYVEON_TFVARS_BUCKET` env var >
+ * `.hyveon/tfvars-bucket` marker file) and throws if nothing resolves.
  */
 export function parseArgs(rawArgv: string[]): ParsedArgs {
   const [command, ...rest] = rawArgv;

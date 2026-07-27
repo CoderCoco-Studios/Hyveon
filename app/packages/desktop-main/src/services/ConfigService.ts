@@ -501,8 +501,8 @@ export class ConfigService {
    *
    * Resolution order (mirrors the `--bucket` fallback chain in
    * `scripts/tfvars-sync.ts` and the `Makefile` targets it generates):
-   *  1. `GSD_TFVARS_BUCKET` env var — wins when set.
-   *  2. The nearest `.gsd/tfvars-bucket` marker file, found by walking up
+   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set.
+   *  2. The nearest `.hyveon/tfvars-bucket` marker file, found by walking up
    *     from `process.cwd()` toward the filesystem root — written by
    *     `setup.sh`'s S3 bootstrap or `init-parent.ts bootstrap --s3-tfvars`.
    *     Matches `findBucketMarker()` in `scripts/tfvars-sync.ts` so the CLI
@@ -511,7 +511,7 @@ export class ConfigService {
    *  3. `null` — no backend configured.
    */
   getTfvarsBucket(): string | null {
-    const envOverride = process.env['GSD_TFVARS_BUCKET'];
+    const envOverride = process.env['HYVEON_TFVARS_BUCKET'];
     if (envOverride) return envOverride;
 
     const markerPath = this.findTfvarsBucketMarker(process.cwd());
@@ -521,14 +521,14 @@ export class ConfigService {
       const contents = readFileSync(markerPath, 'utf-8').trim();
       return contents.length > 0 ? contents : null;
     } catch (err) {
-      logger.warn('Could not read .gsd/tfvars-bucket marker file', { err, path: markerPath });
+      logger.warn('Could not read .hyveon/tfvars-bucket marker file', { err, path: markerPath });
       return null;
     }
   }
 
   /**
    * Walk up from `startDir` toward the filesystem root looking for a
-   * `.gsd/tfvars-bucket` marker file, one directory at a time. Mirrors
+   * `.hyveon/tfvars-bucket` marker file, one directory at a time. Mirrors
    * `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI and the
    * app resolve to the same marker file. Returns the marker file's absolute
    * path once found, or `undefined` if the filesystem root is reached
@@ -537,7 +537,7 @@ export class ConfigService {
   private findTfvarsBucketMarker(startDir: string): string | undefined {
     let dir = startDir;
     while (true) {
-      const markerPath = join(dir, '.gsd', 'tfvars-bucket');
+      const markerPath = join(dir, '.hyveon', 'tfvars-bucket');
       if (existsSync(markerPath)) return markerPath;
 
       const parent = dirname(dir);

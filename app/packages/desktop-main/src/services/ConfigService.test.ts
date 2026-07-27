@@ -349,7 +349,7 @@ describe('ConfigService', () => {
       delete process.env['TF_STATE_PATH'];
       delete process.env['SERVER_CONFIG_PATH'];
       delete process.env['TFVARS_PATH'];
-      delete process.env['GSD_TFVARS_BUCKET'];
+      delete process.env['HYVEON_TFVARS_BUCKET'];
       delete process.env['TF_DIR'];
       delete process.env['RUNS_DIR_PATH'];
     });
@@ -409,12 +409,12 @@ describe('ConfigService', () => {
       expect(path.isAbsolute(result)).toBe(true);
     });
 
-    it('should return the GSD_TFVARS_BUCKET env var value when set', () => {
-      process.env['GSD_TFVARS_BUCKET'] = 'my-project-tfvars';
+    it('should return the HYVEON_TFVARS_BUCKET env var value when set', () => {
+      process.env['HYVEON_TFVARS_BUCKET'] = 'my-project-tfvars';
       expect(service.getTfvarsBucket()).toBe('my-project-tfvars');
     });
 
-    it('should return the marker file contents when GSD_TFVARS_BUCKET is unset', () => {
+    it('should return the marker file contents when HYVEON_TFVARS_BUCKET is unset', () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue('marker-bucket-name\n');
       expect(service.getTfvarsBucket()).toBe('marker-bucket-name');
@@ -423,7 +423,7 @@ describe('ConfigService', () => {
     it('should walk up from a nested cwd to find the marker file at an ancestor directory', () => {
       const repoRoot = path.join(path.sep, 'repo');
       const nestedCwd = path.join(repoRoot, 'app', 'packages', 'desktop-main');
-      const markerPath = path.join(repoRoot, '.gsd', 'tfvars-bucket');
+      const markerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
 
       vi.spyOn(process, 'cwd').mockReturnValue(nestedCwd);
       mockExists.mockImplementation((p) => p === markerPath);

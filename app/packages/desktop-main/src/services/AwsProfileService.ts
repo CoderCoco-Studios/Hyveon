@@ -18,7 +18,7 @@ export interface AwsProfileSummary {
 }
 
 /** Default profile name used for the wizard's "paste keys instead" flow when the operator doesn't supply one. */
-export const DEFAULT_PASTED_PROFILE_NAME = 'gsd-pasted';
+export const DEFAULT_PASTED_PROFILE_NAME = 'hyveon-pasted';
 
 /** Plaintext input to {@link AwsProfileService.savePastedCredentials}. */
 export interface SavePastedCredentialsInput {

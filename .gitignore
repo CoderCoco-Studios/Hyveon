@@ -54,5 +54,5 @@ out/
 # electron-builder packaged artifacts
 release/
 
-# GSD bootstrap metadata (tfvars-bucket marker etc.)
-.gsd/
+# HYVEON bootstrap metadata (tfvars-bucket marker etc.)
+.hyveon/

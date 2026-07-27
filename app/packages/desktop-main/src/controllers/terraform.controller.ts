@@ -165,7 +165,7 @@ interface TerraformPlanAck {
  * spoof who approved a run.
  *
  * Mirrors `approve: (opts: { planRunId: string }) => ...` in
- * `@hyveon/desktop-preload/src/gsd-api.ts` — keep this shape in sync with
+ * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
 interface TerraformApprovePayload {
@@ -237,7 +237,7 @@ interface TerraformRollbackConfirmAck {
  * `.tfplan` artifact through to `terraform apply`.
  *
  * Mirrors `TerraformApplyPayload` in
- * `@hyveon/desktop-preload/src/gsd-api.ts` — keep this shape in sync with
+ * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
 interface TerraformApplyPayload {
@@ -290,7 +290,7 @@ interface TerraformDestroyMintAck {
  * `assertFreshDestroyConfirmation` gate (see {@link DestroyNotConfirmedError}).
  *
  * Mirrors `TerraformDestroyPayload` in
- * `@hyveon/desktop-preload/src/gsd-api.ts` — keep this shape in sync with
+ * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
 interface TerraformDestroyPayload {

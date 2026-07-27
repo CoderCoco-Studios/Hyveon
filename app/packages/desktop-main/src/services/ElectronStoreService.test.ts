@@ -302,20 +302,20 @@ describe('ElectronStoreService — getPastedCredentials / setPastedCredentials',
   });
 
   it('should encrypt accessKeyId/secretAccessKey before storing under creds.aws.<profileName>', () => {
-    service.setPastedCredentials('gsd-pasted', {
+    service.setPastedCredentials('hyveon-pasted', {
       accessKeyId: 'AKID123',
       secretAccessKey: 'SECRET456',
       region: 'us-east-1',
     });
 
-    const stored = service.get('creds')?.aws['gsd-pasted'];
+    const stored = service.get('creds')?.aws['hyveon-pasted'];
     expect(stored).toEqual({ accessKeyId: 'enc-AKID123', secretAccessKey: 'enc-SECRET456', region: 'us-east-1' });
   });
 
   it('should decrypt accessKeyId/secretAccessKey when reading a pasted profile', () => {
-    service.setPastedCredentials('gsd-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    service.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
 
-    const result = service.getPastedCredentials('gsd-pasted');
+    const result = service.getPastedCredentials('hyveon-pasted');
 
     expect(result).toEqual({ accessKeyId: 'AKID123', secretAccessKey: 'SECRET456', region: undefined });
   });
@@ -413,7 +413,7 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
 
     service.setSecretAccessKeyId(secretAccessKeyId);
     service.setSecretAccessKey(secretAccessKey);
-    service.setPastedCredentials('gsd-pasted', {
+    service.setPastedCredentials('hyveon-pasted', {
       accessKeyId: secretAccessKeyId,
       secretAccessKey,
       region: 'us-east-1',

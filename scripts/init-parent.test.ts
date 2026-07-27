@@ -63,13 +63,13 @@ expect(
 );
 
 // ── S3 tfvars backend detection block ───────────────────────────────────────
-expect('Makefile defines TFVARS_MARKER', mk.includes('TFVARS_MARKER := $(SUBMODULE)/.gsd/tfvars-bucket'));
+expect('Makefile defines TFVARS_MARKER', mk.includes('TFVARS_MARKER := $(SUBMODULE)/.hyveon/tfvars-bucket'));
 expect('Makefile defines TFVARS_LOCK', mk.includes('TFVARS_LOCK   := $(TFVARS).lock'));
-expect('Makefile defines PARENT_TFVARS_MARKER at the parent repo root', mk.includes('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.gsd/tfvars-bucket'));
+expect('Makefile defines PARENT_TFVARS_MARKER at the parent repo root', mk.includes('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket'));
 expect(
-  'Makefile defines TFVARS_BACKEND gated on GSD_TFVARS_BACKEND override, then the parent-root marker, then the submodule marker',
+  'Makefile defines TFVARS_BACKEND gated on HYVEON_TFVARS_BACKEND override, then the parent-root marker, then the submodule marker',
   mk.includes(
-    'TFVARS_BACKEND = $(if $(filter s3,$(GSD_TFVARS_BACKEND)),s3,$(if $(filter local,$(GSD_TFVARS_BACKEND)),local,$(if $(wildcard $(PARENT_TFVARS_MARKER)),s3,$(if $(wildcard $(TFVARS_MARKER)),s3,local))))',
+    'TFVARS_BACKEND = $(if $(filter s3,$(HYVEON_TFVARS_BACKEND)),s3,$(if $(filter local,$(HYVEON_TFVARS_BACKEND)),local,$(if $(wildcard $(PARENT_TFVARS_MARKER)),s3,$(if $(wildcard $(TFVARS_MARKER)),s3,local))))',
   ),
 );
 expect('Makefile routes TFVARS_SYNC --bucket through TFVARS_MARKER', mk.includes('cat $(TFVARS_MARKER)'));
@@ -87,7 +87,7 @@ expect(
 expect(
   'Makefile TFVARS_BUCKET prefers the parent-root marker contents, falling back to the submodule marker',
   mk.includes(
-    'TFVARS_BUCKET = $(if $(GSD_TFVARS_BUCKET),$(GSD_TFVARS_BUCKET),$(shell cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null))',
+    'TFVARS_BUCKET = $(if $(HYVEON_TFVARS_BUCKET),$(HYVEON_TFVARS_BUCKET),$(shell cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null))',
   ),
 );
 expect(
@@ -136,7 +136,7 @@ expect('Makefile apply depends on check-tfvars-if-needed', mk.includes('apply: c
 expect(
   'Makefile setup runtime-pulls tfvars post-bootstrap via a shell-native (not make-variable) S3 backend check that also honors the parent-root marker',
   setupRecipe.includes(
-    '[ "$${GSD_TFVARS_BACKEND:-}" = s3 ] || { [ "$${GSD_TFVARS_BACKEND:-}" != local ] && { [ -f $(PARENT_TFVARS_MARKER) ] || [ -f $(TFVARS_MARKER) ]; }; }',
+    '[ "$${HYVEON_TFVARS_BACKEND:-}" = s3 ] || { [ "$${HYVEON_TFVARS_BACKEND:-}" != local ] && { [ -f $(PARENT_TFVARS_MARKER) ] || [ -f $(TFVARS_MARKER) ]; }; }',
   ) &&
     setupRecipe.includes('$(TFVARS_SYNC) pull $(TFVARS_SYNC_ARGS) 2>&1') &&
     !/if \[ "\$\(TFVARS_BACKEND\)" = s3 \]/.test(setupRecipe),
@@ -144,8 +144,8 @@ expect(
 
 // ── setup's own S3 tfvars-bootstrap step is gated the same way the runtime pull is ──
 expect(
-  'Makefile setup gates its S3 tfvars-bootstrap step on GSD_TFVARS_BACKEND then the parent-root marker',
-  setupRecipe.includes('BACKEND="$${GSD_TFVARS_BACKEND:-}"') &&
+  'Makefile setup gates its S3 tfvars-bootstrap step on HYVEON_TFVARS_BACKEND then the parent-root marker',
+  setupRecipe.includes('BACKEND="$${HYVEON_TFVARS_BACKEND:-}"') &&
     setupRecipe.includes('if [ -z "$$BACKEND" ] && [ -f $(PARENT_TFVARS_MARKER) ]; then BACKEND=s3; fi'),
 );
 expect(
@@ -170,7 +170,7 @@ expect(
 
 // ── Updated help text ────────────────────────────────────────────────────────
 expect('Makefile help mentions tfvars-diff', mk.includes('make tfvars-diff'));
-expect('Makefile help mentions GSD_TFVARS_BACKEND override', mk.includes('GSD_TFVARS_BACKEND=s3|local'));
+expect('Makefile help mentions HYVEON_TFVARS_BACKEND override', mk.includes('HYVEON_TFVARS_BACKEND=s3|local'));
 expect('Makefile help does NOT mention tfvars-status', !mk.includes('tfvars-status'));
 expect('Makefile help describes update as re-init terraform (not rerunning setup.sh)', mk.includes('re-init terraform'));
 

@@ -151,7 +151,7 @@ describe('BootstrapService', () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketEncryptionCommand).resolves({});
-      const store = makeStore({ profile: 'gsd-pasted', region: 'us-west-2' }, {
+      const store = makeStore({ profile: 'hyveon-pasted', region: 'us-west-2' }, {
         accessKeyId: 'AKID',
         secretAccessKey: 'SECRET',
       });
@@ -160,7 +160,7 @@ describe('BootstrapService', () => {
       const result = await service.ensureStateBucket('my-state-bucket');
 
       expect(result).toEqual({ status: 'created' });
-      expect(store.getPastedCredentials).toHaveBeenCalledWith('gsd-pasted');
+      expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
     });
 
     it('should fall back to a real ~/.aws CLI profile when the profile has no pasted-credentials entry', async () => {

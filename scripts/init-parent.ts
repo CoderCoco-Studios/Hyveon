@@ -21,12 +21,12 @@
  *                        script or Makefile inside the submodule
  *   - terraform.tfvars   skeleton populated from your answers
  *   - .gitignore         covers .make/, terraform.tfstate*, etc.
- *   - .gsd/tfvars-bucket S3 backend marker (only when --s3-tfvars is passed,
+ *   - .hyveon/tfvars-bucket S3 backend marker (only when --s3-tfvars is passed,
  *                        or you answer yes to the interactive prompt)
  *
  * `bootstrap` (this default command) NEVER reads or modifies anything
  * inside the submodule. `migrate --to-local` is the exception — it deletes
- * the gitignored submodule-local .gsd/tfvars-bucket marker alongside the
+ * the gitignored submodule-local .hyveon/tfvars-bucket marker alongside the
  * parent-root one, and `migrate --to-s3` runs `make setup`, whose self-
  * contained recipe bootstraps the S3-backed tfvars store (see
  * renderMakefile's doc comment below for the full `setup` recipe).
@@ -51,7 +51,7 @@ interface Answers {
   discordApplicationId?: string;
   discordBotToken?: string;
   discordPublicKey?: string;
-  /** Whether an S3-backed tfvars store was requested (flag or interactive prompt), i.e. whether `.gsd/tfvars-bucket` was written. */
+  /** Whether an S3-backed tfvars store was requested (flag or interactive prompt), i.e. whether `.hyveon/tfvars-bucket` was written. */
   s3Tfvars?: boolean;
 }
 
@@ -224,9 +224,9 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  * Three extra targets — tfvars-pull, tfvars-push, tfvars-diff — wrap
  * scripts/tfvars-sync.ts for manual use. plan/apply's auto-pull/check are
  * gated on TFVARS_BACKEND, which resolves to "s3" or "local" in this order:
- *   1. GSD_TFVARS_BACKEND=s3    — force s3, even without a marker file yet
- *   2. GSD_TFVARS_BACKEND=local — force local, even if a marker file exists
- *   3. otherwise: "s3" when the `.gsd/tfvars-bucket` marker file at the
+ *   1. HYVEON_TFVARS_BACKEND=s3    — force s3, even without a marker file yet
+ *   2. HYVEON_TFVARS_BACKEND=local — force local, even if a marker file exists
+ *   3. otherwise: "s3" when the `.hyveon/tfvars-bucket` marker file at the
  *      *parent repo root* exists (written up-front by `init-parent bootstrap
  *      --s3-tfvars` / `migrate --to-s3`, before `setup`'s own S3 tfvars
  *      bootstrap step has ever run)
@@ -266,14 +266,14 @@ STAMP_DIR   := $(REPO_ROOT)/.make
 # even before \`setup\` gets a chance to write its own submodule-local marker.
 # TFVARS_LOCK is the sidecar lock file tfvars-sync.ts writes after every
 # successful pull/push, recording the S3 version id/etag last synced.
-PARENT_TFVARS_MARKER := $(REPO_ROOT)/.gsd/tfvars-bucket
-TFVARS_MARKER := $(SUBMODULE)/.gsd/tfvars-bucket
+PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket
+TFVARS_MARKER := $(SUBMODULE)/.hyveon/tfvars-bucket
 TFVARS_LOCK   := $(TFVARS).lock
 
 # TFVARS_BACKEND resolves the s3-vs-local decision explicitly, so an operator
 # can always force one or the other regardless of what's on disk:
-#   - GSD_TFVARS_BACKEND=s3    → force s3, even if the marker file is missing
-#   - GSD_TFVARS_BACKEND=local → force local, even if a marker file is present
+#   - HYVEON_TFVARS_BACKEND=s3    → force s3, even if the marker file is missing
+#   - HYVEON_TFVARS_BACKEND=local → force local, even if a marker file is present
 #   - unset                    → s3 when the parent-root marker exists, else
 #                                 s3 when the submodule marker exists, else
 #                                 local
@@ -287,19 +287,19 @@ TFVARS_LOCK   := $(TFVARS).lock
 # filesystem state even though it appears later in the recipe text. \`setup\`
 # re-implements the same override logic directly in its shell recipe instead
 # — see below.
-TFVARS_BACKEND = $(if $(filter s3,$(GSD_TFVARS_BACKEND)),s3,$(if $(filter local,$(GSD_TFVARS_BACKEND)),local,$(if $(wildcard $(PARENT_TFVARS_MARKER)),s3,$(if $(wildcard $(TFVARS_MARKER)),s3,local))))
+TFVARS_BACKEND = $(if $(filter s3,$(HYVEON_TFVARS_BACKEND)),s3,$(if $(filter local,$(HYVEON_TFVARS_BACKEND)),local,$(if $(wildcard $(PARENT_TFVARS_MARKER)),s3,$(if $(wildcard $(TFVARS_MARKER)),s3,local))))
 
-# TFVARS_BUCKET is display-only (used in log messages below); GSD_TFVARS_BUCKET
+# TFVARS_BUCKET is display-only (used in log messages below); HYVEON_TFVARS_BUCKET
 # wins if already set, otherwise the parent-root marker's contents, otherwise
 # the submodule marker's contents.
-TFVARS_BUCKET = $(if $(GSD_TFVARS_BUCKET),$(GSD_TFVARS_BUCKET),$(shell cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null))
+TFVARS_BUCKET = $(if $(HYVEON_TFVARS_BUCKET),$(HYVEON_TFVARS_BUCKET),$(shell cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null))
 # TFVARS_SYNC is deliberately just the interpreter invocation with no
 # subcommand or flags: tfvars-sync.ts's parseArgs() requires the subcommand
 # (pull/push/check/diff) to be argv[0], so every call site must render
 # "$(TFVARS_SYNC) <subcommand> $(TFVARS_SYNC_ARGS)" — never put flags before
 # the subcommand.
 TFVARS_SYNC      = npx --prefix $(SUBMODULE)/scripts tsx $(SUBMODULE)/scripts/tfvars-sync.ts
-TFVARS_SYNC_ARGS = --path $(TFVARS) --bucket "$\${GSD_TFVARS_BUCKET:-$$(cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null)}"
+TFVARS_SYNC_ARGS = --path $(TFVARS) --bucket "$\${HYVEON_TFVARS_BUCKET:-$$(cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null)}"
 
 .PHONY: help setup plan apply update dev copy-tfvars pull-tfvars-if-needed check-tfvars-if-needed tfvars-pull tfvars-push tfvars-diff
 
@@ -320,7 +320,7 @@ help:
 \t@echo "  make tfvars-push   Push terraform.tfvars to the S3 backend"
 \t@echo "  make tfvars-diff   Show a unified diff between local and remote terraform.tfvars"
 \t@echo ""
-\t@echo "  S3 tfvars backend detection: GSD_TFVARS_BACKEND=s3|local overrides;"
+\t@echo "  S3 tfvars backend detection: HYVEON_TFVARS_BACKEND=s3|local overrides;"
 \t@echo "  otherwise inferred from $(PARENT_TFVARS_MARKER), falling back to $(TFVARS_MARKER)."
 
 # ── Stamp dir ────────────────────────────────────────────────────────────────
@@ -396,15 +396,15 @@ setup: | $(STAMP_DIR)
 \t fi
 # Bootstrap the versioned S3 tfvars bucket via the separate
 # $(SUBMODULE)/terraform/bootstrap module (same logic as the old setup.sh's
-# bootstrap_tfvars_backend()), gated on GSD_TFVARS_BACKEND=s3 or the
+# bootstrap_tfvars_backend()), gated on HYVEON_TFVARS_BACKEND=s3 or the
 # parent-root marker already being present. Writes the resulting bucket name
-# to TFVARS_MARKER ($(SUBMODULE)/.gsd/tfvars-bucket) — the same path
+# to TFVARS_MARKER ($(SUBMODULE)/.hyveon/tfvars-bucket) — the same path
 # setup.sh used to write — so PARENT_TFVARS_MARKER (written up-front by
 # \`init-parent bootstrap --s3-tfvars\`/\`migrate --to-s3\`, if present) still
 # takes priority over it, per TFVARS_BACKEND/TFVARS_BUCKET's own precedence
 # documented above.
 \t@TF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
-\t BACKEND="$\${GSD_TFVARS_BACKEND:-}"; \\
+\t BACKEND="$\${HYVEON_TFVARS_BACKEND:-}"; \\
 \t if [ -z "$$BACKEND" ] && [ -f $(PARENT_TFVARS_MARKER) ]; then BACKEND=s3; fi; \\
 \t if [ "$$BACKEND" != s3 ]; then \\
 \t   echo "   tfvars backend: local (skipping S3 tfvars-bucket bootstrap)"; \\
@@ -414,7 +414,7 @@ setup: | $(STAMP_DIR)
 \t   terraform -chdir=$(SUBMODULE)/terraform/bootstrap init -input=false; \\
 \t   terraform -chdir=$(SUBMODULE)/terraform/bootstrap apply -auto-approve -input=false -var="project_name=$$TF_PROJECT" -var="aws_region=$$TF_REGION"; \\
 \t   BUCKET=$$(terraform -chdir=$(SUBMODULE)/terraform/bootstrap output -raw tfvars_bucket_name); \\
-\t   mkdir -p $(SUBMODULE)/.gsd; \\
+\t   mkdir -p $(SUBMODULE)/.hyveon; \\
 \t   echo "$$BUCKET" > $(TFVARS_MARKER); \\
 \t   echo "   Bucket name recorded at $(TFVARS_MARKER): $$BUCKET"; \\
 \t   if [ -f $(TFVARS) ]; then \\
@@ -446,13 +446,13 @@ setup: | $(STAMP_DIR)
 # TFVARS_BUCKET — before running the first line of that recipe, so a
 # make-variable-based check here would still see the filesystem from before
 # the S3 tfvars bootstrap step (above) ran, even though it's written later
-# in the recipe text. Mirror TFVARS_BACKEND's own GSD_TFVARS_BACKEND override
+# in the recipe text. Mirror TFVARS_BACKEND's own HYVEON_TFVARS_BACKEND override
 # semantics by hand, and defer both marker-file tests and their \`cat\` to the
 # shell so they see whatever the bootstrap step above just wrote. The
 # parent-root marker (if any) is checked first, same precedence as
 # TFVARS_BACKEND/TFVARS_BUCKET above.
-\t@if [ "$\${GSD_TFVARS_BACKEND:-}" = s3 ] || { [ "$\${GSD_TFVARS_BACKEND:-}" != local ] && { [ -f $(PARENT_TFVARS_MARKER) ] || [ -f $(TFVARS_MARKER) ]; }; }; then \\
-\t  bucket="$\${GSD_TFVARS_BUCKET:-$$(cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null)}"; \\
+\t@if [ "$\${HYVEON_TFVARS_BACKEND:-}" = s3 ] || { [ "$\${HYVEON_TFVARS_BACKEND:-}" != local ] && { [ -f $(PARENT_TFVARS_MARKER) ] || [ -f $(TFVARS_MARKER) ]; }; }; then \\
+\t  bucket="$\${HYVEON_TFVARS_BUCKET:-$$(cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null)}"; \\
 \t  if [ -n "$$(git -C $(REPO_ROOT) status --porcelain -- $(TFVARS))" ]; then echo "$(TFVARS) has uncommitted changes — skipping S3 pull to avoid clobbering them (commit or stash them, then run 'make tfvars-pull')." >&2; \\
 \t  else \\
 \t    echo "S3 tfvars backend detected (s3://$$bucket) — pulling terraform.tfvars..."; \\
@@ -531,16 +531,16 @@ apply: check-tfvars-if-needed copy-tfvars
 # overwrites $(TFVARS) in place, so if git sees it as dirty we abort instead
 # of silently discarding the operator's changes.
 tfvars-pull:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set HYVEON_TFVARS_BACKEND=s3 (with HYVEON_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t@if [ -n "$$(git -C $(REPO_ROOT) status --porcelain -- $(TFVARS))" ]; then echo "$(TFVARS) has uncommitted changes — commit or stash them before pulling from S3." >&2; exit 1; fi
 \t$(TFVARS_SYNC) pull $(TFVARS_SYNC_ARGS)
 
 tfvars-push:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set HYVEON_TFVARS_BACKEND=s3 (with HYVEON_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t$(TFVARS_SYNC) push $(TFVARS_SYNC_ARGS)
 
 tfvars-diff:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set HYVEON_TFVARS_BACKEND=s3 (with HYVEON_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t$(TFVARS_SYNC) diff $(TFVARS_SYNC_ARGS)
 
 # ── Submodule update ──────────────────────────────────────────────────────────
@@ -725,7 +725,7 @@ export interface BootstrapOptions {
   force?: boolean;
 }
 
-/** The interactive bootstrap flow: prompts for parent-repo details and writes Makefile/terraform.tfvars/.gitignore (and, when requested, the `.gsd/tfvars-bucket` S3 backend marker). Exported so the entrypoint guard below can invoke it after CLI parsing. */
+/** The interactive bootstrap flow: prompts for parent-repo details and writes Makefile/terraform.tfvars/.gitignore (and, when requested, the `.hyveon/tfvars-bucket` S3 backend marker). Exported so the entrypoint guard below can invoke it after CLI parsing. */
 export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false, yes: false }): Promise<void> {
   FORCE = options.force ?? FORCE;
   const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -818,11 +818,11 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
     // recipe's S3 tfvars-bootstrap step will create (see
     // terraform/bootstrap/main.tf's coalesce default) — it's written
     // up-front, before `setup` has ever run, so PARENT_TFVARS_MARKER in the
-    // generated Makefile can force GSD_TFVARS_BACKEND=s3 for `make setup`.
+    // generated Makefile can force HYVEON_TFVARS_BACKEND=s3 for `make setup`.
     if (wantsS3Tfvars) {
       status(
-        join(parentDir, '.gsd', 'tfvars-bucket'),
-        writeIfSafe(join(parentDir, '.gsd', 'tfvars-bucket'), `${projectName}-tfvars\n`),
+        join(parentDir, '.hyveon', 'tfvars-bucket'),
+        writeIfSafe(join(parentDir, '.hyveon', 'tfvars-bucket'), `${projectName}-tfvars\n`),
         parentDir,
       );
     }
@@ -835,7 +835,7 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
     output.write(`    4. \`make dev\` to launch the desktop app in dev mode.\n\n`);
 
     if (wantsS3Tfvars) {
-      output.write(`  S3-backed tfvars store requested — .gsd/tfvars-bucket recorded (${projectName}-tfvars).\n`);
+      output.write(`  S3-backed tfvars store requested — .hyveon/tfvars-bucket recorded (${projectName}-tfvars).\n`);
       output.write(`  \`make setup\` will bootstrap that S3 bucket automatically before running terraform init,\n`);
       output.write(`  and \`make tfvars-push\` to seed the bucket if setup reports it empty.\n\n`);
     }
@@ -939,7 +939,7 @@ function readExistingParent(scriptDir: string): ExistingParentInfo {
 /**
  * Migrates an already-scaffolded parent repo's tfvars backend.
  *
- * `--to-s3`: (re)writes the `.gsd/tfvars-bucket` marker unconditionally (same
+ * `--to-s3`: (re)writes the `.hyveon/tfvars-bucket` marker unconditionally (same
  * `${projectName}-tfvars` naming `runBootstrap`'s `--s3-tfvars` path uses —
  * unlike `runBootstrap`, this always overwrites any pre-existing marker
  * rather than skipping, since `migrate` doesn't accept `--force` and the
@@ -947,7 +947,7 @@ function readExistingParent(scriptDir: string): ExistingParentInfo {
  * computed bucket name), rewrites the Makefile with
  * the s3-aware targets (identical output to a fresh `runBootstrap` render —
  * the Makefile is always s3-aware, only the marker's presence flips
- * `TFVARS_BACKEND`), then runs `make setup` with `GSD_TFVARS_BACKEND=s3` so
+ * `TFVARS_BACKEND`), then runs `make setup` with `HYVEON_TFVARS_BACKEND=s3` so
  * `terraform/bootstrap/` provisions the bucket. `terraform.tfvars` itself is
  * never read for anything other than `project_name`, nor written — the
  * one-time pull to fetch it back down from S3 is left to the operator via the
@@ -971,7 +971,7 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
   }
 
   const info = readExistingParent(scriptDir);
-  const markerPath = join(info.parentDir, '.gsd', 'tfvars-bucket');
+  const markerPath = join(info.parentDir, '.hyveon', 'tfvars-bucket');
   const bucketName = `${info.projectName}-tfvars`;
 
   output.write('\n');
@@ -983,9 +983,9 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
   output.write(`  Bucket:       ${bucketName}\n`);
   output.write('\n');
   output.write('  This will:\n');
-  output.write(`    1. Write .gsd/tfvars-bucket recording the target bucket name.\n`);
+  output.write(`    1. Write .hyveon/tfvars-bucket recording the target bucket name.\n`);
   output.write(`    2. Rewrite Makefile with the s3-aware targets.\n`);
-  output.write(`    3. Run \`make setup\` (GSD_TFVARS_BACKEND=s3) to bootstrap the bucket.\n`);
+  output.write(`    3. Run \`make setup\` (HYVEON_TFVARS_BACKEND=s3) to bootstrap the bucket.\n`);
   output.write('\n');
   output.write('  terraform.tfvars itself is left untouched.\n');
   output.write('\n');
@@ -1022,17 +1022,17 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
   writeFileSync(makefilePath, renderMakefile({ submoduleDir: info.submoduleDir, projectName: info.projectName }));
   status(makefilePath, 'overwrote', info.parentDir);
 
-  output.write('\n  Running `make setup` (GSD_TFVARS_BACKEND=s3)…\n\n');
+  output.write('\n  Running `make setup` (HYVEON_TFVARS_BACKEND=s3)…\n\n');
   const result = spawnSync('make', ['setup'], {
     cwd: info.parentDir,
     stdio: 'inherit',
-    env: { ...process.env, GSD_TFVARS_BACKEND: 's3' },
+    env: { ...process.env, HYVEON_TFVARS_BACKEND: 's3' },
   });
 
   if (result.error) {
     process.stderr.write(`\n  ✗ failed to run \`make setup\`: ${result.error.message}\n`);
     process.stderr.write(
-      `  .gsd/tfvars-bucket and the rewritten Makefile are already in place — no need to redo the\n` +
+      `  .hyveon/tfvars-bucket and the rewritten Makefile are already in place — no need to redo the\n` +
         `  confirmation, marker, or Makefile steps. Fix the underlying issue and just re-run \`make setup\`.\n`,
     );
     exit(1);
@@ -1041,7 +1041,7 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
   if (result.status !== 0) {
     process.stderr.write(`\n  ✗ \`make setup\` failed (exit ${result.status ?? 'unknown'}).\n`);
     process.stderr.write(
-      `  .gsd/tfvars-bucket and the rewritten Makefile are already in place — no need to redo the\n` +
+      `  .hyveon/tfvars-bucket and the rewritten Makefile are already in place — no need to redo the\n` +
         `  confirmation, marker, or Makefile steps. Fix the underlying issue and just re-run \`make setup\`.\n`,
     );
     exit(1);
@@ -1061,10 +1061,10 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
  * that never opted into S3 at all).
  *
  * Steps:
- *   1. Resolve the target bucket — `GSD_TFVARS_BUCKET` wins if set (matching
+ *   1. Resolve the target bucket — `HYVEON_TFVARS_BUCKET` wins if set (matching
  *      the Makefile's own `TFVARS_BUCKET` precedence and `resolveBucket()`'s
  *      env-first behaviour in `tfvars-sync.ts`), otherwise the parent-root
- *      `.gsd/tfvars-bucket` marker, otherwise the submodule-local one. If
+ *      `.hyveon/tfvars-bucket` marker, otherwise the submodule-local one. If
  *      none resolve, exit 1 — there's nothing to migrate.
  *   2. If `terraform.tfvars` doesn't exist locally yet (the parent repo may
  *      currently be sourcing it purely from S3), pull it down via
@@ -1080,7 +1080,7 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
  *      uses) and abort — leaving every file untouched — if they've drifted,
  *      since deleting the markers would otherwise silently strand whichever
  *      side lost the race.
- *   4. On success, delete, if present: the `.gsd/tfvars-bucket` marker at the
+ *   4. On success, delete, if present: the `.hyveon/tfvars-bucket` marker at the
  *      parent repo root, the sibling marker the generated Makefile's `setup`
  *      recipe writes inside the submodule directory, and the
  *      `terraform.tfvars.lock` sidecar
@@ -1092,8 +1092,8 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
  *      destroy` for operators who want to tear it down.
  */
 async function runMigrateToLocal(info: ParentLocation, options: MigrateOptions): Promise<void> {
-  const parentMarkerPath = join(info.parentDir, '.gsd', 'tfvars-bucket');
-  const submoduleMarkerPath = join(info.parentDir, info.submoduleDir, '.gsd', 'tfvars-bucket');
+  const parentMarkerPath = join(info.parentDir, '.hyveon', 'tfvars-bucket');
+  const submoduleMarkerPath = join(info.parentDir, info.submoduleDir, '.hyveon', 'tfvars-bucket');
   const tfvarsPath = join(info.parentDir, 'terraform.tfvars');
   const lockPath = `${tfvarsPath}.lock`;
   const bootstrapDir = join(info.submoduleDir, 'terraform', 'bootstrap');
@@ -1109,18 +1109,18 @@ async function runMigrateToLocal(info: ParentLocation, options: MigrateOptions):
   output.write(`  Submodule:    ${info.submoduleDir}\n`);
   output.write('\n');
 
-  // GSD_TFVARS_BUCKET wins over both marker files, then the parent-root
+  // HYVEON_TFVARS_BUCKET wins over both marker files, then the parent-root
   // marker wins over the submodule marker — same precedence resolveBucket()
   // uses in tfvars-sync.ts and TFVARS_BUCKET uses in the generated Makefile
   // (see renderMakefile's comment on PARENT_TFVARS_MARKER).
   const bucketName =
-    (process.env.GSD_TFVARS_BUCKET || undefined) ??
+    (process.env.HYVEON_TFVARS_BUCKET || undefined) ??
     (parentMarkerExists ? readFileSync(parentMarkerPath, 'utf8').trim() : undefined) ??
     (submoduleMarkerExists ? readFileSync(submoduleMarkerPath, 'utf8').trim() : undefined);
 
   if (!bucketName) {
     process.stderr.write(
-      '  No GSD_TFVARS_BUCKET env var and no .gsd/tfvars-bucket marker found — already in local mode, nothing to migrate.\n\n',
+      '  No HYVEON_TFVARS_BUCKET env var and no .hyveon/tfvars-bucket marker found — already in local mode, nothing to migrate.\n\n',
     );
     exit(1);
     return;
@@ -1131,7 +1131,7 @@ async function runMigrateToLocal(info: ParentLocation, options: MigrateOptions):
   output.write('  This will:\n');
   output.write(`    1. Pull terraform.tfvars from s3://${bucketName}/terraform.tfvars first if it's missing locally.\n`);
   output.write(`    2. Compare local terraform.tfvars against s3://${bucketName}/terraform.tfvars — abort on drift.\n`);
-  output.write(`    3. Delete the .gsd/tfvars-bucket marker(s).\n`);
+  output.write(`    3. Delete the .hyveon/tfvars-bucket marker(s).\n`);
   output.write(`    4. Delete the terraform.tfvars.lock sidecar, if present.\n`);
   output.write('\n');
   output.write('  terraform.tfvars itself is left in place (aside from the pull-if-missing step above).\n');

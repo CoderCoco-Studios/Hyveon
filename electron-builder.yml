@@ -1,4 +1,4 @@
-appId: dev.gsd.desktop
+appId: dev.hyveon.desktop
 productName: Hyveon
 asar: true
 npmRebuild: false
