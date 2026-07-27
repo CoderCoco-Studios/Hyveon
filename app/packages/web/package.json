@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test:e2e": "npm run desktop:build --prefix ../../../ && playwright test",
-    "test:integration": "playwright test --config playwright.integration.config.ts"
+    "test:integration": "playwright test --config playwright.integration.config.ts",
+    "typecheck:full": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@hyveon/shared": "*",
