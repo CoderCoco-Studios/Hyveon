@@ -23,8 +23,8 @@ export function SettingsPage() {
   const [prereqs, setPrereqs] = useState<PrerequisitesReport | null>(null);
 
   useEffect(() => {
-    if (!window.gsd?.wizard) return;
-    window.gsd.wizard.checkPrereqs().then(setPrereqs).catch(() => {
+    if (!window.hyveon?.wizard) return;
+    window.hyveon.wizard.checkPrereqs().then(setPrereqs).catch(() => {
       // Best-effort — the version row just falls back to "Not detected".
     });
   }, []);

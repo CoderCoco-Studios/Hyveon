@@ -3,7 +3,7 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
 
-const gsdMock = {
+const hyveonMock = {
   wizard: {
     checkPrereqs: vi.fn(),
     saveState: vi.fn(),
@@ -21,7 +21,7 @@ const gsdMock = {
     init: vi.fn(),
   },
 };
-vi.stubGlobal('gsd', gsdMock);
+vi.stubGlobal('hyveon', hyveonMock);
 
 import { FirstRunWizard } from './first-run-wizard.component.js';
 
@@ -41,31 +41,31 @@ const SAMPLE_PROFILES: AwsProfileSummary[] = [
 ];
 
 beforeEach(() => {
-  gsdMock.wizard.checkPrereqs.mockReset();
+  hyveonMock.wizard.checkPrereqs.mockReset();
   // Defaulted (not just reset): the bootstrap step's fire-and-forget
   // `wizard.state.save({ bootstrap })` call (see `goNext`) uses a bare
   // `.catch()`, not an awaited try/catch, so an unmocked call (returning
   // `undefined`) would throw synchronously. Individual tests still override
   // this with a more specific resolved value where the response shape matters.
-  gsdMock.wizard.saveState.mockReset().mockResolvedValue({ wizardCompleted: false });
-  gsdMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
-  gsdMock.wizard.saveCredentials.mockReset();
-  gsdMock.wizard.bootstrapStateBucket.mockReset();
-  gsdMock.wizard.bootstrapLockTable.mockReset();
-  gsdMock.wizard.bootstrapTfvarsBucket.mockReset();
-  gsdMock.wizard.simulateIamPermissions.mockReset();
+  hyveonMock.wizard.saveState.mockReset().mockResolvedValue({ wizardCompleted: false });
+  hyveonMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
+  hyveonMock.wizard.saveCredentials.mockReset();
+  hyveonMock.wizard.bootstrapStateBucket.mockReset();
+  hyveonMock.wizard.bootstrapLockTable.mockReset();
+  hyveonMock.wizard.bootstrapTfvarsBucket.mockReset();
+  hyveonMock.wizard.simulateIamPermissions.mockReset();
   // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
   // effects — present on every render regardless of which step a test cares
   // about — never throw on an unmocked call.
-  gsdMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
-  gsdMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
-  gsdMock.wizard.complete.mockReset();
-  gsdMock.terraform.init.mockReset();
+  hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+  hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
+  hyveonMock.wizard.complete.mockReset();
+  hyveonMock.terraform.init.mockReset();
 });
 
 /** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
 async function advanceToPickCloud(): Promise<void> {
-  gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+  hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
   render(<FirstRunWizard />);
   await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -74,7 +74,7 @@ async function advanceToPickCloud(): Promise<void> {
 
 /** Advances the wizard from prerequisites through pick-cloud to the credentials step. */
 async function advanceToCredentials(): Promise<void> {
-  gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
+  hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
   await screen.findByText(/choose the aws credentials/i);
@@ -82,7 +82,7 @@ async function advanceToCredentials(): Promise<void> {
 
 /** Advances the wizard from prerequisites through pick-cloud and credentials (profile path) to the bootstrap step. */
 async function advanceToBootstrap(): Promise<void> {
-  gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
+  hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
   await advanceToCredentials();
   const select = await screen.findByLabelText('Profile');
   await userEvent.selectOptions(select, 'default');
@@ -92,10 +92,10 @@ async function advanceToBootstrap(): Promise<void> {
 
 /** Advances the wizard all the way to the terraform-init step, with all three bootstrap resources succeeding. */
 async function advanceToTerraformInit(): Promise<void> {
-  gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-  gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-  gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
-  gsdMock.terraform.init.mockImplementation(async function* () {
+  hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+  hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+  hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+  hyveonMock.terraform.init.mockImplementation(async function* () {
     // No chunks needed by default — individual tests override this.
   });
   await advanceToBootstrap();
@@ -111,16 +111,16 @@ afterEach(() => {
 
 describe('FirstRunWizard', () => {
   it('should check prerequisites on mount and render found tools once resolved', async () => {
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
 
     render(<FirstRunWizard />);
 
-    await waitFor(() => expect(gsdMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
 
   it('should disable Next while prerequisites are unsatisfied', async () => {
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
 
     render(<FirstRunWizard />);
 
@@ -129,7 +129,7 @@ describe('FirstRunWizard', () => {
   });
 
   it('should enable Next once both tools are satisfied', async () => {
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
 
     render(<FirstRunWizard />);
 
@@ -137,22 +137,22 @@ describe('FirstRunWizard', () => {
   });
 
   it('should re-invoke the prerequisite check when Re-check is clicked', async () => {
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
 
     render(<FirstRunWizard />);
-    await waitFor(() => expect(gsdMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
 
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
     await userEvent.click(screen.getByRole('button', { name: /re-check/i }));
 
-    await waitFor(() => expect(gsdMock.wizard.checkPrereqs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
 
   it('should disable Back on the first step', async () => {
-    gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
     render(<FirstRunWizard />);
-    await waitFor(() => expect(gsdMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
 
     expect(screen.getByRole('button', { name: /back/i })).toBeDisabled();
   });
@@ -163,16 +163,16 @@ describe('FirstRunWizard', () => {
   });
 
   it('should persist the selected cloud via wizard.state.save when advancing past pick-cloud', async () => {
-    gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
+    hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
     await advanceToPickCloud();
 
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
-    await waitFor(() => expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ activeCloud: 'aws' }));
+    await waitFor(() => expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ activeCloud: 'aws' }));
   });
 
   it('should show an error and stay on pick-cloud when saving the cloud choice fails', async () => {
-    gsdMock.wizard.saveState.mockRejectedValue(new Error('disk full'));
+    hyveonMock.wizard.saveState.mockRejectedValue(new Error('disk full'));
     await advanceToPickCloud();
 
     await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -192,7 +192,7 @@ describe('FirstRunWizard', () => {
 
   it('should disable Back while the cloud choice save is pending, to avoid a race with the step transition', async () => {
     let resolveSave!: (value: { wizardCompleted: boolean; activeCloud: 'aws' }) => void;
-    gsdMock.wizard.saveState.mockReturnValue(
+    hyveonMock.wizard.saveState.mockReturnValue(
       new Promise((resolve) => {
         resolveSave = resolve;
       }),
@@ -211,7 +211,7 @@ describe('FirstRunWizard', () => {
     it('should list AWS profiles on mount and populate the dropdown once on the credentials step', async () => {
       await advanceToCredentials();
 
-      await waitFor(() => expect(gsdMock.wizard.listAwsProfiles).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(hyveonMock.wizard.listAwsProfiles).toHaveBeenCalledTimes(1));
       expect(screen.getByRole('option', { name: 'default' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: 'personal' })).toBeInTheDocument();
     });
@@ -254,7 +254,7 @@ describe('FirstRunWizard', () => {
     });
 
     it('should persist the selected profile and region via wizard.state.save when advancing', async () => {
-      gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
+      hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
       await advanceToCredentials();
       const select = await screen.findByLabelText('Profile');
       await userEvent.selectOptions(select, 'default');
@@ -262,12 +262,12 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'default', region: 'us-east-1' } }),
+        expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'default', region: 'us-east-1' } }),
       );
     });
 
     it('should persist an operator-overridden region instead of the profile default', async () => {
-      gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'eu-west-1' } });
+      hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'eu-west-1' } });
       await advanceToCredentials();
       const select = await screen.findByLabelText('Profile');
       await userEvent.selectOptions(select, 'default');
@@ -278,12 +278,12 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'default', region: 'eu-west-1' } }),
+        expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'default', region: 'eu-west-1' } }),
       );
     });
 
     it('should switch to the paste form and save pasted credentials via wizard.aws.saveCredentials', async () => {
-      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
+      hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
       await advanceToCredentials();
 
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
@@ -293,18 +293,18 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveCredentials).toHaveBeenCalledWith({
+        expect(hyveonMock.wizard.saveCredentials).toHaveBeenCalledWith({
           accessKeyId: 'AKID',
           secretAccessKey: 'SECRET',
           region: 'us-west-2',
         }),
       );
-      expect(await screen.findByText(/saved as profile "gsd-pasted"/i)).toBeInTheDocument();
+      expect(await screen.findByText(/saved as profile "hyveon-pasted"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
     });
 
     it('should keep Next disabled after a successful paste save when no region was entered', async () => {
-      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
+      hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
       await advanceToCredentials();
 
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
@@ -312,19 +312,19 @@ describe('FirstRunWizard', () => {
       await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
       await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
 
-      expect(await screen.findByText(/saved as profile "gsd-pasted"/i)).toBeInTheDocument();
+      expect(await screen.findByText(/saved as profile "hyveon-pasted"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
     it('should invalidate a successful paste save when a field is edited afterward, disabling Next again', async () => {
-      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
+      hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
       await advanceToCredentials();
 
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
       await userEvent.type(screen.getByLabelText('Access key ID'), 'AKID');
       await userEvent.type(screen.getByLabelText('Secret access key'), 'SECRET');
       await userEvent.click(screen.getByRole('button', { name: /save credentials/i }));
-      await screen.findByText(/saved as profile "gsd-pasted"/i);
+      await screen.findByText(/saved as profile "hyveon-pasted"/i);
 
       await userEvent.type(screen.getByLabelText('Secret access key'), '2');
 
@@ -333,7 +333,7 @@ describe('FirstRunWizard', () => {
     });
 
     it('should show a paste error and keep Next disabled when saveCredentials fails', async () => {
-      gsdMock.wizard.saveCredentials.mockRejectedValue(new Error('OS keychain unavailable'));
+      hyveonMock.wizard.saveCredentials.mockRejectedValue(new Error('OS keychain unavailable'));
       await advanceToCredentials();
 
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
@@ -346,8 +346,8 @@ describe('FirstRunWizard', () => {
     });
 
     it('should persist the pasted profile via wizard.state.save when advancing after a successful paste', async () => {
-      gsdMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'gsd-pasted' });
-      gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'gsd-pasted', region: 'us-west-2' } });
+      hyveonMock.wizard.saveCredentials.mockResolvedValue({ profileName: 'hyveon-pasted' });
+      hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'hyveon-pasted', region: 'us-west-2' } });
       await advanceToCredentials();
 
       await userEvent.click(screen.getByRole('button', { name: /paste keys instead/i }));
@@ -360,7 +360,7 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'gsd-pasted', region: 'us-west-2' } }),
+        expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({ aws: { profile: 'hyveon-pasted', region: 'us-west-2' } }),
       );
     });
   });
@@ -373,24 +373,24 @@ describe('FirstRunWizard', () => {
     });
 
     it('should call all three bootstrap IPC methods with the current resource names when the bootstrap button is clicked', async () => {
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
+        expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
       );
-      expect(gsdMock.wizard.bootstrapLockTable).toHaveBeenCalledWith({ tableName: 'hyveon-tflock' });
-      expect(gsdMock.wizard.bootstrapTfvarsBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
+      expect(hyveonMock.wizard.bootstrapLockTable).toHaveBeenCalledWith({ tableName: 'hyveon-tflock' });
+      expect(hyveonMock.wizard.bootstrapTfvarsBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
     });
 
     it('should enable Next once all three resources report created or exists', async () => {
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'exists' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'exists' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -399,9 +399,9 @@ describe('FirstRunWizard', () => {
     });
 
     it('should keep Next disabled and show a failure message when one resource fails', async () => {
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -411,7 +411,7 @@ describe('FirstRunWizard', () => {
     });
 
     it('should run the IAM check via wizard.iam.simulate and render a passed result', async () => {
-      gsdMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed' });
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'passed' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /check permissions/i }));
@@ -420,10 +420,10 @@ describe('FirstRunWizard', () => {
     });
 
     it('should not block Next on a failed or missing IAM check — only the three bootstrap resources gate progression', async () => {
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'missing', policyJson: '{}' });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'missing', policyJson: '{}' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -435,10 +435,10 @@ describe('FirstRunWizard', () => {
     });
 
     it('should persist the current resource names via wizard.state.save when advancing past bootstrap', async () => {
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false });
       await advanceToBootstrap();
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
@@ -446,7 +446,7 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({
+        expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
           bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', tfvarsBucket: 'hyveon-tfvars' },
         }),
       );
@@ -461,11 +461,11 @@ describe('FirstRunWizard', () => {
     });
 
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
-      gsdMock.terraform.init.mockImplementation(async function* () {
+      hyveonMock.terraform.init.mockImplementation(async function* () {
         yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
       });
-      gsdMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       const onComplete = vi.fn();
       render(<FirstRunWizard onComplete={onComplete} />);
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
@@ -476,9 +476,9 @@ describe('FirstRunWizard', () => {
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByLabelText('Terraform state bucket name');
-      gsdMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      gsdMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -486,21 +486,21 @@ describe('FirstRunWizard', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
-      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       expect(onComplete).toHaveBeenCalledTimes(1);
     });
 
     it('should persist each step via wizard.progress.save as the wizard advances', async () => {
       await advanceToBootstrap();
 
-      await waitFor(() => expect(gsdMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'bootstrap' }));
+      await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'bootstrap' }));
     });
   });
 
   describe('resume-on-mount', () => {
     it('should start at prerequisites when wizard.progress.get resolves to the prerequisites step', async () => {
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'prerequisites' });
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'prerequisites' });
 
       render(<FirstRunWizard />);
 
@@ -508,9 +508,9 @@ describe('FirstRunWizard', () => {
     });
 
     it('should jump straight to the recorded step when wizard.progress.get resolves to a later step', async () => {
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      gsdMock.wizard.listAwsProfiles.mockResolvedValue(SAMPLE_PROFILES);
-      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'credentials' });
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.listAwsProfiles.mockResolvedValue(SAMPLE_PROFILES);
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'credentials' });
 
       render(<FirstRunWizard />);
 
@@ -518,8 +518,8 @@ describe('FirstRunWizard', () => {
     });
 
     it('should stay on prerequisites when wizard.progress.get rejects', async () => {
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      gsdMock.wizard.getProgress.mockRejectedValue(new Error('state file corrupt'));
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.getProgress.mockRejectedValue(new Error('state file corrupt'));
 
       render(<FirstRunWizard />);
 
@@ -527,20 +527,20 @@ describe('FirstRunWizard', () => {
     });
 
     it('should clamp a recorded terraform-init step down to bootstrap, rather than auto-running terraform init on mount', async () => {
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      gsdMock.wizard.getProgress.mockResolvedValue({ step: 'terraform-init' });
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'terraform-init' });
 
       render(<FirstRunWizard />);
 
       expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
-      expect(gsdMock.terraform.init).not.toHaveBeenCalled();
+      expect(hyveonMock.terraform.init).not.toHaveBeenCalled();
     });
 
     it('should not save progress before the resume check has settled, so a fast render never clobbers a resumed step', async () => {
-      gsdMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       let resolveProgress!: (value: { step: 'credentials' }) => void;
-      gsdMock.wizard.getProgress.mockReturnValue(
+      hyveonMock.wizard.getProgress.mockReturnValue(
         new Promise((resolve) => {
           resolveProgress = resolve;
         }),
@@ -549,11 +549,11 @@ describe('FirstRunWizard', () => {
       render(<FirstRunWizard />);
       // The mount-time synchronous pass must not have persisted anything yet —
       // resume hasn't settled, so writing here could race the pending read.
-      expect(gsdMock.wizard.saveProgress).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.saveProgress).not.toHaveBeenCalled();
 
       resolveProgress({ step: 'credentials' });
 
-      await waitFor(() => expect(gsdMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
+      await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
     });
   });
 });

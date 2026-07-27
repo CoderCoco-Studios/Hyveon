@@ -16,7 +16,7 @@ vi.mock('../components/DiagnosticsPanel.js', () => ({
   DiagnosticsPanel: () => <div data-testid="diagnostics-panel">DiagnosticsPanel</div>,
 }));
 
-const gsdMock = {
+const hyveonMock = {
   wizard: {
     checkPrereqs: vi.fn(),
     getState: vi.fn(),
@@ -35,7 +35,7 @@ const gsdMock = {
     init: vi.fn(),
   },
 };
-vi.stubGlobal('gsd', gsdMock);
+vi.stubGlobal('hyveon', hyveonMock);
 
 import { SettingsPage } from './settings.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
@@ -58,21 +58,21 @@ describe('SettingsPage', () => {
       watchdog_idle_checks: 4,
       watchdog_min_packets: 100,
     });
-    gsdMock.wizard.checkPrereqs.mockReset().mockResolvedValue(SATISFIED);
-    gsdMock.wizard.getState
+    hyveonMock.wizard.checkPrereqs.mockReset().mockResolvedValue(SATISFIED);
+    hyveonMock.wizard.getState
       .mockReset()
       .mockResolvedValue({ wizardCompleted: true, activeCloud: 'aws', aws: { profile: 'default', region: 'us-east-1' } });
-    gsdMock.wizard.saveState.mockReset().mockResolvedValue({ wizardCompleted: true });
-    gsdMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
-    gsdMock.wizard.saveCredentials.mockReset();
-    gsdMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
-    gsdMock.wizard.bootstrapLockTable.mockReset().mockResolvedValue({ status: 'exists' });
-    gsdMock.wizard.bootstrapTfvarsBucket.mockReset().mockResolvedValue({ status: 'exists' });
-    gsdMock.wizard.simulateIamPermissions.mockReset();
-    gsdMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
-    gsdMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
-    gsdMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
-    gsdMock.terraform.init.mockReset().mockImplementation(async function* () {
+    hyveonMock.wizard.saveState.mockReset().mockResolvedValue({ wizardCompleted: true });
+    hyveonMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
+    hyveonMock.wizard.saveCredentials.mockReset();
+    hyveonMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
+    hyveonMock.wizard.bootstrapLockTable.mockReset().mockResolvedValue({ status: 'exists' });
+    hyveonMock.wizard.bootstrapTfvarsBucket.mockReset().mockResolvedValue({ status: 'exists' });
+    hyveonMock.wizard.simulateIamPermissions.mockReset();
+    hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+    hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
+    hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
+    hyveonMock.terraform.init.mockReset().mockImplementation(async function* () {
       // No chunks needed by default — the Reconfigure tests below just need it to succeed.
     });
   });
@@ -109,7 +109,7 @@ describe('SettingsPage', () => {
   });
 
   it('should show "Not detected" when the Terraform prerequisite check fails', async () => {
-    gsdMock.wizard.checkPrereqs.mockRejectedValue(new Error('terraform not on PATH'));
+    hyveonMock.wizard.checkPrereqs.mockRejectedValue(new Error('terraform not on PATH'));
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(await screen.findByText(/not detected/i)).toBeInTheDocument();
   });
@@ -154,18 +154,18 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
       await waitFor(() =>
-        expect(gsdMock.wizard.saveState).toHaveBeenCalledWith({
+        expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
           aws: { profile: 'default', region: 'eu-west-1' },
         }),
       );
       // pick-cloud and bootstrap were never opened via Edit — omitted from
       // the payload entirely, not resubmitted with their current (unedited)
       // values, so the stored `activeCloud`/`bootstrap` are untouched.
-      expect(gsdMock.wizard.saveState).toHaveBeenCalledTimes(1);
+      expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1);
     });
 
     it('should commit only the edited step, and rehydrate stored bootstrap resource names into terraform init, when the bootstrap step is left collapsed', async () => {
-      gsdMock.wizard.getState.mockResolvedValue({
+      hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
         activeCloud: 'aws',
         aws: { profile: 'default', region: 'us-east-1' },
@@ -183,16 +183,16 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
       await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
-      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
-      expect(gsdMock.wizard.saveState).not.toHaveBeenCalled();
-      expect(gsdMock.terraform.init).toHaveBeenCalledWith(
+      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
+      expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
+      expect(hyveonMock.terraform.init).toHaveBeenCalledWith(
         { bucket: 'renamed-tfstate', region: 'us-east-1', dynamodbTable: 'renamed-tflock' },
         expect.anything(),
       );
     });
 
     it('should not clobber stored config on Finish when the prefill itself fails and nothing was edited', async () => {
-      gsdMock.wizard.getState.mockRejectedValue(new Error('IPC unavailable'));
+      hyveonMock.wizard.getState.mockRejectedValue(new Error('IPC unavailable'));
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
       await screen.findByText(/choose your cloud is already configured/i);
@@ -205,11 +205,11 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
       await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
-      await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       // Every step stayed collapsed (never opened via Edit), so even though
       // the prefill never populated real values, nothing gets sent to
       // overwrite what's actually stored.
-      expect(gsdMock.wizard.saveState).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
     });
 
     it('should commit nothing and return to Settings when Reconfigure is cancelled mid-flow', async () => {
@@ -219,8 +219,8 @@ describe('SettingsPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
 
-      expect(gsdMock.wizard.saveState).not.toHaveBeenCalled();
-      expect(gsdMock.wizard.complete).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
+      expect(hyveonMock.wizard.complete).not.toHaveBeenCalled();
       expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
     });
   });

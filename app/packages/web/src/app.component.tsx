@@ -19,7 +19,7 @@ import { FirstRunWizard } from './components/first-run-wizard/first-run-wizard.c
 
 /**
  * Fetches the wizard's completion flag once on mount. Defaults to `true`
- * (i.e. skip the wizard) on any failure — a missing `window.gsd` bridge or a
+ * (i.e. skip the wizard) on any failure — a missing `window.hyveon` bridge or a
  * failed IPC call must never lock an otherwise-working install out of its
  * own dashboard. Returns `null` while the check is in flight.
  */
@@ -28,17 +28,17 @@ function useWizardCompleted(): boolean | null {
 
   useEffect(() => {
     let cancelled = false;
-    // Optional chaining matters here, not just the `window.gsd` presence
-    // check: a `window.gsd` stub built before this namespace existed (e.g.
+    // Optional chaining matters here, not just the `window.hyveon` presence
+    // check: a `window.hyveon` stub built before this namespace existed (e.g.
     // the chromium e2e tier's stub bridge) has no `.wizard` property, and
-    // `window.gsd.wizard.getState()` would throw synchronously — before
+    // `window.hyveon.wizard.getState()` would throw synchronously — before
     // there's even a promise to `.catch()` — permanently stalling this
     // component at `wizardCompleted === null` (renders nothing, forever).
-    if (!window.gsd?.wizard) {
+    if (!window.hyveon?.wizard) {
       setWizardCompleted(true);
       return;
     }
-    window.gsd.wizard
+    window.hyveon.wizard
       .getState()
       .then((state) => {
         if (!cancelled) setWizardCompleted(state.wizardCompleted);

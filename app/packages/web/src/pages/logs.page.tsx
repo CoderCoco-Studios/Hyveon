@@ -97,8 +97,8 @@ function HighlightedLine({ text, query }: { text: string; query: string }) {
 
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
- * game. Fetches an initial snapshot via `window.gsd.logs.get`, then consumes
- * a live IPC stream via `for await (… of window.gsd.logs.stream(game, signal))`,
+ * game. Fetches an initial snapshot via `window.hyveon.logs.get`, then consumes
+ * a live IPC stream via `for await (… of window.hyveon.logs.stream(game, signal))`,
  * cancelling through an `AbortController`. Surfaces the stream through:
  *
  *   - A LIVE/PAUSED status badge (pulsing cyan / muted slate).
@@ -153,8 +153,8 @@ export function LogsPage() {
 
   const startStream = useCallback(
     (game: string) => {
-      if (!window.gsd) {
-        setError('IPC bridge (window.gsd) is not available in this context.');
+      if (!window.hyveon) {
+        setError('IPC bridge (window.hyveon) is not available in this context.');
         return;
       }
       stopStream();
@@ -163,7 +163,7 @@ export function LogsPage() {
 
       void (async () => {
         try {
-          for await (const chunk of window.gsd!.logs.stream(game, ac.signal)) {
+          for await (const chunk of window.hyveon!.logs.stream(game, ac.signal)) {
             if (ac.signal.aborted) break;
             appendLine(chunk);
           }
@@ -224,12 +224,12 @@ export function LogsPage() {
 
     let cancelled = false;
     void (async () => {
-      if (!window.gsd) {
-        if (!cancelled) setError('IPC bridge (window.gsd) is not available in this context.');
+      if (!window.hyveon) {
+        if (!cancelled) setError('IPC bridge (window.hyveon) is not available in this context.');
         return;
       }
       try {
-        const data = await window.gsd.logs.get(selectedGame);
+        const data = await window.hyveon.logs.get(selectedGame);
         if (cancelled) return;
         const seeded: LogLine[] = data.lines.map((text) => ({
           text,

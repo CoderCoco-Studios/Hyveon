@@ -144,8 +144,8 @@ describe('CredentialsStep', () => {
     });
 
     it('should show a saved confirmation once the paste flow succeeds', () => {
-      render(<CredentialsStep {...pasteProps({ pastedProfileName: 'gsd-pasted' })} />);
-      expect(screen.getByText(/saved as profile "gsd-pasted"/i)).toBeInTheDocument();
+      render(<CredentialsStep {...pasteProps({ pastedProfileName: 'hyveon-pasted' })} />);
+      expect(screen.getByText(/saved as profile "hyveon-pasted"/i)).toBeInTheDocument();
     });
   });
 });

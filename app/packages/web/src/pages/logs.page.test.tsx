@@ -12,17 +12,17 @@ vi.mock('../api.service.js', () => ({
   api: apiMock,
 }));
 
-// Stub window.gsd.logs so the component can open IPC streams without a real
+// Stub window.hyveon.logs so the component can open IPC streams without a real
 // Electron main process. `stream(game, signal)` returns an async iterable; the
 // default stub (set in beforeEach) yields nothing so tests drive off the
 // seeded `get` snapshot. Individual tests override `stream` to emit chunks.
-const gsdMock = {
+const hyveonMock = {
   logs: {
     get: vi.fn(),
     stream: vi.fn(),
   },
 };
-vi.stubGlobal('gsd', gsdMock);
+vi.stubGlobal('hyveon', hyveonMock);
 
 import { LogsPage } from './logs.page.js';
 
@@ -50,10 +50,10 @@ describe('LogsPage', () => {
     apiMock.games.mockResolvedValue({
       games: [{ name: 'minecraft', declared: true, deployed: true }],
     });
-    gsdMock.logs.get.mockResolvedValue({ game: 'minecraft', lines: SAMPLE_LINES });
+    hyveonMock.logs.get.mockResolvedValue({ game: 'minecraft', lines: SAMPLE_LINES });
     // Default stream emits nothing and ends immediately — tests assert on the
     // seeded snapshot. Override per-test to drive live chunks through `for await`.
-    gsdMock.logs.stream.mockImplementation(async function* () {});
+    hyveonMock.logs.stream.mockImplementation(async function* () {});
   });
 
   it('should render the Server Logs heading and the LIVE badge', async () => {
@@ -136,17 +136,17 @@ describe('LogsPage', () => {
     expect(await screen.findByText(/^5 lines · oldest /)).toBeInTheDocument();
   });
 
-  it('should call window.gsd.logs.get with the selected game on mount', async () => {
+  it('should call window.hyveon.logs.get with the selected game on mount', async () => {
     renderWithProviders(<LogsPage />);
 
     await waitFor(() => {
       expect(apiMock.games).toHaveBeenCalled();
-      expect(gsdMock.logs.get).toHaveBeenCalledWith('minecraft');
+      expect(hyveonMock.logs.get).toHaveBeenCalledWith('minecraft');
     });
   });
 
   it('should append live chunks yielded by the stream iterator after the seeded snapshot', async () => {
-    gsdMock.logs.stream.mockImplementation(async function* () {
+    hyveonMock.logs.stream.mockImplementation(async function* () {
       yield '2026-05-03T12:00:05Z INFO Live chunk one';
       yield '2026-05-03T12:00:06Z ERROR Live chunk two';
     });
@@ -162,7 +162,7 @@ describe('LogsPage', () => {
     renderWithProviders(<LogsPage />);
 
     await waitFor(() => {
-      expect(gsdMock.logs.stream).toHaveBeenCalledWith('minecraft', expect.any(AbortSignal));
+      expect(hyveonMock.logs.stream).toHaveBeenCalledWith('minecraft', expect.any(AbortSignal));
     });
   });
 });
