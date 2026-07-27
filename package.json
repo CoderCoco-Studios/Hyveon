@@ -38,7 +38,7 @@
     "scripts:tfvars-sync": "npm run tfvars-sync  -w @hyveon/scripts",
     "desktop:dev": "electron-vite dev",
     "desktop:build": "electron-vite build",
-    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml",
+    "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --publish never",
     "icons:generate": "node build/generate-icons.mjs"
   },
   "allowScripts": {

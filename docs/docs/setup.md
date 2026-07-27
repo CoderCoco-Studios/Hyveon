@@ -418,6 +418,11 @@ above.
 
 ### Option B — packaged Electron app (distributable installer)
 
+Prefer to just download and run the app instead of building it? See
+[Install](./install.md) for per-OS steps to get past the unsigned-build
+warning — the plan to remove that warning entirely lives in the
+[code-signing roadmap](./code-signing-roadmap.md).
+
 `npm run desktop:package` produces a platform-native installer via
 electron-builder (config: `electron-builder.yml`). Run it from the repo root:
 

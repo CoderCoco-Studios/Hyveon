@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import path from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import type { INestMicroservice } from '@nestjs/common';
 import { MicroserviceOptions } from '@nestjs/microservices';
 import { AppModule } from './app.module.js';
 import { applyFixPath } from './fix-path-bootstrap.js';
@@ -35,8 +36,12 @@ createLogger(path.join(app.getPath('userData'), 'logs'));
  * — without this, `ipcRenderer.invoke` calls from the renderer hang forever
  * because `ElectronIPCTransport.listen()` never calls `ipcMain.handle` itself
  * (see #277).
+ *
+ * Returns the Nest application context so `electron-entry.ts` can resolve
+ * providers (e.g. `ElectronStoreService` for `initUpdater`) from the same DI
+ * graph the IPC controllers use, rather than constructing a second instance.
  */
-export async function bootstrap(): Promise<void> {
+export async function bootstrap(): Promise<INestMicroservice> {
   const strategy = new BridgedElectronIPCTransport();
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
     strategy,
@@ -45,4 +50,6 @@ export async function bootstrap(): Promise<void> {
   await app.listen();
 
   await registerIpcMainBridges(strategy);
+
+  return app;
 }

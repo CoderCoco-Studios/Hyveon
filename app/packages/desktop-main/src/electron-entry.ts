@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
 import { electronRendererUrl, isTestMode } from './env.js';
+import { initUpdater } from './updater.js';
+import { ElectronStoreService } from './services/ElectronStoreService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
@@ -65,10 +67,12 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   bootstrap()
-    .then(() => {
+    .then((nestApp) => {
       if (isTestMode()) {
         console.log('[desktop-main] HYVEON_TEST_MODE active — test seam enabled');
       }
+
+      void initUpdater(nestApp.get(ElectronStoreService));
 
       createWindow();
 

@@ -16,6 +16,8 @@ const {
   mockGetAllWindows,
   mockExistsSync,
   bootstrapMock,
+  initUpdaterMock,
+  fakeNestApp,
   whenReadyCallbacks,
   onCallbacks,
 } = vi.hoisted(() => {
@@ -62,8 +64,12 @@ const {
   /** `BrowserWindow.getAllWindows()` static method used by the activate handler. */
   MockBrowserWindow.getAllWindows = mockGetAllWindows;
 
+  /** Fake Nest microservice app returned by `bootstrap()`, standing in for the real DI container. */
+  const fakeNestApp = { get: vi.fn() };
   /** Spy for `bootstrap` imported from `./main.js`. */
-  const bootstrapMock = vi.fn().mockResolvedValue(undefined);
+  const bootstrapMock = vi.fn().mockResolvedValue(fakeNestApp);
+  /** Spy for `initUpdater` imported from `./updater.js`. */
+  const initUpdaterMock = vi.fn().mockResolvedValue(undefined);
 
   return {
     mockLoadURL,
@@ -75,6 +81,8 @@ const {
     mockGetAllWindows,
     mockExistsSync,
     bootstrapMock,
+    initUpdaterMock,
+    fakeNestApp,
     whenReadyCallbacks,
     onCallbacks,
   };
@@ -98,6 +106,10 @@ vi.mock('./main.js', () => ({
   bootstrap: bootstrapMock,
 }));
 
+vi.mock('./updater.js', () => ({
+  initUpdater: initUpdaterMock,
+}));
+
 /** Flush the micro-task / timer queue so async chains fully settle. */
 async function flushPromises(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -108,7 +120,8 @@ describe('electron-entry', () => {
     mockLoadURL.mockResolvedValue(undefined);
     mockLoadFile.mockResolvedValue(undefined);
     mockQuit.mockImplementation(() => undefined);
-    bootstrapMock.mockResolvedValue(undefined);
+    bootstrapMock.mockResolvedValue(fakeNestApp);
+    initUpdaterMock.mockResolvedValue(undefined);
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
 

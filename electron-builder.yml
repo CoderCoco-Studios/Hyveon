@@ -7,6 +7,16 @@ directories:
   output: release
   app: "."
 
+# Embeds electron-updater's app-update.yml feed metadata into every packaged
+# target. Release *publishing* stays owned by .github/workflows/package.yml's
+# tag-triggered `softprops/action-gh-release` job — desktop:package always
+# runs with `--publish never` (see package.json) so electron-builder itself
+# never uploads to GitHub Releases, even though GH_TOKEN is present in CI.
+publish:
+  provider: github
+  owner: CoderCoco
+  repo: Hyveon
+
 files:
   - out/**
   # @cdktf/hcl2json is deliberately NOT bundled into out/main (see the

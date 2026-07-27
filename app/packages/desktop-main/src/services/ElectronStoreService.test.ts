@@ -285,6 +285,61 @@ describe('ElectronStoreService — activeCloud persists across a simulated relau
 });
 
 // ---------------------------------------------------------------------------
+// enableAutoUpdate — absent-key default and round-trip
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — enableAutoUpdate', () => {
+  it('should read undefined (disabled) for enableAutoUpdate in the Map fallback when never set', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+
+    expect(service.get('enableAutoUpdate')).toBeUndefined();
+  });
+
+  it('should round-trip enableAutoUpdate through the Map fallback', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+
+    service.set('enableAutoUpdate', true);
+
+    expect(service.get('enableAutoUpdate')).toBe(true);
+  });
+
+  it('should read undefined (disabled) for enableAutoUpdate in the electron-store backing when never set', () => {
+    const sharedMockStore = makeStatefulMockStore();
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { readIsElectron(): boolean },
+      'readIsElectron',
+    ).mockReturnValue(true);
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { createStore(): Store<AppStoreSchema> },
+      'createStore',
+    ).mockReturnValue(sharedMockStore);
+
+    const service = new ElectronStoreService(makeSafeStorage());
+
+    expect(service.get('enableAutoUpdate')).toBeUndefined();
+  });
+
+  it('should round-trip enableAutoUpdate through the electron-store backing across a simulated relaunch', () => {
+    const sharedMockStore = makeStatefulMockStore();
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { readIsElectron(): boolean },
+      'readIsElectron',
+    ).mockReturnValue(true);
+    vi.spyOn(
+      ElectronStoreService.prototype as unknown as { createStore(): Store<AppStoreSchema> },
+      'createStore',
+    ).mockReturnValue(sharedMockStore);
+
+    const firstLaunch = new ElectronStoreService(makeSafeStorage());
+    firstLaunch.set('enableAutoUpdate', true);
+
+    const secondLaunch = new ElectronStoreService(makeSafeStorage());
+
+    expect(secondLaunch.get('enableAutoUpdate')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Pasted credentials — getPastedCredentials / setPastedCredentials
 // ---------------------------------------------------------------------------
 
