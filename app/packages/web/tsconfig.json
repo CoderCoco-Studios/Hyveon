@@ -2,13 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "noEmit": true,
     "composite": false,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

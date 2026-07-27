@@ -24,6 +24,27 @@ jobs:
 
       - run: npm run app:lint
 
+  # Nothing else in CI ran the TypeScript compiler: `app:test` transpiles
+  # without typechecking, and both `desktop:build` and `desktop:package` go
+  # through electron-vite/esbuild, which strips types rather than checking
+  # them. `app:build` runs `tsc` over shared, cloud-aws, desktop-main and
+  # desktop-preload, then `tsc --noEmit` over web, so a type error in any
+  # workspace now fails the PR instead of surfacing at runtime.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - run: npm run app:build
+
   tflint:
     runs-on: ubuntu-latest
     defaults:

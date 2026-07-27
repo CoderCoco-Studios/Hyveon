@@ -6,11 +6,25 @@ import { Button } from '@/components/ui/button.component';
 import { TableCell, TableRow } from '@/components/ui/table.component';
 import { cn } from '@/lib/utils.utils';
 
-/** Maps an {@link AuditAction} to the badge color variant used in the audit log. */
-const ACTION_BADGE_VARIANT: Record<AuditAction, 'success' | 'warning' | 'destructive'> = {
+/**
+ * Maps an {@link AuditAction} to the badge color variant used in the audit log.
+ *
+ * Exhaustive by construction: `Record<AuditAction, …>` means adding a new
+ * action to the union is a compile error here until a colour is chosen for it,
+ * rather than silently falling through to the Badge's `default` variant.
+ */
+const ACTION_BADGE_VARIANT: Record<AuditAction, 'success' | 'warning' | 'destructive' | 'cyan' | 'secondary'> = {
+  // tfvars edits — green for additive, amber for mutating, red for removal.
   add: 'success',
   edit: 'warning',
   remove: 'destructive',
+  // Terraform lifecycle — cyan for the read-only/approval steps, and the
+  // warning/destructive colours for the two that actually mutate infra.
+  plan: 'cyan',
+  approve: 'cyan',
+  apply: 'warning',
+  destroy: 'destructive',
+  rollback: 'secondary',
 };
 
 /** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */

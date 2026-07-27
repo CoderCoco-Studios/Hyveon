@@ -344,7 +344,15 @@ export interface DriftReport {
  * Mirrors `AuditAction` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.
  */
-export type AuditAction = 'add' | 'edit' | 'remove' | 'plan';
+export type AuditAction =
+  | 'add'
+  | 'edit'
+  | 'remove'
+  | 'plan'
+  | 'approve'
+  | 'apply'
+  | 'destroy'
+  | 'rollback';
 
 /**
  * A single row in the DynamoDB audit log, recording who changed a game
