@@ -278,7 +278,7 @@ If the plugin isn't loaded in the current environment, fetch the skill body from
 
 ## PR Review Workflow
 
-Copilot runs automatically on every push. Most suggestions are not actionable — expect to apply ~1 in 3.
+Most suggestions are not actionable — expect to apply ~1 in 3.
 
 - **Fix** if: genuinely buggy, insecure, crashes, or incorrect logic.
 - **Decline** if: style, naming, "consider", missing non-essential comment, minor nit — one-line reply ("Declined — stylistic, leaving as-is.") then resolve the thread.
