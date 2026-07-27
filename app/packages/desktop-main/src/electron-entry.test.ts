@@ -189,6 +189,19 @@ describe('electron-entry', () => {
     expect(initUpdaterMock).toHaveBeenCalledWith(fakeStore);
   });
 
+  it('should still open the window if initUpdater rejects, since it is void-called and must never block startup', async () => {
+    vi.resetModules();
+    vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+    initUpdaterMock.mockRejectedValueOnce(new Error('boom'));
+
+    await import('./electron-entry.js');
+    await flushPromises();
+    whenReadyCallbacks[0]!();
+    await flushPromises();
+
+    expect(MockBrowserWindow).toHaveBeenCalledOnce();
+  });
+
   it('should call win.loadURL() with the dev server URL when ELECTRON_RENDERER_URL is set', async () => {
     vi.resetModules();
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173');

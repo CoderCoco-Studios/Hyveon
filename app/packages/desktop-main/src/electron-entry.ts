@@ -72,7 +72,13 @@ app.whenReady().then(() => {
         console.log('[desktop-main] HYVEON_TEST_MODE active — test seam enabled');
       }
 
-      void initUpdater(nestApp.get(ElectronStoreService));
+      // initUpdater is designed to never reject (see updater.ts), but this
+      // catch is a second, independent guarantee that a startup-blocking
+      // unhandled rejection can never reach the Electron main process from
+      // here, even if that contract is ever violated.
+      initUpdater(nestApp.get(ElectronStoreService)).catch((err: unknown) => {
+        console.error('[desktop-main] updater init failed:', err);
+      });
 
       createWindow();
 
