@@ -54,17 +54,19 @@ nonexistent relative to**, the ones your existing state lives in.
 A bare `terraform init` against a bucket/table that doesn't exist yet will
 **error out loudly** rather than silently standing up an empty backend — the
 S3 backend never auto-creates its bucket or lock table. The silent-orphan
-risk instead comes from **`./setup.sh`** (or just its bootstrap step): it
-derives `{project_name}-tf-state`/`{project_name}-tf-locks` from whatever
+risk instead comes from the desktop app's **bootstrap step** (the setup
+wizard, or Settings → Reconfigure on an already-set-up install): it derives
+`{project_name}-tf-state`/`{project_name}-tf-locks` from whatever
 `project_name` is currently set to and idempotently creates them if missing,
-then runs `terraform init` against that new backend. Re-running `./setup.sh`
-after changing `project_name` on an already-provisioned stack will therefore
-happily create a brand-new empty bucket/table pair and point Terraform at it
-— your real infrastructure's state file is left behind, untouched and
-invisible to future `plan`/`apply` runs (effectively orphaned, not migrated).
+then runs `terraform init` against that new backend. Re-running that
+bootstrap step after changing `project_name` on an already-provisioned stack
+will therefore happily create a brand-new empty bucket/table pair and point
+Terraform at it — your real infrastructure's state file is left behind,
+untouched and invisible to future `plan`/`apply` runs (effectively orphaned,
+not migrated).
 
-Before running `./setup.sh` (or `terraform plan`/`apply` directly) with the
-new `project_name`, pick one:
+Before re-running the app's bootstrap step (or `terraform plan`/`apply`
+directly) with the new `project_name`, pick one:
 
 - **(a) Keep the existing backend.** Pin `project_name = "game-servers"`
   (the old default, prior to the `hyveon` rebrand tracked in
@@ -79,8 +81,8 @@ new `project_name`, pick one:
   below.
 - **(b) Deliberately migrate the backend.** If you want the bucket/table
   names themselves to match the new `project_name`, create the new S3
-  bucket + DynamoDB table first (don't let a re-run of `./setup.sh`'s
-  bootstrap step silently create them against empty state), back up the
+  bucket + DynamoDB table first (don't let a re-run of the app's bootstrap
+  step silently create them against empty state), back up the
   existing state object in S3, then run `terraform init -migrate-state`
   pointing at the new backend config — let Terraform copy the state over
   itself rather than manually copying the state object or the lock table
@@ -116,41 +118,35 @@ can't paper over a missing bucket the way `apply` can for a resource: **step
 such bucket error the moment `project_name` changes and no matching bucket
 exists yet.
 
-Worse, if you run `./setup.sh` again after changing `project_name` (e.g. with
-`GSD_TFVARS_BACKEND=s3`), its `bootstrap_tfvars_backend` step derives the
-bucket name the same way (off the *new* `project_name`) and will happily
-`terraform apply` the `terraform/bootstrap/` module to create a brand-new
-`{new_project_name}-tfvars` bucket and overwrite `.gsd/tfvars-bucket` to
-point at it. It then checks whether `terraform/terraform.tfvars` exists
-locally on disk: if it does, and the new bucket doesn't already have an
-object at the `terraform.tfvars` key, it uploads that local file to the new
-bucket. So the new bucket ends up seeded with **whatever
-`terraform/terraform.tfvars` happens to be checked out locally at the moment
-you re-run `./setup.sh`** — which may be stale, may belong to a different
-project entirely, or may not exist at all (in which case the new bucket
-stays empty). Don't assume the "real" tfvars content silently stayed behind
-in the old bucket — **always run `aws s3 cp s3://<bucket>/terraform.tfvars -`
-(or `aws s3api head-object`) against the bucket named in `.gsd/tfvars-bucket`
-to verify what actually landed there** before trusting the rewritten marker
-for any `terraform plan`/`apply`.
+Worse, if you re-run the app's bootstrap step again after changing
+`project_name`, it derives the tfvars bucket name the same way (off the
+*new* `project_name`) and will happily bootstrap a brand-new
+`{new_project_name}-tfvars` bucket. If you're instead bootstrapping manually
+via `terraform/bootstrap/` (see the [S3 tfvars storage guide](/guides/s3-tfvars)),
+the same risk applies — it derives the bucket name off whatever
+`project_name` is current at the time. Don't assume the "real" tfvars
+content silently stayed behind in the old bucket — **always verify which
+bucket you're actually pointed at** (`aws s3 cp s3://<bucket>/terraform.tfvars -`
+or `aws s3api head-object`) before trusting a freshly-bootstrapped bucket for
+any `terraform plan`/`apply`.
 
-Before running `./setup.sh` (or `terraform plan`/`apply` directly) with the
-new `project_name`, pick one here too:
+Before re-running the app's bootstrap step (or `terraform plan`/`apply`
+directly) with the new `project_name`, pick one here too:
 
 - **(a) Keep the existing tfvars bucket.** Set
   `tfvars_bucket_name = "<old-project-name>-tfvars"` in `terraform.tfvars`
   (see the commented-out example in `terraform.tfvars.example`) so the data
   source keeps resolving to the bucket `terraform/bootstrap/` already
   created, regardless of what `project_name` becomes. Leave
-  `.gsd/tfvars-bucket` (if present) pointing at that same bucket name — don't
-  let a `./setup.sh` re-run rewrite it.
+  `.hyveon/tfvars-bucket` (if present) pointing at that same bucket name — don't
+  let a re-run of the app's bootstrap step rewrite it.
 - **(b) Migrate the tfvars bucket too.** Create the new
   `{new_project_name}-tfvars` bucket (via `terraform/bootstrap/`, or let
-  `./setup.sh`'s bootstrap step do it), then copy the existing
+  the app's bootstrap step do it), then copy the existing
   `terraform.tfvars` object across — `aws s3 cp
   s3://<old-project-name>-tfvars/terraform.tfvars
   s3://<new-project-name>-tfvars/terraform.tfvars` — and update
-  `.gsd/tfvars-bucket` to the new bucket name before running `terraform plan`.
+  `.hyveon/tfvars-bucket` to the new bucket name before running `terraform plan`.
   Confirm the copied object round-trips (`scripts/tfvars-sync.ts diff`, or a
   manual `aws s3 cp ... -` and eyeball it) before treating the migration as
   done.
@@ -295,8 +291,8 @@ aws secretsmanager describe-secret --secret-id "<new-project-name>/discord/publi
 - Invoke `/server-status` in Discord once credentials are re-entered to
   confirm the interactions Lambda can verify signatures against the new
   public-key secret. To confirm the desktop app itself picked up the new
-  secrets, hit `GET /api/discord/config` and check `botTokenSet` /
-  `publicKeySet` are both `true`.
+  secrets, check the Discord Credentials tab and confirm `botTokenSet` /
+  `publicKeySet` both show as set.
 
 :::danger The DynamoDB table (`${project_name}-discord`) is wiped, not migrated
 
@@ -319,11 +315,11 @@ old table to the new one.
 
 Before applying, do one of:
 
-- **Record the config first.** Hit `GET /api/discord/config` (or read the
-  guild allowlist / admin / per-game permission fields off the desktop app's
-  Discord page) and write down every value before running `terraform apply`.
-  After the apply, re-enter the same values through the desktop app's
-  Discord page — this repopulates the row via the normal `PUT` path.
+- **Record the config first.** Read the guild allowlist / admin / per-game
+  permission fields off the desktop app's Discord page and write down every
+  value before running `terraform apply`. After the apply, re-enter the same
+  values through the desktop app's Discord page — this repopulates the row
+  via the normal save path.
 - **Reseed via tfvars — partial only.** `aws_dynamodb_table_item.discord_config_seed`
   only writes `clientId` into the `CONFIG#discord` row (from
   `discord_application_id`); `allowedGuilds`, `admins`, and `gamePermissions`
@@ -336,8 +332,9 @@ Before applying, do one of:
   migration and must be re-entered manually through the desktop app's
   Discord page.
 
-Either way, verify the allowlist is live again (`GET /api/discord/config`,
-or `/server-status` from an allowed guild) before considering step 4 done.
+Either way, verify the allowlist is live again (the desktop app's Discord
+page, or `/server-status` from an allowed guild) before considering step 4
+done.
 
 :::
 

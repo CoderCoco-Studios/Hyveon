@@ -3,7 +3,7 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { TerraformInitConfig } from '@hyveon/desktop-preload';
 
-const gsdMock = {
+const hyveonMock = {
   terraform: {
     init: vi.fn(),
   },
@@ -11,7 +11,7 @@ const gsdMock = {
     complete: vi.fn(),
   },
 };
-vi.stubGlobal('gsd', gsdMock);
+vi.stubGlobal('hyveon', hyveonMock);
 
 import { TerraformInitStep } from './terraform-init-step.component.js';
 
@@ -22,8 +22,8 @@ const BACKEND_CONFIG: TerraformInitConfig = {
 };
 
 beforeEach(() => {
-  gsdMock.terraform.init.mockReset();
-  gsdMock.wizard.complete.mockReset();
+  hyveonMock.terraform.init.mockReset();
+  hyveonMock.wizard.complete.mockReset();
 });
 
 afterEach(() => {
@@ -31,8 +31,8 @@ afterEach(() => {
 });
 
 describe('TerraformInitStep', () => {
-  it('should stream chunks from gsd.terraform.init and render them', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+  it('should stream chunks from hyveon.terraform.init and render them', async () => {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stdout', line: 'Initializing the backend...' };
       yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
     });
@@ -41,11 +41,11 @@ describe('TerraformInitStep', () => {
 
     expect(await screen.findByText('Initializing the backend...')).toBeInTheDocument();
     expect(await screen.findByText('Terraform has been successfully initialized!')).toBeInTheDocument();
-    expect(gsdMock.terraform.init).toHaveBeenCalledWith(BACKEND_CONFIG, expect.any(AbortSignal));
+    expect(hyveonMock.terraform.init).toHaveBeenCalledWith(BACKEND_CONFIG, expect.any(AbortSignal));
   });
 
   it('should render ANSI-colored output', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stdout', line: '\x1b[32msuccess\x1b[0m' };
     });
 
@@ -56,7 +56,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should enable Finish setup only once the run exits successfully', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
     });
 
@@ -68,7 +68,7 @@ describe('TerraformInitStep', () => {
 
   it('should keep Finish setup disabled while the run is in progress', () => {
     // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to keep the run "in progress" for this test
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       await new Promise(() => {});
     });
 
@@ -78,7 +78,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should show captured log and a retry affordance when the run fails (non-zero exit)', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stderr', line: 'Error: failed to read backend config' };
       throw new Error('terraform init exited with code 1');
     });
@@ -91,8 +91,8 @@ describe('TerraformInitStep', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
-  it('should re-invoke gsd.terraform.init when Retry is clicked after a failure', async () => {
-    gsdMock.terraform.init
+  it('should re-invoke hyveon.terraform.init when Retry is clicked after a failure', async () => {
+    hyveonMock.terraform.init
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a failed first attempt
       .mockImplementationOnce(async function* () {
         throw new Error('first attempt failed');
@@ -107,14 +107,14 @@ describe('TerraformInitStep', () => {
     await userEvent.click(screen.getByRole('button', { name: /retry/i }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
-    expect(gsdMock.terraform.init).toHaveBeenCalledTimes(2);
+    expect(hyveonMock.terraform.init).toHaveBeenCalledTimes(2);
   });
 
   it('should call wizard.complete and onFinished when Finish setup is clicked', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
     });
-    gsdMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+    hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
     const onFinished = vi.fn();
 
     render(<TerraformInitStep backendConfig={BACKEND_CONFIG} onFinished={onFinished} />);
@@ -122,15 +122,15 @@ describe('TerraformInitStep', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
 
-    await waitFor(() => expect(gsdMock.wizard.complete).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
 
   it('should show an error and not call onFinished when wizard.complete fails', async () => {
-    gsdMock.terraform.init.mockImplementation(async function* () {
+    hyveonMock.terraform.init.mockImplementation(async function* () {
       yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
     });
-    gsdMock.wizard.complete.mockRejectedValue(new Error('disk full'));
+    hyveonMock.wizard.complete.mockRejectedValue(new Error('disk full'));
     const onFinished = vi.fn();
 
     render(<TerraformInitStep backendConfig={BACKEND_CONFIG} onFinished={onFinished} />);

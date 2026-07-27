@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
@@ -9,13 +10,38 @@ import { electronRendererUrl, isTestMode } from './env.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
+ * Resolves the PNG shown in the window title bar, the Linux taskbar and the
+ * dev-run dock entry.
+ *
+ * Windows and macOS take their packaged icon from the executable and the app
+ * bundle, but Linux and every `npm run desktop:dev` session need an explicit
+ * path. Packaged builds find it under `process.resourcesPath` (electron-builder
+ * copies it there via `extraResources`); a dev run falls back to the repo's
+ * `build/` directory, two levels up from `out/main`.
+ *
+ * Returns `undefined` when neither copy is present so the window still opens
+ * with Electron's default icon rather than failing to start.
+ */
+export function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, 'icon.png') : undefined,
+    path.join(__dirname, '..', '..', 'build', 'icon.png'),
+  ];
+
+  return candidates.find((candidate) => candidate !== undefined && existsSync(candidate));
+}
+
+/**
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
  */
 function createWindow(): void {
+  const icon = resolveWindowIcon();
+
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    ...(icon ? { icon } : {}),
     webPreferences: {
       // electron-vite names the preload bundle after the input file, so the
       // output lands at out/preload/preload.js. __dirname here resolves to

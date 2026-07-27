@@ -686,7 +686,7 @@ export class TerraformService {
    * Public read-only accessor for {@link workspaceInFlight} — reports the
    * name of whichever subcommand ({@link init}, {@link plan}, {@link apply},
    * or {@link destroy}) is actively running against `getTerraformDir()`, or
-   * `null` when none is. Intended for a future `gsd.terraform.plan` (and
+   * `null` when none is. Intended for a future `hyveon.terraform.plan` (and
    * sibling) IPC handler to report the live lock state to the renderer (e.g.
    * to disable a "Plan" button while a run is already in flight) without
    * needing its own duplicate bookkeeping.
@@ -823,7 +823,7 @@ export class TerraformService {
    *
    * Before spawning: resolves the `runId` for this run — either a caller-
    * supplied `preMintedRunId` (validated via {@link assertValidRunId}, so a
-   * future `gsd.terraform.plan` IPC handler can mint the id up-front and hand
+   * future `hyveon.terraform.plan` IPC handler can mint the id up-front and hand
    * it back to the renderer before streaming starts) or, when omitted, a
    * freshly minted `randomUUID()` — creates its per-run directory
    * `<runsDir>/<runId>/` (`ConfigService.getRunsDir()`), and pulls a snapshot

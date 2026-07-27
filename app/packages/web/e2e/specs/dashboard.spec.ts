@@ -3,7 +3,7 @@ import {
   test,
   expect,
   launchElectron,
-  applyGsdMocks,
+  applyHyveonMocks,
   STOPPED_GAME,
   RUNNING_GAME,
   MULTI_GAME_STATUSES,
@@ -12,12 +12,12 @@ import { DashboardPage, AppLayout } from '../pages/index.js';
 
 /**
  * Dashboard spec — driven via `_electron.launch()` and the
- * `window.gsd.__test.mock()` IPC seam instead of `vite preview` + `page.route()`.
+ * `window.hyveon.__test.mock()` IPC seam instead of `vite preview` + `page.route()`.
  *
  * A single `ElectronApplication` is shared across all tests in the describe
  * block (launched in `beforeAll`, closed in `afterAll`). Each test calls
- * `applyGsdMocks()` to seed its own IPC responses, then resets the mock
- * registry in `afterEach` via `window.gsd.__test.clearMocks()` so stale
+ * `applyHyveonMocks()` to seed its own IPC responses, then resets the mock
+ * registry in `afterEach` via `window.hyveon.__test.clearMocks()` so stale
  * handlers do not bleed into later tests.
  */
 test.describe('dashboard', () => {
@@ -39,15 +39,15 @@ test.describe('dashboard', () => {
   test.afterEach(async () => {
     if (!win) return;
     await win.evaluate(() => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { clearMocks: () => void };
       };
-      gsd.__test.clearMocks();
+      hyveon.__test.clearMocks();
     });
   });
 
   test('should render a game card for a stopped game', async () => {
-    await applyGsdMocks(win, { statuses: [STOPPED_GAME] });
+    await applyHyveonMocks(win, { statuses: [STOPPED_GAME] });
     await dashboard.gotoElectron();
 
     await expect(dashboard.gameCardHeading('minecraft')).toBeVisible();
@@ -55,7 +55,7 @@ test.describe('dashboard', () => {
   });
 
   test('should render a game card for a running game with IP', async () => {
-    await applyGsdMocks(win, { statuses: [RUNNING_GAME] });
+    await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
     await dashboard.gotoElectron();
 
     await expect(dashboard.statusBadge('RUNNING')).toBeVisible();
@@ -63,7 +63,7 @@ test.describe('dashboard', () => {
   });
 
   test('should render multiple game cards', async () => {
-    await applyGsdMocks(win, { statuses: MULTI_GAME_STATUSES });
+    await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
     await expect(dashboard.gameCardHeading('minecraft')).toBeVisible();
@@ -71,14 +71,14 @@ test.describe('dashboard', () => {
   });
 
   test('should show empty-state message when no games are configured', async () => {
-    await applyGsdMocks(win, { statuses: [] });
+    await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await expect(dashboard.emptyConfiguredMessage()).toBeVisible();
   });
 
   test('should show setup guide and terraform.tfvars CTAs in the no-games card', async () => {
-    await applyGsdMocks(win, { statuses: [] });
+    await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await expect(dashboard.setupGuideLink()).toBeVisible();
@@ -86,16 +86,16 @@ test.describe('dashboard', () => {
   });
 
   test('should fire games.start IPC channel when Start is clicked', async () => {
-    await applyGsdMocks(win, { statuses: [STOPPED_GAME] });
+    await applyHyveonMocks(win, { statuses: [STOPPED_GAME] });
 
     // Override the games.start mock with one that records the call before
     // resolving, using window.__calledChannels as the in-browser flag store.
     await win.evaluate(() => {
       (window as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
-      gsd.__test.mock('games.start', () => {
+      hyveon.__test.mock('games.start', () => {
         ((window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.start'
         ] = true;
@@ -119,7 +119,7 @@ test.describe('dashboard', () => {
   });
 
   test('should show only Stop as the primary action for a running game', async () => {
-    await applyGsdMocks(win, { statuses: [RUNNING_GAME] });
+    await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
     await dashboard.gotoElectron();
 
     // The redesigned card swaps the primary CTA based on state instead of
@@ -129,7 +129,7 @@ test.describe('dashboard', () => {
   });
 
   test('should filter game cards by name in real time', async () => {
-    await applyGsdMocks(win, { statuses: MULTI_GAME_STATUSES });
+    await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
     await expect(dashboard.gameCardHeading('minecraft')).toBeVisible();
@@ -142,7 +142,7 @@ test.describe('dashboard', () => {
   });
 
   test('should show empty-state message when search has no matches', async () => {
-    await applyGsdMocks(win, { statuses: MULTI_GAME_STATUSES });
+    await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
     await dashboard.filter('nonexistent');
@@ -150,7 +150,7 @@ test.describe('dashboard', () => {
   });
 
   test('should render the KPI strip with the four ops tiles', async () => {
-    await applyGsdMocks(win, { statuses: MULTI_GAME_STATUSES });
+    await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
     await expect(dashboard.kpiTileLabel('Servers running')).toBeVisible();
@@ -162,7 +162,7 @@ test.describe('dashboard', () => {
   });
 
   test('should navigate to the Logs page via sidebar', async () => {
-    await applyGsdMocks(win, { statuses: [] });
+    await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await layout.navigateTo('Logs', '/logs');
@@ -172,21 +172,21 @@ test.describe('dashboard', () => {
   });
 
   test('should navigate to the Discord page via sidebar', async () => {
-    await applyGsdMocks(win, { statuses: [] });
+    await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await layout.navigateTo('Discord', '/discord');
   });
 
   test('should navigate to the Settings page via sidebar', async () => {
-    await applyGsdMocks(win, { statuses: [] });
+    await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await layout.navigateTo('Settings', '/settings');
   });
 
   test('should show a success toast after starting a game', async () => {
-    await applyGsdMocks(win, { statuses: [STOPPED_GAME] });
+    await applyHyveonMocks(win, { statuses: [STOPPED_GAME] });
     await dashboard.gotoElectron();
 
     await dashboard.startButton().click();
@@ -195,16 +195,16 @@ test.describe('dashboard', () => {
   });
 
   test('should show a stop toast with an Undo button after stopping a game', async () => {
-    await applyGsdMocks(win, { statuses: [RUNNING_GAME] });
+    await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
 
     // Override the games.stop mock with one that records the call before
     // resolving, using window.__calledChannels as the in-browser flag store.
     await win.evaluate(() => {
       (window as Record<string, unknown>)['__calledChannels'] = {} as Record<string, boolean>;
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
-      gsd.__test.mock('games.stop', () => {
+      hyveon.__test.mock('games.stop', () => {
         ((window as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.stop'
         ] = true;

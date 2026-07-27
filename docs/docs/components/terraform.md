@@ -6,8 +6,8 @@ sidebar_position: 2
 # Terraform
 
 All AWS infrastructure lives under `terraform/`. State is stored in an S3
-bucket with DynamoDB locking, bootstrapped automatically by `setup.sh` — see
-step 3 of the [setup guide](/setup) for details.
+bucket with DynamoDB locking, bootstrapped by the desktop app's in-app setup
+wizard — see step 3 of the [setup guide](/setup) for details.
 
 The root `terraform/` directory is a thin composer: the `terraform`/`provider`
 blocks, a `module "cloud"` (source `./aws`) that carries every AWS resource,
@@ -232,7 +232,9 @@ When `file_seeds` is non-empty, `efs-seeder.tf` creates a seeder Lambda for the 
 - **Removing a game from the map deletes its task definition** but does not
   stop running tasks. Stop the game from the dashboard first, then remove
   the key.
-- **S3 backend + DynamoDB lock** are bootstrapped by `setup.sh` — state is
-  remote by default. If you need to run `terraform init` manually, pass the
-  same `-backend-config` flags that `setup.sh` uses (bucket, key, region,
-  dynamodb_table, encrypt).
+- **S3 backend + DynamoDB lock** are bootstrapped by the desktop app's setup
+  wizard (directly via the AWS SDK, no Terraform involved for this step) —
+  state is remote by default. If you need to run `terraform init` manually
+  against an already-existing bucket/table, pass the matching
+  `-backend-config` flags yourself (bucket, key, region, dynamodb_table,
+  encrypt).

@@ -167,7 +167,7 @@ describe('IamCheckService', () => {
     it('should build the STS/IAM clients with static credentials when the profile resolves to pasted credentials', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
-      const store = makeStore({ profile: 'gsd-pasted', region: 'us-west-2' }, {
+      const store = makeStore({ profile: 'hyveon-pasted', region: 'us-west-2' }, {
         accessKeyId: 'AKID',
         secretAccessKey: 'SECRET',
       });
@@ -176,7 +176,7 @@ describe('IamCheckService', () => {
       const result = await service.checkPermissions();
 
       expect(result).toEqual({ status: 'passed' });
-      expect(store.getPastedCredentials).toHaveBeenCalledWith('gsd-pasted');
+      expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
     });
   });
 });

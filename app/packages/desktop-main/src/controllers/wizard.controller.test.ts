@@ -28,7 +28,7 @@ function makePrerequisites(report: PrerequisitesReport = SATISFIED_REPORT): Prer
 function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsProfileService {
   return {
     listProfiles: vi.fn().mockResolvedValue(profiles),
-    savePastedCredentials: vi.fn().mockReturnValue({ profileName: 'gsd-pasted' }),
+    savePastedCredentials: vi.fn().mockReturnValue({ profileName: 'hyveon-pasted' }),
   } as Partial<AwsProfileService> as AwsProfileService;
 }
 
@@ -204,7 +204,7 @@ describe('WizardController', () => {
       const result = makeController({ awsProfiles }).saveCredentials(body);
 
       expect(awsProfiles.savePastedCredentials).toHaveBeenCalledWith(body);
-      expect(result).toEqual({ profileName: 'gsd-pasted' });
+      expect(result).toEqual({ profileName: 'hyveon-pasted' });
     });
 
     it('should propagate a thrown SafeStorageUnavailableError rather than swallowing it', () => {

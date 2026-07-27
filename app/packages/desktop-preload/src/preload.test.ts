@@ -4,11 +4,11 @@
  * Covers three guarantees:
  *
  * 1. **Mock-override** — when a per-channel mock is registered via the
- *    `registerMock` function exposed on `gsdBridge.__test.mock`, `invoke`
+ *    `registerMock` function exposed on `hyveonBridge.__test.mock`, `invoke`
  *    calls the mock instead of `ipcRenderer.invoke`.
  * 2. **Real-IPC fallthrough** — when no mock is registered, `invoke` forwards
  *    the call to `ipcRenderer.invoke` unchanged.
- * 3. **Test-mode gating** — `gsdBridge.__test` is present only when
+ * 3. **Test-mode gating** — `hyveonBridge.__test` is present only when
  *    `HYVEON_TEST_MODE=1`; it is absent (or the bridge lacks the key) in
  *    production mode.
  *
@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Captured arguments from `contextBridge.exposeInMainWorld` calls, keyed by
- * the world name.  The preload module always calls it with `'gsd'`.
+ * the world name.  The preload module always calls it with `'hyveon'`.
  */
 const exposed: Record<string, unknown> = {};
 
@@ -70,7 +70,7 @@ vi.mock('electron', () => ({
 /**
  * Resets module caches and re-imports `preload.ts` with the given
  * `HYVEON_TEST_MODE` value, then returns the bridge object that was passed to
- * `contextBridge.exposeInMainWorld('gsd', ...)`.
+ * `contextBridge.exposeInMainWorld('hyveon', ...)`.
  *
  * The dynamic import forces the module's top-level side-effects (the
  * `contextBridge.exposeInMainWorld` call and the `isTestMode` check) to run
@@ -87,7 +87,7 @@ async function loadPreloadBridge(testMode: '0' | '1' | undefined): Promise<Recor
     process.env['HYVEON_TEST_MODE'] = testMode;
   }
   await import('./preload.js');
-  return exposed['gsd'] as Record<string, unknown>;
+  return exposed['hyveon'] as Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

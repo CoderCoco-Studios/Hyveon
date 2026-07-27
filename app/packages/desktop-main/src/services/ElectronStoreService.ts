@@ -66,7 +66,7 @@ export interface AppStoreSchema {
   };
   /**
    * Pasted-credentials profiles from the wizard's credentials step, keyed by
-   * profile name (default `gsd-pasted` — see `AwsProfileService`). Separate
+   * profile name (default `hyveon-pasted` — see `AwsProfileService`). Separate
    * from `aws` above, which holds the *selected* profile/region for the
    * "pick an existing profile" path.
    */
@@ -219,7 +219,7 @@ export class ElectronStoreService {
    * profiles are preserved.
    *
    * @param profileName - The pasted-profile name to write (default naming —
-   *   e.g. `gsd-pasted` — is the caller's responsibility; see `AwsProfileService`).
+   *   e.g. `hyveon-pasted` — is the caller's responsibility; see `AwsProfileService`).
    * @param value - Plaintext credentials to encrypt and store.
    */
   setPastedCredentials(profileName: string, value: { accessKeyId: string; secretAccessKey: string; region?: string }): void {

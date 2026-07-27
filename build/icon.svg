@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hyveon app icon — master artwork. Keep this header short: libvips sniffs
+     only the first 1000 bytes for the <svg> tag, so a long comment here makes
+     the file unreadable to the generator. Notes live inside the element. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Concept: seven honeycomb cells make up the hive (the fleet of game servers);
+    exactly one cell is lit, because Hyveon runs a server only while you want it
+    running. The palette is taken verbatim from the app's design tokens in
+    app/packages/web/src/index.css so the icon matches the UI it opens.
+
+    No background tile. The mark floats directly on whatever the taskbar, dock
+    or installer paints behind it, which is why the dormant cells are solid
+    shapes rather than outlines — outlines this thin only read against a known
+    dark ground, and turn lacy below 48px on a light one. For the same reason
+    the lit cell runs brighter (lavender into cyan) than the surrounding cells:
+    nothing behind it is doing the work of pushing it forward.
+
+    Geometry: cells sit on a 281.7-unit lattice and are drawn at radius 145,
+    which leaves a 30.5-unit channel of background between neighbours — the gap
+    is `spacing - sqrt(3) * radius`, so changing one without re-deriving the
+    other makes adjacent cells fuse into a single blob. The whole group is
+    scaled 1.09 about the centre to take back the padding the tile used to need.
+
+    This file is the single source of truth for every packaged icon. After
+    editing it, run `npm run icons:generate` to rebuild icon.png / icon.ico /
+    icon.icns and the web favicons. Sizes at or below 24px use icon-small.svg
+    instead: the seven cells stop resolving below 32px and blur together.
+  -->
+  <defs>
+    <linearGradient id="cell" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#4c1d95"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.5" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(512 512) scale(1.09) translate(-512 -512)">
+    <!-- Six dormant cells, fading violet into indigo across the hive. -->
+    <g fill="url(#cell)">
+      <path d="M 793.7 367 L 919.27 439.5 L 919.27 584.5 L 793.7 657 L 668.13 584.5 L 668.13 439.5 Z"/>
+      <path d="M 652.85 610.96 L 778.42 683.46 L 778.42 828.46 L 652.85 900.96 L 527.28 828.46 L 527.28 683.46 Z"/>
+      <path d="M 371.15 610.96 L 496.72 683.46 L 496.72 828.46 L 371.15 900.96 L 245.58 828.46 L 245.58 683.46 Z"/>
+      <path d="M 230.3 367 L 355.87 439.5 L 355.87 584.5 L 230.3 657 L 104.73 584.5 L 104.73 439.5 Z"/>
+      <path d="M 371.15 123.04 L 496.72 195.54 L 496.72 340.54 L 371.15 413.04 L 245.58 340.54 L 245.58 195.54 Z"/>
+      <path d="M 652.85 123.04 L 778.42 195.54 L 778.42 340.54 L 652.85 413.04 L 527.28 340.54 L 527.28 195.54 Z"/>
+    </g>
+
+    <!-- The one running server. -->
+    <path d="M 512 367 L 637.57 439.5 L 637.57 584.5 L 512 657 L 386.43 584.5 L 386.43 439.5 Z" fill="url(#core)"/>
+  </g>
+</svg>

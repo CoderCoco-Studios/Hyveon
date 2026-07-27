@@ -16,7 +16,7 @@ import { ErrorBanner } from './terraform.page.js';
  */
 const LOOKUP_PAGE_SIZE = 200;
 
-/** Resolves the {@link RunHistoryRecord} for `runId` by searching the most recent page of `gsd.terraform.runs.list`. */
+/** Resolves the {@link RunHistoryRecord} for `runId` by searching the most recent page of `hyveon.terraform.runs.list`. */
 function useHistoryRecord(runId: string | undefined): {
   record: RunHistoryRecord | null | undefined;
   loading: boolean;
@@ -26,13 +26,13 @@ function useHistoryRecord(runId: string | undefined): {
 
   useEffect(() => {
     setRecord(undefined);
-    if (!runId || !window.gsd) {
+    if (!runId || !window.hyveon) {
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    window.gsd.terraform.runs
+    window.hyveon.terraform.runs
       .list({ limit: LOOKUP_PAGE_SIZE })
       .then((page) => {
         if (cancelled) return;
@@ -62,9 +62,9 @@ type LogSource = 'stream' | 'inline' | 'url' | 'none';
 
 /**
  * Resolves a finished run's captured log via the fallback ladder: replay via
- * `gsd.terraform.runs.streamLogs` when local run artifacts still exist,
+ * `hyveon.terraform.runs.streamLogs` when local run artifacts still exist,
  * otherwise the persisted record's `logInline` text, otherwise a presigned
- * URL fetched via `gsd.terraform.runs.logUrl(record.logS3Key)`.
+ * URL fetched via `hyveon.terraform.runs.logUrl(record.logS3Key)`.
  */
 function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | null | undefined): {
   chunks: AnsiLogChunk[];
@@ -78,7 +78,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
   useEffect(() => {
     setChunks([]);
     setSource('none');
-    if (!runId || !window.gsd) {
+    if (!runId || !window.hyveon) {
       setLoading(false);
       return;
     }
@@ -99,7 +99,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
     void (async () => {
       try {
         const streamed: AnsiLogChunk[] = [];
-        for await (const chunk of window.gsd!.terraform.runs.streamLogs(runId)) {
+        for await (const chunk of window.hyveon!.terraform.runs.streamLogs(runId)) {
           if (cancelled) return;
           streamed.push(chunk);
         }
@@ -123,7 +123,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
 
       if (record.logS3Key) {
         try {
-          const url = await window.gsd!.terraform.runs.logUrl(record.logS3Key);
+          const url = await window.hyveon!.terraform.runs.logUrl(record.logS3Key);
           const res = await fetch(url);
           if (!res.ok) throw new Error(`presigned log fetch failed: ${res.status}`);
           const text = await res.text();

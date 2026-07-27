@@ -152,11 +152,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // model instead of resume).
   useEffect(() => {
     if (mode !== 'first-run') return;
-    if (!window.gsd) {
+    if (!window.hyveon) {
       resumeSettledRef.current = true;
       return;
     }
-    window.gsd.wizard
+    window.hyveon.wizard
       .getProgress()
       .then((progress) => {
         const index = WIZARD_STEPS.indexOf(progress.step);
@@ -181,8 +181,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // Gated on `resumeSettledRef` so this can never race the resume effect's
   // own read of the same file (see that effect's comment).
   useEffect(() => {
-    if (mode !== 'first-run' || !window.gsd || !resumeSettledRef.current) return;
-    window.gsd.wizard.saveProgress({ step }).catch(() => {});
+    if (mode !== 'first-run' || !window.hyveon || !resumeSettledRef.current) return;
+    window.hyveon.wizard.saveProgress({ step }).catch(() => {});
   }, [mode, step]);
 
   // Guards the reconfigure-prefill effect below so it applies exactly once,
@@ -207,10 +207,10 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // later re-run (e.g. if `profiles` changed for some other reason) could
   // clobber an edit the operator has already started making.
   useEffect(() => {
-    if (mode !== 'reconfigure' || !window.gsd || prefillAppliedRef.current) return;
+    if (mode !== 'reconfigure' || !window.hyveon || prefillAppliedRef.current) return;
     if (profiles === null && profilesError === null) return;
     prefillAppliedRef.current = true;
-    window.gsd.wizard
+    window.hyveon.wizard
       .getState()
       .then((state) => {
         if (state.activeCloud) setSelectedCloud(state.activeCloud);
@@ -252,14 +252,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   }
 
   const checkPrereqs = useCallback(async () => {
-    if (!window.gsd) {
-      setError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setChecking(true);
     setError(null);
     try {
-      const result = await window.gsd.wizard.checkPrereqs();
+      const result = await window.hyveon.wizard.checkPrereqs();
       setReport(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to check prerequisites.');
@@ -277,14 +277,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   useEffect(() => {
     async function fetchProfiles() {
-      if (!window.gsd) {
-        setProfilesError('IPC bridge (window.gsd) is not available in this context.');
+      if (!window.hyveon) {
+        setProfilesError('IPC bridge (window.hyveon) is not available in this context.');
         return;
       }
       setProfilesLoading(true);
       setProfilesError(null);
       try {
-        const result = await window.gsd.wizard.listAwsProfiles();
+        const result = await window.hyveon.wizard.listAwsProfiles();
         setProfiles(result);
       } catch (err) {
         setProfilesError(err instanceof Error ? err.message : 'Failed to list AWS profiles.');
@@ -311,14 +311,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   /** Runs the safeStorage paste-flow immediately (not deferred to Next), per the credentials-step spec. */
   async function submitPaste() {
-    if (!window.gsd) {
-      setPasteError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setPasteError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setPasteSaving(true);
     setPasteError(null);
     try {
-      const result = await window.gsd.wizard.saveCredentials({
+      const result = await window.hyveon.wizard.saveCredentials({
         accessKeyId: pasteAccessKeyId,
         secretAccessKey: pasteSecretAccessKey,
         region: pasteRegion || undefined,
@@ -341,8 +341,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * settles. A failure on one resource doesn't stop the others from running.
    */
   async function runBootstrap() {
-    if (!window.gsd) {
-      const bridgeUnavailable = 'IPC bridge (window.gsd) is not available in this context.';
+    if (!window.hyveon) {
+      const bridgeUnavailable = 'IPC bridge (window.hyveon) is not available in this context.';
       setResourceStatuses({ stateBucket: 'failed', lockTable: 'failed', tfvarsBucket: 'failed' });
       setResourceMessages({ stateBucket: bridgeUnavailable, lockTable: bridgeUnavailable, tfvarsBucket: bridgeUnavailable });
       return;
@@ -352,9 +352,9 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     setResourceMessages({});
 
     const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
-      ['stateBucket', () => window.gsd!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
-      ['lockTable', () => window.gsd!.wizard.bootstrapLockTable({ tableName: resourceNames.lockTable })],
-      ['tfvarsBucket', () => window.gsd!.wizard.bootstrapTfvarsBucket({ bucketName: resourceNames.tfvarsBucket })],
+      ['stateBucket', () => window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
+      ['lockTable', () => window.hyveon!.wizard.bootstrapLockTable({ tableName: resourceNames.lockTable })],
+      ['tfvarsBucket', () => window.hyveon!.wizard.bootstrapTfvarsBucket({ bucketName: resourceNames.tfvarsBucket })],
     ];
 
     await Promise.all(
@@ -379,14 +379,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   /** Runs the best-effort IAM permission dry-run. Never blocks wizard progression. */
   async function runIamCheck() {
-    if (!window.gsd) {
-      setIamError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setIamError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setIamChecking(true);
     setIamError(null);
     try {
-      const result = await window.gsd.wizard.simulateIamPermissions();
+      const result = await window.hyveon.wizard.simulateIamPermissions();
       setIamCheck(result);
     } catch (err) {
       setIamError(err instanceof Error ? err.message : 'Failed to run the IAM permission check.');
@@ -436,14 +436,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
-      if (!window.gsd) {
-        setSaveError('IPC bridge (window.gsd) is not available in this context.');
+      if (!window.hyveon) {
+        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
         return;
       }
       setSaving(true);
       setSaveError(null);
       try {
-        await window.gsd.wizard.saveState({ activeCloud: selectedCloud });
+        await window.hyveon.wizard.saveState({ activeCloud: selectedCloud });
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : 'Failed to save your cloud choice.');
         setSaving(false);
@@ -452,8 +452,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       setSaving(false);
     }
     if (mode === 'first-run' && step === 'credentials') {
-      if (!window.gsd) {
-        setSaveError('IPC bridge (window.gsd) is not available in this context.');
+      if (!window.hyveon) {
+        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
         return;
       }
       const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
@@ -461,7 +461,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       setSaving(true);
       setSaveError(null);
       try {
-        await window.gsd.wizard.saveState({ aws: { profile, region: chosenRegion || undefined } });
+        await window.hyveon.wizard.saveState({ aws: { profile, region: chosenRegion || undefined } });
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : 'Failed to save your AWS credentials choice.');
         setSaving(false);
@@ -469,13 +469,13 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       }
       setSaving(false);
     }
-    if (mode === 'first-run' && step === 'bootstrap' && window.gsd) {
+    if (mode === 'first-run' && step === 'bootstrap' && window.hyveon) {
       // Durably records the (possibly operator-renamed) resource names so a
       // later Reconfigure can rehydrate them instead of falling back to
       // `defaultBootstrapResourceNames()`. Best-effort: nothing in this step
       // depends on the save succeeding, so a failure here doesn't block
       // progression the way the pick-cloud/credentials saves above do.
-      window.gsd.wizard.saveState({ bootstrap: resourceNames }).catch(() => {});
+      window.hyveon.wizard.saveState({ bootstrap: resourceNames }).catch(() => {});
     }
     setStepIndex((index) => Math.min(index + 1, steps.length - 1));
   }
@@ -497,8 +497,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * everything on every Finish.
    */
   async function commitReconfigureAnswers() {
-    if (!window.gsd) {
-      throw new Error('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      throw new Error('IPC bridge (window.hyveon) is not available in this context.');
     }
     const payload: { activeCloud?: CloudOption; aws?: { profile?: string; region?: string }; bootstrap?: typeof resourceNames } = {};
     if (!completedSteps.has('pick-cloud')) {
@@ -513,7 +513,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       payload.bootstrap = resourceNames;
     }
     if (Object.keys(payload).length === 0) return;
-    await window.gsd.wizard.saveState(payload);
+    await window.hyveon.wizard.saveState(payload);
   }
 
   /** Reconfigure-only: expands a pre-completed step's summary into its normal editable form. */

@@ -1,5 +1,5 @@
 // Typed API wrappers — every call is delegated to the Electron IPC bridge
-// (`window.gsd.*`) exposed by the preload script. There are no `fetch` calls and
+// (`window.hyveon.*`) exposed by the preload script. There are no `fetch` calls and
 // no bearer-token plumbing left in this module: the renderer talks to the main
 // process over IPC, not HTTP.
 
@@ -388,15 +388,15 @@ export interface AuditPageResult {
 }
 
 /**
- * Returns the `window.gsd` IPC bridge, throwing a descriptive error if it is
+ * Returns the `window.hyveon` IPC bridge, throwing a descriptive error if it is
  * absent. The bridge is injected by the Electron preload script, so a missing
  * one means the renderer is running outside Electron (e.g. a plain browser).
  */
-function gsd() {
-  const bridge = window.gsd;
+function hyveon() {
+  const bridge = window.hyveon;
   if (!bridge) {
     throw new Error(
-      'window.gsd IPC bridge is unavailable — the renderer must run inside the Electron preload context.',
+      'window.hyveon IPC bridge is unavailable — the renderer must run inside the Electron preload context.',
     );
   }
   return bridge;
@@ -407,69 +407,69 @@ function gsd() {
 // are identical, so the single-step narrowings below (never `as unknown as`) are
 // safe — `DiscordAction[]` is assignable to `string[]`, which makes the cast legal.
 //
-// Every method is `async` so the missing-bridge guard in `gsd()` surfaces as a
+// Every method is `async` so the missing-bridge guard in `hyveon()` surfaces as a
 // rejected promise rather than a synchronous throw: callers that chain
 // `.then().catch()` (rather than `await`) still route the failure to `.catch`.
 
 export const api = {
-  env: async (): Promise<EnvInfo> => gsd().env.get(),
-  games: async (): Promise<{ games: GameListEntry[] }> => gsd().games.list(),
-  status: async (): Promise<GameStatus[]> => gsd().games.status(),
-  statusGame: async (game: string): Promise<GameStatus> => gsd().games.getStatus(game),
-  start: async (game: string): Promise<ActionResult> => gsd().games.start(game),
-  stop: async (game: string): Promise<ActionResult> => gsd().games.stop(game),
-  config: async (): Promise<WatchdogConfig> => gsd().config.get(),
+  env: async (): Promise<EnvInfo> => hyveon().env.get(),
+  games: async (): Promise<{ games: GameListEntry[] }> => hyveon().games.list(),
+  status: async (): Promise<GameStatus[]> => hyveon().games.status(),
+  statusGame: async (game: string): Promise<GameStatus> => hyveon().games.getStatus(game),
+  start: async (game: string): Promise<ActionResult> => hyveon().games.start(game),
+  stop: async (game: string): Promise<ActionResult> => hyveon().games.stop(game),
+  config: async (): Promise<WatchdogConfig> => hyveon().config.get(),
   saveConfig: async (cfg: WatchdogConfig): Promise<{ success: boolean; config: WatchdogConfig }> =>
-    gsd().config.update(cfg),
-  costsEstimate: async (): Promise<CostEstimates> => gsd().costs.estimate(),
-  costsActual: async (days = 7): Promise<ActualCosts> => gsd().costs.actual(days),
-  filesMgrStatus: async (game: string): Promise<FileMgrStatus> => gsd().files.list(game),
-  filesMgrStart: async (game: string): Promise<ActionResult> => gsd().files.start(game),
-  filesMgrStop: async (game: string): Promise<ActionResult> => gsd().files.stop(game),
+    hyveon().config.update(cfg),
+  costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
+  costsActual: async (days = 7): Promise<ActualCosts> => hyveon().costs.actual(days),
+  filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
+  filesMgrStart: async (game: string): Promise<ActionResult> => hyveon().files.start(game),
+  filesMgrStop: async (game: string): Promise<ActionResult> => hyveon().files.stop(game),
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> =>
-    gsd().games.create(payload) as Promise<GameWriteResult>,
+    hyveon().games.create(payload) as Promise<GameWriteResult>,
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> =>
-    gsd().games.update(payload) as Promise<GameWriteResult>,
+    hyveon().games.update(payload) as Promise<GameWriteResult>,
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> =>
-    gsd().games.delete(payload) as Promise<GameWriteResult>,
+    hyveon().games.delete(payload) as Promise<GameWriteResult>,
 
   discordConfig: async (): Promise<DiscordConfigRedacted> =>
-    gsd().discord.getConfig() as Promise<DiscordConfigRedacted>,
+    hyveon().discord.getConfig() as Promise<DiscordConfigRedacted>,
   discordSaveCredentials: async (body: {
     botToken?: string;
     clientId?: string;
     publicKey?: string;
   }): Promise<{ success: boolean; config: DiscordConfigRedacted }> =>
-    gsd().discord.putConfig(body) as Promise<{ success: boolean; config: DiscordConfigRedacted }>,
+    hyveon().discord.putConfig(body) as Promise<{ success: boolean; config: DiscordConfigRedacted }>,
   discordAddGuild: async (guildId: string): Promise<{ success: boolean; guilds: string[] }> =>
-    gsd().discord.addGuild(guildId),
+    hyveon().discord.addGuild(guildId),
   discordRemoveGuild: async (guildId: string): Promise<{ success: boolean; guilds: string[] }> =>
-    gsd().discord.removeGuild(guildId),
+    hyveon().discord.removeGuild(guildId),
   discordRegisterCommands: async (guildId: string): Promise<DiscordMutationResult> =>
-    gsd().discord.registerCommands(guildId),
+    hyveon().discord.registerCommands(guildId),
   discordSaveAdmins: async (admins: DiscordAdmins): Promise<{ success: boolean; admins: DiscordAdmins }> =>
-    gsd().discord.putAdmins(admins),
+    hyveon().discord.putAdmins(admins),
   discordSavePermission: async (
     game: string,
     perm: DiscordGamePermission,
   ): Promise<{ success: boolean; permissions: Record<string, DiscordGamePermission> }> =>
-    gsd().discord.putPermission(game, perm) as Promise<{
+    hyveon().discord.putPermission(game, perm) as Promise<{
       success: boolean;
       permissions: Record<string, DiscordGamePermission>;
     }>,
   discordDeletePermission: async (
     game: string,
   ): Promise<{ success: boolean; permissions: Record<string, DiscordGamePermission> }> =>
-    gsd().discord.deletePermission(game) as Promise<{
+    hyveon().discord.deletePermission(game) as Promise<{
       success: boolean;
       permissions: Record<string, DiscordGamePermission>;
     }>,
 
-  diagnosticsTail: async (): Promise<{ lines: string[] }> => gsd().diagnostics.tail(),
-  diagnosticsLogPath: async (): Promise<{ path: string }> => gsd().diagnostics.path(),
+  diagnosticsTail: async (): Promise<{ lines: string[] }> => hyveon().diagnostics.tail(),
+  diagnosticsLogPath: async (): Promise<{ path: string }> => hyveon().diagnostics.path(),
 
-  drift: async (): Promise<DriftReport> => gsd().drift.get(),
+  drift: async (): Promise<DriftReport> => hyveon().drift.get(),
 
   audit: async (opts?: { limit?: number; before?: string }): Promise<AuditPageResult> =>
-    gsd().audit.list(opts),
+    hyveon().audit.list(opts),
 };

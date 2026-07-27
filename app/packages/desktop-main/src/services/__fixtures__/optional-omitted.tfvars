@@ -4,7 +4,7 @@
 # (image, cpu, memory, ports, volumes).
 
 aws_region   = "us-east-1"
-project_name = "game-servers"
+project_name = "hyveon"
 
 game_servers = {
   # Minecraft: only the required fields — no environment, https,

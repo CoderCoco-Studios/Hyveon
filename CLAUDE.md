@@ -5,8 +5,8 @@
 The repo uses a single **npm-workspaces** tree rooted at the repo root. Workspaces are:
 
 - `@hyveon/shared` — types, `canRun`, sanitizers, status formatter, command descriptors, DynamoDB + Secrets Manager helpers (used by both the server and the Lambdas).
-- `@hyveon/desktop-main` — Nest.js management API.
-- `@hyveon/web` — React + Vite client.
+- `@hyveon/desktop-main` — Nest.js backend, exposed to the renderer over Electron IPC (no HTTP server).
+- `@hyveon/web` — React + Vite renderer, talks to `@hyveon/desktop-main` via `window.hyveon` (the Electron preload bridge), not HTTP fetch.
 - `@hyveon/lambda-interactions`, `@hyveon/lambda-followup`, `@hyveon/lambda-update-dns`, `@hyveon/lambda-watchdog` — four Lambda packages, each bundled to a single `dist/handler.cjs` by esbuild.
 - `@hyveon/scripts` — maintainer helper scripts (`init-parent.ts` scaffolder).
 
@@ -37,6 +37,11 @@ npm run desktop:build  # electron-vite build: produces out/main, out/preload, ou
 # Lambda bundles are deployed to AWS via Terraform and are NOT packaged into the installer.
 npm run desktop:package
 
+# Regenerate the app icons from build/icon.svg + build/icon-small.svg
+# (writes build/icon.png|.ico|.icns and the web favicons; outputs are committed
+# so packaging never rasterises anything)
+npm run icons:generate
+
 # Build all Lambda bundles (required before `terraform apply`)
 npm run app:build:lambdas
 
@@ -51,9 +56,6 @@ npm run app:lint:fix
 # Run the scaffolder script
 npm run scripts:init-parent
 
-# Run the app in Docker (mounts ./terraform ro, ./app/server_config.json, ~/.aws)
-docker compose up --build               # http://localhost:5000
-
 # Terraform (all infra lives under terraform/). NOTE: terraform apply reads
 # the Lambda bundles from app/packages/lambda/*/dist/handler.cjs — run
 # `npm run app:build:lambdas` first or the archive_file data sources will fail.
@@ -65,10 +67,6 @@ terraform destroy
 
 # Cost allocation: all resources tagged Project=hyveon. Activate the
 # "Project" tag in AWS Billing → Cost allocation tags for Cost Explorer breakdowns.
-
-# First-time environment bootstrap (installs terraform + aws CLI if missing,
-# runs npm ci, builds Lambdas, runs terraform init)
-./setup.sh
 ```
 
 ESLint (flat config) lives at `app/eslint.config.js` using `@eslint/js` + `typescript-eslint` recommended presets, plus `eslint-plugin-react` and `eslint-plugin-react-hooks` recommended for the web package. Run `npm run app:lint` (or `npm run app:lint:fix`) from the repo root.
@@ -80,7 +78,7 @@ Terraform linting uses [tflint](https://github.com/terraform-linters/tflint) wit
 Three loosely-coupled pieces share code via `@hyveon/shared`:
 
 1. **Terraform (`terraform/`)** provisions all AWS infrastructure, including four Node.js Lambdas (interactions, followup, update-dns, watchdog), a DynamoDB table, and two Secrets Manager secrets for Discord credentials. The root `terraform/` directory is a thin composer (backend/provider config + `module "cloud"`); every AWS resource actually lives in the `terraform/aws/` module.
-2. **Management app (`app/packages/desktop-main` + `app/packages/web`)** — Nest.js (on `@nestjs/platform-express`) backend reads `terraform/terraform.tfstate` directly at runtime to discover cluster/subnet/SG IDs + the Discord store locations, then drives the active cloud via the cloud-agnostic contracts in `@hyveon/shared/cloud.js`. React/Vite frontend talks to the Nest API. Services use **Nest's built-in DI** (`@Injectable()`) and **Winston** for structured logging. Feature modules under `app/packages/desktop-main/src/modules/` (`AwsModule`, `DiscordModule`, `CloudProviderModule`) group related providers; HTTP handlers live in `app/packages/desktop-main/src/controllers/` as `@Controller`-decorated classes wired up through `AppModule`. `CloudProviderModule` (`app/packages/desktop-main/src/modules/cloud-provider.module.ts`) binds four injection tokens — `CLOUD_PROVIDER`, `SECRETS_STORE`, `REMOTE_FILE_STORE`, `DISCORD_RECEIVER` (declared in `cloud-provider.tokens.ts`) — to concrete implementations via `useFactory` providers keyed off `ConfigService.getActiveCloud()`; today every token resolves to a `@hyveon/cloud-aws` class, but consumers (`EcsService`, `DiscordConfigService`, etc.) inject the token and depend only on the cloud-agnostic interface, never the concrete class, so `AwsModule` no longer wires `AwsCloudProvider`/`AwsSecretsStore` directly — it just imports and re-exports `CloudProviderModule`.
+2. **Management app (`app/packages/desktop-main` + `app/packages/web`)** — a packaged Electron desktop app. The Nest.js backend (`desktop-main`) runs as an Electron main-process IPC microservice (no HTTP server, no bearer token) and reads `terraform/terraform.tfstate` directly at runtime to discover cluster/subnet/SG IDs + the Discord store locations, then drives the active cloud via the cloud-agnostic contracts in `@hyveon/shared/cloud.js`. The React/Vite renderer (`web`) talks to it over Electron IPC via `window.hyveon` (the preload bridge), not HTTP fetch. Services use **Nest's built-in DI** (`@Injectable()`) and **Winston** for structured logging. Feature modules under `app/packages/desktop-main/src/modules/` (`AwsModule`, `DiscordModule`, `CloudProviderModule`) group related providers; IPC controllers live in `app/packages/desktop-main/src/controllers/` as `@Controller`-decorated classes wired up through `AppModule`, with each handler bound to an IPC channel via `@MessagePattern()`. `CloudProviderModule` (`app/packages/desktop-main/src/modules/cloud-provider.module.ts`) binds four injection tokens — `CLOUD_PROVIDER`, `SECRETS_STORE`, `REMOTE_FILE_STORE`, `DISCORD_RECEIVER` (declared in `cloud-provider.tokens.ts`) — to concrete implementations via `useFactory` providers keyed off `ConfigService.getActiveCloud()`; today every token resolves to a `@hyveon/cloud-aws` class, but consumers (`EcsService`, `DiscordConfigService`, etc.) inject the token and depend only on the cloud-agnostic interface, never the concrete class, so `AwsModule` no longer wires `AwsCloudProvider`/`AwsSecretsStore` directly — it just imports and re-exports `CloudProviderModule`.
 3. **Lambdas (`app/packages/lambda/*`)** — four TypeScript Lambda packages. All bundle via esbuild to a single CJS file and are zipped by Terraform's `archive_file` data source. The Discord interaction path (`interactions` + `followup`) is described below; `update-dns` and `watchdog` are ports of the original `update_dns.py` / `watchdog.py` — same behaviour, TypeScript runtime.
 
 There is **no persistent ECS Service**. Servers run only when the user clicks Start (or invokes `/server-start`) — the app/followup-Lambda calls `ecs.run_task()` / `ecs.stop_task()` against per-game task definitions named `{game}-server`. This is the core cost-saving design choice; don't introduce a long-running Service.
@@ -111,11 +109,7 @@ Games flagged `https = true` in the `game_servers` map get a second container in
 
 ### App → Terraform coupling
 
-`ConfigService.getTfOutputs()` (in `app/packages/desktop-main/src/services/ConfigService.ts`) parses `terraform.tfstate` as JSON and caches it in-memory. `invalidateCache()` is called on `/api/games` and `/api/status` to pick up new deploys. The app's container mounts `./terraform:/app/terraform:ro` — this path coupling matters if directory structure changes. The parsed `TfOutputs` shape now also exposes `discord_table_name`, `discord_bot_token_secret_arn`, `discord_public_key_secret_arn`, and `interactions_invoke_url` so `DiscordConfigService` can reach the Discord stores without extra env-var plumbing.
-
-### API authentication
-
-Every `/api/*` route is gated behind a bearer token via `ApiTokenGuard` in `app/packages/desktop-main/src/guards/api-token.guard.ts`, registered globally in `AppModule` as an `APP_GUARD` provider so it applies to every controller automatically. The token comes from env `API_TOKEN` (wins, even when set to empty to deliberately disable) or `api_token` in `server_config.json`. In production (`NODE_ENV=production`), boot aborts in `main.ts` if no token is configured. In dev, a warning is logged and unauthenticated requests are allowed for convenience. The web client stores the token in `localStorage` under key `apiToken` and sends it as `Authorization: Bearer`. Don't remove the guard or bypass it on individual controllers — Copilot flagged the unauthenticated surface as a security issue and this is the fix.
+`ConfigService.getTfOutputs()` (in `app/packages/desktop-main/src/services/ConfigService.ts`) parses `terraform.tfstate` as JSON and caches it in-memory. `invalidateCache()` is called by the relevant IPC controllers on game list/status reads to pick up new deploys. The parsed `TfOutputs` shape now also exposes `discord_table_name`, `discord_bot_token_secret_arn`, `discord_public_key_secret_arn`, and `interactions_invoke_url` so `DiscordConfigService` can reach the Discord stores without extra env-var plumbing.
 
 ### Discord bot is fully serverless (Lambda + DynamoDB + Secrets Manager)
 
@@ -148,7 +142,7 @@ Lambda env vars named `AWS_REGION` are reserved by the runtime. All four Lambdas
 
 ## AWS IAM Policy
 
-The full deploy IAM policy (`GameServerDeployAll`) lives in **`docs/docs/setup.md`** — that is the single source of truth. Any time a new AWS service or action is needed (e.g. a new Terraform resource), update the policy JSON there and nowhere else. The policy already covers EventBridge tagging (`events:*`) and CloudFront (`cloudfront:*`), both of which are required by `terraform apply` and are not included in the AWS-managed policies used in this setup.
+The full deploy IAM policy (`HyveonDeployAll`) lives in **`docs/docs/setup.md`** — that is the single source of truth. Any time a new AWS service or action is needed (e.g. a new Terraform resource), update the policy JSON there and nowhere else. The policy already covers EventBridge tagging (`events:*`) and CloudFront (`cloudfront:*`), both of which are required by `terraform apply` and are not included in the AWS-managed policies used in this setup.
 
 ## Reference Documents
 
@@ -187,7 +181,7 @@ The test suite has three complementary tiers:
 | Tier | Command | What runs | When to add specs |
 |------|---------|-----------|-------------------|
 | **Unit / integration** | `npm run app:test` | Vitest. Server-side logic, hooks, helpers run under the `node` environment; React component specs in `@hyveon/web` run under `jsdom` via `environmentMatchGlobs`. No real network — AWS SDK mocked via `aws-sdk-client-mock`; the `@hyveon/web` API client is stubbed via `vi.mock`. | Pure logic, hook behaviour, server controllers, **per-component React behaviour** (rendering, callbacks, internal state transitions). |
-| **E2E (tier 1 — #74)** | `npm run app:test:e2e` | Playwright with **two projects** (Epic F #140 migration in progress). `electron` launches the packaged Electron app via `_electron.launch()` against `out/main/index.js` (built by `desktop:build`, with `HYVEON_TEST_MODE=1` in the launch env). `chromium` still runs the existing stub-based specs against `vite build` + `vite preview`, stubbing every `/api/*` call via `page.route()`. | New Electron-shell smoke/launch checks and migrated IPC-mock specs → `electron` project (`electron-smoke.spec.ts`, `ipc-mock.spec.ts`, `discord.spec.ts`). Existing browser-stub flows stay in `chromium` until each migrates to Electron under its own F-child (F.2–F.6, gated on the F.7 `window.gsd.__test.mock()` surface). |
+| **E2E (tier 1 — #74)** | `npm run app:test:e2e` | Playwright with **two projects** (Epic F #140 migration in progress). `electron` launches the packaged Electron app via `_electron.launch()` against `out/main/index.js` (built by `desktop:build`, with `HYVEON_TEST_MODE=1` in the launch env). `chromium` still runs the existing stub-based specs against `vite build` + `vite preview`, stubbing every `/api/*` call via `page.route()`. | New Electron-shell smoke/launch checks and migrated IPC-mock specs → `electron` project (`electron-smoke.spec.ts`, `ipc-mock.spec.ts`, `discord.spec.ts`). Existing browser-stub flows stay in `chromium` until each migrates to Electron under its own F-child (F.2–F.6, gated on the F.7 `window.hyveon.__test.mock()` surface). |
 | **Integration (tier 2 — #75)** | `npm run app:test:integration` | Playwright dispatching directly into the real `AppModule` Nest.js DI container, built in-process via `NestFactory.createApplicationContext()` (the `ipc` fixture). No HTTP server, no Vite build/preview, no `BrowserWindow` — a single Node process. AWS SDK intercepted by `aws-sdk-client-mock`; mock state pushed straight into the in-process `MockStore` singleton via the `serverMocks` fixture. | Controller-level business logic validation (permission checks, tfstate parsing, ECS command orchestration, error propagation) against the exact provider wiring the Electron IPC transport uses at runtime. |
 
 **React component unit tests (`@hyveon/web`):**
@@ -211,27 +205,27 @@ The test suite has three complementary tiers:
 - Use the `authedPage` fixture (token pre-seeded in localStorage) only when a spec needs raw `Page` access (e.g. to call `stubApis` or `addInitScript`); otherwise prefer the higher-level page-object fixtures.
 - Stubs must cover every `/api/*` endpoint the page hits, or the catch-all returns 404 and the test will surface the missing stub quickly.
 
-**Electron e2e IPC mock seam (`window.gsd.__test.mock`):**
+**Electron e2e IPC mock seam (`window.hyveon.__test.mock`):**
 
 The Electron project in Playwright launches the packaged app via `_electron.launch()` with `HYVEON_TEST_MODE=1` in the process environment (set in `playwright.config.ts:electronEnv`). That env var gates two things:
 
 1. **Main process** (`desktop-main/src/electron-entry.ts`) logs `[desktop-main] HYVEON_TEST_MODE active — test seam enabled` at startup. The window still opens normally — the flag is informational, not a behaviour switch, so `_electron.launch()` can drive the real UI.
-2. **Preload script** (`desktop-preload/src/preload.ts`) checks `process.env.HYVEON_TEST_MODE === '1'` before attaching the `__test` namespace to the `gsd` bridge. When the flag is set the bridge gains:
+2. **Preload script** (`desktop-preload/src/preload.ts`) checks `process.env.HYVEON_TEST_MODE === '1'` before attaching the `__test` namespace to the `hyveon` bridge. When the flag is set the bridge gains:
 
    ```ts
-   window.gsd.__test.mock(channel, handler)
+   window.hyveon.__test.mock(channel, handler)
    ```
 
    `channel` is an IPC channel string (e.g. `'games.list'`). `handler` is a replacement function or a plain value. Thereafter, every `invoke(channel, ...args)` call in the preload consults a `Map<string, fn>` before forwarding to `ipcRenderer.invoke`, so the Electron main process is never reached for mocked channels.
 
-**Production-gating guarantee.** When `HYVEON_TEST_MODE` is absent (the default for packaged / production builds), the `if (isTestMode)` branch in the preload is never entered and `window.gsd.__test` is `undefined`. The `contextBridge.exposeInMainWorld` call only ever exposes the production API namespaces. There is no path by which end users can reach the mock registry.
+**Production-gating guarantee.** When `HYVEON_TEST_MODE` is absent (the default for packaged / production builds), the `if (isTestMode)` branch in the preload is never entered and `window.hyveon.__test` is `undefined`. The `contextBridge.exposeInMainWorld` call only ever exposes the production API namespaces. There is no path by which end users can reach the mock registry.
 
 **Two mock surfaces — choose the right one:**
 
 | Surface | File | When to use |
 |---------|------|-------------|
-| `window.gsd.__test.mock(channel, handler)` | `desktop-preload/src/preload.ts` | Playwright Electron e2e specs (`electron` project) that need to control IPC responses without running the Nest server. Called via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock). When tests share a single `ElectronApplication`, call `win.evaluate(() => window.gsd.__test.clearMocks())` (alias: `reset()`) in `afterEach` so stale mock handlers don't bleed into later tests. |
-| `register(namespace, mock)` from `@hyveon/desktop-preload/test-mock-registry` | `desktop-preload/src/test-mock-registry.ts` | Vitest unit tests running under jsdom. Build a partial namespace stub with `vi.fn()`, call `register('games', stub)`, then `vi.stubGlobal('gsd', buildMockGsd())` so the component under test gets a fully-typed `window.gsd`. Call `clear()` in `afterEach`. |
+| `window.hyveon.__test.mock(channel, handler)` | `desktop-preload/src/preload.ts` | Playwright Electron e2e specs (`electron` project) that need to control IPC responses without running the Nest server. Called via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock). When tests share a single `ElectronApplication`, call `win.evaluate(() => window.hyveon.__test.clearMocks())` (alias: `reset()`) in `afterEach` so stale mock handlers don't bleed into later tests. |
+| `register(namespace, mock)` from `@hyveon/desktop-preload/test-mock-registry` | `desktop-preload/src/test-mock-registry.ts` | Vitest unit tests running under jsdom. Build a partial namespace stub with `vi.fn()`, call `register('games', stub)`, then `vi.stubGlobal('hyveon', buildMockHyveon())` so the component under test gets a fully-typed `window.hyveon`. Call `clear()` in `afterEach`. |
 
 The `test-mock-registry` module is **not** imported by the preload script or any production code; it exists only for jsdom-environment test helpers.
 
@@ -278,11 +272,11 @@ If the plugin isn't loaded in the current environment, fetch the skill body from
 
 ## PR Review Workflow
 
-Copilot runs automatically on every push. Most suggestions are not actionable — expect to apply ~1 in 3.
+Most suggestions are not actionable — expect to apply ~1 in 3.
 
 - **Fix** if: genuinely buggy, insecure, crashes, or incorrect logic.
 - **Decline** if: style, naming, "consider", missing non-essential comment, minor nit — one-line reply ("Declined — stylistic, leaving as-is.") then resolve the thread.
 - **Ask** (`AskUserQuestion`) if: ambiguous or architecturally significant. Don't silently dismiss.
 - **Stop pushing** when the round is all nitpicks — the PR is ready. Reply to each thread and move on.
 
-Always reply on the thread (fix applied + SHA, or reason for decline) and resolve it with `mcp__github__resolve_review_thread`. Copilot's system behaviour is tuned via `.github/copilot-instructions.md` — keep that file and this section in sync.
+Every comment must resolve to an explicit **Fix** or **Decline** — never leave a thread open with a noncommittal reply like "tracking this" or "will consider." Always reply on the thread (fix applied + SHA, or reason for decline) and resolve it with `mcp__github__resolve_review_thread`.

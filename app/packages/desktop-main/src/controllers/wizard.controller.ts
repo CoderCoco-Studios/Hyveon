@@ -35,7 +35,7 @@ export interface SaveWizardProgressInput {
  * The credentials step's chosen source, as persisted to `ElectronStoreService.aws`.
  * `profile` names either a real `~/.aws` profile (the "pick an existing
  * profile" path) or a `creds.aws.<profileName>` pasted-credentials entry
- * (the "paste keys instead" path, e.g. `gsd-pasted`) — the two are
+ * (the "paste keys instead" path, e.g. `hyveon-pasted`) — the two are
  * distinguished later by whether `creds.aws.<profile>` exists, not by a
  * separate flag here.
  */
@@ -104,12 +104,12 @@ export class WizardController {
    * The Electron e2e specs that land on the dashboard (`dashboard`, `costs`,
    * `logs`, `discord`, `terraform`) launch the real packaged app and don't
    * register a `wizard.state.get` mock (most seed their own IPC responses
-   * inline per test, not through the shared `applyGsdMocks` helper), so a
+   * inline per test, not through the shared `applyHyveonMocks` helper), so a
    * `false` default here would route every one of them into the wizard
    * instead of the dashboard they're actually testing. Defaulting to
    * `true` under test mode avoids retrofitting every existing spec; a
    * future spec that *does* want to exercise the wizard flow itself can
-   * still override this via `window.gsd.__test.mock('wizard.state.get', ...)`
+   * still override this via `window.hyveon.__test.mock('wizard.state.get', ...)`
    * — the mock registry is consulted before this controller is ever reached.
    * This is a plain read of `ElectronStoreService` either way — the fuller
    * resumable step-progress state (`userData/wizard-state.json`, owned by
@@ -223,7 +223,7 @@ export class WizardController {
 
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
-   * `GameServerDeployAll` action set. See `IamCheckService.checkPermissions`
+   * `HyveonDeployAll` action set. See `IamCheckService.checkPermissions`
    * for the passed/missing/warning result mapping.
    */
   @MessagePattern('wizard.iam.simulate')

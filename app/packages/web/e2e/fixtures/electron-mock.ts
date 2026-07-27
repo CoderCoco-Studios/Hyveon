@@ -2,7 +2,7 @@
  * Electron IPC mock helpers for Playwright e2e specs running in the `electron`
  * Playwright project.
  *
- * These helpers drive `window.gsd.__test.mock()` — the test seam exposed by the
+ * These helpers drive `window.hyveon.__test.mock()` — the test seam exposed by the
  * preload script when the app is launched with `HYVEON_TEST_MODE=1`. They are
  * intentionally separate from the HTTP-stub helpers in `index.ts` (which use
  * `page.route()` for the `chromium` project) so the two seams never bleed into
@@ -27,7 +27,7 @@ import type { DiscordConfigRedacted } from '@/api.js';
  * Seeds all Discord IPC channels in the Electron mock registry with canned
  * responses derived from `config`.
  *
- * Every `window.gsd.discord.*` method that the DiscordPage exercises is covered
+ * Every `window.hyveon.discord.*` method that the DiscordPage exercises is covered
  * so specs can navigate to `/discord` without the Nest main process being
  * reachable. Mutation channels (`putConfig`, `addGuild`, `removeGuild`,
  * `registerCommands`, `putAdmins`, `putPermission`, `deletePermission`) return
@@ -39,34 +39,34 @@ import type { DiscordConfigRedacted } from '@/api.js';
  */
 export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted): Promise<void> {
   await win.evaluate((cfg) => {
-    const gsd = (window as Record<string, unknown>)['gsd'] as {
+    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
       __test: { mock: (channel: string, handler: unknown) => void };
     };
 
     // Read channel — returns the full config.
-    gsd.__test.mock('discord.getConfig', () => Promise.resolve(cfg));
+    hyveon.__test.mock('discord.getConfig', () => Promise.resolve(cfg));
 
     // Credentials update — echoes the same config back as a success result.
-    gsd.__test.mock('discord.putConfig', () =>
+    hyveon.__test.mock('discord.putConfig', () =>
       Promise.resolve({ success: true, config: cfg }),
     );
 
     // Guild list — split into dynamic (allowedGuilds) and Terraform-base
     // (baseAllowedGuilds) so the Guilds tab renders the correct table rows.
-    gsd.__test.mock('discord.listGuilds', () =>
+    hyveon.__test.mock('discord.listGuilds', () =>
       Promise.resolve({ guilds: cfg.allowedGuilds, baseGuilds: cfg.baseAllowedGuilds }),
     );
 
     // Guild mutations — return the same list as the seed so the UI
     // doesn't visually change after an optimistic update in the mock.
-    gsd.__test.mock('discord.addGuild', () =>
+    hyveon.__test.mock('discord.addGuild', () =>
       Promise.resolve({
         success: true,
         guilds: cfg.allowedGuilds,
         baseGuilds: cfg.baseAllowedGuilds,
       }),
     );
-    gsd.__test.mock('discord.removeGuild', () =>
+    hyveon.__test.mock('discord.removeGuild', () =>
       Promise.resolve({
         success: true,
         guilds: cfg.allowedGuilds,
@@ -75,26 +75,26 @@ export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted)
     );
 
     // Slash-command registration — succeeds with a generic message.
-    gsd.__test.mock('discord.registerCommands', () =>
+    hyveon.__test.mock('discord.registerCommands', () =>
       Promise.resolve({ success: true, message: 'Registered' }),
     );
 
     // Admin read/write channels.
-    gsd.__test.mock('discord.getAdmins', () =>
+    hyveon.__test.mock('discord.getAdmins', () =>
       Promise.resolve({ ...cfg.admins, baseAdmins: cfg.baseAdmins }),
     );
-    gsd.__test.mock('discord.putAdmins', () =>
+    hyveon.__test.mock('discord.putAdmins', () =>
       Promise.resolve({ success: true, admins: cfg.admins, baseAdmins: cfg.baseAdmins }),
     );
 
     // Per-game permission channels.
-    gsd.__test.mock('discord.getPermissions', () =>
+    hyveon.__test.mock('discord.getPermissions', () =>
       Promise.resolve(cfg.gamePermissions),
     );
-    gsd.__test.mock('discord.putPermission', () =>
+    hyveon.__test.mock('discord.putPermission', () =>
       Promise.resolve({ success: true, permissions: cfg.gamePermissions }),
     );
-    gsd.__test.mock('discord.deletePermission', () =>
+    hyveon.__test.mock('discord.deletePermission', () =>
       Promise.resolve({ success: true, permissions: cfg.gamePermissions }),
     );
   }, config);
@@ -102,7 +102,7 @@ export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted)
 
 /**
  * Clears all IPC mock handlers registered in the Electron window via the
- * `window.gsd.__test` surface.
+ * `window.hyveon.__test` surface.
  *
  * Call this in `afterEach` (or the `finally` block of a test that shares an
  * `ElectronApplication` across multiple cases) so stale mock handlers do not
@@ -112,9 +112,9 @@ export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted)
  */
 export async function clearElectronMocks(win: Page): Promise<void> {
   await win.evaluate(() => {
-    const gsd = (window as Record<string, unknown>)['gsd'] as {
+    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
       __test: { clearMocks: () => void };
     };
-    gsd.__test.clearMocks();
+    hyveon.__test.clearMocks();
   });
 }

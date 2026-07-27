@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api.service.js';
 
 /**
- * Builds a fresh `window.gsd` IPC-bridge double. Every namespace method is a
+ * Builds a fresh `window.hyveon` IPC-bridge double. Every namespace method is a
  * `vi.fn()` returning a minimal payload of the right shape, so each `api.*`
  * wrapper has something to await and we can assert it delegated to the matching
  * bridge method with the right arguments.
  */
-function makeGsdMock() {
+function makeHyveonMock() {
   return {
     games: {
       list: vi.fn().mockResolvedValue({ games: [] }),
@@ -65,11 +65,11 @@ function makeGsdMock() {
   };
 }
 
-let gsd: ReturnType<typeof makeGsdMock>;
+let hyveon: ReturnType<typeof makeHyveonMock>;
 
 beforeEach(() => {
-  gsd = makeGsdMock();
-  vi.stubGlobal('gsd', gsd);
+  hyveon = makeHyveonMock();
+  vi.stubGlobal('hyveon', hyveon);
 });
 
 afterEach(() => {
@@ -78,78 +78,78 @@ afterEach(() => {
 });
 
 describe('IPC bridge delegation', () => {
-  it('should delegate api.env() to window.gsd.env.get()', async () => {
+  it('should delegate api.env() to window.hyveon.env.get()', async () => {
     await api.env();
-    expect(gsd.env.get).toHaveBeenCalledOnce();
+    expect(hyveon.env.get).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.games() to window.gsd.games.list()', async () => {
+  it('should delegate api.games() to window.hyveon.games.list()', async () => {
     await api.games();
-    expect(gsd.games.list).toHaveBeenCalledOnce();
+    expect(hyveon.games.list).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.status() to window.gsd.games.status()', async () => {
+  it('should delegate api.status() to window.hyveon.games.status()', async () => {
     await api.status();
-    expect(gsd.games.status).toHaveBeenCalledOnce();
+    expect(hyveon.games.status).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.statusGame() to window.gsd.games.getStatus() with the game id', async () => {
+  it('should delegate api.statusGame() to window.hyveon.games.getStatus() with the game id', async () => {
     await api.statusGame('minecraft');
-    expect(gsd.games.getStatus).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.games.getStatus).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.start() to window.gsd.games.start() with the game id', async () => {
+  it('should delegate api.start() to window.hyveon.games.start() with the game id', async () => {
     await api.start('minecraft');
-    expect(gsd.games.start).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.games.start).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.stop() to window.gsd.games.stop() with the game id', async () => {
+  it('should delegate api.stop() to window.hyveon.games.stop() with the game id', async () => {
     await api.stop('palworld');
-    expect(gsd.games.stop).toHaveBeenCalledWith('palworld');
+    expect(hyveon.games.stop).toHaveBeenCalledWith('palworld');
   });
 
-  it('should delegate api.config() to window.gsd.config.get()', async () => {
+  it('should delegate api.config() to window.hyveon.config.get()', async () => {
     await api.config();
-    expect(gsd.config.get).toHaveBeenCalledOnce();
+    expect(hyveon.config.get).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.saveConfig() to window.gsd.config.update() with the config', async () => {
+  it('should delegate api.saveConfig() to window.hyveon.config.update() with the config', async () => {
     const cfg = { watchdog_interval_minutes: 10, watchdog_idle_checks: 4, watchdog_min_packets: 50 };
     await api.saveConfig(cfg);
-    expect(gsd.config.update).toHaveBeenCalledWith(cfg);
+    expect(hyveon.config.update).toHaveBeenCalledWith(cfg);
   });
 
-  it('should delegate api.costsEstimate() to window.gsd.costs.estimate()', async () => {
+  it('should delegate api.costsEstimate() to window.hyveon.costs.estimate()', async () => {
     await api.costsEstimate();
-    expect(gsd.costs.estimate).toHaveBeenCalledOnce();
+    expect(hyveon.costs.estimate).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.costsActual() to window.gsd.costs.actual() with the days window', async () => {
+  it('should delegate api.costsActual() to window.hyveon.costs.actual() with the days window', async () => {
     await api.costsActual(14);
-    expect(gsd.costs.actual).toHaveBeenCalledWith(14);
+    expect(hyveon.costs.actual).toHaveBeenCalledWith(14);
   });
 
   it('should default api.costsActual() to a 7-day window', async () => {
     await api.costsActual();
-    expect(gsd.costs.actual).toHaveBeenCalledWith(7);
+    expect(hyveon.costs.actual).toHaveBeenCalledWith(7);
   });
 
-  it('should delegate api.filesMgrStatus() to window.gsd.files.list() with the game id', async () => {
+  it('should delegate api.filesMgrStatus() to window.hyveon.files.list() with the game id', async () => {
     await api.filesMgrStatus('minecraft');
-    expect(gsd.files.list).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.files.list).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.filesMgrStart() to window.gsd.files.start() with the game id', async () => {
+  it('should delegate api.filesMgrStart() to window.hyveon.files.start() with the game id', async () => {
     await api.filesMgrStart('minecraft');
-    expect(gsd.files.start).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.files.start).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.filesMgrStop() to window.gsd.files.stop() with the game id', async () => {
+  it('should delegate api.filesMgrStop() to window.hyveon.files.stop() with the game id', async () => {
     await api.filesMgrStop('minecraft');
-    expect(gsd.files.stop).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.files.stop).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.createGame() to window.gsd.games.create() with the exact payload', async () => {
+  it('should delegate api.createGame() to window.hyveon.games.create() with the exact payload', async () => {
     const payload = {
       name: 'minecraft',
       config: {
@@ -161,10 +161,10 @@ describe('IPC bridge delegation', () => {
       },
     };
     await api.createGame(payload);
-    expect(gsd.games.create).toHaveBeenCalledWith(payload);
+    expect(hyveon.games.create).toHaveBeenCalledWith(payload);
   });
 
-  it('should delegate api.updateGame() to window.gsd.games.update() with the exact payload', async () => {
+  it('should delegate api.updateGame() to window.hyveon.games.update() with the exact payload', async () => {
     const payload = {
       name: 'minecraft',
       config: {
@@ -176,84 +176,84 @@ describe('IPC bridge delegation', () => {
       },
     };
     await api.updateGame(payload);
-    expect(gsd.games.update).toHaveBeenCalledWith(payload);
+    expect(hyveon.games.update).toHaveBeenCalledWith(payload);
   });
 
-  it('should delegate api.deleteGame() to window.gsd.games.delete() with the exact payload', async () => {
+  it('should delegate api.deleteGame() to window.hyveon.games.delete() with the exact payload', async () => {
     const payload = { name: 'minecraft' };
     await api.deleteGame(payload);
-    expect(gsd.games.delete).toHaveBeenCalledWith(payload);
+    expect(hyveon.games.delete).toHaveBeenCalledWith(payload);
   });
 
-  it('should delegate api.discordConfig() to window.gsd.discord.getConfig()', async () => {
+  it('should delegate api.discordConfig() to window.hyveon.discord.getConfig()', async () => {
     await api.discordConfig();
-    expect(gsd.discord.getConfig).toHaveBeenCalledOnce();
+    expect(hyveon.discord.getConfig).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.discordSaveCredentials() to window.gsd.discord.putConfig() with the body', async () => {
+  it('should delegate api.discordSaveCredentials() to window.hyveon.discord.putConfig() with the body', async () => {
     const body = { botToken: 't', clientId: 'c', publicKey: 'k' };
     await api.discordSaveCredentials(body);
-    expect(gsd.discord.putConfig).toHaveBeenCalledWith(body);
+    expect(hyveon.discord.putConfig).toHaveBeenCalledWith(body);
   });
 
-  it('should delegate api.discordAddGuild() to window.gsd.discord.addGuild() with the guild id', async () => {
+  it('should delegate api.discordAddGuild() to window.hyveon.discord.addGuild() with the guild id', async () => {
     await api.discordAddGuild('G1');
-    expect(gsd.discord.addGuild).toHaveBeenCalledWith('G1');
+    expect(hyveon.discord.addGuild).toHaveBeenCalledWith('G1');
   });
 
-  it('should delegate api.discordRemoveGuild() to window.gsd.discord.removeGuild() with the guild id', async () => {
+  it('should delegate api.discordRemoveGuild() to window.hyveon.discord.removeGuild() with the guild id', async () => {
     await api.discordRemoveGuild('G1');
-    expect(gsd.discord.removeGuild).toHaveBeenCalledWith('G1');
+    expect(hyveon.discord.removeGuild).toHaveBeenCalledWith('G1');
   });
 
-  it('should delegate api.discordRegisterCommands() to window.gsd.discord.registerCommands() with the guild id', async () => {
+  it('should delegate api.discordRegisterCommands() to window.hyveon.discord.registerCommands() with the guild id', async () => {
     await api.discordRegisterCommands('G1');
-    expect(gsd.discord.registerCommands).toHaveBeenCalledWith('G1');
+    expect(hyveon.discord.registerCommands).toHaveBeenCalledWith('G1');
   });
 
-  it('should delegate api.discordSaveAdmins() to window.gsd.discord.putAdmins() with the admins', async () => {
+  it('should delegate api.discordSaveAdmins() to window.hyveon.discord.putAdmins() with the admins', async () => {
     const admins = { userIds: ['u1'], roleIds: ['r1'] };
     await api.discordSaveAdmins(admins);
-    expect(gsd.discord.putAdmins).toHaveBeenCalledWith(admins);
+    expect(hyveon.discord.putAdmins).toHaveBeenCalledWith(admins);
   });
 
-  it('should delegate api.discordSavePermission() to window.gsd.discord.putPermission() with the game and permission', async () => {
+  it('should delegate api.discordSavePermission() to window.hyveon.discord.putPermission() with the game and permission', async () => {
     const perm = { userIds: ['u1'], roleIds: [], actions: ['start' as const] };
     await api.discordSavePermission('minecraft', perm);
-    expect(gsd.discord.putPermission).toHaveBeenCalledWith('minecraft', perm);
+    expect(hyveon.discord.putPermission).toHaveBeenCalledWith('minecraft', perm);
   });
 
-  it('should delegate api.discordDeletePermission() to window.gsd.discord.deletePermission() with the game', async () => {
+  it('should delegate api.discordDeletePermission() to window.hyveon.discord.deletePermission() with the game', async () => {
     await api.discordDeletePermission('minecraft');
-    expect(gsd.discord.deletePermission).toHaveBeenCalledWith('minecraft');
+    expect(hyveon.discord.deletePermission).toHaveBeenCalledWith('minecraft');
   });
 
-  it('should delegate api.diagnosticsTail() to window.gsd.diagnostics.tail()', async () => {
+  it('should delegate api.diagnosticsTail() to window.hyveon.diagnostics.tail()', async () => {
     await api.diagnosticsTail();
-    expect(gsd.diagnostics.tail).toHaveBeenCalledOnce();
+    expect(hyveon.diagnostics.tail).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.diagnosticsLogPath() to window.gsd.diagnostics.path()', async () => {
+  it('should delegate api.diagnosticsLogPath() to window.hyveon.diagnostics.path()', async () => {
     await api.diagnosticsLogPath();
-    expect(gsd.diagnostics.path).toHaveBeenCalledOnce();
+    expect(hyveon.diagnostics.path).toHaveBeenCalledOnce();
   });
 
   it('should resolve api.drift() with the bridge drift.get() result', async () => {
     const report = { entries: [{ game: 'minecraft', kind: 'pending_create' as const }] };
-    gsd.drift.get.mockResolvedValueOnce(report);
+    hyveon.drift.get.mockResolvedValueOnce(report);
     await expect(api.drift()).resolves.toEqual(report);
-    expect(gsd.drift.get).toHaveBeenCalledOnce();
+    expect(hyveon.drift.get).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.audit() to window.gsd.audit.list() with the opts', async () => {
+  it('should delegate api.audit() to window.hyveon.audit.list() with the opts', async () => {
     const opts = { limit: 10, before: '2026-01-01T00:00:00.000Z#01H' };
     await api.audit(opts);
-    expect(gsd.audit.list).toHaveBeenCalledWith(opts);
+    expect(hyveon.audit.list).toHaveBeenCalledWith(opts);
   });
 
-  it('should delegate api.audit() to window.gsd.audit.list() with undefined when opts is omitted', async () => {
+  it('should delegate api.audit() to window.hyveon.audit.list() with undefined when opts is omitted', async () => {
     await api.audit();
-    expect(gsd.audit.list).toHaveBeenCalledWith(undefined);
+    expect(hyveon.audit.list).toHaveBeenCalledWith(undefined);
   });
 
   it('should resolve api.audit() with the bridge audit.list() result', async () => {
@@ -271,7 +271,7 @@ describe('IPC bridge delegation', () => {
       ],
       nextBefore: '2025-12-31T00:00:00.000Z#01G',
     };
-    gsd.audit.list.mockResolvedValueOnce(page);
+    hyveon.audit.list.mockResolvedValueOnce(page);
     await expect(api.audit()).resolves.toEqual(page);
   });
 
@@ -280,19 +280,19 @@ describe('IPC bridge delegation', () => {
       { name: 'minecraft', declared: false, deployed: true },
       { name: 'palworld', declared: false, deployed: false },
     ];
-    gsd.games.list.mockResolvedValueOnce({ games: entries });
+    hyveon.games.list.mockResolvedValueOnce({ games: entries });
     await expect(api.games()).resolves.toEqual({ games: entries });
   });
 });
 
 describe('missing IPC bridge', () => {
-  it('should throw a descriptive error when window.gsd is unavailable', async () => {
-    vi.stubGlobal('gsd', undefined);
-    await expect(api.env()).rejects.toThrow('window.gsd IPC bridge is unavailable');
+  it('should throw a descriptive error when window.hyveon is unavailable', async () => {
+    vi.stubGlobal('hyveon', undefined);
+    await expect(api.env()).rejects.toThrow('window.hyveon IPC bridge is unavailable');
   });
 
-  it('should reject api.drift() with a descriptive error when window.gsd is unavailable', async () => {
-    vi.stubGlobal('gsd', undefined);
-    await expect(api.drift()).rejects.toThrow('window.gsd IPC bridge is unavailable');
+  it('should reject api.drift() with a descriptive error when window.hyveon is unavailable', async () => {
+    vi.stubGlobal('hyveon', undefined);
+    await expect(api.drift()).rejects.toThrow('window.hyveon IPC bridge is unavailable');
   });
 });

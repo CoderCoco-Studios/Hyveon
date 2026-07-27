@@ -22,6 +22,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } from 'fs';
+import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 
 /** Strongly-typed mock handles for the `fs` module. */
@@ -254,48 +255,6 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('getApiToken', () => {
-    it('should return the token from API_TOKEN env when set', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue('env-tok');
-      expect(service.getApiToken()).toBe('env-tok');
-    });
-
-    it('should treat an explicitly-empty API_TOKEN env var as no token', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue('');
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 'file-tok' }));
-      // Env wins, even when empty — user intentionally disabled auth via env.
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should fall back to server_config.json.api_token when env is unset', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 'file-tok' }));
-      expect(service.getApiToken()).toBe('file-tok');
-    });
-
-    it('should return null when neither env nor file has a token', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(false);
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should return null when the config file is malformed', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('{bad');
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should return null when the api_token field is not a string', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 12345 }));
-      expect(service.getApiToken()).toBeNull();
-    });
-  });
-
   describe('getConfig', () => {
     it('should return defaults when the config file is missing', () => {
       mockExists.mockReturnValue(false);
@@ -391,7 +350,7 @@ describe('ConfigService', () => {
       delete process.env['TF_STATE_PATH'];
       delete process.env['SERVER_CONFIG_PATH'];
       delete process.env['TFVARS_PATH'];
-      delete process.env['GSD_TFVARS_BUCKET'];
+      delete process.env['HYVEON_TFVARS_BUCKET'];
       delete process.env['TF_DIR'];
       delete process.env['RUNS_DIR_PATH'];
     });
@@ -451,12 +410,12 @@ describe('ConfigService', () => {
       expect(path.isAbsolute(result)).toBe(true);
     });
 
-    it('should return the GSD_TFVARS_BUCKET env var value when set', () => {
-      process.env['GSD_TFVARS_BUCKET'] = 'my-project-tfvars';
+    it('should return the HYVEON_TFVARS_BUCKET env var value when set', () => {
+      process.env['HYVEON_TFVARS_BUCKET'] = 'my-project-tfvars';
       expect(service.getTfvarsBucket()).toBe('my-project-tfvars');
     });
 
-    it('should return the marker file contents when GSD_TFVARS_BUCKET is unset', () => {
+    it('should return the marker file contents when HYVEON_TFVARS_BUCKET is unset', () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue('marker-bucket-name\n');
       expect(service.getTfvarsBucket()).toBe('marker-bucket-name');
@@ -465,7 +424,7 @@ describe('ConfigService', () => {
     it('should walk up from a nested cwd to find the marker file at an ancestor directory', () => {
       const repoRoot = path.join(path.sep, 'repo');
       const nestedCwd = path.join(repoRoot, 'app', 'packages', 'desktop-main');
-      const markerPath = path.join(repoRoot, '.gsd', 'tfvars-bucket');
+      const markerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
 
       vi.spyOn(process, 'cwd').mockReturnValue(nestedCwd);
       mockExists.mockImplementation((p) => p === markerPath);
@@ -473,6 +432,34 @@ describe('ConfigService', () => {
 
       expect(service.getTfvarsBucket()).toBe('nested-bucket-name');
       expect(mockRead).toHaveBeenCalledWith(markerPath, 'utf-8');
+    });
+
+    it('should fall back to the legacy .gsd/tfvars-bucket marker and warn when only it exists', () => {
+      const repoRoot = path.join(path.sep, 'repo');
+      const legacyMarkerPath = path.join(repoRoot, '.gsd', 'tfvars-bucket');
+
+      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
+      mockExists.mockImplementation((p) => p === legacyMarkerPath);
+      mockRead.mockReturnValue('legacy-bucket-name');
+
+      expect(service.getTfvarsBucket()).toBe('legacy-bucket-name');
+      expect(mockRead).toHaveBeenCalledWith(legacyMarkerPath, 'utf-8');
+      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+        expect.stringContaining('Using legacy .gsd/tfvars-bucket marker'),
+        expect.objectContaining({ path: legacyMarkerPath }),
+      );
+    });
+
+    it('should prefer the new .hyveon/tfvars-bucket marker over the legacy .gsd one when both exist', () => {
+      const repoRoot = path.join(path.sep, 'repo');
+      const newMarkerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
+
+      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
+      mockExists.mockImplementation((p) => p === newMarkerPath || p === path.join(repoRoot, '.gsd', 'tfvars-bucket'));
+      mockRead.mockReturnValue('new-bucket-name');
+
+      expect(service.getTfvarsBucket()).toBe('new-bucket-name');
+      expect(mockRead).toHaveBeenCalledWith(newMarkerPath, 'utf-8');
     });
 
     it('should return null when neither the env var nor the marker file resolve', () => {

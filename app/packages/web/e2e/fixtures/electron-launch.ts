@@ -8,7 +8,7 @@
  *   from the playwright config, and returns `{ app, win }` where `win` is the
  *   first-opened `Page`.
  *
- * - `applyGsdMocks(win, opts)` — seeds `window.gsd.__test.mock()` for every
+ * - `applyHyveonMocks(win, opts)` — seeds `window.hyveon.__test.mock()` for every
  *   IPC channel the dashboard and its shared provider stack consume, using the
  *   same `StubOptions` shape and `game-data` fixture constants that the
  *   Chromium tier uses for `page.route()` stubs. Designed to be called inside
@@ -62,7 +62,7 @@ export interface ElectronHandle {
  * test('should show the dashboard', async () => {
  *   const { app, win } = await launchElectron();
  *   try {
- *     await applyGsdMocks(win, { statuses: [RUNNING_GAME] });
+ *     await applyHyveonMocks(win, { statuses: [RUNNING_GAME] });
  *     await win.goto('/');
  *     // ...assertions...
  *   } finally {
@@ -78,11 +78,11 @@ export async function launchElectron(): Promise<ElectronHandle> {
 }
 
 // ---------------------------------------------------------------------------
-// applyGsdMocks
+// applyHyveonMocks
 // ---------------------------------------------------------------------------
 
 /**
- * Seeds `window.gsd.__test.mock()` for every IPC channel the dashboard and
+ * Seeds `window.hyveon.__test.mock()` for every IPC channel the dashboard and
  * its shared provider stack call at startup.
  *
  * Mirrors the defaults and per-spec overrides of `stubApis` so the same
@@ -105,7 +105,7 @@ export async function launchElectron(): Promise<ElectronHandle> {
  * @param win  - The Playwright `Page` for the Electron renderer window.
  * @param opts - Per-spec overrides; uses the same defaults as `stubApis`.
  */
-export async function applyGsdMocks(win: Page, opts: StubOptions = {}): Promise<void> {
+export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promise<void> {
   const statuses: GameStatus[] = opts.statuses ?? [STOPPED_GAME];
   const costs: CostEstimates = opts.costs ?? COST_DATA;
   const env: EnvInfo = opts.env ?? ENV_DATA;
@@ -143,23 +143,23 @@ export async function applyGsdMocks(win: Page, opts: StubOptions = {}): Promise<
       watchdogConfig: WatchdogConfig;
       actualCostsMap: Record<string, ActualCosts>;
     }) => {
-      const gsd = (window as Record<string, unknown>)['gsd'] as {
+      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 
-      gsd.__test.mock('env.get', () => Promise.resolve(envData));
-      gsd.__test.mock('games.status', () => Promise.resolve(statusList));
-      gsd.__test.mock('games.list', () => Promise.resolve({ games: gameList }));
-      gsd.__test.mock('costs.estimate', () => Promise.resolve(costEstimates));
-      gsd.__test.mock('costs.actual', (days: unknown) => {
+      hyveon.__test.mock('env.get', () => Promise.resolve(envData));
+      hyveon.__test.mock('games.status', () => Promise.resolve(statusList));
+      hyveon.__test.mock('games.list', () => Promise.resolve({ games: gameList }));
+      hyveon.__test.mock('costs.estimate', () => Promise.resolve(costEstimates));
+      hyveon.__test.mock('costs.actual', (days: unknown) => {
         const d = typeof days === 'number' ? days : 7;
         const key = String(d);
         return Promise.resolve(actualCostsMap[key] ?? actualCostsMap['7']);
       });
-      gsd.__test.mock('games.start', () => Promise.resolve(startRes));
-      gsd.__test.mock('games.stop', () => Promise.resolve({ success: true, message: 'Stopped' }));
-      gsd.__test.mock('discord.getConfig', () => Promise.resolve(discordConfig));
-      gsd.__test.mock('config.get', () => Promise.resolve(watchdogConfig));
+      hyveon.__test.mock('games.start', () => Promise.resolve(startRes));
+      hyveon.__test.mock('games.stop', () => Promise.resolve({ success: true, message: 'Stopped' }));
+      hyveon.__test.mock('discord.getConfig', () => Promise.resolve(discordConfig));
+      hyveon.__test.mock('config.get', () => Promise.resolve(watchdogConfig));
     },
     {
       envData: env,

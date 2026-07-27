@@ -27,7 +27,7 @@ function formatTimestamp(iso: string): string {
 /**
  * Terraform run-history route (`/terraform/history`) — a newest-first table
  * of persisted `terraform` plan/apply/destroy runs backed by
- * `gsd.terraform.runs.list` (issue #111). Supports `kind`/`status` filters
+ * `hyveon.terraform.runs.list` (issue #111). Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
  * read-only run-detail view at `/terraform/history/:runId`.
  *
@@ -57,15 +57,15 @@ export function TerraformHistoryPage() {
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    if (!window.gsd) {
+    if (!window.hyveon) {
       setLoading(false);
-      setError('IPC bridge (window.gsd) is not available in this context.');
+      setError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
-    window.gsd.terraform.runs
+    window.hyveon.terraform.runs
       .list({ limit: PAGE_SIZE, status: statusFilter === 'all' ? undefined : statusFilter })
       .then((page) => {
         if (requestSeqRef.current !== seq) return;
@@ -81,11 +81,11 @@ export function TerraformHistoryPage() {
   }, [statusFilter]);
 
   const loadMore = useCallback(() => {
-    if (!nextBefore || !window.gsd) return;
+    if (!nextBefore || !window.hyveon) return;
     const seq = ++requestSeqRef.current;
     setLoadingMore(true);
     setError(null);
-    window.gsd.terraform.runs
+    window.hyveon.terraform.runs
       .list({ limit: PAGE_SIZE, before: nextBefore, status: statusFilter === 'all' ? undefined : statusFilter })
       .then((page) => {
         if (requestSeqRef.current !== seq) return;

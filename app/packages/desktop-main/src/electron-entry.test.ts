@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /*
@@ -13,10 +14,13 @@ const {
   mockWhenReady,
   MockBrowserWindow,
   mockGetAllWindows,
+  mockExistsSync,
   bootstrapMock,
   whenReadyCallbacks,
   onCallbacks,
 } = vi.hoisted(() => {
+  /** Spy for `existsSync`, driving which icon candidate path "exists". */
+  const mockExistsSync = vi.fn().mockReturnValue(false);
   const mockLoadURL = vi.fn().mockResolvedValue(undefined);
   const mockLoadFile = vi.fn().mockResolvedValue(undefined);
   const mockQuit = vi.fn();
@@ -69,11 +73,17 @@ const {
     mockWhenReady,
     MockBrowserWindow,
     mockGetAllWindows,
+    mockExistsSync,
     bootstrapMock,
     whenReadyCallbacks,
     onCallbacks,
   };
 });
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  existsSync: mockExistsSync,
+}));
 
 vi.mock('electron', () => ({
   app: {
@@ -100,6 +110,7 @@ describe('electron-entry', () => {
     mockQuit.mockImplementation(() => undefined);
     bootstrapMock.mockResolvedValue(undefined);
     mockGetAllWindows.mockReturnValue([]);
+    mockExistsSync.mockReturnValue(false);
 
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
@@ -297,5 +308,61 @@ describe('electron-entry', () => {
     );
 
     logSpy.mockRestore();
+  });
+
+  describe('window icon', () => {
+    /**
+     * Imports the entry point, fires the ready callback and returns the options
+     * object the module handed to `new BrowserWindow(...)`.
+     */
+    async function createWindowOptions(): Promise<Record<string, unknown>> {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      return MockBrowserWindow.mock.calls[0]?.[0] as Record<string, unknown>;
+    }
+
+    /** Sets `process.resourcesPath`, which only Electron defines at runtime. */
+    function stubResourcesPath(value: string | undefined): void {
+      Object.defineProperty(process, 'resourcesPath', { value, configurable: true });
+    }
+
+    afterEach(() => {
+      stubResourcesPath(undefined);
+    });
+
+    it('should use the packaged icon under resourcesPath when it exists', async () => {
+      stubResourcesPath(path.join('/opt', 'Hyveon', 'resources'));
+      mockExistsSync.mockImplementation((candidate: string) =>
+        candidate === path.join('/opt', 'Hyveon', 'resources', 'icon.png'),
+      );
+
+      const options = await createWindowOptions();
+
+      expect(options.icon).toBe(path.join('/opt', 'Hyveon', 'resources', 'icon.png'));
+    });
+
+    it('should fall back to the repo build/icon.png when running unpackaged', async () => {
+      stubResourcesPath(path.join('/opt', 'Hyveon', 'resources'));
+      mockExistsSync.mockImplementation((candidate: string) => candidate.endsWith('icon.png') &&
+        !candidate.includes('resources'));
+
+      const options = await createWindowOptions();
+
+      expect(options.icon).toMatch(/build[/\\]icon\.png$/);
+    });
+
+    it('should omit the icon option when no icon file is present', async () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const options = await createWindowOptions();
+
+      expect(options).not.toHaveProperty('icon');
+    });
   });
 });

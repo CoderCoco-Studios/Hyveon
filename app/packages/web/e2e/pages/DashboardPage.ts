@@ -27,7 +27,7 @@ export class DashboardPage {
    * dev-server base. Instead of navigating by URL this:
    *
    *  1. Returns to the `/` route via in-app history navigation (a full reload
-   *     would re-run the preload and wipe the `window.gsd.__test` mock registry
+   *     would re-run the preload and wipe the `window.hyveon.__test` mock registry
    *     that the test just seeded), so it works even after a sidebar-nav test
    *     left the app on another route.
    *  2. Clicks the top-bar "Refresh all" button. The app-level status poller
@@ -35,7 +35,7 @@ export class DashboardPage {
    *     grid must be re-fetched for the seeded `games.status` mock to take
    *     effect.
    *
-   * Call after `applyGsdMocks()` so the mocks are in place before the refresh.
+   * Call after `applyHyveonMocks()` so the mocks are in place before the refresh.
    */
   async gotoElectron(): Promise<void> {
     await this.page.evaluate(() => {

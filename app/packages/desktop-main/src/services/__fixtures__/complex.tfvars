@@ -4,7 +4,7 @@
 # expressions (arithmetic, a for-expression, a ternary, and a function call).
 
 aws_region   = "us-east-1" # trailing comment
-project_name = "game-servers"
+project_name = "hyveon"
 
 /*
   Block comment describing the game_servers map below.
