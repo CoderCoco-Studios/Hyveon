@@ -1,6 +1,15 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    // TypeScript 7 no longer auto-discovers @types packages that live in an
+    // ancestor node_modules across an npm-workspace boundary, so every
+    // workspace under app/ lost the ambient Node globals (`process`,
+    // `AbortSignal`, `Buffer`) that hoisted @types/node used to provide.
+    // Naming it explicitly restores them and is resolution-order independent.
+    // Ambient-only type packages must be listed here; anything imported by
+    // name (aws-lambda, react) resolves through normal module resolution and
+    // does not belong in this array.
+    "types": ["node"],
     "lib": ["ES2022"],
     "noUnusedLocals": true,
     "noUnusedParameters": true,
