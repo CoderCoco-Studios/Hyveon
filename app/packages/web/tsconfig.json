@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
+    // No `outDir`/`rootDir`: this project is `noEmit` (vite does the
+    // bundling), and declaring an output root makes TypeScript infer a
+    // `rootDir` of `packages/web`, which then rejects the desktop-preload
+    // sources pulled in by the `paths` mapping below as "not under rootDir".
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],
     "jsx": "react-jsx",
@@ -9,11 +12,19 @@
     "noEmit": true,
     "composite": false,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Resolve @hyveon/desktop-preload to its TypeScript source rather than
+      // through the package's `exports`, which point at `dist/`. Typechecking
+      // this package must not require desktop-preload to have been built
+      // first: Playwright's chromium `webServer` runs `vite build` (and now
+      // `tsc --noEmit` with it) straight from a clean checkout, where no
+      // sibling `dist/` exists yet. Every import of this package in the
+      // renderer is `import type`, so nothing here reaches a runtime bundle.
+      // Mirrors the source aliases vitest.config.ts already uses for
+      // @hyveon/shared and @hyveon/cloud-aws.
+      "@hyveon/desktop-preload": ["../desktop-preload/src/index.ts"],
+      "@hyveon/desktop-preload/*": ["../desktop-preload/src/*"]
     }
   },
-  "include": ["src/**/*", "vite.config.ts"],
-  "references": [
-    { "path": "../desktop-preload/tsconfig.json" }
-  ]
+  "include": ["src/**/*", "vite.config.ts"]
 }
