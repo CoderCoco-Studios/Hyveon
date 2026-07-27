@@ -375,7 +375,7 @@ jobs:
 
 Use OIDC → an IAM role for `aws-actions/configure-aws-credentials` rather
 than stashing long-lived keys. The role's policy is the same
-`GameServerDeployAll` inline policy from the [setup guide](/setup).
+`HyveonDeployAll` inline policy from the [setup guide](/setup).
 
 ## What NOT to do
 

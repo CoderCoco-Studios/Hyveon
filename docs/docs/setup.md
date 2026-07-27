@@ -41,7 +41,7 @@ On the AWS side you need:
 2. On the permissions step, choose **Attach policies directly** and skip
    through without selecting any managed policy. Create the user.
 3. Open the new user → **Permissions → Add permissions → Create inline
-   policy → JSON**. Paste the policy below, name it `GameServerDeployAll`,
+   policy → JSON**. Paste the policy below, name it `HyveonDeployAll`,
    and save.
 4. **Security credentials → Create access key → Command Line Interface (CLI)**.
    Copy the Access Key ID and Secret Access Key. Treat the secret like a
@@ -52,7 +52,7 @@ On the AWS side you need:
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "GameServerDeploy",
+      "Sid": "HyveonDeploy",
       "Effect": "Allow",
       "Action": [
         "ecs:*",
@@ -72,7 +72,7 @@ On the AWS side you need:
       "Resource": "*"
     },
     {
-      "Sid": "GameServerIAM",
+      "Sid": "HyveonIAM",
       "Effect": "Allow",
       "Action": "iam:*",
       "Resource": [
@@ -81,7 +81,7 @@ On the AWS side you need:
       ]
     },
     {
-      "Sid": "GameServerTfvarsBucket",
+      "Sid": "HyveonTfvarsBucket",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
@@ -114,9 +114,9 @@ On the AWS side you need:
 > **`iam:*` is scoped to project-prefixed ARNs**, not `Resource: *`, to avoid
 > granting `iam:PassRole` on every role in the account. The `hyveon-*`
 > prefix matches the default `project_name`. If you change `project_name` in
-> `terraform.tfvars`, update the two ARN patterns in `GameServerIAM` to match.
+> `terraform.tfvars`, update the two ARN patterns in `HyveonIAM` to match.
 
-> **`GameServerTfvarsBucket` scopes access to the tfvars-bucket storage**
+> **`HyveonTfvarsBucket` scopes access to the tfvars-bucket storage**
 > created by the [bootstrap module](#3-clone-install-and-bootstrap-aws-resources) (see the
 > "Bootstrap the tfvars bucket" step below) — the dedicated, versioned S3
 > bucket (default name `${project_name}-tfvars`) that holds `terraform.tfvars`
@@ -126,11 +126,11 @@ On the AWS side you need:
 > `PutBucketVersioning`/`GetBucketVersioning`, `GetBucketLocation`) the
 > bootstrap module needs to configure the bucket's lifecycle rule,
 > encryption, public-access block, and versioning. Although `s3:*` in
-> `GameServerDeploy` already covers these actions on every bucket, this
+> `HyveonDeploy` already covers these actions on every bucket, this
 > statement documents the specific permissions the tfvars-bucket workflow
 > depends on and scopes them to just the two tfvars ARNs. If you change
 > `project_name` or `tfvars_bucket_name`, update the two ARN patterns in
-> `GameServerTfvarsBucket` to match.
+> `HyveonTfvarsBucket` to match.
 
 Two permission areas used by Terraform are **not** covered by any AWS managed policy and are explicitly included above to avoid `AccessDenied` during `terraform apply`:
 
@@ -212,7 +212,7 @@ see the dedicated [S3 tfvars storage guide](/guides/s3-tfvars). The rest of
 this section covers only the one-time bootstrap step.
 
 > **IAM warning:** the S3 backend needs bucket access on top of the core
-> deploy policy. Confirm the `GameServerTfvarsBucket` statement from
+> deploy policy. Confirm the `HyveonTfvarsBucket` statement from
 > [step 1](#1-create-and-authorise-an-iam-user) is attached to whatever
 > IAM user/role bootstraps the bucket and runs `terraform apply` — without
 > it, bootstrapping the bucket and every subsequent `pull`/`push`/`plan`/`apply`

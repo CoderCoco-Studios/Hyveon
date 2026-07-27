@@ -223,7 +223,7 @@ export class WizardController {
 
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
-   * `GameServerDeployAll` action set. See `IamCheckService.checkPermissions`
+   * `HyveonDeployAll` action set. See `IamCheckService.checkPermissions`
    * for the passed/missing/warning result mapping.
    */
   @MessagePattern('wizard.iam.simulate')

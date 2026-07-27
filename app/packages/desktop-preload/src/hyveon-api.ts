@@ -1004,7 +1004,7 @@ export interface BootstrapTfvarsBucketInput {
 /** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
-/** Result of the wizard's best-effort IAM permission dry-run against the `GameServerDeployAll` action set. */
+/** Result of the wizard's best-effort IAM permission dry-run against the `HyveonDeployAll` action set. */
 export interface IamCheckResult {
   status: IamCheckStatus;
   /**
@@ -1081,7 +1081,7 @@ export interface HyveonWizardApi {
   bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) => Promise<BootstrapResult>;
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
-   * `GameServerDeployAll` action set (`sts:GetCallerIdentity` +
+   * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
    */
   simulateIamPermissions: () => Promise<IamCheckResult>;

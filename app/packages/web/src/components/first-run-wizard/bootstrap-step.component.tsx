@@ -1,5 +1,5 @@
 import { CheckCircle2, XCircle, AlertTriangle, Loader2, Copy } from 'lucide-react';
-import { GAME_SERVER_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
+import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import type { IamCheckResult } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { Badge } from '@/components/ui/badge.component';
@@ -42,7 +42,7 @@ export interface BootstrapStepProps {
  * services from #200/#203/#205): provisions the Terraform backend resources
  * (state bucket, lock table, tfvars bucket) via granular per-resource IPC
  * calls, then runs a best-effort IAM permission dry-run against the
- * `GameServerDeployAll` action set. The IAM check never blocks progression —
+ * `HyveonDeployAll` action set. The IAM check never blocks progression —
  * only the three bootstrap resources reaching `created`/`exists` does.
  */
 export function BootstrapStep({
@@ -141,10 +141,10 @@ export function BootstrapStep({
             </div>
             <p className="text-xs text-muted-foreground">
               Ensure your IAM user/role has the following actions (see <code>docs/docs/setup.md</code>&apos;s{' '}
-              <code>GameServerDeployAll</code> policy):
+              <code>HyveonDeployAll</code> policy):
             </p>
             <ul className="max-h-48 overflow-auto text-xs font-[var(--font-mono)] text-muted-foreground space-y-0.5">
-              {GAME_SERVER_DEPLOY_ALL_ACTIONS.map((action) => (
+              {HYVEON_DEPLOY_ALL_ACTIONS.map((action) => (
                 <li key={action}>{action}</li>
               ))}
             </ul>
