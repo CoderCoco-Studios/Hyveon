@@ -138,7 +138,7 @@ directly) with the new `project_name`, pick one here too:
   (see the commented-out example in `terraform.tfvars.example`) so the data
   source keeps resolving to the bucket `terraform/bootstrap/` already
   created, regardless of what `project_name` becomes. Leave
-  `.gsd/tfvars-bucket` (if present) pointing at that same bucket name — don't
+  `.hyveon/tfvars-bucket` (if present) pointing at that same bucket name — don't
   let a re-run of the app's bootstrap step rewrite it.
 - **(b) Migrate the tfvars bucket too.** Create the new
   `{new_project_name}-tfvars` bucket (via `terraform/bootstrap/`, or let
@@ -146,7 +146,7 @@ directly) with the new `project_name`, pick one here too:
   `terraform.tfvars` object across — `aws s3 cp
   s3://<old-project-name>-tfvars/terraform.tfvars
   s3://<new-project-name>-tfvars/terraform.tfvars` — and update
-  `.gsd/tfvars-bucket` to the new bucket name before running `terraform plan`.
+  `.hyveon/tfvars-bucket` to the new bucket name before running `terraform plan`.
   Confirm the copied object round-trips (`scripts/tfvars-sync.ts diff`, or a
   manual `aws s3 cp ... -` and eyeball it) before treating the migration as
   done.
