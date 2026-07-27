@@ -1,7 +1,7 @@
 export type {
-  GsdApi,
-  GsdTestApi,
-  GsdMockNamespaces,
+  HyveonApi,
+  HyveonTestApi,
+  HyveonMockNamespaces,
   TerraformRunChunk,
   TerraformRunKind,
   TerraformRunRecord,
@@ -24,11 +24,11 @@ export type {
   PrerequisitesReport,
   WizardState,
   SaveWizardStateInput,
-} from './gsd-api.js';
+} from './hyveon-api.js';
 
 declare global {
   interface Window {
-    gsd?: import('./gsd-api.js').GsdApi;
+    hyveon?: import('./hyveon-api.js').HyveonApi;
   }
 }
 

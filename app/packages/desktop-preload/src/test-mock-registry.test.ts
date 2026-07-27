@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { register, lookup, clear, buildMockGsd } from './test-mock-registry.js';
-import type { GsdGamesApi, GsdEnvApi } from './gsd-api.js';
+import { register, lookup, clear, buildMockHyveon } from './test-mock-registry.js';
+import type { HyveonGamesApi, HyveonEnvApi } from './hyveon-api.js';
 
-/** Minimal stub for GsdGamesApi — only the methods the registry tests need. */
-function makeGamesStub(): GsdGamesApi {
+/** Minimal stub for HyveonGamesApi — only the methods the registry tests need. */
+function makeGamesStub(): HyveonGamesApi {
   return {
     list: vi.fn().mockResolvedValue({ games: [] }),
     status: vi.fn().mockResolvedValue([]),
@@ -16,8 +16,8 @@ function makeGamesStub(): GsdGamesApi {
   };
 }
 
-/** Minimal stub for GsdEnvApi. */
-function makeEnvStub(): GsdEnvApi {
+/** Minimal stub for HyveonEnvApi. */
+function makeEnvStub(): HyveonEnvApi {
   return {
     get: vi.fn().mockResolvedValue({ region: 'us-east-1', domain: 'example.com', environment: 'dev' }),
   };
@@ -71,18 +71,18 @@ describe('clear', () => {
   });
 });
 
-describe('buildMockGsd', () => {
+describe('buildMockHyveon', () => {
   it('should return an object containing only the namespaces that have been registered', () => {
     const games = makeGamesStub();
     register('games', games);
-    const gsd = buildMockGsd();
-    expect(gsd.games).toBe(games);
-    expect(gsd.env).toBeUndefined();
+    const hyveon = buildMockHyveon();
+    expect(hyveon.games).toBe(games);
+    expect(hyveon.env).toBeUndefined();
   });
 
   it('should return an empty object when the registry has been cleared', () => {
     register('games', makeGamesStub());
     clear();
-    expect(buildMockGsd()).toEqual({});
+    expect(buildMockHyveon()).toEqual({});
   });
 });

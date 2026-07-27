@@ -2,7 +2,7 @@
  * Electron preload script.
  *
  * Runs in a sandboxed Node context before the renderer loads. Exposes a
- * typed `window.gsd` bridge via `contextBridge` so the renderer can call
+ * typed `window.hyveon` bridge via `contextBridge` so the renderer can call
  * into the main process over IPC without any direct access to Node or
  * Electron internals.
  *
@@ -54,8 +54,8 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type {
   CreateGamePayload,
   DeleteGamePayload,
-  GsdApi,
-  GsdTestApi,
+  HyveonApi,
+  HyveonTestApi,
   LogChunk,
   TerraformApplyPayload,
   TerraformApproveAck,
@@ -84,7 +84,7 @@ import type {
   IamCheckResult,
   WizardProgress,
   SaveWizardProgressInput,
-} from './gsd-api.js';
+} from './hyveon-api.js';
 
 /** Fixed side-channel `TerraformController.init` pushes streamed output on. */
 const TERRAFORM_INIT_CHUNK_CHANNEL = 'terraform.init.chunk';
@@ -99,7 +99,7 @@ const TERRAFORM_RUNS_LOGS_CHUNK_CHANNEL = 'terraform.runs.logs.chunk';
 const TERRAFORM_RUNS_LOGS_END_CHANNEL = 'terraform.runs.logs.end';
 
 /**
- * Per-channel mock registry populated by tests via `window.gsd.__test.mock(channel, handler)`.
+ * Per-channel mock registry populated by tests via `window.hyveon.__test.mock(channel, handler)`.
  * Each entry is a function (or a plain value) that replaces the real IPC call
  * for that channel.  A `() => value` handler is treated as the mock; a
  * non-function entry is wrapped so the resolver always returns that value.
@@ -539,7 +539,7 @@ async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): Asy
   }
 }
 
-const api: GsdApi = {
+const api: HyveonApi = {
   games: {
     list: () => invoke('games.list'),
     status: () => invoke('games.status'),
@@ -670,7 +670,7 @@ export function isTestModeEnabled(): boolean {
 /** Whether this process was started in test mode by the integration test harness. */
 const isTestMode = isTestModeEnabled();
 
-const gsdBridge: GsdApi & { __test?: GsdTestApi } = { ...api };
+const hyveonBridge: HyveonApi & { __test?: HyveonTestApi } = { ...api };
 
 if (isTestMode) {
   /**
@@ -679,9 +679,9 @@ if (isTestMode) {
    * Exposes `mock(channel, handler)` so Playwright / Vitest can register
    * per-channel IPC overrides without touching the real Electron IPC layer.
    * `clearMocks` and `reset` both clear the registry so state does not leak
-   * between test cases (mirror the {@link GsdTestApi} contract).
+   * between test cases (mirror the {@link HyveonTestApi} contract).
    */
-  gsdBridge.__test = {
+  hyveonBridge.__test = {
     mock: registerMock,
     /** Clears all registered mock handlers from the registry. */
     clearMocks: () => mockRegistry.clear(),
@@ -690,4 +690,4 @@ if (isTestMode) {
   };
 }
 
-contextBridge.exposeInMainWorld('gsd', gsdBridge);
+contextBridge.exposeInMainWorld('hyveon', hyveonBridge);
