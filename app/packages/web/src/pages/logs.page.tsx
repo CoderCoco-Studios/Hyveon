@@ -124,7 +124,10 @@ export function LogsPage() {
   const [hiddenLevels, setHiddenLevels] = useState<Set<LogLevel>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
+  // Lazy initialiser: `useState(Date.now())` would read the clock on every
+  // render (the value is discarded after the first), which makes the render
+  // impure. The function form is only invoked on mount.
+  const [now, setNow] = useState(() => Date.now());
   const [bufferedCount, setBufferedCount] = useState(0);
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -193,6 +196,22 @@ export function LogsPage() {
     }
   }, []);
 
+  /**
+   * Switch the tailed game, clearing everything that described the previous
+   * one: rendered lines, the paused-while-buffering queue, the paused flag
+   * and any stream error. The subsequent `selectedGame` effect re-seeds and
+   * re-subscribes.
+   */
+  const selectGame = useCallback((game: string) => {
+    setSelectedGame(game);
+    setLines([]);
+    bufferRef.current = [];
+    setBufferedCount(0);
+    pausedRef.current = false;
+    setPaused(false);
+    setError(null);
+  }, []);
+
   // Load the games list once (this page is reachable independently of the dashboard).
   useEffect(() => {
     let cancelled = false;
@@ -212,15 +231,13 @@ export function LogsPage() {
     };
   }, []);
 
-  // (Re)start the stream when the game changes. Reset buffer + paused state.
+  // (Re)start the stream when the game changes. The buffer/paused/error reset
+  // that used to open this effect now lives in `selectGame` below: clearing
+  // the previous game's view is a consequence of the user picking a new one,
+  // so it belongs in that event handler rather than in an effect reacting to
+  // the state change afterwards (`react-hooks/set-state-in-effect`).
   useEffect(() => {
     if (!selectedGame) return;
-    setLines([]);
-    bufferRef.current = [];
-    setBufferedCount(0);
-    pausedRef.current = false;
-    setPaused(false);
-    setError(null);
 
     let cancelled = false;
     void (async () => {
@@ -303,7 +320,7 @@ export function LogsPage() {
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
           {/* Game selector — always visible */}
-          <GameCombobox games={games} value={selectedGame} onChange={setSelectedGame} />
+          <GameCombobox games={games} value={selectedGame} onChange={selectGame} />
 
           {/* Filter toggle — only on mobile (md:hidden) */}
           <Button

@@ -122,39 +122,59 @@ function useCostsData(days: number): {
   estimates: CostEstimates | null;
   loading: boolean;
 } {
-  const [actual, setActual] = useState<ActualCosts | null>(null);
-  const [prior, setPrior] = useState<ActualCosts | null>(null);
+  // The actuals are stored together with the `days` window they were fetched
+  // for, plus a `settled` flag saying whether that fetch has come back. This
+  // replaces a separate `loading` state that an effect had to reset on every
+  // range change: `loading` and the "clear the stale numbers" behaviour are
+  // now both derived at render, so the effect no longer calls setState
+  // synchronously (`react-hooks/set-state-in-effect`).
+  //
+  // Storing the window alongside the data is what makes the derivation safe —
+  // a response for the previous range can never be mistaken for the current
+  // one while a new fetch is in flight.
+  const [window_, setWindow] = useState<{
+    days: number;
+    settled: boolean;
+    actual: ActualCosts | null;
+    prior: ActualCosts | null;
+  }>({ days, settled: false, actual: null, prior: null });
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  const isCurrent = window_.days === days;
+  const actual = isCurrent ? window_.actual : null;
+  const prior = isCurrent ? window_.prior : null;
+  const loading = !isCurrent || !window_.settled;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setActual(null);
-    setPrior(null);
     api.costsActual(days * 2)
       .then((doubled) => {
         if (cancelled) return;
         const splitAt = Math.max(doubled.daily.length - days, 0);
         const priorDaily = doubled.daily.slice(0, splitAt);
         const currentDaily = doubled.daily.slice(splitAt);
-        setActual({
-          daily: currentDaily,
-          total: Math.round(sumDaily(currentDaily) * 100) / 100,
-          currency: doubled.currency,
+        setWindow({
           days,
-          error: doubled.error,
+          settled: true,
+          actual: {
+            daily: currentDaily,
+            total: Math.round(sumDaily(currentDaily) * 100) / 100,
+            currency: doubled.currency,
+            days,
+            error: doubled.error,
+          },
+          prior: {
+            daily: priorDaily,
+            total: Math.round(sumDaily(priorDaily) * 100) / 100,
+            currency: doubled.currency,
+            days,
+          },
         });
-        setPrior({
-          daily: priorDaily,
-          total: Math.round(sumDaily(priorDaily) * 100) / 100,
-          currency: doubled.currency,
-          days,
-        });
-        setLoading(false);
       })
       .catch(() => {
-        if (!cancelled) setLoading(false);
+        // Settle the window with no data so the page leaves its loading state
+        // and renders the empty/error view rather than spinning forever.
+        if (!cancelled) setWindow({ days, settled: true, actual: null, prior: null });
       });
     return () => { cancelled = true; };
   }, [days]);

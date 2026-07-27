@@ -21,28 +21,34 @@ function useHistoryRecord(runId: string | undefined): {
   record: RunHistoryRecord | null | undefined;
   loading: boolean;
 } {
-  const [record, setRecord] = useState<RunHistoryRecord | null | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
+  // The resolved record is tagged with the `runId` it belongs to, so both
+  // "the route changed, discard the previous answer" and "are we still
+  // loading?" are derived at render. The effect therefore only ever writes
+  // state from its async callbacks, never synchronously
+  // (`react-hooks/set-state-in-effect`).
+  const [resolved, setResolved] = useState<{
+    runId: string;
+    record: RunHistoryRecord | null;
+  } | null>(null);
+
+  const canLookup = Boolean(runId) && Boolean(window.hyveon);
+  const settled = resolved !== null && resolved.runId === runId;
+  // `undefined` means "not answered yet", `null` means "looked and found
+  // nothing" — the distinction the caller's log ladder branches on.
+  const record = settled ? resolved.record : undefined;
+  const loading = canLookup && !settled;
 
   useEffect(() => {
-    setRecord(undefined);
-    if (!runId || !window.hyveon) {
-      setLoading(false);
-      return;
-    }
+    if (!runId || !window.hyveon) return;
     let cancelled = false;
-    setLoading(true);
     window.hyveon.terraform.runs
       .list({ limit: LOOKUP_PAGE_SIZE })
       .then((page) => {
         if (cancelled) return;
-        setRecord(page.records.find((r) => r.runId === runId) ?? null);
+        setResolved({ runId, record: page.records.find((r) => r.runId === runId) ?? null });
       })
       .catch(() => {
-        if (!cancelled) setRecord(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setResolved({ runId, record: null });
       });
     return () => {
       cancelled = true;
@@ -71,30 +77,36 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
   source: LogSource;
   loading: boolean;
 } {
-  const [chunks, setChunks] = useState<AnsiLogChunk[]>([]);
-  const [source, setSource] = useState<LogSource>('none');
-  const [loading, setLoading] = useState(true);
+  // Same tagging approach as useHistoryRecord above: the resolved log is
+  // stamped with the `runId` it was fetched for, so navigating to a different
+  // run discards it at render time instead of needing the effect to clear
+  // `chunks`/`source` synchronously.
+  const [resolved, setResolved] = useState<{
+    runId: string;
+    chunks: AnsiLogChunk[];
+    source: LogSource;
+  } | null>(null);
+
+  const canLoad = Boolean(runId) && Boolean(window.hyveon);
+  const settled = resolved !== null && resolved.runId === runId;
+  const chunks = settled ? resolved.chunks : [];
+  const source = settled ? resolved.source : 'none';
+  // `record === undefined` means useHistoryRecord's own fetch is still in
+  // flight; staying in the loading state through that window is what stops a
+  // transient "no log" flash before the ladder has anything to go on.
+  // `record === null` means there is no record to load a log from, which is a
+  // settled answer, not a pending one.
+  const loading = canLoad && record !== null && !settled;
 
   useEffect(() => {
-    setChunks([]);
-    setSource('none');
-    if (!runId || !window.hyveon) {
-      setLoading(false);
-      return;
-    }
-    if (record === undefined) {
-      // useHistoryRecord's fetch is still in flight — stay in the loading
-      // state rather than flipping false here, which would otherwise let
-      // this effect's *next* run (once record resolves) render a transient
-      // "no log" flash before it has a chance to set loading back to true.
-      return;
-    }
-    if (!record) {
-      setLoading(false);
-      return;
-    }
+    if (!runId || !window.hyveon) return;
+    if (!record) return;
     let cancelled = false;
-    setLoading(true);
+
+    /** Publish a ladder result, tagged with the run it belongs to. */
+    const publish = (next: { chunks?: AnsiLogChunk[]; source: LogSource }) => {
+      setResolved({ runId, chunks: next.chunks ?? [], source: next.source });
+    };
 
     void (async () => {
       try {
@@ -105,8 +117,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
         }
         if (cancelled) return;
         if (streamed.length > 0) {
-          setChunks(streamed);
-          setSource('stream');
+          publish({ chunks: streamed, source: 'stream' });
           return;
         }
       } catch {
@@ -116,8 +127,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
       if (cancelled) return;
 
       if (record.logInline) {
-        setChunks(textToChunks(record.logInline));
-        setSource('inline');
+        publish({ chunks: textToChunks(record.logInline), source: 'inline' });
         return;
       }
 
@@ -128,18 +138,15 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
           if (!res.ok) throw new Error(`presigned log fetch failed: ${res.status}`);
           const text = await res.text();
           if (cancelled) return;
-          setChunks(textToChunks(text));
-          setSource('url');
+          publish({ chunks: textToChunks(text), source: 'url' });
         } catch {
-          if (!cancelled) setSource('none');
+          if (!cancelled) publish({ source: 'none' });
         }
         return;
       }
 
-      setSource('none');
-    })().finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+      publish({ source: 'none' });
+    })();
 
     return () => {
       cancelled = true;

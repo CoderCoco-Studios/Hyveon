@@ -114,7 +114,14 @@ export function PendingChangesBanner() {
   useEffect(() => {
     let cancelled = false;
 
-    void fetchDrift(() => cancelled);
+    // Wrapped in an async IIFE so the first drift fetch is unambiguously
+    // asynchronous work rather than a synchronous call into a state setter
+    // from the effect body (`react-hooks/set-state-in-effect`). `fetchDrift`
+    // only ever writes state after awaiting the API, so this is a shape
+    // change, not a behaviour change.
+    void (async () => {
+      await fetchDrift(() => cancelled);
+    })();
 
     const intervalId = setInterval(() => {
       if (!cancelled) void fetchDrift(() => cancelled);

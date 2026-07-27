@@ -16,13 +16,12 @@ interface Props {
  * on the next successful poll.
  */
 export function PollingIndicator({ name = 'status', className }: Props) {
-  const { pollers, tick } = usePollingState();
+  // `now` comes from the provider's 1Hz heartbeat rather than a local
+  // `Date.now()` call, which keeps the relative-time labels updating once a
+  // second without each indicator instance running its own setInterval — and
+  // without a clock read making this render impure.
+  const { pollers, now } = usePollingState();
   const state = pollers[name];
-
-  // Reading `tick` keeps the relative-time labels updating once a second
-  // without each indicator instance running its own setInterval.
-  const now = Date.now();
-  void tick;
 
   if (!state) {
     return (

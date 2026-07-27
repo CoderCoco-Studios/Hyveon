@@ -12,6 +12,9 @@ import { RollbackAction, type RollbackResult } from '../components/rollback-acti
 /** Number of run records fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
 
+/** Shown instead of the run table when the page is rendered outside Electron, where there is no IPC bridge to query. */
+const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
+
 /** `kind` filter options, `'all'` meaning no filter is applied. */
 type KindFilter = TerraformRunKind | 'all';
 
@@ -38,13 +41,30 @@ function formatTimestamp(iso: string): string {
  */
 export function TerraformHistoryPage() {
   const navigate = useNavigate();
-  const [records, setRecords] = useState<RunHistoryRecord[]>([]);
-  const [nextBefore, setNextBefore] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  /**
+   * The fetched page, tagged with the `statusFilter` it was fetched for.
+   * Records, cursor and error all live together so a filter change discards
+   * them as one unit at render time — the effect below no longer has to reset
+   * them synchronously, which is what `react-hooks/set-state-in-effect`
+   * flags. `loading` becomes "no page for the current filter yet".
+   */
+  const [page, setPage] = useState<{
+    statusFilter: StatusFilter;
+    records: RunHistoryRecord[];
+    nextBefore: string | undefined;
+    error: string | null;
+  } | null>(null);
+
+  const bridgeAvailable = Boolean(window.hyveon);
+  const settled = page !== null && page.statusFilter === statusFilter;
+  const records = settled ? page.records : [];
+  const nextBefore = settled ? page.nextBefore : undefined;
+  const error = settled ? page.error : bridgeAvailable ? null : BRIDGE_UNAVAILABLE;
+  const loading = bridgeAvailable && !settled;
 
   /**
    * Monotonically-increasing request generation counter. `loadMore`'s fetch
@@ -57,26 +77,29 @@ export function TerraformHistoryPage() {
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    if (!window.hyveon) {
-      setLoading(false);
-      setError('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
+    if (!window.hyveon) return;
     const seq = ++requestSeqRef.current;
-    setLoading(true);
-    setError(null);
     window.hyveon.terraform.runs
       .list({ limit: PAGE_SIZE, status: statusFilter === 'all' ? undefined : statusFilter })
-      .then((page) => {
+      .then((fetched) => {
         if (requestSeqRef.current !== seq) return;
-        setRecords(page.records);
-        setNextBefore(page.nextBefore);
+        setPage({
+          statusFilter,
+          records: fetched.records,
+          nextBefore: fetched.nextBefore,
+          error: null,
+        });
       })
       .catch(() => {
-        if (requestSeqRef.current === seq) setError('Could not load the run history.');
-      })
-      .finally(() => {
-        if (requestSeqRef.current === seq) setLoading(false);
+        if (requestSeqRef.current !== seq) return;
+        // Settle the page for this filter with an error so the view leaves
+        // its loading state and shows the message instead of spinning.
+        setPage({
+          statusFilter,
+          records: [],
+          nextBefore: undefined,
+          error: 'Could not load the run history.',
+        });
       });
   }, [statusFilter]);
 
@@ -84,16 +107,24 @@ export function TerraformHistoryPage() {
     if (!nextBefore || !window.hyveon) return;
     const seq = ++requestSeqRef.current;
     setLoadingMore(true);
-    setError(null);
     window.hyveon.terraform.runs
       .list({ limit: PAGE_SIZE, before: nextBefore, status: statusFilter === 'all' ? undefined : statusFilter })
-      .then((page) => {
+      .then((fetched) => {
         if (requestSeqRef.current !== seq) return;
-        setRecords((prev) => [...prev, ...page.records]);
-        setNextBefore(page.nextBefore);
+        setPage((prev) =>
+          prev === null
+            ? prev
+            : {
+                ...prev,
+                records: [...prev.records, ...fetched.records],
+                nextBefore: fetched.nextBefore,
+                error: null,
+              },
+        );
       })
       .catch(() => {
-        if (requestSeqRef.current === seq) setError('Could not load more run history.');
+        if (requestSeqRef.current !== seq) return;
+        setPage((prev) => (prev === null ? prev : { ...prev, error: 'Could not load more run history.' }));
       })
       .finally(() => {
         if (requestSeqRef.current === seq) setLoadingMore(false);

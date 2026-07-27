@@ -92,7 +92,10 @@ export function DiscordPage() {
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [games, setGames] = useState<string[]>([]);
-  const [showWizard, setShowWizard] = useState(false);
+  // "The operator still has setup to do." Latched the first time a config
+  // arrives with no allowlisted guilds, and never cleared directly — the
+  // wizard's visibility is derived from this plus `allStepsDone` below.
+  const [wizardLatched, setWizardLatched] = useState(false);
 
   useEffect(() => {
     // `api.games()` now resolves `GameListEntry[]` (declared + deployed view,
@@ -100,27 +103,31 @@ export function DiscordPage() {
     api.games().then((g) => setGames(g.games.map((entry) => entry.name))).catch(() => undefined);
   }, []);
 
-  /** Re-fetch the (redacted) Discord config from the API after mutations. */
+  /**
+   * Re-fetch the (redacted) Discord config from the API after mutations.
+   *
+   * The wizard latch is set here rather than in an effect watching `cfg`:
+   * this is the only place a config ever arrives, so it is the natural point
+   * to record "this install still has no guilds", and it keeps the setState
+   * calls in an async callback instead of synchronously inside an effect
+   * (`react-hooks/set-state-in-effect`).
+   */
   async function refresh() {
     try {
-      setCfg(await api.discordConfig());
+      const next = await api.discordConfig();
+      setCfg(next);
       setLoadError(false);
+      if (next.allowedGuilds.length === 0) setWizardLatched(true);
     } catch {
       setLoadError(true);
     }
   }
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      await refresh();
+    })();
   }, []);
-
-  // Latch the wizard open on first load when no guilds are configured so the
-  // operator can work through each step and see the final green check on step 4.
-  useEffect(() => {
-    if (cfg && cfg.allowedGuilds.length === 0) {
-      setShowWizard(true);
-    }
-  }, [cfg]);
 
   const allStepsDone =
     !!cfg?.clientId &&
@@ -129,11 +136,15 @@ export function DiscordPage() {
     !!cfg?.interactionsEndpointUrl &&
     (cfg?.allowedGuilds.length ?? 0) > 0;
 
-  // Collapse only after the render that shows all four checks — the effect
-  // fires after paint so the operator sees step 4 as green before it hides.
-  useEffect(() => {
-    if (allStepsDone) setShowWizard(false);
-  }, [allStepsDone]);
+  // Derived rather than stored: the wizard is open while setup is
+  // outstanding and closes as soon as all four steps are satisfied.
+  //
+  // This collapses in the same render that would have shown the fourth check
+  // green, where the previous effect-based version deliberately let that
+  // render paint first. The frame of all-green feedback is lost; the trade is
+  // that visibility is now a pure function of the config, so it cannot get
+  // stuck open or closed if a refresh interleaves with a mutation.
+  const showWizard = wizardLatched && !allStepsDone;
 
   /**
    * Guard a mutating API call with the `busy` flag and refresh config after

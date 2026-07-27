@@ -7,6 +7,9 @@ import { AnsiLogViewer } from '../ansi-log-viewer.component.js';
 /** Terminal state of a single `terraform init` attempt. */
 export type TerraformInitStatus = 'running' | 'success' | 'failed';
 
+/** Reported when the step is rendered outside Electron, where there is no IPC bridge to run `terraform init` through. */
+const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
+
 /** Props for {@link TerraformInitStep}. */
 export interface TerraformInitStepProps {
   /**
@@ -41,36 +44,65 @@ export interface TerraformInitStepProps {
  * button rather than silently blocking wizard progression.
  */
 export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }: TerraformInitStepProps) {
-  const [chunks, setChunks] = useState<TerraformRunChunk[]>([]);
-  const [status, setStatus] = useState<TerraformInitStatus>('running');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
 
+  /**
+   * Output of one `terraform init` invocation, tagged with the `attempt` that
+   * produced it. Tagging is what lets Retry present a clean slate without the
+   * effect synchronously clearing `chunks`/`status`/`errorMessage` on the way
+   * in (`react-hooks/set-state-in-effect`) — a bumped `attempt` no longer
+   * matches, so the previous run's output stops being rendered immediately.
+   */
+  const [run, setRun] = useState<{
+    attempt: number;
+    chunks: TerraformRunChunk[];
+    status: TerraformInitStatus;
+    errorMessage: string | null;
+  } | null>(null);
+
+  const bridgeAvailable = Boolean(window.hyveon);
+  const isCurrent = run !== null && run.attempt === attempt;
+  const chunks = isCurrent ? run.chunks : [];
+  const status: TerraformInitStatus = !bridgeAvailable ? 'failed' : isCurrent ? run.status : 'running';
+  const errorMessage = !bridgeAvailable ? BRIDGE_UNAVAILABLE : isCurrent ? run.errorMessage : null;
+
   useEffect(() => {
-    if (!window.hyveon) {
-      setStatus('failed');
-      setErrorMessage('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
-    setChunks([]);
-    setStatus('running');
-    setErrorMessage(null);
+    if (!window.hyveon) return;
     const controller = new AbortController();
     let cancelled = false;
+
+    /** Fold an update into this attempt's run state, ignoring any superseded attempt. */
+    const update = (
+      apply: (prev: { chunks: TerraformRunChunk[]; status: TerraformInitStatus; errorMessage: string | null }) => {
+        chunks: TerraformRunChunk[];
+        status: TerraformInitStatus;
+        errorMessage: string | null;
+      },
+    ) =>
+      setRun((prev) => {
+        const base =
+          prev && prev.attempt === attempt
+            ? prev
+            : { attempt, chunks: [], status: 'running' as TerraformInitStatus, errorMessage: null };
+        return { attempt, ...apply(base) };
+      });
 
     void (async () => {
       try {
         for await (const chunk of window.hyveon!.terraform.init(backendConfig, controller.signal)) {
           if (cancelled) break;
-          setChunks((prev) => [...prev, chunk]);
+          update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk] }));
         }
-        if (!cancelled) setStatus('success');
+        if (!cancelled) update((prev) => ({ ...prev, status: 'success' }));
       } catch (err) {
         if (!cancelled) {
-          setStatus('failed');
-          setErrorMessage(err instanceof Error ? err.message : 'terraform init failed.');
+          update((prev) => ({
+            ...prev,
+            status: 'failed',
+            errorMessage: err instanceof Error ? err.message : 'terraform init failed.',
+          }));
         }
       }
     })();
@@ -85,7 +117,7 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
   async function finish() {
     if (!window.hyveon) {
-      setFinishError('IPC bridge (window.hyveon) is not available in this context.');
+      setFinishError(BRIDGE_UNAVAILABLE);
       return;
     }
     setFinishing(true);

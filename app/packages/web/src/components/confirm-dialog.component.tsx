@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -38,25 +38,39 @@ interface ConfirmDialogProps {
  * with optional type-to-confirm input and "don't ask again" session suppression.
  * ESC, focus-trap, and reduce-motion are handled by Radix automatically.
  */
-export function ConfirmDialog({
-  open,
-  onOpenChange,
+export function ConfirmDialog({ open, onOpenChange, ...body }: ConfirmDialogProps) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      {/*
+        The per-opening form state lives in ConfirmDialogBody, which Radix
+        unmounts whenever the dialog closes. That makes "clear the typed value
+        and the don't-ask-again checkbox between openings" a consequence of the
+        component's lifecycle rather than an effect that watches `open` and
+        calls setState (`react-hooks/set-state-in-effect`). The explicit `key`
+        pins the guarantee: even if AlertDialogContent were ever given
+        `forceMount`, flipping `open` still produces a fresh body.
+      */}
+      <AlertDialogContent>
+        <ConfirmDialogBody key={String(open)} {...body} />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * Inner form of {@link ConfirmDialog}. Split out purely so its state is scoped
+ * to one opening of the dialog — see the comment at the call site.
+ */
+function ConfirmDialogBody({
   title,
   description,
   onConfirm,
   confirmLabel = 'Confirm',
   confirmKey,
   typeToConfirm,
-}: ConfirmDialogProps) {
+}: Omit<ConfirmDialogProps, 'open' | 'onOpenChange'>) {
   const [typed, setTyped] = useState('');
   const [skipSession, setSkipSession] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setTyped('');
-      setSkipSession(false);
-    }
-  }, [open]);
 
   const confirmDisabled = typeToConfirm !== undefined && typed !== typeToConfirm;
 
@@ -66,42 +80,40 @@ export function ConfirmDialog({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
+    <>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
+      </AlertDialogHeader>
 
-        {typeToConfirm !== undefined && (
-          <Input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder={typeToConfirm}
-            className="font-[var(--font-mono)]"
-            aria-label="Type to confirm"
+      {typeToConfirm !== undefined && (
+        <Input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder={typeToConfirm}
+          className="font-[var(--font-mono)]"
+          aria-label="Type to confirm"
+        />
+      )}
+
+      {confirmKey && (
+        <label className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={skipSession}
+            onChange={(e) => setSkipSession(e.target.checked)}
+            className="size-3.5 rounded"
           />
-        )}
+          Don&apos;t ask again for this session
+        </label>
+      )}
 
-        {confirmKey && (
-          <label className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={skipSession}
-              onChange={(e) => setSkipSession(e.target.checked)}
-              className="size-3.5 rounded"
-            />
-            Don&apos;t ask again for this session
-          </label>
-        )}
-
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={handleConfirm} disabled={confirmDisabled}>
-            {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={handleConfirm} disabled={confirmDisabled}>
+          {confirmLabel}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </>
   );
 }

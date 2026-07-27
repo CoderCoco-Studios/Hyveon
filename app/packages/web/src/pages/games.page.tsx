@@ -44,10 +44,10 @@ export function GamesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Mount-only effect — `loading` starts `true` and `error` starts `null`, so
+  // the previous `setLoading(true)` / `setError(null)` preamble was a no-op.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     api
       .games()
       .then(({ games: list }) => {
