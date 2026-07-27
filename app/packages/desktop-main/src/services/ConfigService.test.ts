@@ -433,6 +433,30 @@ describe('ConfigService', () => {
       expect(mockRead).toHaveBeenCalledWith(markerPath, 'utf-8');
     });
 
+    it('should fall back to the legacy .gsd/tfvars-bucket marker and warn when only it exists', () => {
+      const repoRoot = path.join(path.sep, 'repo');
+      const legacyMarkerPath = path.join(repoRoot, '.gsd', 'tfvars-bucket');
+
+      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
+      mockExists.mockImplementation((p) => p === legacyMarkerPath);
+      mockRead.mockReturnValue('legacy-bucket-name');
+
+      expect(service.getTfvarsBucket()).toBe('legacy-bucket-name');
+      expect(mockRead).toHaveBeenCalledWith(legacyMarkerPath, 'utf-8');
+    });
+
+    it('should prefer the new .hyveon/tfvars-bucket marker over the legacy .gsd one when both exist', () => {
+      const repoRoot = path.join(path.sep, 'repo');
+      const newMarkerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
+
+      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
+      mockExists.mockImplementation((p) => p === newMarkerPath || p === path.join(repoRoot, '.gsd', 'tfvars-bucket'));
+      mockRead.mockReturnValue('new-bucket-name');
+
+      expect(service.getTfvarsBucket()).toBe('new-bucket-name');
+      expect(mockRead).toHaveBeenCalledWith(newMarkerPath, 'utf-8');
+    });
+
     it('should return null when neither the env var nor the marker file resolve', () => {
       mockExists.mockReturnValue(false);
       expect(service.getTfvarsBucket()).toBeNull();

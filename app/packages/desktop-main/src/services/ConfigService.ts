@@ -528,17 +528,30 @@ export class ConfigService {
 
   /**
    * Walk up from `startDir` toward the filesystem root looking for a
-   * `.hyveon/tfvars-bucket` marker file, one directory at a time. Mirrors
-   * `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI and the
-   * app resolve to the same marker file. Returns the marker file's absolute
-   * path once found, or `undefined` if the filesystem root is reached
-   * without a match.
+   * `.hyveon/tfvars-bucket` marker file, one directory at a time. Falls back
+   * to the pre-rename `.gsd/tfvars-bucket` path (with a one-time warning) at
+   * each directory when the new path isn't present, so an operator who
+   * bootstrapped an S3 tfvars backend before the `dev.gsd.desktop` →
+   * `dev.hyveon.desktop` rename and hasn't yet run `mv .gsd .hyveon` doesn't
+   * silently fall back to "local mode" while the S3 bucket still exists.
+   * Mirrors `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI
+   * and the app resolve to the same marker file. Returns the marker file's
+   * absolute path once found, or `undefined` if the filesystem root is
+   * reached without a match.
    */
   private findTfvarsBucketMarker(startDir: string): string | undefined {
     let dir = startDir;
     while (true) {
       const markerPath = join(dir, '.hyveon', 'tfvars-bucket');
       if (existsSync(markerPath)) return markerPath;
+
+      const legacyMarkerPath = join(dir, '.gsd', 'tfvars-bucket');
+      if (existsSync(legacyMarkerPath)) {
+        logger.warn(`Using legacy .gsd/tfvars-bucket marker — run \`mv .gsd .hyveon\` in ${dir} to migrate`, {
+          path: legacyMarkerPath,
+        });
+        return legacyMarkerPath;
+      }
 
       const parent = dirname(dir);
       if (parent === dir) return undefined;

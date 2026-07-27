@@ -63,6 +63,17 @@ const BUCKET_ENV_VAR = 'HYVEON_TFVARS_BUCKET';
 /** Marker file (relative to a project root) holding the bucket name, as a last-resort fallback. */
 const BUCKET_MARKER_PATH = ['.hyveon', 'tfvars-bucket'];
 
+/**
+ * Pre-rename marker location. `.gsd/tfvars-bucket` was the marker path before
+ * the `dev.gsd.desktop` → `dev.hyveon.desktop` rename; operators who
+ * bootstrapped an S3 tfvars backend before that rename still have this file
+ * on disk and haven't necessarily run the `mv .gsd .hyveon` migration step.
+ * {@link findBucketMarker} falls back to this path (with a warning) so an
+ * un-migrated install keeps resolving its S3 backend instead of silently
+ * reporting "local mode" while the bucket and its objects still exist.
+ */
+const LEGACY_BUCKET_MARKER_PATH = ['.gsd', 'tfvars-bucket'];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,8 +267,11 @@ async function headRemote(s3: S3Client, bucket: string, key: string): Promise<Re
 }
 
 /**
- * Walks up from `startDir` looking for a `.hyveon/tfvars-bucket` marker file.
- * Returns its trimmed contents (the bucket name) if found and non-empty.
+ * Walks up from `startDir` looking for a `.hyveon/tfvars-bucket` marker file,
+ * falling back to the pre-rename `.gsd/tfvars-bucket` path (with a one-time
+ * warning) at each directory when the new path isn't present — see
+ * {@link LEGACY_BUCKET_MARKER_PATH}. Returns its trimmed contents (the
+ * bucket name) if found and non-empty.
  */
 function findBucketMarker(startDir: string): string | undefined {
   let dir = resolve(startDir);
@@ -267,6 +281,18 @@ function findBucketMarker(startDir: string): string | undefined {
       const content = readFileSync(markerPath, 'utf8').trim();
       if (content) return content;
     }
+
+    const legacyMarkerPath = join(dir, ...LEGACY_BUCKET_MARKER_PATH);
+    if (existsSync(legacyMarkerPath)) {
+      const content = readFileSync(legacyMarkerPath, 'utf8').trim();
+      if (content) {
+        console.warn(
+          `Warning: reading legacy marker ${legacyMarkerPath} — run \`mv .gsd .hyveon\` in ${dir} to migrate.`,
+        );
+        return content;
+      }
+    }
+
     const parent = dirname(dir);
     if (parent === dir) return undefined;
     dir = parent;
