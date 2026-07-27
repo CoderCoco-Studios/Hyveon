@@ -254,48 +254,6 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('getApiToken', () => {
-    it('should return the token from API_TOKEN env when set', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue('env-tok');
-      expect(service.getApiToken()).toBe('env-tok');
-    });
-
-    it('should treat an explicitly-empty API_TOKEN env var as no token', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue('');
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 'file-tok' }));
-      // Env wins, even when empty — user intentionally disabled auth via env.
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should fall back to server_config.json.api_token when env is unset', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 'file-tok' }));
-      expect(service.getApiToken()).toBe('file-tok');
-    });
-
-    it('should return null when neither env nor file has a token', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(false);
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should return null when the config file is malformed', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('{bad');
-      expect(service.getApiToken()).toBeNull();
-    });
-
-    it('should return null when the api_token field is not a string', () => {
-      vi.spyOn(service, 'readEnvApiToken').mockReturnValue(undefined);
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify({ api_token: 12345 }));
-      expect(service.getApiToken()).toBeNull();
-    });
-  });
-
   describe('getConfig', () => {
     it('should return defaults when the config file is missing', () => {
       mockExists.mockReturnValue(false);

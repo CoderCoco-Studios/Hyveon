@@ -14,18 +14,22 @@
  *   npx --prefix Hyveon/scripts tsx Hyveon/scripts/init-parent.ts
  *
  * The script writes (or refuses to overwrite without --force):
- *   - Makefile           wrapper around the submodule's Makefile
+ *   - Makefile           self-contained wrapper — every step (npm install,
+ *                        Lambda builds, S3/DynamoDB backend bootstrap,
+ *                        terraform init/plan/apply, dev servers) is inlined
+ *                        directly in its recipes; it never shells out to a
+ *                        script or Makefile inside the submodule
  *   - terraform.tfvars   skeleton populated from your answers
- *   - .env               API_TOKEN for the management app (gitignored)
- *   - .gitignore         covers .env, .make/, terraform.tfstate*, etc.
+ *   - .gitignore         covers .make/, terraform.tfstate*, etc.
  *   - .gsd/tfvars-bucket S3 backend marker (only when --s3-tfvars is passed,
  *                        or you answer yes to the interactive prompt)
  *
  * `bootstrap` (this default command) NEVER reads or modifies anything
  * inside the submodule. `migrate --to-local` is the exception — it deletes
  * the gitignored submodule-local .gsd/tfvars-bucket marker alongside the
- * parent-root one, and `migrate --to-s3` runs `make setup`, which executes
- * setup.sh inside the submodule.
+ * parent-root one, and `migrate --to-s3` runs `make setup`, whose self-
+ * contained recipe bootstraps the S3-backed tfvars store (see
+ * renderMakefile's doc comment below for the full `setup` recipe).
  */
 
 import { createInterface, type Interface } from 'node:readline/promises';
@@ -33,7 +37,6 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, unlinkSyn
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stdin as input, stdout as output, argv, cwd, exit } from 'node:process';
-import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { diffTfvars, pullTfvars, lockStatus, type DiffResult, type StatusReport } from './tfvars-sync.ts';
 
@@ -44,7 +47,6 @@ interface Answers {
   projectName: string;
   awsRegion: string;
   hostedZone: string;
-  apiToken: string;
   configureDiscord: boolean;
   discordApplicationId?: string;
   discordBotToken?: string;
@@ -198,15 +200,26 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Mirrors the structure documented in the Makefile-driven submodule pattern:
- *   setup → init submodule, run setup.sh, stamp its sha, then pull tfvars
- *            from S3 if setup.sh just bootstrapped a backend
+ * Mirrors the structure documented in the Makefile-driven submodule pattern.
+ * Every step is inlined directly in the recipes below — this Makefile never
+ * shells out to a script or another Makefile inside the submodule:
+ *   setup → init submodule, `npm install`, build the Lambda bundles, derive
+ *            project_name/aws_region from terraform.tfvars, bootstrap the
+ *            Terraform S3 state bucket + DynamoDB lock table if they don't
+ *            already exist, optionally bootstrap a versioned S3 bucket for
+ *            terraform.tfvars itself via the separate terraform/bootstrap
+ *            module, then `terraform init`. Pulls tfvars from S3 afterwards
+ *            if a tfvars backend was just bootstrapped.
  *   plan  → auto-pull tfvars from S3 (unless NO_PULL=1), copy tfvars in,
- *            delegate to submodule's `make tf-plan`
+ *            rebuild the Lambda bundles, then `terraform plan` directly.
  *   apply → check tfvars are in sync with S3 first (unless FORCE_APPLY=1),
- *            copy tfvars in, delegate to `make tf-apply`
- *   update → bump submodule, rerun setup.sh only if its sha changed
- *   dev   → pull live tfstate into .make/, then `make dev` in submodule
+ *            copy tfvars in, rebuild the Lambda bundles, then
+ *            `terraform apply` directly, printing a post-deploy checklist.
+ *   update → bump the submodule, then unconditionally `terraform init`
+ *            again — cheap and idempotent, so there's no drift-detection
+ *            stamp deciding whether to rerun it.
+ *   dev   → pull live tfstate into .make/, then `npm run app:dev` directly
+ *            in the submodule.
  *
  * Three extra targets — tfvars-pull, tfvars-push, tfvars-diff — wrap
  * scripts/tfvars-sync.ts for manual use. plan/apply's auto-pull/check are
@@ -215,17 +228,17 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  *   2. GSD_TFVARS_BACKEND=local — force local, even if a marker file exists
  *   3. otherwise: "s3" when the `.gsd/tfvars-bucket` marker file at the
  *      *parent repo root* exists (written up-front by `init-parent bootstrap
- *      --s3-tfvars` / `migrate --to-s3`, before setup.sh has ever run)
- *   4. otherwise: "s3" when the same-named marker file setup.sh writes
- *      *inside the submodule directory* exists, else "local"
+ *      --s3-tfvars` / `migrate --to-s3`, before `setup`'s own S3 tfvars
+ *      bootstrap step has ever run)
+ *   4. otherwise: "s3" when the same-named marker file `setup`'s own S3
+ *      tfvars bootstrap step writes *inside the submodule directory* exists,
+ *      else "local"
  * The parent-root marker always wins over the submodule marker when both are
  * present. When TFVARS_BACKEND is "local", plan/apply/setup behave exactly as
  * before — no S3 calls are made. setup's post-bootstrap pull applies the
  * same override semantics but re-implements them directly in its shell
  * recipe rather than referencing TFVARS_BACKEND — see the comment on that
  * recipe below for why.
- *
- * API_TOKEN is loaded from .env (gitignored) — never hardcoded.
  *
  * Only reads `submoduleDir` and `projectName` off `a`, so it accepts a
  * `Pick<Answers, ...>` rather than a full `Answers` — `runMigrate` re-renders
@@ -241,26 +254,18 @@ SUBMODULE   := $(REPO_ROOT)/${a.submoduleDir}
 TF_DIR      := $(SUBMODULE)/terraform
 TFVARS      := $(REPO_ROOT)/terraform.tfvars
 STAMP_DIR   := $(REPO_ROOT)/.make
-SETUP_STAMP := $(STAMP_DIR)/setup.stamp
-
-# Load API_TOKEN (and any other K=V) from .env without leaking it into git.
-ifneq (,$(wildcard $(REPO_ROOT)/.env))
-include $(REPO_ROOT)/.env
-export
-endif
 
 # ── S3 tfvars backend detection ──────────────────────────────────────────────
-# TFVARS_MARKER is the bucket-name marker file setup.sh writes when it
-# bootstraps the versioned S3 tfvars backend (see setup.sh's
-# bootstrap_tfvars_backend()). PARENT_TFVARS_MARKER is the sibling marker
-# \`init-parent bootstrap --s3-tfvars\` (and \`migrate --to-s3\`) write directly
-# at the parent repo root — before setup.sh has ever run — recording an
-# operator's up-front choice to run in S3 mode. It always takes priority over
-# TFVARS_MARKER: an explicit parent-root marker reflects a deliberate choice,
-# so it should win even before setup.sh gets a chance to write its own
-# submodule-local marker. TFVARS_LOCK is the sidecar lock file
-# tfvars-sync.ts writes after every successful pull/push, recording the S3
-# version id/etag last synced.
+# TFVARS_MARKER is the bucket-name marker file setup's own S3 tfvars-bootstrap
+# step (below) writes when it bootstraps the versioned S3 tfvars backend.
+# PARENT_TFVARS_MARKER is the sibling marker \`init-parent bootstrap
+# --s3-tfvars\` (and \`migrate --to-s3\`) write directly at the parent repo
+# root — before \`setup\` has ever run — recording an operator's up-front
+# choice to run in S3 mode. It always takes priority over TFVARS_MARKER: an
+# explicit parent-root marker reflects a deliberate choice, so it should win
+# even before \`setup\` gets a chance to write its own submodule-local marker.
+# TFVARS_LOCK is the sidecar lock file tfvars-sync.ts writes after every
+# successful pull/push, recording the S3 version id/etag last synced.
 PARENT_TFVARS_MARKER := $(REPO_ROOT)/.gsd/tfvars-bucket
 TFVARS_MARKER := $(SUBMODULE)/.gsd/tfvars-bucket
 TFVARS_LOCK   := $(TFVARS).lock
@@ -275,12 +280,13 @@ TFVARS_LOCK   := $(TFVARS).lock
 # Recursive ('=', not ':='), so \$(wildcard ...) is re-evaluated whenever this
 # variable is referenced from a *separate* \`make\` invocation (plan, apply,
 # tfvars-pull, etc. all see current marker-file state that way). It must NOT
-# be used to gate \`setup\`'s post-bootstrap pull: GNU Make expands a rule's
-# entire recipe before running the first line of that recipe, so a reference
-# to this variable inside the same \`setup\` recipe that runs setup.sh would
-# still see the pre-setup.sh filesystem state even though it appears later in
-# the recipe text. \`setup\` re-implements the same override logic directly in
-# its shell recipe instead — see below.
+# be used to gate \`setup\`'s S3 tfvars-bootstrap step or its post-bootstrap
+# pull: GNU Make expands a rule's entire recipe before running the first line
+# of that recipe, so a reference to this variable inside the same \`setup\`
+# recipe that writes TFVARS_MARKER would still see the pre-bootstrap
+# filesystem state even though it appears later in the recipe text. \`setup\`
+# re-implements the same override logic directly in its shell recipe instead
+# — see below.
 TFVARS_BACKEND = $(if $(filter s3,$(GSD_TFVARS_BACKEND)),s3,$(if $(filter local,$(GSD_TFVARS_BACKEND)),local,$(if $(wildcard $(PARENT_TFVARS_MARKER)),s3,$(if $(wildcard $(TFVARS_MARKER)),s3,local))))
 
 # TFVARS_BUCKET is display-only (used in log messages below); GSD_TFVARS_BUCKET
@@ -301,14 +307,15 @@ TFVARS_SYNC_ARGS = --path $(TFVARS) --bucket "$\${GSD_TFVARS_BUCKET:-$$(cat $(PA
 help:
 \t@echo "${a.projectName} — submodule deployment wrapper"
 \t@echo ""
-\t@echo "  make setup         One-time bootstrap: init submodule, install deps, terraform init"
-\t@echo "                     (pulls terraform.tfvars from S3 afterwards if setup.sh bootstrapped a backend)"
+\t@echo "  make setup         One-time bootstrap: init submodule, install deps, build lambdas,"
+\t@echo "                     create the Terraform S3 state backend, terraform init"
+\t@echo "                     (pulls terraform.tfvars from S3 afterwards if this bootstrapped a tfvars backend)"
 \t@echo "  make plan          Copy tfvars into submodule then terraform plan"
 \t@echo "                     (auto-pulls tfvars from S3 first when a backend is detected; NO_PULL=1 to skip)"
 \t@echo "  make apply         Copy tfvars into submodule then terraform apply"
 \t@echo "                     (checks tfvars are in sync with S3 first when a backend is detected; FORCE_APPLY=1 to skip)"
-\t@echo "  make update        Pull latest ${a.submoduleDir}/main; rerun setup.sh if changed"
-\t@echo "  make dev           Start dev servers (Nest :3001 + Vite :5173)"
+\t@echo "  make update        Pull latest ${a.submoduleDir}/main; re-init terraform"
+\t@echo "  make dev           Launch the Hyveon desktop app in dev mode (electron-vite)"
 \t@echo "  make tfvars-pull   Pull terraform.tfvars from the S3 backend (requires one to be configured)"
 \t@echo "  make tfvars-push   Push terraform.tfvars to the S3 backend"
 \t@echo "  make tfvars-diff   Show a unified diff between local and remote terraform.tfvars"
@@ -321,45 +328,129 @@ $(STAMP_DIR):
 \t@mkdir -p $@
 
 # ── One-time setup ───────────────────────────────────────────────────────────
+# Fully self-contained: no external setup.sh, no delegating to a Makefile
+# inside the submodule. Every step below is inlined directly.
 setup: | $(STAMP_DIR)
 \tgit submodule update --init --recursive
-# Copy the parent's terraform.tfvars into the submodule *before* setup.sh
-# runs (mirroring the copy-tfvars target below), so setup.sh's
-# bootstrap_tfvars_backend() derives the bootstrap bucket name from the same
-# project_name this Makefile (and PARENT_TFVARS_MARKER, if written by
-# \`init-parent bootstrap --s3-tfvars\`/\`migrate --to-s3\`) was generated from.
-# Without this, setup.sh would see whatever project_name is already checked
-# into $(TF_DIR)/terraform.tfvars (e.g. the "game-servers" default seeded
-# from terraform.tfvars.example on a first run) and bootstrap a
-# differently-named bucket than the one PARENT_TFVARS_MARKER points at.
+\tcd $(SUBMODULE) && npm install
+\tcd $(SUBMODULE) && npm run app:build:lambdas
+# Copy the parent's terraform.tfvars into the submodule *before* deriving
+# the project name/region below (mirroring the copy-tfvars target further
+# down), so the S3 state bucket, DynamoDB lock table, and (if requested) S3
+# tfvars bucket this recipe creates are all named after the same
+# project_name PARENT_TFVARS_MARKER (if any) was derived from, rather than
+# whatever project_name happens to already be checked into
+# $(TF_DIR)/terraform.tfvars.
 # Guarded: a parent repo that migrated to S3 a while ago may have no local
 # $(TFVARS) at all (see docs/docs/guides/submodule.md) — a fresh clone of
-# such a parent must still be able to run \`make setup\` under -eu, falling
-# through to setup.sh (and its post-bootstrap S3 pull) to seed the file,
-# mirroring main's behavior when the file is missing.
+# such a parent must still be able to run \`make setup\` under -eu. We
+# deliberately do NOT fall back to terraform.tfvars.example here: its
+# checked-in project_name ("${a.projectName}") is unrelated to this parent
+# repo's actual project and would silently win over the correct fallback
+# below. terraform init doesn't need terraform.tfvars to exist — only
+# plan/apply do, by which point the post-bootstrap S3 pull further down has
+# had a chance to seed $(TFVARS) for real.
 \tif [ -f $(TFVARS) ]; then cp $(TFVARS) $(TF_DIR)/terraform.tfvars; fi
-# PARENT_TFVARS_MARKER is written by \`init-parent bootstrap --s3-tfvars\`
-# before setup.sh has ever run, so it reflects an operator's up-front choice
-# to run in S3 mode. Export GSD_TFVARS_BACKEND=s3 into setup.sh's own
-# environment when it's present — setup.sh's bootstrap_tfvars_backend()
-# already understands this variable — so it bootstraps the S3 backend
-# instead of defaulting to local mode. This must be a single shell line (via
-# \\) rather than two separate recipe lines: each recipe line runs in its own
-# fresh shell, so an \`export\` on one line would never be visible to the
-# \`bash setup.sh\` on the next.
-\tif [ -z "$\${GSD_TFVARS_BACKEND:-}" ] && [ -f $(PARENT_TFVARS_MARKER) ]; then export GSD_TFVARS_BACKEND=s3; fi; \\
-\tbash $(SUBMODULE)/setup.sh
-\t@sha256sum $(SUBMODULE)/setup.sh | cut -d' ' -f1 > $(SETUP_STAMP)
+# Derive project_name/aws_region from terraform.tfvars when we just copied a
+# real one in — the same grep/sed extraction the old setup.sh used —
+# falling back to this Makefile's own known project name / setup.sh's own
+# us-east-1 default when $(TFVARS) doesn't exist yet or a key is genuinely
+# absent. Cached under $(STAMP_DIR) so later recipe lines (each its own
+# shell invocation) don't have to re-derive them.
+\t@if [ -f $(TF_DIR)/terraform.tfvars ]; then \\
+\t  PROJECT=$$(grep -E '^[[:space:]]*project_name[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
+\t  REGION=$$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
+\t else \\
+\t  PROJECT=""; REGION=""; \\
+\t fi; \\
+\t if [ -z "$$PROJECT" ]; then PROJECT="${a.projectName}"; fi; \\
+\t if [ -z "$$REGION" ]; then REGION="us-east-1"; fi; \\
+\t echo "$$PROJECT" > $(STAMP_DIR)/tf-project; \\
+\t echo "$$REGION" > $(STAMP_DIR)/tf-region
+# Create the Terraform state S3 bucket + DynamoDB lock table if they don't
+# already exist yet — same aws s3api/dynamodb commands and flags setup.sh
+# used.
+\t@TF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
+\t TF_STATE_BUCKET="$$TF_PROJECT-tf-state"; TF_LOCK_TABLE="$$TF_PROJECT-tf-locks"; \\
+\t echo "Bootstrapping S3 backend (bucket: $$TF_STATE_BUCKET, region: $$TF_REGION)..."; \\
+\t if aws s3api head-bucket --bucket "$$TF_STATE_BUCKET" --region "$$TF_REGION" 2>/dev/null; then \\
+\t   echo "   S3 bucket $$TF_STATE_BUCKET already exists — skipping."; \\
+\t else \\
+\t   echo "   Creating S3 bucket $$TF_STATE_BUCKET..."; \\
+\t   if [ "$$TF_REGION" = us-east-1 ]; then \\
+\t     aws s3api create-bucket --bucket "$$TF_STATE_BUCKET" --region "$$TF_REGION"; \\
+\t   else \\
+\t     aws s3api create-bucket --bucket "$$TF_STATE_BUCKET" --region "$$TF_REGION" --create-bucket-configuration "LocationConstraint=$$TF_REGION"; \\
+\t   fi; \\
+\t   aws s3api put-bucket-versioning --bucket "$$TF_STATE_BUCKET" --versioning-configuration Status=Enabled --region "$$TF_REGION"; \\
+\t   aws s3api put-public-access-block --bucket "$$TF_STATE_BUCKET" --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" --region "$$TF_REGION"; \\
+\t   aws s3api put-bucket-encryption --bucket "$$TF_STATE_BUCKET" --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}' --region "$$TF_REGION"; \\
+\t fi; \\
+\t if aws dynamodb describe-table --table-name "$$TF_LOCK_TABLE" --region "$$TF_REGION" >/dev/null 2>&1; then \\
+\t   echo "   DynamoDB table $$TF_LOCK_TABLE already exists — skipping."; \\
+\t else \\
+\t   echo "   Creating DynamoDB lock table $$TF_LOCK_TABLE..."; \\
+\t   aws dynamodb create-table --table-name "$$TF_LOCK_TABLE" --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST --region "$$TF_REGION"; \\
+\t   echo "   Waiting for DynamoDB table to become ACTIVE..."; \\
+\t   aws dynamodb wait table-exists --table-name "$$TF_LOCK_TABLE" --region "$$TF_REGION"; \\
+\t fi
+# Bootstrap the versioned S3 tfvars bucket via the separate
+# $(SUBMODULE)/terraform/bootstrap module (same logic as the old setup.sh's
+# bootstrap_tfvars_backend()), gated on GSD_TFVARS_BACKEND=s3 or the
+# parent-root marker already being present. Writes the resulting bucket name
+# to TFVARS_MARKER ($(SUBMODULE)/.gsd/tfvars-bucket) — the same path
+# setup.sh used to write — so PARENT_TFVARS_MARKER (written up-front by
+# \`init-parent bootstrap --s3-tfvars\`/\`migrate --to-s3\`, if present) still
+# takes priority over it, per TFVARS_BACKEND/TFVARS_BUCKET's own precedence
+# documented above.
+\t@TF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
+\t BACKEND="$\${GSD_TFVARS_BACKEND:-}"; \\
+\t if [ -z "$$BACKEND" ] && [ -f $(PARENT_TFVARS_MARKER) ]; then BACKEND=s3; fi; \\
+\t if [ "$$BACKEND" != s3 ]; then \\
+\t   echo "   tfvars backend: local (skipping S3 tfvars-bucket bootstrap)"; \\
+\t else \\
+\t   echo ""; \\
+\t   echo "Bootstrapping tfvars S3 bucket ($(SUBMODULE)/terraform/bootstrap)..."; \\
+\t   terraform -chdir=$(SUBMODULE)/terraform/bootstrap init -input=false; \\
+\t   terraform -chdir=$(SUBMODULE)/terraform/bootstrap apply -auto-approve -input=false -var="project_name=$$TF_PROJECT" -var="aws_region=$$TF_REGION"; \\
+\t   BUCKET=$$(terraform -chdir=$(SUBMODULE)/terraform/bootstrap output -raw tfvars_bucket_name); \\
+\t   mkdir -p $(SUBMODULE)/.gsd; \\
+\t   echo "$$BUCKET" > $(TFVARS_MARKER); \\
+\t   echo "   Bucket name recorded at $(TFVARS_MARKER): $$BUCKET"; \\
+\t   if [ -f $(TFVARS) ]; then \\
+\t     if aws s3api head-object --bucket "$$BUCKET" --key terraform.tfvars --region "$$TF_REGION" >/dev/null 2>&1; then \\
+\t       echo "   s3://$$BUCKET/terraform.tfvars already exists — skipping upload."; \\
+\t     else \\
+\t       echo "   Uploading local terraform.tfvars to s3://$$BUCKET/terraform.tfvars..."; \\
+\t       aws s3 cp $(TFVARS) "s3://$$BUCKET/terraform.tfvars" --region "$$TF_REGION"; \\
+\t     fi; \\
+\t   fi; \\
+\t fi
+# terraform init with the same -backend-config flags setup.sh used. If a
+# local terraform.tfstate is already sitting in $(TF_DIR) (a pre-existing
+# local-backend deployment), migrate it into the new S3 backend the same way
+# setup.sh did, auto-confirming so this doesn't hang waiting on stdin.
+\t@TF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
+\t TF_STATE_BUCKET="$$TF_PROJECT-tf-state"; TF_LOCK_TABLE="$$TF_PROJECT-tf-locks"; \\
+\t echo ""; \\
+\t echo "Initializing Terraform..."; \\
+\t if [ -f $(TF_DIR)/terraform.tfstate ]; then \\
+\t   echo "   Local terraform.tfstate detected — migrating state to S3..."; \\
+\t   echo yes | terraform -chdir=$(TF_DIR) init -migrate-state -backend-config="bucket=$$TF_STATE_BUCKET" -backend-config="key=$$TF_PROJECT/terraform.tfstate" -backend-config="region=$$TF_REGION" -backend-config="dynamodb_table=$$TF_LOCK_TABLE" -backend-config="encrypt=true"; \\
+\t else \\
+\t   terraform -chdir=$(TF_DIR) init -backend-config="bucket=$$TF_STATE_BUCKET" -backend-config="key=$$TF_PROJECT/terraform.tfstate" -backend-config="region=$$TF_REGION" -backend-config="dynamodb_table=$$TF_LOCK_TABLE" -backend-config="encrypt=true"; \\
+\t fi
 # Runtime (not parse-time) check, evaluated entirely inside this shell
 # command: GNU Make expands a rule's whole recipe — including any
 # $(wildcard ...)/$(shell ...) calls hiding inside TFVARS_BACKEND/
 # TFVARS_BUCKET — before running the first line of that recipe, so a
 # make-variable-based check here would still see the filesystem from before
-# setup.sh (above) ran, even though it's written later in the recipe text.
-# Mirror TFVARS_BACKEND's own GSD_TFVARS_BACKEND override semantics by hand,
-# and defer both marker-file tests and their \`cat\` to the shell so they see
-# whatever setup.sh just wrote. The parent-root marker (if any) is checked
-# first, same precedence as TFVARS_BACKEND/TFVARS_BUCKET above.
+# the S3 tfvars bootstrap step (above) ran, even though it's written later
+# in the recipe text. Mirror TFVARS_BACKEND's own GSD_TFVARS_BACKEND override
+# semantics by hand, and defer both marker-file tests and their \`cat\` to the
+# shell so they see whatever the bootstrap step above just wrote. The
+# parent-root marker (if any) is checked first, same precedence as
+# TFVARS_BACKEND/TFVARS_BUCKET above.
 \t@if [ "$\${GSD_TFVARS_BACKEND:-}" = s3 ] || { [ "$\${GSD_TFVARS_BACKEND:-}" != local ] && { [ -f $(PARENT_TFVARS_MARKER) ] || [ -f $(TFVARS_MARKER) ]; }; }; then \\
 \t  bucket="$\${GSD_TFVARS_BUCKET:-$$(cat $(PARENT_TFVARS_MARKER) 2>/dev/null || cat $(TFVARS_MARKER) 2>/dev/null)}"; \\
 \t  if [ -n "$$(git -C $(REPO_ROOT) status --porcelain -- $(TFVARS))" ]; then echo "$(TFVARS) has uncommitted changes — skipping S3 pull to avoid clobbering them (commit or stash them, then run 'make tfvars-pull')." >&2; \\
@@ -403,15 +494,35 @@ check-tfvars-if-needed:
 
 # plan auto-pulls the latest tfvars from S3 first (skip with NO_PULL=1), so a
 # stale local copy can't silently drive \`terraform plan\`. In local mode
-# pull-tfvars-if-needed is a no-op and this is unchanged from before.
+# pull-tfvars-if-needed is a no-op and this is unchanged from before. Rebuilds
+# the Lambda bundles first — archive_file reads the CJS bundles at plan time.
 plan: pull-tfvars-if-needed copy-tfvars
-\t$(MAKE) -C $(SUBMODULE) tf-plan
+\tcd $(SUBMODULE) && npm run app:build:lambdas
+\tterraform -chdir=$(TF_DIR) plan
 
 # apply checks tfvars are still in sync with S3 first (skip with
 # FORCE_APPLY=1), so drift can't silently drive \`terraform apply\`. In local
 # mode check-tfvars-if-needed is a no-op and this is unchanged from before.
 apply: check-tfvars-if-needed copy-tfvars
-\t$(MAKE) -C $(SUBMODULE) tf-apply
+\tcd $(SUBMODULE) && npm run app:build:lambdas
+\tterraform -chdir=$(TF_DIR) apply
+\t@echo ""
+\t@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+\t@echo "  Post-deploy checklist"
+\t@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+\t@INVOKE_URL=$$(terraform -chdir=$(TF_DIR) output -raw interactions_invoke_url 2>/dev/null || true); \\
+\t  echo ""; \\
+\t  echo "  Interactions Endpoint URL (copy this):"; \\
+\t  echo "    $\${INVOKE_URL:-(not available - did apply succeed?)}"; \\
+\t  echo ""; \\
+\t  echo "  1. Paste the URL above into the Discord Developer Portal:"; \\
+\t  echo "     App -> General Information -> Interactions Endpoint URL"; \\
+\t  echo ""; \\
+\t  echo "  2. Enter bot token + public key in the management app Credentials tab"; \\
+\t  echo "     (skip if already pre-seeded in terraform.tfvars)"; \\
+\t  echo ""; \\
+\t  echo "  3. Click 'Register commands' in the management app for each guild"
+\t@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ── Manual remote tfvars sync (gated on TFVARS_BACKEND) ─────────────────────
 # Unlike the internal gates above, these fail fast with a pointer to
@@ -420,31 +531,33 @@ apply: check-tfvars-if-needed copy-tfvars
 # overwrites $(TFVARS) in place, so if git sees it as dirty we abort instead
 # of silently discarding the operator's changes.
 tfvars-pull:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or bootstrap one via setup.sh." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t@if [ -n "$$(git -C $(REPO_ROOT) status --porcelain -- $(TFVARS))" ]; then echo "$(TFVARS) has uncommitted changes — commit or stash them before pulling from S3." >&2; exit 1; fi
 \t$(TFVARS_SYNC) pull $(TFVARS_SYNC_ARGS)
 
 tfvars-push:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or bootstrap one via setup.sh." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t$(TFVARS_SYNC) push $(TFVARS_SYNC_ARGS)
 
 tfvars-diff:
-\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or bootstrap one via setup.sh." >&2; exit 1; fi
+\t@if [ "$(TFVARS_BACKEND)" != s3 ]; then echo "No S3 tfvars backend detected (TFVARS_BACKEND=$(TFVARS_BACKEND)) — set GSD_TFVARS_BACKEND=s3 (with GSD_TFVARS_BUCKET) or run 'make setup' with an S3 tfvars backend requested." >&2; exit 1; fi
 \t$(TFVARS_SYNC) diff $(TFVARS_SYNC_ARGS)
 
-# ── Submodule update with idempotent setup.sh re-run ─────────────────────────
+# ── Submodule update ──────────────────────────────────────────────────────────
+# Bumps the submodule then unconditionally re-runs \`terraform init\` — cheap
+# and idempotent, so there's no need for setup.sh-style sha-based
+# drift-detection to decide whether to rerun it. Re-supplies the same
+# -backend-config flags \`setup\` used (from the tf-project/tf-region stamps
+# it wrote, not a bare \`terraform init\` relying on the .terraform/ cache) —
+# \`update\` is exactly the target most likely to need a reconfigure, since
+# the submodule bump on the line above is what could change the backend
+# block, and a bare init against an already-configured partial backend can
+# hang or fail waiting on stdin if the cache is ever cleared.
 update: | $(STAMP_DIR)
 \tgit submodule update --remote --merge $(SUBMODULE)
-\t@CURRENT=$$(sha256sum $(SUBMODULE)/setup.sh | cut -d' ' -f1); \\
-\t PREVIOUS=$$(cat $(SETUP_STAMP) 2>/dev/null || echo ""); \\
-\t if [ "$$CURRENT" != "$$PREVIOUS" ]; then \\
-\t   echo "setup.sh changed — clearing .terraform/ and rerunning..."; \\
-\t   rm -rf $(TF_DIR)/.terraform; \\
-\t   bash $(SUBMODULE)/setup.sh; \\
-\t   echo "$$CURRENT" > $(SETUP_STAMP); \\
-\t else \\
-\t   echo "setup.sh unchanged — skipping."; \\
-\t fi
+\t@if [ ! -f $(STAMP_DIR)/tf-project ]; then echo "Run 'make setup' first." >&2; exit 1; fi
+\tTF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
+\tterraform -chdir=$(TF_DIR) init -input=false -backend-config="bucket=$$TF_PROJECT-tf-state" -backend-config="key=$$TF_PROJECT/terraform.tfstate" -backend-config="region=$$TF_REGION" -backend-config="dynamodb_table=$$TF_PROJECT-tf-locks" -backend-config="encrypt=true"
 \t@echo ""
 \t@echo "Submodule updated. Commit the new pointer when ready:"
 \t@echo "  git add ${a.submoduleDir} && git commit -m 'chore: bump ${a.submoduleDir}'"
@@ -456,7 +569,7 @@ update: | $(STAMP_DIR)
 dev: | $(STAMP_DIR)
 \tterraform -chdir=$(TF_DIR) state pull > $(STAMP_DIR)/tfstate.json 2>/dev/null || echo 'null' > $(STAMP_DIR)/tfstate.json
 \trm -f $(SUBMODULE)/app/packages/*/tsconfig*.tsbuildinfo
-\tTF_STATE_PATH=$(STAMP_DIR)/tfstate.json $(MAKE) -C $(SUBMODULE) dev
+\tcd $(SUBMODULE) && TF_STATE_PATH=$(STAMP_DIR)/tfstate.json npm run app:dev
 `;
 }
 
@@ -525,23 +638,15 @@ game_servers = {
 `;
 }
 
-export function renderEnv(a: Answers): string {
-  return `# Bearer token for the management app (also used by docker compose).
-# This file is gitignored — never commit it. Rotate by deleting and re-running
-# \`init-parent.ts\` (or just generate a new hex string).
-API_TOKEN=${a.apiToken}
-`;
-}
-
 export function renderGitignore(a: Answers): string {
   return `# ${a.projectName} — parent repo .gitignore
 
-# Bearer token + any local environment overrides
+# Local environment overrides, if you ever add any
 .env
 .env.*
 !.env.example
 
-# Make stamp dir (sha256 of submodule's setup.sh, cached tfstate.json, ...)
+# Make stamp dir (cached tf-project/tf-region/tfstate.json, ...)
 .make/
 
 # Terraform local state, if you ever fall off the S3 backend
@@ -593,7 +698,8 @@ function status(path: string, action: 'wrote' | 'skipped' | 'overwrote' | 'delet
 // ─────────────────────────────────────────────────────────────────────────────
 
 function isValidProjectName(s: string): boolean {
-  // Used as part of S3 bucket names by setup.sh — keep it conservative.
+  // Used as part of S3 bucket names by the generated Makefile's `setup`
+  // recipe — keep it conservative.
   return /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(s);
 }
 
@@ -615,11 +721,11 @@ export interface BootstrapOptions {
   s3Tfvars: boolean;
   /** Skips the interactive prompt entirely when `s3Tfvars` wasn't already passed, defaulting to no. */
   yes: boolean;
-  /** Overwrites existing Makefile/terraform.tfvars/.env/.gitignore instead of skipping them. Mirrors the module-level `FORCE` flag so callers of the exported API (not just the CLI entrypoint) can drive `--force` behaviour. */
+  /** Overwrites existing Makefile/terraform.tfvars/.gitignore instead of skipping them. Mirrors the module-level `FORCE` flag so callers of the exported API (not just the CLI entrypoint) can drive `--force` behaviour. */
   force?: boolean;
 }
 
-/** The interactive bootstrap flow: prompts for parent-repo details and writes Makefile/terraform.tfvars/.env/.gitignore (and, when requested, the `.gsd/tfvars-bucket` S3 backend marker). Exported so the entrypoint guard below can invoke it after CLI parsing. */
+/** The interactive bootstrap flow: prompts for parent-repo details and writes Makefile/terraform.tfvars/.gitignore (and, when requested, the `.gsd/tfvars-bucket` S3 backend marker). Exported so the entrypoint guard below can invoke it after CLI parsing. */
 export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false, yes: false }): Promise<void> {
   FORCE = options.force ?? FORCE;
   const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -632,7 +738,7 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
   output.write(`  Parent repo:  ${guessedParent}\n`);
   output.write(`  Script:       ${relative(guessedParent, fileURLToPath(import.meta.url)) || fileURLToPath(import.meta.url)}\n`);
   output.write('\n');
-  output.write('  This will write Makefile, terraform.tfvars, .env, and .gitignore in\n');
+  output.write('  This will write Makefile, terraform.tfvars, and .gitignore in\n');
   output.write('  the parent repo. Existing files are skipped unless you pass --force.\n');
   output.write('\n');
 
@@ -670,10 +776,6 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
       if (!isValidDomain(hostedZone)) output.write('  ↳ must be a valid domain.\n');
     }
 
-    const generated = randomBytes(32).toString('hex');
-    const apiTokenChoice = await ask(rl, 'API_TOKEN for the management app (press Enter to generate)', generated);
-    const apiToken = apiTokenChoice || generated;
-
     const configureDiscord = await askBool(rl, 'Seed Discord credentials in tfvars now?', false);
 
     // A --s3-tfvars flag pre-answers this and skips the prompt; --yes without
@@ -701,7 +803,6 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
       projectName,
       awsRegion,
       hostedZone,
-      apiToken,
       configureDiscord,
       discordApplicationId,
       discordBotToken,
@@ -712,12 +813,12 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
     output.write('\n  Writing files…\n');
     status(join(parentDir, 'Makefile'), writeIfSafe(join(parentDir, 'Makefile'), renderMakefile(answers)), parentDir);
     status(join(parentDir, 'terraform.tfvars'), writeIfSafe(join(parentDir, 'terraform.tfvars'), renderTfvars(answers)), parentDir);
-    status(join(parentDir, '.env'), writeIfSafe(join(parentDir, '.env'), renderEnv(answers)), parentDir);
     status(join(parentDir, '.gitignore'), writeIfSafe(join(parentDir, '.gitignore'), renderGitignore(answers)), parentDir);
-    // The marker records the S3 bucket `setup.sh`'s bootstrap_tfvars_backend()
-    // will create (see terraform/bootstrap/main.tf's coalesce default) — it's
-    // written up-front, before setup.sh has ever run, so PARENT_TFVARS_MARKER
-    // in the generated Makefile can force GSD_TFVARS_BACKEND=s3 for `make setup`.
+    // The marker records the S3 bucket the generated Makefile's `setup`
+    // recipe's S3 tfvars-bootstrap step will create (see
+    // terraform/bootstrap/main.tf's coalesce default) — it's written
+    // up-front, before `setup` has ever run, so PARENT_TFVARS_MARKER in the
+    // generated Makefile can force GSD_TFVARS_BACKEND=s3 for `make setup`.
     if (wantsS3Tfvars) {
       status(
         join(parentDir, '.gsd', 'tfvars-bucket'),
@@ -731,7 +832,7 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
     output.write(`    1. Review terraform.tfvars and add at least one entry under game_servers.\n`);
     output.write(`    2. Run \`make setup\` to bootstrap the submodule and Terraform.\n`);
     output.write(`    3. Run \`make plan\` then \`make apply\`.\n`);
-    output.write(`    4. \`make dev\` to launch the management app on :5173.\n\n`);
+    output.write(`    4. \`make dev\` to launch the desktop app in dev mode.\n\n`);
 
     if (wantsS3Tfvars) {
       output.write(`  S3-backed tfvars store requested — .gsd/tfvars-bucket recorded (${projectName}-tfvars).\n`);
@@ -980,8 +1081,9 @@ export async function runMigrate(direction: MigrateDirection, options: MigrateOp
  *      since deleting the markers would otherwise silently strand whichever
  *      side lost the race.
  *   4. On success, delete, if present: the `.gsd/tfvars-bucket` marker at the
- *      parent repo root, the sibling marker `setup.sh` writes inside the
- *      submodule directory, and the `terraform.tfvars.lock` sidecar
+ *      parent repo root, the sibling marker the generated Makefile's `setup`
+ *      recipe writes inside the submodule directory, and the
+ *      `terraform.tfvars.lock` sidecar
  *      `tfvars-sync.ts` maintains. `terraform.tfvars` itself is never
  *      written beyond the step-2 pull (if that ran) — it's already the
  *      source of truth for local mode once the markers are gone.

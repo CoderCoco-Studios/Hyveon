@@ -7,8 +7,7 @@ import { DiagnosticsService } from '../services/DiagnosticsService.js';
  *
  * Registers the `diagnostics.tail` and `diagnostics.path` Electron IPC
  * channels so the renderer can reach them through `window.gsd.diagnostics.*`.
- * No HTTP routes are declared here — the REST surface lives in the companion
- * {@link DiagnosticsHttpController} shim.
+ * No HTTP routes are declared here.
  */
 @Controller()
 export class DiagnosticsController {

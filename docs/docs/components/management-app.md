@@ -5,20 +5,24 @@ sidebar_position: 3
 
 # Management app
 
-A TypeScript npm-workspaces monorepo under `app/`. Three packages are shipped
-as the local control plane — a Nest.js API, a React dashboard, and a pure
-library — plus the four Lambda packages documented
-[here](/components/lambdas).
+A TypeScript npm-workspaces monorepo under `app/`. It ships as a packaged
+**Electron desktop app** — three packages make up the local control plane: a
+Nest.js backend (`desktop-main`), a React dashboard renderer (`web`), and a
+pure shared library — plus the four Lambda packages documented
+[here](/components/lambdas). There is no HTTP server and no bearer token
+anywhere in this app: the renderer talks to the backend exclusively over
+Electron IPC, via `window.gsd` (the `desktop-preload` bridge).
 
 Install everything from the root:
 
 ```bash
-cd app && npm install
+npm install
 ```
 
-Dev mode runs the Nest API on **:3001** and the Vite dev server on
-**:5173** (with `/api` proxied). Production is a single Node process on
-**:3001**; inside Docker that's published as **:5000**.
+Dev mode (`npm run app:dev`) launches the full Electron app with hot-reload
+on renderer saves; electron-vite serves the renderer for HMR purposes only —
+it is not a network API surface. See the [setup guide](/setup) for the
+packaged-installer build.
 
 ## `@hyveon/shared`
 
@@ -44,39 +48,55 @@ leave this package's own callers.
 
 ## `@hyveon/desktop-main`
 
-`app/packages/desktop-main` — Nest.js on `@nestjs/platform-express`. The boot
-sequence in `src/main.ts`:
+`app/packages/desktop-main` — a Nest.js app running as an **Electron IPC
+microservice** (`NestFactory.createMicroservice`), not an HTTP server. The
+boot sequence in `src/main.ts` (invoked from `electron-entry.ts` after
+`app.whenReady()`):
 
-1. `NestFactory.create(AppModule)`.
-2. If `NODE_ENV=production` and no `API_TOKEN` configured → **refuses to
-   start** (loud exit, not a warning).
-3. In production, serves the built React bundle from `../web/dist` as
-   static files.
-4. Listens on `process.env.PORT || 3001`.
+1. Guards against running outside an Electron main process — `desktop-main`
+   throws immediately if `process.versions.electron` is unset, rather than
+   silently doing nothing under plain Node.
+2. `NestFactory.createMicroservice(AppModule, { strategy: new BridgedElectronIPCTransport() })`.
+3. `app.listen()` starts the transport, registering its internal
+   `@MessagePattern` dispatch.
+4. `registerIpcMainBridges(strategy)` bridges each of those patterns onto a
+   real `ipcMain.handle` registration, so `ipcRenderer.invoke` calls from
+   the renderer resolve instead of hanging.
+
+There is no listen port, no `NODE_ENV=production` bearer-token check, and no
+static-file serving — the renderer is a separate Electron `BrowserWindow`
+loading the built Vite bundle (or the Vite dev server in dev mode), and it
+never speaks HTTP to this process.
 
 ### Module graph
 
-- **`AppModule`** — root. Imports `AwsModule` and `DiscordModule`. Installs
-  `ApiTokenGuard` as `APP_GUARD` (so it applies to every controller), and
-  attaches `RequestLoggerMiddleware` for structured access logs.
+- **`AppModule`** — root. Imports `AwsModule`, `DiscordModule`,
+  `TfvarsModule`, `TerraformModule`, `WizardModule`, and
+  `ElectronStoreModule`.
 - **`AwsModule`** — provides `ConfigService`, `Ec2Service`, `EcsService`,
   `LogsService`, `CostService`, `FileManagerService`. All exported.
 - **`DiscordModule`** — imports `AwsModule`; provides
   `DiscordConfigService` and `DiscordCommandRegistrar`. No discord.js,
   no gateway — the bot is two Lambdas plus Discord's REST API.
 
-### Controllers and endpoints
+### Controllers and IPC channels
 
-Every route is under `/api/*` and gated by `ApiTokenGuard`.
+Every controller is IPC-only: handlers are bound to a channel name via
+`@MessagePattern()`/`@Payload()` — there are no HTTP routes anywhere in this
+app. The renderer calls into these via `window.gsd.*` (the preload bridge),
+which forwards to `ipcRenderer.invoke(channel, ...)`.
 
-| Controller | Endpoints | Purpose |
+| Controller | Representative channels | Purpose |
 |---|---|---|
-| `GamesController` | `GET /api/games`, `GET /api/status`, `GET /api/status/:game`, `POST /api/start/:game`, `POST /api/stop/:game` | List/read status, trigger RunTask/StopTask. Invalidates ConfigService's tfstate cache on list/status reads so fresh applies are picked up without restarting. |
-| `ConfigController` | `GET /api/config`, `POST /api/config` | Read/write watchdog knobs in `server_config.json`. Takes effect on next `terraform apply` (the values are baked into Lambda env). |
-| `CostsController` | `GET /api/costs/estimate`, `GET /api/costs/actual?days=N` | Per-game Fargate estimates; Cost Explorer actuals grouped by the `Project` tag. |
-| `LogsController` | `GET /api/logs/:game?limit=50`, `GET /api/logs/:game/stream` | Snapshot of last N log events; SSE stream of new events as they arrive (polls `FilterLogEvents` every 2 s). |
-| `FilesController` | `GET /api/files/:game`, `POST /api/files/:game/start`, `POST /api/files/:game/stop` | Ad-hoc FileBrowser task against the game's EFS access point. |
-| `DiscordController` | `GET/PUT /api/discord/config`, `POST /api/discord/guilds`, `DELETE /api/discord/guilds/:id`, `POST /api/discord/guilds/:id/register-commands`, `PUT /api/discord/admins`, `PUT /api/discord/permissions/:game`, `DELETE /api/discord/permissions/:game` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
+| `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `game_servers` config entries. Invalidates `ConfigService`'s tfstate cache on list/status reads so fresh applies are picked up without restarting. |
+| `ConfigController` | `config.get`, `config.update` | Read/write watchdog knobs in `server_config.json`. Takes effect on next `terraform apply` (the values are baked into Lambda env). |
+| `CostsController` | `costs.estimate`, `costs.actual` | Per-game Fargate estimates; Cost Explorer actuals grouped by the `Project` tag. |
+| `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
+| `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. |
+| `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
+| `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. |
+| `TerraformController`, `TerraformRunsController` | `terraform.init`, `terraform.plan`, `terraform.apply`, `terraform.destroy`, `terraform.output`, `terraform.approve`, `terraform.rollback.*`, `terraform.runs.*` | Drives `terraform` as a child process for the apply pipeline; run history is recorded for the apply-history view. |
+| `WizardController` | first-run wizard channels (prerequisites, AWS profile/credentials, bootstrap, IAM check, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 
 ### Key services
 
@@ -84,11 +104,10 @@ Every route is under `/api/*` and gated by `ApiTokenGuard`.
   `TfOutputs` object (cluster ARN, subnets, SGs, EFS access points, game
   names, hosted zone, Discord table + secret ARNs, interactions URL).
   Caches in-memory; `invalidateCache()` is called by the games controller
-  on list/status so a new `terraform apply` is picked up without a server
-  restart. Also resolves the bearer token from `API_TOKEN` (wins) or
-  `server_config.json:api_token`. State resolution order: (1) runtime
-  `terraform/terraform.tfstate`; (2) `null` — callers degrade gracefully
-  so the dashboard can render even pre-apply.
+  on list/status so a new `terraform apply` is picked up without an app
+  restart. State resolution order: (1) runtime `terraform/terraform.tfstate`;
+  (2) `null` — callers degrade gracefully so the dashboard can render even
+  pre-apply.
 - **`DiscordConfigService`** — persistence facade over DynamoDB
   (`CONFIG#discord`) + Secrets Manager. Concurrent reads are coalesced via
   an inflight-promise pattern. `getRedacted()` returns
@@ -106,18 +125,11 @@ Every route is under `/api/*` and gated by `ApiTokenGuard`.
 
 ### Auth
 
-`ApiTokenGuard` (`src/guards/api-token.guard.ts`) is installed as
-`APP_GUARD` in `AppModule`. On every request it:
-
-- Reads the configured token from `ConfigService` (not cached — rotation
-  takes effect immediately).
-- Matches `Authorization: Bearer <token>` exactly; falls back to
-  `?token=<token>` query param when the header is absent (needed for the
-  SSE stream endpoint because `EventSource` cannot set headers).
-- In dev mode, if no token is configured: logs once and allows the
-  request.
-- In production, boot is refused if no token is configured, so the
-  "allow unauthenticated" branch is unreachable there.
+There is no request-level auth to configure — Electron IPC is only reachable
+from the app's own renderer process (via the `contextBridge`-exposed
+`window.gsd`), not from the network. There is no bearer token, no
+`API_TOKEN`, and no equivalent of the old `ApiTokenGuard` anywhere in this
+app.
 
 ### Logging
 
@@ -129,26 +141,22 @@ everywhere, not `console.log`.
 
 | Name | Default | Purpose |
 |---|---|---|
-| `NODE_ENV` | `development` | `production` enforces the token-at-boot check. |
-| `API_TOKEN` | — | Bearer token; wins over `server_config.json:api_token`. |
-| `PORT` | `3001` | HTTP listen port. |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | — | SDK region. Fallback via `ConfigService`. |
 
 ## `@hyveon/web`
 
 `app/packages/web` — React + Vite.
 
-- **Entry**: `src/main.tsx` → `src/App.tsx`. The app wires a 401 handler
-  (`setUnauthorizedHandler` in `api.ts`) that clears the stored token and
-  shows the token-prompt modal whenever any request comes back 401.
-- **Auth**: bearer token in `localStorage` under key `apiToken`, attached
-  as `Authorization: Bearer` by `request<T>()` in `src/api.ts`.
+- **Entry**: `src/main.tsx` → `src/App.tsx`, rendered inside an Electron
+  `BrowserWindow`.
+- **Auth**: none — there's no bearer token, no login prompt, and nothing in
+  `localStorage` gating API access. The renderer's `window.gsd` bridge is
+  only reachable from the app's own preload-scoped context.
 
 ### Dashboard layout
 
 1. **Game cards** — per-game Start/Stop, state badge, IP/hostname. Polls
-   `/api/status` and `/api/costs/estimate` every 20 s via
-   `hooks/useGameStatus`.
+   game status and cost estimates every 20 s via `hooks/useGameStatus`.
 2. **Cost panel** — hourly/daily/4h-per-day estimates + last-7-days actual
    from Cost Explorer (requires the `Project` cost-allocation tag to be
    activated in AWS Billing).
@@ -158,35 +166,29 @@ everywhere, not `console.log`.
    Permissions. See the [user guide](/guides/user)
    for the day-to-day workflow.
 5. **Live Logs** — fetches a snapshot of the last 50 events on game change,
-   then opens an SSE stream (`/api/logs/:game/stream`) that appends new
+   then opens a streaming IPC channel (`logs.stream`) that appends new
    lines as they arrive (capped at 1 000 lines in the DOM). Pause/Resume
-   toggle buffers incoming lines without scrolling. The token is sent as
-   `?token=` because `EventSource` cannot set custom headers. Log streaming
-   is SSE, not WebSocket — if interactive features ever require
-   bidirectional comms, revisit then.
+   toggle buffers incoming lines without scrolling.
 6. **File Manager modal** — spawns a FileBrowser Fargate task against the
    game's EFS access point so you can inspect/upload saves without
    starting the game itself.
 
 ### API layer
 
-`src/api.ts` exports a single `api` object with one method per endpoint.
-All calls go through `request<T>()`, which:
-
-- Attaches the bearer header.
-- Converts non-2xx responses to thrown errors.
-- On 401, clears the stored token and invokes the handler registered at
-  startup (shows the token prompt).
+`src/api.service.ts` exports a single `api` object with one method per IPC
+channel. Every call is delegated straight to `window.gsd.*` — there are no
+`fetch` calls and no bearer-token plumbing anywhere in this module.
 
 ### Vite dev config
 
-`vite.config.ts` serves on `:5173` and proxies `/api` to
-`http://localhost:3001`. Production builds to `dist/` which the Nest server
-serves as static files at `/`.
+`vite.config.ts` serves the renderer on `:5173` for HMR purposes only; it is
+driven by electron-vite (see `electron.vite.config.ts`), not accessed
+directly as a network API. Production builds to `dist/`, packed into the
+Electron app's asar archive.
 
 ### Running e2e tests
 
-The web package ships a [Playwright](https://playwright.dev/) harness that runs specs against the **production build** (`vite build` + `vite preview`). Every `/api/*` call is stubbed at the network layer — the Nest server never starts.
+The web package ships a [Playwright](https://playwright.dev/) harness with two projects, migrating from the first to the second: `chromium` runs specs against the **production build** (`vite build` + `vite preview`), polyfilling `window.gsd` with an HTTP bridge so every `/api/*` call can be stubbed via `page.route()`; `electron` launches the packaged Electron app directly via `_electron.launch()` and stubs IPC responses through the `window.gsd.__test.mock()` test bridge instead. The Nest server never starts in either project.
 
 ```bash
 # One-off (builds the app, starts vite preview, runs specs, exits)
@@ -206,21 +208,3 @@ npx playwright install chromium
 ```
 
 Specs live under `app/packages/web/e2e/specs/`. Shared stubs and fixtures are in `app/packages/web/e2e/fixtures/`. On CI, Playwright uploads traces and videos as artifacts when a spec fails; see `.github/workflows/e2e.yml`.
-
-## Docker
-
-`Dockerfile` is node:20-slim:
-
-1. Copy `package.json` + workspace manifests, `npm ci --ignore-scripts`.
-2. Copy source, `npm run build` (shared → server → web).
-3. `CMD ["node", "packages/desktop-main/dist/main.js"]`.
-
-Only the **server** and **web** packages are baked into the image — the
-four Lambda packages are deployed separately via `terraform apply` and have
-no place inside the container.
-
-`docker-compose.yml` mounts `./terraform` read-only (for tfstate),
-`./app/server_config.json` (must exist on the host first), and `~/.aws`
-read-only (credentials). Publishes `3001` as `5000`. Requires `API_TOKEN`
-to be set in the shell before `docker compose up` (the compose file uses
-`${API_TOKEN:?…}` so it fails fast with a clear error if missing).

@@ -7,10 +7,8 @@ import type { ListAuditEntriesOpts } from '../services/AuditService.js';
 /**
  * IPC-only controller exposing the `game_servers` mutation audit log for the
  * Electron main-process host. The single handler is bound to an IPC channel
- * via `@MessagePattern` — no HTTP routes are registered here. The browser
- * client and the integration-test server reach the same operation over REST
- * through the {@link AuditHttpController} shim, which delegates to the
- * identical {@link AuditService} provider.
+ * via `@MessagePattern` — no HTTP routes are registered here. It delegates
+ * to the {@link AuditService} provider.
  */
 @Controller()
 export class AuditController {

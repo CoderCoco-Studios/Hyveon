@@ -12,8 +12,8 @@ import { test, expect } from './index.js';
  * string via `String(err)` → `"<name>: <message>"`.
  *
  * `GamesController.start` is the IPC handler backing the Electron `games.start`
- * channel; the HTTP shim (`GamesHttpController`) delegates to the same
- * `EcsService`, so this spec exercises the real error-propagation path.
+ * channel and delegates to `EcsService`, so this spec exercises the real
+ * error-propagation path.
  */
 test.describe('Error propagation', () => {
   test('should surface RunTask AccessDeniedException as a failed start response', async ({
