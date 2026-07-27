@@ -782,7 +782,7 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
 
     let projectName = '';
     while (!isValidProjectName(projectName)) {
-      projectName = await askRequired(rl, 'Project name (S3 bucket prefix; lowercase, dashes ok)', 'game-servers');
+      projectName = await askRequired(rl, 'Project name (S3 bucket prefix; lowercase, dashes ok)', 'hyveon');
       if (!isValidProjectName(projectName)) output.write('  ↳ must be 3–32 chars, lowercase letters/numbers/dashes.\n');
     }
 

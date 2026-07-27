@@ -48,7 +48,7 @@ const mockWrite = vi.mocked(writeFileSync);
  */
 const TFVARS_DECLARING_ARK = `
 aws_region   = "us-east-1"
-project_name = "game-servers"
+project_name = "hyveon"
 
 game_servers = {
   ark = {
