@@ -166,7 +166,9 @@ describe('runBootstrap --s3-tfvars', () => {
     expect(readFileSync(markerPath, 'utf8')).toBe('test-parent-tfvars\n');
 
     const makefile = readFileSync(join(parentDir, 'Makefile'), 'utf8');
-    expect(makefile).toContain('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket');
+    expect(makefile).toContain(
+      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
+    );
     expect(existsSync(join(parentDir, 'terraform.tfvars'))).toBe(true);
     expect(existsSync(join(parentDir, '.env'))).toBe(false);
   });
@@ -250,7 +252,9 @@ describe('runMigrate --to-s3', () => {
     expect(readFileSync(markerPath, 'utf8')).toBe('test-parent-tfvars\n');
 
     const makefile = readFileSync(join(parentDir, 'Makefile'), 'utf8');
-    expect(makefile).toContain('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket');
+    expect(makefile).toContain(
+      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
+    );
     // terraform.tfvars itself is left untouched by migrate --to-s3.
     expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe('project_name = "test-parent"\n');
 
@@ -286,7 +290,9 @@ describe('runMigrate --to-s3', () => {
     // Marker + Makefile are written before `make setup` runs — a failed
     // `make setup` doesn't roll them back, so a re-run only needs to retry it.
     expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(true);
-    expect(readFileSync(join(parentDir, 'Makefile'), 'utf8')).toContain('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket');
+    expect(readFileSync(join(parentDir, 'Makefile'), 'utf8')).toContain(
+      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
+    );
   });
 });
 

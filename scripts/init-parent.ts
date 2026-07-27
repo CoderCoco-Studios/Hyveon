@@ -240,6 +240,14 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  * recipe rather than referencing TFVARS_BACKEND — see the comment on that
  * recipe below for why.
  *
+ * Both marker checks above also accept the pre-rename `.gsd/tfvars-bucket`
+ * path as a read fallback when the new `.hyveon/tfvars-bucket` path isn't
+ * present, so an already-scaffolded parent repo that bootstrapped an S3
+ * backend before the `dev.gsd.desktop` → `dev.hyveon.desktop` rename keeps
+ * working without a `mv .gsd .hyveon` migration step — this Makefile
+ * template never *writes* the legacy path, only reads it (see
+ * `renderMakefile`'s own comment on `PARENT_TFVARS_MARKER`/`TFVARS_MARKER`).
+ *
  * Only reads `submoduleDir` and `projectName` off `a`, so it accepts a
  * `Pick<Answers, ...>` rather than a full `Answers` — `runMigrate` re-renders
  * the Makefile from an already-scaffolded parent repo without re-collecting
@@ -264,10 +272,23 @@ STAMP_DIR   := $(REPO_ROOT)/.make
 # choice to run in S3 mode. It always takes priority over TFVARS_MARKER: an
 # explicit parent-root marker reflects a deliberate choice, so it should win
 # even before \`setup\` gets a chance to write its own submodule-local marker.
+# Each resolves to the new \`.hyveon/tfvars-bucket\` path if present, else the
+# pre-rename \`.gsd/tfvars-bucket\` path if *that's* present (an already-
+# scaffolded parent repo that hasn't run \`mv .gsd .hyveon\` yet — this
+# Makefile template only ever *writes* the new path, so an un-migrated repo
+# keeps resolving its existing S3 backend instead of silently going local),
+# else the new path (so a from-scratch bootstrap still writes/looks up
+# \`.hyveon/...\`).
 # TFVARS_LOCK is the sidecar lock file tfvars-sync.ts writes after every
 # successful pull/push, recording the S3 version id/etag last synced.
-PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket
-TFVARS_MARKER := $(SUBMODULE)/.hyveon/tfvars-bucket
+PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)
+TFVARS_MARKER := $(firstword $(wildcard $(SUBMODULE)/.hyveon/tfvars-bucket $(SUBMODULE)/.gsd/tfvars-bucket) $(SUBMODULE)/.hyveon/tfvars-bucket)
+# Canonical write target for a freshly-bootstrapped submodule marker — always
+# the new \`.hyveon\` path, even when TFVARS_MARKER above resolved to the
+# legacy \`.gsd\` path for reading. \`setup\`'s S3 bootstrap step (below) writes
+# here so every fresh/re-run bootstrap converges on the new location instead
+# of perpetually re-writing the legacy one.
+TFVARS_MARKER_NEW := $(SUBMODULE)/.hyveon/tfvars-bucket
 TFVARS_LOCK   := $(TFVARS).lock
 
 # TFVARS_BACKEND resolves the s3-vs-local decision explicitly, so an operator
@@ -398,11 +419,12 @@ setup: | $(STAMP_DIR)
 # $(SUBMODULE)/terraform/bootstrap module (same logic as the old setup.sh's
 # bootstrap_tfvars_backend()), gated on HYVEON_TFVARS_BACKEND=s3 or the
 # parent-root marker already being present. Writes the resulting bucket name
-# to TFVARS_MARKER ($(SUBMODULE)/.hyveon/tfvars-bucket) — the same path
-# setup.sh used to write — so PARENT_TFVARS_MARKER (written up-front by
-# \`init-parent bootstrap --s3-tfvars\`/\`migrate --to-s3\`, if present) still
-# takes priority over it, per TFVARS_BACKEND/TFVARS_BUCKET's own precedence
-# documented above.
+# to TFVARS_MARKER_NEW ($(SUBMODULE)/.hyveon/tfvars-bucket) — always the new
+# path, even on a repo that resolved TFVARS_MARKER to the legacy \`.gsd\` path
+# above, so every bootstrap run converges the submodule marker onto the new
+# location — so PARENT_TFVARS_MARKER (written up-front by \`init-parent
+# bootstrap --s3-tfvars\`/\`migrate --to-s3\`, if present) still takes priority
+# over it, per TFVARS_BACKEND/TFVARS_BUCKET's own precedence documented above.
 \t@TF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
 \t BACKEND="$\${HYVEON_TFVARS_BACKEND:-}"; \\
 \t if [ -z "$$BACKEND" ] && [ -f $(PARENT_TFVARS_MARKER) ]; then BACKEND=s3; fi; \\
@@ -415,8 +437,8 @@ setup: | $(STAMP_DIR)
 \t   terraform -chdir=$(SUBMODULE)/terraform/bootstrap apply -auto-approve -input=false -var="project_name=$$TF_PROJECT" -var="aws_region=$$TF_REGION"; \\
 \t   BUCKET=$$(terraform -chdir=$(SUBMODULE)/terraform/bootstrap output -raw tfvars_bucket_name); \\
 \t   mkdir -p $(SUBMODULE)/.hyveon; \\
-\t   echo "$$BUCKET" > $(TFVARS_MARKER); \\
-\t   echo "   Bucket name recorded at $(TFVARS_MARKER): $$BUCKET"; \\
+\t   echo "$$BUCKET" > $(TFVARS_MARKER_NEW); \\
+\t   echo "   Bucket name recorded at $(TFVARS_MARKER_NEW): $$BUCKET"; \\
 \t   if [ -f $(TFVARS) ]; then \\
 \t     if aws s3api head-object --bucket "$$BUCKET" --key terraform.tfvars --region "$$TF_REGION" >/dev/null 2>&1; then \\
 \t       echo "   s3://$$BUCKET/terraform.tfvars already exists — skipping upload."; \\

@@ -54,7 +54,7 @@ expect('Makefile setup enables versioning/public-access-block/encryption on the 
 expect('Makefile setup creates the DynamoDB lock table idempotently', setupRecipe.includes('aws dynamodb describe-table') && setupRecipe.includes('aws dynamodb create-table'));
 expect('Makefile setup bootstraps the tfvars S3 bucket via the separate terraform/bootstrap module', setupRecipe.includes('terraform -chdir=$(SUBMODULE)/terraform/bootstrap init') && setupRecipe.includes('terraform -chdir=$(SUBMODULE)/terraform/bootstrap apply -auto-approve'));
 expect('Makefile setup reads the tfvars bucket name via terraform output -raw', setupRecipe.includes('terraform -chdir=$(SUBMODULE)/terraform/bootstrap output -raw tfvars_bucket_name'));
-expect('Makefile setup writes the tfvars bucket name to TFVARS_MARKER', setupRecipe.includes('echo "$$BUCKET" > $(TFVARS_MARKER)'));
+expect('Makefile setup writes the tfvars bucket name to TFVARS_MARKER_NEW (always the new .hyveon path)', setupRecipe.includes('echo "$$BUCKET" > $(TFVARS_MARKER_NEW)'));
 expect('Makefile setup runs terraform init with the expected backend-config flags', setupRecipe.includes('terraform -chdir=$(TF_DIR) init') && setupRecipe.includes('-backend-config="bucket=$$TF_STATE_BUCKET"') && setupRecipe.includes('-backend-config="dynamodb_table=$$TF_LOCK_TABLE"'));
 expect(
   'Makefile setup copies the parent tfvars into the submodule before deriving project/region, so the bucket names match PARENT_TFVARS_MARKER',
@@ -63,9 +63,24 @@ expect(
 );
 
 // ── S3 tfvars backend detection block ───────────────────────────────────────
-expect('Makefile defines TFVARS_MARKER', mk.includes('TFVARS_MARKER := $(SUBMODULE)/.hyveon/tfvars-bucket'));
+// Both markers resolve to the new `.hyveon` path if present, else fall back
+// to reading the pre-rename `.gsd` path (so an already-scaffolded parent repo
+// that hasn't run `mv .gsd .hyveon` keeps resolving its S3 backend), else
+// default to the new path for a from-scratch bootstrap.
+expect(
+  'Makefile defines TFVARS_MARKER with a legacy .gsd fallback',
+  mk.includes(
+    'TFVARS_MARKER := $(firstword $(wildcard $(SUBMODULE)/.hyveon/tfvars-bucket $(SUBMODULE)/.gsd/tfvars-bucket) $(SUBMODULE)/.hyveon/tfvars-bucket)',
+  ),
+);
 expect('Makefile defines TFVARS_LOCK', mk.includes('TFVARS_LOCK   := $(TFVARS).lock'));
-expect('Makefile defines PARENT_TFVARS_MARKER at the parent repo root', mk.includes('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.hyveon/tfvars-bucket'));
+expect(
+  'Makefile defines PARENT_TFVARS_MARKER at the parent repo root with a legacy .gsd fallback',
+  mk.includes(
+    'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
+  ),
+);
+expect('Makefile defines TFVARS_MARKER_NEW as the canonical write target', mk.includes('TFVARS_MARKER_NEW := $(SUBMODULE)/.hyveon/tfvars-bucket'));
 expect(
   'Makefile defines TFVARS_BACKEND gated on HYVEON_TFVARS_BACKEND override, then the parent-root marker, then the submodule marker',
   mk.includes(
