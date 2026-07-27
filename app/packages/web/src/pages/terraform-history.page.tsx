@@ -127,7 +127,14 @@ export function TerraformHistoryPage() {
         setPage((prev) => (prev === null ? prev : { ...prev, error: 'Could not load more run history.' }));
       })
       .finally(() => {
-        if (requestSeqRef.current === seq) setLoadingMore(false);
+        // Cleared unconditionally, unlike the result/error handlers above. A
+        // filter change bumps `requestSeqRef` mid-flight, so gating this on
+        // the seq guard left `loadingMore` stuck `true` forever — and once
+        // the newly-filtered page settled with a cursor, "Load more"
+        // rendered permanently disabled. Only one load-more can be in flight
+        // at a time (the button is disabled while it runs), so whichever
+        // request owns the flag is always the one entitled to clear it.
+        setLoadingMore(false);
       });
   }, [nextBefore, statusFilter]);
 

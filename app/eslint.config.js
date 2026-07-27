@@ -19,6 +19,23 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
+  // `recommended`, deliberately — NOT `recommendedTypeChecked`.
+  //
+  // This matters more than usual right now. The workspace compiles on
+  // TypeScript 7, which is outside typescript-eslint 8.65's declared peer
+  // range (`>=4.8.4 <6.1.0`); the root package.json `overrides` are what let
+  // npm install that combination at all. It works because these presets are
+  // purely syntactic: `@typescript-eslint/typescript-estree` only needs
+  // TypeScript's parser and AST, which TS 7 still exposes. The APIs TS 7.0
+  // dropped are the programmatic Program/TypeChecker ones, which only the
+  // type-aware rule set touches.
+  //
+  // So: before switching to `recommendedTypeChecked`, or adding
+  // `parserOptions.project` / `projectService`, check whether
+  // typescript-eslint supports TypeScript 7 yet (see typescript-eslint
+  // #12518, which is blocked on the new API landing in TS 7.1). If it does
+  // not, either stay on this preset or pin `typescript` back to ^5.9.3 and
+  // drop the overrides.
   ...tseslint.configs.recommended,
   {
     languageOptions: {

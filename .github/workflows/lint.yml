@@ -34,6 +34,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # This job only installs and compiles — it never pushes — so the
+          # checkout credentials are not needed past the clone. Dropping them
+          # keeps GITHUB_TOKEN out of .git/config for the rest of the run.
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
