@@ -1,49 +1,55 @@
 ## 1. `@hyveon/desktop-preload` package
 
-- [ ] 1.1 `git mv app/packages/desktop-preload/src/gsd-api.ts app/packages/desktop-preload/src/hyveon-api.ts` and rename every `Gsd*` interface inside it (`GsdApi` → `HyveonApi`, `GsdTestApi` → `HyveonTestApi`, `GsdMockNamespaces` → `HyveonMockNamespaces`, `GsdGamesApi`, `GsdCostsApi`, `GsdLogsApi`, `GsdFilesApi`, `GsdDiscordApi`, `GsdEnvApi`, `GsdConfigApi`, `GsdDriftApi`, `GsdDiagnosticsApi`, `GsdAuditApi`, `GsdTerraformRunsApi`, `GsdTerraformApi`, `GsdTerraformRollbackApi` → `Hyveon*` equivalents), plus doc comments referencing `GsdApi`/`window.gsd`.
-- [ ] 1.2 Update `app/packages/desktop-preload/src/index.ts`: import path to `./hyveon-api.js`, `Gsd*` type imports/re-exports → `Hyveon*`, and the `Window.gsd` global augmentation → `Window.hyveon`.
-- [ ] 1.3 Update `app/packages/desktop-preload/src/preload.ts`: `Gsd*` type imports, the `const api: GsdApi` → `HyveonApi` annotation, and `contextBridge.exposeInMainWorld('gsd', gsdBridge)` → `exposeInMainWorld('hyveon', hyveonBridge)` (rename the local `gsdBridge` variable too).
-- [ ] 1.4 Update `app/packages/desktop-preload/src/preload.test.ts` for the renamed types/global.
-- [ ] 1.5 Update `app/packages/desktop-preload/src/test-mock-registry.ts` and `test-mock-registry.test.ts` for the renamed mock-namespace type and any `gsd`-named identifiers.
-- [ ] 1.6 Run `npm run app:build` (or a scoped `tsc --noEmit` for `@hyveon/desktop-preload`) to confirm this package compiles clean before moving to its consumers.
+- [x] 1.1 `git mv app/packages/desktop-preload/src/gsd-api.ts app/packages/desktop-preload/src/hyveon-api.ts` and rename every `Gsd*` interface inside it (`GsdApi` → `HyveonApi`, `GsdTestApi` → `HyveonTestApi`, `GsdMockNamespaces` → `HyveonMockNamespaces`, `GsdGamesApi`, `GsdCostsApi`, `GsdLogsApi`, `GsdFilesApi`, `GsdDiscordApi`, `GsdEnvApi`, `GsdConfigApi`, `GsdDriftApi`, `GsdDiagnosticsApi`, `GsdAuditApi`, `GsdTerraformRunsApi`, `GsdTerraformApi`, `GsdTerraformRollbackApi` → `Hyveon*` equivalents), plus doc comments referencing `GsdApi`/`window.gsd`. Also caught `GsdWizardApi`, `GsdNamespace`, `GsdNamespaceMap`, `GsdPartialNamespaceMap` — types added after this task list was written but within the same file — renamed to their `Hyveon*` equivalents.
+- [x] 1.2 Update `app/packages/desktop-preload/src/index.ts`: import path to `./hyveon-api.js`, `Gsd*` type imports/re-exports → `Hyveon*`, and the `Window.gsd` global augmentation → `Window.hyveon`.
+- [x] 1.3 Update `app/packages/desktop-preload/src/preload.ts`: `Gsd*` type imports, the `const api: GsdApi` → `HyveonApi` annotation, and `contextBridge.exposeInMainWorld('gsd', gsdBridge)` → `exposeInMainWorld('hyveon', hyveonBridge)` (rename the local `gsdBridge` variable too).
+- [x] 1.4 Update `app/packages/desktop-preload/src/preload.test.ts` for the renamed types/global.
+- [x] 1.5 Update `app/packages/desktop-preload/src/test-mock-registry.ts` and `test-mock-registry.test.ts` for the renamed mock-namespace type and any `gsd`-named identifiers.
+- [x] 1.6 Ran a scoped `tsc --noEmit -p packages/desktop-preload`: no rename-related errors. Found one **pre-existing, unrelated** `tsc -b` strict-mode error at `preload.test.ts:618` (`capturedChunkListener?.(...)` — "Type 'never' has no call signatures", a closure-narrowing quirk) — confirmed present on `main` before this change (verified via `git stash`) and outside `npm run app:build`'s compile graph (which doesn't build `desktop-preload` via `tsc -b`). Vitest runs `preload.test.ts` successfully (87/87 tests pass) since vitest doesn't full-typecheck. Not caused by, or fixed by, this rename — left as-is.
 
 ## 2. `@hyveon/web` package
 
-- [ ] 2.1 Update `app/packages/web/src/globals.d.ts` and `app/packages/web/src/window.d.ts`: `window.gsd` → `window.hyveon`, `GsdApi` import → `HyveonApi`, doc comments.
-- [ ] 2.2 Update `app/packages/web/src/api.service.ts` and `api.service.test.ts`: every `window.gsd.*` call site → `window.hyveon.*`.
-- [ ] 2.3 Update `app/packages/web/src/components/rollback-action.component.tsx` and its `.test.tsx`.
-- [ ] 2.4 Update the terraform page family: `terraform.page.tsx`/`.test.tsx`, `terraform-history.page.tsx`/`.test.tsx`, `terraform-run-detail.page.tsx`/`.test.tsx`.
-- [ ] 2.5 Update `app/packages/web/src/pages/logs.page.tsx` and `logs.page.test.tsx`.
-- [ ] 2.6 Run `npm run app:test` scoped to `@hyveon/web` (or the full suite) to confirm no `window.gsd`/`GsdApi` references remain in production or unit-test code.
+- [x] 2.1 Update `app/packages/web/src/globals.d.ts` and `app/packages/web/src/window.d.ts`: `window.gsd` → `window.hyveon`, `GsdApi` import → `HyveonApi`, doc comments.
+- [x] 2.2 Update `app/packages/web/src/api.service.ts` and `api.service.test.ts`: every `window.gsd.*` call site → `window.hyveon.*`.
+- [x] 2.3 Update `app/packages/web/src/components/rollback-action.component.tsx` and its `.test.tsx`.
+- [x] 2.4 Update the terraform page family: `terraform.page.tsx`/`.test.tsx`, `terraform-history.page.tsx`/`.test.tsx`, `terraform-run-detail.page.tsx`/`.test.tsx`.
+- [x] 2.5 Update `app/packages/web/src/pages/logs.page.tsx` and `logs.page.test.tsx`.
+- [x] 2.6 Ran the full `npm run app:test` suite (130 files / 1995 tests, all green) — no `window.gsd`/`Gsd*` references remain. Also caught and fixed several `@hyveon/web` files not enumerated in this task list (added after tasks.md was written): `app.component.tsx`, `pages/settings.page.tsx`/`.test.tsx`, and the whole `components/first-run-wizard/*` family (`first-run-wizard`, `bootstrap-step`, `credentials-step`, `terraform-init-step` + their `.test.tsx` files) — all referenced `window.gsd`/`Gsd*` types and are now `window.hyveon`/`Hyveon*`.
 
 ## 3. E2E test infrastructure
 
-- [ ] 3.1 `git mv app/packages/web/e2e/fixtures/gsd-http-bridge.ts app/packages/web/e2e/fixtures/hyveon-http-bridge.ts`; rename `installGsdHttpBridge()` → `installHyveonHttpBridge()` inside it.
-- [ ] 3.2 Update `app/packages/web/e2e/fixtures/electron-launch.ts`: rename `applyGsdMocks()` → `applyHyveonMocks()` and any `window.gsd` references inside `win.evaluate(...)` calls.
-- [ ] 3.3 Update `app/packages/web/e2e/fixtures/electron-mock.ts` and `app/packages/web/e2e/fixtures/index.ts` (import path to `./hyveon-http-bridge.js`, re-exported helper names).
-- [ ] 3.4 Update page objects: `app/packages/web/e2e/pages/DashboardPage.ts`, `app/packages/web/e2e/pages/TerraformPage.ts`.
-- [ ] 3.5 Update specs calling the renamed helpers: `costs.spec.ts`, `dashboard.spec.ts`, `discord.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `electron-smoke.spec.ts`, `ipc-mock.spec.ts`, `logs.spec.ts`, `terraform.spec.ts`.
-- [ ] 3.6 Run `npm run app:test:e2e` (electron + chromium projects) to confirm the renamed fixtures/helpers work end-to-end.
+- [x] 3.1 `git mv app/packages/web/e2e/fixtures/gsd-http-bridge.ts app/packages/web/e2e/fixtures/hyveon-http-bridge.ts`; renamed `installGsdHttpBridge()` → `installHyveonHttpBridge()` inside it.
+- [x] 3.2 Update `app/packages/web/e2e/fixtures/electron-launch.ts`: renamed `applyGsdMocks()` → `applyHyveonMocks()` and any `window.gsd` references inside `win.evaluate(...)` calls.
+- [x] 3.3 Update `app/packages/web/e2e/fixtures/electron-mock.ts` and `app/packages/web/e2e/fixtures/index.ts` (import path to `./hyveon-http-bridge.js`, re-exported helper names).
+- [x] 3.4 Update page objects: `app/packages/web/e2e/pages/DashboardPage.ts`, `app/packages/web/e2e/pages/TerraformPage.ts`.
+- [x] 3.5 Update specs calling the renamed helpers: `costs.spec.ts`, `dashboard.spec.ts`, `discord.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `electron-smoke.spec.ts`, `ipc-mock.spec.ts`, `logs.spec.ts`, `terraform.spec.ts`.
+- [x] 3.6 `npm run app:test:e2e` — ran both `chromium` and `electron` projects (83 specs total, 16 workers), all green in 23.2s. Confirms `window.hyveon`/`applyHyveonMocks`/`installHyveonHttpBridge` work end-to-end (e.g. `electron-smoke.spec.ts` explicitly asserts "should expose window.hyveon from the preload script").
 
 ## 4. `@hyveon/desktop-main`, scripts, and local dev tooling
 
-- [ ] 4.1 Update `app/packages/desktop-main/src/services/ConfigService.ts` and `ConfigService.test.ts`: `.gsd/tfvars-bucket` path → `.hyveon/tfvars-bucket`, any `GSD_TFVARS_BACKEND` reference → `HYVEON_TFVARS_BACKEND`.
-- [ ] 4.2 Update `app/packages/desktop-main/src/services/TerraformService.ts` and controllers `diagnostics.controller.ts`, `terraform.controller.ts` for any `gsd`-named references.
-- [ ] 4.3 Update `scripts/init-parent.ts` (+ `init-parent.test.ts`, `init-parent.cli.test.ts`) and `scripts/tfvars-sync.ts`: `.gsd/` path and `GSD_TFVARS_BACKEND` env var → `.hyveon/` / `HYVEON_TFVARS_BACKEND`.
-- [ ] 4.4 Update `setup.sh`: env var name, `.gsd/tfvars-bucket` path, and add the one-time hint described in design.md (if `.gsd/` exists and `.hyveon/` doesn't, print a manual-rename hint before continuing).
-- [ ] 4.5 Update `.gitignore`: `.gsd/` entry and its `# GSD bootstrap metadata` comment → `.hyveon/` / `# Hyveon bootstrap metadata`.
-- [ ] 4.6 Update `electron-builder.yml`: `appId: dev.gsd.desktop` → `dev.hyveon.desktop` (see design.md's Risks section on `appId` impact for already-packaged installs).
-- [ ] 4.7 Run `npm run app:test` (full suite) and `npm run app:lint` to confirm this group compiles, lints, and passes.
+- [x] 4.1 Update `app/packages/desktop-main/src/services/ConfigService.ts` and `ConfigService.test.ts`: `.gsd/tfvars-bucket` path → `.hyveon/tfvars-bucket`, any `GSD_TFVARS_BACKEND` reference → `HYVEON_TFVARS_BACKEND`.
+- [x] 4.2 Update `app/packages/desktop-main/src/services/TerraformService.ts` and controllers `diagnostics.controller.ts`, `terraform.controller.ts` for any `gsd`-named references. Also caught and fixed `wizard.controller.ts`/`.test.ts`, `AwsProfileService.ts`/`.test.ts`, `BootstrapService.test.ts`, `ElectronStoreService.ts`/`.test.ts`, `IamCheckService.test.ts` — not enumerated in this task list (added after it was written) but within the same package and referencing `gsd`.
+- [x] 4.3 Update `scripts/init-parent.ts` (+ `init-parent.test.ts`, `init-parent.cli.test.ts`) and `scripts/tfvars-sync.ts`: `.gsd/` path and `GSD_TFVARS_BACKEND` env var → `.hyveon/` / `HYVEON_TFVARS_BACKEND`.
+- [x] 4.4 `setup.sh` **does not exist in this repo** — it was superseded by `make setup` (see `docs/docs/guides/submodule.md`), which has no `gsd` references. N/A, nothing to change; noted here rather than silently skipped.
+- [x] 4.5 Update `.gitignore`: `.gsd/` entry → `.hyveon/`. The `# GSD bootstrap metadata` comment → `# HYVEON bootstrap metadata` (all-caps tier), per design.md's own explicit example under the `GSD → HYVEON` mapping (design.md line 33 cites this exact comment) — this takes precedence over tasks.md's prose paraphrase ("Hyveon bootstrap metadata") elsewhere in this file, which reads as a loose description rather than a literal-casing instruction.
+- [x] 4.6 Update `electron-builder.yml`: `appId: dev.gsd.desktop` → `dev.hyveon.desktop`.
+- [x] 4.7 Ran `npm run app:test` (130 files / 1995 tests, all green) and `npm run app:lint` (0 errors, 3 pre-existing unrelated warnings on `ConfigService.ts` — unused eslint-disable directives, confirmed present on `main` via `git stash`, not touched by this rename).
 
 ## 5. Documentation
 
-- [ ] 5.1 Update `CLAUDE.md`: every `window.gsd`/`Gsd*` reference in the Electron e2e IPC mock seam section and elsewhere.
-- [ ] 5.2 Update `docs/docs/setup.md`, `docs/docs/guides/s3-tfvars.md`, `docs/docs/guides/submodule.md`, `docs/docs/guides/project-name-migration.md` for `.gsd/`/`GSD_TFVARS_BACKEND`/`gsd` references.
-- [ ] 5.3 Update `scripts/README.md`.
-- [ ] 5.4 Leave `docs/superpowers/specs/2026-05-10-electron-desktop-pivot-design.md` untouched — it's a dated historical design record (see design.md Context/Open Questions); do not rename its `gsd` references.
+- [x] 5.1 Update `CLAUDE.md`: every `window.gsd`/`Gsd*` reference in the Electron e2e IPC mock seam section and elsewhere.
+- [x] 5.2 Update `docs/docs/guides/s3-tfvars.md`, `docs/docs/guides/submodule.md`, `docs/docs/guides/project-name-migration.md` for `.gsd/`/`GSD_TFVARS_BACKEND`/`gsd` references. `docs/docs/setup.md` had zero `gsd` occurrences already — nothing to change there. Also caught and fixed `docs/docs/architecture.md`, `docs/docs/components/management-app.md`, `docs/docs/guides/maintainer.md` — not enumerated in this task list but containing live `gsd` references.
+- [x] 5.3 Update `scripts/README.md`.
+- [x] 5.4 Left `docs/superpowers/specs/2026-05-10-electron-desktop-pivot-design.md` untouched — it's a dated historical design record (see design.md Context/Open Questions); its `gsd` references are unchanged.
+
+**Scope note (deviation, flagged for review):** in addition to the two files this change explicitly excludes, the implementing session also left untouched:
+- `openspec/changes/rename-gsd-to-hyveon/**` (this change's own proposal/design/tasks/spec) — rewriting `Gsd`→`Hyveon` inside the document that *describes* that exact rename would make the document self-contradictory/meaningless.
+- The other five OpenSpec change directories that predate this one and happen to mention `gsd` (`add-first-run-wizard`, `add-terraform-run-ui`, `add-https-toggle-to-game-form`, `remove-legacy-operator-surface`, `replace-alb-with-caddy-sidecar`) — these are dated point-in-time proposal/design/tasks/spec records (four of them nearly-or-fully implemented, referencing filenames like `gsd-api.ts` as they existed when written), the same historical-record category as the explicitly-excluded superpowers doc. Rewriting them would misrepresent what was actually implemented under the old name at the time.
+
+This was a judgment call by the implementing session, not a pre-approved exclusion — flagging it explicitly so it can be overridden if the reviewing session disagrees.
 
 ## 6. Final verification
 
-- [ ] 6.1 Run a repo-wide case-insensitive `gsd` grep excluding `node_modules`, `.git`, build output dirs, `package-lock.json`, `docs/package-lock.json` (false-positive hash substrings), and `docs/superpowers/specs/2026-05-10-electron-desktop-pivot-design.md` (intentionally-excluded historical doc) — confirm zero remaining hits.
-- [ ] 6.2 Run `npm run app:build`, `npm run app:lint`, `npm run app:test`, and `npm run app:test:e2e` (both projects) end to end; confirm all green.
-- [ ] 6.3 Manually smoke-test the packaged/dev Electron app once (`npm run app:dev`) and confirm `window.hyveon` is populated in the renderer devtools console, with `window.gsd` undefined.
+- [x] 6.1 Ran a repo-wide case-insensitive `gsd` grep excluding `node_modules`, `.git`, build output dirs, `package-lock.json`, `docs/package-lock.json`, `docs/superpowers/specs/2026-05-10-electron-desktop-pivot-design.md`, **and `openspec/changes/**` (see scope note above)** — zero remaining hits. The only remaining hit outside those exclusions was inside `.git/` internal refs (the branch name `chore/rename-gsd-to-hyveon` itself), which is not repo content.
+- [x] 6.2 `npm run app:build` — green (shared, cloud-aws, desktop-main, web all compile; `desktop-preload` isn't in this script's build graph — see 1.6 for its separate, pre-existing-issue-only check). `npm run app:lint` — green, 0 errors (3 pre-existing unrelated warnings, see 4.7). `npm run app:test` — green, 130/130 files, 1995/1995 tests. `npm run app:test:e2e` — green, both `chromium` and `electron` projects, 83/83 specs.
+- [ ] 6.3 Not performed — requires manual, non-headless smoke-testing of `npm run app:dev` with devtools inspection. Left for the calling session per instructions.
