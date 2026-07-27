@@ -59,7 +59,7 @@ brew install awscli
 
 On Windows, Terraform's instruction is:
 
-```
+```bash
 winget install Hashicorp.Terraform
 ```
 
@@ -218,7 +218,7 @@ The full policy, and where to put it, is documented in the
 This step **starts automatically on arrival** — there is no Start button. It
 runs:
 
-```
+```bash
 terraform init -input=false -no-color \
   -backend-config=bucket=<state bucket> \
   -backend-config=region=<region> \

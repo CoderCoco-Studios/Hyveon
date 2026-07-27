@@ -16,7 +16,7 @@ it.
 
 The workflow is a strict sequence, and each stage only unlocks the next:
 
-```
+```text
 Run plan → Approve plan → Apply
 ```
 
@@ -158,7 +158,7 @@ Pressing **Destroy infrastructure** opens a confirmation dialog:
 
 You must type exactly:
 
-```
+```text
 destroy infrastructure
 ```
 

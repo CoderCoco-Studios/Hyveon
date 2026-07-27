@@ -40,7 +40,7 @@ and splits it in half.
 
 The percentage is computed against the *prior* window:
 
-```
+```text
 (current − prior) ÷ prior × 100
 ```
 

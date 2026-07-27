@@ -57,8 +57,10 @@ anything that touches ECS.
 
 EventBridge drives the two "always on" Lambdas that keep DNS and idle
 shutdown in sync with actual task state. `update-dns` fires on every
-ECS task state change and reconciles the Route 53 A record plus the
-pending-interaction row in DynamoDB. `watchdog` fires on a schedule and
+ECS task state change, UPSERTing the Route 53 A record on `RUNNING` and
+deleting it on `STOPPED`. It reconciles the pending-interaction row in
+DynamoDB on the `RUNNING` path only, where it patches the deferred Discord
+reply with the resolved address. `watchdog` fires on a schedule and
 stops tasks whose `NetworkPacketsIn` has stayed below the threshold for
 `IDLE_CHECKS` consecutive intervals — it issues `StopTask` only; it never
 touches Route 53 itself, `update-dns` reacts to the resulting `STOPPED`

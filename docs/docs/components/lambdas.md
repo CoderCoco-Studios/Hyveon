@@ -218,7 +218,9 @@ Failure modes:
 
 The Lambda mounts the game's first volume's EFS access point at `/mnt/efs`
 via `file_system_config` (VPC-attached, using the same public subnets and a
-dedicated `efs-seeder` security group scoped to outbound NFS only) and
+dedicated `efs-seeder` security group whose egress is currently unrestricted —
+all protocols to `0.0.0.0/0`, not scoped to NFS; see
+`terraform/aws/efs-seeder.tf`) and
 receives `{ game, seeds, container_path }` as its invocation payload —
 `container_path` is `volumes[0].container_path`.
 

@@ -31,11 +31,10 @@ until the next `main` build.
 curl -fsSL https://d2lang.com/install.sh | sh -s --
 
 # Render every .d2 -> .svg (writes to docs/static/diagrams/)
-./render.sh
+bash docs/diagrams/render.sh
 
 # Preview the docs site
-cd docs
-npm start
+cd docs && npm start
 ```
 
 ## Why D2 instead of Mermaid?

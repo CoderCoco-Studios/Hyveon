@@ -2,9 +2,10 @@
 
 ### Requirement: Screenshots are captured from the real Electron shell
 
-The screenshot harness SHALL capture images from the packaged Electron application launched via
-`_electron.launch()` against `out/main/index.js` with `HYVEON_TEST_MODE=1`, so the images show the
-real desktop window and the real preload bridge. The harness MUST NOT capture from a browser tab
+The screenshot harness SHALL capture images from the real Electron application, launched via
+`_electron.launch()` against the built main entry point at `out/main/index.js` (produced by
+`desktop:build`) with `HYVEON_TEST_MODE=1`, so the images show the real desktop window and the real
+preload bridge. The harness MUST NOT capture from a browser tab
 rendering of the renderer.
 
 #### Scenario: Harness launches Electron

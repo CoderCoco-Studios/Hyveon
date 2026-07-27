@@ -8,7 +8,7 @@ sidebar_position: 1
 Hyveon ships as a packaged Electron desktop app. It is the control surface for
 everything the stack does: it runs the Terraform that provisions your AWS
 account, it edits the `game_servers` map that declares your servers, it starts
-and stops those servers on demand, and it tails their logs and costs.
+and stops those servers on demand, and it shows their logs and costs.
 
 This section documents every screen. If you have not deployed anything yet,
 read the [setup guide](/setup) first for the AWS-account prerequisites, then

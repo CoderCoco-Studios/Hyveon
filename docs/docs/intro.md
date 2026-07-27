@@ -18,7 +18,9 @@ is silent except for a handful of near-free Lambdas.
 - **Auto-DNS** — a Lambda UPSERTs `{game}.{yourdomain}` on task start and
   DELETEs it on stop. HTTPS-fronted games terminate TLS via an in-task Caddy
   sidecar (Let's Encrypt automatic HTTPS) — no load balancer or ACM
-  certificate anywhere in the stack.
+  certificate for game traffic. (The Discord custom domain is separate: it
+  fronts a Lambda Function URL with CloudFront and does use an ACM
+  certificate — see [Terraform](/components/terraform).)
 - **Watchdog Lambda** that stops servers after a configurable idle window.
 - **Packaged Electron desktop app** (Nest.js backend + React dashboard) to
   start/stop, edit config, stream logs, and track costs — no HTTP server, the

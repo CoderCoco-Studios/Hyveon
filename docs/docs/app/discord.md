@@ -178,12 +178,14 @@ Two things to be aware of. First, the badge is **session-local**: it is never
 read back from Discord or from the server, so it resets whenever you reload
 the app, even for guilds that really are registered.
 
-Second, a registration that Discord *rejects* still produces the green
-`Commands registered` toast and still flips the badge. Causes include a
-missing or malformed Application ID, a missing bot token, or the bot not
-actually being in that guild. If commands do not appear in Discord after
-registering, check the app's own log (Settings → [Diagnostics](/app/settings#diagnostics))
-for the real error rather than trusting the badge.
+Second, a registration that Discord *rejects* leaves the badge at
+`not registered` and raises an error toast titled
+**Registration failed for guild `<id>`**, with Discord's own message as the
+description. Causes include a missing or malformed Application ID, a missing
+bot token, or the bot not actually being in that guild. Because the failure is
+reported per guild, a bulk registration that fails partway still tells you
+exactly which guild it stopped on — and it carries on through the rest of the
+allowlist rather than aborting.
 :::
 
 ### Terraform-managed guilds

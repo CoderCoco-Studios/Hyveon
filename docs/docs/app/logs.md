@@ -117,7 +117,7 @@ in the page header switches between `LIVE` and `PAUSED`.
 in a buffer instead of being appended to the view. While paused, the footer
 shows how many are waiting:
 
-```
+```text
 buffered 37
 ```
 
