@@ -56,7 +56,7 @@ a `--` flag) exits `1` with `Unknown subcommand "<token>"`.
   S3-aware targets, then runs `make setup` with `HYVEON_TFVARS_BACKEND=s3` so
   its self-contained S3 tfvars-bootstrap step (via `terraform/bootstrap/`)
   provisions the bucket. `terraform.tfvars` itself is left untouched — pull
-  it back down from S3 afterwards with `make tfvars-pull` if you want
+  it back down from S3 afterward with `make tfvars-pull` if you want
   confirmation it round-tripped.
 - **`migrate --to-local`** — the reverse: drops an already-scaffolded parent
   repo's S3 tfvars backend, reverting `make plan`/`make apply` to reading
