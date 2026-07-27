@@ -14,6 +14,7 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
+    https: false,
     ...overrides,
   };
 }
@@ -65,6 +66,22 @@ describe('ReviewStep — empty optional sections', () => {
     render(<ReviewStep draft={makeFullDraft({ volumes: [] })} />);
 
     expect(screen.getByText('No volumes configured.')).toBeInTheDocument();
+  });
+});
+
+describe('ReviewStep — HTTPS summary', () => {
+  it('should show HTTPS as Enabled when the draft has https: true', () => {
+    render(<ReviewStep draft={makeFullDraft({ https: true })} />);
+
+    expect(screen.getByText('HTTPS')).toBeInTheDocument();
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
+
+  it('should show HTTPS as Disabled when the draft has https: false', () => {
+    render(<ReviewStep draft={makeFullDraft({ https: false })} />);
+
+    expect(screen.getByText('HTTPS')).toBeInTheDocument();
+    expect(screen.getByText('Disabled')).toBeInTheDocument();
   });
 });
 

@@ -7,11 +7,12 @@
  *  - {@link gameServerSchema} mirrors the Terraform `game_servers` object
  *    type field-for-field (it does NOT include `name` — like the Terraform
  *    object, `name` is the map key, not an attribute of the entry).
- *  - {@link validateGameServer} layers the four custom business rules that
- *    can't be expressed as a pure per-field zod refinement because they
- *    either need the sibling `game_servers` entries (port collisions) or
- *    are cross-cutting checks over the already-typed entry (Fargate
- *    CPU/memory pairing, absolute paths, connect-message placeholders).
+ *  - {@link validateGameServer} layers the custom business rules that can't
+ *    be expressed as a pure per-field zod refinement because they either
+ *    need the sibling `game_servers` entries (port collisions) or are
+ *    cross-cutting checks over the already-typed entry (Fargate CPU/memory
+ *    pairing, absolute paths, connect-message placeholders, HTTPS port
+ *    constraints).
  *
  * Intended for both the desktop-main API (validating a proposed tfvars edit
  * before writing it back) and the web client (surfacing the same messages
@@ -311,11 +312,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Mirrors the `game_servers` variable validation block in
+ * `terraform/aws/variables.tf` that gates on `cfg.https`: a game with
+ * `https = true` must declare at least one port, its first port must use
+ * protocol `tcp` (exact, lowercase — Terraform compares the literal string),
+ * every port protocol must be `tcp` or `udp`, and no port may use container
+ * port 80 or 443 (reserved for the in-task Caddy sidecar). Inert when
+ * `https` is `false` or omitted. `terraform/aws/variables.tf` is the source
+ * of truth these rules mirror — keep both in sync if either changes.
+ */
+function checkHttpsPortRules(entry: GameServerEntryInput): GameServerValidationIssue[] {
+  if (entry.https !== true) {
+    return [];
+  }
+
+  const issues: GameServerValidationIssue[] = [];
+
+  if (entry.ports.length === 0) {
+    issues.push({
+      path: 'ports',
+      message: 'An https = true game server must declare at least one port.',
+    });
+    return issues;
+  }
+
+  if (entry.ports[0]?.protocol !== 'tcp') {
+    issues.push({
+      path: 'ports[0]',
+      message: 'The first port entry of an https = true game server must use protocol "tcp" (exact, lowercase).',
+    });
+  }
+
+  entry.ports.forEach((port, index) => {
+    if (port.protocol !== 'tcp' && port.protocol !== 'udp') {
+      issues.push({
+        path: `ports[${index}]`,
+        message: `ports[${index}].protocol must be "tcp" or "udp" for an https = true game server, got "${port.protocol}".`,
+      });
+    }
+    if (port.container === 80 || port.container === 443) {
+      issues.push({
+        path: `ports[${index}]`,
+        message: `ports[${index}] uses container port ${port.container}, which is reserved for the Caddy sidecar on an https = true game server.`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
  * Validates a proposed `game_servers` entry: structural shape (via
- * {@link gameServerSchema}) plus all four business rules — Fargate
- * CPU/memory pairing, absolute paths for volumes/file_seeds, connect-message
- * placeholder allowlisting, and container-port collisions (within the
- * entry itself and against every other entry in `existingGameServers`).
+ * {@link gameServerSchema}) plus the business rules — Fargate CPU/memory
+ * pairing, absolute paths for volumes/file_seeds, connect-message placeholder
+ * allowlisting, HTTPS port constraints (only when `https === true`), and
+ * container-port collisions (within the entry itself and against every
+ * other entry in `existingGameServers`).
  *
  * @param name - The `game_servers` map key this entry would be saved under.
  *   Used to build the returned {@link GameServer} on success, and to skip
@@ -341,6 +393,7 @@ export function validateGameServer(
     issues.push(...checkFargateCpuMemoryPairing(parsed.data));
     issues.push(...checkAbsolutePaths(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
+    issues.push(...checkHttpsPortRules(parsed.data));
   }
 
   // Port-collision detection only needs `ports` to be structurally valid, so

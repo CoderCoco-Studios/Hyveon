@@ -65,6 +65,7 @@ export interface WizardDraft {
   ports: WizardDraftPort[];
   volumes: WizardDraftVolume[];
   file_seeds: WizardDraftFileSeed[];
+  https: boolean;
 }
 
 /** Builds a blank {@link WizardDraft} — the wizard's initial state before the operator has entered anything. */
@@ -78,6 +79,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     ports: [],
     volumes: [],
     file_seeds: [],
+    https: false,
   };
 }
 
@@ -87,6 +89,14 @@ export function createEmptyWizardDraft(): WizardDraft {
  * from an existing entry: optional fields (`connect_message`, `file_seeds`
  * and its per-row `content`/`content_base64`/`mode`) fall back to empty
  * strings since the draft's text inputs can't represent `undefined`.
+ *
+ * `https` is normalised with a strict `=== true` check rather than `?? false`:
+ * `@cdktf/hcl2json` doesn't evaluate expressions, so a hand-written
+ * `https = length(x) > 0 ? true : false` parses back as a *string*, which
+ * `?? false` would let through as a truthy checkbox. Such an entry already
+ * fails `z.boolean()` in `validateGameServer`, so the form can't represent it
+ * either way — the strict check just makes the draft show `false` instead of
+ * a value the checkbox can't actually mean.
  */
 export function draftFromGameServer(game: GameServer): WizardDraft {
   return {
@@ -103,6 +113,7 @@ export function draftFromGameServer(game: GameServer): WizardDraft {
       content_base64: seed.content_base64 ?? '',
       mode: seed.mode ?? '',
     })),
+    https: game.https === true,
   };
 }
 
@@ -138,6 +149,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
               mode: seed.mode.length > 0 ? seed.mode : undefined,
             }))
           : undefined,
+      https: draft.https,
     },
   };
 }
@@ -221,8 +233,10 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
             mode: seed.mode.length > 0 ? seed.mode : undefined,
           }))
         : undefined,
+    https: draft.https,
   };
 }
+
 
 /**
  * Validates `image` isn't blank. The shared `gameServerSchema` types `image`

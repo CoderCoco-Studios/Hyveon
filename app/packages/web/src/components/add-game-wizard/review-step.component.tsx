@@ -64,7 +64,8 @@ export function ReviewStep({ draft, submitError = null }: ReviewStepProps) {
         <CardHeader>
           <CardTitle>Networking</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <SummaryRow label="HTTPS" value={draft.https ? 'Enabled' : 'Disabled'} />
           {draft.ports.length === 0 ? (
             <p className="text-sm text-[var(--color-muted-foreground)]">No ports configured.</p>
           ) : (

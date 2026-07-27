@@ -11,8 +11,16 @@
  * (typically `validateNetworkingStep()`); a `ports[N]`-pathed issue
  * highlights only that row, via {@link stepForIssuePath}'s sibling
  * path-indexing scheme (`ports[0]`, `ports[1]`, ...).
+ *
+ * The step also renders the `https` toggle: enabling it terminates TLS for
+ * this game via an in-task Caddy sidecar (see `replace-alb-with-caddy-sidecar`),
+ * which is why it lives alongside the ports it constrains — rule 1 of the
+ * four HTTPS port rules (`ports` must be non-empty) is pathed at `ports`
+ * with no row to anchor to, so it's surfaced next to the toggle instead of
+ * inside a port row.
  */
 
+import { AlertTriangle } from 'lucide-react';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
@@ -30,10 +38,14 @@ const EMPTY_PORT: WizardDraftPort = { container: null, protocol: 'tcp' };
 export interface NetworkingStepProps {
   /** Current draft port rows. */
   ports: WizardDraftPort[];
-  /** Validation issues for this step (e.g. from `validateNetworkingStep()`), positioned via `ports[N]` / `ports[N].field` paths. */
+  /** Validation issues for this step (e.g. from `validateNetworkingStep()`), positioned via `ports[N]` / `ports[N].field` paths, or `ports` itself for the no-ports HTTPS rule. */
   issues: GameServerValidationIssue[];
   /** Called with the full replacement `ports` array on every add/remove/edit. */
   onChange: (ports: WizardDraftPort[]) => void;
+  /** Current draft value of the `https` flag. */
+  https: boolean;
+  /** Called with the new value whenever the HTTPS toggle is flipped. */
+  onHttpsChange: (https: boolean) => void;
 }
 
 /**
@@ -54,7 +66,7 @@ function rowError(issues: GameServerValidationIssue[], index: number): GameServe
  * with a container-port input, protocol select, and remove button, plus an
  * "Add port" button that appends {@link EMPTY_PORT}.
  */
-export function NetworkingStep({ ports, issues, onChange }: NetworkingStepProps) {
+export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }: NetworkingStepProps) {
   function addRow() {
     onChange([...ports, { ...EMPTY_PORT }]);
   }
@@ -67,6 +79,12 @@ export function NetworkingStep({ ports, issues, onChange }: NetworkingStepProps)
     onChange(ports.map((port, i) => (i === index ? { ...port, ...patch } : port)));
   }
 
+  // The "at least one port" HTTPS rule has no port row to anchor to, so it's
+  // surfaced next to the toggle itself rather than via `rowError`.
+  const noPortsIssue = issues.find((issue) => issue.path === 'ports');
+  const describedBy =
+    [https ? 'https-callout' : null, noPortsIssue ? 'https-error' : null].filter(Boolean).join(' ') || undefined;
+
   return (
     <div className="space-y-4">
       <div>
@@ -74,6 +92,45 @@ export function NetworkingStep({ ports, issues, onChange }: NetworkingStepProps)
         <p className="text-xs text-[var(--color-muted-foreground)]">
           Declare every container port the server listens on.
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            id="https-toggle"
+            type="checkbox"
+            checked={https}
+            aria-invalid={Boolean(noPortsIssue)}
+            aria-describedby={describedBy}
+            onChange={(event) => onHttpsChange(event.target.checked)}
+            className="size-3.5 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
+          />
+          <Label htmlFor="https-toggle" className="cursor-pointer">
+            Enable HTTPS (Caddy sidecar)
+          </Label>
+        </div>
+
+        {noPortsIssue && (
+          <p id="https-error" role="alert" className="text-xs text-[var(--color-red)]">
+            {noPortsIssue.message}
+          </p>
+        )}
+
+        {https && (
+          <div
+            id="https-callout"
+            role="alert"
+            className="flex items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
+          >
+            <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+            <span>
+              Enabling HTTPS opens ports 443 and 80 to the internet for the whole stack, not only this game. This
+              game&apos;s raw container port loses its public ingress rule — reaching the game goes through the
+              sidecar instead. On first boot, the task performs a Let&apos;s Encrypt (ACME) issuance, which requires
+              this game&apos;s hostname to resolve to the running task.
+            </span>
+          </div>
+        )}
       </div>
 
       {ports.length === 0 && (
