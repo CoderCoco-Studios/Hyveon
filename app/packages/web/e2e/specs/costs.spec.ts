@@ -8,7 +8,7 @@ import type { ActualCosts, CostEstimates, GameStatus } from '../fixtures/index.j
  *
  * Each test launches its own Electron shell, mocks the three IPC channels
  * consumed by the Costs page (`costs.estimate`, `costs.actual`, `games.status`)
- * via `window.gsd.__test.mock`, then navigates to `/costs` via history injection
+ * via `window.hyveon.__test.mock`, then navigates to `/costs` via history injection
  * (`CostsPage.gotoElectron`).
  *
  * Filter / sort exercises pass `MULTI_GAME_COST_DATA` so the table has more
@@ -25,14 +25,14 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', (days: unknown) =>
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', (days: unknown) =>
             Promise.resolve({ daily: [], total: 0, currency: 'USD', days: days as number }),
           );
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: COST_DATA, statuses: [STOPPED_GAME] },
       );
@@ -66,12 +66,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: COST_DATA, statuses: [STOPPED_GAME], actual: actual14 },
       );
@@ -105,12 +105,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
       );
@@ -141,12 +141,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
       );
@@ -180,12 +180,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
       );
@@ -221,12 +221,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
       );
@@ -262,12 +262,12 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
       );
@@ -307,14 +307,14 @@ test.describe('costs page', () => {
           a14: ActualCosts;
           a60: ActualCosts;
         }) => {
-          const gsd = (window as Record<string, unknown>)['gsd'] as {
+          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
-          gsd.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          gsd.__test.mock('costs.actual', (days: unknown) =>
+          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
+          hyveon.__test.mock('costs.actual', (days: unknown) =>
             Promise.resolve((days as number) >= 30 ? a60 : a14),
           );
-          gsd.__test.mock('games.status', () => Promise.resolve(statuses));
+          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: COST_DATA, statuses: [STOPPED_GAME], a14: actual14, a60: actual60 },
       );

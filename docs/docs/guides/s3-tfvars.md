@@ -33,7 +33,7 @@ If none of that applies, skip this page — `local` mode (the default) needs
 no `tfvars-sync` commands. It still needs the `{project_name}-tfvars` bucket
 to exist once, though: the root module's `data "aws_s3_bucket" "tfvars"`
 (`terraform/main.tf`) reads it unconditionally on every `terraform
-plan`/`apply`, regardless of `GSD_TFVARS_BACKEND`. See
+plan`/`apply`, regardless of `HYVEON_TFVARS_BACKEND`. See
 [Bootstrap the tfvars bucket](/setup#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
 in the setup guide for the one-time step.
 
@@ -55,7 +55,7 @@ A few ways to bootstrap it, in order of convenience:
 2. **`init-parent.ts bootstrap --s3-tfvars`** — when scaffolding a fresh
    [submodule parent repo](/guides/submodule#quick-start-interactive-scaffolder),
    pre-answers the equivalent prompt up front and writes the
-   `.gsd/tfvars-bucket` marker at the *parent repo root* as part of
+   `.hyveon/tfvars-bucket` marker at the *parent repo root* as part of
    scaffolding, so the generated `make setup` bootstraps the S3 backend on
    its first run without asking.
 
@@ -106,8 +106,8 @@ tsx scripts/tfvars-sync.ts check  [--bucket <name>] [--path <file>] [--key <key>
 | `check` | Drift gate for CI/`make apply`: exits `0` (`✓ in sync: ...`) when the local lock's version id matches the remote's current version id, `1` (`✗ drift detected: <reason>`) otherwise. |
 
 `--bucket` is resolved through a fallback chain when omitted: the flag
-itself, then the `GSD_TFVARS_BUCKET` environment variable, then the nearest
-`.gsd/tfvars-bucket` marker file found walking up from the current
+itself, then the `HYVEON_TFVARS_BUCKET` environment variable, then the nearest
+`.hyveon/tfvars-bucket` marker file found walking up from the current
 directory. The CLI errors out if none of these resolve. `--key` always
 defaults to the fixed key `terraform.tfvars` regardless of `--path` — pass
 it explicitly only if the bucket should hold the object under a different
@@ -138,7 +138,7 @@ generated wrapper `Makefile` drives the same CLI for you, plus wires it into
 
 | Target | What it does |
 |---|---|
-| `make tfvars-pull` | Pulls `terraform.tfvars` from the configured S3 backend. Refuses to run if `git status --porcelain` reports the local file as changed, so a pull won't overwrite an edit git can see. See the caveat right below the table — this is *not* a full guarantee against clobbering local edits. Fails fast with a pointer to `GSD_TFVARS_BACKEND` if no backend is detected. |
+| `make tfvars-pull` | Pulls `terraform.tfvars` from the configured S3 backend. Refuses to run if `git status --porcelain` reports the local file as changed, so a pull won't overwrite an edit git can see. See the caveat right below the table — this is *not* a full guarantee against clobbering local edits. Fails fast with a pointer to `HYVEON_TFVARS_BACKEND` if no backend is detected. |
 | `make tfvars-push` | Pushes the local `terraform.tfvars` to the configured S3 backend. Same fail-fast behavior when no backend is detected. |
 | `make tfvars-diff` | Prints a unified diff between local and remote. Same fail-fast behavior when no backend is detected. |
 | `make plan` | Auto-pulls the latest tfvars from S3 first (when a backend is detected), gated behind the same git-dirty check as `make tfvars-pull` above (and subject to the same caveat). Set `NO_PULL=1` to skip the pull for one invocation. |
@@ -161,14 +161,16 @@ generated wrapper `Makefile` drives the same CLI for you, plus wires it into
 Whether these targets treat you as being in S3 mode or local mode is decided
 by `TFVARS_BACKEND`, resolved in this order:
 
-1. `GSD_TFVARS_BACKEND=s3` or `GSD_TFVARS_BACKEND=local` — explicit override,
+1. `HYVEON_TFVARS_BACKEND=s3` or `HYVEON_TFVARS_BACKEND=local` — explicit override,
    wins regardless of any marker file.
-2. The **parent-root** `.gsd/tfvars-bucket` marker (written by
+2. The **parent-root** `.hyveon/tfvars-bucket` marker (written by
    `init-parent bootstrap --s3-tfvars` or `migrate --to-s3`, up front as
    part of scaffolding) — takes priority if present.
-3. The **submodule-local** `.gsd/tfvars-bucket` marker (written by
+3. The **submodule-local** `.hyveon/tfvars-bucket` marker (written by
    `make setup`'s own S3 tfvars-bootstrap step) — checked next.
-4. Otherwise: `local`.
+4. The legacy `.gsd/tfvars-bucket` path at either location above (pre-rename,
+   accepted with a one-time warning — run `mv .gsd .hyveon` to migrate).
+5. Otherwise: `local`.
 
 In `local` mode the gates inside `setup`/`plan`/`apply` are silent no-ops —
 nothing changes for a deployment that has never touched the S3 backend.
@@ -198,11 +200,11 @@ touching anything; pass `--yes` to skip the prompt (e.g. for scripting/CI).
 1. Reads `project_name` out of the parent repo's existing
    `terraform.tfvars` and derives the bucket name `${project_name}-tfvars` —
    the same convention `bootstrap --s3-tfvars` uses.
-2. Writes the `.gsd/tfvars-bucket` marker at the parent repo root.
+2. Writes the `.hyveon/tfvars-bucket` marker at the parent repo root.
 3. Rewrites the `Makefile` with the S3-aware targets (the same output a
    fresh `bootstrap` renders — the Makefile is always S3-aware; only the
    marker's presence flips `TFVARS_BACKEND` to `s3`).
-4. Runs `make setup` with `GSD_TFVARS_BACKEND=s3` so `terraform/bootstrap/`
+4. Runs `make setup` with `HYVEON_TFVARS_BACKEND=s3` so `terraform/bootstrap/`
    provisions the bucket.
 
 `terraform.tfvars` itself is left untouched — pull the now-remote copy down
@@ -213,14 +215,14 @@ back empty).
 ### `migrate --to-local`
 
 1. Resolves the target bucket the same way the generated Makefile does:
-   `GSD_TFVARS_BUCKET` env var, else the parent-root marker, else the
+   `HYVEON_TFVARS_BUCKET` env var, else the parent-root marker, else the
    submodule-local one. Exits `1` with no changes if none resolve (already
    local — nothing to migrate).
 2. Pulls `terraform.tfvars` down from S3 first if it's missing locally (a
    parent repo that's been in S3 mode a while may have no local copy at
    all). If the remote object was never seeded either, this pull fails and
    the whole migration **aborts right here, leaving every file
-   untouched** — including the `.gsd/tfvars-bucket` marker(s) — since
+   untouched** — including the `.hyveon/tfvars-bucket` marker(s) — since
    there'd be nothing left to source `terraform.tfvars` from once those
    markers were deleted. Reconcile with `make tfvars-push` (from whichever
    machine still has a good local copy) before re-running the migration.
@@ -232,7 +234,7 @@ back empty).
    migration. If the remote object was never seeded at all, this comparison
    is skipped and migration proceeds straight to step 4.
 4. On a clean match (or an unseeded remote reached via step 3), deletes both
-   the parent-root and submodule-local `.gsd/tfvars-bucket` markers, plus
+   the parent-root and submodule-local `.hyveon/tfvars-bucket` markers, plus
    the `terraform.tfvars.lock` sidecar. `terraform.tfvars` itself stays in
    place — it's already the correct source of truth for local mode once the
    markers are gone.
@@ -254,11 +256,11 @@ terraform -chdir=Hyveon/terraform/bootstrap destroy
 | `push` fails with `Bucket "<bucket>" does not appear to have S3 versioning enabled...` | The bucket was created or modified outside `terraform/bootstrap/` and has versioning off or suspended. The whole conflict-detection scheme (`versionId` comparisons) depends on a versioned bucket. | Enable versioning on the bucket (or re-provision it via `terraform/bootstrap/`, which enables it by default), then retry. |
 | `check` fails (`make apply` aborts) with `no local lock file found ... — run "pull" first` | Fresh checkout, or the lock file was deleted/gitignored-and-never-restored. | `make tfvars-pull` once, then retry `make apply`. Or set `FORCE_APPLY=1` if you're intentionally applying without syncing (not recommended). |
 | `check`/`make apply` fails with a version-id mismatch reason | Same root cause as the `push` conflict above, just caught earlier by the pre-apply gate instead of at push time. | `make tfvars-pull`, review the diff, `make apply` again. |
-| `pull`/`push`/`diff`/`status`/`check` all fail with `--bucket is required (or set GSD_TFVARS_BUCKET, or create a .gsd/tfvars-bucket marker file)` | No backend configured, or you're running the CLI from a directory where the marker-file walk-up can't find `.gsd/tfvars-bucket`. | Pass `--bucket` explicitly, set `GSD_TFVARS_BUCKET`, or run from within the repo/parent-repo tree so the marker file is found. If you haven't bootstrapped a backend yet, see [Bootstrapping the S3 backend](#bootstrapping-the-s3-backend) above. |
-| `make tfvars-pull`/`push`/`diff` fail with `No S3 tfvars backend detected (TFVARS_BACKEND=local) — set GSD_TFVARS_BACKEND=s3 ...` | No `.gsd/tfvars-bucket` marker exists anywhere in the resolution chain, and `GSD_TFVARS_BACKEND` isn't set to `s3`. | Bootstrap a backend (see above) or set `GSD_TFVARS_BACKEND=s3` with `GSD_TFVARS_BUCKET` pointing at an existing bucket. |
+| `pull`/`push`/`diff`/`status`/`check` all fail with `--bucket is required (or set HYVEON_TFVARS_BUCKET, or create a .hyveon/tfvars-bucket marker file)` | No backend configured, or you're running the CLI from a directory where the marker-file walk-up can't find `.hyveon/tfvars-bucket`. | Pass `--bucket` explicitly, set `HYVEON_TFVARS_BUCKET`, or run from within the repo/parent-repo tree so the marker file is found. If you haven't bootstrapped a backend yet, see [Bootstrapping the S3 backend](#bootstrapping-the-s3-backend) above. |
+| `make tfvars-pull`/`push`/`diff` fail with `No S3 tfvars backend detected (TFVARS_BACKEND=local) — set HYVEON_TFVARS_BACKEND=s3 ...` | No `.hyveon/tfvars-bucket` marker exists anywhere in the resolution chain, and `HYVEON_TFVARS_BACKEND` isn't set to `s3`. | Bootstrap a backend (see above) or set `HYVEON_TFVARS_BACKEND=s3` with `HYVEON_TFVARS_BUCKET` pointing at an existing bucket. |
 | `make tfvars-pull` (or the automatic `plan`/`setup` pull) refuses with `terraform.tfvars has uncommitted changes — commit or stash them before pulling from S3.` | A pull overwrites the local file in place; the guard won't let it discard uncommitted edits *that git can see*. Remember this guard is `git status --porcelain`-based, so it only catches this if the file happens to be tracked — see the caveat under [Day-to-day: `make` targets](#day-to-day-make-targets). | Commit or `git stash` the local changes, then retry. Or `NO_PULL=1 make plan` to skip the auto-pull for one invocation. If the file is normally gitignored on your setup, run `make tfvars-diff` first to check for drift before pulling, since this guard won't warn you. |
 | `migrate --to-local` aborts with a drift message, no files changed | The local `terraform.tfvars` and the remote object have diverged — see the diff step in [`migrate --to-local`](#migrate---to-local) above. | Run `make tfvars-pull` or `make tfvars-push` to reconcile, then re-run the migration. |
-| `migrate --to-local` aborts with `failed to pull s3://<bucket>/terraform.tfvars`, no files changed (markers still present) | There's no local `terraform.tfvars` *and* the remote object was never seeded — this parent repo has never had a working copy anywhere, so the migration refuses to delete the `.gsd/tfvars-bucket` marker(s) and strand you with no `terraform.tfvars` at all. | Get a good copy of `terraform.tfvars` onto this machine (e.g. from another checkout) and `make tfvars-push` it up first, then re-run the migration. |
+| `migrate --to-local` aborts with `failed to pull s3://<bucket>/terraform.tfvars`, no files changed (markers still present) | There's no local `terraform.tfvars` *and* the remote object was never seeded — this parent repo has never had a working copy anywhere, so the migration refuses to delete the `.hyveon/tfvars-bucket` marker(s) and strand you with no `terraform.tfvars` at all. | Get a good copy of `terraform.tfvars` onto this machine (e.g. from another checkout) and `make tfvars-push` it up first, then re-run the migration. |
 | First-ever `push` to a brand-new bucket succeeds even though you never `pull`ed | Expected: `push` only requires a prior `pull` when the remote object already exists. A first push to an empty bucket has nothing to conflict with. | Nothing to fix — this is the intended "seed the bucket" path (the bootstrap step's post-bootstrap pull warns and suggests exactly this when the bucket comes back empty). |
 
 For issues with the bootstrap step itself (bucket creation, IAM

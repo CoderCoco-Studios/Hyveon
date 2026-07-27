@@ -44,7 +44,7 @@ const { readFileSync: readFixtureFile } = await vi.importActual<typeof import('f
 /** A minimal, valid `terraform.tfvars` fixture defining a single game server. */
 const FIXTURE_TFVARS = `
 aws_region   = "us-east-1"
-project_name = "game-servers"
+project_name = "hyveon"
 
 game_servers = {
   palworld = {

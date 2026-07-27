@@ -17,7 +17,7 @@ The web app SHALL provide a `/terraform` route rendering the Plan/Apply page, re
 
 ### Requirement: Plan trigger over IPC
 
-The Plan/Apply page SHALL start a plan by calling `gsd.terraform.plan()` (the shipped IPC surface — not the pre-pivot HTTP/SSE endpoints described in issue #110's stale body). On a `{ started: true, runId }` ack the page MUST transition to a run-detail view for that `runId`; on a `{ started: false }` ack it MUST surface the returned `error` without transitioning.
+The Plan/Apply page SHALL start a plan by calling `hyveon.terraform.plan()` (the shipped IPC surface — not the pre-pivot HTTP/SSE endpoints described in issue #110's stale body). On a `{ started: true, runId }` ack the page MUST transition to a run-detail view for that `runId`; on a `{ started: false }` ack it MUST surface the returned `error` without transitioning.
 
 #### Scenario: Plan accepted
 
@@ -31,7 +31,7 @@ The Plan/Apply page SHALL start a plan by calling `gsd.terraform.plan()` (the sh
 
 ### Requirement: Live ANSI log stream
 
-The run view SHALL stream the run's output live by consuming `gsd.terraform.runs.streamLogs(runId)` (which replays an in-flight run's buffered output then follows it live). ANSI escape sequences MUST be preserved end-to-end from the terraform process and converted to styled HTML in the renderer — the main process and preload MUST NOT strip or rewrite them.
+The run view SHALL stream the run's output live by consuming `hyveon.terraform.runs.streamLogs(runId)` (which replays an in-flight run's buffered output then follows it live). ANSI escape sequences MUST be preserved end-to-end from the terraform process and converted to styled HTML in the renderer — the main process and preload MUST NOT strip or rewrite them.
 
 #### Scenario: Chunks render in order with ANSI colors
 
@@ -54,7 +54,7 @@ When a plan run completes successfully, the run view SHALL display the resource-
 
 ### Requirement: Approve gate before apply
 
-The run view SHALL show an "Approve" action for a plan run whose status is `awaiting_approval` (as reported by `gsd.terraform.runs.get`). Approval MUST call `gsd.terraform.approve({ planRunId })`; the approver identity is resolved server-side and MUST NOT be supplied by the renderer. The "Apply" action MUST remain disabled until the plan run has been approved.
+The run view SHALL show an "Approve" action for a plan run whose status is `awaiting_approval` (as reported by `hyveon.terraform.runs.get`). Approval MUST call `hyveon.terraform.approve({ planRunId })`; the approver identity is resolved server-side and MUST NOT be supplied by the renderer. The "Apply" action MUST remain disabled until the plan run has been approved.
 
 #### Scenario: Operator approves a successful plan
 
@@ -68,7 +68,7 @@ The run view SHALL show an "Approve" action for a plan run whose status is `awai
 
 ### Requirement: Plan-hash-gated apply
 
-The "Apply" action SHALL call `gsd.terraform.apply({ planRunId, planHash })` using the plan hash returned by the plan run, so the backend's seven-step gate (plan record exists, is a plan, is approved, approval unexpired within the 15-minute window, hash match against both the stored record and the re-hashed on-disk `.tfplan` artifact, workspace free, apply lock acquired) decides whether the apply proceeds. A `{ started: false }` ack MUST be surfaced to the operator with its error text; an expired-approval rejection MUST prompt re-approval. On a successful apply the page SHALL show a success banner with a link back to the dashboard.
+The "Apply" action SHALL call `hyveon.terraform.apply({ planRunId, planHash })` using the plan hash returned by the plan run, so the backend's seven-step gate (plan record exists, is a plan, is approved, approval unexpired within the 15-minute window, hash match against both the stored record and the re-hashed on-disk `.tfplan` artifact, workspace free, apply lock acquired) decides whether the apply proceeds. A `{ started: false }` ack MUST be surfaced to the operator with its error text; an expired-approval rejection MUST prompt re-approval. On a successful apply the page SHALL show a success banner with a link back to the dashboard.
 
 #### Scenario: Approved plan applies end-to-end
 

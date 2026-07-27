@@ -32,7 +32,7 @@ route through neighbouring subgraphs and produce unreadable overlap.
 ### Game plane and operator control
 
 The Electron app's Nest.js backend is the local control plane, driven by
-its React/Vite renderer over Electron IPC (`window.gsd`) rather than HTTP.
+its React/Vite renderer over Electron IPC (`window.hyveon`) rather than HTTP.
 It reads `terraform.tfstate` directly to discover infrastructure IDs, then
 drives ECS / DynamoDB / Secrets Manager / CloudWatch via SDK v3. Players
 reach the game either direct to the task's public IP (UDP / TCP games) or

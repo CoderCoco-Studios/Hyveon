@@ -199,7 +199,7 @@ a ~40-line switch. To add a new command:
 
 `desktop-main` runs as an Electron IPC microservice — every controller is
 IPC-only (`@MessagePattern()`, no HTTP routes), and the renderer's only path
-to it is `window.gsd` over `contextBridge`. There is no `ApiTokenGuard`,
+to it is `window.hyveon` over `contextBridge`. There is no `ApiTokenGuard`,
 `API_TOKEN`, or `/api/*` surface left in this app. Don't add an HTTP
 listener or a bearer-token guard back in without a documented reason — it
 would reopen a network attack surface a purely local IPC transport doesn't
@@ -262,7 +262,7 @@ in the PR body — least-privilege roles are easy to silently widen.
 ## When you touch the web client
 
 - API calls go through `packages/web/src/api.service.ts`, which delegates
-  every method straight to `window.gsd.*` (the Electron preload bridge).
+  every method straight to `window.hyveon.*` (the Electron preload bridge).
   There is no `fetch`, no bearer token, and no 401/re-auth flow to bypass.
 - New IPC-channel wrappers keep the same shape as existing ones (one method
   per channel, return a typed promise).

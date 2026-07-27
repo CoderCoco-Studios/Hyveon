@@ -55,7 +55,7 @@ const mockWrite = vi.mocked(writeFileSync);
  */
 const FIXTURE_TFVARS = `# managed by hyveon — see docs/docs/guides/s3-tfvars.md
 aws_region   = "us-east-1"
-project_name = "game-servers"
+project_name = "hyveon"
 
 game_servers = {
   # palworld: main community server

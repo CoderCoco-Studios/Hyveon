@@ -22,17 +22,17 @@ The desktop main process SHALL provide an `AwsProfileService` that parses `~/.aw
 
 #### Scenario: Renderer lists profiles over IPC
 
-- **WHEN** the renderer invokes the profile-list IPC method (`gsd.wizard.listAwsProfiles()`)
+- **WHEN** the renderer invokes the profile-list IPC method (`hyveon.wizard.listAwsProfiles()`)
 - **THEN** it receives only `{ profileName, region? }` summaries — secret values never cross the IPC boundary
 
 ### Requirement: safeStorage paste-flow encryption
 
-When the operator pastes an access key ID and secret access key, the main process SHALL encrypt both values via `SafeStorageService` (`safeStorage.encryptString`) and store them in electron-store under `creds.aws.<profileName>`, where the ad-hoc profile name defaults to `gsd-pasted`. The ciphertext persisted in `electron-store.json` MUST be opaque to file inspection (never the plaintext key). Decryption MUST occur only in the main process, inside `CloudProviderModule` factories (or equivalent main-process consumers) — decrypted values are never sent to the renderer or logged.
+When the operator pastes an access key ID and secret access key, the main process SHALL encrypt both values via `SafeStorageService` (`safeStorage.encryptString`) and store them in electron-store under `creds.aws.<profileName>`, where the ad-hoc profile name defaults to `hyveon-pasted`. The ciphertext persisted in `electron-store.json` MUST be opaque to file inspection (never the plaintext key). Decryption MUST occur only in the main process, inside `CloudProviderModule` factories (or equivalent main-process consumers) — decrypted values are never sent to the renderer or logged.
 
 #### Scenario: Pasted keys are stored encrypted
 
 - **WHEN** the operator submits pasted `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` values
-- **THEN** electron-store persists them under `creds.aws.gsd-pasted` as safeStorage ciphertext, and grepping `electron-store.json` for the plaintext values finds nothing
+- **THEN** electron-store persists them under `creds.aws.hyveon-pasted` as safeStorage ciphertext, and grepping `electron-store.json` for the plaintext values finds nothing
 
 #### Scenario: Round-trip decryption in the main process
 
@@ -56,7 +56,7 @@ The credentials wizard step SHALL present a dropdown of discovered `~/.aws` prof
 #### Scenario: Pasting keys instead
 
 - **WHEN** the operator opens the paste form and submits key ID, secret, and region
-- **THEN** the safeStorage encryption flow runs, the stored profile (`gsd-pasted` by default) becomes the active credential source, and the wizard advances
+- **THEN** the safeStorage encryption flow runs, the stored profile (`hyveon-pasted` by default) becomes the active credential source, and the wizard advances
 
 #### Scenario: Region override
 

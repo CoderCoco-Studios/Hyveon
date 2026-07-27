@@ -46,11 +46,11 @@ The detection service SHALL parse tool versions from `terraform version` and `aw
 
 ### Requirement: Prerequisite check IPC
 
-The prerequisite check SHALL be exposed to the renderer via an IPC-only controller message pattern `wizard.prereqs.check` (bridged by `registerIpcMainBridges`), mirrored in the preload as `gsd.wizard.checkPrereqs()` with a typed entry in `gsd-api.ts`. The renderer MUST NOT probe PATH or spawn processes itself.
+The prerequisite check SHALL be exposed to the renderer via an IPC-only controller message pattern `wizard.prereqs.check` (bridged by `registerIpcMainBridges`), mirrored in the preload as `hyveon.wizard.checkPrereqs()` with a typed entry in `hyveon-api.ts`. The renderer MUST NOT probe PATH or spawn processes itself.
 
 #### Scenario: Renderer requests a prerequisite check
 
-- **WHEN** the renderer invokes `gsd.wizard.checkPrereqs()`
+- **WHEN** the renderer invokes `hyveon.wizard.checkPrereqs()`
 - **THEN** the main process runs the detection service and resolves with per-tool `{ found, path?, version? }` results
 
 ### Requirement: Install-prerequisites wizard step
@@ -65,7 +65,7 @@ The first wizard step SHALL display the detection result per tool, render OS-spe
 #### Scenario: Re-check after installing
 
 - **WHEN** the operator installs the missing tool and clicks "Re-check"
-- **THEN** the step re-invokes `gsd.wizard.checkPrereqs()` and, once both tools are satisfied, enables progression to the next step
+- **THEN** the step re-invokes `hyveon.wizard.checkPrereqs()` and, once both tools are satisfied, enables progression to the next step
 
 #### Scenario: Correct instructions per platform
 

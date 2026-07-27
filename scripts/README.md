@@ -46,28 +46,28 @@ a `--` flag) exits `1` with `Unknown subcommand "<token>"`.
 
 - **`bootstrap`** (default; may be given explicitly or omitted) — the interactive scaffolder described above:
   prompts for parent-repo details and writes `Makefile`, `terraform.tfvars`,
-  and `.gitignore`, plus (only when requested) the `.gsd/tfvars-bucket` S3
+  and `.gitignore`, plus (only when requested) the `.hyveon/tfvars-bucket` S3
   backend marker.
 - **`migrate --to-s3`** — migrates an already-scaffolded parent repo (one
   that already has a `Makefile`, i.e. `bootstrap` has already run) from a
   local-file tfvars backend onto a versioned S3 bucket. Writes
-  `.gsd/tfvars-bucket` (`${project_name}-tfvars`, read out of the existing
+  `.hyveon/tfvars-bucket` (`${project_name}-tfvars`, read out of the existing
   `terraform.tfvars`'s `project_name` key), rewrites the `Makefile` with the
-  S3-aware targets, then runs `make setup` with `GSD_TFVARS_BACKEND=s3` so
+  S3-aware targets, then runs `make setup` with `HYVEON_TFVARS_BACKEND=s3` so
   its self-contained S3 tfvars-bootstrap step (via `terraform/bootstrap/`)
   provisions the bucket. `terraform.tfvars` itself is left untouched — pull
-  it back down from S3 afterwards with `make tfvars-pull` if you want
+  it back down from S3 afterward with `make tfvars-pull` if you want
   confirmation it round-tripped.
 - **`migrate --to-local`** — the reverse: drops an already-scaffolded parent
   repo's S3 tfvars backend, reverting `make plan`/`make apply` to reading
   `terraform.tfvars` straight off disk. Resolves the target bucket
-  (`GSD_TFVARS_BUCKET` env var, else the parent-root marker, else the
+  (`HYVEON_TFVARS_BUCKET` env var, else the parent-root marker, else the
   submodule-local marker), pulls `terraform.tfvars` down from S3 first if
   it's missing locally, aborts with no changes if the local file has
   drifted from the remote object (checked the same way `tfvars-sync.ts
   diff` does — skipped entirely if the remote object was never seeded, in
   which case migration proceeds straight to deleting the markers), then
-  deletes both `.gsd/tfvars-bucket` markers and the `terraform.tfvars.lock`
+  deletes both `.hyveon/tfvars-bucket` markers and the `terraform.tfvars.lock`
   sidecar. `terraform.tfvars` itself is left in place. The S3 bucket is
   **not** deleted — destroy it manually with `terraform
   -chdir=<submodule>/terraform/bootstrap destroy` if you no longer need it.
@@ -78,7 +78,7 @@ a `--` flag) exits `1` with `Unknown subcommand "<token>"`.
   skipping them.
 - `--s3-tfvars` — (`bootstrap` only) pre-answers the "bootstrap an
   S3-backed tfvars store?" prompt with yes, skipping it, and writes the
-  `.gsd/tfvars-bucket` marker up front.
+  `.hyveon/tfvars-bucket` marker up front.
 - `--to-s3` / `--to-local` — (`migrate` only) selects the migration
   direction. Exactly one is required; passing both or neither is a usage
   error.
@@ -106,7 +106,7 @@ npm run scripts:init-parent -- --force --s3-tfvars
 `bootstrap` never reads or modifies anything inside the submodule, and is
 safe to re-run; without `--force` it leaves existing files alone. `migrate`
 is the exception: `--to-local` may delete the submodule-local
-`.gsd/tfvars-bucket` marker (see above), and `--to-s3` runs `make setup`,
+`.hyveon/tfvars-bucket` marker (see above), and `--to-s3` runs `make setup`,
 whose self-contained recipe bootstraps the S3-backed tfvars store.
 
 ### Requirements
@@ -181,13 +181,15 @@ tsx scripts/tfvars-sync.ts check  [--bucket <name>] [--path <file>] [--key <key>
 `--bucket` is resolved through a fallback chain when the flag is omitted:
 
 1. The `--bucket` flag, if passed.
-2. The `GSD_TFVARS_BUCKET` environment variable.
-3. The contents of the nearest `.gsd/tfvars-bucket` marker file, found by
+2. The `HYVEON_TFVARS_BUCKET` environment variable.
+3. The contents of the nearest `.hyveon/tfvars-bucket` marker file, found by
    walking up from the current working directory.
+4. The legacy `.gsd/tfvars-bucket` marker at the same directory (pre-rename,
+   accepted with a one-time warning — run `mv .gsd .hyveon` to migrate).
 
 The CLI exits with an error (`--bucket is required (or set
-GSD_TFVARS_BUCKET, or create a .gsd/tfvars-bucket marker file)`) if none of
-these resolve.
+HYVEON_TFVARS_BUCKET, or create a .hyveon/tfvars-bucket or legacy
+.gsd/tfvars-bucket marker file)`) if none of these resolve.
 
 ### Lock-file mechanism
 

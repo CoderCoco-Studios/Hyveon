@@ -125,8 +125,8 @@ describe('BootstrapStep', () => {
     });
 
     it('should render the IPC-level error message when the check call itself fails', () => {
-      renderStep({ iamError: 'IPC bridge (window.gsd) is not available in this context.' });
-      expect(screen.getByRole('alert')).toHaveTextContent('IPC bridge (window.gsd) is not available');
+      renderStep({ iamError: 'IPC bridge (window.hyveon) is not available in this context.' });
+      expect(screen.getByRole('alert')).toHaveTextContent('IPC bridge (window.hyveon) is not available');
     });
   });
 });

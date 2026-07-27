@@ -33,7 +33,7 @@ export interface TerraformInitStepProps {
 /**
  * Fifth and final step of the first-run wizard (#210): runs `terraform init`
  * against the backend resources bootstrapped in the previous step, streaming
- * its ANSI-colored output live via the already-shipped `gsd.terraform.init`
+ * its ANSI-colored output live via the already-shipped `hyveon.terraform.init`
  * async iterable (reusing `AnsiLogViewer` rather than adding a second
  * streaming side-channel, per design.md decision 2). The Finish button
  * enables only once the run exits successfully (the iterable completes
@@ -49,9 +49,9 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
   const [finishError, setFinishError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!window.gsd) {
+    if (!window.hyveon) {
       setStatus('failed');
-      setErrorMessage('IPC bridge (window.gsd) is not available in this context.');
+      setErrorMessage('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setChunks([]);
@@ -62,7 +62,7 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
     void (async () => {
       try {
-        for await (const chunk of window.gsd!.terraform.init(backendConfig, controller.signal)) {
+        for await (const chunk of window.hyveon!.terraform.init(backendConfig, controller.signal)) {
           if (cancelled) break;
           setChunks((prev) => [...prev, chunk]);
         }
@@ -84,15 +84,15 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
   async function finish() {
-    if (!window.gsd) {
-      setFinishError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setFinishError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setFinishing(true);
     setFinishError(null);
     try {
       await onBeforeFinish?.();
-      await window.gsd.wizard.complete();
+      await window.hyveon.wizard.complete();
       onFinished();
     } catch (err) {
       setFinishError(err instanceof Error ? err.message : 'Failed to finish setup.');

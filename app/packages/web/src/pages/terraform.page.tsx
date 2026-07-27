@@ -18,7 +18,7 @@ import { ConfirmDialog } from '../components/confirm-dialog.component.js';
  * with, from a confirmed rollback in `/terraform/history` — see
  * `RollbackAction`. `tfvarsVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent
- * straight through to `gsd.terraform.plan` so the resulting plan's persisted
+ * straight through to `hyveon.terraform.plan` so the resulting plan's persisted
  * record carries the same tag.
  */
 interface RollbackNavState {
@@ -100,7 +100,7 @@ function parseDestroySummary(chunks: TerraformRunChunk[]): number | null {
   return null;
 }
 
-/** Live state of a single streamed `terraform` run, backed by `gsd.terraform.runs.streamLogs`. */
+/** Live state of a single streamed `terraform` run, backed by `hyveon.terraform.runs.streamLogs`. */
 interface RunLogState {
   chunks: TerraformRunChunk[];
   /** True once the stream's `for await` loop has completed — the run reached a terminal status (or the run was never attached). */
@@ -108,7 +108,7 @@ interface RunLogState {
 }
 
 /**
- * Attaches to `gsd.terraform.runs.streamLogs(runId)` for the lifetime of
+ * Attaches to `hyveon.terraform.runs.streamLogs(runId)` for the lifetime of
  * `runId`, accumulating chunks in order. Mirrors `LogsPage`'s
  * `for await` + `AbortController`-in-a-ref streaming idiom. Re-attaches
  * automatically if `runId` changes; tears the previous subscription down
@@ -124,7 +124,7 @@ function useTerraformRunLog(runId: string | null): RunLogState {
     setChunks([]);
     setEnded(false);
 
-    if (!runId || !window.gsd) return;
+    if (!runId || !window.hyveon) return;
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -132,7 +132,7 @@ function useTerraformRunLog(runId: string | null): RunLogState {
 
     void (async () => {
       try {
-        for await (const chunk of window.gsd!.terraform.runs.streamLogs(runId, ac.signal)) {
+        for await (const chunk of window.hyveon!.terraform.runs.streamLogs(runId, ac.signal)) {
           if (cancelled) break;
           setChunks((prev) => [...prev, chunk]);
         }
@@ -197,7 +197,7 @@ function ChangeSummaryBadges({ summary }: { summary: ChangeSummary }) {
  * Terraform plan/apply route (`/terraform`) — lets an operator trigger
  * `terraform plan`, watch its live ANSI output, review the resource-change
  * summary, approve the plan, and run the plan-hash-gated `terraform apply`,
- * all over the `gsd.terraform.*` IPC surface shipped by epic #138. Surfaces
+ * all over the `hyveon.terraform.*` IPC surface shipped by epic #138. Surfaces
  * BUSY (shared-workspace conflict) and non-conflict submission errors inline
  * rather than failing silently.
  */
@@ -253,10 +253,10 @@ export function TerraformPage() {
   // Once the plan's log stream ends, fetch its terminal status/record —
   // `awaiting_approval` is only derivable once the process has closed.
   useEffect(() => {
-    if (!planRunId || !planLog.ended || !window.gsd) return;
+    if (!planRunId || !planLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.gsd!.terraform.runs.get(planRunId);
+      const result = await window.hyveon!.terraform.runs.get(planRunId);
       if (cancelled) return;
       if (result.found) {
         setPlanStatus(result.status);
@@ -271,10 +271,10 @@ export function TerraformPage() {
   }, [planRunId, planLog.ended]);
 
   useEffect(() => {
-    if (!applyRunId || !applyLog.ended || !window.gsd) return;
+    if (!applyRunId || !applyLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.gsd!.terraform.runs.get(applyRunId);
+      const result = await window.hyveon!.terraform.runs.get(applyRunId);
       if (cancelled) return;
       if (result.found) setApplyStatus(result.status);
     })();
@@ -284,10 +284,10 @@ export function TerraformPage() {
   }, [applyRunId, applyLog.ended]);
 
   useEffect(() => {
-    if (!destroyRunId || !destroyLog.ended || !window.gsd) return;
+    if (!destroyRunId || !destroyLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.gsd!.terraform.runs.get(destroyRunId);
+      const result = await window.hyveon!.terraform.runs.get(destroyRunId);
       if (cancelled) return;
       if (result.found) setDestroyStatus(result.status);
     })();
@@ -297,8 +297,8 @@ export function TerraformPage() {
   }, [destroyRunId, destroyLog.ended]);
 
   const submitPlan = useCallback((payload?: TerraformPlanPayload) => {
-    if (!window.gsd) {
-      setPlanSubmitError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setPlanSubmitError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setPlanning(true);
@@ -306,7 +306,7 @@ export function TerraformPage() {
     setPlanSubmitError(null);
     void (async () => {
       try {
-        const ack = await window.gsd!.terraform.plan(payload);
+        const ack = await window.hyveon!.terraform.plan(payload);
         if (ack.started && ack.runId) {
           setPlanRunId(ack.runId);
           setPlanStatus(null);
@@ -339,12 +339,12 @@ export function TerraformPage() {
   }, [navigate, rollbackState, submitPlan]);
 
   const submitApprove = useCallback(() => {
-    if (!window.gsd || !planRunId) return;
+    if (!window.hyveon || !planRunId) return;
     setApproving(true);
     setApproveError(null);
     void (async () => {
       try {
-        const ack = await window.gsd!.terraform.approve({ planRunId });
+        const ack = await window.hyveon!.terraform.approve({ planRunId });
         if (ack.approved && ack.approvedBy && ack.approvedAt) {
           setApproval({ approvedBy: ack.approvedBy, approvedAt: ack.approvedAt });
           toast.success('Plan approved');
@@ -360,13 +360,13 @@ export function TerraformPage() {
   }, [planRunId]);
 
   const submitApply = useCallback(() => {
-    if (!window.gsd || !planRunId || !planRecord?.planHash) return;
+    if (!window.hyveon || !planRunId || !planRecord?.planHash) return;
     setApplying(true);
     setApplyConflict(null);
     setApplySubmitError(null);
     void (async () => {
       try {
-        const ack = await window.gsd!.terraform.apply({ planRunId, planHash: planRecord.planHash! });
+        const ack = await window.hyveon!.terraform.apply({ planRunId, planHash: planRecord.planHash! });
         if (ack.started && ack.runId) {
           setApplyRunId(ack.runId);
           setApplyStatus(null);
@@ -383,8 +383,8 @@ export function TerraformPage() {
   }, [planRunId, planRecord]);
 
   const submitDestroy = useCallback(() => {
-    if (!window.gsd) {
-      setDestroySubmitError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setDestroySubmitError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setDestroying(true);
@@ -392,8 +392,8 @@ export function TerraformPage() {
     setDestroySubmitError(null);
     void (async () => {
       try {
-        const mintAck = await window.gsd!.terraform.mintDestroyToken();
-        const ack = await window.gsd!.terraform.destroy({ confirmationToken: mintAck.token });
+        const mintAck = await window.hyveon!.terraform.mintDestroyToken();
+        const ack = await window.hyveon!.terraform.destroy({ confirmationToken: mintAck.token });
         if (ack.started && ack.runId) {
           setDestroyConfirmOpen(false);
           setDestroyRunId(ack.runId);

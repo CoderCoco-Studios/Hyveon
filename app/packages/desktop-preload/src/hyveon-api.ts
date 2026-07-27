@@ -1,10 +1,10 @@
 /**
- * Typed shape of the `window.gsd` object exposed by the Electron preload script.
+ * Typed shape of the `window.hyveon` object exposed by the Electron preload script.
  *
  * Import this interface in the renderer process to get fully-typed access to the
  * IPC bridge without importing anything from `electron` or Node.js.
  *
- * Keep this file in sync with the `contextBridge.exposeInMainWorld('gsd', {...})`
+ * Keep this file in sync with the `contextBridge.exposeInMainWorld('hyveon', {...})`
  * call in `src/index.ts` — the two must always agree on method signatures and
  * namespace names.
  */
@@ -554,7 +554,7 @@ export interface TerraformRunRecord {
    * `plan` run produced. Set only on a successful `plan` record; a failed
    * or aborted `plan` run (and `apply`/`destroy` records generally) leave
    * this unset. The `/terraform` page passes this straight through to
-   * `gsd.terraform.apply`'s `planHash` payload field.
+   * `hyveon.terraform.apply`'s `planHash` payload field.
    */
   planHash?: string;
   /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow. */
@@ -836,7 +836,7 @@ export interface TfOutputs {
 // ---------------------------------------------------------------------------
 
 /** Game-server lifecycle: list games, query status, start/stop ECS tasks. */
-export interface GsdGamesApi {
+export interface HyveonGamesApi {
   /** Lists games merged from tfvars (declared) and tfstate (deployed). */
   list: () => Promise<{ games: GameListEntry[] }>;
   /** Returns ECS status for every game in parallel. */
@@ -856,7 +856,7 @@ export interface GsdGamesApi {
 }
 
 /** Cost endpoints: forward-looking Fargate estimates and historical CE data. */
-export interface GsdCostsApi {
+export interface HyveonCostsApi {
   /** Estimates per-game and total hourly Fargate cost. */
   estimate: () => Promise<CostEstimates>;
   /** Returns actual costs over a trailing window via Cost Explorer. */
@@ -864,7 +864,7 @@ export interface GsdCostsApi {
 }
 
 /** CloudWatch log endpoints: poll recent lines or open a live IPC stream. */
-export interface GsdLogsApi {
+export interface HyveonLogsApi {
   /** Returns recent log lines for a game's ECS task. */
   get: (game: string, limit?: number) => Promise<GameLogs>;
   /**
@@ -881,7 +881,7 @@ export interface GsdLogsApi {
 }
 
 /** EFS file-manager task endpoints: list, start, and stop per game. */
-export interface GsdFilesApi {
+export interface HyveonFilesApi {
   /** Lists the file-manager task for `game`, returning whether it is running plus connection details. */
   list: (game: string) => Promise<FileMgrStatus>;
   /** Launches an ECS file-manager task for `game`. */
@@ -891,7 +891,7 @@ export interface GsdFilesApi {
 }
 
 /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
-export interface GsdDiscordApi {
+export interface HyveonDiscordApi {
   /** Returns the Discord config with secrets redacted to booleans. */
   getConfig: () => Promise<RedactedDiscordConfig>;
   /** Updates bot token, client ID, and/or public key in Secrets Manager. */
@@ -916,7 +916,7 @@ export interface GsdDiscordApi {
    * **Transport note:** the preload binding collapses the two parameters into a
    * single object — `ipcRenderer.invoke('discord.putPermission', { game, body })`
    * — because `nestjs-electron-ipc-transport` only delivers the first argument to
-   * `@Payload`. Callers must go through `window.gsd.discord.putPermission` and
+   * `@Payload`. Callers must go through `window.hyveon.discord.putPermission` and
    * must **not** invoke the `discord.putPermission` IPC channel directly with two
    * separate arguments, as the controller would only receive the first one.
    */
@@ -929,13 +929,13 @@ export interface GsdDiscordApi {
 }
 
 /** Environment metadata: region, domain, and environment label for UI display. */
-export interface GsdEnvApi {
+export interface HyveonEnvApi {
   /** Returns region, domain, and environment label derived from Terraform outputs. */
   get: () => Promise<EnvInfo>;
 }
 
 /** Watchdog configuration stored in server_config.json. */
-export interface GsdConfigApi {
+export interface HyveonConfigApi {
   /** Returns the current watchdog config (interval, idle-check count, min packets). */
   get: () => Promise<WatchdogConfig>;
   /** Partially updates the watchdog config on disk. */
@@ -977,34 +977,34 @@ export interface AwsProfileSummary {
   region?: string;
 }
 
-/** Plaintext input to {@link GsdWizardApi.saveCredentials}. */
+/** Plaintext input to {@link HyveonWizardApi.saveCredentials}. */
 export interface SavePastedCredentialsInput {
-  /** Defaults to `gsd-pasted` when omitted. */
+  /** Defaults to `hyveon-pasted` when omitted. */
   profileName?: string;
   accessKeyId: string;
   secretAccessKey: string;
   region?: string;
 }
 
-/** Payload accepted by {@link GsdWizardApi.bootstrapStateBucket}. */
+/** Payload accepted by {@link HyveonWizardApi.bootstrapStateBucket}. */
 export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
-/** Payload accepted by {@link GsdWizardApi.bootstrapLockTable}. */
+/** Payload accepted by {@link HyveonWizardApi.bootstrapLockTable}. */
 export interface BootstrapLockTableInput {
   tableName: string;
 }
 
-/** Payload accepted by {@link GsdWizardApi.bootstrapTfvarsBucket}. */
+/** Payload accepted by {@link HyveonWizardApi.bootstrapTfvarsBucket}. */
 export interface BootstrapTfvarsBucketInput {
   bucketName: string;
 }
 
-/** Outcome of {@link GsdWizardApi.simulateIamPermissions}. */
+/** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
-/** Result of the wizard's best-effort IAM permission dry-run against the `GameServerDeployAll` action set. */
+/** Result of the wizard's best-effort IAM permission dry-run against the `HyveonDeployAll` action set. */
 export interface IamCheckResult {
   status: IamCheckStatus;
   /**
@@ -1027,7 +1027,7 @@ export interface WizardProgress {
   step: WizardStepName;
 }
 
-/** Payload accepted by {@link GsdWizardApi.saveProgress}. */
+/** Payload accepted by {@link HyveonWizardApi.saveProgress}. */
 export interface SaveWizardProgressInput {
   step: WizardStepName;
 }
@@ -1035,7 +1035,7 @@ export interface SaveWizardProgressInput {
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
-/** Result of a single bootstrap operation (e.g. {@link GsdWizardApi.bootstrapStateBucket}). */
+/** Result of a single bootstrap operation (e.g. {@link HyveonWizardApi.bootstrapStateBucket}). */
 export interface BootstrapResult {
   status: BootstrapResourceStatus;
   /** Present when `status` is `'failed'` — an actionable message for the wizard to display. */
@@ -1043,7 +1043,7 @@ export interface BootstrapResult {
 }
 
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
-export interface GsdWizardApi {
+export interface HyveonWizardApi {
   /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
   checkPrereqs: () => Promise<PrerequisitesReport>;
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
@@ -1081,7 +1081,7 @@ export interface GsdWizardApi {
   bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) => Promise<BootstrapResult>;
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
-   * `GameServerDeployAll` action set (`sts:GetCallerIdentity` +
+   * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
    */
   simulateIamPermissions: () => Promise<IamCheckResult>;
@@ -1099,7 +1099,7 @@ export interface GsdWizardApi {
 /**
  * The credentials step's chosen source. `profile` names either a real
  * `~/.aws` profile (the "pick an existing profile" path) or a pasted-
- * credentials profile name (the "paste keys instead" path, e.g. `gsd-pasted`).
+ * credentials profile name (the "paste keys instead" path, e.g. `hyveon-pasted`).
  */
 export interface WizardAwsChoice {
   profile?: string;
@@ -1129,7 +1129,7 @@ export interface WizardState {
   bootstrap?: WizardBootstrapNames;
 }
 
-/** Payload accepted by {@link GsdWizardApi.saveState}. */
+/** Payload accepted by {@link HyveonWizardApi.saveState}. */
 export interface SaveWizardStateInput {
   activeCloud?: 'aws';
   aws?: WizardAwsChoice;
@@ -1137,13 +1137,13 @@ export interface SaveWizardStateInput {
 }
 
 /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
-export interface GsdDriftApi {
+export interface HyveonDriftApi {
   /** Returns the current drift report — games out of sync between declared and deployed state. */
   get: () => Promise<DriftReport>;
 }
 
 /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
-export interface GsdDiagnosticsApi {
+export interface HyveonDiagnosticsApi {
   /** Returns the last 500 lines from today's local log file. */
   tail: () => Promise<{ lines: string[] }>;
   /** Returns the absolute path of today's local log file. */
@@ -1151,7 +1151,7 @@ export interface GsdDiagnosticsApi {
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
-export interface GsdAuditApi {
+export interface HyveonAuditApi {
   /**
    * Returns a page of audit entries, newest-first. `opts.limit` caps the
    * number of entries returned; `opts.before` is a pagination cursor (an
@@ -1165,7 +1165,7 @@ export interface GsdAuditApi {
  * Terraform run history: look up a single plan/apply/destroy run's current
  * status and stream its live/replayed log output (issue #108).
  */
-export interface GsdTerraformRunsApi {
+export interface HyveonTerraformRunsApi {
   /**
    * Looks up the run identified by `runId` and returns its current
    * {@link TerraformRunsGetResult} — `{ found: false }` if `runId` is
@@ -1181,7 +1181,7 @@ export interface GsdTerraformRunsApi {
    * async iterable of {@link TerraformRunChunk}. Consume it with
    * `for await (const chunk of terraform.runs.streamLogs(runId, signal))`.
    *
-   * Mirrors {@link GsdTerraformApi.init}'s streaming shape: the
+   * Mirrors {@link HyveonTerraformApi.init}'s streaming shape: the
    * `terraform.runs.logs` invoke call resolves immediately with an opaque
    * `streamId`, and subsequent chunk/end messages arrive on the fixed
    * `terraform.runs.logs.chunk` / `terraform.runs.logs.end` side channels,
@@ -1226,7 +1226,7 @@ export interface GsdTerraformRunsApi {
  * Terraform orchestration: streams `terraform init` output live as the
  * process runs.
  */
-export interface GsdTerraformApi {
+export interface HyveonTerraformApi {
   /**
    * Runs `terraform init` against `config` (backend bucket/region/DynamoDB
    * lock table) and returns its output as an async iterable of
@@ -1304,7 +1304,7 @@ export interface GsdTerraformApi {
    * invoking the `terraform.destroy` IPC channel, resolving an ack shaped
    * like {@link TerraformPlanAck}. Mirrors {@link apply}: this call only
    * resolves the initial acknowledgement — it does not itself stream the
-   * run's output; consume `gsd.terraform.runs.streamLogs(runId)` (tagged
+   * run's output; consume `hyveon.terraform.runs.streamLogs(runId)` (tagged
    * with the returned `runId`) for progress, the same seam every other
    * `terraform` run's live output flows through.
    */
@@ -1318,9 +1318,9 @@ export interface GsdTerraformApi {
    */
   output: (force?: boolean) => Promise<TfOutputs | null>;
   /** Terraform run history: look up a single run's status and stream its log output. */
-  runs: GsdTerraformRunsApi;
+  runs: HyveonTerraformRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
-  rollback: GsdTerraformRollbackApi;
+  rollback: HyveonTerraformRollbackApi;
 }
 
 /**
@@ -1332,7 +1332,7 @@ export interface GsdTerraformApi {
  * so the tagged plan streams and gates through the exact same channel every
  * other plan does.
  */
-export interface GsdTerraformRollbackApi {
+export interface HyveonTerraformRollbackApi {
   /**
    * Resolves the tfvars version that was live immediately before the given
    * `apply` run, by invoking the `terraform.rollback.resolve` IPC channel.
@@ -1356,38 +1356,38 @@ export interface GsdTerraformRollbackApi {
 // ---------------------------------------------------------------------------
 
 /**
- * Mock namespace bag: a partial copy of every `GsdApi` namespace so test
+ * Mock namespace bag: a partial copy of every `HyveonApi` namespace so test
  * harnesses can supply only the methods they care about.
  *
- * Derived as a mapped type over every `GsdApi` namespace key (everything
+ * Derived as a mapped type over every `HyveonApi` namespace key (everything
  * except the `__test` injection surface itself) so a namespace added to
- * `GsdApi` flows in automatically — no hand-maintained property list to drift.
+ * `HyveonApi` flows in automatically — no hand-maintained property list to drift.
  */
-export type GsdMockNamespaces = {
-  [K in Exclude<keyof GsdApi, '__test'>]?: Partial<GsdApi[K]>;
+export type HyveonMockNamespaces = {
+  [K in Exclude<keyof HyveonApi, '__test'>]?: Partial<HyveonApi[K]>;
 };
 
 /**
- * Test-only API surface injected under `window.gsd.__test`.
+ * Test-only API surface injected under `window.hyveon.__test`.
  *
  * Present in two distinct scenarios:
  *
  * 1. **Vitest / jsdom unit tests** — the test harness replaces the entire
- *    `window.gsd` object with a mock built from `test-mock-registry`; the mock
+ *    `window.hyveon` object with a mock built from `test-mock-registry`; the mock
  *    object includes this property so individual test cases can register
- *    per-channel overrides via `window.gsd.__test.mock(channel, handler)`.
+ *    per-channel overrides via `window.hyveon.__test.mock(channel, handler)`.
  *
  * 2. **Electron preload at runtime** — when the app is launched with
  *    `HYVEON_TEST_MODE=1` (set by the Playwright integration-test harness),
- *    `preload.ts` appends `__test` to the real `window.gsd` bridge so that
+ *    `preload.ts` appends `__test` to the real `window.hyveon` bridge so that
  *    Playwright page scripts can inject IPC mocks without touching the real
  *    Electron IPC layer.
  *
  * Production code must **never** reference this property — guard every access
- * with an `if (window.gsd?.__test)` check or, better, avoid it entirely outside
+ * with an `if (window.hyveon?.__test)` check or, better, avoid it entirely outside
  * tests.
  */
-export interface GsdTestApi {
+export interface HyveonTestApi {
   /**
    * Registers a per-channel mock handler.
    *
@@ -1420,48 +1420,48 @@ export interface GsdTestApi {
 // ---------------------------------------------------------------------------
 
 /**
- * Typed shape of `window.gsd` as exposed by the Electron preload script.
+ * Typed shape of `window.hyveon` as exposed by the Electron preload script.
  *
  * Declare this on `Window` in a renderer-side `.d.ts` file. Mark it optional
- * (`gsd?`) — the bridge is absent in plain browser/web contexts, so runtime
- * guards like `if (!window.gsd)` need it to be possibly-undefined:
+ * (`hyveon?`) — the bridge is absent in plain browser/web contexts, so runtime
+ * guards like `if (!window.hyveon)` need it to be possibly-undefined:
  * ```ts
- * import type { GsdApi } from '@hyveon/desktop-preload/gsd-api';
+ * import type { HyveonApi } from '@hyveon/desktop-preload/hyveon-api';
  * declare global {
- *   interface Window { gsd?: GsdApi; }
+ *   interface Window { hyveon?: HyveonApi; }
  * }
  * ```
  */
-export interface GsdApi {
+export interface HyveonApi {
   /** Game-server lifecycle: list games, query status, start/stop ECS tasks. */
-  games: GsdGamesApi;
+  games: HyveonGamesApi;
   /** Cost endpoints: forward-looking Fargate estimates and historical CE data. */
-  costs: GsdCostsApi;
+  costs: HyveonCostsApi;
   /** CloudWatch log endpoints (request/response only; SSE stream is separate). */
-  logs: GsdLogsApi;
+  logs: HyveonLogsApi;
   /** EFS file-manager task endpoints: status, start, and stop per game. */
-  files: GsdFilesApi;
+  files: HyveonFilesApi;
   /** Discord bot configuration: credentials, guild allowlist, admins, permissions, command registration. */
-  discord: GsdDiscordApi;
+  discord: HyveonDiscordApi;
   /** Environment metadata: region, domain, and environment label for UI display. */
-  env: GsdEnvApi;
+  env: HyveonEnvApi;
   /** Watchdog configuration stored in server_config.json. */
-  config: GsdConfigApi;
+  config: HyveonConfigApi;
   /** First-run wizard endpoints: prerequisite detection, credentials, cloud bootstrap. */
-  wizard: GsdWizardApi;
+  wizard: HyveonWizardApi;
   /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
-  drift: GsdDriftApi;
+  drift: HyveonDriftApi;
   /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
-  diagnostics: GsdDiagnosticsApi;
+  diagnostics: HyveonDiagnosticsApi;
   /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
-  audit: GsdAuditApi;
+  audit: HyveonAuditApi;
   /** Terraform orchestration: streams `terraform init` output live as the process runs. */
-  terraform: GsdTerraformApi;
+  terraform: HyveonTerraformApi;
   /**
    * Test-only injection surface; `undefined` in production.
    *
    * Present in two scenarios:
-   * - **Vitest / jsdom** — the test harness stubs the whole `window.gsd`
+   * - **Vitest / jsdom** — the test harness stubs the whole `window.hyveon`
    *   object with a mock that includes this property.
    * - **Electron preload** — appended to the real bridge when the process is
    *   started with `HYVEON_TEST_MODE=1` by the Playwright integration-test
@@ -1469,5 +1469,5 @@ export interface GsdApi {
    *
    * Never reference this in production code paths.
    */
-  __test?: GsdTestApi;
+  __test?: HyveonTestApi;
 }

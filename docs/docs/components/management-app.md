@@ -11,7 +11,7 @@ Nest.js backend (`desktop-main`), a React dashboard renderer (`web`), and a
 pure shared library — plus the four Lambda packages documented
 [here](/components/lambdas). There is no HTTP server and no bearer token
 anywhere in this app: the renderer talks to the backend exclusively over
-Electron IPC, via `window.gsd` (the `desktop-preload` bridge).
+Electron IPC, via `window.hyveon` (the `desktop-preload` bridge).
 
 Install everything from the root:
 
@@ -83,7 +83,7 @@ never speaks HTTP to this process.
 
 Every controller is IPC-only: handlers are bound to a channel name via
 `@MessagePattern()`/`@Payload()` — there are no HTTP routes anywhere in this
-app. The renderer calls into these via `window.gsd.*` (the preload bridge),
+app. The renderer calls into these via `window.hyveon.*` (the preload bridge),
 which forwards to `ipcRenderer.invoke(channel, ...)`.
 
 | Controller | Representative channels | Purpose |
@@ -127,7 +127,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 
 There is no request-level auth to configure — Electron IPC is only reachable
 from the app's own renderer process (via the `contextBridge`-exposed
-`window.gsd`), not from the network. There is no bearer token, no
+`window.hyveon`), not from the network. There is no bearer token, no
 `API_TOKEN`, and no equivalent of the old `ApiTokenGuard` anywhere in this
 app.
 
@@ -150,7 +150,7 @@ everywhere, not `console.log`.
 - **Entry**: `src/main.tsx` → `src/App.tsx`, rendered inside an Electron
   `BrowserWindow`.
 - **Auth**: none — there's no bearer token, no login prompt, and nothing in
-  `localStorage` gating API access. The renderer's `window.gsd` bridge is
+  `localStorage` gating API access. The renderer's `window.hyveon` bridge is
   only reachable from the app's own preload-scoped context.
 
 ### Dashboard layout
@@ -176,7 +176,7 @@ everywhere, not `console.log`.
 ### API layer
 
 `src/api.service.ts` exports a single `api` object with one method per IPC
-channel. Every call is delegated straight to `window.gsd.*` — there are no
+channel. Every call is delegated straight to `window.hyveon.*` — there are no
 `fetch` calls and no bearer-token plumbing anywhere in this module.
 
 ### Vite dev config
@@ -188,7 +188,7 @@ Electron app's asar archive.
 
 ### Running e2e tests
 
-The web package ships a [Playwright](https://playwright.dev/) harness with two projects, migrating from the first to the second: `chromium` runs specs against the **production build** (`vite build` + `vite preview`), polyfilling `window.gsd` with an HTTP bridge so every `/api/*` call can be stubbed via `page.route()`; `electron` launches the packaged Electron app directly via `_electron.launch()` and stubs IPC responses through the `window.gsd.__test.mock()` test bridge instead. The Nest server never starts in either project.
+The web package ships a [Playwright](https://playwright.dev/) harness with two projects, migrating from the first to the second: `chromium` runs specs against the **production build** (`vite build` + `vite preview`), polyfilling `window.hyveon` with an HTTP bridge so every `/api/*` call can be stubbed via `page.route()`; `electron` launches the packaged Electron app directly via `_electron.launch()` and stubs IPC responses through the `window.hyveon.__test.mock()` test bridge instead. The Nest server never starts in either project.
 
 ```bash
 # One-off (builds the app, starts vite preview, runs specs, exits)

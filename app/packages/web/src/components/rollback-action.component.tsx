@@ -29,10 +29,10 @@ function formatTimestamp(iso: string): string {
  * Two-step flow, mirroring the backend's resolve-then-confirm split so
  * nothing is written until the operator has seen the target version:
  *
- * 1. Clicking the button calls `gsd.terraform.rollback.resolve` (read-only)
+ * 1. Clicking the button calls `hyveon.terraform.rollback.resolve` (read-only)
  *    to identify the tfvars version that was live before this apply run, and
  *    opens a {@link ConfirmDialog} naming it.
- * 2. Confirming calls `gsd.terraform.rollback.confirm`, which restores that
+ * 2. Confirming calls `hyveon.terraform.rollback.confirm`, which restores that
  *    version's content as a new head. On success, {@link onRolledBack} fires
  *    with the new version id so the caller can route into the plan/apply
  *    run view with it (see `TerraformPage`'s `RollbackNavState`).
@@ -51,15 +51,15 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
   const [error, setError] = useState<string | null>(null);
 
   function handleClick() {
-    if (!window.gsd) {
-      setError('IPC bridge (window.gsd) is not available in this context.');
+    if (!window.hyveon) {
+      setError('IPC bridge (window.hyveon) is not available in this context.');
       return;
     }
     setError(null);
     setResolving(true);
     void (async () => {
       try {
-        const ack = await window.gsd!.terraform.rollback.resolve({ applyRunId });
+        const ack = await window.hyveon!.terraform.rollback.resolve({ applyRunId });
         if (ack.resolved && ack.versionId && ack.lastModified) {
           setTarget({ versionId: ack.versionId, lastModified: ack.lastModified });
           setDialogOpen(true);
@@ -75,11 +75,11 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
   }
 
   function handleConfirm() {
-    if (!window.gsd) return;
+    if (!window.hyveon) return;
     setConfirming(true);
     void (async () => {
       try {
-        const ack = await window.gsd!.terraform.rollback.confirm({ applyRunId });
+        const ack = await window.hyveon!.terraform.rollback.confirm({ applyRunId });
         if (ack.confirmed && ack.versionId) {
           setDialogOpen(false);
           onRolledBack({ versionId: ack.versionId, rolledBackFrom: applyRunId });

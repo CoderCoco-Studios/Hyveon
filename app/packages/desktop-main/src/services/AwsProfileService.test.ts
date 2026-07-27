@@ -124,7 +124,7 @@ describe('AwsProfileService.savePastedCredentials', () => {
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
   });
 
-  it('should default the profile name to gsd-pasted when none is supplied', () => {
+  it('should default the profile name to hyveon-pasted when none is supplied', () => {
     const store = stubStore();
     const service = new AwsProfileService(stubSafeStorage(true), store);
 

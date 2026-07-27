@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { fromIni } from '@aws-sdk/credential-providers';
-import { GAME_SERVER_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
+import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
 
 /**
@@ -36,7 +36,7 @@ export interface IamCheckResult {
  * `openspec/changes/add-first-run-wizard`, "IAM permission simulation"
  * scenario). Resolves the caller's identity via `sts:GetCallerIdentity`,
  * then batches `iam:SimulatePrincipalPolicy` calls across the
- * `GameServerDeployAll` action set (`@hyveon/shared`'s single source of
+ * `HyveonDeployAll` action set (`@hyveon/shared`'s single source of
  * truth, itself synced to `docs/docs/setup.md`). Never grants permissions —
  * denied actions are surfaced as copy-paste-able policy JSON, and a
  * simulation failure degrades to a non-blocking warning rather than an error.
@@ -80,12 +80,12 @@ export class IamCheckService {
 
   /**
    * The action set to simulate. Extracted as a seam (rather than referencing
-   * {@link GAME_SERVER_DEPLOY_ALL_ACTIONS} inline) so tests can substitute a
+   * {@link HYVEON_DEPLOY_ALL_ACTIONS} inline) so tests can substitute a
    * larger list to exercise batching without depending on the real policy's
    * size.
    */
   protected actionsToCheck(): readonly string[] {
-    return GAME_SERVER_DEPLOY_ALL_ACTIONS;
+    return HYVEON_DEPLOY_ALL_ACTIONS;
   }
 
   private async getCallerArn(): Promise<string> {

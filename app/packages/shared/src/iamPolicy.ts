@@ -1,12 +1,12 @@
 /**
- * Flattened, deduplicated action set from the `GameServerDeployAll` inline
+ * Flattened, deduplicated action set from the `HyveonDeployAll` inline
  * IAM policy. The single source of truth for that policy is the JSON block
  * in `docs/docs/setup.md` (see CLAUDE.md "AWS IAM Policy") — `iamPolicy.test.ts`
  * asserts this constant stays in sync with it. Used by the first-run
  * wizard's IAM permission simulation (#208) to know which actions to check
  * via `iam:SimulatePrincipalPolicy`.
  */
-export const GAME_SERVER_DEPLOY_ALL_ACTIONS: readonly string[] = [
+export const HYVEON_DEPLOY_ALL_ACTIONS: readonly string[] = [
   'ecs:*',
   'elasticfilesystem:*',
   'ec2:*',

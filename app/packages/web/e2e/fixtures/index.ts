@@ -20,7 +20,7 @@ import {
   makeActualCosts,
 } from './game-data.js';
 import { AppLayout, DashboardPage, CostsPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
-import { installGsdHttpBridge } from './gsd-http-bridge.js';
+import { installHyveonHttpBridge } from './hyveon-http-bridge.js';
 
 export type {
   GameStatus,
@@ -100,12 +100,12 @@ export interface StubOptions {
    */
   drift?: DriftReport;
   /**
-   * Initial log lines surfaced via `window.gsd.logs.get(game)` (used by the
+   * Initial log lines surfaced via `window.hyveon.logs.get(game)` (used by the
    * Logs page). Maps game name → seeded lines. Games not present in the map
    * receive an empty buffer.
    *
-   * `stubApis` injects a `window.gsd.logs` stub via `addInitScript` so that
-   * `LogsPage` can call `window.gsd.logs.get` and `window.gsd.logs.stream`
+   * `stubApis` injects a `window.hyveon.logs` stub via `addInitScript` so that
+   * `LogsPage` can call `window.hyveon.logs.get` and `window.hyveon.logs.stream`
    * without a real Electron main process. The stream stub is an async iterable
    * that yields nothing, so specs drive off the seeded snapshot only.
    */
@@ -123,8 +123,8 @@ export interface StubOptions {
 
 /**
  * Registers Playwright route intercepts for all `/api/*` endpoints used by the
- * dashboard, and injects a `window.gsd.logs` stub via `addInitScript` so the
- * Logs page can call `window.gsd.logs.get` / `window.gsd.logs.stream` without
+ * dashboard, and injects a `window.hyveon.logs` stub via `addInitScript` so the
+ * Logs page can call `window.hyveon.logs.get` / `window.hyveon.logs.stream` without
  * a real Electron main process.
  *
  * Must be called before `page.goto()` in each spec that needs a running UI.
@@ -239,14 +239,14 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
     route.fulfill({ json: { success: true, permissions: discord.gamePermissions } }),
   );
 
-  // The web client now talks exclusively to `window.gsd.*`, so install a
+  // The web client now talks exclusively to `window.hyveon.*`, so install a
   // browser-side bridge that forwards each IPC call to the matching `/api/*`
   // endpoint the route stubs above already answer. Registered before page JS
-  // via addInitScript so `window.gsd` exists when app code first runs.
-  await page.addInitScript(installGsdHttpBridge);
+  // via addInitScript so `window.hyveon` exists when app code first runs.
+  await page.addInitScript(installHyveonHttpBridge);
 
-  // Logs page — override `window.gsd.logs` with a data-backed stub so LogsPage
-  // can call `window.gsd.logs.get` / `window.gsd.logs.stream` without a real
+  // Logs page — override `window.hyveon.logs` with a data-backed stub so LogsPage
+  // can call `window.hyveon.logs.get` / `window.hyveon.logs.stream` without a real
   // Electron main process or an HTTP logs route (logs are IPC-only). This runs
   // after the bridge init script and *merges* over it, preserving every other
   // namespace the bridge installed. The seeded logLines map is passed as a
@@ -257,8 +257,8 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   // live chunks — specs drive off the seeded snapshot only.
   await page.addInitScript(
     ({ lines }: { lines: Record<string, string[]> }) => {
-      const existing = (window as Record<string, unknown>)['gsd'] as Record<string, unknown> | undefined;
-      (window as Record<string, unknown>)['gsd'] = {
+      const existing = (window as Record<string, unknown>)['hyveon'] as Record<string, unknown> | undefined;
+      (window as Record<string, unknown>)['hyveon'] = {
         ...(existing ?? {}),
         logs: {
           get: (game: string) =>
@@ -323,9 +323,9 @@ export { expect, _electron } from '@playwright/test';
 export type { Page } from '@playwright/test';
 export type { ElectronApplication } from 'playwright-core';
 
-export { launchElectron, applyGsdMocks } from './electron-launch.js';
+export { launchElectron, applyHyveonMocks } from './electron-launch.js';
 export type { ElectronHandle } from './electron-launch.js';
 
 // Electron IPC mock helpers — seed all Discord channels from a fixture or
-// clear the entire mock registry via `window.gsd.__test`.
+// clear the entire mock registry via `window.hyveon.__test`.
 export { seedDiscordMocks, clearElectronMocks } from './electron-mock.js';

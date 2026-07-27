@@ -501,8 +501,8 @@ export class ConfigService {
    *
    * Resolution order (mirrors the `--bucket` fallback chain in
    * `scripts/tfvars-sync.ts` and the `Makefile` targets it generates):
-   *  1. `GSD_TFVARS_BUCKET` env var — wins when set.
-   *  2. The nearest `.gsd/tfvars-bucket` marker file, found by walking up
+   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set.
+   *  2. The nearest `.hyveon/tfvars-bucket` marker file, found by walking up
    *     from `process.cwd()` toward the filesystem root — written by
    *     `setup.sh`'s S3 bootstrap or `init-parent.ts bootstrap --s3-tfvars`.
    *     Matches `findBucketMarker()` in `scripts/tfvars-sync.ts` so the CLI
@@ -511,38 +511,72 @@ export class ConfigService {
    *  3. `null` — no backend configured.
    */
   getTfvarsBucket(): string | null {
-    const envOverride = process.env['GSD_TFVARS_BUCKET'];
+    const envOverride = this.readEnvTfvarsBucket();
     if (envOverride) return envOverride;
 
-    const markerPath = this.findTfvarsBucketMarker(process.cwd());
-    if (!markerPath) return null;
+    return this.findTfvarsBucketMarker(process.cwd()) ?? null;
+  }
 
-    try {
-      const contents = readFileSync(markerPath, 'utf-8').trim();
-      return contents.length > 0 ? contents : null;
-    } catch (err) {
-      logger.warn('Could not read .gsd/tfvars-bucket marker file', { err, path: markerPath });
-      return null;
-    }
+  /**
+   * Read the `HYVEON_TFVARS_BUCKET` override from the process environment.
+   * Extracted for test-stubbing, mirroring {@link readEnvRegion}.
+   */
+  readEnvTfvarsBucket(): string | undefined {
+    return process.env['HYVEON_TFVARS_BUCKET'];
   }
 
   /**
    * Walk up from `startDir` toward the filesystem root looking for a
-   * `.gsd/tfvars-bucket` marker file, one directory at a time. Mirrors
-   * `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI and the
-   * app resolve to the same marker file. Returns the marker file's absolute
-   * path once found, or `undefined` if the filesystem root is reached
-   * without a match.
+   * non-empty `.hyveon/tfvars-bucket` marker file, one directory at a time.
+   * Falls back to the pre-rename `.gsd/tfvars-bucket` path (with a one-time
+   * warning) at each directory when the new path isn't present or is empty,
+   * so an operator who bootstrapped an S3 tfvars backend before the
+   * `dev.gsd.desktop` → `dev.hyveon.desktop` rename and hasn't yet run
+   * `mv .gsd .hyveon` doesn't silently fall back to "local mode" while the S3
+   * bucket still exists. An empty or unreadable marker at a given directory
+   * doesn't stop the walk — it's treated the same as a missing one, and the
+   * search continues to the legacy path at that directory, then the parent.
+   * Mirrors `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI
+   * and the app resolve to the same marker file. Returns the marker's trimmed
+   * contents (the bucket name) once found, or `undefined` if the filesystem
+   * root is reached without a match.
    */
   private findTfvarsBucketMarker(startDir: string): string | undefined {
     let dir = startDir;
     while (true) {
-      const markerPath = join(dir, '.gsd', 'tfvars-bucket');
-      if (existsSync(markerPath)) return markerPath;
+      const markerPath = join(dir, '.hyveon', 'tfvars-bucket');
+      const contents = this.readMarkerFile(markerPath);
+      if (contents) return contents;
+
+      const legacyMarkerPath = join(dir, '.gsd', 'tfvars-bucket');
+      const legacyContents = this.readMarkerFile(legacyMarkerPath);
+      if (legacyContents) {
+        logger.warn(`Using legacy .gsd/tfvars-bucket marker — run \`mv .gsd .hyveon\` in ${dir} to migrate`, {
+          path: legacyMarkerPath,
+        });
+        return legacyContents;
+      }
 
       const parent = dirname(dir);
       if (parent === dir) return undefined;
       dir = parent;
+    }
+  }
+
+  /**
+   * Read and trim a tfvars-bucket marker file's contents. Returns `undefined`
+   * (rather than throwing or returning an empty string) when the file is
+   * missing, unreadable, or empty, so callers can treat all three the same
+   * way — as "no marker here, keep looking."
+   */
+  private readMarkerFile(markerPath: string): string | undefined {
+    if (!existsSync(markerPath)) return undefined;
+    try {
+      const contents = readFileSync(markerPath, 'utf-8').trim();
+      return contents.length > 0 ? contents : undefined;
+    } catch (err) {
+      logger.warn(`Could not read ${markerPath} marker file`, { err, path: markerPath });
+      return undefined;
     }
   }
 

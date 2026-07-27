@@ -18,10 +18,12 @@ import {
   lockStatus,
   checkTfvars,
   parseArgs,
+  resolveBucket,
   VersionMismatchError,
   BucketNotVersionedError,
   type LockFile,
 } from './tfvars-sync.ts';
+import { mkdirSync } from 'node:fs';
 
 /** Typed stand-in for the AWS S3 SDK client — patches every `new S3Client()` instance. */
 const s3Mock = mockClient(S3Client);
@@ -466,6 +468,40 @@ describe('tfvars-sync', () => {
       expect(() =>
         parseArgs(['--path', '/tmp/parent/terraform.tfvars', '--bucket', 'my-bucket', 'pull']),
       ).toThrow(/Usage: tfvars-sync\.ts <pull\|push\|diff\|status\|check>/);
+    });
+  });
+
+  describe('resolveBucket', () => {
+    it('should read the new .hyveon/tfvars-bucket marker when present', () => {
+      mkdirSync(join(tmpDir, '.hyveon'), { recursive: true });
+      writeFileSync(join(tmpDir, '.hyveon', 'tfvars-bucket'), 'new-bucket-name\n');
+
+      expect(resolveBucket(undefined, tmpDir)).toBe('new-bucket-name');
+    });
+
+    it('should fall back to the legacy .gsd/tfvars-bucket marker when the new path is absent', () => {
+      // Regression pin: an operator who bootstrapped an S3 tfvars backend
+      // before the dev.gsd.desktop -> dev.hyveon.desktop rename still has
+      // `.gsd/tfvars-bucket` on disk and may not have run `mv .gsd .hyveon`
+      // yet — the CLI must keep resolving the existing bucket instead of
+      // silently reporting "no backend configured".
+      mkdirSync(join(tmpDir, '.gsd'), { recursive: true });
+      writeFileSync(join(tmpDir, '.gsd', 'tfvars-bucket'), 'legacy-bucket-name\n');
+
+      expect(resolveBucket(undefined, tmpDir)).toBe('legacy-bucket-name');
+    });
+
+    it('should prefer the new marker over the legacy one when both exist', () => {
+      mkdirSync(join(tmpDir, '.hyveon'), { recursive: true });
+      mkdirSync(join(tmpDir, '.gsd'), { recursive: true });
+      writeFileSync(join(tmpDir, '.hyveon', 'tfvars-bucket'), 'new-bucket-name\n');
+      writeFileSync(join(tmpDir, '.gsd', 'tfvars-bucket'), 'legacy-bucket-name\n');
+
+      expect(resolveBucket(undefined, tmpDir)).toBe('new-bucket-name');
+    });
+
+    it('should return undefined when neither marker exists', () => {
+      expect(resolveBucket(undefined, tmpDir)).toBeUndefined();
     });
   });
 });

@@ -1,10 +1,10 @@
 /**
- * Browser-side test shim that installs `window.gsd` as a thin HTTP forwarder.
+ * Browser-side test shim that installs `window.hyveon` as a thin HTTP forwarder.
  *
- * Production builds receive `window.gsd` from the Electron preload script, but
+ * Production builds receive `window.hyveon` from the Electron preload script, but
  * the tier-1 `chromium` Playwright project runs the web bundle in a plain
  * browser with no Electron host. Since `api.service.ts` now talks exclusively
- * to `window.gsd.*`, this shim re-routes each IPC-shaped call back to the
+ * to `window.hyveon.*`, this shim re-routes each IPC-shaped call back to the
  * matching `/api/*` HTTP endpoint — which is exactly what the chromium
  * stub-based specs already provide via `page.route`. That keeps every
  * existing stub and HTTP-contract assertion working unchanged while the app
@@ -16,7 +16,7 @@
  * the browser before any app code:
  *
  * ```ts
- * await page.addInitScript(installGsdHttpBridge);
+ * await page.addInitScript(installHyveonHttpBridge);
  * ```
  *
  * It is intentionally self-contained — it closes over no module-scope bindings —
@@ -24,7 +24,7 @@
  * The Nest API no longer requires a bearer token, so calls go out with only the
  * headers each request supplies.
  */
-export function installGsdHttpBridge(): void {
+export function installHyveonHttpBridge(): void {
   const call = async (path: string, init?: RequestInit): Promise<unknown> => {
     const res = await fetch(path, init);
     if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -39,7 +39,7 @@ export function installGsdHttpBridge(): void {
     body: JSON.stringify(body),
   });
 
-  (window as Record<string, unknown>)['gsd'] = {
+  (window as Record<string, unknown>)['hyveon'] = {
     env: { get: () => call('/api/env') },
     games: {
       list: () => call('/api/games'),

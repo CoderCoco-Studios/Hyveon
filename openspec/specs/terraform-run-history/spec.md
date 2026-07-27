@@ -8,11 +8,11 @@ Defines the Terraform run-history capability: a paginated, status-filterable run
 
 ### Requirement: Run listing API
 
-The system SHALL provide a run-listing API spanning every layer: a `listRuns` method on the `RunRecordStore` contract (`@hyveon/shared/cloud.ts`) implemented by `AwsRunRecordStore` as a DynamoDB query, a `RunRecordService.listRuns` service method, a `terraform.runs.list` IPC channel on `TerraformRunsController`, and a `gsd.terraform.runs.list` preload bridge with a typed mirror in `gsd-api.ts`. Results MUST be returned newest-first as the `RunPageResult` page shape already defined in `@hyveon/shared/runs.ts` (records plus an optional `nextBefore` cursor), and the API MUST support a page-size limit, cursor-based continuation, and optional filtering by run status (served by the runs table's `status-index` GSI on status + `startedAt`).
+The system SHALL provide a run-listing API spanning every layer: a `listRuns` method on the `RunRecordStore` contract (`@hyveon/shared/cloud.ts`) implemented by `AwsRunRecordStore` as a DynamoDB query, a `RunRecordService.listRuns` service method, a `terraform.runs.list` IPC channel on `TerraformRunsController`, and a `hyveon.terraform.runs.list` preload bridge with a typed mirror in `hyveon-api.ts`. Results MUST be returned newest-first as the `RunPageResult` page shape already defined in `@hyveon/shared/runs.ts` (records plus an optional `nextBefore` cursor), and the API MUST support a page-size limit, cursor-based continuation, and optional filtering by run status (served by the runs table's `status-index` GSI on status + `startedAt`).
 
 #### Scenario: First page of runs, newest first
 
-- **WHEN** a caller invokes `gsd.terraform.runs.list({ limit: 20 })`
+- **WHEN** a caller invokes `hyveon.terraform.runs.list({ limit: 20 })`
 - **THEN** it resolves a `RunPageResult` whose records are the 20 most recent runs ordered newest-first, with `nextBefore` set when older runs exist
 
 #### Scenario: Cursor fetches the next page
@@ -32,7 +32,7 @@ The system SHALL provide a run-listing API spanning every layer: a `listRuns` me
 
 ### Requirement: Run history route
 
-The web app SHALL provide a `/terraform/history` route rendering a table of past runs backed by `gsd.terraform.runs.list`. Each row MUST show at least the run's kind, status, started/completed timestamps, and — when present — the approver and the `rolledBackFrom` tag. The table MUST support loading older pages via the listing API's cursor.
+The web app SHALL provide a `/terraform/history` route rendering a table of past runs backed by `hyveon.terraform.runs.list`. Each row MUST show at least the run's kind, status, started/completed timestamps, and — when present — the approver and the `rolledBackFrom` tag. The table MUST support loading older pages via the listing API's cursor.
 
 #### Scenario: History table renders recent runs
 
@@ -60,7 +60,7 @@ The history view SHALL let the operator filter the listed runs by run kind (`pla
 
 ### Requirement: Read-only run detail from history
 
-Clicking a history row SHALL open a read-only run-detail view built from the same components as the live Plan/Apply run view, showing the run's status (via `gsd.terraform.runs.get`) and its captured log. The log MUST resolve from the best available source: replayed via `gsd.terraform.runs.streamLogs` when the local run artifacts exist, otherwise from the persisted record's `logInline` text, otherwise fetched via a presigned URL resolved server-side from the record's `logS3Key` (`RunRecordService.getLogUrl`, exposed over IPC). Approve/apply controls MUST NOT be offered from this read-only view for terminal runs.
+Clicking a history row SHALL open a read-only run-detail view built from the same components as the live Plan/Apply run view, showing the run's status (via `hyveon.terraform.runs.get`) and its captured log. The log MUST resolve from the best available source: replayed via `hyveon.terraform.runs.streamLogs` when the local run artifacts exist, otherwise from the persisted record's `logInline` text, otherwise fetched via a presigned URL resolved server-side from the record's `logS3Key` (`RunRecordService.getLogUrl`, exposed over IPC). Approve/apply controls MUST NOT be offered from this read-only view for terminal runs.
 
 #### Scenario: Detail replays a locally available log
 

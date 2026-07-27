@@ -6,7 +6,7 @@ import { DiagnosticsService } from '../services/DiagnosticsService.js';
  * IPC-only controller for local application log data.
  *
  * Registers the `diagnostics.tail` and `diagnostics.path` Electron IPC
- * channels so the renderer can reach them through `window.gsd.diagnostics.*`.
+ * channels so the renderer can reach them through `window.hyveon.diagnostics.*`.
  * No HTTP routes are declared here.
  */
 @Controller()

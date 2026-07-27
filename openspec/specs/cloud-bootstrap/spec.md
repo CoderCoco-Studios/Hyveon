@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the Terraform state bucket, the state-lock table, and the tfvars bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `GameServerDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
+Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the Terraform state bucket, the state-lock table, and the tfvars bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
 
 ## Requirements
 
@@ -69,11 +69,11 @@ The bootstrap service SHALL create the versioned tfvars bucket when missing, ena
 
 ### Requirement: IAM permission simulation
 
-After credentials are wired, the wizard SHALL run a best-effort dry-run via `iam:SimulatePrincipalPolicy` against the calling identity (resolved via `sts:GetCallerIdentity`) for the action set of the `GameServerDeployAll` policy, whose single source of truth is the policy JSON in `docs/docs/setup.md`. Simulation requests MUST be batched to stay within API limits and minimize false positives. Missing actions SHALL be surfaced in the wizard as a "Required IAM JSON" panel containing copy-paste-able policy JSON covering the denied actions. The wizard MUST NEVER attempt to grant permissions itself, and simulation failure (e.g. the caller lacks `iam:SimulatePrincipalPolicy` itself) MUST degrade to a warning with the full checklist shown — it does not block wizard progression.
+After credentials are wired, the wizard SHALL run a best-effort dry-run via `iam:SimulatePrincipalPolicy` against the calling identity (resolved via `sts:GetCallerIdentity`) for the action set of the `HyveonDeployAll` policy, whose single source of truth is the policy JSON in `docs/docs/setup.md`. Simulation requests MUST be batched to stay within API limits and minimize false positives. Missing actions SHALL be surfaced in the wizard as a "Required IAM JSON" panel containing copy-paste-able policy JSON covering the denied actions. The wizard MUST NEVER attempt to grant permissions itself, and simulation failure (e.g. the caller lacks `iam:SimulatePrincipalPolicy` itself) MUST degrade to a warning with the full checklist shown — it does not block wizard progression.
 
 #### Scenario: All actions allowed
 
-- **WHEN** the simulation reports every `GameServerDeployAll` action as allowed
+- **WHEN** the simulation reports every `HyveonDeployAll` action as allowed
 - **THEN** the wizard shows the IAM check as passed with no JSON panel
 
 #### Scenario: Missing actions surfaced as pasteable JSON
