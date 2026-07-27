@@ -315,7 +315,7 @@ help:
 \t@echo "  make apply         Copy tfvars into submodule then terraform apply"
 \t@echo "                     (checks tfvars are in sync with S3 first when a backend is detected; FORCE_APPLY=1 to skip)"
 \t@echo "  make update        Pull latest ${a.submoduleDir}/main; re-init terraform"
-\t@echo "  make dev           Start dev servers (Nest :3001 + Vite :5173)"
+\t@echo "  make dev           Launch the Hyveon desktop app in dev mode (electron-vite)"
 \t@echo "  make tfvars-pull   Pull terraform.tfvars from the S3 backend (requires one to be configured)"
 \t@echo "  make tfvars-push   Push terraform.tfvars to the S3 backend"
 \t@echo "  make tfvars-diff   Show a unified diff between local and remote terraform.tfvars"
@@ -340,27 +340,29 @@ setup: | $(STAMP_DIR)
 # tfvars bucket this recipe creates are all named after the same
 # project_name PARENT_TFVARS_MARKER (if any) was derived from, rather than
 # whatever project_name happens to already be checked into
-# $(TF_DIR)/terraform.tfvars (e.g. the "${a.projectName}" default seeded
-# from terraform.tfvars.example on a first run).
+# $(TF_DIR)/terraform.tfvars.
 # Guarded: a parent repo that migrated to S3 a while ago may have no local
 # $(TFVARS) at all (see docs/docs/guides/submodule.md) — a fresh clone of
-# such a parent must still be able to run \`make setup\` under -eu, falling
-# through to terraform.tfvars.example (and the post-bootstrap S3 pull below)
-# to seed the file.
-\tif [ -f $(TFVARS) ]; then \\
-\t  cp $(TFVARS) $(TF_DIR)/terraform.tfvars; \\
-\telif [ ! -f $(TF_DIR)/terraform.tfvars ] && [ -f $(TF_DIR)/terraform.tfvars.example ]; then \\
-\t  cp $(TF_DIR)/terraform.tfvars.example $(TF_DIR)/terraform.tfvars; \\
-\t  echo "Created $(TF_DIR)/terraform.tfvars from the example — edit terraform.tfvars at the parent repo root instead."; \\
-\tfi
-\t@if [ ! -r $(TF_DIR)/terraform.tfvars ]; then echo "$(TF_DIR)/terraform.tfvars is missing or unreadable (check file permissions)." >&2; exit 1; fi
-# Derive project_name/aws_region from terraform.tfvars — the same grep/sed
-# extraction the old setup.sh used — falling back to this Makefile's own
-# known project name / setup.sh's own us-east-1 default when a key is
-# genuinely absent. Cached under $(STAMP_DIR) so later recipe lines (each
-# its own shell invocation) don't have to re-derive them.
-\t@PROJECT=$$(grep -E '^[[:space:]]*project_name[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
-\t REGION=$$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
+# such a parent must still be able to run \`make setup\` under -eu. We
+# deliberately do NOT fall back to terraform.tfvars.example here: its
+# checked-in project_name ("${a.projectName}") is unrelated to this parent
+# repo's actual project and would silently win over the correct fallback
+# below. terraform init doesn't need terraform.tfvars to exist — only
+# plan/apply do, by which point the post-bootstrap S3 pull further down has
+# had a chance to seed $(TFVARS) for real.
+\tif [ -f $(TFVARS) ]; then cp $(TFVARS) $(TF_DIR)/terraform.tfvars; fi
+# Derive project_name/aws_region from terraform.tfvars when we just copied a
+# real one in — the same grep/sed extraction the old setup.sh used —
+# falling back to this Makefile's own known project name / setup.sh's own
+# us-east-1 default when $(TFVARS) doesn't exist yet or a key is genuinely
+# absent. Cached under $(STAMP_DIR) so later recipe lines (each its own
+# shell invocation) don't have to re-derive them.
+\t@if [ -f $(TF_DIR)/terraform.tfvars ]; then \\
+\t  PROJECT=$$(grep -E '^[[:space:]]*project_name[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
+\t  REGION=$$(grep -E '^[[:space:]]*aws_region[[:space:]]*=' $(TF_DIR)/terraform.tfvars | head -1 | sed -E 's/.*=[[:space:]]*"(.*)".*/\\1/' || true); \\
+\t else \\
+\t  PROJECT=""; REGION=""; \\
+\t fi; \\
 \t if [ -z "$$PROJECT" ]; then PROJECT="${a.projectName}"; fi; \\
 \t if [ -z "$$REGION" ]; then REGION="us-east-1"; fi; \\
 \t echo "$$PROJECT" > $(STAMP_DIR)/tf-project; \\
@@ -508,7 +510,7 @@ apply: check-tfvars-if-needed copy-tfvars
 \t@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 \t@echo "  Post-deploy checklist"
 \t@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-\t@INVOKE_URL=$$(terraform -chdir=$(TF_DIR) output -raw interactions_invoke_url 2>/dev/null); \\
+\t@INVOKE_URL=$$(terraform -chdir=$(TF_DIR) output -raw interactions_invoke_url 2>/dev/null || true); \\
 \t  echo ""; \\
 \t  echo "  Interactions Endpoint URL (copy this):"; \\
 \t  echo "    $\${INVOKE_URL:-(not available - did apply succeed?)}"; \\
@@ -544,10 +546,18 @@ tfvars-diff:
 # ── Submodule update ──────────────────────────────────────────────────────────
 # Bumps the submodule then unconditionally re-runs \`terraform init\` — cheap
 # and idempotent, so there's no need for setup.sh-style sha-based
-# drift-detection to decide whether to rerun it.
+# drift-detection to decide whether to rerun it. Re-supplies the same
+# -backend-config flags \`setup\` used (from the tf-project/tf-region stamps
+# it wrote, not a bare \`terraform init\` relying on the .terraform/ cache) —
+# \`update\` is exactly the target most likely to need a reconfigure, since
+# the submodule bump on the line above is what could change the backend
+# block, and a bare init against an already-configured partial backend can
+# hang or fail waiting on stdin if the cache is ever cleared.
 update: | $(STAMP_DIR)
 \tgit submodule update --remote --merge $(SUBMODULE)
-\tterraform -chdir=$(TF_DIR) init
+\t@if [ ! -f $(STAMP_DIR)/tf-project ]; then echo "Run 'make setup' first." >&2; exit 1; fi
+\tTF_PROJECT=$$(cat $(STAMP_DIR)/tf-project); TF_REGION=$$(cat $(STAMP_DIR)/tf-region); \\
+\tterraform -chdir=$(TF_DIR) init -input=false -backend-config="bucket=$$TF_PROJECT-tf-state" -backend-config="key=$$TF_PROJECT/terraform.tfstate" -backend-config="region=$$TF_REGION" -backend-config="dynamodb_table=$$TF_PROJECT-tf-locks" -backend-config="encrypt=true"
 \t@echo ""
 \t@echo "Submodule updated. Commit the new pointer when ready:"
 \t@echo "  git add ${a.submoduleDir} && git commit -m 'chore: bump ${a.submoduleDir}'"
@@ -822,7 +832,7 @@ export async function runBootstrap(options: BootstrapOptions = { s3Tfvars: false
     output.write(`    1. Review terraform.tfvars and add at least one entry under game_servers.\n`);
     output.write(`    2. Run \`make setup\` to bootstrap the submodule and Terraform.\n`);
     output.write(`    3. Run \`make plan\` then \`make apply\`.\n`);
-    output.write(`    4. \`make dev\` to launch the management app on :5173.\n\n`);
+    output.write(`    4. \`make dev\` to launch the desktop app in dev mode.\n\n`);
 
     if (wantsS3Tfvars) {
       output.write(`  S3-backed tfvars store requested — .gsd/tfvars-bucket recorded (${projectName}-tfvars).\n`);

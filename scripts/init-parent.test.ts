@@ -183,9 +183,25 @@ expect(
   'Makefile apply rebuilds lambdas then calls terraform apply directly, printing a post-deploy checklist',
   /apply: check-tfvars-if-needed copy-tfvars\n\tcd \$\(SUBMODULE\) && npm run app:build:lambdas\n\tterraform -chdir=\$\(TF_DIR\) apply/.test(mk) && mk.includes('Post-deploy checklist') && mk.includes('interactions_invoke_url'),
 );
+const updateRecipeMatch = /^update:.*\n(?:(?:\t|#).*\n?)*/m.exec(mk);
+const updateRecipe = updateRecipeMatch ? updateRecipeMatch[0] : '';
+expect('Makefile has an update: recipe to inspect', updateRecipe !== '');
 expect(
   'Makefile update bumps the submodule then unconditionally re-inits terraform',
-  /update: \| \$\(STAMP_DIR\)\n\tgit submodule update --remote --merge \$\(SUBMODULE\)\n\tterraform -chdir=\$\(TF_DIR\) init\n/.test(mk),
+  updateRecipe.includes('git submodule update --remote --merge $(SUBMODULE)') &&
+    updateRecipe.includes('terraform -chdir=$(TF_DIR) init') &&
+    updateRecipe.indexOf('git submodule update --remote --merge $(SUBMODULE)') <
+      updateRecipe.indexOf('terraform -chdir=$(TF_DIR) init'),
+);
+expect(
+  'Makefile update re-inits terraform with the same -backend-config flags setup used, not a bare init relying on the .terraform/ cache',
+  updateRecipe.includes('-backend-config="bucket=$$TF_PROJECT-tf-state"') &&
+    updateRecipe.includes('-backend-config="dynamodb_table=$$TF_PROJECT-tf-locks"') &&
+    updateRecipe.includes('-input=false'),
+);
+expect(
+  'Makefile update fails fast with a pointer to `make setup` when the tf-project stamp is missing, instead of hanging on a partial backend',
+  updateRecipe.includes("if [ ! -f $(STAMP_DIR)/tf-project ]; then echo \"Run 'make setup' first.\" >&2; exit 1; fi"),
 );
 expect('Makefile setup still runs git submodule update --init --recursive', mk.includes('git submodule update --init --recursive'));
 
