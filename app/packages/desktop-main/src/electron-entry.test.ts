@@ -55,14 +55,26 @@ const {
     },
   }));
 
-  /** Spy BrowserWindow constructor whose instances expose controlled load fns. */
-  const MockBrowserWindow = vi.fn().mockImplementation(() => ({
-    loadURL: mockLoadURL,
-    loadFile: mockLoadFile,
-  }));
-
-  /** `BrowserWindow.getAllWindows()` static method used by the activate handler. */
-  MockBrowserWindow.getAllWindows = mockGetAllWindows;
+  /**
+   * Spy BrowserWindow constructor whose instances expose controlled load fns.
+   *
+   * The implementation must be a `function` expression rather than an arrow:
+   * Vitest 4 forwards `new MockBrowserWindow()` to the implementation through
+   * `Reflect.construct`, and arrow functions have no [[Construct]] slot, so an
+   * arrow implementation throws "is not a constructor" at the `new` site.
+   */
+  const MockBrowserWindow = Object.assign(
+    vi.fn().mockImplementation(function () {
+      return {
+        loadURL: mockLoadURL,
+        loadFile: mockLoadFile,
+      };
+    }),
+    {
+      /** `BrowserWindow.getAllWindows()` static method used by the activate handler. */
+      getAllWindows: mockGetAllWindows,
+    },
+  );
 
   /** Fake Nest microservice app returned by `bootstrap()`, standing in for the real DI container. */
   const fakeNestApp = { get: vi.fn() };
@@ -128,10 +140,12 @@ describe('electron-entry', () => {
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
     // queues; mockImplementation persists, but we re-set to be defensive).
-    MockBrowserWindow.mockImplementation(() => ({
-      loadURL: mockLoadURL,
-      loadFile: mockLoadFile,
-    }));
+    MockBrowserWindow.mockImplementation(function () {
+      return {
+        loadURL: mockLoadURL,
+        loadFile: mockLoadFile,
+      };
+    });
 
     // Re-apply mockOn and mockWhenReady implementations so callback capturing
     // works correctly after clearMocks resets the call history.

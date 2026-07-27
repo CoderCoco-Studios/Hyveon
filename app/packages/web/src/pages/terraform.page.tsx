@@ -115,14 +115,23 @@ interface RunLogState {
  * first.
  */
 function useTerraformRunLog(runId: string | null): RunLogState {
-  const [chunks, setChunks] = useState<TerraformRunChunk[]>([]);
-  const [ended, setEnded] = useState(false);
+  // The accumulated log is tagged with the run it belongs to, so switching
+  // runs discards the previous output at render time. Previously the effect
+  // cleared `chunks`/`ended` synchronously on every `runId` change, which is
+  // what `react-hooks/set-state-in-effect` flags.
+  const [log, setLog] = useState<{
+    runId: string;
+    chunks: TerraformRunChunk[];
+    ended: boolean;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const isCurrent = log !== null && log.runId === runId;
+  const chunks = isCurrent ? log.chunks : [];
+  const ended = isCurrent ? log.ended : false;
 
   useEffect(() => {
     abortRef.current?.abort();
-    setChunks([]);
-    setEnded(false);
 
     if (!runId || !window.hyveon) return;
 
@@ -130,18 +139,34 @@ function useTerraformRunLog(runId: string | null): RunLogState {
     abortRef.current = ac;
     let cancelled = false;
 
+    /**
+     * Fold an update into the log state, but only while it still describes
+     * this run — a late chunk from a superseded stream must not resurrect
+     * itself on top of the new run's output.
+     */
+    const update = (
+      apply: (prev: { chunks: TerraformRunChunk[]; ended: boolean }) => {
+        chunks: TerraformRunChunk[];
+        ended: boolean;
+      },
+    ) =>
+      setLog((prev) => {
+        const base = prev && prev.runId === runId ? prev : { runId, chunks: [], ended: false };
+        return { runId, ...apply(base) };
+      });
+
     void (async () => {
       try {
         for await (const chunk of window.hyveon!.terraform.runs.streamLogs(runId, ac.signal)) {
           if (cancelled) break;
-          setChunks((prev) => [...prev, chunk]);
+          update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk] }));
         }
       } catch {
         // The run's own failure is already visible in the accumulated log
         // output and surfaced via the follow-up `runs.get` status check —
         // nothing further to report here.
       } finally {
-        if (!cancelled) setEnded(true);
+        if (!cancelled) update((prev) => ({ ...prev, ended: true }));
       }
     })();
 

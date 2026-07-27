@@ -106,22 +106,23 @@ function NavSections({
 export function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [env, setEnv] = useState<EnvInfo | null>(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // The mobile drawer stores *which route it was opened on* rather than a
+  // bare boolean, so "close whenever the route changes (e.g. browser
+  // back/forward)" falls out of a render-time comparison instead of needing
+  // an effect that calls setState on every navigation.
+  const [menuOpenForPath, setMenuOpenForPath] = useState<string | null>(null);
+  const mobileMenuOpen = menuOpenForPath === location.pathname;
 
   useEffect(() => {
     api.env().then(setEnv).catch(console.error);
   }, []);
 
-  // Close mobile menu whenever the route changes (e.g. browser back/forward).
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
-
   const envLabel = env
     ? `${env.environment} · ${env.region}`
     : 'local';
 
-  const closeMobileMenu = () => setMobileMenuOpen(false);
+  const openMobileMenu = () => setMenuOpenForPath(location.pathname);
+  const closeMobileMenu = () => setMenuOpenForPath(null);
 
   return (
     <div className="flex h-screen bg-background">
@@ -195,7 +196,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {/* Hamburger button — only visible on mobile */}
             <button
               type="button"
-              onClick={() => setMobileMenuOpen(true)}
+              onClick={openMobileMenu}
               aria-label="Open navigation"
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-nav"
@@ -274,9 +275,10 @@ export function RefreshAllButton() {
  * neutral when no pollers are registered yet.
  */
 export function LiveIndicator() {
-  const { pollers, tick } = usePollingState();
-  void tick;
-  const now = Date.now();
+  // See PollingIndicator: `now` is the provider's 1Hz heartbeat value, so the
+  // staleness comparison below re-evaluates every second without this render
+  // reading the clock itself.
+  const { pollers, now } = usePollingState();
   const entries = Object.values(pollers);
   const anyFresh = entries.some((p) => p.lastSuccessAt !== null && !isStale(p, now));
   const allStale = entries.length > 0 && entries.every((p) => isStale(p, now));

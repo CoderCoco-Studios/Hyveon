@@ -9,9 +9,9 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "@aws-sdk/client-cloudwatch": "^3.600.0",
-    "@aws-sdk/client-ecs": "^3.600.0",
-    "@aws-sdk/client-route-53": "^3.600.0",
-    "@types/aws-lambda": "^8.10.138"
+    "@aws-sdk/client-cloudwatch": "^3.1095.0",
+    "@aws-sdk/client-ecs": "^3.1095.0",
+    "@aws-sdk/client-route-53": "^3.1095.0",
+    "@types/aws-lambda": "^8.10.162"
   }
 }

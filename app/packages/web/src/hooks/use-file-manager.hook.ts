@@ -39,11 +39,31 @@ export function useFileManager() {
   // Latest `activeGame` used inside the registered poller closure — keeps
   // the registration stable when the consumer toggles between games.
   const gameRef = useRef<string | null>(null);
-  gameRef.current = activeGame;
+  // Synced in an effect rather than assigned during render: a render-phase
+  // ref write is visible to renders React may discard (`react-hooks/refs`).
+  // Only the interval-driven poller closure reads this, so updating it after
+  // commit is soon enough.
+  useEffect(() => {
+    gameRef.current = activeGame;
+  });
 
   const fetchOnce = useCallback(async (game: string) => {
     const s = await api.filesMgrStatus(game);
     setStatus(s);
+
+    // Clear the pending flags here rather than in an effect watching
+    // `status.state`. `fetchOnce` is the only thing that ever advances the
+    // status, so this fires at exactly the same moments the old effect did,
+    // without the extra render pass that `react-hooks/set-state-in-effect`
+    // flags. Deriving the flags at render instead would be wrong: the
+    // transition is one-way, and a later move back to `stopped` must not
+    // resurrect a `pendingStart` the user never re-requested.
+    if (s.state === 'starting' || s.state === 'running') {
+      setPendingStart(false);
+    }
+    if (s.state === 'stopped' || s.state === 'not_deployed') {
+      setPendingStop(false);
+    }
   }, []);
 
   const open = useCallback(
@@ -83,18 +103,6 @@ export function useFileManager() {
     if (result.success) setPendingStop(true);
     void fetchOnce(activeGame);
   }, [activeGame, fetchOnce]);
-
-  // Clear the pending flags once the status reaches the matching settled
-  // state so the poller below unregisters and we stop hitting
-  // `/api/files/:game`.
-  useEffect(() => {
-    if (status?.state === 'starting' || status?.state === 'running') {
-      setPendingStart(false);
-    }
-    if (status?.state === 'stopped' || status?.state === 'not_deployed') {
-      setPendingStop(false);
-    }
-  }, [status?.state]);
 
   // Register the reactive poller only while the helper task is mid-transition
   // (starting, start-in-flight, or stop-in-flight). Unregisters automatically

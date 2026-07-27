@@ -24,20 +24,24 @@ import { FirstRunWizard } from './components/first-run-wizard/first-run-wizard.c
  * own dashboard. Returns `null` while the check is in flight.
  */
 function useWizardCompleted(): boolean | null {
-  const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(null);
+  // The "no bridge" answer is known before the first paint, so it is the
+  // lazy initial value rather than a `setWizardCompleted(true)` inside the
+  // effect — settling it synchronously avoids both the throwaway render and
+  // the `react-hooks/set-state-in-effect` violation.
+  //
+  // Optional chaining matters here, not just the `window.hyveon` presence
+  // check: a `window.hyveon` stub built before this namespace existed (e.g.
+  // the chromium e2e tier's stub bridge) has no `.wizard` property, and
+  // `window.hyveon.wizard.getState()` would throw synchronously — before
+  // there's even a promise to `.catch()` — permanently stalling this
+  // component at `wizardCompleted === null` (renders nothing, forever).
+  const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(() =>
+    window.hyveon?.wizard ? null : true,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    // Optional chaining matters here, not just the `window.hyveon` presence
-    // check: a `window.hyveon` stub built before this namespace existed (e.g.
-    // the chromium e2e tier's stub bridge) has no `.wizard` property, and
-    // `window.hyveon.wizard.getState()` would throw synchronously — before
-    // there's even a promise to `.catch()` — permanently stalling this
-    // component at `wizardCompleted === null` (renders nothing, forever).
-    if (!window.hyveon?.wizard) {
-      setWizardCompleted(true);
-      return;
-    }
+    if (!window.hyveon?.wizard) return;
     window.hyveon.wizard
       .getState()
       .then((state) => {

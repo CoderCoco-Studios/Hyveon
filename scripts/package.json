@@ -14,14 +14,13 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.600.0",
-    "diff": "^7.0.0"
+    "@aws-sdk/client-s3": "^3.1095.0",
+    "diff": "^9.0.0"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
-    "@types/node": "^20.16.10",
-    "@types/diff": "^7.0.1",
-    "aws-sdk-client-mock": "^4.0.1"
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "@types/node": "^26.1.1",
+    "aws-sdk-client-mock": "^4.1.0"
   }
 }

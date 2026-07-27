@@ -17,10 +17,10 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.600.0",
-    "@aws-sdk/client-secrets-manager": "^3.600.0",
-    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.1095.0",
+    "@aws-sdk/client-secrets-manager": "^3.1095.0",
+    "@aws-sdk/lib-dynamodb": "^3.1095.0",
     "ulid": "^3.0.2",
-    "zod": "^3.23.8"
+    "zod": "^4.4.3"
   }
 }

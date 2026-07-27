@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev --config ../electron.vite.config.ts",
-    "build": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/desktop-main && npm run build -w @hyveon/web",
+    "build": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/desktop-main && npm run build -w @hyveon/desktop-preload && npm run build -w @hyveon/web",
     "build:lambdas": "npm run build -w @hyveon/shared && npm run build -w @hyveon/lambda-interactions -w @hyveon/lambda-followup -w @hyveon/lambda-update-dns -w @hyveon/lambda-watchdog -w @hyveon/lambda-efs-seeder",
     "start": "electron ../out/main/index.js",
     "test": "vitest run",
@@ -15,20 +15,20 @@
     "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
-    "@eslint/js": "^9.13.0",
-    "@types/node": "^20.14.0",
-    "@vitest/coverage-v8": "^2.1.9",
-    "aws-sdk-client-mock": "^4.0.1",
-    "concurrently": "^8.2.2",
-    "esbuild": "^0.23.0",
-    "eslint": "^9.13.0",
-    "eslint-plugin-jsdoc": "^50.4.0",
-    "eslint-plugin-react": "^7.37.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-tsdoc": "^0.3.0",
-    "globals": "^15.11.0",
-    "typescript": "^5.5.2",
-    "typescript-eslint": "^8.11.0",
-    "vitest": "^2.1.9"
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "aws-sdk-client-mock": "^4.1.0",
+    "concurrently": "^10.0.4",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsdoc": "^63.3.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-tsdoc": "^0.5.2",
+    "globals": "^17.8.0",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
   }
 }

@@ -24,6 +24,32 @@ jobs:
 
       - run: npm run app:lint
 
+  # Nothing else in CI ran the TypeScript compiler: `app:test` transpiles
+  # without typechecking, and both `desktop:build` and `desktop:package` go
+  # through electron-vite/esbuild, which strips types rather than checking
+  # them. `app:build` runs `tsc` over shared, cloud-aws, desktop-main and
+  # desktop-preload, then `tsc --noEmit` over web, so a type error in any
+  # workspace now fails the PR instead of surfacing at runtime.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # This job only installs and compiles — it never pushes — so the
+          # checkout credentials are not needed past the clone. Dropping them
+          # keeps GITHUB_TOKEN out of .git/config for the rest of the run.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - run: npm run app:build
+
   tflint:
     runs-on: ubuntu-latest
     defaults:

@@ -94,18 +94,28 @@ export type GameServerValidationResult =
   | { success: true; data: GameServer }
   | { success: false; issues: GameServerValidationIssue[] };
 
-/** Joins a zod issue path (`(string | number)[]`) into a JSON-path-like string, e.g. `['volumes', 0, 'container_path']` → `volumes[0].container_path`. */
-function formatPath(path: (string | number)[]): string {
+/**
+ * Joins a zod issue path into a JSON-path-like string, e.g.
+ * `['volumes', 0, 'container_path']` → `volumes[0].container_path`.
+ *
+ * Zod 4 widened `ZodIssue['path']` from `(string | number)[]` to
+ * `PropertyKey[]`, so symbol segments are now possible in principle. None of
+ * the schemas in this file key off symbols, but the signature accepts them and
+ * renders them via `String()` so a stray symbol degrades to a readable path
+ * instead of a type error.
+ */
+function formatPath(path: readonly PropertyKey[]): string {
   return path.reduce<string>((acc, segment) => {
     if (typeof segment === 'number') {
       return `${acc}[${segment}]`;
     }
-    return acc.length > 0 ? `${acc}.${segment}` : segment;
+    const key = String(segment);
+    return acc.length > 0 ? `${acc}.${key}` : key;
   }, '');
 }
 
 /** Converts a raw zod issue into a {@link GameServerValidationIssue}. */
-function zodIssueToValidationIssue(issue: z.ZodIssue): GameServerValidationIssue {
+function zodIssueToValidationIssue(issue: z.core.$ZodIssue): GameServerValidationIssue {
   return { path: formatPath(issue.path), message: issue.message };
 }
 
@@ -418,5 +428,5 @@ export function validateGameServer(
 
   // `parsed.success` is guaranteed true here: any structural failure above
   // would have pushed at least one issue and returned early.
-  return { success: true, data: { name, ...(parsed as z.SafeParseSuccess<GameServerEntryInput>).data } };
+  return { success: true, data: { name, ...(parsed as z.ZodSafeParseSuccess<GameServerEntryInput>).data } };
 }

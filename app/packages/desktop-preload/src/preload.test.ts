@@ -595,9 +595,18 @@ describe('preload dispatcher', () => {
 
         // Keep the stream alive — never fire the end event — so the consumer
         // must break out of the loop manually.
-        let capturedChunkListener: ((_evt: unknown, chunk: string) => void) | null = null;
+        //
+        // The captured listener is held on an object rather than in a bare
+        // `let`: TypeScript's control-flow analysis cannot see that the
+        // `ipcOn` mock callback runs, so a `let` initialised to `null` stays
+        // narrowed to `null` at the call site below and calling it is a type
+        // error. Property narrowing is invalidated by the intervening
+        // function calls, which is exactly the behaviour this needs.
+        const captured: { chunkListener: ((_evt: unknown, chunk: string) => void) | null } = {
+          chunkListener: null,
+        };
         ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
-          if (channel === chunkChannel) capturedChunkListener = listener;
+          if (channel === chunkChannel) captured.chunkListener = listener;
         });
         ipcOnce.mockImplementation(
           (_channel: string, _listener: (_evt: unknown, data: { error?: string }) => void) => {
@@ -615,7 +624,7 @@ describe('preload dispatcher', () => {
         // Flush the ipcInvoke promise so the generator reaches its first await.
         await Promise.resolve();
         // Now fire a chunk to wake the suspended generator.
-        capturedChunkListener?.({}, 'first-chunk');
+        captured.chunkListener?.({}, 'first-chunk');
         // Let the generator resume and yield the chunk.
         await nextPromise;
         // The generator is now at its next inner await (waiting for more chunks).

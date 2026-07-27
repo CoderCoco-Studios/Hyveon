@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
@@ -35,33 +35,53 @@ export default defineConfig({
     // memory better between files than the default `threads` pool. Four forks
     // (~4 GB) keeps the suite fast without starving the host; CI boxes with
     // fewer cores are unaffected since the cap is only an upper bound.
+    // Vitest 4 removed both `minWorkers` and the `poolOptions.<pool>.*`
+    // block, so the cap is now expressed solely as `maxWorkers`. The pool
+    // still scales down on its own when there are fewer files than workers,
+    // which is what the old `minForks: 1` floor was there for.
     pool: 'forks',
     maxWorkers: 4,
-    minWorkers: 1,
-    poolOptions: {
-      forks: {
-        maxForks: 4,
-        minForks: 1,
+    // Vitest 4 removed `environmentMatchGlobs`, so the node/jsdom split is
+    // expressed as two projects instead. Both inherit everything above via
+    // `extends: true` (resolve aliases, pool caps, setupFiles, mock resets);
+    // they differ only in which files they collect and which environment
+    // those files run under. Coverage stays on the root config — it is a
+    // run-level concern and is reported across both projects at once.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: [
+            'packages/**/*.test.{ts,tsx}',
+            // Explicitly include desktop-preload specs so they are always discovered.
+            'packages/desktop-preload/**/*.test.{ts,tsx}',
+            // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
+            'test/**/*.test.{ts,tsx}',
+            // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
+            // (outside packages/), so it needs its own explicit include entry.
+            '../scripts/tfvars-sync.test.ts',
+            // Same rationale — the init-parent bootstrap/migrate CLI spec lives
+            // alongside tfvars-sync.test.ts, outside packages/.
+            '../scripts/init-parent.cli.test.ts',
+          ],
+          // Spread the built-in excludes (node_modules, dist, …) before adding
+          // ours — assigning `exclude` replaces the defaults rather than
+          // appending to them.
+          exclude: [...defaultExclude, 'packages/web/**'],
+        },
       },
-    },
-    include: [
-      'packages/**/*.test.{ts,tsx}',
-      // Explicitly include desktop-preload specs so they are always discovered.
-      'packages/desktop-preload/**/*.test.{ts,tsx}',
-      // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
-      'test/**/*.test.{ts,tsx}',
-      // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
-      // (outside packages/), so it needs its own explicit include entry.
-      '../scripts/tfvars-sync.test.ts',
-      // Same rationale — the init-parent bootstrap/migrate CLI spec lives
-      // alongside tfvars-sync.test.ts, outside packages/.
-      '../scripts/init-parent.cli.test.ts',
+      {
+        extends: true,
+        test: {
+          name: 'web',
+          // React component and routed-page specs need a real DOM.
+          environment: 'jsdom',
+          include: ['packages/web/**/*.test.{ts,tsx}'],
+        },
+      },
     ],
-    // Default environment for server-side and shared tests is Node.
-    // React component tests under @hyveon/web override this via
-    // `environmentMatchGlobs` so they get a real DOM.
-    environment: 'node',
-    environmentMatchGlobs: [['packages/web/**', 'jsdom']],
     setupFiles: ['./vitest.setup.ts'],
     globals: false,
     clearMocks: true,

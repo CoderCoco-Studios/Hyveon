@@ -48,8 +48,15 @@ interface PollingActionsContextValue {
  */
 interface PollingStateContextValue {
   pollers: Record<string, PollerState>;
-  /** Heartbeat counter that ticks every second so consumers can re-render relative timestamps. */
-  tick: number;
+  /**
+   * `Date.now()` as of the last 1Hz heartbeat. Consumers rendering relative
+   * timestamps read this instead of calling `Date.now()` themselves: the
+   * heartbeat already re-renders them once a second, and a value passed down
+   * through context keeps render pure (`react-hooks/purity` rejects clock
+   * reads during render, since they make the same render return different
+   * output on every call).
+   */
+  now: number;
 }
 
 const ActionsCtx = createContext<PollingActionsContextValue | null>(null);
@@ -201,9 +208,12 @@ export function PollingProvider({ children }: { children: ReactNode }) {
 
   // Heartbeat: forces re-render every second so "Updated 3s ago" labels and
   // the stale check stay current without each consumer running its own timer.
-  const [tick, setTick] = useState(0);
+  // It carries the current wall-clock time rather than a bare counter so
+  // consumers can read `now` from context instead of calling `Date.now()`
+  // during their own render.
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -223,8 +233,8 @@ export function PollingProvider({ children }: { children: ReactNode }) {
     [register, refresh, refreshAll],
   );
   const state = useMemo<PollingStateContextValue>(
-    () => ({ pollers, tick }),
-    [pollers, tick],
+    () => ({ pollers, now }),
+    [pollers, now],
   );
 
   return (
@@ -271,7 +281,17 @@ export function usePoller(
 ): { refresh: () => Promise<void> } {
   const { register, refresh: refreshCtx } = usePollingActions();
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+
+  // Keep the ref pointing at the latest `fn` without writing to it during
+  // render (`react-hooks/refs`): a render-phase mutation is visible to any
+  // concurrent render that React later discards, so the ref can end up
+  // holding a callback from a render that never committed. Assigning in an
+  // unconditional effect runs after commit instead. Nothing reads
+  // `fnRef.current` synchronously during render — `register` only invokes it
+  // from an interval — so the one-commit delay is unobservable.
+  useEffect(() => {
+    fnRef.current = fn;
+  });
 
   useEffect(() => {
     if (!enabled) return;

@@ -30,10 +30,12 @@ export function AuditPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Mount-only effect: `loading` already initialises to `true` and `error` to
+  // `null`, so the old `setLoading(true)` / `setError(null)` preamble only
+  // ever re-set the values they already held. Dropping it removes the
+  // `react-hooks/set-state-in-effect` violation with no behaviour change.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     api
       .audit({ limit: PAGE_SIZE })
       .then((page) => {

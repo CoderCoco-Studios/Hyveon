@@ -24,6 +24,9 @@ export type {
   PrerequisitesReport,
   WizardState,
   SaveWizardStateInput,
+  TerraformInitConfig,
+  AwsProfileSummary,
+  IamCheckResult,
 } from './hyveon-api.js';
 
 declare global {
