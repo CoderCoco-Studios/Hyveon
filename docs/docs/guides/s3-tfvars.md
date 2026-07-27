@@ -42,33 +42,24 @@ in the setup guide for the one-time step.
 `terraform/bootstrap/` is a small, standalone Terraform module that
 provisions a dedicated, versioned S3 bucket (default name
 `{project_name}-tfvars`) whose only job is to hold `terraform.tfvars`. It's
-unrelated to the `{project_name}-tf-state` bucket the main `setup.sh`
-bootstrap creates for the Terraform state backend.
+unrelated to the `{project_name}-tf-state` bucket used for the Terraform
+state backend.
 
-Three ways to bootstrap it, in order of convenience:
+A few ways to bootstrap it, in order of convenience:
 
-1. **`./setup.sh` (Linux/macOS)** — prompts interactively
-   (`Store terraform.tfvars in a versioned S3 bucket (terraform/bootstrap)? [y/N]`)
-   unless `GSD_TFVARS_BACKEND` is already set:
-   - `GSD_TFVARS_BACKEND=s3` — bootstraps non-interactively.
-   - `GSD_TFVARS_BACKEND=local` — skips entirely, no AWS/Terraform calls.
-   - Unset + non-interactive shell (CI) — silently defaults to `local`.
-
-   On `s3`, it runs `terraform init`/`terraform apply` inside
-   `terraform/bootstrap/`, records the bucket name at `.gsd/tfvars-bucket`
-   (repo root, gitignored), and uploads the local `terraform.tfvars` to the
-   bucket — but only if that key doesn't already exist remotely, so
-   re-running `setup.sh` never clobbers a tfvars file someone else already
-   pushed or edited in S3.
+1. **The desktop app's setup wizard** — bootstraps this bucket for you as
+   part of its bootstrap step (alongside the state bucket and lock table —
+   see the [setup guide](/setup#3-clone-install-and-bootstrap-aws-resources)),
+   directly via the AWS SDK.
 
 2. **`init-parent.ts bootstrap --s3-tfvars`** — when scaffolding a fresh
    [submodule parent repo](/guides/submodule#quick-start-interactive-scaffolder),
-   pre-answers the same prompt up front and writes the `.gsd/tfvars-bucket`
-   marker at the *parent repo root* before `setup.sh` ever runs, so `make
-   setup` bootstraps the S3 backend on its first run without asking.
+   pre-answers the equivalent prompt up front and writes the
+   `.gsd/tfvars-bucket` marker at the *parent repo root* as part of
+   scaffolding, so the generated `make setup` bootstraps the S3 backend on
+   its first run without asking.
 
-3. **Manual** — for `setup.ps1` users (not yet ported) or anyone who wants
-   to run it standalone:
+3. **Manual** — for anyone who wants to run it standalone:
 
    ```bash
    cd terraform/bootstrap
@@ -147,12 +138,12 @@ generated wrapper `Makefile` drives the same CLI for you, plus wires it into
 
 | Target | What it does |
 |---|---|
-| `make tfvars-pull` | Pulls `terraform.tfvars` from the configured S3 backend. Refuses to run if `git status --porcelain` reports the local file as changed, so a pull won't overwrite an edit git can see. See the caveat right below the table — this is *not* a full guarantee against clobbering local edits. Fails fast with a pointer to `GSD_TFVARS_BACKEND`/`setup.sh` if no backend is detected. |
+| `make tfvars-pull` | Pulls `terraform.tfvars` from the configured S3 backend. Refuses to run if `git status --porcelain` reports the local file as changed, so a pull won't overwrite an edit git can see. See the caveat right below the table — this is *not* a full guarantee against clobbering local edits. Fails fast with a pointer to `GSD_TFVARS_BACKEND` if no backend is detected. |
 | `make tfvars-push` | Pushes the local `terraform.tfvars` to the configured S3 backend. Same fail-fast behavior when no backend is detected. |
 | `make tfvars-diff` | Prints a unified diff between local and remote. Same fail-fast behavior when no backend is detected. |
 | `make plan` | Auto-pulls the latest tfvars from S3 first (when a backend is detected), gated behind the same git-dirty check as `make tfvars-pull` above (and subject to the same caveat). Set `NO_PULL=1` to skip the pull for one invocation. |
 | `make apply` | Asserts the local tfvars are still in sync with S3 first (`tfvars-sync check`), refusing to apply against drifted vars. Set `FORCE_APPLY=1` to skip the check for one invocation. |
-| `make setup` | If `setup.sh` bootstrapped an S3 backend, also pulls `terraform.tfvars` afterwards, gated behind the same git-dirty check (and caveat) as `make tfvars-pull`. On a first bootstrap against an empty bucket the pull can't find anything yet — it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
+| `make setup` | If the submodule's own bootstrap step configured an S3 backend, also pulls `terraform.tfvars` afterwards, gated behind the same git-dirty check (and caveat) as `make tfvars-pull`. On a first bootstrap against an empty bucket the pull can't find anything yet — it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
 
 > **The git-dirty guard is not a full safety net.** `tfvars-pull`, `plan`'s
 > auto-pull, and `setup`'s post-bootstrap pull all shell out to
@@ -173,10 +164,10 @@ by `TFVARS_BACKEND`, resolved in this order:
 1. `GSD_TFVARS_BACKEND=s3` or `GSD_TFVARS_BACKEND=local` — explicit override,
    wins regardless of any marker file.
 2. The **parent-root** `.gsd/tfvars-bucket` marker (written by
-   `init-parent bootstrap --s3-tfvars` or `migrate --to-s3`, before
-   `setup.sh` ever runs) — takes priority if present.
-3. The **submodule-local** `.gsd/tfvars-bucket` marker (written by
-   `setup.sh`'s own bootstrap) — checked next.
+   `init-parent bootstrap --s3-tfvars` or `migrate --to-s3`, up front as
+   part of scaffolding) — takes priority if present.
+3. The **submodule-local** `.gsd/tfvars-bucket` marker (written by the
+   submodule's own bootstrap step) — checked next.
 4. Otherwise: `local`.
 
 In `local` mode the gates inside `setup`/`plan`/`apply` are silent no-ops —
@@ -264,11 +255,11 @@ terraform -chdir=Hyveon/terraform/bootstrap destroy
 | `check` fails (`make apply` aborts) with `no local lock file found ... — run "pull" first` | Fresh checkout, or the lock file was deleted/gitignored-and-never-restored. | `make tfvars-pull` once, then retry `make apply`. Or set `FORCE_APPLY=1` if you're intentionally applying without syncing (not recommended). |
 | `check`/`make apply` fails with a version-id mismatch reason | Same root cause as the `push` conflict above, just caught earlier by the pre-apply gate instead of at push time. | `make tfvars-pull`, review the diff, `make apply` again. |
 | `pull`/`push`/`diff`/`status`/`check` all fail with `--bucket is required (or set GSD_TFVARS_BUCKET, or create a .gsd/tfvars-bucket marker file)` | No backend configured, or you're running the CLI from a directory where the marker-file walk-up can't find `.gsd/tfvars-bucket`. | Pass `--bucket` explicitly, set `GSD_TFVARS_BUCKET`, or run from within the repo/parent-repo tree so the marker file is found. If you haven't bootstrapped a backend yet, see [Bootstrapping the S3 backend](#bootstrapping-the-s3-backend) above. |
-| `make tfvars-pull`/`push`/`diff` fail with `No S3 tfvars backend detected (TFVARS_BACKEND=local) — set GSD_TFVARS_BACKEND=s3 ... or bootstrap one via setup.sh.` | No `.gsd/tfvars-bucket` marker exists anywhere in the resolution chain, and `GSD_TFVARS_BACKEND` isn't set to `s3`. | Bootstrap a backend (see above) or set `GSD_TFVARS_BACKEND=s3` with `GSD_TFVARS_BUCKET` pointing at an existing bucket. |
+| `make tfvars-pull`/`push`/`diff` fail with `No S3 tfvars backend detected (TFVARS_BACKEND=local) — set GSD_TFVARS_BACKEND=s3 ...` | No `.gsd/tfvars-bucket` marker exists anywhere in the resolution chain, and `GSD_TFVARS_BACKEND` isn't set to `s3`. | Bootstrap a backend (see above) or set `GSD_TFVARS_BACKEND=s3` with `GSD_TFVARS_BUCKET` pointing at an existing bucket. |
 | `make tfvars-pull` (or the automatic `plan`/`setup` pull) refuses with `terraform.tfvars has uncommitted changes — commit or stash them before pulling from S3.` | A pull overwrites the local file in place; the guard won't let it discard uncommitted edits *that git can see*. Remember this guard is `git status --porcelain`-based, so it only catches this if the file happens to be tracked — see the caveat under [Day-to-day: `make` targets](#day-to-day-make-targets). | Commit or `git stash` the local changes, then retry. Or `NO_PULL=1 make plan` to skip the auto-pull for one invocation. If the file is normally gitignored on your setup, run `make tfvars-diff` first to check for drift before pulling, since this guard won't warn you. |
 | `migrate --to-local` aborts with a drift message, no files changed | The local `terraform.tfvars` and the remote object have diverged — see the diff step in [`migrate --to-local`](#migrate---to-local) above. | Run `make tfvars-pull` or `make tfvars-push` to reconcile, then re-run the migration. |
 | `migrate --to-local` aborts with `failed to pull s3://<bucket>/terraform.tfvars`, no files changed (markers still present) | There's no local `terraform.tfvars` *and* the remote object was never seeded — this parent repo has never had a working copy anywhere, so the migration refuses to delete the `.gsd/tfvars-bucket` marker(s) and strand you with no `terraform.tfvars` at all. | Get a good copy of `terraform.tfvars` onto this machine (e.g. from another checkout) and `make tfvars-push` it up first, then re-run the migration. |
-| First-ever `push` to a brand-new bucket succeeds even though you never `pull`ed | Expected: `push` only requires a prior `pull` when the remote object already exists. A first push to an empty bucket has nothing to conflict with. | Nothing to fix — this is the intended "seed the bucket" path (`setup.sh`'s post-bootstrap pull warns and suggests exactly this when the bucket comes back empty). |
+| First-ever `push` to a brand-new bucket succeeds even though you never `pull`ed | Expected: `push` only requires a prior `pull` when the remote object already exists. A first push to an empty bucket has nothing to conflict with. | Nothing to fix — this is the intended "seed the bucket" path (the bootstrap step's post-bootstrap pull warns and suggests exactly this when the bucket comes back empty). |
 
 For issues with the bootstrap step itself (bucket creation, IAM
 permissions), see the [setup guide's IAM section](/setup#1-create-and-authorise-an-iam-user)

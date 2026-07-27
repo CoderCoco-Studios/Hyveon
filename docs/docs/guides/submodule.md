@@ -18,11 +18,10 @@ page when you're ready to commit your config to source control.
 ## Why this layout
 
 `terraform.tfvars` (with your hosted zone, and optionally Discord
-credentials), `terraform.tfstate` (raw infrastructure state including IAM
-role names and the DNS zone ID), and `API_TOKEN` for the management app
-are **yours**. None of them belong in this public repo. A submodule keeps
-upstream code cleanly separated from your deployment-specific configuration
-without forking.
+credentials) and `terraform.tfstate` (raw infrastructure state including IAM
+role names and the DNS zone ID) are **yours**. Neither belongs in this
+public repo. A submodule keeps upstream code cleanly separated from your
+deployment-specific configuration without forking.
 
 ```mermaid
 flowchart LR
@@ -31,10 +30,9 @@ flowchart LR
 
   subgraph Parent["your-private-games (private)"]
     direction TB
-    PMK["Makefile"]:::priv
+    PMK["Makefile<br/>(self-contained)"]:::priv
     PTF["terraform.tfvars"]:::priv
-    PENV[".env<br/>API_TOKEN=…"]:::priv
-    PSTAMP[".make/<br/>setup.stamp, tfstate.json"]:::priv
+    PSTAMP[".make/<br/>tf-project, tf-region, tfstate.json"]:::priv
     PSUB["Hyveon/<br/>→ submodule"]:::priv
   end
 
@@ -42,35 +40,36 @@ flowchart LR
     direction TB
     UAPP["app/"]:::public
     UTF["terraform/*.tf"]:::public
-    USET["setup.sh"]:::public
-    UMK["Makefile"]:::public
   end
 
   PSUB -- "git submodule" --> Upstream
-  PMK  -- "delegates via 'make -C'" --> UMK
+  PMK  -- "npm install / terraform init / plan / apply" --> UTF
   PTF  -. "copied into" .-> UTF
 ```
 
 The parent's wrapper Makefile copies `terraform.tfvars` into the submodule on
-every plan/apply, then delegates Terraform/dev work to the submodule's own
-`Makefile` targets (`tf-plan`, `tf-apply`, `dev`, …). The submodule checkout
-stays clean — only files inside its own `.gitignore` get touched.
+every plan/apply, then drives Terraform/dev work directly — `npm install`,
+Lambda builds, the Terraform S3 state backend bootstrap, and
+`terraform init`/`plan`/`apply`/dev servers are all inlined in the
+Makefile's own recipes. Nothing shells out to a script or another Makefile
+inside the submodule. The submodule checkout stays clean — only files
+inside its own `.gitignore` get touched.
 
 ## Reference layout
 
 ```text
 your-private-games/                 # private repo you own
 ├── .gitmodules
-├── .gitignore                      # ignores .env, .make/, *.tfstate
-├── .env                            # API_TOKEN — gitignored
-├── Makefile                        # wrapper — see "What the wrapper does" below
+├── .gitignore                      # ignores .make/, *.tfstate
+├── Makefile                        # self-contained wrapper — see "What the wrapper does" below
 ├── terraform.tfvars                # YOUR copy; checked in (private repo)
-├── .make/                          # stamp dir (sha of submodule setup.sh, cached tfstate)
+├── .make/                          # stamp dir (cached tf-project/tf-region, tfstate.json)
 └── Hyveon/             # submodule → CoderCoco/Hyveon
 ```
 
 That's the whole shape. No `config/` directory, no symlinks, no
-`docker-compose.override.yml`. Everything driven from one Makefile.
+`docker-compose.override.yml`. Everything driven from one self-contained
+Makefile.
 
 ## Quick start (interactive scaffolder)
 
@@ -93,7 +92,7 @@ git submodule add https://github.com/CoderCoco/Hyveon.git
 
 The script prompts for project name, AWS region, hosted zone, and
 (optionally) Discord credentials, then writes `Makefile`,
-`terraform.tfvars`, `.env`, and `.gitignore`. Existing files are skipped
+`terraform.tfvars`, and `.gitignore`. Existing files are skipped
 unless you pass `--force`.
 
 `init-parent.ts` dispatches on subcommands, with `bootstrap` (the flow
@@ -117,23 +116,24 @@ After it finishes:
 
 ```bash
 $EDITOR terraform.tfvars            # add at least one entry under game_servers
-make setup                          # init submodule, run setup.sh, terraform init
+make setup                          # init submodule, install deps, bootstrap the S3 backend, terraform init
 make plan
 make apply
 ```
 
 ## What the wrapper Makefile does
 
-The generated wrapper is a thin layer over the submodule's own Makefile.
-Eight targets, no surprises:
+The generated wrapper is fully self-contained — every step is inlined
+directly in its recipes; it never shells out to a script or another Makefile
+inside the submodule. Eight targets, no surprises:
 
 | Target | What it does |
 |---|---|
-| `make setup` | One-time bootstrap. Runs `git submodule update --init --recursive`, executes `Hyveon/setup.sh` (installs Node/Terraform/AWS CLI on Debian/Ubuntu, npm-installs all workspaces, builds Lambda bundles, runs `terraform init` and bootstraps the S3 backend), then records the sha256 of `setup.sh` in `.make/setup.stamp`. If `setup.sh` bootstrapped a versioned S3 tfvars backend, `setup` also pulls `terraform.tfvars` down afterwards; on a first bootstrap against an empty bucket the pull can't find anything yet, so it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
-| `make plan` | Copies `terraform.tfvars` into `Hyveon/terraform/terraform.tfvars`, then runs `make -C Hyveon tf-plan` — which itself rebuilds the Lambda bundles before `terraform plan`. When an S3 tfvars backend is detected, it auto-pulls the latest tfvars first so a stale local copy can't silently drive the plan; set `NO_PULL=1` to skip the pull for one invocation. |
-| `make apply` | Same as `plan`, but delegates to `tf-apply`. The submodule's `tf-apply` recipe prints a post-deploy checklist with the Discord interactions URL when it finishes. When an S3 tfvars backend is detected, it first asserts the local tfvars are still in sync with S3 (via the `tfvars-sync` CLI's `check` subcommand), refusing to apply against drifted vars; set `FORCE_APPLY=1` to skip the check for one invocation. |
-| `make update` | Bumps the submodule to the tip of `main` (`git submodule update --remote --merge`). If the new `setup.sh` differs from the recorded sha, clears `.terraform/` and re-runs `setup.sh` automatically; otherwise leaves it alone. Reminds you to commit the new submodule pointer. |
-| `make dev` | Pulls live tfstate into `.make/tfstate.json` (so ConfigService can read it via `TF_STATE_PATH`), wipes stale TS build info under the submodule's `app/packages/*/`, then runs `make -C Hyveon dev`, exporting `API_TOKEN` and `TF_STATE_PATH` to the child make. |
+| `make setup` | One-time bootstrap. Runs `git submodule update --init --recursive`, `npm install` and `npm run app:build:lambdas` in the submodule, derives `project_name`/`aws_region` from `terraform.tfvars`, creates the Terraform state S3 bucket + DynamoDB lock table if they don't already exist (same `aws s3api`/`aws dynamodb` calls the old `setup.sh` used), optionally bootstraps a versioned S3 bucket for `terraform.tfvars` itself via the submodule's `terraform/bootstrap/` module, then runs `terraform init` with the matching `-backend-config` flags. If it just bootstrapped a versioned S3 tfvars backend, `setup` also pulls `terraform.tfvars` down afterwards; on a first bootstrap against an empty bucket the pull can't find anything yet, so it prints a warning suggesting `make tfvars-push` to seed the bucket instead of failing `make setup`. |
+| `make plan` | Copies `terraform.tfvars` into `Hyveon/terraform/terraform.tfvars`, rebuilds the Lambda bundles, then runs `terraform plan` directly. When an S3 tfvars backend is detected, it auto-pulls the latest tfvars first so a stale local copy can't silently drive the plan; set `NO_PULL=1` to skip the pull for one invocation. |
+| `make apply` | Same as `plan`, but runs `terraform apply` and prints a post-deploy checklist with the Discord interactions URL when it finishes. When an S3 tfvars backend is detected, it first asserts the local tfvars are still in sync with S3 (via the `tfvars-sync` CLI's `check` subcommand), refusing to apply against drifted vars; set `FORCE_APPLY=1` to skip the check for one invocation. |
+| `make update` | Bumps the submodule to the tip of `main` (`git submodule update --remote --merge`), then unconditionally re-runs `terraform init` — cheap and idempotent, so there's no drift-detection stamp deciding whether to rerun it. Reminds you to commit the new submodule pointer. |
+| `make dev` | Pulls live tfstate into `.make/tfstate.json` (so ConfigService can read it via `TF_STATE_PATH`), wipes stale TS build info under the submodule's `app/packages/*/`, then runs `npm run app:dev` directly in the submodule with `TF_STATE_PATH` set. |
 | `make tfvars-pull` | Pulls `terraform.tfvars` from the configured S3 backend (requires one to be detected — see below). Refuses to run if the local file has uncommitted git changes, so a pull can never silently discard edits you haven't committed. |
 | `make tfvars-push` | Pushes the local `terraform.tfvars` to the configured S3 backend (requires one to be detected). |
 | `make tfvars-diff` | Prints a unified diff between the local and remote `terraform.tfvars` (requires a backend to be detected). |
@@ -161,8 +161,8 @@ resolution in the generated Makefile:
 - Otherwise: S3 if either marker file exists — the **parent-root**
   `.gsd/tfvars-bucket` (written by `bootstrap --s3-tfvars` or
   `migrate --to-s3`) or the **submodule-local**
-  `Hyveon/.gsd/tfvars-bucket` (written by `setup.sh`'s
-  `bootstrap_tfvars_backend()`) — local otherwise.
+  `Hyveon/.gsd/tfvars-bucket` (written by `make setup`'s own S3
+  tfvars-bootstrap step) — local otherwise.
 
 `GSD_TFVARS_BUCKET`, if set, wins over both marker files' contents when the
 wrapper needs to display or pass along the bucket name. Otherwise it reads
@@ -171,7 +171,7 @@ the parent-root one doesn't exist — see [Parent-root marker takes
 precedence](#parent-root-marker-takes-precedence) below for why.
 
 `make tfvars-pull`, `make tfvars-push`, and `make tfvars-diff` fail fast
-with a pointer to `GSD_TFVARS_BACKEND`/`setup.sh` when no backend is
+with a pointer to `GSD_TFVARS_BACKEND`/`make setup` when no backend is
 detected — they're operator-driven, so they never silently no-op.
 
 The gates inside `setup`/`plan`/`apply` behave differently: in **local
@@ -223,8 +223,8 @@ reading `terraform.tfvars` straight off disk:
 1. Resolves the target bucket the same way the generated Makefile's
    `TFVARS_BUCKET` does — `GSD_TFVARS_BUCKET` env var wins if set, otherwise
    the parent-root `.gsd/tfvars-bucket` marker, otherwise the submodule-local
-   one written by `setup.sh`. Exits `1` with no changes if none resolve
-   (already local, nothing to migrate).
+   one written by `make setup`'s own S3 tfvars-bootstrap step. Exits `1` with
+   no changes if none resolve (already local, nothing to migrate).
 2. Pulls `terraform.tfvars` down from S3 first if it's missing locally — a
    parent repo that migrated to S3 a while ago may have no local copy at
    all.
@@ -253,63 +253,43 @@ terraform -chdir=Hyveon/terraform/bootstrap destroy
 ### Parent-root marker takes precedence
 
 Both migration directions, the generated Makefile's `TFVARS_BACKEND`/
-`TFVARS_BUCKET` resolution, and `setup.sh`'s post-bootstrap pull all agree on
-the same precedence when both marker files could theoretically exist: the
+`TFVARS_BUCKET` resolution, and `make setup`'s post-bootstrap pull all agree
+on the same precedence when both marker files could theoretically exist: the
 **parent-root** marker (`<parent>/.gsd/tfvars-bucket`, written by
-`bootstrap --s3-tfvars` or `migrate --to-s3` before `setup.sh` ever runs)
-always wins over the **submodule-local** marker (`<parent>/Hyveon/.gsd/tfvars-bucket`,
-written by `setup.sh`'s own `bootstrap_tfvars_backend()`). An explicit
-parent-root marker reflects a deliberate operator choice, so it takes
-priority even before `setup.sh` gets a chance to write its own submodule-local
-marker. `GSD_TFVARS_BACKEND=s3|local` overrides both markers entirely when
-set.
+`bootstrap --s3-tfvars` or `migrate --to-s3` before `setup` ever runs)
+always wins over the **submodule-local** marker
+(`<parent>/Hyveon/.gsd/tfvars-bucket`, written by `setup`'s own S3
+tfvars-bootstrap step). An explicit parent-root marker reflects a deliberate
+operator choice, so it takes priority even before `setup` gets a chance to
+write its own submodule-local marker. `GSD_TFVARS_BACKEND=s3|local`
+overrides both markers entirely when set.
 
-## Submodule update with idempotent setup.sh re-run
+## Submodule update re-inits Terraform unconditionally
 
-`make update` records `sha256sum Hyveon/setup.sh` in
-`.make/setup.stamp` after each successful setup. On every subsequent
-`update`, it compares the new file's sha against the stamp:
-
-- **Unchanged** → nothing to do; the existing `.terraform/` and installed
-  npm dependencies are still valid.
-- **Changed** → upstream tweaked the bootstrap (new tool version, S3 backend
-  config change, Lambda build step, …). The recipe wipes
-  `Hyveon/terraform/.terraform/` and re-runs `setup.sh`, then
-  records the new sha.
-
-You don't have to remember whether the bootstrap moved. The stamp file is
-cheap and gitignored.
-
-## .env and the API_TOKEN
-
-`API_TOKEN` is the bearer token the management app's Nest server requires
-on every `/api/*` request. The wrapper Makefile loads it from `.env` via
-`include`, so it's available for `make dev` and any docker-compose target
-without ever being baked into the Makefile itself:
-
-```makefile
-ifneq (,$(wildcard $(REPO_ROOT)/.env))
-include $(REPO_ROOT)/.env
-export
-endif
-```
-
-`.env` is in the parent's `.gitignore`. Generate a fresh token with
-`openssl rand -hex 32` (or just re-run `init-parent.ts`) — there's no need
-to keep the same token across rebuilds.
+`make update` bumps the submodule to the tip of `main`
+(`git submodule update --remote --merge`), then unconditionally re-runs
+`terraform init` — no stamp file, no sha comparison. `terraform init` is
+cheap and idempotent (it no-ops when the backend config and providers are
+already current), so there's no need to detect whether the bootstrap logic
+itself changed upstream before deciding whether to rerun anything. If
+upstream tweaked a Terraform provider version or added a new resource, the
+next `terraform init` picks it up automatically; if the *Makefile's own*
+bootstrap logic (Lambda build steps, backend bucket naming, …) changed
+upstream, re-run `init-parent.ts migrate --to-s3` (or re-scaffold with
+`--force`) to pick up the new generated Makefile.
 
 ## tfstate lives in S3 by default
 
-`Hyveon/setup.sh` provisions an S3 bucket
-(`{project_name}-tf-state`) and a DynamoDB lock table
-(`{project_name}-tf-locks`) on first run, then `terraform init`s with the
-S3 backend pointing at them. The parent repo never holds `terraform.tfstate`
-on disk — the wrapper's `make dev` pulls a fresh copy into
-`.make/tfstate.json` for the management app to read.
+`make setup` provisions an S3 bucket (`{project_name}-tf-state`) and a
+DynamoDB lock table (`{project_name}-tf-locks`) on first run, then
+`terraform init`s with the S3 backend pointing at them. The parent repo
+never holds `terraform.tfstate` on disk — the wrapper's `make dev` pulls a
+fresh copy into `.make/tfstate.json` for the management app to read.
 
 If you don't want a remote backend (single-operator, throwaway deployment),
-delete the S3 bootstrap from your fork of `setup.sh`. We don't recommend
-this for anything you care about.
+edit the generated Makefile's `setup` recipe to skip the S3 bucket/DynamoDB
+table creation and run `terraform init` without `-backend-config` flags
+instead. We don't recommend this for anything you care about.
 
 ## Discord credentials: pick a home
 
@@ -345,9 +325,10 @@ make plan        # eyeball the diff
 make apply       # if it looks right
 ```
 
-`make update` always reminds you about the commit step at the end. If
-`setup.sh` changed upstream, it'll have already re-run by the time `make
-plan` starts, so the next plan picks up any new tooling cleanly.
+`make update` always reminds you about the commit step at the end. Since
+`update` unconditionally re-runs `terraform init`, any new Terraform
+provider version or backend config upstream shipped is picked up by the time
+`make plan` starts.
 
 Things that tend to need attention after a bump:
 
@@ -405,9 +386,6 @@ than stashing long-lived keys. The role's policy is the same
   push origin HEAD`. Keep your tfvars in the *parent* — the wrapper copies
   it into the submodule at apply time, and the submodule's own
   `.gitignore` excludes `terraform/*.tfvars`.
-- **Don't hardcode `API_TOKEN` in the wrapper Makefile.** Use `.env` and
-  the `include`/`export` pattern. The Makefile lives in your private repo,
-  but a leaked clone is one careless `git push` away.
 - **Don't run plan/apply directly in the submodule.** Always go through
   the parent's `make plan`/`make apply` so the freshly-edited
   `terraform.tfvars` is copied in first. A plan against stale vars is a
@@ -419,7 +397,7 @@ than stashing long-lived keys. The role's policy is the same
 |---|---|---|
 | `make plan` says "No such file or directory" pointing at `Hyveon/` | Submodule wasn't initialised | `make setup` (or `git submodule update --init --recursive`). |
 | `make apply` runs against an old `terraform.tfvars` | You edited the parent's tfvars but ran terraform inside the submodule directly | Always run `make apply` from the parent — the `copy-tfvars` recipe forces a fresh copy. |
-| `make update` silently pulls main and breaks apply | Upstream changed something incompatible | The stamp file's job is to flag setup.sh changes; for non-bootstrap breakage, run `make plan` and read the diff. Pin to a SHA in `.gitmodules` if you want stricter control. |
+| `make update` silently pulls main and breaks apply | Upstream changed something incompatible | `update` only re-inits Terraform, it doesn't rebuild anything else — run `make plan` and read the diff. Pin to a SHA in `.gitmodules` if you want stricter control. |
 | After bumping upstream, Discord commands have wrong arguments | Descriptors in `@hyveon/shared/commands.ts` changed | Click **Register commands** for each guild in the dashboard. |
 | `make dev` complains it can't read tfstate | First-time run before `make apply` | Ignore — the recipe writes `null` and the app degrades gracefully until the first apply succeeds. |
-| CI plan shows a Lambda recreating every run | Bundle hash changes between builds | Run `npm ci` (not `npm install`) in CI to pin dependencies; `setup.sh` already does this. |
+| CI plan shows a Lambda recreating every run | Bundle hash changes between builds | Run `npm ci` (not `npm install`) in CI in the submodule to pin dependencies — the generated Makefile's `setup`/`plan`/`apply` recipes use `npm install`, which is right for local dev but not deterministic in CI. |

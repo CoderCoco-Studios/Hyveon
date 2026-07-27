@@ -143,9 +143,9 @@ export type ActiveCloud = 'aws';
  *  - `terraform.tfstate` — parsed lazily and cached until
  *    {@link ConfigService.invalidateCache} is called. Path resolved by
  *    {@link ConfigService.getTfStatePath}.
- *  - `server_config.json` — user-editable watchdog tunables and optional API
- *    bearer token. Path resolved by {@link ConfigService.getServerConfigPath}.
- *  - A handful of process env vars (`AWS_DEFAULT_REGION`, `API_TOKEN`).
+ *  - `server_config.json` — user-editable watchdog tunables. Path resolved
+ *    by {@link ConfigService.getServerConfigPath}.
+ *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
  * Both path resolvers follow the same three-tier priority:
  *  1. Env var override (`TF_STATE_PATH` / `SERVER_CONFIG_PATH`) — always wins.
@@ -220,14 +220,9 @@ export class ConfigService {
     return process.env['AWS_DEFAULT_REGION'];
   }
 
-  /** Read the API bearer token from `API_TOKEN`. Extracted for test-stubbing. */
-  readEnvApiToken(): string | undefined {
-    return process.env['API_TOKEN'];
-  }
-
   /**
    * Read the Terraform composer root override from `TF_DIR`. Extracted for
-   * test-stubbing, mirroring {@link readEnvRegion} / {@link readEnvApiToken}.
+   * test-stubbing, mirroring {@link readEnvRegion}.
    */
   readEnvTerraformDir(): string | undefined {
     return process.env['TF_DIR'];
@@ -236,7 +231,7 @@ export class ConfigService {
   /**
    * Read the tfvars in-memory cache TTL override (milliseconds) from
    * `TFVARS_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
-   * {@link readEnvRegion} / {@link readEnvApiToken}.
+   * {@link readEnvRegion}.
    *
    * Defaults to {@link DEFAULT_TFVARS_CACHE_TTL_MS} (30s) when the env var is
    * unset, empty, not a finite number, or non-positive (zero included) — the
@@ -548,38 +543,6 @@ export class ConfigService {
       const parent = dirname(dir);
       if (parent === dir) return undefined;
       dir = parent;
-    }
-  }
-
-  /**
-   * Token required on every `/api/*` request's `Authorization: Bearer <token>` header.
-   *
-   * Resolution order:
-   *  1. Env var `API_TOKEN` — wins when set, including when explicitly set to an
-   *     empty string. Empty is normalized to `null` (treated as "no token
-   *     configured") so setting `API_TOKEN=""` does not fall back to the file.
-   *  2. `api_token` field in `server_config.json`.
-   *
-   * Returns `null` when no token is configured. The auth middleware + startup
-   * check interpret null differently depending on environment:
-   *  - `NODE_ENV=production` → `index.ts` refuses to start. An empty env var
-   *    is therefore NOT a supported "auth disabled" mode in production.
-   *  - development → the middleware logs a warning and allows unauthenticated
-   *    requests so local iteration isn't blocked.
-   */
-  getApiToken(): string | null {
-    const env = this.readEnvApiToken();
-    if (env !== undefined) {
-      return env.length > 0 ? env : null;
-    }
-    const serverConfigPath = this.getServerConfigPath();
-    if (!existsSync(serverConfigPath)) return null;
-    try {
-      const raw = JSON.parse(readFileSync(serverConfigPath, 'utf-8')) as { api_token?: unknown };
-      return typeof raw.api_token === 'string' && raw.api_token.length > 0 ? raw.api_token : null;
-    } catch (err) {
-      logger.warn('Could not read api_token from config file', { err });
-      return null;
     }
   }
 

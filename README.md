@@ -39,7 +39,7 @@ organised around three roles. Pick the one that matches what you need to do.
 | [**Setup guide**](https://codercoco.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
 | [**User guide**](https://codercoco.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
 | [**Maintainer guide**](https://codercoco.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
-| [**Private parent + submodule guide**](https://codercoco.github.io/Hyveon/guides/submodule/) | Wrapping this repo in a private repo that holds `terraform.tfvars` and tfstate. Includes an interactive scaffolder ([`scripts/init-parent.ts`](./scripts/init-parent.ts)) that generates the wrapper Makefile, tfvars, and `.env`. |
+| [**Private parent + submodule guide**](https://codercoco.github.io/Hyveon/guides/submodule/) | Wrapping this repo in a private repo that holds `terraform.tfvars` and tfstate. Includes an interactive scaffolder ([`scripts/init-parent.ts`](./scripts/init-parent.ts)) that generates a self-contained wrapper Makefile and tfvars. |
 
 Component deep-dives:
 
@@ -51,26 +51,18 @@ Component deep-dives:
 ## Quick start
 
 ```bash
-# 1. First-time bootstrap (installs node/terraform/aws CLI on Debian/Ubuntu,
-#    npm-installs all workspaces, builds Lambda bundles, runs terraform init)
-chmod +x setup.sh && ./setup.sh
+# 1. Install dependencies
+npm install
 
-# 2. Configure
+# 2. Launch the Electron app in dev mode and follow the in-app setup wizard
+#    (AWS credentials, S3/DynamoDB bootstrap, terraform init)
+npm run app:dev
+
+# 3. Configure your servers
 $EDITOR terraform/terraform.tfvars        # game_servers, hosted_zone_name, ...
 
-# 3. Deploy infra
+# 4. Deploy infra
 cd terraform && terraform apply
-
-# 4a. Run the management app in dev mode
-cd .. && npm run app:dev
-#     http://localhost:5173  (Nest on :3001, Vite proxy)
-
-# 4b. …or in Docker (production mode — requires a bearer token)
-cd ..
-touch app/server_config.json
-export API_TOKEN="$(openssl rand -hex 32)"
-docker compose up --build
-#     http://localhost:5000  (dashboard prompts for $API_TOKEN)
 ```
 
 See the [setup guide](https://codercoco.github.io/Hyveon/setup/)
@@ -127,9 +119,6 @@ Hyveon/
 │           └── watchdog/      # Idle detection + auto-stop
 ├── terraform/                 # All AWS infra (VPC, ECS, EFS, 4 Lambdas, DDB…)
 ├── docs/                      # Documentation site (published via GH Pages)
-├── Dockerfile
-├── docker-compose.yml
-├── setup.sh                   # First-time bootstrap (node/terraform/aws)
 ├── scripts/                   # Helper scripts (init-parent.ts scaffolder)
 ├── CLAUDE.md                  # Project instructions + invariants
 ├── CONTRIBUTING.md            # PR conventions, local checks

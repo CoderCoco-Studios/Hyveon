@@ -9,24 +9,15 @@ import { TerraformModule } from './modules/terraform.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { GamesController } from './controllers/games.controller.js';
-import { GamesHttpController } from './controllers/games-http.controller.js';
 import { ConfigController } from './controllers/config.controller.js';
-import { ConfigHttpController } from './controllers/config-http.controller.js';
 import { CostsController } from './controllers/costs.controller.js';
-import { CostsHttpController } from './controllers/costs-http.controller.js';
 import { LogsController } from './controllers/logs.controller.js';
 import { FilesController } from './controllers/files.controller.js';
-import { FilesHttpController } from './controllers/files-http.controller.js';
 import { DiscordController } from './controllers/discord.controller.js';
-import { DiscordHttpController } from './controllers/discord-http.controller.js';
 import { EnvController } from './controllers/env.controller.js';
-import { EnvHttpController } from './controllers/env-http.controller.js';
 import { DiagnosticsController } from './controllers/diagnostics.controller.js';
-import { DiagnosticsHttpController } from './controllers/diagnostics-http.controller.js';
 import { DriftController } from './controllers/drift.controller.js';
-import { DriftHttpController } from './controllers/drift-http.controller.js';
 import { AuditController } from './controllers/audit.controller.js';
-import { AuditHttpController } from './controllers/audit-http.controller.js';
 import { TerraformController } from './controllers/terraform.controller.js';
 import { TerraformRunsController } from './controllers/terraform-runs.controller.js';
 import { WizardController } from './controllers/wizard.controller.js';
@@ -44,24 +35,15 @@ import { AuditService } from './services/AuditService.js';
   imports: [AwsModule, DiscordModule, TfvarsModule, TerraformModule, WizardModule, ElectronStoreModule],
   controllers: [
     GamesController,
-    GamesHttpController,
     ConfigController,
-    ConfigHttpController,
     CostsController,
-    CostsHttpController,
     LogsController,
     FilesController,
-    FilesHttpController,
     DiscordController,
-    DiscordHttpController,
     EnvController,
-    EnvHttpController,
     DiagnosticsController,
-    DiagnosticsHttpController,
     DriftController,
-    DriftHttpController,
     AuditController,
-    AuditHttpController,
     TerraformController,
     TerraformRunsController,
     WizardController,

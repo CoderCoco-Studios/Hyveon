@@ -9,9 +9,11 @@ Three loosely-coupled pieces, all sharing types and helpers through a single
 workspace package, `@hyveon/shared`:
 
 1. **Terraform** provisions every AWS resource.
-2. The **management app** (Nest.js API + React dashboard) is a local control
-   plane. It reads `terraform.tfstate` directly to discover what the infra
-   looks like and drives AWS via SDK v3.
+2. The **management app** is a packaged Electron desktop app and the local
+   control plane. Its React/Vite renderer talks to the Nest.js backend
+   (`desktop-main`) over Electron IPC — not HTTP. The backend reads
+   `terraform.tfstate` directly to discover what the infra looks like and
+   drives AWS via the cloud-provider abstraction (SDK v3 under the hood).
 3. Four **Lambdas** run the always-on control flow: two for Discord, one for
    DNS, one for the idle watchdog.
 
@@ -29,10 +31,11 @@ route through neighbouring subgraphs and produce unreadable overlap.
 
 ### Game plane and operator control
 
-The Nest.js API is the local control plane. It reads
-`terraform.tfstate` directly to discover infrastructure IDs, then drives
-ECS / DynamoDB / Secrets Manager / CloudWatch via SDK v3. Players reach
-the game either direct to the task's public IP (UDP / TCP games) or
+The Electron app's Nest.js backend is the local control plane, driven by
+its React/Vite renderer over Electron IPC (`window.gsd`) rather than HTTP.
+It reads `terraform.tfstate` directly to discover infrastructure IDs, then
+drives ECS / DynamoDB / Secrets Manager / CloudWatch via SDK v3. Players
+reach the game either direct to the task's public IP (UDP / TCP games) or
 through the ALB (HTTPS games).
 
 ![Game plane and operator](/diagrams/game-plane.svg)

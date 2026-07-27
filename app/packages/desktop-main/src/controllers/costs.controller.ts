@@ -7,9 +7,7 @@ import { EcsService } from '../services/EcsService.js';
 /**
  * Cost endpoints for the Electron main-process host. Every handler is bound to
  * an IPC channel via `@MessagePattern` / `@Payload` — no HTTP routes are
- * registered here. The browser client and the integration-test server reach
- * the same operations over REST through the {@link CostsHttpController} shim,
- * which delegates to the identical {@link CostService} / {@link EcsService}
+ * registered here. It delegates to the {@link CostService} / {@link EcsService}
  * providers.
  */
 @Controller()

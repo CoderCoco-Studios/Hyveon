@@ -153,7 +153,6 @@ describe('runBootstrap --s3-tfvars', () => {
       'test-parent', // Project name
       'us-east-1', // AWS region
       'example.com', // Route 53 hosted zone
-      '', // API_TOKEN (accept generated)
       'n', // Seed Discord credentials?
     ]);
 
@@ -169,7 +168,7 @@ describe('runBootstrap --s3-tfvars', () => {
     const makefile = readFileSync(join(parentDir, 'Makefile'), 'utf8');
     expect(makefile).toContain('PARENT_TFVARS_MARKER := $(REPO_ROOT)/.gsd/tfvars-bucket');
     expect(existsSync(join(parentDir, 'terraform.tfvars'))).toBe(true);
-    expect(existsSync(join(parentDir, '.env'))).toBe(true);
+    expect(existsSync(join(parentDir, '.env'))).toBe(false);
   });
 
   it('should write the .gsd/tfvars-bucket marker when --s3-tfvars is omitted but the operator answers "y" to the interactive prompt', async () => {
@@ -179,7 +178,6 @@ describe('runBootstrap --s3-tfvars', () => {
       'test-parent', // Project name
       'us-east-1', // AWS region
       'example.com', // Route 53 hosted zone
-      '', // API_TOKEN (accept generated)
       'n', // Seed Discord credentials?
       'y', // Bootstrap an S3-backed tfvars store now?
     ]);
@@ -202,7 +200,6 @@ describe('runBootstrap --s3-tfvars', () => {
       'test-parent', // Project name
       'us-east-1', // AWS region
       'example.com', // Route 53 hosted zone
-      '', // API_TOKEN (accept generated)
       'n', // Seed Discord credentials?
       // No S3-tfvars prompt answer needed — `yes: true` without `s3Tfvars` skips it, defaulting to no.
     ]);

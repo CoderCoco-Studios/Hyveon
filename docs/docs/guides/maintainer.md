@@ -40,9 +40,7 @@ Hyveon/
 │       ├── discord_store.tf variables.tf outputs.tf versions.tf
 │       └── discord-domain.tf efs-seeder.tf
 ├── docs/                                # this site
-├── .github/workflows/                   # lint.yml, test.yml, docusaurus-gh-pages.yml
-├── Dockerfile docker-compose.yml
-└── setup.sh
+└── .github/workflows/                   # lint.yml, test.yml, docusaurus-gh-pages.yml
 ```
 
 `app/` is a single npm workspace. One `npm install` at the root installs
@@ -54,29 +52,30 @@ terraform operation.
 ## Everyday loop
 
 ```bash
-# One-time
-cd app && npm install
-cd ../terraform && terraform init
+# One-time (from the repo root — a single npm-workspaces tree)
+npm install
+cd terraform && terraform init && cd ..
 
-# Dev servers — Nest on :3001, Vite on :5173 with /api proxied
-cd app && npm run dev
+# Electron desktop app in dev mode — HMR on renderer saves, auto-restarts main+preload
+npm run app:dev
 
 # Before pushing
-cd app && npm run lint && npm test && npm run build
-cd ../terraform && terraform fmt -check -recursive && terraform validate && tflint
+npm run app:lint && npm run app:test && npm run app:build
+cd terraform && terraform fmt -check -recursive && terraform validate && tflint
 ```
 
-### Useful scripts (from `app/`)
+### Useful scripts (from the repo root)
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | `concurrently` Nest (`tsx watch`) + Vite. |
-| `npm run build` | Build shared → server → web in order. |
-| `npm run build:lambdas` | esbuild every Lambda to `dist/handler.cjs`. Required before `terraform apply`. |
-| `npm start` | Run the built Nest server (`node packages/desktop-main/dist/main.js`). |
-| `npm test` | `vitest run` across every workspace. |
-| `npm run test:watch` | Same but watch mode. |
-| `npm run lint` / `lint:fix` | ESLint flat config over all packages. |
+| `npm run app:dev` | Launches the Electron app in dev mode (delegates to `desktop:dev`). |
+| `npm run app:build` | Compiles shared → desktop-main → web TypeScript. |
+| `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
+| `npm run app:build:lambdas` | esbuild every Lambda to `dist/handler.cjs`. Required before `terraform apply`. |
+| `npm run app:start` | Runs the built Electron app (requires `desktop:build` first). |
+| `npm run app:test` | `vitest run` across every workspace. |
+| `npm run app:test:watch` | Same but watch mode. |
+| `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
 
 ## Test + naming conventions (short form)
 
@@ -196,13 +195,15 @@ a ~40-line switch. To add a new command:
 3. Update `actionForCommand()` so `canRun()` gets the right bucket.
 4. Rebuild Lambdas, `terraform apply`, click **Register commands** per guild.
 
-### 10. ApiTokenGuard is global
+### 10. There is no HTTP surface or bearer token to reintroduce
 
-It's registered as `APP_GUARD` in `AppModule` (see
-`app/packages/desktop-main/src/app.module.ts`). Every `/api/*` route is behind a
-bearer token. Do not `@UseGuards()` on individual controllers — that's
-additive, not override. Do not add a `@Public()` decorator pattern unless
-there is a documented reason.
+`desktop-main` runs as an Electron IPC microservice — every controller is
+IPC-only (`@MessagePattern()`, no HTTP routes), and the renderer's only path
+to it is `window.gsd` over `contextBridge`. There is no `ApiTokenGuard`,
+`API_TOKEN`, or `/api/*` surface left in this app. Don't add an HTTP
+listener or a bearer-token guard back in without a documented reason — it
+would reopen a network attack surface a purely local IPC transport doesn't
+have.
 
 ### 11. Events IAM
 
@@ -260,18 +261,18 @@ in the PR body — least-privilege roles are easy to silently widen.
 
 ## When you touch the web client
 
-- API calls go through `packages/web/src/api.ts`. Don't bypass the 401
-  handler — it's what triggers the re-auth flow.
-- New endpoint stubs keep the same shape as existing ones (one method per
-  route, return a typed promise).
-- The Vite dev server proxies `/api` to `:3001`; nothing else should be
-  hardcoded to port.
+- API calls go through `packages/web/src/api.service.ts`, which delegates
+  every method straight to `window.gsd.*` (the Electron preload bridge).
+  There is no `fetch`, no bearer token, and no 401/re-auth flow to bypass.
+- New IPC-channel wrappers keep the same shape as existing ones (one method
+  per channel, return a typed promise).
 
 ## Release / deploy
 
 There is no versioned release. "Deploying" = running `terraform apply` and
-`npm run build && npm start` (or `docker compose up --build`) from whatever
-machine holds the AWS credentials.
+then packaging/running the Electron app (`npm run desktop:package`, or
+`npm run app:build && npm run app:start`) from whatever machine holds the
+AWS credentials.
 
 If you're wrapping this repo as a submodule inside a private parent repo
 that holds `terraform.tfvars` and state — which is the

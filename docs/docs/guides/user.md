@@ -16,7 +16,7 @@ If any of those assumptions isn't true yet, start at the
 
 | From | What you get | Who can do it |
 |---|---|---|
-| **Dashboard** (`localhost:5000` or `:5173`) | Full control: start/stop, edit watchdog knobs, view cost estimates, read live logs, manage Discord permissions. | Whoever has the bearer token. |
+| **Desktop app dashboard** | Full control: start/stop, edit watchdog knobs, view cost estimates, read live logs, manage Discord permissions. | Whoever can launch the app on your machine — there's no separate login, it's a local desktop app. |
 | **Discord slash commands** | `/server-start`, `/server-stop`, `/server-status`, `/server-list`. Replies are ephemeral, so the channel doesn't get spammy. | Whoever is in the admin list or the relevant per-game entry. |
 
 Both talk to the same AWS resources. You can start a server from Discord and
@@ -24,12 +24,11 @@ stop it from the dashboard, or vice versa. Status always reflects reality.
 
 ## The dashboard
 
-### Logging in
+### Opening it
 
-First load prompts for the bearer token (the `API_TOKEN` env var or the
-`api_token` field in `app/server_config.json`). Paste it once; it lives in
-`localStorage` under `apiToken` and is attached to every subsequent `/api/*`
-call as `Authorization: Bearer`. Clear browser data to revoke.
+Launch the packaged Electron app (or `npm run app:dev` for a dev build) —
+there's no separate login or token to paste. The renderer talks to the
+app's own backend process over Electron IPC, not over the network.
 
 ### Game cards
 
@@ -38,7 +37,7 @@ Each game from `terraform.tfvars` shows up as a card with:
 - A state emoji and label — `stopped`, `pending`, `running`, `error`.
 - The resolved hostname (`{game}.yourdomain.com`) and public IP once running.
 - **Start** / **Stop** buttons. Start kicks off `ecs.runTask`; the dashboard
-  polls `/api/status` every 20 s so you'll see the state transition
+  polls game status every 20 s so you'll see the state transition
   automatically.
 
 Two caveats:
@@ -195,8 +194,8 @@ days of actual spend from Cost Explorer (once you've activated the
 1. Append a new key to `game_servers` in `terraform/terraform.tfvars`.
 2. `cd app && npm run build:lambdas`.
 3. `cd ../terraform && terraform apply`.
-4. Refresh the dashboard — the new card appears because the server
-   re-reads `terraform.tfstate` on `/api/games` and `/api/status`.
+4. Refresh the dashboard — the new card appears because the backend
+   re-reads `terraform.tfstate` on the next game list/status request.
 5. Grant yourself permission in the Discord Bot → Per-Game Permissions tab
    if you want to drive it from Discord.
 
@@ -209,11 +208,6 @@ If a card shows `error` or a task is hung in `PENDING`:
 3. Check the CloudWatch log group `/ecs/{game}-server` for the underlying
    error — image pull failure, EFS mount failure, OOM, etc.
 4. Fix the tfvars entry, `terraform apply`, Start again.
-
-### Rotate the bearer token
-
-`export API_TOKEN=$(openssl rand -hex 32)`, restart the app, re-paste into
-the browser prompt.
 
 ### Revoke a Discord user
 
@@ -235,4 +229,4 @@ remain stopped during this.
 - [Lambdas](/components/lambdas) — what each
   Lambda does on every invocation.
 - [Management app](/components/management-app) — the
-  API routes you're hitting through the dashboard.
+  IPC channels backing the dashboard you're using.

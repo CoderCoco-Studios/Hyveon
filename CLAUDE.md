@@ -5,8 +5,8 @@
 The repo uses a single **npm-workspaces** tree rooted at the repo root. Workspaces are:
 
 - `@hyveon/shared` — types, `canRun`, sanitizers, status formatter, command descriptors, DynamoDB + Secrets Manager helpers (used by both the server and the Lambdas).
-- `@hyveon/desktop-main` — Nest.js management API.
-- `@hyveon/web` — React + Vite client.
+- `@hyveon/desktop-main` — Nest.js backend, exposed to the renderer over Electron IPC (no HTTP server).
+- `@hyveon/web` — React + Vite renderer, talks to `@hyveon/desktop-main` via `window.gsd` (the Electron preload bridge), not HTTP fetch.
 - `@hyveon/lambda-interactions`, `@hyveon/lambda-followup`, `@hyveon/lambda-update-dns`, `@hyveon/lambda-watchdog` — four Lambda packages, each bundled to a single `dist/handler.cjs` by esbuild.
 - `@hyveon/scripts` — maintainer helper scripts (`init-parent.ts` scaffolder).
 
@@ -51,9 +51,6 @@ npm run app:lint:fix
 # Run the scaffolder script
 npm run scripts:init-parent
 
-# Run the app in Docker (mounts ./terraform ro, ./app/server_config.json, ~/.aws)
-docker compose up --build               # http://localhost:5000
-
 # Terraform (all infra lives under terraform/). NOTE: terraform apply reads
 # the Lambda bundles from app/packages/lambda/*/dist/handler.cjs — run
 # `npm run app:build:lambdas` first or the archive_file data sources will fail.
@@ -65,10 +62,6 @@ terraform destroy
 
 # Cost allocation: all resources tagged Project=hyveon. Activate the
 # "Project" tag in AWS Billing → Cost allocation tags for Cost Explorer breakdowns.
-
-# First-time environment bootstrap (installs terraform + aws CLI if missing,
-# runs npm ci, builds Lambdas, runs terraform init)
-./setup.sh
 ```
 
 ESLint (flat config) lives at `app/eslint.config.js` using `@eslint/js` + `typescript-eslint` recommended presets, plus `eslint-plugin-react` and `eslint-plugin-react-hooks` recommended for the web package. Run `npm run app:lint` (or `npm run app:lint:fix`) from the repo root.
@@ -80,7 +73,7 @@ Terraform linting uses [tflint](https://github.com/terraform-linters/tflint) wit
 Three loosely-coupled pieces share code via `@hyveon/shared`:
 
 1. **Terraform (`terraform/`)** provisions all AWS infrastructure, including four Node.js Lambdas (interactions, followup, update-dns, watchdog), a DynamoDB table, and two Secrets Manager secrets for Discord credentials. The root `terraform/` directory is a thin composer (backend/provider config + `module "cloud"`); every AWS resource actually lives in the `terraform/aws/` module.
-2. **Management app (`app/packages/desktop-main` + `app/packages/web`)** — Nest.js (on `@nestjs/platform-express`) backend reads `terraform/terraform.tfstate` directly at runtime to discover cluster/subnet/SG IDs + the Discord store locations, then drives the active cloud via the cloud-agnostic contracts in `@hyveon/shared/cloud.js`. React/Vite frontend talks to the Nest API. Services use **Nest's built-in DI** (`@Injectable()`) and **Winston** for structured logging. Feature modules under `app/packages/desktop-main/src/modules/` (`AwsModule`, `DiscordModule`, `CloudProviderModule`) group related providers; HTTP handlers live in `app/packages/desktop-main/src/controllers/` as `@Controller`-decorated classes wired up through `AppModule`. `CloudProviderModule` (`app/packages/desktop-main/src/modules/cloud-provider.module.ts`) binds four injection tokens — `CLOUD_PROVIDER`, `SECRETS_STORE`, `REMOTE_FILE_STORE`, `DISCORD_RECEIVER` (declared in `cloud-provider.tokens.ts`) — to concrete implementations via `useFactory` providers keyed off `ConfigService.getActiveCloud()`; today every token resolves to a `@hyveon/cloud-aws` class, but consumers (`EcsService`, `DiscordConfigService`, etc.) inject the token and depend only on the cloud-agnostic interface, never the concrete class, so `AwsModule` no longer wires `AwsCloudProvider`/`AwsSecretsStore` directly — it just imports and re-exports `CloudProviderModule`.
+2. **Management app (`app/packages/desktop-main` + `app/packages/web`)** — a packaged Electron desktop app. The Nest.js backend (`desktop-main`) runs as an Electron main-process IPC microservice (no HTTP server, no bearer token) and reads `terraform/terraform.tfstate` directly at runtime to discover cluster/subnet/SG IDs + the Discord store locations, then drives the active cloud via the cloud-agnostic contracts in `@hyveon/shared/cloud.js`. The React/Vite renderer (`web`) talks to it over Electron IPC via `window.gsd` (the preload bridge), not HTTP fetch. Services use **Nest's built-in DI** (`@Injectable()`) and **Winston** for structured logging. Feature modules under `app/packages/desktop-main/src/modules/` (`AwsModule`, `DiscordModule`, `CloudProviderModule`) group related providers; HTTP handlers live in `app/packages/desktop-main/src/controllers/` as `@Controller`-decorated classes wired up through `AppModule`. `CloudProviderModule` (`app/packages/desktop-main/src/modules/cloud-provider.module.ts`) binds four injection tokens — `CLOUD_PROVIDER`, `SECRETS_STORE`, `REMOTE_FILE_STORE`, `DISCORD_RECEIVER` (declared in `cloud-provider.tokens.ts`) — to concrete implementations via `useFactory` providers keyed off `ConfigService.getActiveCloud()`; today every token resolves to a `@hyveon/cloud-aws` class, but consumers (`EcsService`, `DiscordConfigService`, etc.) inject the token and depend only on the cloud-agnostic interface, never the concrete class, so `AwsModule` no longer wires `AwsCloudProvider`/`AwsSecretsStore` directly — it just imports and re-exports `CloudProviderModule`.
 3. **Lambdas (`app/packages/lambda/*`)** — four TypeScript Lambda packages. All bundle via esbuild to a single CJS file and are zipped by Terraform's `archive_file` data source. The Discord interaction path (`interactions` + `followup`) is described below; `update-dns` and `watchdog` are ports of the original `update_dns.py` / `watchdog.py` — same behaviour, TypeScript runtime.
 
 There is **no persistent ECS Service**. Servers run only when the user clicks Start (or invokes `/server-start`) — the app/followup-Lambda calls `ecs.run_task()` / `ecs.stop_task()` against per-game task definitions named `{game}-server`. This is the core cost-saving design choice; don't introduce a long-running Service.
@@ -111,11 +104,7 @@ Games flagged `https = true` in the `game_servers` map get a second container in
 
 ### App → Terraform coupling
 
-`ConfigService.getTfOutputs()` (in `app/packages/desktop-main/src/services/ConfigService.ts`) parses `terraform.tfstate` as JSON and caches it in-memory. `invalidateCache()` is called on `/api/games` and `/api/status` to pick up new deploys. The app's container mounts `./terraform:/app/terraform:ro` — this path coupling matters if directory structure changes. The parsed `TfOutputs` shape now also exposes `discord_table_name`, `discord_bot_token_secret_arn`, `discord_public_key_secret_arn`, and `interactions_invoke_url` so `DiscordConfigService` can reach the Discord stores without extra env-var plumbing.
-
-### API authentication
-
-Every `/api/*` route is gated behind a bearer token via `ApiTokenGuard` in `app/packages/desktop-main/src/guards/api-token.guard.ts`, registered globally in `AppModule` as an `APP_GUARD` provider so it applies to every controller automatically. The token comes from env `API_TOKEN` (wins, even when set to empty to deliberately disable) or `api_token` in `server_config.json`. In production (`NODE_ENV=production`), boot aborts in `main.ts` if no token is configured. In dev, a warning is logged and unauthenticated requests are allowed for convenience. The web client stores the token in `localStorage` under key `apiToken` and sends it as `Authorization: Bearer`. Don't remove the guard or bypass it on individual controllers — Copilot flagged the unauthenticated surface as a security issue and this is the fix.
+`ConfigService.getTfOutputs()` (in `app/packages/desktop-main/src/services/ConfigService.ts`) parses `terraform.tfstate` as JSON and caches it in-memory. `invalidateCache()` is called by the relevant IPC controllers on game list/status reads to pick up new deploys. The parsed `TfOutputs` shape now also exposes `discord_table_name`, `discord_bot_token_secret_arn`, `discord_public_key_secret_arn`, and `interactions_invoke_url` so `DiscordConfigService` can reach the Discord stores without extra env-var plumbing.
 
 ### Discord bot is fully serverless (Lambda + DynamoDB + Secrets Manager)
 

@@ -21,11 +21,10 @@ On the machine that will run `terraform apply` and the management app:
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Node.js | 20+ | Enforced by both setup scripts and the Nest server boot. |
+| Node.js | 20+ | Enforced by the Nest backend boot. |
 | npm | 10+ | Ships with Node 20. |
-| Terraform | 1.5+ | Installed automatically by `setup.sh` (Debian/Ubuntu) or `setup.ps1` (Windows via winget). |
-| AWS CLI | v2 | Installed automatically by `setup.sh` (Linux) or `setup.ps1` (Windows via MSI). |
-| Docker | 24+ | Only if you plan to run the app via `docker compose`. |
+| Terraform | 1.5+ | Install manually (or let the in-app setup wizard drive `terraform init` for you once credentials are configured). |
+| AWS CLI | v2 | Optional — the desktop app talks to AWS directly via the SDK, but the CLI is handy for `aws configure` and manual troubleshooting. |
 
 On the AWS side you need:
 
@@ -118,7 +117,7 @@ On the AWS side you need:
 > `terraform.tfvars`, update the two ARN patterns in `GameServerIAM` to match.
 
 > **`GameServerTfvarsBucket` scopes access to the tfvars-bucket storage**
-> created by the [bootstrap module](#3-clone-and-bootstrap) (see the
+> created by the [bootstrap module](#3-clone-install-and-bootstrap-aws-resources) (see the
 > "Bootstrap the tfvars bucket" step below) — the dedicated, versioned S3
 > bucket (default name `${project_name}-tfvars`) that holds `terraform.tfvars`
 > outside source control. It grants object read/write/list/versioning access
@@ -157,76 +156,36 @@ Both Terraform and the management app read `~/.aws/credentials` and
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION`
 instead — the management app will pick them up too.
 
-## 3. Clone and bootstrap
-
-**Linux / macOS:**
+## 3. Clone, install, and bootstrap AWS resources
 
 ```bash
 git clone https://github.com/CoderCoco/Hyveon.git
 cd Hyveon
-chmod +x setup.sh
-./setup.sh
+npm install
 ```
 
-**Windows (PowerShell 5.1+):**
+Then launch the Electron app in dev mode and follow the **in-app setup
+wizard**:
 
-```powershell
-git clone https://github.com/CoderCoco/Hyveon.git
-cd Hyveon
-.\setup.ps1
+```bash
+npm run app:dev
 ```
 
-> If PowerShell blocks the script with an execution-policy error, run
-> `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` once, then retry.
+The wizard walks you through picking a cloud provider, choosing (or pasting)
+AWS credentials, running an IAM permission simulation, and bootstrapping the
+AWS resources the root Terraform config needs before its first `apply`:
 
-Both scripts are idempotent — safe to re-run at any time. They:
+- The S3 state bucket (`{project_name}-tf-state`) and DynamoDB lock table
+  (`{project_name}-tf-locks`) used as the Terraform backend.
+- The versioned tfvars bucket (`{project_name}-tfvars`, provisioned by the
+  `terraform/bootstrap/` module — see
+  [Bootstrap the tfvars bucket](#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
+  below) that holds `terraform.tfvars` outside of source control.
+- `terraform init` against the resulting backend.
 
-1. Checks for Node 20+, and installs Terraform and the AWS CLI if missing
-   (`setup.sh` uses apt on Debian/Ubuntu; `setup.ps1` uses winget + the AWS MSI
-   installer on Windows; macOS users should install those tools manually first).
-2. Runs `npm ci` from `app/` so all workspaces are installed.
-3. Copies `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`
-   if the latter doesn't exist yet.
-4. **`setup.sh` only** (not yet ported to `setup.ps1`): offers to bootstrap the
-   tfvars S3 bucket (`terraform/bootstrap/`), controlled by the
-   `GSD_TFVARS_BACKEND` environment variable:
-   - `GSD_TFVARS_BACKEND=s3` — bootstraps the bucket non-interactively.
-   - `GSD_TFVARS_BACKEND=local` — skips this automatic step, no AWS/Terraform
-     calls from `setup.sh` itself. **This does not make the bucket optional**:
-     the root module's `data "aws_s3_bucket" "tfvars"` (`terraform/main.tf`)
-     reads it unconditionally, regardless of `GSD_TFVARS_BACKEND`, so you must
-     still create a `{project_name}-tfvars` bucket yourself (see
-     [Bootstrap the tfvars bucket](#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
-     below) before the root `terraform plan`/`apply` will succeed. `local`
-     only means you won't use the `tfvars-sync` CLI to keep `terraform.tfvars`
-     itself in sync with S3.
-   - Unset, interactive shell (a TTY) — prompts
-     `Store terraform.tfvars in a versioned S3 bucket (terraform/bootstrap)? [y/N]`;
-     anything other than `y`/`Y`/`yes`/`YES` falls back to `local`.
-   - Unset, non-interactive shell (CI, scripted runs) — silently defaults to
-     `local`.
-
-   When `s3` is selected, the script `cd`s into `terraform/bootstrap/`, runs
-   `terraform init` and `terraform apply -auto-approve` there (passing
-   `project_name` and `aws_region` from the values derived in step 3), then
-   records the resulting bucket name at `.gsd/tfvars-bucket` — a file at the
-   repo root, gitignored, used purely as a local marker for the operator. If
-   a local `terraform/terraform.tfvars` already exists, the script uploads it
-   to `s3://<bucket>/terraform.tfvars`, but **only if that key doesn't already
-   exist in the bucket** (checked via `aws s3api head-object`) — so re-running
-   `setup.sh` never clobbers a tfvars file that's already been pushed or
-   edited in S3.
-5. Creates the S3 state bucket (`{project_name}-tf-state`) and DynamoDB lock
-   table (`{project_name}-tf-locks`) if they don't already exist. The bucket
-   gets versioning, public-access blocking, and AES-256 encryption enabled.
-   The script waits for the DynamoDB table to reach `ACTIVE` status before
-   continuing. Both names are derived from `project_name` in
-   `terraform.tfvars` (default: `hyveon`). This step requires the
-   `s3:*` permissions in the inline policy above.
-6. Runs `terraform init` inside `terraform/`, passing the bucket and table
-   as `-backend-config` flags. If a local `terraform.tfstate` is present
-   (migrating from a previous local-backend setup), it automatically
-   migrates state to S3 without prompting.
+Names are editable in the wizard; if you skip it or need to redo a step
+later, Settings has a "Reconfigure" flow that re-runs `terraform init`
+against whatever resources you point it at.
 
 ### tfvars storage: local vs S3
 
@@ -246,59 +205,33 @@ below — `local` mode skips the day-to-day S3 sync workflow, **not** the
 bucket itself: the root module reads it unconditionally, so it must exist
 before the first `terraform apply` no matter which mode you choose.
 
-Which mode `setup.sh` sets up is controlled by the `GSD_TFVARS_BACKEND`
-environment variable (see step 4 above):
-
-- `GSD_TFVARS_BACKEND=s3` — bootstraps the tfvars bucket non-interactively
-  (the steps below) and leaves a `.gsd/tfvars-bucket` marker so later
-  `make`/CLI tooling knows it's in S3 mode.
-- `GSD_TFVARS_BACKEND=local` — skips `setup.sh`'s automatic bucket bootstrap
-  and the `tfvars-sync` day-to-day workflow; `terraform.tfvars` stays a plain
-  local file you edit and `terraform apply` directly. The bucket itself is
-  **not** skipped: it still must exist (see
-  [Bootstrap the tfvars bucket](#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
-  below) before the root `terraform plan`/`apply` will succeed.
-- Unset — `setup.sh` prompts interactively on a TTY
-  (`Store terraform.tfvars in a versioned S3 bucket (terraform/bootstrap)? [y/N]`),
-  or silently falls back to `local` in a non-interactive shell (CI).
+For the full day-to-day S3 workflow — the `tfvars-sync` CLI, migrating an
+existing parent repo between `local` and `s3`, and a troubleshooting table —
+see the dedicated [S3 tfvars storage guide](/guides/s3-tfvars). The rest of
+this section covers only the one-time bootstrap step.
 
 > **IAM warning:** the S3 backend needs bucket access on top of the core
 > deploy policy. Confirm the `GameServerTfvarsBucket` statement from
 > [step 1](#1-create-and-authorise-an-iam-user) is attached to whatever
-> IAM user/role runs `setup.sh`/`terraform apply`/`terraform/bootstrap`
-> *before* you opt into `GSD_TFVARS_BACKEND=s3` — without it, bootstrapping
-> the bucket and every subsequent `pull`/`push`/`plan`/`apply` against it
-> will fail with an S3 `AccessDenied` error.
-
-For the full day-to-day S3 workflow — the `tfvars-sync` CLI, the generated
-`make tfvars-pull`/`push`/`diff` targets, migrating an existing parent repo
-between `local` and `s3`, and a troubleshooting table — see the dedicated
-[S3 tfvars storage guide](/guides/s3-tfvars). The rest of this section
-covers only the one-time bootstrap step.
+> IAM user/role bootstraps the bucket and runs `terraform apply` — without
+> it, bootstrapping the bucket and every subsequent `pull`/`push`/`plan`/`apply`
+> against it will fail with an S3 `AccessDenied` error.
 
 ### Bootstrap the tfvars bucket (required before the first `terraform apply`)
 
 `terraform/bootstrap/` is a separate, standalone Terraform module that
 provisions a **second, distinct S3 bucket** whose only job is to hold your
-`terraform.tfvars` outside of source control. This is unrelated to the `{project_name}-tf-state` bucket `setup.sh`
-creates for the Terraform backend. The root module's `data "aws_s3_bucket"
-"tfvars"` (in `terraform/main.tf`) reads this bucket, so it **must already
-exist before you run `terraform apply` in the root `terraform/` directory** —
-skipping this step makes the root `terraform plan`/`terraform apply` fail at
-plan time with a "bucket not found" error.
+`terraform.tfvars` outside of source control. This is unrelated to the
+`{project_name}-tf-state` bucket used for the Terraform backend. The root
+module's `data "aws_s3_bucket" "tfvars"` (in `terraform/main.tf`) reads this
+bucket, so it **must already exist before you run `terraform apply` in the
+root `terraform/` directory** — skipping this step makes the root
+`terraform plan`/`terraform apply` fail at plan time with a "bucket not
+found" error.
 
-**On Linux/macOS, `./setup.sh` can do this for you** — see step 4 above
-(`GSD_TFVARS_BACKEND=s3`, or accept the interactive prompt). It runs the same
-`terraform init`/`terraform apply` shown below, records the bucket name at
-`.gsd/tfvars-bucket`, and uploads your local `terraform.tfvars` if the bucket
-doesn't already have one. Use the manual steps below if you're on
-`setup.ps1` (not yet supported there), opted for `GSD_TFVARS_BACKEND=local`
-and changed your mind, or just want to run it standalone — either way, get
-this done once, before the main `terraform init`/`terraform apply` steps
-below, to have a durable, versioned place to keep `tfvars` outside your
-parent repo. If you'd rather pre-create the bucket some other way (e.g.
-manually or via a different tool), that works too, as long as the name
-matches `tfvars_bucket_name` (see below).
+**The setup wizard bootstraps this bucket for you** as part of step 3 above.
+Use the manual steps below if you skipped the wizard, want to re-run the
+bootstrap standalone, or are pre-creating the bucket outside the app:
 
 ```bash
 cd terraform/bootstrap
@@ -469,71 +402,20 @@ When it finishes, note two outputs:
 
 ## 6. Run the management app
 
-Pick one.
-
-### API token
-
-The dashboard API is gated behind a bearer token; `/api/*` requests without
-a matching `Authorization: Bearer …` header return 401. There are two ways
-to configure the value, in priority order:
-
-1. **`API_TOKEN` environment variable** — takes precedence over
-   `server_config.json` when set, including when set to empty. An empty
-   value is normalized to "no token configured" and prevents the config
-   file from being consulted, but it is **not** a supported way to disable
-   auth — `NODE_ENV=production` startup fails when neither source supplies
-   a non-empty token.
-2. **`api_token` field in `app/server_config.json`** — the persisted file
-   bind-mounted by `docker-compose.yml`. Used when `API_TOKEN` is absent.
-   Edit the file directly; the dashboard's `/api/config` endpoint only
-   manages watchdog settings and does not write the token.
-
-Generate a fresh token with `openssl rand -hex 32`. The dashboard prompts
-for it on first load (and any time the server returns 401); paste the
-value and click **Save**. It is stored in your browser's `localStorage`
-under the key `apiToken` — clear browser data to revoke client-side, or
-rotate the value in `API_TOKEN` / `server_config.json` to invalidate
-every browser at once.
-
-In dev mode (`NODE_ENV` unset) the server logs a warning and allows
-unauthenticated requests when no token is configured — convenient for
-local iteration, not safe to expose.
+Hyveon is a packaged Electron desktop app — there's no HTTP server or bearer
+token to configure. Pick one of the two ways to run it:
 
 ### Option A — dev mode
 
 ```bash
-cd app
-npm run dev
+npm run app:dev
 ```
 
-Serves the Nest API on **:3001** and the Vite dev server on **:5173** (with
-`/api` proxied to :3001). Open `http://localhost:5173`. In dev mode, if no
-`API_TOKEN` is configured the app logs a warning and allows unauthenticated
-requests — fine for local iteration, not safe to expose.
+Launches the Electron app with hot-reload on renderer saves. This is the
+same wizard-driven flow used in [step 3](#3-clone-install-and-bootstrap-aws-resources)
+above.
 
-### Option B — Docker (production-equivalent)
-
-```bash
-# First run only: ensure the persisted config file exists on the host so
-# Compose can bind-mount it.  Without this the bind will error.
-touch app/server_config.json
-
-# REQUIRED: the app refuses to start in production without a bearer token.
-export API_TOKEN="$(openssl rand -hex 32)"
-
-docker compose up --build
-```
-
-Opens on `http://localhost:5000`. The dashboard will prompt you for the
-token on first load; paste the value of `$API_TOKEN` and click **Save**.
-
-`docker-compose.yml` bind-mounts `./terraform` read-only (for
-`terraform.tfstate`), `./app/server_config.json` (persisted watchdog
-config), and `~/.aws` (credentials). If you prefer
-`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars, uncomment the
-corresponding block in `docker-compose.yml`.
-
-### Option C — packaged Electron app (distributable installer)
+### Option B — packaged Electron app (distributable installer)
 
 `npm run desktop:package` produces a platform-native installer via
 electron-builder (config: `electron-builder.yml`). Run it from the repo root:
@@ -701,7 +583,6 @@ hitting "already scheduled for deletion".
 | `archive_file` fails during `terraform apply` | You didn't run `npm run build:lambdas` | `cd app && npm run build:lambdas`, then re-apply. |
 | EFS seeder Lambda times out or returns `EFS mount failed` | Mount targets not ready or security group misconfigured | Ensure `terraform apply` completed fully (mount targets take ~30 s); check the seeder Lambda's CloudWatch log group `/aws/lambda/${project_name}-efs-seeder-{game}`. |
 | `file_seeds` path error: "does not start with container_path" | Seed path doesn't share the first volume's `container_path` prefix | Check that `path` begins with `volumes[0].container_path` (e.g. `/palworld/…`). |
-| App refuses to start under `NODE_ENV=production` | No bearer token configured | `export API_TOKEN=$(openssl rand -hex 32)` or set `api_token` in `app/server_config.json`. |
 | Dashboard says **terraform not applied** in the Discord panel | `interactions_invoke_url` output missing | Re-run `cd app && npm run build:lambdas && cd ../terraform && terraform apply`. |
 | Dashboard says **awaiting credentials** | Secrets still contain the Terraform `"placeholder"` seed | Paste the real bot token + public key in the Credentials tab and Save. |
 | Discord rejects the interactions URL with "invalid interactions endpoint URL" | Public key in Secrets Manager doesn't match Discord's | Re-copy the Application Public Key from the Developer Portal and Save. |
