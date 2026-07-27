@@ -38,10 +38,12 @@
 - [x] 2.20 Gate: `npm run app:test:integration` passes (23/23, 1 skipped)
 - [x] 2.21 Gate: `scripts/` workspace tests pass — `init-parent.test.ts` and `tfvars-sync.test.ts` pass; `init-parent.cli.test.ts` has 5 pre-existing failures confirmed present on `main` before this change (unrelated to this rework — not fixed, out of scope)
 - [x] 2.22 Gate: docs site builds clean (`cd docs && npm run build`) — fixed one broken anchor link surfaced by the `setup.md` heading rewrite
-- [ ] 2.23 Open PR via `/pr`: title `refactor: remove legacy operator surface (HTTP shims, Docker, docs, submodule scaffolder)`, body first line `Closes #293`
-- [ ] 2.24 Work Copilot review per repo conventions; merge PR
+- [x] 2.23 Open PR via `/pr`: title `refactor: remove legacy operator surface (HTTP shims, Docker, docs, submodule scaffolder)`, body first line `Closes #293` — landed as PR #336
+- [x] 2.24 Work Copilot review per repo conventions; merge PR — PR #336 merged (`a9772e7`), CodeRabbit review threads fixed/resolved
 
 ## 3. Issue closeout
 
-- [ ] 3.1 Perform the one-time AWS-side orphan audit from #293 (list account resources by `Project` tag + untagged-in-region, cross-check against `terraform state list`, delete pre-pivot orphans) — operator console/CLI activity, no repo change
-- [ ] 3.2 Tick the completed checklist items on #293 and note the scope deltas: nine shim pairs deleted (not seven), `server_config.json` retained for watchdog tunables (only `api_token` stripped), and `scripts/init-parent.ts` fully reworked (not just doc-updated) to stay self-contained after the root Makefile/setup.sh deletion
+- [x] 3.1 Perform the one-time AWS-side orphan audit from #293 (list account resources by `Project` tag + untagged-in-region, cross-check against `terraform state list`, delete pre-pivot orphans) — operator console/CLI activity, no repo change
+- [x] 3.2 Tick the completed checklist items on #293 and note the scope deltas: nine shim pairs deleted (not seven), `server_config.json` retained for watchdog tunables (only `api_token` stripped), and `scripts/init-parent.ts` fully reworked (not just doc-updated) to stay self-contained after the root Makefile/setup.sh deletion
+
+All tasks complete. Ready to archive this OpenSpec change.
