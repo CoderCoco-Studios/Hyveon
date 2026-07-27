@@ -37,6 +37,11 @@ npm run desktop:build  # electron-vite build: produces out/main, out/preload, ou
 # Lambda bundles are deployed to AWS via Terraform and are NOT packaged into the installer.
 npm run desktop:package
 
+# Regenerate the app icons from build/icon.svg + build/icon-small.svg
+# (writes build/icon.png|.ico|.icns and the web favicons; outputs are committed
+# so packaging never rasterises anything)
+npm run icons:generate
+
 # Build all Lambda bundles (required before `terraform apply`)
 npm run app:build:lambdas
 
