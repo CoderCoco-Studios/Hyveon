@@ -21,8 +21,8 @@ On the machine that will run `terraform apply` and the management app:
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Node.js | 22.12+ | Matches `engines.node` in the root `package.json`. Not enforced at boot — the backend does not check the Node version — but CI (`test.yml`, `lint.yml`, `e2e.yml`, `integration.yml`, `package.yml`) runs on Node 24, so that's the best-tested version. |
-| npm | 10+ | Ships with Node 22+. |
+| Node.js | 24+ | Matches `engines.node` in the root `package.json`, `docs/package.json`, and `scripts/package.json`, and the version every CI workflow runs. Not enforced at boot — the backend does not check the Node version — but nothing is tested below 24. |
+| npm | 10+ | Ships with Node 24. |
 | Terraform | 1.5+ | Install manually (or let the in-app setup wizard drive `terraform init` for you once credentials are configured). |
 | AWS CLI | v2 | Optional — the desktop app talks to AWS directly via the SDK, but the CLI is handy for `aws configure` and manual troubleshooting. |
 

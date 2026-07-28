@@ -111,7 +111,7 @@ whose self-contained recipe bootstraps the S3-backed tfvars store.
 
 ### Requirements
 
-- Node.js 20+ (the same minimum the rest of the project enforces).
+- Node.js 24+ (the same minimum the rest of the project enforces).
 - `git` on `$PATH` (used to detect `.gitmodules`).
 - AWS CLI and Terraform on `$PATH` — `setup` shells out to `aws` directly to
   bootstrap the state bucket/lock table (no longer installed for you the way
@@ -245,7 +245,7 @@ against it.
 
 ### Requirements
 
-- Node.js 20+.
+- Node.js 24+.
 - AWS credentials resolvable by the AWS SDK v3's default credential
   provider chain (env vars, shared credentials file, IAM role, etc.).
 - A region, resolved via `--region` or the SDK's own region config —
