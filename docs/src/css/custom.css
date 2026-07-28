@@ -31,11 +31,19 @@
 }
 
 /* ── Diagrams ─────────────────────────────────────────────────────────────── */
-img[src$='.svg'] {
+/*
+ * Scoped to `.markdown` (the rendered page body) on purpose. An unscoped
+ * `img[src$='.svg']` also matches the navbar brand image, and both rules break
+ * it: `height: auto` beats Infima's `.navbar__logo img { height: 2rem }` — same
+ * specificity, but this stylesheet loads last — so the 1024×1024 `logo.svg`
+ * renders at full size, and the dark-mode filter inverts its palette. Every
+ * diagram is embedded from markdown, so nothing here needs the wider reach.
+ */
+.markdown img[src$='.svg'] {
   max-width: 100%;
   height: auto;
 }
 
-[data-theme='dark'] img[src$='.svg'] {
+[data-theme='dark'] .markdown img[src$='.svg'] {
   filter: invert(0.85) hue-rotate(180deg);
 }
