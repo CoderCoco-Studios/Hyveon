@@ -57,9 +57,22 @@ naturally whenever a task starts.
 
 One **Save** button. Success shows `Watchdog settings saved`.
 
-There is no validation on these fields — no minimum, no maximum. Clearing a
-field or typing something non-numeric silently stores `0`. Negative numbers
-are accepted. Check what you typed before saving.
+Each field is validated as you type, and **Save** stays disabled while any of
+them is invalid:
+
+| What you typed | Message under the field |
+|---|---|
+| Nothing — the field is empty | `Required` |
+| Anything that is not a whole number | `Whole number required` |
+| Below the field's floor | `Must be N or greater` |
+
+The floor is `1` for the check interval and the idle-check count — either at
+zero describes no watchdog at all — and `0` for the packet threshold, where
+zero is meaningful: it makes every task read as busy. There is no maximum.
+
+While the interval or the idle-check count is invalid, the idle-window summary
+under the fields is replaced by `Fix the highlighted fields to see the idle
+window.`
 
 :::danger Saving here does not change the watchdog
 
