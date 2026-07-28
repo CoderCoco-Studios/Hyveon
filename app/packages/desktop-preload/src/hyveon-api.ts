@@ -69,6 +69,59 @@ export interface GameLogs {
 /** A single chunk of streamed log text delivered over IPC. */
 export type LogChunk = string;
 
+/**
+ * ContextBridge-safe async-iterable handle for a streaming IPC channel
+ * (`logs.stream`, `terraform.init`, `terraform.runs.streamLogs`).
+ *
+ * Electron's `contextBridge` structured-clones every value that crosses the
+ * isolated-world boundary. A raw `AsyncGenerator` is not structured-cloneable
+ * — a bridged function that returns one throws synchronously with
+ * `Uncaught Error: An object could not be cloned.` the moment the renderer
+ * calls it, and the generator body never executes. This plain object — an
+ * own `next()` function, an own `cancel()` function, and an own
+ * `[Symbol.asyncIterator]` function returning itself — was empirically
+ * verified to survive the clone boundary intact (functions proxy across the
+ * bridge fine; a plain object with own function/symbol-keyed properties
+ * clones as a plain object retaining those properties as live proxies to the
+ * preload-side functions). It satisfies both `AsyncIterable<T>` and
+ * `AsyncIterator<T>`, so it can be consumed directly with
+ * `for await (const chunk of handle)`.
+ *
+ * Cancellation is a `cancel()` method rather than an `AbortSignal` parameter:
+ * `AbortSignal` instances also don't survive the `contextBridge` clone —
+ * their prototype getters (`aborted`) and methods (`addEventListener`) are
+ * stripped, leaving an inert plain object with no own enumerable keys, so a
+ * preload-side `signal.addEventListener(...)` call throws
+ * `TypeError: signal.addEventListener is not a function` the instant the
+ * renderer passes one across. Call `cancel()` from a `useEffect` cleanup /
+ * `finally` block instead of aborting a controller and passing its signal in.
+ */
+export interface HyveonStreamHandle<T> {
+  /**
+   * Resolves the next chunk, or a result whose `done` is `true` once the
+   * stream ends (successfully or via {@link cancel}). Shaped exactly like the
+   * lib-standard `AsyncIterator<T>['next']` result — a discriminated union on
+   * `done`, carrying `value` only on the non-done branch — so TypeScript
+   * narrows the element type of a `for await (const chunk of handle)` loop to
+   * `T`, not `T | undefined`. This is deliberately not a single object type
+   * with both fields optional, which would lose that narrowing. On the
+   * terminal (done) result, `value` is always absent in practice: the bridge
+   * clone drops object properties whose value is `undefined` in transit, and
+   * these streams never resolve their return value to anything else.
+   */
+  next: () => Promise<{ done?: false; value: T } | { done: true; value?: undefined }>;
+  /**
+   * Stops consuming the stream: tells the main process to tear down the
+   * underlying tail/run early (where applicable — see each streaming
+   * method's own doc comment for exactly what tearing down early means for
+   * that channel). Safe to call more than once and safe to call after the
+   * stream has already ended on its own.
+   */
+  cancel: () => void;
+  /** Returns itself, so the handle is directly usable in a `for await (const chunk of handle)` loop. */
+  [Symbol.asyncIterator]: () => HyveonStreamHandle<T>;
+}
+
 /** State of the EFS FileBrowser helper task for a game. */
 export interface FileMgrStatus {
   game: string;
@@ -876,16 +929,17 @@ export interface HyveonLogsApi {
   /** Returns recent log lines for a game's ECS task. */
   get: (game: string, limit?: number) => Promise<GameLogs>;
   /**
-   * Opens a live log stream for `game` as an async iterable of log chunks.
-   * Consume it with `for await (const chunk of stream(game, signal))`.
+   * Opens a live log stream for `game`, returning a {@link HyveonStreamHandle}
+   * of log chunks. Consume it with `for await (const chunk of stream(game))`.
    *
-   * Pass an `AbortSignal` to cancel the stream: aborting (or breaking out of
-   * the `for await` loop) tells the main process to stop tailing CloudWatch.
-   * The iterator completes when the stream ends and throws if it terminated
-   * due to an error. Internally this wraps the per-stream chunk/end/cancel IPC
-   * channels in an async generator.
+   * Call the returned handle's `cancel()` to stop the stream early: this
+   * tells the main process to stop tailing CloudWatch. The iteration
+   * completes normally once `cancel()` is called or the stream ends on its
+   * own, and throws if it terminated due to an error. Internally this wraps
+   * the per-stream chunk/end/cancel IPC channels in a preload-internal async
+   * generator, exposed to the renderer via {@link HyveonStreamHandle}.
    */
-  stream: (game: string, signal?: AbortSignal) => AsyncIterable<LogChunk>;
+  stream: (game: string) => HyveonStreamHandle<LogChunk>;
 }
 
 /** EFS file-manager task endpoints: list, start, and stop per game. */
@@ -1185,9 +1239,9 @@ export interface HyveonTerraformRunsApi {
    */
   get: (runId: string) => Promise<TerraformRunsGetResult>;
   /**
-   * Opens a live/replayed log stream for the run identified by `runId` as an
-   * async iterable of {@link TerraformRunChunk}. Consume it with
-   * `for await (const chunk of terraform.runs.streamLogs(runId, signal))`.
+   * Opens a live/replayed log stream for the run identified by `runId`,
+   * returning a {@link HyveonStreamHandle} of {@link TerraformRunChunk}.
+   * Consume it with `for await (const chunk of terraform.runs.streamLogs(runId))`.
    *
    * Mirrors {@link HyveonTerraformApi.init}'s streaming shape: the
    * `terraform.runs.logs` invoke call resolves immediately with an opaque
@@ -1196,17 +1250,17 @@ export interface HyveonTerraformRunsApi {
    * tagged with that `streamId` so overlapping subscriptions to different
    * runs can never cross-terminate one another.
    *
-   * Pass an `AbortSignal` to stop consuming the stream early: aborting (or
-   * breaking out of the `for await` loop) stops the generator from yielding
-   * further chunks. There is no dedicated cancel side channel — the run
-   * itself (and its log tailing on the main-process side) keeps going in the
-   * background; only this caller's consumption stops.
+   * Call the returned handle's `cancel()` to stop consuming the stream
+   * early: this stops yielding further chunks to the caller. There is no
+   * dedicated cancel side channel — the run itself (and its log tailing on
+   * the main-process side) keeps going in the background; only this
+   * caller's consumption stops.
    *
-   * The iterator completes normally once the run's output finishes
+   * The iteration completes normally once the run's output finishes
    * replaying/streaming, and throws (using the `terraform.runs.logs.end`
    * payload's `error` field) if it terminated due to an error.
    */
-  streamLogs: (runId: string, signal?: AbortSignal) => AsyncIterable<TerraformRunChunk>;
+  streamLogs: (runId: string) => HyveonStreamHandle<TerraformRunChunk>;
   /**
    * Returns a page of persisted run records, newest-first. `opts.limit` caps
    * the number of records returned; `opts.before` is a pagination cursor (a
@@ -1237,25 +1291,27 @@ export interface HyveonTerraformRunsApi {
 export interface HyveonTerraformApi {
   /**
    * Runs `terraform init` against `config` (backend bucket/region/DynamoDB
-   * lock table) and returns its output as an async iterable of
+   * lock table) and returns its output as a {@link HyveonStreamHandle} of
    * {@link TerraformRunChunk}. Consume it with
-   * `for await (const chunk of terraform.init(config, signal))`.
+   * `for await (const chunk of terraform.init(config))`.
    *
    * Internally this wraps the fixed `terraform.init.chunk` / `terraform.init.end`
-   * side-channel IPC messages `TerraformController.init` sends in an async
-   * generator — unlike `logs.stream`, there is no per-call `streamId` because
-   * `TerraformService.init` only ever allows one run in flight at a time.
+   * side-channel IPC messages `TerraformController.init` sends in a
+   * preload-internal async generator — unlike `logs.stream`, there is no
+   * per-call `streamId` because `TerraformService.init` only ever allows one
+   * run in flight at a time.
    *
-   * Pass an `AbortSignal` to cancel the stream: aborting (or breaking out of
-   * the `for await` loop) stops consuming the run early, mirroring
-   * `logs.stream`'s cancellation semantics.
+   * Call the returned handle's `cancel()` to stop consuming the run's
+   * output early, mirroring `logs.stream`'s cancellation semantics — the
+   * `terraform init` process itself is not killed, only this caller's
+   * consumption of its output stops.
    *
-   * The iterator completes normally once the run finishes successfully, and
+   * The iteration completes normally once the run finishes successfully, and
    * throws (using the `terraform.init.end` payload's `error` field) if the
    * run failed — including if the initial `config` failed validation and no
    * `terraform init` process was ever spawned.
    */
-  init: (config: TerraformInitConfig, signal?: AbortSignal) => AsyncIterable<TerraformRunChunk>;
+  init: (config: TerraformInitConfig) => HyveonStreamHandle<TerraformRunChunk>;
   /**
    * Submits a `terraform plan` run by invoking the `terraform.plan` IPC
    * channel and resolves its immediate {@link TerraformPlanAck}.

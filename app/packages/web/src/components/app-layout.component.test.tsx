@@ -107,6 +107,70 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(screen.getByRole('link', { name: 'Audit' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
   });
+
+  it('should render a Costs nav entry that links to /costs', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.getByRole('link', { name: 'Costs' })).toHaveAttribute('href', '/costs');
+  });
+
+  it('should highlight the Costs nav link on /costs', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter initialEntries={['/costs']}>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.getByRole('link', { name: 'Costs' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('should not render any disabled (aria-disabled) nav entries', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(document.querySelector('[aria-disabled]')).not.toBeInTheDocument();
+  });
+
+  it('should not render the Servers, Metrics, or Alerts nav entries', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.queryByRole('link', { name: 'Servers' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Metrics' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Alerts' })).not.toBeInTheDocument();
+  });
+
+  it('should not render the top-bar search input', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.queryByPlaceholderText(/search/i)).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="text"]')).not.toBeInTheDocument();
+  });
 });
 
 describe('AppLayout — LiveIndicator', () => {

@@ -8,8 +8,7 @@ import {
   LayoutDashboard,
   Server,
   ScrollText,
-  BarChart3,
-  Bell,
+  DollarSign,
   MessageSquare,
   Settings,
   Gamepad2,
@@ -24,15 +23,12 @@ interface NavItem {
   to: string;
   icon: typeof LayoutDashboard;
   label: string;
-  disabled?: boolean;
 }
 
 const monitoringItems: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/servers', icon: Server, label: 'Servers', disabled: true },
   { to: '/logs', icon: ScrollText, label: 'Logs' },
-  { to: '/metrics', icon: BarChart3, label: 'Metrics', disabled: true },
-  { to: '/alerts', icon: Bell, label: 'Alerts', disabled: true },
+  { to: '/costs', icon: DollarSign, label: 'Costs' },
 ];
 
 const configItems: NavItem[] = [
@@ -98,7 +94,7 @@ function NavSections({
  * Navigation shell — persistent sidebar + top bar that wraps all routed pages.
  * Sidebar shows "Monitoring" and "Configuration" sections with active-route
  * highlighting (purple gradient + 2px left accent). Top bar displays env pill
- * (e.g. "PROD · us-east-1"), search placeholder, and LIVE indicator.
+ * (e.g. "PROD · us-east-1"), Refresh, and LIVE indicator.
  *
  * On mobile (below the `md` breakpoint), the sidebar is replaced by an off-canvas drawer that slides
  * in from the left when the hamburger button in the top bar is clicked.
@@ -212,17 +208,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Search placeholder — not yet functional; hidden from keyboard/screen readers */}
-            <div className="relative hidden sm:block" aria-hidden="true">
-              <input
-                type="text"
-                placeholder="Search... ⌘K"
-                className="w-48 lg:w-64 px-3 py-1.5 text-sm bg-muted border border-border rounded focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                readOnly
-                tabIndex={-1}
-              />
-            </div>
-
             <RefreshAllButton />
             <LiveIndicator />
 
@@ -315,18 +300,9 @@ function NavLink({
   const Icon = item.icon;
   const className = cn(
     'relative flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
-    item.disabled && 'text-muted-foreground/40 cursor-not-allowed',
-    !item.disabled && active && 'bg-gradient-to-r from-purple-500/10 to-transparent text-purple-400 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-purple-500 before:rounded-full',
-    !item.disabled && !active && 'text-muted-foreground hover:text-foreground hover:bg-accent',
+    active && 'bg-gradient-to-r from-purple-500/10 to-transparent text-purple-400 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-purple-500 before:rounded-full',
+    !active && 'text-muted-foreground hover:text-foreground hover:bg-accent',
   );
-  if (item.disabled) {
-    return (
-      <span className={className} aria-disabled="true">
-        <Icon className="w-4 h-4" aria-hidden="true" />
-        {item.label}
-      </span>
-    );
-  }
   return (
     <Link
       to={item.to}

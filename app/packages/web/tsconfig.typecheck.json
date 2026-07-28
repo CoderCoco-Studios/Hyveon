@@ -1,0 +1,28 @@
+{
+  // Widens the base project to everything that should be typechecked but sits
+  // outside `vite build`'s program: the Vite/Playwright configs and the e2e
+  // specs. Inherits the base's deliberate absence of `rootDir` — see the
+  // comment there; setting one here makes TypeScript reject the
+  // desktop-preload sources reached through the base's `paths` mapping.
+  //
+  // This config runs as `typecheck:full`, NOT as the `typecheck` that `build`
+  // chains. The e2e fixtures deep-import `@hyveon/desktop-main/dist/...`, so
+  // this program only resolves once the sibling packages have been built —
+  // and Playwright's chromium `webServer` runs `npm run build` here straight
+  // from a clean checkout, where no `dist/` exists yet. Keep `build` on the
+  // narrow `src`-only `typecheck`; the root `app:typecheck` builds the
+  // dependencies first and then runs this one.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "playwright.integration.config.ts",
+    "playwright.screenshots.config.ts",
+    "e2e/**/*"
+  ]
+}

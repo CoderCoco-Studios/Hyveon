@@ -41,6 +41,14 @@ test.describe('polling indicator', () => {
     await layout.navigateTo('Settings', '/settings');
     await expect(dashboard.page.getByText(/updated\s+\S+\s+ago/i).first()).toBeVisible();
   });
+
+  test('should navigate to /costs via the sidebar Costs link', async ({ dashboard, layout }) => {
+    await stubApis(dashboard.page, { statuses: [STOPPED_GAME] });
+    await dashboard.goto();
+
+    await layout.navigateTo('Costs', '/costs');
+    await expect(dashboard.page.getByRole('heading', { name: 'Cost Analysis' })).toBeVisible();
+  });
 });
 
 test.describe('top-bar refresh', () => {

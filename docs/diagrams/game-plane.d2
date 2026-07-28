@@ -1,21 +1,20 @@
 direction: right
 
 operator: "Operator's laptop" {
-  dashboard: "React dashboard"
-  api: "Nest.js API"
-  dashboard -> api: "bearer token"
+  dashboard: "React dashboard\n(renderer)"
+  api: "desktop-main\n(Nest.js, Electron main process)"
+  dashboard -> api: "Electron IPC\n(window.hyveon)"
 }
 
-tfstate: "terraform.tfstate\n(local file, mounted ro)" {
+tfstate: "terraform.tfstate\n(read directly from disk\nby the desktop app)" {
   shape: document
 }
 
 aws: "AWS account" {
-  ecs: "ECS Fargate tasks\n{game}-server"
+  ecs: "ECS Fargate tasks\n{game}-server\n(+ Caddy sidecar for HTTPS games)"
   efs: "EFS\nper-game access points" {
     shape: cylinder
   }
-  alb: "ALB + ACM\n(HTTPS games only)"
   ddb: "DynamoDB" {
     shape: cylinder
   }
@@ -27,7 +26,6 @@ aws: "AWS account" {
   }
 
   ecs -> efs: "nfs"
-  alb -> ecs
 }
 
 player: "Player" {
@@ -39,5 +37,4 @@ operator.api -> aws.ecs: "RunTask / StopTask / DescribeTasks"
 operator.api -> aws.ddb: "put CONFIG#discord"
 operator.api -> aws.sm: "put bot-token / public-key"
 operator.api -> aws.cw: "tail logs"
-player -> aws.alb: "HTTPS"
-player -> aws.ecs: "UDP / TCP"
+player -> aws.ecs: "UDP / TCP / HTTPS\n(Caddy sidecar terminates TLS)"

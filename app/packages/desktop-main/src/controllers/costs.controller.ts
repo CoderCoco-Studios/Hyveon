@@ -47,9 +47,17 @@ export class CostsController {
 
   /**
    * Returns actual costs over the trailing `days` window (default 7) via Cost
-   * Explorer, grouped by the `Project` cost-allocation tag. Requires the tag
-   * to have been activated in AWS Billing — see CLAUDE.md "Cost Tagging". The
-   * IPC payload supplies `days` as a bare string or number; the
+   * Explorer.
+   *
+   * The underlying query filters on the `SERVICE` dimension
+   * (`Amazon Elastic Container Service`, `AWS Fargate`) with no `GroupBy` and
+   * no tag filter, so these figures are **account-wide ECS + Fargate spend**,
+   * not scoped to this project. Any other ECS or Fargate workload in the same
+   * AWS account inflates them. The `Project` cost-allocation tag that
+   * Terraform applies is useful for grouping in the AWS console, but this
+   * query does not reference it.
+   *
+   * The IPC payload supplies `days` as a bare string or number; the
    * `parseInt(String(...))` coercion tolerates either.
    */
   @MessagePattern('costs.actual')

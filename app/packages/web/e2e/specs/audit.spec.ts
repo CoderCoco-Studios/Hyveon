@@ -133,7 +133,8 @@ test.describe('audit log page', () => {
       // once the app clicks "Load more" it re-requests with
       // `before: PAGE_ONE.nextBefore`, so branch on that to hand back the
       // older page and drop the cursor.
-      audit: (opts) => (opts.before === PAGE_ONE.nextBefore ? PAGE_TWO : PAGE_ONE),
+      audit: (opts: { limit?: number; before?: string }) =>
+        opts.before === PAGE_ONE.nextBefore ? PAGE_TWO : PAGE_ONE,
     });
     await audit.goto();
 

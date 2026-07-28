@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Filter, Pause, Play, Search } from 'lucide-react';
+import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
 import { api } from '../api.service.js';
 import { Badge } from '../components/ui/badge.component.js';
 import { Button } from '../components/ui/button.component.js';
@@ -29,6 +31,22 @@ interface LogLine {
 }
 
 const LEVEL_PATTERN = /\b(INFO|WARN(?:ING)?|ERROR|ERR|DEBUG|DBG)\b/i;
+
+/** Shape of the react-router navigation state `GameCard` passes via `<Link to="/logs" state={{ game }}>`. */
+interface LogsNavState {
+  game?: string;
+}
+
+/**
+ * Reads the `game` field off a react-router `location.state` value, if
+ * present and a string. `location.state` is typed `unknown` by react-router,
+ * so this narrows it defensively rather than trusting an unchecked cast.
+ */
+function gameFromLocationState(state: unknown): string | null {
+  if (!state || typeof state !== 'object') return null;
+  const game = (state as LogsNavState).game;
+  return typeof game === 'string' ? game : null;
+}
 
 /** Detect a log level from a single CloudWatch line, or null if no match. */
 function detectLevel(line: string): LogLevel | null {
@@ -98,9 +116,14 @@ function HighlightedLine({ text, query }: { text: string; query: string }) {
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
  * game. Fetches an initial snapshot via `window.hyveon.logs.get`, then consumes
- * a live IPC stream via `for await (… of window.hyveon.logs.stream(game, signal))`,
- * cancelling through an `AbortController`. Surfaces the stream through:
+ * a live IPC stream via `for await (… of window.hyveon.logs.stream(game))`,
+ * cancelling by calling the returned {@link HyveonStreamHandle}'s `cancel()`.
+ * Surfaces the stream through:
  *
+ *   - Initial game selection: preselects the game named in the incoming
+ *     `location.state.game` (set by `GameCard`'s "Logs" link) once the games
+ *     list resolves, provided that game is actually present in the list;
+ *     otherwise falls back to the first game in the list.
  *   - A LIVE/PAUSED status badge (pulsing cyan / muted slate).
  *   - A searchable game selector that resets the buffer on switch.
  *   - Per-line color-coded level badges (INFO/WARN/ERROR/DEBUG) detected via
@@ -115,6 +138,13 @@ function HighlightedLine({ text, query }: { text: string; query: string }) {
  * stream — same behaviour as the previous panel.
  */
 export function LogsPage() {
+  const location = useLocation();
+  // Captured once on mount — the game named in the incoming navigation state
+  // (e.g. a GameCard's "Logs" link), used only to pick the *initial* selected
+  // game once the list resolves. Kept in a ref (not a dependency) so later
+  // location changes on this same route instance never re-trigger the
+  // preselection logic and fight a selection the user has since made.
+  const preselectedGameRef = useRef(gameFromLocationState(location.state));
   const [games, setGames] = useState<string[]>([]);
   const [selectedGame, setSelectedGame] = useState<string>('');
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -131,8 +161,8 @@ export function LogsPage() {
   const [bufferedCount, setBufferedCount] = useState(0);
 
   const boxRef = useRef<HTMLDivElement>(null);
-  /** Aborts the in-flight `for await` log stream; aborting also tells the main process to cancel. */
-  const abortRef = useRef<AbortController | null>(null);
+  /** The in-flight log stream handle; calling `cancel()` on it also tells the main process to stop tailing. */
+  const streamRef = useRef<HyveonStreamHandle<LogChunk> | null>(null);
   const pausedRef = useRef(false);
   const bufferRef = useRef<LogLine[]>([]);
 
@@ -150,8 +180,8 @@ export function LogsPage() {
   }, []);
 
   const stopStream = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
+    streamRef.current?.cancel();
+    streamRef.current = null;
   }, []);
 
   const startStream = useCallback(
@@ -161,18 +191,20 @@ export function LogsPage() {
         return;
       }
       stopStream();
-      const ac = new AbortController();
-      abortRef.current = ac;
+      const handle = window.hyveon.logs.stream(game);
+      streamRef.current = handle;
 
       void (async () => {
         try {
-          for await (const chunk of window.hyveon!.logs.stream(game, ac.signal)) {
-            if (ac.signal.aborted) break;
+          for await (const chunk of handle) {
             appendLine(chunk);
           }
         } catch (err: unknown) {
-          // An abort tears the iterator down without a real failure — ignore it.
-          if (ac.signal.aborted) return;
+          // `cancel()` completes the iteration normally (no throw) — a thrown
+          // error here is a genuine stream failure. Still, ignore it if this
+          // stream has since been superseded (or torn down) by a newer call,
+          // whose own error/success state has already taken over the UI.
+          if (streamRef.current !== handle) return;
           const message = err instanceof Error ? err.message : String(err);
           setError(`Stream ended with error: ${message}`);
         }
@@ -221,7 +253,11 @@ export function LogsPage() {
         if (cancelled) return;
         const names = res.games.map((g) => g.name);
         setGames(names);
-        if (names.length > 0) setSelectedGame((cur) => cur || names[0]!);
+        if (names.length > 0) {
+          const preselected = preselectedGameRef.current;
+          const initial = preselected && names.includes(preselected) ? preselected : names[0]!;
+          setSelectedGame((cur) => cur || initial);
+        }
       } catch {
         if (!cancelled) setError('Could not load games.');
       }

@@ -29,7 +29,7 @@ test.describe('electron smoke', () => {
 
     try {
       const win = await app.firstWindow();
-      const hyveon = await win.evaluate(() => typeof (window as Record<string, unknown>)['hyveon']);
+      const hyveon = await win.evaluate(() => typeof (window as unknown as Record<string, unknown>)['hyveon']);
       expect(hyveon).toBe('object');
     } finally {
       await app.close();

@@ -5,7 +5,7 @@ import type {
   WatchdogConfig,
   ActualCosts,
   DiscordConfigRedacted,
-} from '@/api.js';
+} from '@/api.service.js';
 
 /** Stub response for `GET /api/env`. */
 export const ENV_DATA: EnvInfo = {

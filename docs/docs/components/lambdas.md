@@ -5,17 +5,19 @@ sidebar_position: 4
 
 # Lambdas
 
-Four TypeScript Lambda packages live under `app/packages/lambda/`. Each
+Five TypeScript Lambda packages live under `app/packages/lambda/`. Each
 builds via esbuild to a single CJS file at `dist/handler.cjs`; Terraform's
 `archive_file` data source zips that at apply time.
 
 ```bash
-cd app && npm run build:lambdas        # produces every dist/handler.cjs
+npm run app:build:lambdas        # produces every dist/handler.cjs
 ```
 
-All four Lambdas read AWS region from `process.env.AWS_REGION_`
-(trailing underscore — `AWS_REGION` is reserved by the Lambda runtime).
-Terraform sets the variable with that name in every function definition.
+The four core Lambdas (interactions, followup, update-dns, watchdog) read
+AWS region from `process.env.AWS_REGION_` (trailing underscore —
+`AWS_REGION` is reserved by the Lambda runtime). Terraform sets the variable
+with that name in every function definition, including efs-seeder's — but
+efs-seeder never reads it, since it makes no AWS SDK calls (see below).
 
 ## interactions
 
@@ -153,8 +155,10 @@ Failure modes:
   `{status: 'error', reason: 'no_ip'}`. No retry is scheduled — the task stays
   up but unreachable by DNS until another `RUNNING`/`STOPPED` state-change
   event fires for it (e.g. the task is stopped and started again).
-- Route 53 call fails → log, continue. The STOPPED path is eventually
-  consistent because the watchdog cleans up too.
+- Route 53 call fails → log, continue. There is no retry and no backstop —
+  the watchdog only issues `StopTask`, it never touches Route 53 — so a
+  stale record persists until another `RUNNING`/`STOPPED` event fires for
+  that game (e.g. the next start/stop cycle) or someone deletes it manually.
 - Pending row missing (expired / never written / `stop` flow) → skip the
   Discord PATCH; no user-visible issue.
 - Discord PATCH fails (stale token) → log, continue.
@@ -199,6 +203,58 @@ Failure modes:
 - Tagging fails → logged; a task might hang around a cycle longer than
   intended.
 - `StopTask` fails → logged; next schedule tick retries.
+
+## efs-seeder
+
+| | |
+|---|---|
+| **Package** | `@hyveon/lambda-efs-seeder` |
+| **Trigger** | `aws_lambda_invocation` in `terraform/aws/efs-seeder.tf`, run synchronously during `terraform apply`. Not exposed externally, not event-driven, and not part of the always-on control flow the other four Lambdas belong to. |
+| **Terraform** | `terraform/aws/efs-seeder.tf`. **One function per game that declares `file_seeds`** — this Lambda is conditionally created, not fixed like the other four. Games with no `file_seeds` get no seeder function, no seeder IAM role, and no seeder log group. |
+| **IAM** | Per-game role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), `elasticfilesystem:ClientMount`/`ClientWrite` scoped to the shared EFS filesystem. |
+| **Env vars** | `AWS_REGION_` — set by Terraform for consistency with the other Lambdas, but unused: this handler makes no AWS SDK calls (see below). |
+
+### Behaviour
+
+The Lambda mounts the game's first volume's EFS access point at `/mnt/efs`
+via `file_system_config` (VPC-attached, using the same public subnets and a
+dedicated `efs-seeder` security group whose egress is currently unrestricted —
+all protocols to `0.0.0.0/0`, not scoped to NFS; see
+`terraform/aws/efs-seeder.tf`) and
+receives `{ game, seeds, container_path }` as its invocation payload —
+`container_path` is `volumes[0].container_path`.
+
+1. For each `FileSeed` in `seeds`: strip the `container_path` prefix from
+   `path` and resolve the remainder under `/mnt/efs`, rejecting anything that
+   resolves outside the mount point (path-traversal guard) or has no file
+   component left after stripping the prefix.
+2. Decode `content` (UTF-8 text) or `content_base64` (binary) — exactly one
+   must be set — and validate `mode` is a 3–4 digit octal string (default
+   `"0644"`).
+3. `mkdirSync(..., { recursive: true })` then `writeFileSync` with that mode.
+4. Throw on any error — `aws_lambda_invocation` is a synchronous Terraform
+   resource, so a thrown error surfaces directly as a `terraform apply`
+   failure rather than an async CloudWatch-only failure.
+
+Unlike the other four Lambdas, this handler imports no `@aws-sdk/*` package
+at all — it only touches the filesystem (`fs`, `path`), which is why the
+`AWS_REGION_` env var Terraform sets on it is never actually read.
+
+**Re-trigger behaviour**: the `aws_lambda_invocation.efs_seeder` resource's
+`triggers` block is `{ seeds_hash = sha256(jsonencode(each.value.file_seeds)) }`,
+so `terraform apply` only re-invokes the Lambda for a game when that game's
+`file_seeds` content actually changes — an apply with unchanged seeds is a
+no-op for this Lambda. Removed seed entries are not deleted from EFS; clean
+them up via the FileBrowser task.
+
+Failure modes:
+
+- Path validation error (traversal, missing file component, both/neither of
+  `content`/`content_base64` set, invalid `mode`) → thrown synchronously,
+  fails the `terraform apply`.
+- EFS mount not ready (mount targets still propagating) → Lambda invocation
+  fails; `terraform apply` reports the error, retry the apply once mount
+  targets are up (~30 s after `aws_efs_mount_target` creation).
 
 ## The `/server-start` critical path, assembled
 

@@ -46,6 +46,30 @@ function renderCard(status: GameStatus = runningStatus) {
   );
 }
 
+describe('GameCard — stats grid', () => {
+  beforeEach(() => {
+    apiMock.stop.mockResolvedValue(undefined);
+    apiMock.start.mockResolvedValue(undefined);
+    toastMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+  });
+
+  it('should render the Last run, $ per hour, and Task stats', () => {
+    renderCard();
+
+    expect(screen.getByText('Last run')).toBeInTheDocument();
+    expect(screen.getByText('$ per hour')).toBeInTheDocument();
+    expect(screen.getByText('Task')).toBeInTheDocument();
+  });
+
+  it('should not render a Players stat tile', () => {
+    renderCard();
+
+    expect(screen.queryByText('Players')).not.toBeInTheDocument();
+  });
+});
+
 describe('GameCard — Stop confirmation', () => {
   beforeEach(() => {
     apiMock.stop.mockResolvedValue(undefined);

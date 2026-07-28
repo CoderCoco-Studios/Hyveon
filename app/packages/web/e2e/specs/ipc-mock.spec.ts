@@ -20,8 +20,8 @@ test.describe('IPC mock seam', () => {
     try {
       const win = await app.firstWindow();
       const hasTestSurface = await win.evaluate(
-        () => typeof (window as Record<string, unknown>)['hyveon'] === 'object'
-          && typeof ((window as Record<string, unknown>)['hyveon'] as Record<string, unknown>)['__test'] === 'object',
+        () => typeof (window as unknown as Record<string, unknown>)['hyveon'] === 'object'
+          && typeof ((window as unknown as Record<string, unknown>)['hyveon'] as Record<string, unknown>)['__test'] === 'object',
       );
       expect(hasTestSurface).toBe(true);
     } finally {
@@ -42,7 +42,7 @@ test.describe('IPC mock seam', () => {
 
       // Register a mock for the `games.status` channel via the test seam.
       await win.evaluate((statuses) => {
-        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+        const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
         };
         hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
@@ -51,7 +51,7 @@ test.describe('IPC mock seam', () => {
       // Call `window.hyveon.games.status()` through the normal HyveonApi surface and
       // confirm the mock value comes back — not a live ECS call.
       const result = await win.evaluate(async () => {
-        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+        const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           games: { status: () => Promise<unknown> };
         };
         return hyveon.games.status();
@@ -75,7 +75,7 @@ test.describe('IPC mock seam', () => {
       // Register the first mock, then override with a second.
       await win.evaluate(
         ({ first, second }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('games.status', () => Promise.resolve(first));
@@ -85,7 +85,7 @@ test.describe('IPC mock seam', () => {
       );
 
       const result = await win.evaluate(async () => {
-        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+        const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           games: { status: () => Promise<unknown> };
         };
         return hyveon.games.status();

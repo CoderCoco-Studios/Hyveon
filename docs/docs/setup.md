@@ -21,8 +21,8 @@ On the machine that will run `terraform apply` and the management app:
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Node.js | 20+ | Enforced by the Nest backend boot. |
-| npm | 10+ | Ships with Node 20. |
+| Node.js | 22.12+ | Matches `engines.node` in the root `package.json`. Not enforced at boot — the backend does not check the Node version — but CI (`test.yml`, `lint.yml`, `e2e.yml`, `integration.yml`, `package.yml`) runs on Node 24, so that's the best-tested version. |
+| npm | 10+ | Ships with Node 22+. |
 | Terraform | 1.5+ | Install manually (or let the in-app setup wizard drive `terraform init` for you once credentials are configured). |
 | AWS CLI | v2 | Optional — the desktop app talks to AWS directly via the SDK, but the CLI is handy for `aws configure` and manual troubleshooting. |
 
@@ -366,14 +366,6 @@ that puts this file in a private parent repo.
 
 ## 5. Apply the infrastructure
 
-**If you're upgrading an existing deployment that has an HTTPS game running
-behind the old ALB** (i.e. applying this for the first time after the
-Caddy-sidecar migration), **stop that game first.** This one-time apply
-deletes the ALB/ACM certificate and static DNS alias while changing public
-ingress — applying with the game still running can cause downtime or a
-partial migration. This warning does not apply to a fresh install, which has
-no ALB to migrate away from.
-
 ```bash
 cd terraform
 terraform plan
@@ -385,7 +377,9 @@ subnets, an ECS cluster, one task definition + EFS access point +
 CloudWatch log group **per game** (HTTPS games get a second, Caddy sidecar
 container plus a dedicated cert-storage EFS access point in the same task
 definition — no separate load balancer or ACM certificate resource), the
-four Lambdas, three DynamoDB tables (Discord config/state, the audit log,
+four always-on Lambdas (interactions, followup, update-dns, watchdog) plus a
+conditional per-game `efs-seeder` Lambda for any game with `file_seeds`,
+three DynamoDB tables (Discord config/state, the audit log,
 and the Terraform-runs history — see
 [step 7](#7-optional-wire-up-the-discord-bot)), two Secrets Manager secrets,
 and the EventBridge rule + schedule. The deploy IAM policy's existing

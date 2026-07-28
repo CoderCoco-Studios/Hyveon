@@ -26,5 +26,5 @@
       "@hyveon/desktop-preload/*": ["../desktop-preload/src/*"]
     }
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": ["src/**/*"]
 }

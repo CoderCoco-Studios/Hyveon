@@ -70,7 +70,7 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
   useEffect(() => {
     if (!window.hyveon) return;
-    const controller = new AbortController();
+    const handle = window.hyveon.terraform.init(backendConfig);
     let cancelled = false;
 
     /** Fold an update into this attempt's run state, ignoring any superseded attempt. */
@@ -91,7 +91,7 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
     void (async () => {
       try {
-        for await (const chunk of window.hyveon!.terraform.init(backendConfig, controller.signal)) {
+        for await (const chunk of handle) {
           if (cancelled) break;
           update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk] }));
         }
@@ -109,7 +109,10 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
     return () => {
       cancelled = true;
-      controller.abort();
+      // Optional chaining guards against a test double that stubbed
+      // `terraform.init` without configuring a return value (`undefined`) —
+      // the real bridge's `terraform.init` always returns a handle.
+      handle?.cancel();
     };
   }, [backendConfig, attempt]);
 

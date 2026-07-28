@@ -25,7 +25,7 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -66,7 +66,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -105,7 +105,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -141,7 +141,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -180,7 +180,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -221,7 +221,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -262,7 +262,7 @@ test.describe('costs page', () => {
           statuses: GameStatus[];
           actual14: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
@@ -307,7 +307,7 @@ test.describe('costs page', () => {
           a14: ActualCosts;
           a60: ActualCosts;
         }) => {
-          const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));

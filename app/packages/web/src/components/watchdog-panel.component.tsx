@@ -10,25 +10,84 @@ import {
 } from '@/components/ui/tooltip.component';
 
 /**
+ * Values shown before `api.config()` resolves. They mirror the Terraform
+ * defaults so the panel never renders a nonsensical idle window.
+ */
+const FALLBACK_CONFIG: WatchdogConfig = {
+  watchdog_interval_minutes: 15,
+  watchdog_idle_checks: 4,
+  watchdog_min_packets: 100,
+};
+
+/**
+ * Smallest integer each field accepts. An interval or idle-check count below
+ * one describes no watchdog at all, whereas a zero packet threshold is
+ * meaningful — it makes every task read as busy.
+ */
+const FIELD_MINIMUMS: Record<keyof WatchdogConfig, number> = {
+  watchdog_interval_minutes: 1,
+  watchdog_idle_checks: 1,
+  watchdog_min_packets: 0,
+};
+
+/** The panel's three inputs held as raw strings so a cleared field stays cleared. */
+type WatchdogDraft = Record<keyof WatchdogConfig, string>;
+
+/** Renders a loaded config as editable draft text. */
+function toDraft(cfg: WatchdogConfig): WatchdogDraft {
+  return {
+    watchdog_interval_minutes: String(cfg.watchdog_interval_minutes),
+    watchdog_idle_checks: String(cfg.watchdog_idle_checks),
+    watchdog_min_packets: String(cfg.watchdog_min_packets),
+  };
+}
+
+/**
+ * Parses one raw field value into the integer it denotes, or an error message
+ * explaining why it cannot be persisted. Blank, non-numeric, fractional and
+ * below-minimum values are all rejected rather than silently coerced to `0`.
+ *
+ * @param raw - The field's current text.
+ * @param min - Smallest accepted value, from {@link FIELD_MINIMUMS}.
+ */
+function parseField(raw: string, min: number): { value: number | null; error: string | null } {
+  const trimmed = raw.trim();
+  if (trimmed === '') return { value: null, error: 'Required' };
+  if (!/^-?\d+$/.test(trimmed)) return { value: null, error: 'Whole number required' };
+  const value = Number(trimmed);
+  if (value < min) return { value: null, error: `Must be ${min} or greater` };
+  return { value, error: null };
+}
+
+/**
  * Bottom-right dashboard panel that reads and writes the three watchdog knobs
  * via `/api/config`. Note these settings tune the in-app behaviour only — the
  * Lambda's EventBridge schedule is baked in at `terraform apply` time.
  */
 export function WatchdogPanel() {
-  const [cfg, setCfg] = useState<WatchdogConfig>({
-    watchdog_interval_minutes: 15,
-    watchdog_idle_checks: 4,
-    watchdog_min_packets: 100,
-  });
+  const [draft, setDraft] = useState<WatchdogDraft>(() => toDraft(FALLBACK_CONFIG));
   useEffect(() => {
-    void api.config().then(setCfg);
+    void api.config().then((cfg) => setDraft(toDraft(cfg)));
   }, []);
 
-  const idleMinutes = cfg.watchdog_interval_minutes * cfg.watchdog_idle_checks;
+  const interval = parseField(draft.watchdog_interval_minutes, FIELD_MINIMUMS.watchdog_interval_minutes);
+  const idleChecks = parseField(draft.watchdog_idle_checks, FIELD_MINIMUMS.watchdog_idle_checks);
+  const minPackets = parseField(draft.watchdog_min_packets, FIELD_MINIMUMS.watchdog_min_packets);
+  const isValid = interval.value !== null && idleChecks.value !== null && minPackets.value !== null;
+
+  /** Updates one draft field, leaving the others untouched. */
+  function setField(key: keyof WatchdogConfig, raw: string) {
+    setDraft((d) => ({ ...d, [key]: raw }));
+  }
 
   async function handleSave() {
+    if (interval.value === null || idleChecks.value === null || minPackets.value === null) return;
     try {
-      await api.saveConfig(cfg);
+      await api.saveConfig({
+        watchdog_interval_minutes: interval.value,
+        watchdog_idle_checks: idleChecks.value,
+        watchdog_min_packets: minPackets.value,
+      });
       toast.success('Watchdog settings saved');
     } catch (err) {
       toast.error('Failed to save watchdog settings', {
@@ -47,28 +106,40 @@ export function WatchdogPanel() {
           <Field
             label="Check interval (min)"
             tooltip="How often the watchdog inspects each running task. Lower = faster shutdown, higher = less CPU."
-            value={cfg.watchdog_interval_minutes}
-            onChange={(v) => setCfg((c) => ({ ...c, watchdog_interval_minutes: v }))}
+            value={draft.watchdog_interval_minutes}
+            min={FIELD_MINIMUMS.watchdog_interval_minutes}
+            error={interval.error}
+            onChange={(v) => setField('watchdog_interval_minutes', v)}
           />
           <Field
             label="Idle checks before shutdown"
             tooltip="Number of consecutive idle checks before the task stops. With 5 min interval × 5 checks = 25 idle minutes."
-            value={cfg.watchdog_idle_checks}
-            onChange={(v) => setCfg((c) => ({ ...c, watchdog_idle_checks: v }))}
+            value={draft.watchdog_idle_checks}
+            min={FIELD_MINIMUMS.watchdog_idle_checks}
+            error={idleChecks.error}
+            onChange={(v) => setField('watchdog_idle_checks', v)}
           />
           <Field
             label="Min packets (activity threshold)"
             tooltip="If a task receives fewer than this many network packets in an interval, it counts as idle."
-            value={cfg.watchdog_min_packets}
-            onChange={(v) => setCfg((c) => ({ ...c, watchdog_min_packets: v }))}
+            value={draft.watchdog_min_packets}
+            min={FIELD_MINIMUMS.watchdog_min_packets}
+            error={minPackets.error}
+            onChange={(v) => setField('watchdog_min_packets', v)}
           />
         </div>
         <p style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '0.6rem' }}>
-          Auto-shutdown after {idleMinutes} minutes idle ({cfg.watchdog_interval_minutes} min × {cfg.watchdog_idle_checks} checks).
-          Update Terraform vars to change the Lambda schedule.
+          {interval.value !== null && idleChecks.value !== null ? (
+            <>
+              Auto-shutdown after {interval.value * idleChecks.value} minutes idle ({interval.value} min × {idleChecks.value} checks).
+              Update Terraform vars to change the Lambda schedule.
+            </>
+          ) : (
+            <>Fix the highlighted fields to see the idle window.</>
+          )}
         </p>
         <div style={{ marginTop: '0.75rem' }}>
-          <button className="btn-secondary btn-sm" onClick={() => void handleSave()}>
+          <button className="btn-secondary btn-sm" onClick={() => void handleSave()} disabled={!isValid}>
             Save
           </button>
         </div>
@@ -81,14 +152,19 @@ function Field({
   label,
   tooltip,
   value,
+  min,
+  error,
   onChange,
 }: {
   label: string;
   tooltip: string;
-  value: number;
-  onChange: (v: number) => void;
+  value: string;
+  min: number;
+  error: string | null;
+  onChange: (v: string) => void;
 }) {
   const id = useId();
+  const errorId = `${id}-error`;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.2rem' }}>
@@ -113,10 +189,20 @@ function Field({
       <input
         id={id}
         type="number"
+        inputMode="numeric"
+        step={1}
+        min={min}
         value={value}
-        onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
-        style={{ width: '100%', padding: '0.4rem 0.6rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.82rem' }}
+        aria-invalid={error !== null}
+        aria-describedby={error !== null ? errorId : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ width: '100%', padding: '0.4rem 0.6rem', background: 'var(--bg)', border: `1px solid ${error !== null ? 'var(--danger, #dc2626)' : 'var(--border)'}`, borderRadius: '6px', color: 'var(--text)', fontSize: '0.82rem' }}
       />
+      {error !== null && (
+        <p id={errorId} role="alert" style={{ fontSize: '0.68rem', color: 'var(--danger, #dc2626)', marginTop: '0.2rem' }}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }

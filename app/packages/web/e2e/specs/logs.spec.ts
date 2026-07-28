@@ -35,7 +35,7 @@ async function setupLogsPage(
 ): Promise<void> {
   await win.evaluate(
     ({ games: g, logLines: ll, statuses }) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 

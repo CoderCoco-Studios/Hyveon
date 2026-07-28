@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const apiMock = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const apiMock = vi.hoisted(() => ({
   discordDeletePermission: vi.fn().mockResolvedValue(undefined),
   discordSaveAdmins: vi.fn().mockResolvedValue(undefined),
   discordSaveCredentials: vi.fn().mockResolvedValue(undefined),
+  discordRegisterCommands: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -43,6 +44,7 @@ describe('DiscordPage', () => {
     });
     apiMock.discordConfig.mockResolvedValue(REDACTED_CONFIG);
     apiMock.discordSaveCredentials.mockResolvedValue(undefined);
+    apiMock.discordRegisterCommands.mockResolvedValue({ success: true, message: 'Registered 4 commands.' });
     toastMock.success.mockClear();
     toastMock.error.mockClear();
   });
@@ -187,6 +189,95 @@ describe('DiscordPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /remove guild/i }));
 
       expect(apiMock.discordRemoveGuild).toHaveBeenCalledWith('111111111111111111');
+    });
+  });
+
+  describe('Guilds tab — Register commands', () => {
+    /** Guild-row helper: locates the `<tr>` containing `guildId`'s cell so assertions can scope to one row. */
+    function guildRow(guildId: string): HTMLElement {
+      const cell = screen.getByText(guildId);
+      const row = cell.closest('tr');
+      if (!row) throw new Error(`No <tr> ancestor found for guild ${guildId}`);
+      return row;
+    }
+
+    it('should flip the guild badge to registered and show a success toast when registration succeeds', async () => {
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: 'Guilds' }));
+      expect(within(guildRow('111111111111111111')).getByText('not registered')).toBeInTheDocument();
+
+      await userEvent.click(within(guildRow('111111111111111111')).getByRole('button', { name: 'Register' }));
+
+      expect(apiMock.discordRegisterCommands).toHaveBeenCalledWith('111111111111111111');
+      expect(within(guildRow('111111111111111111')).getByText('registered')).toBeInTheDocument();
+      expect(toastMock.success).toHaveBeenCalledWith('Commands registered');
+      expect(toastMock.error).not.toHaveBeenCalled();
+    });
+
+    it("should show an error toast with Discord's message and leave the badge unregistered when registration fails", async () => {
+      apiMock.discordRegisterCommands.mockResolvedValueOnce({
+        success: false,
+        message: 'Discord returned 401: invalid bot token',
+      });
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: 'Guilds' }));
+      await userEvent.click(within(guildRow('111111111111111111')).getByRole('button', { name: 'Register' }));
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Registration failed for guild 111111111111111111',
+        expect.objectContaining({ description: 'Discord returned 401: invalid bot token' }),
+      );
+      expect(toastMock.success).not.toHaveBeenCalled();
+      // Badge must stay in the not-registered state — the operator needs to see
+      // the failure and retry, not be told a registration that never happened succeeded.
+      expect(within(guildRow('111111111111111111')).getByText('not registered')).toBeInTheDocument();
+      expect(within(guildRow('111111111111111111')).queryByText('registered')).not.toBeInTheDocument();
+    });
+
+    it('should leave the badge unregistered when the register-commands call itself rejects', async () => {
+      apiMock.discordRegisterCommands.mockRejectedValueOnce(new Error('IPC bridge unavailable'));
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: 'Guilds' }));
+      await userEvent.click(within(guildRow('111111111111111111')).getByRole('button', { name: 'Register' }));
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Registration failed for guild 111111111111111111',
+        expect.objectContaining({ description: 'IPC bridge unavailable' }),
+      );
+      expect(within(guildRow('111111111111111111')).getByText('not registered')).toBeInTheDocument();
+    });
+
+    it('should report the failing guild and leave only that guild unregistered on a partial bulk failure', async () => {
+      const TWO_GUILD_CONFIG = {
+        ...REDACTED_CONFIG,
+        allowedGuilds: ['111111111111111111', '222222222222222222'],
+      };
+      apiMock.discordConfig.mockResolvedValue(TWO_GUILD_CONFIG);
+      apiMock.discordRegisterCommands.mockImplementation((guildId: string) =>
+        guildId === '222222222222222222'
+          ? Promise.resolve({ success: false, message: 'Discord returned 429: rate limited' })
+          : Promise.resolve({ success: true, message: 'Registered 4 commands.' }),
+      );
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: 'Guilds' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Register commands in all guilds' }));
+
+      // Sequential dispatch — wait for both calls to have landed before asserting.
+      await vi.waitFor(() => {
+        expect(apiMock.discordRegisterCommands).toHaveBeenCalledWith('111111111111111111');
+        expect(apiMock.discordRegisterCommands).toHaveBeenCalledWith('222222222222222222');
+      });
+
+      expect(within(guildRow('111111111111111111')).getByText('registered')).toBeInTheDocument();
+      expect(within(guildRow('222222222222222222')).getByText('not registered')).toBeInTheDocument();
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Registration failed for guild 222222222222222222',
+        expect.objectContaining({ description: 'Discord returned 429: rate limited' }),
+      );
     });
   });
 

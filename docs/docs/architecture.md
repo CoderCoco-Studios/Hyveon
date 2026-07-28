@@ -14,8 +14,9 @@ workspace package, `@hyveon/shared`:
    (`desktop-main`) over Electron IPC — not HTTP. The backend reads
    `terraform.tfstate` directly to discover what the infra looks like and
    drives AWS via the cloud-provider abstraction (SDK v3 under the hood).
-3. Four **Lambdas** run the always-on control flow: two for Discord, one for
-   DNS, one for the idle watchdog.
+3. Five **Lambdas** run the control flow: two for Discord, one for DNS, one
+   for the idle watchdog, and one conditional per-game `efs-seeder` Lambda
+   for games that declare `file_seeds`.
 
 There is **no persistent ECS service**. Game servers only exist while a
 RunTask is in flight — Start triggers `ecs.runTask`, Stop triggers
@@ -34,9 +35,11 @@ route through neighbouring subgraphs and produce unreadable overlap.
 The Electron app's Nest.js backend is the local control plane, driven by
 its React/Vite renderer over Electron IPC (`window.hyveon`) rather than HTTP.
 It reads `terraform.tfstate` directly to discover infrastructure IDs, then
-drives ECS / DynamoDB / Secrets Manager / CloudWatch via SDK v3. Players
-reach the game either direct to the task's public IP (UDP / TCP games) or
-through the ALB (HTTPS games).
+drives ECS / DynamoDB / Secrets Manager / CloudWatch via the cloud-provider
+abstraction (SDK v3 under the hood). Players reach the game directly at the
+task's public IP either way — UDP/TCP games connect straight to the game
+port, and HTTPS games terminate TLS in-task via a Caddy sidecar that shares
+the same public IP. There is no load balancer anywhere in the path.
 
 ![Game plane and operator](/diagrams/game-plane.svg)
 
@@ -54,10 +57,14 @@ anything that touches ECS.
 
 EventBridge drives the two "always on" Lambdas that keep DNS and idle
 shutdown in sync with actual task state. `update-dns` fires on every
-ECS task state change and reconciles Route 53 / ALB targets plus the
-pending-interaction row in DynamoDB. `watchdog` fires on a schedule and
+ECS task state change, UPSERTing the Route 53 A record on `RUNNING` and
+deleting it on `STOPPED`. It reconciles the pending-interaction row in
+DynamoDB on the `RUNNING` path only, where it patches the deferred Discord
+reply with the resolved address. `watchdog` fires on a schedule and
 stops tasks whose `NetworkPacketsIn` has stayed below the threshold for
-`IDLE_CHECKS` consecutive intervals.
+`IDLE_CHECKS` consecutive intervals — it issues `StopTask` only; it never
+touches Route 53 itself, `update-dns` reacts to the resulting `STOPPED`
+event.
 
 ![Control loops](/diagrams/control-loops.svg)
 
@@ -82,8 +89,9 @@ write the PR description as if you're explaining the new design.
 
 1. **`game_servers` in `terraform.tfvars` is the single source of truth.**
    Task definitions, EFS access points, log groups, security-group rules, and
-   the `GAME_NAMES` env var on three Lambdas are all produced by `for_each`
-   over this map. Adding or removing a game means editing exactly one place.
+   the `GAME_NAMES` env var on four Lambdas (interactions, followup,
+   update-dns, watchdog) are all produced by `for_each` over this map. Adding
+   or removing a game means editing exactly one place.
 
 2. **DNS is Lambda-managed, not Terraform-managed.** The Route 53 zone is
    a data source; individual A records are created and deleted by the
@@ -92,7 +100,9 @@ write the PR description as if you're explaining the new design.
 
 3. **Lambdas use `AWS_REGION_` (trailing underscore).** The standard
    `AWS_REGION` name is reserved by the Lambda runtime and cannot be
-   overridden. Every Lambda reads `process.env.AWS_REGION_` instead.
+   overridden. Terraform sets `AWS_REGION_` on all five Lambdas; the four
+   core Lambdas read `process.env.AWS_REGION_` (the fifth, `efs-seeder`,
+   makes no AWS SDK calls and never reads it).
 
 4. **Secrets never leave AWS.** The bot token and the Discord public key
    live in Secrets Manager. The management app can write them and

@@ -20,6 +20,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HyveonStreamHandle } from './hyveon-api.js';
+
 // ---------------------------------------------------------------------------
 // Electron mock — must be declared before any dynamic import of preload.ts
 // ---------------------------------------------------------------------------
@@ -418,13 +420,14 @@ describe('preload dispatcher', () => {
 
   describe('streamLogs', () => {
     /**
-     * Helper to collect all chunks from the `logs.stream` async iterable into
-     * an array.  Drives the generator to completion without a `for await` loop
-     * so we can also exercise early-break behaviour in a separate test.
+     * Helper to collect all chunks from a `logs.stream` {@link HyveonStreamHandle}
+     * into an array. Works with a plain `for await` loop because the handle
+     * exposes an own `[Symbol.asyncIterator]` returning itself — the
+     * contextBridge-safe shape described in `hyveon-api.ts`.
      */
-    async function collectChunks(iterable: AsyncIterable<string>): Promise<string[]> {
+    async function collectChunks(handle: HyveonStreamHandle<string>): Promise<string[]> {
       const chunks: string[] = [];
-      for await (const chunk of iterable) {
+      for await (const chunk of handle) {
         chunks.push(chunk);
       }
       return chunks;
@@ -452,7 +455,7 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockReturnValue(fakeStream());
         testApi.mock('logs.stream', mockHandler);
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
         const chunks = await collectChunks(logs.stream('valheim'));
 
         expect(mockHandler).toHaveBeenCalledOnce();
@@ -461,31 +464,42 @@ describe('preload dispatcher', () => {
         expect(chunks).toEqual(['chunk-a', 'chunk-b']);
       });
 
-      it('should forward the game argument to the mock handler', async () => {
+      it('should forward the game argument and an internally-minted AbortSignal to the mock handler', async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* emptyStream() {}
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
         testApi.mock('logs.stream', mockHandler);
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
         await collectChunks(logs.stream('minecraft'));
 
-        expect(mockHandler).toHaveBeenCalledWith('minecraft', undefined);
+        // The renderer-facing `stream(game)` no longer accepts a caller-supplied
+        // `AbortSignal` — a raw `AbortSignal` doesn't survive the contextBridge
+        // clone either (see the `HyveonStreamHandle` doc comment in
+        // `hyveon-api.ts`). `openLogsStream` mints its own `AbortController`
+        // internally and forwards *that* signal to `streamLogs`, which is what
+        // the mock receives here.
+        expect(mockHandler).toHaveBeenCalledWith('minecraft', expect.any(AbortSignal));
       });
 
-      it('should forward the AbortSignal to the mock handler when one is provided', async () => {
+      it("should abort the mock's forwarded AbortSignal only once the returned handle is cancelled", async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* emptyStream() {}
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
         testApi.mock('logs.stream', mockHandler);
 
-        const controller = new AbortController();
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
-        await collectChunks(logs.stream('terraria', controller.signal));
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
+        const handle = logs.stream('terraria');
+        await collectChunks(handle);
 
-        expect(mockHandler).toHaveBeenCalledWith('terraria', controller.signal);
+        const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
+        expect(forwardedSignal.aborted).toBe(false);
+
+        handle.cancel();
+
+        expect(forwardedSignal.aborted).toBe(true);
       });
 
       it('should not attach any ipcRenderer listeners when the mock handles the stream', async () => {
@@ -496,7 +510,7 @@ describe('preload dispatcher', () => {
         }
         testApi.mock('logs.stream', vi.fn().mockReturnValue(singleChunk()));
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
         await collectChunks(logs.stream('factorio'));
 
         expect(ipcOn).not.toHaveBeenCalled();
@@ -529,7 +543,7 @@ describe('preload dispatcher', () => {
           Promise.resolve().then(() => listener({} as unknown, {}));
         });
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
         const chunks = await collectChunks(logs.stream('minecraft'));
 
         expect(ipcInvoke).toHaveBeenCalledWith('logs.stream', 'minecraft');
@@ -543,11 +557,17 @@ describe('preload dispatcher', () => {
         const chunkChannel = `logs.stream.${streamId}.chunk`;
         const endChannel = `logs.stream.${streamId}.end`;
 
-        // Capture the chunk listener so we can fire chunks after setup.
-        let capturedChunkListener: ((_evt: unknown, chunk: string) => void) | null = null;
+        // Capture the chunk listener so we can fire chunks after setup. Held
+        // in a ref object (not a bare `let`) — a `let` assigned only from
+        // inside the `ipcOn.mockImplementation` closure is narrowed by
+        // TypeScript's control-flow analysis to its declaration-site type
+        // (`null`) at any read in this outer scope, since the compiler can't
+        // see that the closure runs before the read; a mutable property on a
+        // `const` object isn't subject to that narrowing.
+        const capturedChunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
           if (channel === chunkChannel) {
-            capturedChunkListener = listener;
+            capturedChunkListener.current = listener;
           }
         });
 
@@ -556,14 +576,14 @@ describe('preload dispatcher', () => {
           if (channel === endChannel) {
             Promise.resolve()
               .then(() => {
-                capturedChunkListener?.({}, 'line-1');
-                capturedChunkListener?.({}, 'line-2');
+                capturedChunkListener.current?.({}, 'line-1');
+                capturedChunkListener.current?.({}, 'line-2');
               })
               .then(() => listener({} as unknown, {}));
           }
         });
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
         const chunks = await collectChunks(logs.stream('factorio'));
 
         expect(chunks).toEqual(['line-1', 'line-2']);
@@ -581,58 +601,60 @@ describe('preload dispatcher', () => {
           }
         });
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
 
         await expect(collectChunks(logs.stream('valheim'))).rejects.toThrow('stream-failed');
       });
 
-      it('should send cancel and remove listeners when the consumer breaks early', async () => {
+      it('should send cancel immediately and remove listeners once the main process acks the cancel', async () => {
         const streamId = 'sid-004';
         ipcInvoke.mockResolvedValue({ streamId });
 
         const chunkChannel = `logs.stream.${streamId}.chunk`;
+        const endChannel = `logs.stream.${streamId}.end`;
         const cancelChannel = `logs.stream.${streamId}.cancel`;
 
-        // Keep the stream alive — never fire the end event — so the consumer
-        // must break out of the loop manually.
-        //
-        // The captured listener is held on an object rather than in a bare
-        // `let`: TypeScript's control-flow analysis cannot see that the
-        // `ipcOn` mock callback runs, so a `let` initialised to `null` stays
-        // narrowed to `null` at the call site below and calling it is a type
-        // error. Property narrowing is invalidated by the intervening
-        // function calls, which is exactly the behaviour this needs.
-        const captured: { chunkListener: ((_evt: unknown, chunk: string) => void) | null } = {
-          chunkListener: null,
+        // Keep the stream alive — never auto-fire the end event — so the test
+        // controls exactly when the main process "acks" the cancel.
+        const capturedChunkListener: { current: ((_evt: unknown, chunk: string) => void) | null } = { current: null };
+        const capturedEndListener: { current: ((_evt: unknown, data: { error?: string }) => void) | null } = {
+          current: null,
         };
         ipcOn.mockImplementation((channel: string, listener: (_evt: unknown, chunk: string) => void) => {
-          if (channel === chunkChannel) captured.chunkListener = listener;
+          if (channel === chunkChannel) capturedChunkListener.current = listener;
         });
-        ipcOnce.mockImplementation(
-          (_channel: string, _listener: (_evt: unknown, data: { error?: string }) => void) => {
-            // Never fires — stream stays open until consumer breaks.
-          },
-        );
+        ipcOnce.mockImplementation((channel: string, listener: (_evt: unknown, data: { error?: string }) => void) => {
+          if (channel === endChannel) capturedEndListener.current = listener;
+        });
 
-        const logs = bridge['logs'] as { stream: (game: string, signal?: AbortSignal) => AsyncIterable<string> };
-        const gen = logs.stream('terraria')[Symbol.asyncIterator]();
+        const logs = bridge['logs'] as { stream: (game: string) => HyveonStreamHandle<string> };
+        const handle = logs.stream('terraria');
 
-        // Call next() to start the generator — it will suspend at the inner
-        // `await new Promise` because no chunk has arrived yet and the buffer
-        // is empty.  Deliver a chunk to wake it, then immediately return.
-        const nextPromise = gen.next();
-        // Flush the ipcInvoke promise so the generator reaches its first await.
+        // Start consuming — the handle suspends at its inner `await new Promise`
+        // because no chunk has arrived yet and the buffer is empty. Deliver a
+        // chunk to wake it, then let that first `next()` resolve.
+        const firstNext = handle.next();
         await Promise.resolve();
-        // Now fire a chunk to wake the suspended generator.
-        captured.chunkListener?.({}, 'first-chunk');
-        // Let the generator resume and yield the chunk.
-        await nextPromise;
-        // The generator is now at its next inner await (waiting for more chunks).
-        // Calling return() interrupts it and triggers the finally block.
-        await gen.return!(undefined);
+        capturedChunkListener.current?.({}, 'first-chunk');
+        await firstNext;
 
+        // `cancel()` is the bridge handle's only early-stop signal — unlike the
+        // old raw-generator shape, the handle exposes no `return()` for a
+        // `for await` `break` to call automatically, so cancellation is always
+        // explicit. It should send the cancel IPC message synchronously,
+        // exactly like an aborted `AbortSignal` used to.
+        handle.cancel();
         expect(ipcSend).toHaveBeenCalledWith(cancelChannel);
+
+        // Listener cleanup only happens once the underlying generator actually
+        // completes — which, for `logs.stream`, means waiting for the main
+        // process to ack the cancel with its own `.end` event.
+        capturedEndListener.current?.({}, {});
+        const finalResult = await handle.next();
+
+        expect(finalResult.done).toBe(true);
         expect(ipcRemoveListener).toHaveBeenCalledWith(chunkChannel, expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith(endChannel, expect.any(Function));
       }, 10_000);
     });
   });
@@ -643,14 +665,14 @@ describe('preload dispatcher', () => {
 
   describe('terraform.init', () => {
     /**
-     * Helper to collect all chunks from the `terraform.init` async iterable
+     * Helper to collect all chunks from a `terraform.init` {@link HyveonStreamHandle}
      * into an array.
      */
     async function collectChunks(
-      iterable: AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>,
+      handle: HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>,
     ): Promise<{ stream: 'stdout' | 'stderr'; line: string }[]> {
       const chunks: { stream: 'stdout' | 'stderr'; line: string }[] = [];
-      for await (const chunk of iterable) {
+      for await (const chunk of handle) {
         chunks.push(chunk);
       }
       return chunks;
@@ -681,11 +703,11 @@ describe('preload dispatcher', () => {
         testApi.mock('terraform.init', mockHandler);
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown, signal?: AbortSignal) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         const chunks = await collectChunks(terraform.init(CONFIG));
 
-        expect(mockHandler).toHaveBeenCalledWith(CONFIG, undefined);
+        expect(mockHandler).toHaveBeenCalledWith(CONFIG, expect.any(AbortSignal));
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(ipcSend).not.toHaveBeenCalled();
         expect(chunks).toEqual([
@@ -694,20 +716,25 @@ describe('preload dispatcher', () => {
         ]);
       });
 
-      it('should forward the AbortSignal to the mock handler when one is provided', async () => {
+      it("should abort the mock's forwarded AbortSignal only once the returned handle is cancelled", async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* emptyStream() {}
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
         testApi.mock('terraform.init', mockHandler);
 
-        const controller = new AbortController();
         const terraform = bridge['terraform'] as {
-          init: (config: unknown, signal?: AbortSignal) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
-        await collectChunks(terraform.init(CONFIG, controller.signal));
+        const handle = terraform.init(CONFIG);
+        await collectChunks(handle);
 
-        expect(mockHandler).toHaveBeenCalledWith(CONFIG, controller.signal);
+        const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
+        expect(forwardedSignal.aborted).toBe(false);
+
+        handle.cancel();
+
+        expect(forwardedSignal.aborted).toBe(true);
       });
 
       it('should not attach any ipcRenderer listeners when the mock handles the stream', async () => {
@@ -717,7 +744,7 @@ describe('preload dispatcher', () => {
         testApi.mock('terraform.init', vi.fn().mockReturnValue(emptyStream()));
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         await collectChunks(terraform.init(CONFIG));
 
@@ -777,7 +804,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         await collectChunks(terraform.init(CONFIG));
 
@@ -804,7 +831,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         const chunks = await collectChunks(terraform.init(CONFIG));
 
@@ -830,7 +857,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         const collected = collectChunks(terraform.init(CONFIG));
 
@@ -865,7 +892,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         const collected = collectChunks(terraform.init(CONFIG));
 
@@ -897,7 +924,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
 
         await expect(collectChunks(terraform.init(CONFIG))).rejects.toThrow('terraform init exited with code 1');
@@ -910,7 +937,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
 
         await expect(collectChunks(terraform.init(CONFIG))).rejects.toThrow(
@@ -935,7 +962,7 @@ describe('preload dispatcher', () => {
         });
 
         const terraform = bridge['terraform'] as {
-          init: (config: unknown) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
         await collectChunks(terraform.init(CONFIG));
 
@@ -944,17 +971,22 @@ describe('preload dispatcher', () => {
       });
 
       // -----------------------------------------------------------------------
-      // AbortSignal cancellation
+      // cancel()
       // -----------------------------------------------------------------------
 
-      it('should stop yielding and clean up listeners without calling invoke when the signal is already aborted', async () => {
-        const controller = new AbortController();
-        controller.abort();
-
+      it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
         const terraform = bridge['terraform'] as {
-          init: (config: unknown, signal?: AbortSignal) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
-        const chunks = await collectChunks(terraform.init(CONFIG, controller.signal));
+        const handle = terraform.init(CONFIG);
+        // Cancelling before the underlying generator has ever run mirrors the
+        // old "signal already aborted" scenario: `bridgeStream` mints the
+        // `AbortController` synchronously in `openTerraformInitStream`, but
+        // `streamTerraformInit`'s body (and its `signal.aborted` check) only
+        // runs once the handle is actually iterated.
+        handle.cancel();
+
+        const chunks = await collectChunks(handle);
 
         expect(chunks).toEqual([]);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -962,42 +994,43 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.init.end', expect.any(Function));
       });
 
-      it('should stop the async iterable and clean up listeners when the signal aborts mid-stream', async () => {
+      it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
         // Keep the stream alive — never fire the end event — so the consumer
-        // must be interrupted by the abort instead.
+        // must be interrupted by cancel() instead.
         // See the ref-object note above — a bare `let` here reads back as
         // narrowed-to-`null` at the call site below.
         const capturedChunkListener: { current: ChunkListener | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
           if (channel === 'terraform.init.chunk') capturedChunkListener.current = listener as ChunkListener;
           // 'terraform.init.end' listener is captured but intentionally never
-          // invoked — the stream stays open until the signal aborts.
+          // invoked — the stream stays open until cancel() is called.
         });
 
-        const controller = new AbortController();
         const terraform = bridge['terraform'] as {
-          init: (config: unknown, signal?: AbortSignal) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
         };
-        const gen = terraform.init(CONFIG, controller.signal)[Symbol.asyncIterator]();
+        const handle = terraform.init(CONFIG);
 
-        // Start the generator — it suspends at the inner `await new Promise`
-        // once the ack resolves and no chunk has arrived yet.
-        const nextPromise = gen.next();
+        // Start consuming — it suspends at the inner `await new Promise` once
+        // the ack resolves and no chunk has arrived yet.
+        const nextPromise = handle.next();
         await Promise.resolve();
         await Promise.resolve();
-        // Deliver one chunk to prove the stream was flowing before the abort.
+        // Deliver one chunk to prove the stream was flowing before cancel().
         capturedChunkListener.current?.({}, { streamId: STREAM_ID, chunk: { stream: 'stdout', line: 'Initializing backend...' } });
         const first = await nextPromise;
         expect(first).toEqual({ done: false, value: { stream: 'stdout', line: 'Initializing backend...' } });
 
-        // Now abort — the generator should stop waiting for further chunks and
-        // complete on its own without the consumer having to call return().
-        controller.abort();
-        const second = await gen.next();
+        // Now cancel — the underlying generator should stop waiting for
+        // further chunks and complete on its own, without the main process
+        // ever having to be told (there is no per-run cancel side channel
+        // for `terraform.init` — see its doc comment).
+        handle.cancel();
+        const second = await handle.next();
 
-        expect(second).toEqual({ done: true, value: undefined });
+        expect(second.done).toBe(true);
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.init.chunk', expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.init.end', expect.any(Function));
       }, 10_000);
@@ -1643,12 +1676,12 @@ describe('preload dispatcher', () => {
   // -------------------------------------------------------------------------
 
   describe('terraform.runs.streamLogs', () => {
-    /** Helper to collect all chunks from the `terraform.runs.streamLogs` async iterable into an array. */
+    /** Helper to collect all chunks from a `terraform.runs.streamLogs` {@link HyveonStreamHandle} into an array. */
     async function collectChunks(
-      iterable: AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>,
+      handle: HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>,
     ): Promise<{ stream: 'stdout' | 'stderr'; line: string }[]> {
       const chunks: { stream: 'stdout' | 'stderr'; line: string }[] = [];
-      for await (const chunk of iterable) {
+      for await (const chunk of handle) {
         chunks.push(chunk);
       }
       return chunks;
@@ -1679,16 +1712,13 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (
-                runId: string,
-                signal?: AbortSignal,
-              ) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
         const chunks = await collectChunks(terraformRuns.streamLogs('run-003'));
 
-        expect(mockHandler).toHaveBeenCalledWith('run-003', undefined);
+        expect(mockHandler).toHaveBeenCalledWith('run-003', expect.any(AbortSignal));
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(ipcSend).not.toHaveBeenCalled();
         expect(chunks).toEqual([
@@ -1697,27 +1727,29 @@ describe('preload dispatcher', () => {
         ]);
       });
 
-      it('should forward the AbortSignal to the mock handler when one is provided', async () => {
+      it("should abort the mock's forwarded AbortSignal only once the returned handle is cancelled", async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* emptyStream() {}
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
         testApi.mock('terraform.runs.logs', mockHandler);
 
-        const controller = new AbortController();
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (
-                runId: string,
-                signal?: AbortSignal,
-              ) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        await collectChunks(terraformRuns.streamLogs('run-004', controller.signal));
+        const handle = terraformRuns.streamLogs('run-004');
+        await collectChunks(handle);
 
-        expect(mockHandler).toHaveBeenCalledWith('run-004', controller.signal);
+        const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
+        expect(forwardedSignal.aborted).toBe(false);
+
+        handle.cancel();
+
+        expect(forwardedSignal.aborted).toBe(true);
       });
 
       it('should not attach any ipcRenderer listeners when the mock handles the stream', async () => {
@@ -1729,7 +1761,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1781,7 +1813,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1810,7 +1842,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1833,7 +1865,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1869,7 +1901,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1902,7 +1934,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1922,7 +1954,7 @@ describe('preload dispatcher', () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (runId: string) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
@@ -1933,24 +1965,24 @@ describe('preload dispatcher', () => {
       });
 
       // -----------------------------------------------------------------------
-      // AbortSignal cancellation
+      // cancel()
       // -----------------------------------------------------------------------
 
-      it('should stop yielding and clean up listeners without calling invoke when the signal is already aborted', async () => {
-        const controller = new AbortController();
-        controller.abort();
-
+      it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (
-                runId: string,
-                signal?: AbortSignal,
-              ) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const chunks = await collectChunks(terraformRuns.streamLogs('run-012', controller.signal));
+        const handle = terraformRuns.streamLogs('run-012');
+        // Cancelling before the underlying generator has ever run mirrors the
+        // old "signal already aborted" scenario — see the equivalent
+        // `terraform.init` test for why this works before any IPC round trip.
+        handle.cancel();
+
+        const chunks = await collectChunks(handle);
 
         expect(chunks).toEqual([]);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1958,40 +1990,36 @@ describe('preload dispatcher', () => {
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.runs.logs.end', expect.any(Function));
       });
 
-      it('should stop the async iterable and clean up listeners when the signal aborts mid-stream', async () => {
+      it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
         ipcInvoke.mockResolvedValue({ streamId: STREAM_ID });
 
         const capturedChunkListener: { current: ChunkListener | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
           if (channel === 'terraform.runs.logs.chunk') capturedChunkListener.current = listener as ChunkListener;
           // 'terraform.runs.logs.end' listener is captured but intentionally
-          // never invoked — the stream stays open until the signal aborts.
+          // never invoked — the stream stays open until cancel() is called.
         });
 
-        const controller = new AbortController();
         const terraformRuns = (
           bridge['terraform'] as {
             runs: {
-              streamLogs: (
-                runId: string,
-                signal?: AbortSignal,
-              ) => AsyncIterable<{ stream: 'stdout' | 'stderr'; line: string }>;
+              streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const gen = terraformRuns.streamLogs('run-013', controller.signal)[Symbol.asyncIterator]();
+        const handle = terraformRuns.streamLogs('run-013');
 
-        const nextPromise = gen.next();
+        const nextPromise = handle.next();
         await Promise.resolve();
         await Promise.resolve();
         capturedChunkListener.current?.({}, { streamId: STREAM_ID, chunk: { stream: 'stdout', line: 'Refreshing state...' } });
         const first = await nextPromise;
         expect(first).toEqual({ done: false, value: { stream: 'stdout', line: 'Refreshing state...' } });
 
-        controller.abort();
-        const second = await gen.next();
+        handle.cancel();
+        const second = await handle.next();
 
-        expect(second).toEqual({ done: true, value: undefined });
+        expect(second.done).toBe(true);
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.runs.logs.chunk', expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith('terraform.runs.logs.end', expect.any(Function));
       }, 10_000);

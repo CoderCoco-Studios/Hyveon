@@ -18,6 +18,17 @@ import {
 } from '../fixtures/index.js';
 import { electronMain, electronEnv } from '../../playwright.config.js';
 
+declare global {
+  interface Window {
+    /** Set from inside `page.evaluate` to record that `discord.addGuild` was invoked. */
+    __discordAddGuildCalled?: boolean;
+    /** Captures the guild ID `discord.addGuild` was called with, or `null` before any call. */
+    __discordAddGuildArg?: string | null;
+    /** Set from inside `page.evaluate` to record that `discord.registerCommands` was invoked. */
+    __discordRegisterCalled?: boolean;
+  }
+}
+
 // ── Shared Electron application ──────────────────────────────────────────────
 //
 // A single ElectronApplication is launched once for the whole describe block.
@@ -52,9 +63,8 @@ async function seedBaseMocks(
   statuses: Array<{ game: string; state: string; publicIp?: string }> = [STOPPED_GAME],
 ): Promise<void> {
   await page.evaluate((s) => {
-    const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-      __test: { mock: (channel: string, handler: unknown) => void };
-    };
+    const hyveon = window.hyveon;
+    if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
     hyveon.__test.mock('env.get', () =>
       Promise.resolve({ region: 'us-east-1', domain: 'example.com', environment: 'dev' }),
     );
@@ -196,12 +206,11 @@ test.describe('discord settings', () => {
 
     // Override discord.addGuild so we can detect if it was incorrectly invoked.
     await win.evaluate((guilds) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
-      (window as Record<string, unknown>)['__discordAddGuildCalled'] = false;
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+      window.__discordAddGuildCalled = false;
       hyveon.__test.mock('discord.addGuild', () => {
-        (window as Record<string, unknown>)['__discordAddGuildCalled'] = true;
+        window.__discordAddGuildCalled = true;
         return Promise.resolve({ success: true, guilds, baseGuilds: [] });
       });
     }, CONFIGURED_DISCORD_CONFIG.allowedGuilds);
@@ -216,7 +225,7 @@ test.describe('discord settings', () => {
     await expect(discord.snowflakeValidationError()).toBeVisible();
 
     const addCalled = await win.evaluate(
-      () => (window as Record<string, unknown>)['__discordAddGuildCalled'],
+      () => window.__discordAddGuildCalled,
     );
     expect(addCalled).toBe(false);
   });
@@ -228,12 +237,11 @@ test.describe('discord settings', () => {
     // Override discord.addGuild to capture the argument and return an updated
     // guild list, so the UI reflects the addition after refresh.
     await win.evaluate((args) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
-      (window as Record<string, unknown>)['__discordAddGuildArg'] = null;
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+      window.__discordAddGuildArg = null;
       hyveon.__test.mock('discord.addGuild', (payload: unknown) => {
-        (window as Record<string, unknown>)['__discordAddGuildArg'] = (payload as { guildId: string }).guildId;
+        window.__discordAddGuildArg = (payload as { guildId: string }).guildId;
         return Promise.resolve({
           success: true,
           guilds: [...args.existingGuilds, args.newGuild],
@@ -249,7 +257,7 @@ test.describe('discord settings', () => {
     await discord.addGuildButton().click();
 
     await expect.poll(() =>
-      win.evaluate(() => (window as Record<string, unknown>)['__discordAddGuildArg']),
+      win.evaluate(() => window.__discordAddGuildArg),
     ).toEqual(VALID_GUILD_ID_2);
   });
 
@@ -287,12 +295,11 @@ test.describe('discord settings', () => {
     // Override discord.addGuild so we can detect if it was incorrectly invoked
     // when the UI should have blocked the duplicate with a client-side error.
     await win.evaluate((guilds) => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
-      (window as Record<string, unknown>)['__discordAddGuildCalled'] = false;
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+      window.__discordAddGuildCalled = false;
       hyveon.__test.mock('discord.addGuild', () => {
-        (window as Record<string, unknown>)['__discordAddGuildCalled'] = true;
+        window.__discordAddGuildCalled = true;
         return Promise.resolve({ success: true, guilds, baseGuilds: [] });
       });
     }, CONFIGURED_DISCORD_CONFIG.allowedGuilds);
@@ -309,7 +316,7 @@ test.describe('discord settings', () => {
     await expect(discord.alreadyAllowlistedError()).toBeVisible();
 
     const addCalled = await win.evaluate(
-      () => (window as Record<string, unknown>)['__discordAddGuildCalled'],
+      () => window.__discordAddGuildCalled,
     );
     expect(addCalled).toBe(false);
   });
@@ -322,12 +329,11 @@ test.describe('discord settings', () => {
     // IPC call rejects. Tracks the invocation so the assertion can wait until
     // after the failure resolves.
     await win.evaluate(() => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
-      (window as Record<string, unknown>)['__discordRegisterCalled'] = false;
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+      window.__discordRegisterCalled = false;
       hyveon.__test.mock('discord.registerCommands', () => {
-        (window as Record<string, unknown>)['__discordRegisterCalled'] = true;
+        window.__discordRegisterCalled = true;
         return Promise.reject(new Error('discord rejected'));
       });
     });
@@ -341,7 +347,7 @@ test.describe('discord settings', () => {
     await discord.guildRowRegisterButton(VALID_GUILD_ID).click();
 
     await expect.poll(() =>
-      win.evaluate(() => (window as Record<string, unknown>)['__discordRegisterCalled']),
+      win.evaluate(() => window.__discordRegisterCalled),
     ).toBe(true);
 
     // Badge must stay in the not-registered state — the optimistic-success
@@ -379,9 +385,8 @@ test.describe('discord settings', () => {
     // that is when the row's local state must reset.
     await win.evaluate(
       ({ wp, wop }) => {
-        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-          __test: { mock: (channel: string, handler: unknown) => void };
-        };
+        const hyveon = window.hyveon;
+        if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
         let cleared = false;
         hyveon.__test.mock('discord.deletePermission', () => {
           cleared = true;
@@ -413,9 +418,8 @@ test.describe('discord settings', () => {
     // Override discord.getConfig to reject — the page should surface the
     // friendly "infrastructure not deployed yet" state, just as a 404 would.
     await win.evaluate(() => {
-      const hyveon = (window as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
       hyveon.__test.mock('discord.getConfig', () =>
         Promise.reject(new Error('not deployed')),
       );

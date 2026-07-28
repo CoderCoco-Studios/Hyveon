@@ -1,3 +1,4 @@
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { TerraformController } from '@hyveon/desktop-main/dist/controllers/terraform.controller.js';
 import { TerraformService } from '@hyveon/desktop-main/dist/services/TerraformService.js';
 import type { TerraformRunChunk } from '@hyveon/desktop-main/dist/services/TerraformService.js';
@@ -25,17 +26,18 @@ async function drive<T>(gen: AsyncGenerator<TerraformRunChunk, T>): Promise<T> {
  * appended to the plain `sent` array so a spec can poll for the terminal
  * `terraform.apply.end` message.
  */
-function makeCtx(): { ctx: { evt: { sender: unknown } }; sent: Array<{ channel: string; payload: unknown }> } {
+function makeCtx(): { ctx: { evt: IpcMainInvokeEvent }; sent: Array<{ channel: string; payload: unknown }> } {
   const sent: Array<{ channel: string; payload: unknown }> = [];
-  const sender = {
+  const sender: Partial<WebContents> = {
     send: (channel: string, payload: unknown) => {
       sent.push({ channel, payload });
     },
     isDestroyed: () => false,
-    once: () => {},
-    removeListener: () => {},
+    once: () => sender as WebContents,
+    removeListener: () => sender as WebContents,
   };
-  return { ctx: { evt: { sender } }, sent };
+  const evt: Partial<IpcMainInvokeEvent> = { sender: sender as WebContents };
+  return { ctx: { evt: evt as IpcMainInvokeEvent }, sent };
 }
 
 /** Polls `predicate` until it returns `true`, or throws once `timeoutMs` has elapsed. */

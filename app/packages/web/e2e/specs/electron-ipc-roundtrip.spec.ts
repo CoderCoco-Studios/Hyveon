@@ -26,7 +26,7 @@ test.describe('electron IPC round-trip (unmocked)', () => {
       const win = await app.firstWindow();
 
       const result = await win.evaluate(async () => {
-        const hyveon = (window as Record<string, unknown>)['hyveon'] as {
+        const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           env: { get: () => Promise<{ region: string; domain: string; environment: string }> };
         };
         return hyveon.env.get();

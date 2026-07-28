@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
   status: vi.fn(),
@@ -41,13 +42,15 @@ const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 /** Seeds a plan run that streams a summary line then finishes `awaiting_approval` with `planHash`. */
 function seedSuccessfulPlan() {
   hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-  hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* (runId: string) {
-    if (runId === PLAN_RUN_ID) {
-      yield { stream: 'stdout', line: 'Plan: 3 to add, 1 to change, 0 to destroy.' };
-    } else if (runId === APPLY_RUN_ID) {
-      yield { stream: 'stdout', line: 'Apply complete! Resources: 3 added, 1 changed, 0 destroyed.' };
-    }
-  });
+  hyveonMock.terraform.runs.streamLogs.mockImplementation(
+    toStreamHandleMock(async function* (runId: string) {
+      if (runId === PLAN_RUN_ID) {
+        yield { stream: 'stdout', line: 'Plan: 3 to add, 1 to change, 0 to destroy.' };
+      } else if (runId === APPLY_RUN_ID) {
+        yield { stream: 'stdout', line: 'Apply complete! Resources: 3 added, 1 changed, 0 destroyed.' };
+      }
+    }),
+  );
   hyveonMock.terraform.runs.get.mockImplementation(async (runId: string) => {
     if (runId === PLAN_RUN_ID) {
       return {
@@ -180,11 +183,13 @@ describe('TerraformPage', () => {
     it('should mint a token, submit destroy with it, and stream output through the log viewer once the exact phrase is confirmed', async () => {
       hyveonMock.terraform.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
       hyveonMock.terraform.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* (runId: string) {
-        if (runId === DESTROY_RUN_ID) {
-          yield { stream: 'stdout', line: 'Destroy complete! Resources: 4 destroyed.' };
-        }
-      });
+      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+        toStreamHandleMock(async function* (runId: string) {
+          if (runId === DESTROY_RUN_ID) {
+            yield { stream: 'stdout', line: 'Destroy complete! Resources: 4 destroyed.' };
+          }
+        }),
+      );
       hyveonMock.terraform.runs.get.mockResolvedValue({ found: true, status: 'success' });
       renderPage(<TerraformPage />);
 
@@ -226,7 +231,9 @@ describe('TerraformPage', () => {
       hyveonMock.terraform.destroy
         .mockResolvedValueOnce({ started: false, error: 'workspace busy', conflict: 'apply' })
         .mockResolvedValueOnce({ started: true, runId: DESTROY_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () { /* no chunks needed */ });
+      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+        toStreamHandleMock(async function* () { /* no chunks needed */ }),
+      );
       hyveonMock.terraform.runs.get.mockResolvedValue({ found: true, status: 'success' });
       renderPage(<TerraformPage />);
 
@@ -249,9 +256,11 @@ describe('TerraformPage', () => {
   describe('rollback flow (#112)', () => {
     it('should auto-submit a tagged plan with the rollback location.state, without requiring a Run plan click', async () => {
       hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
-        /* no chunks needed for this assertion */
-      });
+      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+        toStreamHandleMock(async function* () {
+          /* no chunks needed for this assertion */
+        }),
+      );
       hyveonMock.terraform.runs.get.mockResolvedValue({ found: false });
 
       renderPage(<TerraformPage />, {
@@ -271,9 +280,11 @@ describe('TerraformPage', () => {
 
     it('should render a link to the rolled-back apply run once the plan record carries rolledBackFrom', async () => {
       hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
-        /* no chunks needed for this assertion */
-      });
+      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+        toStreamHandleMock(async function* () {
+          /* no chunks needed for this assertion */
+        }),
+      );
       hyveonMock.terraform.runs.get.mockResolvedValue({
         found: true,
         status: 'awaiting_approval',

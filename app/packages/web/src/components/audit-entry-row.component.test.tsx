@@ -1,8 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AuditEntry } from '../api.service.js';
+import type { AuditAction, AuditEntry } from '../api.service.js';
 import { AuditEntryRow } from './audit-entry-row.component.js';
+
+/** Every {@link AuditAction} value, used to prove the action badge renders for all of them. */
+const ALL_ACTIONS: AuditAction[] = ['add', 'edit', 'remove', 'plan', 'approve', 'apply', 'destroy', 'rollback'];
+
+/** Builds a minimal {@link AuditEntry} fixture for the given `action`. */
+function makeEntry(action: AuditAction): AuditEntry {
+  return {
+    sk: '2026-07-03T00:00:00.000Z#01J002',
+    timestamp: '2026-07-03T00:00:00.000Z',
+    actor: 'carol',
+    action,
+    game: 'minecraft',
+    before: null,
+    after: null,
+  };
+}
 
 /** A minimal `edit` audit entry fixture with both `before` and `after` populated. */
 const EDIT_ENTRY: AuditEntry = {
@@ -92,4 +108,35 @@ describe('AuditEntryRow', () => {
     await userEvent.click(toggle());
     expect(screen.queryByText(/itzg\/minecraft-server/, { selector: 'pre' })).not.toBeInTheDocument();
   });
+
+  /**
+   * The background-color class fragment unique to each `Badge` variant (see
+   * `badgeVariants` in `@/components/ui/badge.component`), keyed by the
+   * `AuditAction` `ACTION_BADGE_VARIANT` maps it to. Several actions
+   * deliberately share a colour — `plan`/`approve` are both the read-only
+   * cyan, and `remove`/`destroy` are both destructive — so this asserts the
+   * mapping, not that all eight are visually distinct.
+   */
+  const EXPECTED_BADGE_CLASS: Record<AuditAction, string> = {
+    add: 'bg-[var(--color-green)]', // success
+    edit: 'bg-[var(--color-amber)]', // warning
+    remove: 'bg-[var(--color-red)]', // destructive
+    plan: 'bg-[var(--color-cyan)]', // cyan
+    approve: 'bg-[var(--color-cyan)]', // cyan
+    apply: 'bg-[var(--color-amber)]', // warning
+    destroy: 'bg-[var(--color-red)]', // destructive
+    rollback: 'bg-[var(--color-surface-2)]', // secondary
+  };
+
+  it.each(ALL_ACTIONS)(
+    'should render the "%s" action badge with its mapped color variant',
+    (action) => {
+      renderRow(makeEntry(action));
+
+      // Regression guard for the bug where `ACTION_BADGE_VARIANT` only covered
+      // 3 of the 8 `AuditAction` members: every action must render its own
+      // distinct badge color, not silently fall back to the `default` variant.
+      expect(screen.getByText(action).className).toContain(EXPECTED_BADGE_CLASS[action]);
+    },
+  );
 });
