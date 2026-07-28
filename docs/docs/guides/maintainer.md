@@ -143,10 +143,10 @@ Seven workflows live in `.github/workflows/`:
 - **`package.yml`** — builds the packaged Electron installer on a
   Linux/macOS/Windows matrix; runs on every PR and on `v*` tags. Node 24.
 - **`docs-build.yml`** — a docs-only build check (`docs/**` paths); catches
-  broken Docusaurus builds on a PR before merge. Node 20.
+  broken Docusaurus builds on a PR before merge. Node 24.
 - **`docusaurus-gh-pages.yml`** — publishes this site. Only triggers on
   `docs/**` and the workflow itself on `main`, plus `workflow_dispatch`.
-  Node 20. To preview doc changes locally, run `cd docs && npm install && npm start`.
+  Node 24. To preview doc changes locally, run `cd docs && npm install && npm start`.
 
 There is also CodeQL security analysis configured at the org level (see
 `CONTRIBUTING.md`).

@@ -77,7 +77,7 @@ The public repo ships an interactive TypeScript script that writes three of
 the files above for you — `Makefile`, `terraform.tfvars`, and `.gitignore`
 (`.gitmodules` is created by `git submodule add` in step 2 below, and
 `.make/` is written later by `make setup`, not by this script). It only
-needs Node.js 22.12+, which you already need for the rest of the project.
+needs Node.js 24+, which you already need for the rest of the project.
 
 ```bash
 # 1. Create a private repo on GitHub, then clone it.
@@ -376,7 +376,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - run: make setup
       - run: make plan
 ```
