@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 /** Absolute path to the repo root (three directories above this config). */
-const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+export const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 /** Absolute path to the electron-vite main output entry point. */
 export const electronMain = join(repoRoot, 'out', 'main', 'index.js');
@@ -41,7 +41,9 @@ export const electronEnv: Record<string, string> = {
  *    seam spec against the packaged main bundle. Each spec manages its own
  *    ElectronApplication.
  *
- * `electron-smoke.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
+ * `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts` (the permanent
+ * clean-quit guard from the Pulumi migration's task 1.5 spike),
+ * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
  * (migrated in #191), `discord.spec.ts` (migrated in #194),
  * `terraform.spec.ts` (new route, issue #110), and
@@ -52,6 +54,7 @@ export const electronEnv: Record<string, string> = {
  */
 const ELECTRON_SPECS = [
   '**/electron-smoke.spec.ts',
+  '**/electron-clean-quit.spec.ts',
   '**/electron-ipc-roundtrip.spec.ts',
   '**/ipc-mock.spec.ts',
   '**/streaming-handle-roundtrip.spec.ts',
