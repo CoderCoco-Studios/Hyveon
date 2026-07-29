@@ -1,10 +1,12 @@
 /**
- * Entry point for the `@hyveon/infra` Pulumi program.
- *
- * This workspace is a scaffold only (`migrate-iac-to-pulumi` task 2.1): it
- * exists so the package builds, typechecks, lints, and is picked up by the
- * root `app:test` run ahead of the real program. The Pulumi program itself
- * (stacks, resources) lands in Phase 3 of the migration — do not add
- * resources or program logic here as part of this task.
+ * Public entry point for the `@hyveon/infra` Pulumi program (replaces the
+ * Task-2.1 `export {}` placeholder). Re-exports the program factory and the
+ * per-resource-area module APIs so `desktop-main` (wired in a later phase —
+ * see `program.ts`'s file doc) has a single import surface.
  */
-export {};
+
+export { createInfraProgram } from './program.js';
+export type { NetworkResources, DefineNetworkArgs } from './network.js';
+export { defineNetwork, cidrSubnet } from './network.js';
+export type { SecurityGroupResources, DefineSecurityGroupsArgs, GamePort } from './securityGroups.js';
+export { defineSecurityGroups, dedupedDirectGamePorts, hasHttpsGame } from './securityGroups.js';
