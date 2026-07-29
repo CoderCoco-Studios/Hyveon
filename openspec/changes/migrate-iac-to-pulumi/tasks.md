@@ -75,20 +75,22 @@
 
 ## 8. Controllers and preload
 
-- [ ] 8.1 Repoint all 13 `terraform.*` / `terraform.runs.*` IPC channels at `PulumiService`, keeping channel names unchanged per the stated non-goal
+- [ ] 8.1 Repoint all 13 `terraform.*` / `terraform.runs.*` IPC channels at `PulumiService`, renaming them to `iac.*` / `iac.runs.*` and renaming `TerraformController` / `TerraformRunsController` to `IacController` / `IacRunsController`
 - [ ] 8.2 Update `ConfigService`: remove `getTfStatePath`, `getTerraformDir`, `seedTerraformWorkspace`, and the tfstate cache; keep the env seams tests rely on
 - [ ] 8.3 Update the preload bridge and `hyveon-api.ts` types for the changed payload shapes (structured summary, partial-apply state, stale-lock recovery)
 - [ ] 8.4 Update controller unit tests, including the channel-name registration guard
+- [ ] 8.5 Rename the `hyveon.terraform` preload namespace to `hyveon.iac` in the preload bridge and `hyveon-api.ts`, and update every renderer call site
 
 ## 9. Renderer
 
-- [ ] 9.1 Render the change summary from structured data on the Plan/Apply page; delete the three duplicated summary regexes in `terraform.page.tsx`
+- [ ] 9.1 Render the change summary from structured data on the Plan/Apply page; delete the three duplicated summary regexes in `terraform.page.tsx` (renamed `iac.page.tsx`)
 - [ ] 9.2 Handle the missing-summary case explicitly — never present an empty summary as "no changes"
 - [ ] 9.3 Surface partial-apply failures with re-plan guidance rather than a plain retry
 - [ ] 9.4 Add the stale-lock recovery UI with explicit confirmation
 - [ ] 9.5 Update the run-history table and read-only detail view to render the structured summary when present and omit it cleanly when absent
 - [ ] 9.6 Update the rollback confirmation to identify the target config version and summarize how it differs from current
 - [ ] 9.7 Add a deployment-settings section to Settings for the top-level configuration, so no setting requires editing a file — validated before write, sharing the game-form validation patterns
+- [ ] 9.8 Rename the `/terraform` route to `/iac` (router config, nav link, routed page component/directory) and update every Playwright page object and e2e mock that references it
 
 ## 10. Wizard and prerequisites
 
@@ -100,8 +102,8 @@
 
 ## 11. Test surface
 
-- [ ] 11.1 Replace `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures with Pulumi equivalents, or delete them where in-process stubbing of `PulumiService` is now sufficient
-- [ ] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from a fixture instead of `TF_STATE_PATH`
+- [ ] 11.1 Delete `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures' `PATH`-shim wiring; replace with a `PulumiService` stub injected at the DI seam per the `orchestrator-integration-coverage` delta spec's "In-process engine stub injected via DI" requirement
+- [ ] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from the stub's scripted `stack.outputs()` instead of `TF_STATE_PATH`, including the never-deployed-stack case
 - [ ] 11.3 Update Electron e2e mocks for the changed IPC payload shapes
 - [ ] 11.4 Keep the 1.6 clean-quit check green in CI
 
@@ -118,9 +120,10 @@
 - [ ] 12.9 Update `CLAUDE.md`: commands, architecture, the `game_servers` source-of-truth section, and the Terraform-variable checklist
 - [ ] 12.10 Assert in docs and tests that no operator-facing instruction requires running any command other than launching the app
 - [ ] 12.11 Confirm `npm run app:lint`, `npm run app:test`, `npm run app:test:e2e`, and `npm run app:test:integration` all pass
+- [ ] 12.12 Per the `operator-documentation` delta spec: update `docs/docs/guides/maintainer.md` (Lambda count, repo map including `app/packages/infra`, no Route-53-Terraform-managed invariant claim, `app/packages/infra` resource table, full CI workflow list) and `docs/docs/components/management-app.md` (Game CRUD writes the JSON configuration store, not `terraform.tfvars`)
+- [ ] 12.13 Add a brief historical note to `docs/docs/architecture.md` on why the project moved from Terraform to Pulumi (multi-cloud optionality, no operator-installed binary, no HCL round-trip) — the rationale narrative, not a capability spec
 
 ## 13. Follow-up coordination
 
 - [ ] 13.1 Re-propose `add-one-click-aws-bootstrap` against the Pulumi codebase: drop its `terraform-settings-management` capability and its `TerraformService` credential fix, keep `guided-iam-provisioning`
 - [ ] 13.2 Update the CloudFormation-generated policy in that change for the DIY backend — add the four S3 backend actions, drop the lock-table DynamoDB actions
-- [ ] 13.3 Record the deferred follow-up to rename the `terraform-*` specs, the `terraform.*` IPC channels, the `hyveon.terraform` preload namespace, and the `/terraform` route

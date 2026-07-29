@@ -87,6 +87,14 @@ importing 69 resources into a new state model.
   currently ships only `terraform.tfstate` and the icon in `extraResources` and
   none of the 21 `.tf` files, so `getTerraformDir()` seeds a directory with no
   HCL in it. The Pulumi program compiles into the main-process bundle instead.
+- **BREAKING**: The `terraform-*` capability specs, the `terraform.*` /
+  `terraform.runs.*` IPC channels, the `hyveon.terraform` preload namespace,
+  and the `/terraform` route are all renamed to `iac-*` / `iac.*` /
+  `hyveon.iac` / `/iac` in this change, not deferred to a follow-up.
+  `TerraformController` and `TerraformRunsController` become `IacController`
+  and `IacRunsController`. `pulumi-engine-runtime` and `pulumi-infra-program` keep
+  their Pulumi-specific names — they describe Pulumi-specific mechanics, not
+  the generic plan/apply/destroy/history behavior the renamed specs cover.
 
 ### Non-goals
 
@@ -94,14 +102,6 @@ importing 69 resources into a new state model.
   `@pulumi/gcp` resources are written.
 - Importing existing Terraform state into Pulumi. Explicitly out of scope
   because there is nothing deployed that needs preserving.
-- Renaming the `terraform-*` capability specs to `iac-*`. Their requirements
-  change here; the rename is deferred to a follow-up to keep this change's diff
-  reviewable.
-- Renaming the `terraform.*` IPC channels, the `hyveon.terraform` preload
-  namespace, or the `/terraform` route. They keep their names through this
-  change for the same reason, and are renamed in the same follow-up as the
-  specs. Renaming them here would touch the controller, preload, typed API,
-  every page object, and every e2e mock for no behavioral gain.
 
 ## Capabilities
 
@@ -126,19 +126,29 @@ importing 69 resources into a new state model.
 - `wizard-flow`: The "Install prerequisites" step is removed and the
   "Terraform init step with live log" step becomes a Pulumi stack-select and
   engine-provisioning step.
-- `terraform-plan-apply-page`: Plan is driven by `stack.preview()` and its
-  summary comes from structured `changeSummary` data rather than scraped stdout.
-  The plan-hash gate is rebased onto the preview's structured diff.
-- `terraform-destroy-flow`: Destroy is driven by `stack.destroy()`. The
-  confirmation-token gate and type-to-confirm UI are unchanged.
-- `terraform-rollback`: Version listing and rollback operate on versions of the
-  JSON config object rather than of `terraform.tfvars`.
-- `terraform-run-history`: Persisted run records carry structured change
-  summaries instead of regex-derived counts.
+- `iac-plan-apply-page` (was `terraform-plan-apply-page`): Plan is driven by
+  `stack.preview()` and its summary comes from structured `changeSummary` data
+  rather than scraped stdout. The plan-hash gate is rebased onto the preview's
+  structured diff.
+- `iac-destroy-flow` (was `terraform-destroy-flow`): Destroy is driven by
+  `stack.destroy()`. The confirmation-token gate and type-to-confirm UI are
+  unchanged.
+- `iac-rollback` (was `terraform-rollback`): Version listing and rollback
+  operate on versions of the JSON config object rather than of
+  `terraform.tfvars`.
+- `iac-run-history` (was `terraform-run-history`): Persisted run records carry
+  structured change summaries instead of regex-derived counts.
 - `desktop-only-operator-surface`: Extends the existing "the desktop app is the
   whole operator surface" guarantee from transport and deployment artifacts to
   configuration and tooling — no operator-editable configuration files, and
   nothing but the app itself needs to be run in a terminal.
+- `orchestrator-integration-coverage`: The Terraform fake-binary-on-`PATH` test
+  model is replaced by an in-process `PulumiService` stub injected through the
+  DI container; the `output` subcommand coverage becomes `stack.outputs()`
+  coverage.
+- `operator-documentation`: Drops the stale tfvars-hand-edit workflow
+  description and the `terraform/aws/` file-table/invariant claims that no
+  longer hold once the `terraform/` tree is deleted.
 
 `aws-credentials` is deliberately **not** modified. It already specifies how
 credentials are discovered, encrypted, and selected, and none of that changes.

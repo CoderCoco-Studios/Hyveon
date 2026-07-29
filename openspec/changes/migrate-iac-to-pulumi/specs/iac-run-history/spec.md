@@ -2,11 +2,11 @@
 
 ### Requirement: Run listing API
 
-The system SHALL provide a run-listing API spanning every layer: a `listRuns` method on the `RunRecordStore` contract (`@hyveon/shared/cloud.ts`) implemented by `AwsRunRecordStore` as a DynamoDB query, a `RunRecordService.listRuns` service method, a `terraform.runs.list` IPC channel on `TerraformRunsController`, and a `hyveon.terraform.runs.list` preload bridge with a typed mirror in `hyveon-api.ts`. Results MUST be returned newest-first as the `RunPageResult` page shape already defined in `@hyveon/shared/runs.ts` (records plus an optional `nextBefore` cursor), and the API MUST support a page-size limit, cursor-based continuation, and optional filtering by run status (served by the runs table's `status-index` GSI on status + `startedAt`). The runs table name SHALL be resolved from the infrastructure stack's outputs.
+The system SHALL provide a run-listing API spanning every layer: a `listRuns` method on the `RunRecordStore` contract (`@hyveon/shared/cloud.ts`) implemented by `AwsRunRecordStore` as a DynamoDB query, a `RunRecordService.listRuns` service method, an `iac.runs.list` IPC channel on `IacRunsController`, and a `hyveon.iac.runs.list` preload bridge with a typed mirror in `hyveon-api.ts`. Results MUST be returned newest-first as the `RunPageResult` page shape already defined in `@hyveon/shared/runs.ts` (records plus an optional `nextBefore` cursor), and the API MUST support a page-size limit, cursor-based continuation, and optional filtering by run status (served by the runs table's `status-index` GSI on status + `startedAt`). The runs table name SHALL be resolved from the infrastructure stack's outputs.
 
 #### Scenario: First page of runs, newest first
 
-- **WHEN** a caller invokes `hyveon.terraform.runs.list({ limit: 20 })`
+- **WHEN** a caller invokes `hyveon.iac.runs.list({ limit: 20 })`
 - **THEN** it resolves a `RunPageResult` whose records are the 20 most recent runs ordered newest-first, with `nextBefore` set when older runs exist
 
 #### Scenario: Cursor fetches the next page
