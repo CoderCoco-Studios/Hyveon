@@ -30,6 +30,160 @@ files:
   - node_modules/graceful-fs/**
   - node_modules/jsonfile/**
   - node_modules/universalify/**
+  # @pulumi/pulumi and @pulumi/aws are deliberately NOT bundled into out/main
+  # (see the `external` entries in electron.vite.config.ts) — `@pulumi/pulumi`
+  # pulls in `@grpc/grpc-js`, which owns sockets, and bundling either package
+  # (60 MB / 15 MB unpacked) risks the same "Electron never quits" failure the
+  # @cdktf/hcl2json incident produced. Ship both packages and their full
+  # transitive runtime-dependency closure — computed by walking each
+  # package's own package.json "dependencies" field recursively from the
+  # installed node_modules tree — so the packaged main process can resolve
+  # the external `@pulumi/pulumi` / `@pulumi/aws` imports. Entries are
+  # collapsed to `@scope/**` where every package under that scope in this
+  # tree belongs to the closure (@npmcli/*, @opentelemetry/*, etc.); nested
+  # transitive deps (e.g. execa's own `node_modules/get-stream`) are covered
+  # by their parent's `/**` glob and are not listed separately. Re-walk the
+  # closure whenever the pinned pulumi versions change — new transitive deps
+  # will not be picked up automatically.
+  - node_modules/@pulumi/pulumi/**
+  - node_modules/@pulumi/aws/**
+  - node_modules/@gar/**
+  - node_modules/@grpc/**
+  - node_modules/@isaacs/**
+  - node_modules/@js-sdsl/**
+  - node_modules/@logdna/**
+  - node_modules/@npmcli/**
+  - node_modules/@opentelemetry/**
+  - node_modules/@protobufjs/**
+  - node_modules/@sigstore/**
+  - node_modules/@tufjs/**
+  - node_modules/@types/google-protobuf/**
+  - node_modules/@types/node/**
+  - node_modules/@types/semver/**
+  - node_modules/abbrev/**
+  - node_modules/agent-base/**
+  - node_modules/ansi-regex/**
+  - node_modules/ansi-styles/**
+  - node_modules/argparse/**
+  - node_modules/balanced-match/**
+  - node_modules/bin-links/**
+  - node_modules/brace-expansion/**
+  - node_modules/buffer-from/**
+  - node_modules/cacache/**
+  - node_modules/chownr/**
+  - node_modules/cjs-module-lexer/**
+  - node_modules/cliui/**
+  - node_modules/cmd-shim/**
+  - node_modules/color-convert/**
+  - node_modules/color-name/**
+  - node_modules/common-ancestor-path/**
+  - node_modules/cross-spawn/**
+  - node_modules/cssesc/**
+  - node_modules/debug/**
+  - node_modules/emoji-regex/**
+  - node_modules/env-paths/**
+  - node_modules/es-module-lexer/**
+  - node_modules/escalade/**
+  - node_modules/execa/**
+  - node_modules/exponential-backoff/**
+  - node_modules/fs-minipass/**
+  - node_modules/get-caller-file/**
+  - node_modules/google-protobuf/**
+  - node_modules/graceful-fs/**
+  - node_modules/http-cache-semantics/**
+  - node_modules/http-proxy-agent/**
+  - node_modules/https-proxy-agent/**
+  - node_modules/human-signals/**
+  - node_modules/ignore-walk/**
+  - node_modules/import-in-the-middle/**
+  - node_modules/ini/**
+  - node_modules/ip-address/**
+  - node_modules/is-fullwidth-code-point/**
+  - node_modules/is-stream/**
+  - node_modules/js-yaml/**
+  - node_modules/json-parse-even-better-errors/**
+  - node_modules/json-stringify-nice/**
+  - node_modules/jsonparse/**
+  - node_modules/just-diff/**
+  - node_modules/just-diff-apply/**
+  - node_modules/lodash.camelcase/**
+  - node_modules/long/**
+  - node_modules/make-fetch-happen/**
+  - node_modules/merge-stream/**
+  - node_modules/mime/**
+  - node_modules/mimic-fn/**
+  - node_modules/minimatch/**
+  - node_modules/minimist/**
+  - node_modules/minipass/**
+  - node_modules/minipass-collect/**
+  - node_modules/minipass-fetch/**
+  - node_modules/minipass-flush/**
+  - node_modules/minipass-pipeline/**
+  - node_modules/minipass-sized/**
+  - node_modules/minizlib/**
+  - node_modules/module-details-from-path/**
+  - node_modules/ms/**
+  - node_modules/negotiator/**
+  - node_modules/node-gyp/**
+  - node_modules/nopt/**
+  - node_modules/normalize-package-data/**
+  - node_modules/npm-bundled/**
+  - node_modules/npm-install-checks/**
+  - node_modules/npm-normalize-package-bin/**
+  - node_modules/npm-package-arg/**
+  - node_modules/npm-packlist/**
+  - node_modules/npm-pick-manifest/**
+  - node_modules/npm-registry-fetch/**
+  - node_modules/npm-run-path/**
+  - node_modules/onetime/**
+  - node_modules/p-map/**
+  - node_modules/pacote/**
+  - node_modules/parse-conflict-json/**
+  - node_modules/path-key/**
+  - node_modules/path-scurry/**
+  - node_modules/postcss-selector-parser/**
+  - node_modules/proc-log/**
+  - node_modules/proggy/**
+  - node_modules/promise-all-reject-late/**
+  - node_modules/promise-call-limit/**
+  - node_modules/protobufjs/**
+  - node_modules/read-cmd-shim/**
+  - node_modules/require-directory/**
+  - node_modules/require-from-string/**
+  - node_modules/require-in-the-middle/**
+  - node_modules/semver/**
+  - node_modules/shebang-command/**
+  - node_modules/shebang-regex/**
+  - node_modules/signal-exit/**
+  - node_modules/sigstore/**
+  - node_modules/smart-buffer/**
+  - node_modules/socks/**
+  - node_modules/socks-proxy-agent/**
+  - node_modules/source-map/**
+  - node_modules/source-map-support/**
+  - node_modules/spdx-correct/**
+  - node_modules/spdx-exceptions/**
+  - node_modules/spdx-license-ids/**
+  - node_modules/ssri/**
+  - node_modules/string-width/**
+  - node_modules/strip-ansi/**
+  - node_modules/strip-final-newline/**
+  - node_modules/tar/**
+  - node_modules/tinyglobby/**
+  - node_modules/treeverse/**
+  - node_modules/tuf-js/**
+  - node_modules/undici/**
+  - node_modules/undici-types/**
+  - node_modules/upath/**
+  - node_modules/util-deprecate/**
+  - node_modules/validate-npm-package-license/**
+  - node_modules/validate-npm-package-name/**
+  - node_modules/walk-up-path/**
+  - node_modules/wrap-ansi/**
+  - node_modules/write-file-atomic/**
+  - node_modules/y18n/**
+  - node_modules/yargs/**
+  - node_modules/yargs-parser/**
 
 extraResources:
   - from: terraform/terraform.tfstate

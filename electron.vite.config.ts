@@ -45,7 +45,14 @@ export default defineConfig({
         // The external package also keeps the patch-package fix
         // (patches/@cdktf+hcl2json+0.21.0.patch) in effect. electron-builder.yml
         // packages the module (and its transitive deps) into the installer.
-        external: ['@cdktf/hcl2json'],
+        //
+        // `@pulumi/pulumi` and `@pulumi/aws` follow the same precedent from the
+        // start rather than discovering the failure mode in CI: `@pulumi/pulumi`
+        // pulls in `@grpc/grpc-js`, which owns sockets, and bundling either
+        // package (60 MB / 15 MB unpacked) risks the exact "Electron never
+        // quits" failure the hcl2json incident produced. electron-builder.yml
+        // ships both packages (and their transitive deps) unpacked.
+        external: ['@cdktf/hcl2json', '@pulumi/pulumi', '@pulumi/aws'],
         output: {
           format: 'es',
           entryFileNames: 'index.js',

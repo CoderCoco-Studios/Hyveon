@@ -28,6 +28,8 @@
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/microservices": "^11.1.28",
+    "@pulumi/aws": "7.39.0",
+    "@pulumi/pulumi": "3.255.0",
     "@smithy/shared-ini-file-loader": "^4.6.14",
     "@smithy/types": "^4.16.1",
     "electron-store": "^11.0.2",
