@@ -1,6 +1,6 @@
 ## 1. Spikes (gate everything else)
 
-- [ ] 1.1 Add `@pulumi/pulumi@3.255.0` and `@pulumi/aws@7.39.0` to a scratch workspace; mark `@pulumi/pulumi` `external` in `electron.vite.config.ts` and add it plus `@pulumi/aws` to `electron-builder.yml` `files`, following the `@cdktf/hcl2json` precedent
+- [x] 1.1 Add `@pulumi/pulumi@3.255.0` and `@pulumi/aws@7.39.0` to a scratch workspace; mark `@pulumi/pulumi` `external` in `electron.vite.config.ts` and add it plus `@pulumi/aws` to `electron-builder.yml` `files`, following the `@cdktf/hcl2json` precedent
 - [ ] 1.2 Spike: run `PulumiCommand.install({ root: <userData>/pulumi })` from the Electron main process and confirm the binary lands at `<root>/bin/pulumi` and that a second call short-circuits
 - [ ] 1.3 Spike: run a trivial inline program from inside a packaged `app.asar` build and confirm the `--client` gRPC callback executes the closure — this is the highest-risk unknown and gates the whole approach
 - [ ] 1.4 During the first bootstrap run, point `PULUMI_BACKEND_URL` at the newly created bucket and run a read-only `stack ls` to confirm the `s3://` driver authenticates without a login (Open Question 1); if it fails, add a login step to the workspace seam
