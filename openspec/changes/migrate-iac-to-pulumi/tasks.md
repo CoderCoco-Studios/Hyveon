@@ -10,9 +10,9 @@
 ## 2. Infra workspace scaffold
 
 - [x] 2.1 Create the `app/packages/infra` workspace (`@hyveon/infra`) with its `package.json`, `tsconfig.json`, and ESLint wiring so root `app:lint` / `app:test` pick it up
-- [ ] 2.2 Define the typed configuration model in `@hyveon/shared`, covering both the `game_servers` map and the top-level deployment settings (project name, region, hosted zone, watchdog tunables), with TSDoc on every field
-- [ ] 2.3 Add unit tests for the configuration model covering every field, including the `https` flag that HCL round-tripping previously corrupted
-- [ ] 2.4 Define the stack-outputs type in `@hyveon/shared`, covering cluster, subnet, security-group, Discord table and secret locations, interactions invoke URL, and runs table name
+- [x] 2.2 Define the typed configuration model in `@hyveon/shared`, covering both the `game_servers` map and the top-level deployment settings (project name, region, hosted zone, watchdog tunables), with TSDoc on every field
+- [x] 2.3 Add unit tests for the configuration model covering every field, including the `https` flag that HCL round-tripping previously corrupted
+- [x] 2.4 Define the stack-outputs type in `@hyveon/shared`, covering cluster, subnet, security-group, Discord table and secret locations, interactions invoke URL, and runs table name
 
 ## 3. Infra program — resource parity
 
