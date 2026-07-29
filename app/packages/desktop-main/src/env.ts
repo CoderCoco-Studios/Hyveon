@@ -28,7 +28,12 @@ export function electronRendererUrl(): string | undefined {
  * entry-point dynamically import and run `spike/pulumiSpike.ts`. The gate is
  * deliberately a cheap env read in this module rather than a static import of
  * the spike itself, so that neither the ~60 MB `@pulumi/pulumi` module graph
- * nor `@grpc/grpc-js` is loaded on a normal app start (or in unit tests).
+ * nor `@grpc/grpc-js` is loaded unless the spike is explicitly asked for.
+ *
+ * This flag alone is not the whole condition: the call site also requires
+ * `!isTestMode()`, because Playwright launches inherit the ambient environment
+ * and an exported `HYVEON_PULUMI_SPIKE=1` would otherwise turn every e2e spec
+ * into a 344 MB engine download.
  *
  * Delete this function, `spike/pulumiSpike.ts`, and the call site in
  * `electron-entry.ts` once `PulumiEngineService` (Phase 4) supersedes them —

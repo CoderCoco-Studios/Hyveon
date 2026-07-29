@@ -58,10 +58,28 @@ export default defineConfig({
         // — the subpath the Automation API is actually imported through — fully
         // bundled. That was observed as a 15 MB `pulumiSpike` chunk during the
         // task 1.3 spike, i.e. the exact "bundled SDK owns sockets" hazard the
-        // externalization exists to avoid. `externalizeDepsPlugin()` does not
-        // cover it either: it reads `dependencies` from the root package.json,
-        // which has none (every workspace dependency is bundled by design), so
-        // this array is the only thing keeping these packages external.
+        // externalization exists to avoid.
+        //
+        // Two mechanisms now cover these three packages, and the overlap is
+        // deliberate:
+        //  - `externalizeDepsPlugin()` externalizes every root package.json
+        //    `dependencies` entry, adding both the bare name and a
+        //    `^(name1|name2)/.+` subpath regex. The root manifest declares these
+        //    three packages (electron-builder only copies node_modules belonging
+        //    to the app manifest's production dependency tree, and the `files`
+        //    whitelist can narrow that set but never add to it), so the plugin
+        //    covers them — including subpaths. When the root manifest had no
+        //    `dependencies` at all, the plugin externalized *nothing*, which is
+        //    why the exact-match string was the only rule in force and the
+        //    subpath got bundled.
+        //  - this array, which is authoritative regardless of what the root
+        //    manifest happens to list — and is the *only* rule covering `semver`
+        //    below, which is not a root dependency.
+        //
+        // The `out/main` bundle is checked after every `desktop:build` by
+        // build/verify-main-bundle-externals.mjs, which fails the build if any
+        // of these packages' source is found inlined. The 15 MB chunk above was
+        // invisible to lint, typecheck, the unit suite and the e2e suite alike.
         //
         // `semver` must be external for the same reason, one level down.
         // `PulumiCommand.install()` takes its `version` as a `semver.SemVer`

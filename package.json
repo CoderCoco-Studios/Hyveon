@@ -43,7 +43,7 @@
     "scripts:init-parent": "npm run init-parent  -w @hyveon/scripts",
     "scripts:tfvars-sync": "npm run tfvars-sync  -w @hyveon/scripts",
     "desktop:dev": "electron-vite dev",
-    "desktop:build": "electron-vite build",
+    "desktop:build": "electron-vite build && node build/verify-main-bundle-externals.mjs",
     "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --publish never",
     "icons:generate": "node build/generate-icons.mjs",
     "docs:screenshots": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run desktop:build && playwright test --config app/packages/web/playwright.screenshots.config.ts"
