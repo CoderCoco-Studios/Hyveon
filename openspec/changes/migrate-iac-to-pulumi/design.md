@@ -48,9 +48,6 @@ the cheapest moment to change IaC systems.
 
 - Writing any GCP resources. This change preserves the option only.
 - Importing existing Terraform state. Out of scope because nothing is deployed.
-- Renaming the `terraform-*` specs, the `terraform.*` IPC channels, the
-  `hyveon.terraform` preload namespace, or the `/terraform` route. Deferred to a
-  follow-up so this change's diff stays reviewable.
 - Changing the AWS architecture. Resource parity with the retired module is a
   requirement, not an opportunity to redesign.
 
@@ -353,6 +350,49 @@ discovering it in CI.
 
 Sizes: `@pulumi/aws` is 60 MB unpacked, `@pulumi/pulumi` 15 MB. Both ship
 unpacked via `electron-builder.yml` `files`.
+
+### Rename terraform-* specs, IPC channels, preload namespace, and route now
+
+An earlier draft of this change deferred renaming the `terraform-*` capability
+specs (to `iac-*`) and the `terraform.*` IPC channels / `hyveon.terraform`
+preload namespace / `/terraform` route to a follow-up change, reasoning that
+the rename touched the controller, preload, typed API, every page object, and
+every e2e mock for no behavioral gain, and would bloat this change's diff.
+
+That reasoning held only as long as the rename was optional. It stopped being
+optional once the alternative was implementing `TerraformController` and the
+`terraform-plan-apply-page` spec against Pulumi-era behavior, only to rename
+both again in the very next change — real rework, not diff hygiene. Doing the
+rename in the same change that already rewrites every one of those call sites
+(Phase 8 rewrites the controllers regardless; Phase 9 rewrites the routed
+page regardless) costs the rename itself, not a second pass through files this
+change already touches.
+
+**Renaming scheme:**
+
+- Capability specs: `terraform-plan-apply-page` → `iac-plan-apply-page`,
+  `terraform-rollback` → `iac-rollback`, `terraform-destroy-flow` →
+  `iac-destroy-flow`, `terraform-run-history` → `iac-run-history`.
+  `pulumi-engine-runtime` and `pulumi-infra-program` keep their Pulumi-specific
+  names — they describe Pulumi-specific mechanics (engine provisioning, the
+  TypeScript program), not the generic plan/apply/destroy/history behavior the
+  renamed specs cover, so tool-agnostic naming doesn't fit them.
+- IPC channel namespace: `terraform.*` / `terraform.runs.*` → `iac.*` /
+  `iac.runs.*`.
+- Preload namespace: `hyveon.terraform` → `hyveon.iac`.
+- Route: `/terraform` → `/iac`.
+- Controller identifiers: `TerraformController` → `IacController`,
+  `TerraformRunsController` → `IacRunsController`. `PulumiService` stays as-is
+  — it is the genuinely Pulumi-specific engine driver, not the generic
+  controller layer above it.
+
+**Alternative rejected:** a new capability spec narrating "why Terraform was
+retired." That is a rationale narrative (WHY, not WHEN/THEN behavior), which
+does not fit OpenSpec's Requirement/Scenario format. The rationale already
+lives in this document's Decisions section, which is archived permanently
+with the change, and a short historical note belongs in
+`docs/docs/architecture.md` instead — already in scope via Phase 12's
+existing docs tasks.
 
 ## Risks / Trade-offs
 
