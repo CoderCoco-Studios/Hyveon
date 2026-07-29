@@ -33,7 +33,7 @@
     "app:start": "npm run start          -w @hyveon/app",
     "app:build:lambdas": "npm run build:lambdas  -w @hyveon/app",
     "app:test": "npm run test           -w @hyveon/app",
-    "app:typecheck": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/desktop-preload && npm run build -w @hyveon/desktop-main && npm run typecheck:full -w @hyveon/web && npm run typecheck -w @hyveon/lambda-interactions -w @hyveon/lambda-followup -w @hyveon/lambda-update-dns -w @hyveon/lambda-watchdog -w @hyveon/lambda-efs-seeder -w @hyveon/scripts",
+    "app:typecheck": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/infra && npm run build -w @hyveon/desktop-preload && npm run build -w @hyveon/desktop-main && npm run typecheck:full -w @hyveon/web && npm run typecheck -w @hyveon/lambda-interactions -w @hyveon/lambda-followup -w @hyveon/lambda-update-dns -w @hyveon/lambda-watchdog -w @hyveon/lambda-efs-seeder -w @hyveon/scripts",
     "app:test:coverage": "npm run test:coverage -w @hyveon/app",
     "app:test:watch": "npm run test:watch     -w @hyveon/app",
     "app:lint": "npm run lint           -w @hyveon/app",

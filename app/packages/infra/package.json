@@ -1,0 +1,20 @@
+{
+  "name": "@hyveon/infra",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@hyveon/shared": "*",
+    "@pulumi/aws": "7.39.0",
+    "@pulumi/pulumi": "3.255.0"
+  }
+}

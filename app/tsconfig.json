@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/shared/tsconfig.json" },
     { "path": "./packages/cloud-aws/tsconfig.json" },
+    { "path": "./packages/infra/tsconfig.json" },
     { "path": "./packages/desktop-main/tsconfig.json" },
     { "path": "./packages/desktop-preload/tsconfig.json" },
     { "path": "./packages/web/tsconfig.json" },
