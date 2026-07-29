@@ -52,7 +52,36 @@ export default defineConfig({
         // package (60 MB / 15 MB unpacked) risks the exact "Electron never
         // quits" failure the hcl2json incident produced. electron-builder.yml
         // ships both packages (and their transitive deps) unpacked.
-        external: ['@cdktf/hcl2json', '@pulumi/pulumi', '@pulumi/aws'],
+        // The Pulumi entries are regexes, not bare strings, because Rollup's
+        // `external` array matches import ids *exactly*: the string
+        // `'@pulumi/pulumi'` leaves `import ... from '@pulumi/pulumi/automation'`
+        // — the subpath the Automation API is actually imported through — fully
+        // bundled. That was observed as a 15 MB `pulumiSpike` chunk during the
+        // task 1.3 spike, i.e. the exact "bundled SDK owns sockets" hazard the
+        // externalization exists to avoid. `externalizeDepsPlugin()` does not
+        // cover it either: it reads `dependencies` from the root package.json,
+        // which has none (every workspace dependency is bundled by design), so
+        // this array is the only thing keeping these packages external.
+        //
+        // `semver` must be external for the same reason, one level down.
+        // `PulumiCommand.install()` takes its `version` as a `semver.SemVer`
+        // instance and internally calls `semver.gt(opts.version, …)`, which
+        // `instanceof`-checks the argument against *its own* copy of the class.
+        // With `semver` bundled, the instance we construct comes from the
+        // Rollup-inlined copy while the check runs in the external
+        // `node_modules/semver`, so the two classes never match and `install()`
+        // dies with `Invalid version. Must be a string. Got type "object"`
+        // (observed during the task 1.3 spike). Externalizing it leaves exactly
+        // one `semver` at runtime. There is a single `semver` in the runtime
+        // dependency tree (7.7.4 at the root; the nested 5.x/6.x copies all
+        // belong to devDependencies), so this cannot resolve to a second
+        // version.
+        external: [
+          '@cdktf/hcl2json',
+          /^@pulumi\/pulumi(\/.*)?$/,
+          /^@pulumi\/aws(\/.*)?$/,
+          'semver',
+        ],
         output: {
           format: 'es',
           entryFileNames: 'index.js',
