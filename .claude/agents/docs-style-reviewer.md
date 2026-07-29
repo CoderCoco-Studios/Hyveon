@@ -52,7 +52,7 @@ change.
 
 Under ~300 words:
 
-```
+```text
 BUILD RISKS (must fix)
 - <file:line> — <problem> — <fix>
 

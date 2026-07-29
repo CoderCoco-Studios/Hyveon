@@ -15,9 +15,12 @@ close.
 
 ## How to operate
 
-1. Establish the change:
-   `git diff <base>...HEAD --name-only` (default base `origin/main`, fall back to
-   `git diff HEAD~1 --name-only`). Split into code/infra paths and docs paths.
+1. Establish the change using the base ref you were dispatched with:
+   `git diff <base>...HEAD --name-only`. Only when no base was given, default to
+   `origin/main`, then `git diff HEAD~1 --name-only` if there is no upstream. State
+   which base you used in your report — auditing the wrong range produces a report
+   that looks exactly like a clean one. Split the result into code/infra paths and
+   docs paths.
 2. For each changed code area, decide which page owns it:
 
    | Changed | Owner page |
@@ -55,7 +58,7 @@ close.
 
 Under ~350 words, as a punch list:
 
-```
+```text
 VERDICT: <N obligations checked, M unmet>
 
 MISSING

@@ -84,7 +84,10 @@ which is what keeps their reports specific:
 | `docs-coverage-auditor` | Did this change update everything it was obliged to update? |
 | `docs-style-reviewer` | Will this build, navigate, and read like the rest of the site? |
 
-Give each the diff range and the list of pages touched.
+Give each of them, explicitly: `base ref: <ref>` — the same ref you diffed against
+in step 1 — plus the list of pages touched and the changed code files. Say the ref
+rather than assuming they will recompute it; on a stacked branch or a custom base,
+an evaluator that guesses `origin/main` audits the wrong range and reports clean.
 
 ### 4. Apply findings
 

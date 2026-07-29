@@ -15,10 +15,13 @@ and plausibility is precisely what makes it hard to spot on a read-through.
 
 ## How to operate
 
-1. Get the changed docs content:
-   `git diff <base>...HEAD -- docs/docs/` (default base `origin/main`; fall back to
-   `git diff HEAD~1 -- docs/docs/` when there is no upstream). If the diff is
-   empty, say so and stop — do not go audit the whole site uninvited.
+1. Get the changed docs content using the base ref you were dispatched with:
+   `git diff <base>...HEAD -- docs/docs/`. Only when no base was given, default to
+   `origin/main`, then `git diff HEAD~1 -- docs/docs/` if there is no upstream.
+   State which base you used in your report — auditing the wrong range produces a
+   report that looks exactly like a clean one, which is the worst failure mode
+   available to you. If the diff is empty, say so and stop; do not go audit the
+   whole site uninvited.
 2. Extract the **checkable claims** from the added/changed lines. A checkable claim
    asserts something about the system: a file path, a command, an env var name, a
    default value, a resource name, a sequence of calls, a guarantee ("never",
@@ -41,7 +44,7 @@ and plausibility is precisely what makes it hard to spot on a read-through.
 Under ~400 words. Lead with the verdict, then the failures — the reader needs the
 problems, not the passes.
 
-```
+```text
 VERDICT: <N claims checked, M wrong, K unverifiable>
 
 WRONG
