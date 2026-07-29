@@ -1,10 +1,4 @@
 {
-  "enabledPlugins": {
-    "github@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "terraform@claude-plugins-official": false,
-    "chrome-devtools-mcp@claude-plugins-official": true
-  },
   "permissions": {
     "deny": [
       "Edit(terraform/terraform.tfstate)",
@@ -26,5 +20,12 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "github@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "terraform@claude-plugins-official": false,
+    "code-review@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true
   }
 }
