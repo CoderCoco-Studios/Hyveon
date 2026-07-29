@@ -23,6 +23,18 @@
 
 Every destroy attempt SHALL be gated on a fresh, server-minted, single-use, expiring confirmation token: the renderer requests a token via a plain-invoke IPC channel backed by a token-minting service method, and `terraform.destroy` passes the supplied token to the destroy service method, which refuses (per `DestroyNotConfirmedError`) when the token is absent, unknown, expired, or already consumed. The engine's automation interface is inherently non-interactive and offers no operator confirmation prompt of its own, so this gate is the only thing standing between an accidental invocation and the destruction of all managed infrastructure — it MUST NOT be bypassable by any code path, and tokens MUST NOT be reusable across attempts.
 
+The token SHALL be **bound to the destroy target**, not merely to the act of minting. A minted token records the workspace and stack it was issued for, and the destroy service MUST reject a token whose recorded target does not match the stack about to be destroyed. Consumption MUST be atomic — the token is marked spent before the engine is invoked, so two concurrent submissions cannot both pass on one token. Without binding, a token proves only that *some* token was issued, not that the operator confirmed destruction of *this* stack, which is precisely the assurance a destroy gate exists to provide.
+
+#### Scenario: Token bound to a different stack is rejected
+
+- **WHEN** a destroy is submitted with a valid, unexpired token that was minted for a different workspace or stack
+- **THEN** the submission is refused and no engine destroy is invoked
+
+#### Scenario: Concurrent submissions cannot share one token
+
+- **WHEN** two destroy submissions carrying the same token arrive concurrently
+- **THEN** at most one proceeds, because consumption is atomic and completes before the engine is invoked
+
 #### Scenario: Destroy without a fresh token is refused
 
 - **WHEN** `terraform.destroy` is invoked with a missing, expired, or previously consumed confirmation token

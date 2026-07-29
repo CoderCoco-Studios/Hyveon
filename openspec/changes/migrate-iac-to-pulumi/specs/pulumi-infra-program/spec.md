@@ -80,10 +80,22 @@ Because the stack holds no secret material, the stack's secrets provider is chos
 - **WHEN** the operator configures Discord credentials through the app and infrastructure state is subsequently inspected
 - **THEN** the credential values do not appear in state, because the app wrote them directly to Secrets Manager
 
+Preservation MUST be enforced by the program's construction, not merely asserted. The secret's value SHALL be declared as create-only — written once when the secret version does not yet exist, and thereafter excluded from reconciliation — so a later deployment computes no diff against whatever value the app has since written. This is the equivalent of the `ignore_changes = [secret_string]` lifecycle rule the Terraform module relies on, and without it a re-deploy would silently revert working Discord credentials to `"placeholder"` and break the bot.
+
 #### Scenario: Re-deploying does not overwrite configured secrets
 
 - **WHEN** the operator has supplied real Discord credentials through the app and a later deployment runs
 - **THEN** the deployment does not reset those secret values back to placeholders
+
+#### Scenario: Secret values are excluded from reconciliation
+
+- **WHEN** a preview runs after the app has written real credential values to Secrets Manager
+- **THEN** the preview reports no change for the secret versions, because their values are not reconciled against the program
+
+#### Scenario: Preservation is covered by a test
+
+- **WHEN** the infra program's test suite runs
+- **THEN** it includes a case that writes real values through the app's Secrets Manager path, re-deploys, and asserts the values survive unchanged
 
 ### Requirement: Resource parity with the retired Terraform module
 

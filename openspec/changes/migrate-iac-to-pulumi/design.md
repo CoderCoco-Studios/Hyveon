@@ -396,7 +396,10 @@ Benign, but it will look like a leak if anyone audits listener counts.
 
 **Temp workspace directories leak** → A `LocalWorkspace` created with no
 `workDir` makes an `os.tmpdir()/automation-*` directory that is never removed.
-Pass an explicit `workDir` under `userData`.
+Passing an explicit `workDir` under `userData` only relocates the leak unless
+lifecycle is also defined, so the workspace is one stable directory per stack,
+reused across operations rather than created per operation. Repeated
+previews/applies must not grow the directory count.
 
 **Leaked-promise check throws on the success path** → If the inline program
 leaves dangling promises, `onPulumiExit` throws *after* an otherwise successful
@@ -409,12 +412,22 @@ land as a sequence of PRs behind the phases in `tasks.md`, not one merge.
 
 ## Migration Plan
 
-No state import. Hyveon is pre-release, so the migration for the only existing
-deployment is `terraform destroy` on the old stack followed by a fresh deploy.
-This must be stated plainly in `docs/docs/setup.md`, because a user who deploys
-the new stack without destroying the old one gets duplicate infrastructure —
-two VPCs, two EFS file systems, two of every Lambda — silently, since the two
-systems share no state.
+No state import. Hyveon is pre-release, so no operator has a Terraform
+deployment to preserve; the only one that exists is the maintainer's own
+development stack.
+
+Tearing that stack down is `terraform destroy` followed by a fresh deploy, and
+it is a **maintainer task performed out of band, once**. It must not be written
+into `docs/docs/setup.md` or any other operator-facing page: this change's
+`desktop-only-operator-surface` requirement forbids instructing an operator to
+run an infrastructure CLI, and there is no operator for whom the step would even
+apply. It belongs in maintainer/contributor notes, which the operator-surface
+requirement explicitly scopes out.
+
+The reason it must be recorded *somewhere* is that the two systems share no
+state, so deploying the Pulumi stack without first destroying the Terraform one
+produces duplicate infrastructure silently — two VPCs, two EFS file systems, two
+of every Lambda. That is a maintainer-facing hazard, not an operator-facing one.
 
 Rollback strategy during development: the `terraform/` tree is deleted only in
 the final phase, so every phase before that can be abandoned by reverting the

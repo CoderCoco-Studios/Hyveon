@@ -33,13 +33,14 @@
 
 - [ ] 4.1 Add the pinned engine version constant to `@hyveon/shared`
 - [ ] 4.2 Implement `PulumiEngineService`: memoized resolution, install into `<userData>`, non-throwing constructor, typed provisioning errors, no partial-install reuse
-- [ ] 4.3 Implement the workspace seam: `pulumiCommand`, `pulumiHome`, explicit `workDir` under `userData` (avoiding the never-cleaned tmpdir leak), `PULUMI_BACKEND_URL`, bare stack name
+- [ ] 4.3 Implement the workspace seam: `pulumiCommand`, `pulumiHome`, one stable reused `workDir` per stack under `userData` (relocating the tmpdir leak is not fixing it — reuse, do not create per operation), `PULUMI_BACKEND_URL`, bare stack name
 - [ ] 4.4 Generate a passphrase, store it via `SafeStorageService`, and supply it on every invocation — it must exist before the first stack is created (a missing passphrase is a hard exit-1 under `--non-interactive`, not a prompt), and a missing passphrase for an existing stack must fail loudly rather than generate a replacement
 - [ ] 4.5 Propagate wizard-selected credentials into `envVars` — named profile via `AWS_PROFILE`, pasted keys decrypted in the main process — and add a test asserting no key material reaches streamed output or logs
 - [ ] 4.6 Report engine provisioning, provider plugin download, and the operation itself as distinct phases
 - [ ] 4.7 Implement cancellation: `AbortSignal` for user cancel plus a bounded escalation timer to forceful termination, since the SDK never escalates past `SIGINT`
-- [ ] 4.8 Implement stale-lock detection from `ConcurrentUpdateError`, distinguished from in-app busy, with operator-confirmed recovery via `stack.cancel()`
+- [ ] 4.8 Implement lock recovery keyed on provable ownership: record the identity of every lock the app causes to be taken, reclaim the app's own orphans (including after forceful termination) without prompting, and require operator confirmation showing holder and age for any lock it cannot prove it owns
 - [ ] 4.9 Handle the "succeeded then threw" leaked-promise path so a successful apply is not reported as a failure
+- [ ] 4.10 Add a repeated-operation test asserting the workspace directory count under `userData` does not grow across many previews and applies
 
 ## 5. Bootstrap
 
@@ -47,7 +48,8 @@
 - [ ] 5.2 Rename the tfvars bucket concept to the configuration bucket throughout `BootstrapService` and the wizard step, preserving the versioning and 90-day noncurrent-expiry behavior
 - [ ] 5.3 Apply all four S3 public-access-block settings to both buckets, on creation and on an already-existing bucket — `BootstrapService` currently applies none, while the `terraform/bootstrap/` module it mirrors applies all four
 - [ ] 5.4 Update the `HyveonDeployAll` policy in `docs/docs/setup.md`: add the four DIY-backend S3 actions and `s3:PutPublicAccessBlock`, remove the lock-table DynamoDB actions
-- [ ] 5.5 Update `BootstrapService` tests for the added, removed, and renamed operations
+- [ ] 5.5 Update the `wizard.bootstrap.*` IPC surface for the changed resource set — drop the lock-table channel, add the public-access-block outcome to per-resource status — and mirror it in the preload and typed API
+- [ ] 5.6 Update `BootstrapService` tests and the bootstrap wizard-step tests for the added, removed, and renamed operations, including per-resource `failed` status not masking sibling resources
 
 ## 6. Configuration store
 
@@ -65,10 +67,11 @@
 - [ ] 7.3 Implement `PulumiService.destroy` behind the existing confirmation-token gate; assert no untokened call site exists
 - [ ] 7.4 Implement stack output reads replacing `ConfigService.getTfOutputs()`, degrading to "not deployed yet" for a never-deployed stack
 - [ ] 7.5 Port the plan-hash gate: hash over the saved plan artifact plus the config object's version id, with the staleness check independent of plan-file parseability, and refuse to apply a plan produced by a different engine version (`plan.json`'s `manifest.version`)
-- [ ] 7.6 Port `resolveRollbackTarget` / `confirmRollback` to the JSON config object, restoring historic content byte-for-byte
-- [ ] 7.7 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable
-- [ ] 7.8 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors
-- [ ] 7.9 Delete `TerraformService.ts` and its tests
+- [ ] 7.6 Port `resolveRollbackTarget` / `confirmRollback` to the JSON config object, restoring historic content byte-for-byte, holding the shared lock across restore and plan-record persistence, with compensating semantics when plan creation fails
+- [ ] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
+- [ ] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable
+- [ ] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors
+- [ ] 7.10 Delete `TerraformService.ts` and its tests
 
 ## 8. Controllers and preload
 
@@ -106,13 +109,15 @@
 
 - [ ] 12.1 Delete the `terraform/` tree, including `terraform/bootstrap/` and the 376-line `moved.tf`
 - [ ] 12.2 Remove the `terraform.tfstate` `extraResources` entry from `electron-builder.yml` and the `.github/workflows/package.yml` step that fabricates a placeholder state file
-- [ ] 12.3 Port the generated Makefile in `scripts/init-parent.ts` from `aws s3api` / `aws dynamodb` to `@aws-sdk/client-s3` and `@aws-sdk/client-dynamodb`
-- [ ] 12.4 Rewrite `docs/docs/components/terraform.md` for the Pulumi program
-- [ ] 12.5 Update `docs/docs/setup.md`: drop both prerequisites and the "Configure the AWS CLI" section, drop the bootstrap-tfvars CLI walkthrough, and add the explicit warning that an existing Terraform deployment must be destroyed first or infrastructure will be duplicated
-- [ ] 12.6 Update `docs/docs/architecture.md`, `docs/docs/guides/user.md`, `docs/docs/guides/submodule.md`, `docs/docs/intro.md`, and `README.md`
-- [ ] 12.7 Update `CLAUDE.md`: commands, architecture, the `game_servers` source-of-truth section, and the Terraform-variable checklist
-- [ ] 12.8 Assert in docs and tests that no operator-facing instruction requires running any command other than launching the app
-- [ ] 12.9 Confirm `npm run app:lint`, `npm run app:test`, `npm run app:test:e2e`, and `npm run app:test:integration` all pass
+- [ ] 12.3 Replace the `aws s3api` / `aws dynamodb` recipes in the Makefile generated by `scripts/init-parent.ts` with a Node/TypeScript helper the Makefile invokes, which uses `@aws-sdk/client-s3` and `@aws-sdk/client-dynamodb` — a Makefile cannot import an SDK, it can only shell out, so the SDK work has to live in a program
+- [ ] 12.4 Confirm whether the generated-Makefile workflow is maintainer-only; if it is operator-facing, it falls under the app-only operator boundary and the recipe should be removed rather than ported
+- [ ] 12.5 Rewrite `docs/docs/components/terraform.md` for the Pulumi program
+- [ ] 12.6 Update `docs/docs/setup.md`: drop both prerequisites, the "Configure the AWS CLI" section, and the bootstrap-tfvars CLI walkthrough — and add no CLI steps in their place, since this page is operator-facing
+- [ ] 12.7 Record the one-off legacy Terraform teardown in maintainer/contributor notes only, including the duplicate-infrastructure hazard if the Pulumi stack is deployed before the Terraform one is destroyed
+- [ ] 12.8 Update `docs/docs/architecture.md`, `docs/docs/guides/user.md`, `docs/docs/guides/submodule.md`, `docs/docs/intro.md`, and `README.md`
+- [ ] 12.9 Update `CLAUDE.md`: commands, architecture, the `game_servers` source-of-truth section, and the Terraform-variable checklist
+- [ ] 12.10 Assert in docs and tests that no operator-facing instruction requires running any command other than launching the app
+- [ ] 12.11 Confirm `npm run app:lint`, `npm run app:test`, `npm run app:test:e2e`, and `npm run app:test:integration` all pass
 
 ## 13. Follow-up coordination
 

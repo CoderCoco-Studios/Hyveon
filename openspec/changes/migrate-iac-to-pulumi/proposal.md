@@ -17,9 +17,11 @@ Removing both prerequisites is the goal. Pulumi is the way we get there without
 giving up multi-cloud:
 
 - **Pulumi can install its own engine.** `PulumiCommand.install()` from
-  `@pulumi/pulumi/automation` downloads a version-matched CLI into
-  `~/.pulumi/versions/<version>` from inside our Node process. The operator
-  installs nothing.
+  `@pulumi/pulumi/automation` downloads a version-matched CLI from inside our
+  Node process, into an install root this app owns under Electron `userData`.
+  (`~/.pulumi/versions/<version>` is the SDK's default, which we override so the
+  app never depends on, nor writes to, a shared user-level tool directory.) The
+  operator installs nothing.
 - **It keeps the multi-cloud door open.** AWS CDK would close it: there is no
   Google equivalent to migrate to later. Google Cloud Deployment Manager lost
   support on 2026-04-01 and shuts down 2027-06-30, and Google's replacement
@@ -35,16 +37,20 @@ giving up multi-cloud:
   the JSON round-trip is lossy. With a TypeScript infra program the `game_servers`
   config becomes an ordinary shared type and all of that disappears.
 
-Now is the cheapest this will ever be: Hyveon is pre-release with no deployments
-in the wild, so we migrate by destroying and redeploying rather than importing
-69 resources into a new state model.
+Now is the cheapest this will ever be: Hyveon is pre-release, so no operator has
+a Terraform deployment to preserve. The only one that exists is the maintainer's
+own development stack, so we migrate by destroying and redeploying rather than
+importing 69 resources into a new state model.
 
 ## What Changes
 
 - **BREAKING**: The `terraform/` tree (21 `.tf` files, 2837 lines, 69 `resource`
   blocks) is replaced by a TypeScript Pulumi program in a new
-  `app/packages/infra` workspace. Existing deployments are not migrated —
-  operators run `terraform destroy` on the old stack and deploy fresh.
+  `app/packages/infra` workspace. No state is migrated. Tearing down the
+  maintainer's pre-existing Terraform stack is a one-off **maintainer** task
+  performed out of band; it is explicitly not an operator workflow and MUST NOT
+  appear in operator documentation, which would contradict the app-only operator
+  boundary this same change establishes.
 - **BREAKING**: `terraform.tfvars` stops being the configuration source of
   truth. `game_servers` and the top-level deployment settings become a typed
   object in `@hyveon/shared` persisted as JSON, and the versioned-S3 tfvars

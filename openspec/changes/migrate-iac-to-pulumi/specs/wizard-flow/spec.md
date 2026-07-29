@@ -28,17 +28,22 @@ The Settings page SHALL surface a "Reconfigure" button that relaunches the wizar
 
 ### Requirement: Stack initialization step with live log
 
-The final configuration step SHALL provision the infrastructure engine (per `pulumi-engine-runtime`) and select or create the stack against the bootstrapped self-managed backend, streaming progress live into a wizard log pane over a streaming IPC channel exposed as an async iterable, following the same shape the previous init step used. ANSI escape sequences in the output MUST render as styled HTML. Because the first run downloads both the engine and the cloud provider plugin, the step MUST report "provisioning the engine", "downloading provider plugins", and "initializing the stack" as distinct phases so a multi-minute first run is not mistaken for a hang. The step MUST also set the stack's secrets provider at creation time, because it cannot be changed afterwards through the automation interface and a stack created without one would have to be recreated to correct it. The completion control SHALL enable only on success; a failure SHALL surface an error state with the captured log and allow retry.
+The final configuration step SHALL provision the infrastructure engine (per `pulumi-engine-runtime`) and select or create the stack against the bootstrapped self-managed backend, streaming progress live into a wizard log pane over a streaming IPC channel exposed as an async iterable, following the same shape the previous init step used. ANSI escape sequences in the output MUST render as styled HTML. Because the first run downloads both the engine and the cloud provider plugin, the step MUST report "provisioning the engine", "downloading provider plugins", and "initializing the stack" as distinct phases so a multi-minute first run is not mistaken for a hang. The engine cache and the provider-plugin cache MUST be checked independently: they populate separately, so an engine that is already present says nothing about whether the plugin is, and a cached engine MUST NOT cause the plugin phase to be skipped or its download to happen silently inside stack initialization. The step MUST also set the stack's secrets provider at creation time, because it cannot be changed afterwards through the automation interface and a stack created without one would have to be recreated to correct it. The completion control SHALL enable only on success; a failure SHALL surface an error state with the captured log and allow retry.
 
 #### Scenario: Successful initialization on a clean machine
 
 - **WHEN** the step runs on a machine with no engine cached and the stack does not yet exist
 - **THEN** the pane reports engine provisioning, then provider plugin download, then stack initialization, the stack is created against the operator's own S3 backend with its secrets provider set, and the completion button becomes enabled
 
-#### Scenario: Engine already cached
+#### Scenario: Engine cached but provider plugin missing
 
-- **WHEN** the step runs on a machine where the pinned engine version is already cached
-- **THEN** no download is reported and the step proceeds directly to stack initialization
+- **WHEN** the step runs on a machine where the pinned engine version is already cached but the cloud provider plugin is not
+- **THEN** the engine-provisioning phase is skipped and the provider-plugin download is still reported as its own phase, rather than the step appearing to stall during stack initialization
+
+#### Scenario: Engine and plugin both cached
+
+- **WHEN** the step runs on a machine where both the pinned engine version and the provider plugin are already cached
+- **THEN** neither download phase is reported and the step proceeds directly to stack initialization
 
 #### Scenario: Failed initialization
 

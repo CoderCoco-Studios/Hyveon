@@ -39,3 +39,8 @@ Provisioning, updating, inspecting, and destroying infrastructure SHALL be achie
 
 - **WHEN** operator-facing documentation is searched for instructions to run an infrastructure or cloud CLI
 - **THEN** no such instruction exists outside sections explicitly labelled as maintainer or contributor workflow
+
+#### Scenario: Legacy Terraform teardown is maintainer-only
+
+- **WHEN** operator-facing documentation is searched for the one-off teardown of a pre-existing Terraform deployment
+- **THEN** the step does not appear there, because no operator has such a deployment; it exists only in maintainer or contributor material, where the CLI exception is explicitly scoped

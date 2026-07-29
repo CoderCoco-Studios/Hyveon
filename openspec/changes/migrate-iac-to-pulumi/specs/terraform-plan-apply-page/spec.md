@@ -35,7 +35,7 @@ When a plan run completes successfully, the run view SHALL display the resource-
 
 ### Requirement: Plan-hash-gated apply
 
-The "Apply" action SHALL call `hyveon.terraform.apply({ planRunId, planHash })` using the plan hash returned by the plan run, so the backend's gate decides whether the apply proceeds. The plan run SHALL persist an engine-produced update plan as a run artifact, and the apply SHALL be constrained by that saved plan so the engine itself refuses changes the operator did not review. The gate MUST verify, in order: the plan record exists, it is a plan run, it is approved, the approval is unexpired within the 15-minute window, the hash matches both the stored record and the re-hashed on-disk plan artifact, the engine version matches the one that produced the plan, the workspace is free, and the durable apply lock was acquired. Because the saved plan format carries no stability guarantee, the plan hash MUST additionally cover the version identifier of the configuration object the plan ran against, and the apply MUST refuse when that version has moved — the configuration check MUST NOT depend on the plan file being parseable.
+The "Apply" action SHALL call `hyveon.terraform.apply({ planRunId, planHash })` using the plan hash returned by the plan run, so the backend's gate decides whether the apply proceeds. The plan run SHALL persist an engine-produced update plan as a run artifact, and the apply SHALL be constrained by that saved plan so the engine itself refuses changes the operator did not review. The gate MUST verify, in order: the plan record exists, it is a plan run, it is approved, the approval is unexpired within the 15-minute window, the hash matches both the stored record and the re-hashed on-disk plan artifact, and the engine version matches the one that produced the plan. Acquiring the durable apply lock SHALL be the final and authoritative step, and it MUST be a single atomic compare-and-set whose conflict result decides the outcome. A preceding "is the workspace free" observation MUST NOT be relied on as the gate: two applies can both observe a free workspace before either acquires the lock, and only the atomic acquisition can order them. Because the saved plan format carries no stability guarantee, the plan hash MUST additionally cover the version identifier of the configuration object the plan ran against, and the apply MUST refuse when that version has moved — the configuration check MUST NOT depend on the plan file being parseable.
 
 The saved plan is stamped with the engine version that produced it. A plan produced by one engine version MUST NOT be applied by another, because the plan format is explicitly unstable and a silently reinterpreted plan would defeat the review the gate exists to enforce. An engine upgrade between plan and apply SHALL invalidate outstanding plans with an error that names the version change.
 
@@ -60,6 +60,11 @@ A plan-constrained apply is not all-or-nothing: the engine applies changes in ba
 
 - **WHEN** the apply ack resolves `{ started: false, conflict }` because the workspace or the durable apply lock is held by another run
 - **THEN** the page shows the BUSY banner naming the conflict and does not stream any apply output
+
+#### Scenario: Two simultaneous applies are ordered by the lock
+
+- **WHEN** two applies for the same approved plan are submitted close enough together that both observe a free workspace before either acquires the lock
+- **THEN** exactly one acquires the durable apply lock and proceeds, and the other is refused with a conflict — the outcome is decided by the atomic acquisition, not by the earlier observation
 
 #### Scenario: Engine upgraded between plan and apply
 
