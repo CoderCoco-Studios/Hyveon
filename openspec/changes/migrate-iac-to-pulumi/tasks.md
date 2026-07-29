@@ -16,10 +16,10 @@
 
 ## 3. Infra program — resource parity
 
-- [ ] 3.1 Port networking: VPC, subnet, internet gateway, route table, association
+- [x] 3.1 Port networking: VPC, subnet, internet gateway, route table, association
 - [ ] 3.2 Port EFS: file system, mount target, per-game save-data access points, per-HTTPS-game certificate access points
 - [ ] 3.3 Port ECS: cluster and per-game task definitions derived by iteration over the config map, including the Caddy sidecar container for `https = true` games
-- [ ] 3.4 Port security groups, including the deduplicated per-game port ingress and the 443/80 opening for HTTPS games
+- [x] 3.4 Port security groups, including the deduplicated per-game port ingress and the 443/80 opening for HTTPS games
 - [ ] 3.5 Port IAM roles and policies (6 roles, 5 inline policies, 1 attachment)
 - [ ] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
 - [ ] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
