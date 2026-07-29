@@ -9,8 +9,8 @@
 import * as aws from '@pulumi/aws';
 import type { PulumiFn } from '@pulumi/pulumi/automation';
 import type { DeploymentConfig } from '@hyveon/shared';
-import { defineNetwork } from './network.js';
-import { defineSecurityGroups } from './securityGroups.js';
+import { defineNetwork, type NetworkResources } from './network.js';
+import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
@@ -34,6 +34,81 @@ import { defineSecurityGroups } from './securityGroups.js';
 const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
 
 /**
+ * Every resource area {@link defineAll} declares, keyed by module —
+ * including the AWS provider itself, since it too is a real Pulumi resource
+ * (`pulumi:providers:aws`) whose region/tags are worth asserting on
+ * directly. This is the type `defineAll`'s tests hold real handles against;
+ * `createInfraProgram`'s closure also binds this shape to a local variable
+ * (even though it currently returns none of it — see that function's doc)
+ * so later dispatches extending the closure body have downstream resources
+ * (e.g. `securityGroups.gameServers.id` for an EFS mount target's security
+ * group, once task 3.2 needs it) visibly in scope rather than needing to
+ * re-derive them.
+ */
+export interface InfraResources {
+  /** The AWS provider every resource below is declared against. */
+  provider: aws.Provider;
+  /** Networking resources (task 3.1) — see {@link NetworkResources}. */
+  network: NetworkResources;
+  /** Security-group resources (task 3.4) — see {@link SecurityGroupResources}. */
+  securityGroups: SecurityGroupResources;
+}
+
+/**
+ * Declares every resource this dispatch's phase covers and wires them
+ * together: constructs the shared AWS provider, then calls each
+ * `defineX(...)` module in dependency order, threading the provider and each
+ * module's output into the next. This is the function
+ * {@link createInfraProgram}'s closure delegates to — pulled out to a
+ * separate, synchronously-returning function (rather than left inline in the
+ * closure) specifically so tests get real resource handles to await
+ * precisely with `promiseOf` (see `testing/pulumiMocks.ts`), instead of
+ * having to infer completion from the closure's opaque
+ * `Promise<Record<string, any> | void>` return.
+ *
+ * Every later Phase-3 dispatch (EFS, ECS, IAM, Lambdas, ...) adds its
+ * `defineX(...)` call here, in the same pattern: construct/derive whatever
+ * inputs it needs from `config` and the resources already returned above it,
+ * append its result to the returned object, and extend {@link InfraResources}
+ * to match.
+ *
+ * The AWS provider is constructed once per call, with its region taken from
+ * `config.awsRegion` (never an ambient env var) and {@link DEFAULT_TAGS}
+ * applied via `defaultTags` — the mechanism Pulumi provides for Terraform's
+ * provider-level `default_tags` block. It is threaded explicitly into every
+ * `defineX(...)` call (as `provider` in each function's args) rather than
+ * relying on Pulumi's implicit default-provider resolution, so every
+ * resource's region/tags are traceably wired rather than picked up
+ * ambiently.
+ *
+ * @param config - The full deployment configuration to derive infrastructure
+ *   from.
+ * @returns Every declared resource area, keyed by module — see
+ *   {@link InfraResources}.
+ */
+export function defineAll(config: DeploymentConfig): InfraResources {
+  const provider = new aws.Provider('aws', {
+    region: config.awsRegion,
+    defaultTags: { tags: DEFAULT_TAGS },
+  });
+
+  const network = defineNetwork({
+    projectName: config.projectName,
+    vpcCidr: config.vpcCidr,
+    provider,
+  });
+
+  const securityGroups = defineSecurityGroups({
+    projectName: config.projectName,
+    gameServers: config.gameServers,
+    vpcId: network.vpc.id,
+    provider,
+  });
+
+  return { provider, network, securityGroups };
+}
+
+/**
  * Builds the Pulumi inline-program closure for the Hyveon infrastructure
  * stack. Returns a {@link PulumiFn} — the Automation API runs this closure
  * in-process (no `pulumi` CLI subprocess for the program body itself) to
@@ -46,20 +121,16 @@ const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
  *
  * Every resource declaration happens inside the returned closure, never at
  * module scope: an inline program's resource lifecycle is scoped to a
- * single closure invocation. Each resource area lives in its own
- * `defineX(...)` module (`network.ts`, `securityGroups.ts`, and — in later
- * dispatches — `efs.ts`, `ecs.ts`, `iam.ts`, `lambdas.ts`, ...), called from
- * here with the config and upstream resources it needs; no module holds
- * resource state of its own.
+ * single closure invocation. The closure's entire body is a call to
+ * {@link defineAll} — see that function's doc for how resource areas are
+ * wired together and why the declaration logic lives there rather than
+ * inline here.
  *
- * The AWS provider is constructed once per closure invocation, with its
- * region taken from `config.awsRegion` (never an ambient env var) and
- * {@link DEFAULT_TAGS} applied via `defaultTags` — the mechanism Pulumi
- * provides for Terraform's provider-level `default_tags` block. It is
- * threaded explicitly into every `defineX(...)` call (as `provider` in each
- * function's args) rather than relying on Pulumi's implicit default-provider
- * resolution, so every resource's region/tags are traceably wired rather
- * than picked up ambiently.
+ * The closure's result is bound to a local variable (not discarded) even
+ * though it currently returns `void`: real stack-output export is task
+ * 3.11's scope, not this dispatch's, but binding the result now means the
+ * resources are already in scope, ready for that task to pick specific
+ * fields off of rather than needing to re-plumb the call.
  *
  * @param config - The full deployment configuration to derive infrastructure
  *   from.
@@ -68,22 +139,7 @@ const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
  */
 export function createInfraProgram(config: DeploymentConfig): PulumiFn {
   return async () => {
-    const provider = new aws.Provider('aws', {
-      region: config.awsRegion,
-      defaultTags: { tags: DEFAULT_TAGS },
-    });
-
-    const network = defineNetwork({
-      projectName: config.projectName,
-      vpcCidr: config.vpcCidr,
-      provider,
-    });
-
-    defineSecurityGroups({
-      projectName: config.projectName,
-      gameServers: config.gameServers,
-      vpcId: network.vpc.id,
-      provider,
-    });
+    const resources = defineAll(config);
+    void resources; // Bound for 3.11 to extend; no stack outputs exported yet.
   };
 }

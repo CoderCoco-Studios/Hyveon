@@ -1,12 +1,16 @@
 /**
  * Security-group resources — ported from `terraform/aws/main.tf`'s
- * `## Security Groups` block. This dispatch (task 3.4) ports the
- * `game_servers` and `file_manager` groups only; `aws_security_group.efs`
- * is deliberately deferred — it ingresses from `aws_security_group.efs_seeder`,
- * which belongs to `efs-seeder.tf` (Lambda/EFS territory, out of scope per
- * the task brief's "no EFS, ECS, IAM, Lambdas yet"), so porting it now would
- * either dangle a reference to a resource that doesn't exist yet or silently
- * drop that ingress rule. It ships alongside EFS (task 3.2).
+ * `## Security Groups` block: `game_servers`, `file_manager`, and `efs`.
+ *
+ * The `efs` group's HCL declares a second, conditional ingress rule sourced
+ * from `aws_security_group.efs_seeder[0]` (`local.games_with_seeds`-gated) —
+ * that rule is NOT ported here. `efs_seeder` lives in `efs-seeder.tf`
+ * alongside the EFS-seeder Lambda function it secures, which belongs to task
+ * 3.6 (Lambdas), not task 3.2 (EFS) or this dispatch (3.4): porting the rule
+ * now would dangle a reference to a security group that doesn't exist yet.
+ * Task 3.6 adds that ingress rule together with `aws_security_group.efs_seeder`
+ * itself. The `efs` group's other ingress rule (NFS from `game_servers` and
+ * `file_manager`) has no such dependency and is ported now, in full.
  */
 
 import * as aws from '@pulumi/aws';
@@ -19,6 +23,12 @@ export interface SecurityGroupResources {
   gameServers: aws.ec2.SecurityGroup;
   /** FileBrowser file-manager task security group (`aws_security_group.file_manager`). */
   fileManager: aws.ec2.SecurityGroup;
+  /**
+   * EFS security group (`aws_security_group.efs`) — allows NFS (port 2049)
+   * from {@link gameServers} and {@link fileManager}. See this file's doc for
+   * why the HCL's second, seeder-sourced ingress rule is not included here.
+   */
+  efs: aws.ec2.SecurityGroup;
 }
 
 /** Arguments {@link defineSecurityGroups} needs to declare the security groups. */
@@ -91,16 +101,18 @@ export function hasHttpsGame(gameServers: Record<string, GameServerConfig>): boo
 }
 
 /**
- * Declares the `game_servers` and `file_manager` security groups (task 3.4
- * of `migrate-iac-to-pulumi`). Must be called from inside the Pulumi
- * inline-program closure (see `program.ts`'s {@link createInfraProgram}),
- * never at module scope.
+ * Declares the `game_servers`, `file_manager`, and `efs` security groups
+ * (task 3.4 of `migrate-iac-to-pulumi`). Must be called from inside the
+ * Pulumi inline-program closure (see `program.ts`'s
+ * {@link createInfraProgram}/`defineAll`), never at module scope.
  *
- * Terraform's `lifecycle { create_before_destroy = true }` on both groups is
- * not replicated as an explicit Pulumi option: Pulumi's own default
- * replacement behaviour already creates a group's replacement before
- * deleting the old one (`pulumi.CustomResourceOptions.deleteBeforeReplace`
- * defaults to `false`), so the default already matches the HCL's intent.
+ * Terraform's `lifecycle { create_before_destroy = true }` on `game_servers`
+ * and `file_manager` (NOT present on `efs` — the HCL omits it there) is not
+ * replicated as an explicit Pulumi option: Pulumi's own default replacement
+ * behaviour already creates a group's replacement before deleting the old
+ * one (`pulumi.CustomResourceOptions.deleteBeforeReplace` defaults to
+ * `false`), so the default already matches the HCL's intent for all three
+ * groups regardless.
  *
  * @param args - Naming, config, and provider inputs — see
  *   {@link DefineSecurityGroupsArgs}.
@@ -176,5 +188,30 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
-  return { gameServers: gameServersSg, fileManager: fileManagerSg };
+  const efsSg = new aws.ec2.SecurityGroup(
+    `${projectName}-efs-sg`,
+    {
+      namePrefix: `${projectName}-efs-sg-`,
+      description: 'Allow NFS from game server tasks',
+      vpcId,
+      ingress: [
+        {
+          description: 'NFS from game servers',
+          fromPort: 2049,
+          toPort: 2049,
+          protocol: 'tcp',
+          securityGroups: [gameServersSg.id, fileManagerSg.id],
+        },
+        // The HCL's second ingress rule here (NFS from the EFS-seeder
+        // Lambdas, sourced from `aws_security_group.efs_seeder[0]` and
+        // gated on `local.games_with_seeds`) is added by task 3.6 alongside
+        // `aws_security_group.efs_seeder` itself — see this file's doc.
+      ],
+      egress: [openEgress],
+      tags: { Name: `${projectName}-efs-sg` },
+    },
+    opts,
+  );
+
+  return { gameServers: gameServersSg, fileManager: fileManagerSg, efs: efsSg };
 }

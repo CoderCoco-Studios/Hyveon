@@ -10,6 +10,21 @@
  * resource (typically in a `beforeEach`), then run the code under test and
  * assert against the returned `resources` array — one entry per
  * `new aws.*` resource constructed while the mocks were installed.
+ *
+ * **Every test MUST fully settle before it ends**: `pulumi.runtime.setMocks`
+ * installs a process-global monitor, and `installPulumiMocks` replaces it on
+ * every call (each fresh `beforeEach`). If a test constructs a resource and
+ * does not await that resource's own output (directly, or transitively via
+ * a downstream resource that depends on it — see {@link promiseOf}) before
+ * the test body returns, that registration is still in flight when the next
+ * test's `beforeEach` reinstalls the mocks. Always await real resource
+ * handles for everything a test constructs; never approximate completion
+ * with a fixed delay (`setImmediate`, `setTimeout`, a microtask-flush loop,
+ * ...) — a fixed flush is a race that happens to pass for a small resource
+ * graph and gets flakier as the graph grows across later dispatches (EFS,
+ * ECS, IAM, Lambdas, ...). A test that only asserts on a promise's
+ * resolution/rejection (not on `resources`) needs no barrier at all, since
+ * that outcome does not depend on mock-registration timing.
  */
 
 import * as pulumi from '@pulumi/pulumi';

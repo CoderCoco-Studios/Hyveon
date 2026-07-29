@@ -5,12 +5,12 @@ import { dedupedDirectGamePorts, defineSecurityGroups, hasHttpsGame } from './se
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
-/** Resolves both security groups' `id`s, guaranteeing the mock recorder has captured everything `defineSecurityGroups` declares before assertions run — see `pulumiMocks.ts`'s file doc. */
+/** Resolves all three security groups' `id`s, guaranteeing the mock recorder has captured everything `defineSecurityGroups` declares before assertions run — see `pulumiMocks.ts`'s file doc. */
 async function runDefineSecurityGroups(
   args: Parameters<typeof defineSecurityGroups>[0],
 ): Promise<ReturnType<typeof defineSecurityGroups>> {
   const result = defineSecurityGroups(args);
-  await Promise.all([promiseOf(result.gameServers.id), promiseOf(result.fileManager.id)]);
+  await Promise.all([promiseOf(result.gameServers.id), promiseOf(result.fileManager.id), promiseOf(result.efs.id)]);
   return result;
 }
 
@@ -150,6 +150,36 @@ describe('defineSecurityGroups', () => {
     ]);
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
     expect(sg.inputs.tags).toEqual({ Name: 'hyveon-filemgr-sg' });
+  });
+
+  it('should declare the efs security group with NFS ingress from the game-servers and file-manager groups, and no seeder rule', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineSecurityGroups({
+      projectName: 'hyveon',
+      gameServers: FIXTURE_GAME_SERVERS,
+      vpcId: 'vpc-mock',
+      provider,
+    });
+
+    const sg = findByName(mocks.resources, 'hyveon-efs-sg');
+    expect(sg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
+    expect(sg.inputs.namePrefix).toBe('hyveon-efs-sg-');
+    expect(sg.inputs.vpcId).toBe('vpc-mock');
+    expect(sg.inputs.tags).toEqual({ Name: 'hyveon-efs-sg' });
+
+    // Exactly one ingress rule (NFS from game_servers + file_manager) — the
+    // HCL's second, seeder-sourced rule is deliberately not ported here
+    // (task 3.6 adds it alongside `aws_security_group.efs_seeder`).
+    expect(sg.inputs.ingress).toEqual([
+      {
+        description: 'NFS from game servers',
+        fromPort: 2049,
+        toPort: 2049,
+        protocol: 'tcp',
+        securityGroups: [await promiseOf(result.gameServers.id), await promiseOf(result.fileManager.id)],
+      },
+    ]);
+    expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
   });
 
   it('should add only one new ingress rule when a new game entry reuses an existing port', async () => {
