@@ -10,3 +10,5 @@ export type { NetworkResources, DefineNetworkArgs } from './network.js';
 export { defineNetwork, cidrSubnet } from './network.js';
 export type { SecurityGroupResources, DefineSecurityGroupsArgs, GamePort } from './securityGroups.js';
 export { defineSecurityGroups, dedupedDirectGamePorts, hasHttpsGame } from './securityGroups.js';
+export type { IamResources, DefineIamArgs, RoleWithPolicy } from './iam.js';
+export { defineIam, gamesWithFileSeeds } from './iam.js';

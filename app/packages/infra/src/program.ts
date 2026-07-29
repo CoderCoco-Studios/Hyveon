@@ -105,6 +105,15 @@ export function defineAll(config: DeploymentConfig): InfraResources {
     provider,
   });
 
+  // TODO(task 3.6/3.8/3.9): wire in `defineIam` (`./iam.js`) once the EFS
+  // filesystem (task 3.2), the DynamoDB `discord` table + Secrets Manager
+  // secret (task 3.8), the `followup` Lambda function (task 3.6), and the
+  // Route 53 hosted-zone lookup (task 3.9) exist to supply
+  // `DefineIamArgs`'s deferred ARN parameters (`efsFileSystemArn`,
+  // `dynamodbDiscordTableArn`, `discordPublicKeySecretArn`,
+  // `followupLambdaArn`, `hostedZoneId`) — see `iam.ts`'s file doc for why
+  // `defineIam` is fully implemented and unit-tested but not yet callable
+  // from here.
   return { provider, network, securityGroups };
 }
 
