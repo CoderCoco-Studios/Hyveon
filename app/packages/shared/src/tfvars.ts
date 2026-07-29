@@ -58,6 +58,20 @@ export interface GameServer {
 }
 
 /**
+ * A {@link GameServer} entry with the map key (`name`) stripped, matching the
+ * shape of a single value in a `game_servers`-keyed map/record — `name` is
+ * the map key, never an attribute of the entry itself. Used wherever a
+ * `game_servers` map is represented as `Record<string, GameServerConfig>`
+ * rather than a flattened list — e.g. {@link DeploymentConfig.gameServers}
+ * (`./deploymentConfig.js`) and {@link StackOutputs.appliedGameServers}
+ * (`./stackOutputs.js`). Consolidates the `Omit<GameServer, 'name'>` shape
+ * that was previously hand-duplicated (see `TfvarsService`'s
+ * `RawGameServerEntry` and `ConfigService`'s `TfOutputs.applied_game_servers`
+ * in `@hyveon/desktop-main`).
+ */
+export type GameServerConfig = Omit<GameServer, 'name'>;
+
+/**
  * Response entry for the merged games list (the `games.list` IPC channel /
  * `/api/games` HTTP route). Combines the declared view (`terraform.tfvars`,
  * via {@link GameServer}) with the deployed view (`terraform.tfstate`) so
