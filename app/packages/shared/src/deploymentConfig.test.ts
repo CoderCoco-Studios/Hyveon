@@ -54,6 +54,27 @@ function buildPlainGameServer(): GameServerConfig {
 }
 
 /**
+ * A game server entry with `https` entirely omitted — the third state the
+ * field's type (`https?: boolean`) allows alongside explicit `true`/`false`.
+ * Per `GameServerConfig`'s (`./tfvars.js`) TSDoc, an absent `https` MUST be
+ * read as `false` (Terraform's own `optional(bool, false)` default), never
+ * as an unresolved state — this fixture exists to prove that reading holds
+ * through a JSON round-trip: the key must come back genuinely absent (not
+ * `null`, not coerced to `false`), so a consumer applying the documented
+ * "absent means false" rule sees exactly what a hand-edited/legacy tfvars
+ * entry without an `https` line would have produced.
+ */
+function buildGameServerWithoutHttps(): GameServerConfig {
+  return {
+    image: 'example/game-server:latest',
+    cpu: 1024,
+    memory: 2048,
+    ports: [{ container: 12345, protocol: 'udp' }],
+    volumes: [{ name: 'saves', container_path: '/data' }],
+  };
+}
+
+/**
  * A {@link DeploymentConfig} fixture with every field populated — the
  * compile-time exhaustiveness check (via `satisfies`) plus the runtime fixture
  * for the round-trip test. Includes both an `https: true` and an
@@ -130,6 +151,42 @@ describe('DeploymentConfig', () => {
     const roundTripped = JSON.parse(JSON.stringify(config)) as DeploymentConfig;
 
     expect(roundTripped.gameServers).toEqual({});
+  });
+});
+
+describe('DeploymentConfig gameServers https semantics', () => {
+  it('should round-trip an absent https as genuinely absent, not null or coerced to false', () => {
+    const config: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { plain: buildGameServerWithoutHttps() },
+    };
+
+    const roundTripped = JSON.parse(JSON.stringify(config)) as DeploymentConfig;
+
+    expect('https' in roundTripped.gameServers['plain']!).toBe(false);
+    expect(roundTripped.gameServers['plain']!.https).toBeUndefined();
+  });
+
+  it('should distinguish an explicit https: false from an absent https at the JSON level', () => {
+    const explicitFalse: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { palworld: buildPlainGameServer() },
+    };
+    const absent: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { palworld: buildGameServerWithoutHttps() },
+    };
+
+    const explicitFalseJson = JSON.stringify(explicitFalse);
+    const absentJson = JSON.stringify(absent);
+
+    // Explicit false is serialized as a real `"https":false` key/value pair;
+    // omitting it drops the key from the JSON entirely (JSON.stringify's
+    // standard behavior for `undefined`-valued properties) — the two are
+    // not the same wire representation, even though both are read as
+    // "TLS off" per the documented "absent ≡ false" convention.
+    expect(explicitFalseJson).toContain('"https":false');
+    expect(absentJson).not.toContain('"https"');
   });
 });
 

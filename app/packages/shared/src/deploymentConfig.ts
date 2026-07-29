@@ -198,13 +198,37 @@ export interface DeploymentConfig {
 }
 
 /**
- * Every {@link DeploymentConfig} field that has a static Terraform default —
- * i.e. every field except {@link DeploymentConfig.hostedZoneName} and
- * {@link DeploymentConfig.gameServers} (both required, no Terraform default)
- * and {@link DeploymentConfig.auditTableName} /
- * {@link DeploymentConfig.runsTableName} (whose Terraform default is the
- * empty string, already representable without a lookup table — see their
- * field docs for why their *computed* fallback isn't replicated here).
+ * Every {@link DeploymentConfig} field that (a) has a static Terraform
+ * default AND (b) is safe to expose as a single shared frozen constant
+ * value. Two groups of fields are deliberately NOT members, for two
+ * different reasons — this list is not simply "every field with a Terraform
+ * default":
+ *
+ *  - {@link DeploymentConfig.hostedZoneName} and
+ *    {@link DeploymentConfig.gameServers} have no Terraform default at all
+ *    (both required in every real deployment), so there is no value to put
+ *    here.
+ *  - {@link DeploymentConfig.baseAllowedGuilds},
+ *    {@link DeploymentConfig.baseAdminUserIds}, and
+ *    {@link DeploymentConfig.baseAdminRoleIds} DO have a static Terraform
+ *    default (`[]` each) but are excluded anyway: a frozen array value
+ *    stored here would still be a single shared reference every caller of
+ *    {@link withDeploymentConfigDefaults} would receive unless defensively
+ *    cloned, so that function allocates a **fresh** empty array for each of
+ *    the three per call instead of sourcing them from this constant — see
+ *    its own doc for the full rationale and the test asserting the arrays
+ *    are never shared across calls.
+ *
+ * {@link DeploymentConfig.auditTableName} and
+ * {@link DeploymentConfig.runsTableName} ARE members below — their
+ * Terraform default is the literal empty string (`""`), which is what's
+ * stored here. That is NOT the same as their *effective* resolved value:
+ * Terraform computes `"${project_name}-audit"` / `"${project_name}-runs"`
+ * from an empty string downstream (`terraform/aws/audit_store.tf` /
+ * `runs_store.tf`) — see those two fields' own TSDoc on
+ * {@link DeploymentConfig} for why that computed fallback is intentionally
+ * NOT replicated here or in {@link withDeploymentConfigDefaults}.
+ *
  * Values are taken verbatim from `terraform/variables.tf` /
  * `terraform/aws/variables.tf`'s `default = ...` declarations.
  *
