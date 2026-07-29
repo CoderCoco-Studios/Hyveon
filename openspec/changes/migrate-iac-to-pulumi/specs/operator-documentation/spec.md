@@ -11,8 +11,9 @@ table, the repository maps, and the root npm script table.
 
 - **WHEN** `docs/docs/intro.md`, `architecture.md`, `components/index.md`, `components/lambdas.md`,
   `components/terraform.md`, and `guides/maintainer.md` describe the Lambda packages
-- **THEN** they state five, and `components/lambdas.md` documents `@hyveon/lambda-efs-seeder`
-  alongside the other four
+- **THEN** they state five packages — four always-on Lambdas plus an optional, per-game
+  `@hyveon/lambda-efs-seeder` — rather than implying five functions are always deployed, and
+  `components/lambdas.md` documents `@hyveon/lambda-efs-seeder` alongside the other four
 
 #### Scenario: Repo maps are complete
 
@@ -21,6 +22,21 @@ table, the repository maps, and the root npm script table.
 - **THEN** every workspace appears, including `app/packages/cloud-aws`,
   `app/packages/desktop-preload`, `app/packages/infra`, and `app/packages/lambda/efs-seeder`, and
   the maps identify the repository root — not `app/` — as the npm workspaces root
+
+#### Scenario: Infra program file table matches the codebase
+
+- **WHEN** `docs/docs/components/terraform.md`'s file/resource table is compared with the actual
+  contents of `app/packages/infra`
+- **THEN** every file and resource the table lists exists, and no file or resource in
+  `app/packages/infra` that documentation depends on is missing from the table
+
+#### Scenario: Root npm script table matches package.json
+
+- **WHEN** the root npm script table in the documentation is compared with the `scripts` field of
+  the root `package.json`
+- **THEN** every documented script name and description matches an entry in `package.json`, and no
+  script in `package.json` that operators or maintainers are expected to run is missing from the
+  table
 
 #### Scenario: Prerequisites match enforcement
 

@@ -23,6 +23,11 @@ The integration suite SHALL verify that `PulumiService`'s preview operation, run
 - **WHEN** a spec drives the preview operation with a stub scripting a successful preview whose plan artifact is written by the stub
 - **THEN** the run completes with a success outcome whose plan artifact exists and whose `planHash` covers both that artifact and the configuration object's version id
 
+#### Scenario: Structured change summary matches the scripted response
+
+- **WHEN** a spec drives the preview operation with a stub scripting specific create/update/replace/delete counts in its structured change summary
+- **THEN** the returned result's change summary and the persisted run record's change summary both match those exact counts
+
 #### Scenario: Failed preview yields no planHash
 
 - **WHEN** a spec drives the preview operation with a stub scripting a failure
@@ -57,6 +62,26 @@ The integration suite SHALL verify `iac.apply`'s pre-spawn gates through the rea
 - **WHEN** `IacController.apply` is dispatched with the correct `planHash` for a plan record approved within the window, against the same engine version that produced the plan
 - **THEN** the ack is `{ started: true }` and the stub's scripted `up` response is executed to completion
 
+#### Scenario: Missing plan record rejected
+
+- **WHEN** `IacController.apply` is dispatched with a `planRunId` that has no persisted plan record
+- **THEN** the ack is `{ started: false }` with an error describing the missing plan, and the stubbed engine is never invoked for `apply`
+
+#### Scenario: Stale on-disk artifact rejected
+
+- **WHEN** `IacController.apply` is dispatched with a `planHash` matching the stored record, but the plan artifact on disk has since changed so its re-hashed value no longer matches
+- **THEN** the ack is `{ started: false }` with an error describing the mismatch, and the stubbed engine is never invoked for `apply`
+
+#### Scenario: Configuration moved since the plan rejected
+
+- **WHEN** `IacController.apply` is dispatched for a plan whose recorded configuration version no longer matches the configuration object's current version
+- **THEN** the ack is `{ started: false }` with an error explaining the plan is stale, and the stubbed engine is never invoked for `apply`
+
+#### Scenario: Competing applies are ordered by the atomic lock
+
+- **WHEN** two `IacController.apply` dispatches for the same approved plan are submitted close enough together that both observe a free workspace before either acquires the durable apply lock
+- **THEN** exactly one acquires the lock and proceeds to invoke the stubbed engine, and the other is refused with a conflict
+
 ### Requirement: Destroy gated by fresh confirmation token
 
 The integration suite SHALL verify that `PulumiService.destroy` refuses to invoke the engine without a fresh confirmation token minted via `mintDestroyConfirmationToken()` — throwing `DestroyNotConfirmedError` for missing, expired, superseded, or already-consumed tokens — and runs the stub's scripted destroy when a valid token is supplied.
@@ -75,6 +100,21 @@ The integration suite SHALL verify that `PulumiService.destroy` refuses to invok
 
 - **WHEN** a spec mints a confirmation token and invokes `destroy()` with it immediately
 - **THEN** the stub's scripted destroy response runs to completion and the run's terminal state matches the stub
+
+#### Scenario: Token bound to a different target rejected
+
+- **WHEN** a spec mints a confirmation token for one workspace/stack and invokes `destroy()` against a different stack with that token
+- **THEN** `DestroyNotConfirmedError` is thrown and the stubbed engine is never invoked for `destroy`
+
+#### Scenario: Expired or superseded token rejected
+
+- **WHEN** a spec invokes `destroy()` with a token that has expired, or with a token superseded by a later mint for the same target
+- **THEN** `DestroyNotConfirmedError` is thrown and the stubbed engine is never invoked for `destroy`
+
+#### Scenario: Concurrent submissions consume one token atomically
+
+- **WHEN** two `destroy()` calls carrying the same confirmation token are invoked concurrently
+- **THEN** at most one proceeds to invoke the stubbed engine, and the other is rejected with `DestroyNotConfirmedError` because consumption is atomic
 
 ### Requirement: Streamed run chunks preserve ANSI escape sequences
 
@@ -103,6 +143,11 @@ The integration suite SHALL verify that each completed preview/apply/destroy run
 
 - **WHEN** a spec completes a run whose scripted output is under the 350KB inline limit
 - **THEN** the record persisted through the mocked `RunRecordStore` carries the run log inline (no S3 offload key), matching the persisted run log content
+
+#### Scenario: Persisted run is retrievable through the runs listing IPC
+
+- **WHEN** a spec completes a run and then dispatches `iac.runs.list` (or `hyveon.iac.runs.list` from the preload seam) with a page-size limit and, separately, a status filter matching the run's outcome
+- **THEN** both the paginated call and the status-filtered call return a page containing the just-persisted run record
 
 ## ADDED Requirements
 

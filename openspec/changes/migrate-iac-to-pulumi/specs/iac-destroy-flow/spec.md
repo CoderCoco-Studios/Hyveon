@@ -19,6 +19,11 @@
 - **WHEN** an accepted destroy run is cancelled before it reaches a terminal state
 - **THEN** the durable apply lock is released, the run record settles as aborted, and a subsequent operation is not refused as busy
 
+#### Scenario: Lock is released when the app shuts down mid-run
+
+- **WHEN** the app shuts down while a destroy run is in flight, before it reaches a terminal state
+- **THEN** the durable apply lock is released as part of shutdown, and a subsequent app launch does not report the workspace as permanently busy
+
 ### Requirement: Fresh confirmation token gate
 
 Every destroy attempt SHALL be gated on a fresh, server-minted, single-use, expiring confirmation token: the renderer requests a token via a plain-invoke IPC channel backed by a token-minting service method, and `iac.destroy` passes the supplied token to the destroy service method, which refuses (per `DestroyNotConfirmedError`) when the token is absent, unknown, expired, or already consumed. The engine's automation interface is inherently non-interactive and offers no operator confirmation prompt of its own, so this gate is the only thing standing between an accidental invocation and the destruction of all managed infrastructure — it MUST NOT be bypassable by any code path, and tokens MUST NOT be reusable across attempts.
