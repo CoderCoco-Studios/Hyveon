@@ -28,12 +28,17 @@ A reviewer who mixes them gets the mandatory ones ignored along with the nits.
 - **Unclosed code fences** or a fence whose language tag is missing where the site
   otherwise uses one.
 
-Where you can, verify rather than eyeball: grep the link targets, and if the site
-builds in this environment, `npm --prefix docs run build` is the ground truth.
-Note that on Node 24 with Docusaurus 3.6.3 the build currently fails SSG for every
-page for reasons unrelated to any docs edit — if it fails identically on clean
-`main`, report that as a pre-existing condition, not as a finding against this
-change.
+Where you can, verify rather than eyeball: grep the link targets, and run
+`npm --prefix docs run build` — it is the ground truth, and it is the reason you
+are dispatched at all.
+
+Run `npm --prefix docs ci` first. A stale incremental `docs/node_modules` fails
+SSG for every page with `Cannot read properties of undefined (reading 'id')`,
+which is an install artifact rather than a content defect — but it is the only
+failure you may attribute to the environment, and only after a clean install
+still reproduces it. Every other failure is a finding against this change until
+you have proven it is not. Reporting "no build risks" because a real error
+resembled a known-bad signature defeats the whole point of this review.
 
 ## House style (report second, advisory)
 

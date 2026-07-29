@@ -17,7 +17,8 @@ working in an area rather than relying on a summary here.
 | Nest modules, IPC channels, services, renderer layout | `docs/docs/components/management-app.md` |
 | The operator UI, page by page (dashboard, games, terraform, discord, logs, settings, costs, audit, first-run wizard) | `docs/docs/app/` |
 | Installing / distributing the packaged app | `docs/docs/install.md` |
-| Test harnesses, mock seams, fixtures | `docs/docs/components/integration-tests.md` |
+| Test harnesses, mock seams, fixtures, and the jsdom component/routed-page conventions | `docs/docs/components/integration-tests.md` |
+| Writing or updating anything under `docs/docs/**` | the `write-docs` skill (`.claude/skills/write-docs/`), which drafts through `docs-writer` and reviews through the three `docs-*` evaluator agents |
 | AWS IAM deploy policy (`HyveonDeployAll`) — single source of truth | `docs/docs/setup.md` |
 | Setup walkthrough / operator guides | `docs/docs/setup.md`, `docs/docs/guides/` |
 | Copilot review tuning | `.github/copilot-instructions.md` |
@@ -105,7 +106,7 @@ Three complementary test tiers:
 
 | Tier | Command | What runs |
 |------|---------|-----------|
-| Unit / component | `npm run app:test` | Vitest. Node environment for server logic; `jsdom` for `@hyveon/web` component and routed-page specs (co-located `Foo.test.tsx`, mounted through `renderPage()`). AWS SDK mocked via `aws-sdk-client-mock`. |
+| Unit / component | `npm run app:test` | Vitest, split into a `node` project and a jsdom `web` project. Server logic runs under `node`; `@hyveon/web` component and routed-page specs run under `jsdom`, co-located with the component and mounted through `renderPage()`. AWS SDK mocked via `aws-sdk-client-mock`. |
 | E2E (tier 1) | `npm run app:test:e2e` | Playwright, two projects: `electron` launches the packaged app via `_electron.launch()` with `HYVEON_TEST_MODE=1`; `chromium` runs the remaining stub-based specs against `vite build` + `vite preview`. Migration to `electron` is in progress. |
 | Integration (tier 2) | `npm run app:test:integration` | Playwright dispatching into the real `AppModule` DI container built in-process — no HTTP server, no Vite, no `BrowserWindow`. |
 
@@ -121,6 +122,10 @@ Playwright conventions:
 - The `window.hyveon.__test.mock()` seam and the two mock surfaces are documented in
   `docs/docs/components/integration-tests.md`.
 
+jsdom component and routed-page conventions — the two Vitest projects, `renderPage()`,
+`toStreamHandleMock()`, and which API methods a page spec must stub or it hangs — are on
+the same page. Read it before adding a `@hyveon/web` spec.
+
 ## Before opening a PR
 
 Run these locally — do not rely on CI to find it first, and do not claim a change works
@@ -135,8 +140,10 @@ without having run the relevant command and seen it pass:
 Then confirm documentation is current **in the same PR**:
 
 - **`docs/`** — update every page the change touches (`docs/docs/architecture.md`,
-  `docs/docs/components/*`, `docs/docs/setup.md`, `docs/docs/guides/*`). A behaviour change
-  with no docs update is an incomplete PR.
+  `docs/docs/components/*`, `docs/docs/app/*`, `docs/docs/setup.md`, `docs/docs/guides/*`).
+  A behaviour change with no docs update is an incomplete PR. Use the `write-docs` skill —
+  it maps the diff to the pages that own it and reviews the result through the `docs-*`
+  evaluator agents, which is more reliable than hand-picking pages from memory.
 - **OpenSpec** — if required behaviour changed, the change's delta specs must be synced
   (`/opsx:sync`) or the change archived (`/opsx:archive`) so `openspec/specs/` matches reality.
 - **Terraform variables** — adding or removing one means touching all five in the same commit:

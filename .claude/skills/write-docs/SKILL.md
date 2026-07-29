@@ -104,14 +104,20 @@ fixes. Re-running all three on a cosmetic edit is waste.
 ### 5. Verify
 
 ```bash
+npm --prefix docs ci            # install precondition — see below
 npm --prefix docs run build     # catches broken links and MDX parse errors
 ```
 
-Known breakage: on Node 24 with Docusaurus 3.6.3 this fails SSG for every page
-(pre-existing, unrelated to your change — an upgrade to 3.10.2 is in flight). If
-it fails identically on a clean `main`, that is the known issue; say so plainly
-rather than reporting your docs change as verified. Do not claim the site builds
-when you have not seen it build.
+Build against a clean install. An incremental `docs/node_modules` that has fallen
+out of step with `docs/package.json` fails SSG for *every* page with
+`Cannot read properties of undefined (reading 'id')` — an install artifact that
+looks alarmingly like a content error and has sent at least one agent chasing a
+phantom. `npm ci` first and the signal is trustworthy.
+
+Treat a build failure as yours until you have proven otherwise, and do not claim
+the site builds when you have not seen it build. Reporting a real error as
+"pre-existing" is the single worst outcome of this step: the build is the only
+check that catches a broken link, and `onBrokenLinks` is `throw`.
 
 ## House conventions
 

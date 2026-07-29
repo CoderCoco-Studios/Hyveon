@@ -238,3 +238,62 @@ production code; it exists only for jsdom-environment test helpers.
 backed by a real async generator — Electron's structured clone across the bridge
 drops the generator protocol. Assertions on streamed chunk content belong in
 jsdom/Vitest specs instead.
+
+## Related: unit-tier React component and routed-page specs
+
+Also tier-adjacent rather than tier-2: the conventions for the Vitest specs that
+run under jsdom in `@hyveon/web`. They live here so there is one page describing
+how each tier fakes its dependencies.
+
+Stack: **Vitest + jsdom + `@testing-library/react` + `@testing-library/user-event`**.
+The `@testing-library/jest-dom` matchers (`toBeInTheDocument`, `toHaveTextContent`)
+are registered globally by `app/vitest.setup.ts`, which also wires
+`afterEach(cleanup)` — that is not automatic here because the suite runs with
+`globals: false`, which disables React Testing Library's own cleanup hook.
+
+The node/jsdom split lives in `app/vitest.config.ts` as **two projects**, `node`
+and `web` (Vitest 4 removed `environmentMatchGlobs`). Both inherit the root
+config via `extends: true` — resolve aliases, the `maxWorkers` cap, `setupFiles`,
+mock resets — and differ only in which files they collect and the environment
+those files run under: `web` collects `packages/web/**/*.test.{ts,tsx}` under
+jsdom, `node` collects everything else under `node`.
+
+### Component specs
+
+- Live **next to the component** (`foo.component.tsx` → `foo.component.test.tsx`),
+  not in a separate `__tests__` directory.
+- Mock the API client and any module-level singleton with `vi.mock`.
+- For a component driven by a streaming channel (`logs.stream`,
+  `terraform.init`, `terraform.runs.streamLogs`), back the mock with
+  `toStreamHandleMock()` from `src/test-utils/stream-handle.test-utils.ts`. It
+  wraps an ordinary async generator body in the `HyveonStreamHandle` shape the
+  real preload bridge returns — including the `cancel()` method components call
+  on unmount, which a bare `AsyncGenerator` does not have.
+- Cover: visible rendering for each `state` branch, every callback prop firing
+  with the right argument, internal state transitions (open/close, pause/resume),
+  and any non-trivial pure helper.
+- Avoid snapshots — they break on every Tailwind tweak — and don't duplicate
+  assertions the e2e tier already makes about routing and real streaming.
+
+### Routed-page specs
+
+Each routed page (`DashboardPage`, `CostsPage`, `DiscordPage`, `LogsPage`,
+`SettingsPage`, …) has a co-located `*.test.tsx` that mounts it through
+`renderPage()` from `app/packages/web/src/test-utils/render-page.utils.tsx`. That
+helper wraps children in the production provider stack —
+`PollingProvider → GameStatusProvider → MemoryRouter` — so the page is exercised
+under the same context it gets at runtime. Pass `initialEntries` when the page
+reads `useLocation` (a `{ pathname, state }` entry when it also reads
+`location.state`, as the rollback flow does).
+
+Mock `../api.js` with `vi.mock` + `vi.hoisted` so the page runs off canned data,
+and **stub every method the provider stack calls, not just the ones the page
+calls** — at minimum `api.status` *and* `api.costsEstimate`. `GameStatusProvider`
+invokes `api.costsEstimate()` unconditionally on mount
+(`src/polling/game-status-provider.component.tsx:72`), above every page mounted
+this way, so leaving it unstubbed hangs the test on a promise that never settles
+rather than failing with a useful message.
+
+Keep the scope tight: smoke-render each header section, exercise controls not
+already covered by a child component's own spec, and verify the polling-indicator
+wiring. Anything needing the real DI container belongs in the tier-2 specs above.
