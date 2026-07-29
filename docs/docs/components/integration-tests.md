@@ -186,3 +186,114 @@ Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also in
 - **`serverMocks` resets before and after every test** — the fixture calls `mockStore.reset()` in-process in setup and teardown; there is no HTTP round-trip.
 - **No HTTP server, no Vite build/preview, no `BrowserWindow`** — every integration spec dispatches directly to the `AppModule` DI container via the `ipc` fixture (`ipc-harness.ts`) and pushes mock ECS responses straight into the in-process `MockStore` singleton via the `serverMocks` fixture (`server-mocks.ts`), so there is no test-only route surface and nothing for Playwright to boot as a `webServer`.
 - **`TF_STATE_PATH`** — `createIpcHarness()` (`ipc-harness.ts`) sets this env var to `e2e/fixtures/tfstate.fixture.json` before building the `AppModule` context, so `ConfigService` reads the fixture instead of requiring a real Terraform state file.
+
+## Related: the tier-1 Electron e2e IPC mock seam
+
+The seam below belongs to the **tier-1** Playwright suite (`npm run app:test:e2e`),
+not the tier-2 suite documented above. It is described here because it is the
+other half of the "how do specs fake the backend" story, and the two are easy to
+confuse.
+
+The `electron` Playwright project launches the packaged app via
+`_electron.launch()` with `HYVEON_TEST_MODE=1` in the process environment (set in
+`app/packages/web/playwright.config.ts`). That env var gates two things:
+
+1. **Main process** (`desktop-main/src/electron-entry.ts`) logs
+   `[desktop-main] HYVEON_TEST_MODE active — test seam enabled` at startup. The
+   window still opens normally — the flag is informational, not a behaviour
+   switch, so `_electron.launch()` can drive the real UI.
+2. **Preload script** (`desktop-preload/src/preload.ts`) checks
+   `process.env.HYVEON_TEST_MODE === '1'` before attaching the `__test` namespace
+   to the `hyveon` bridge. When the flag is set, the bridge gains:
+
+   ```ts
+   window.hyveon.__test.mock(channel, handler)
+   ```
+
+   `channel` is an IPC channel string (e.g. `'games.list'`). `handler` is a
+   replacement function or a plain value. Thereafter every `invoke(channel, ...args)`
+   call in the preload consults a `Map<string, fn>` before forwarding to
+   `ipcRenderer.invoke`, so the Electron main process is never reached for mocked
+   channels.
+
+### Production-gating guarantee
+
+When `HYVEON_TEST_MODE` is absent (the default for packaged/production builds),
+the `if (isTestMode)` branch in the preload is never entered and
+`window.hyveon.__test` is `undefined`. The `contextBridge.exposeInMainWorld` call
+only ever exposes the production API namespaces. There is no path by which end
+users can reach the mock registry.
+
+### Two mock surfaces — choose the right one
+
+| Surface | File | When to use |
+|---------|------|-------------|
+| `window.hyveon.__test.mock(channel, handler)` | `desktop-preload/src/preload.ts` | Playwright Electron e2e specs (`electron` project) that need to control IPC responses without running the Nest server. Called via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock). When tests share a single `ElectronApplication`, call `win.evaluate(() => window.hyveon.__test.clearMocks())` (alias: `reset()`) in `afterEach` so stale mock handlers don't bleed into later tests. |
+| `register(namespace, mock)` from `@hyveon/desktop-preload/test-mock-registry` | `desktop-preload/src/test-mock-registry.ts` | Vitest unit tests running under jsdom. Build a partial namespace stub with `vi.fn()`, call `register('games', stub)`, then `vi.stubGlobal('hyveon', buildMockHyveon())` so the component under test gets a fully-typed `window.hyveon`. Call `clear()` in `afterEach`. |
+
+The `test-mock-registry` module is **not** imported by the preload script or any
+production code; it exists only for jsdom-environment test helpers.
+
+**Known limitation.** A mock handler registered through `contextBridge` cannot be
+backed by a real async generator — Electron's structured clone across the bridge
+drops the generator protocol. Assertions on streamed chunk content belong in
+jsdom/Vitest specs instead.
+
+## Related: unit-tier React component and routed-page specs
+
+Also tier-adjacent rather than tier-2: the conventions for the Vitest specs that
+run under jsdom in `@hyveon/web`. They live here so there is one page describing
+how each tier fakes its dependencies.
+
+Stack: **Vitest + jsdom + `@testing-library/react` + `@testing-library/user-event`**.
+The `@testing-library/jest-dom` matchers (`toBeInTheDocument`, `toHaveTextContent`)
+are registered globally by `app/vitest.setup.ts`, which also wires
+`afterEach(cleanup)` — that is not automatic here because the suite runs with
+`globals: false`, which disables React Testing Library's own cleanup hook.
+
+The node/jsdom split lives in `app/vitest.config.ts` as **two projects**, `node`
+and `web` (Vitest 4 removed `environmentMatchGlobs`). Both inherit the root
+config via `extends: true` — resolve aliases, the `maxWorkers` cap, `setupFiles`,
+mock resets — and differ only in which files they collect and the environment
+those files run under: `web` collects `packages/web/**/*.test.{ts,tsx}` under
+jsdom, `node` collects everything else under `node`.
+
+### Component specs
+
+- Live **next to the component** (`foo.component.tsx` → `foo.component.test.tsx`),
+  not in a separate `__tests__` directory.
+- Mock the API client and any module-level singleton with `vi.mock`.
+- For a component driven by a streaming channel (`logs.stream`,
+  `terraform.init`, `terraform.runs.streamLogs`), back the mock with
+  `toStreamHandleMock()` from `src/test-utils/stream-handle.test-utils.ts`. It
+  wraps an ordinary async generator body in the `HyveonStreamHandle` shape the
+  real preload bridge returns — including the `cancel()` method components call
+  on unmount, which a bare `AsyncGenerator` does not have.
+- Cover: visible rendering for each `state` branch, every callback prop firing
+  with the right argument, internal state transitions (open/close, pause/resume),
+  and any non-trivial pure helper.
+- Avoid snapshots — they break on every Tailwind tweak — and don't duplicate
+  assertions the e2e tier already makes about routing and real streaming.
+
+### Routed-page specs
+
+Each routed page (`DashboardPage`, `CostsPage`, `DiscordPage`, `LogsPage`,
+`SettingsPage`, …) has a co-located `*.test.tsx` that mounts it through
+`renderPage()` from `app/packages/web/src/test-utils/render-page.utils.tsx`. That
+helper wraps children in the production provider stack —
+`PollingProvider → GameStatusProvider → MemoryRouter` — so the page is exercised
+under the same context it gets at runtime. Pass `initialEntries` when the page
+reads `useLocation` (a `{ pathname, state }` entry when it also reads
+`location.state`, as the rollback flow does).
+
+Mock `../api.js` with `vi.mock` + `vi.hoisted` so the page runs off canned data,
+and **stub every method the provider stack calls, not just the ones the page
+calls** — at minimum `api.status` *and* `api.costsEstimate`. `GameStatusProvider`
+invokes `api.costsEstimate()` unconditionally on mount
+(`src/polling/game-status-provider.component.tsx:72`), above every page mounted
+this way, so leaving it unstubbed hangs the test on a promise that never settles
+rather than failing with a useful message.
+
+Keep the scope tight: smoke-render each header section, exercise controls not
+already covered by a child component's own spec, and verify the polling-indicator
+wiring. Anything needing the real DI container belongs in the tier-2 specs above.
