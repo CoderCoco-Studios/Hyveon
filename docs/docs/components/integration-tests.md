@@ -186,3 +186,55 @@ Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also in
 - **`serverMocks` resets before and after every test** — the fixture calls `mockStore.reset()` in-process in setup and teardown; there is no HTTP round-trip.
 - **No HTTP server, no Vite build/preview, no `BrowserWindow`** — every integration spec dispatches directly to the `AppModule` DI container via the `ipc` fixture (`ipc-harness.ts`) and pushes mock ECS responses straight into the in-process `MockStore` singleton via the `serverMocks` fixture (`server-mocks.ts`), so there is no test-only route surface and nothing for Playwright to boot as a `webServer`.
 - **`TF_STATE_PATH`** — `createIpcHarness()` (`ipc-harness.ts`) sets this env var to `e2e/fixtures/tfstate.fixture.json` before building the `AppModule` context, so `ConfigService` reads the fixture instead of requiring a real Terraform state file.
+
+## Related: the tier-1 Electron e2e IPC mock seam
+
+The seam below belongs to the **tier-1** Playwright suite (`npm run app:test:e2e`),
+not the tier-2 suite documented above. It is described here because it is the
+other half of the "how do specs fake the backend" story, and the two are easy to
+confuse.
+
+The `electron` Playwright project launches the packaged app via
+`_electron.launch()` with `HYVEON_TEST_MODE=1` in the process environment (set in
+`app/packages/web/playwright.config.ts`). That env var gates two things:
+
+1. **Main process** (`desktop-main/src/electron-entry.ts`) logs
+   `[desktop-main] HYVEON_TEST_MODE active — test seam enabled` at startup. The
+   window still opens normally — the flag is informational, not a behaviour
+   switch, so `_electron.launch()` can drive the real UI.
+2. **Preload script** (`desktop-preload/src/preload.ts`) checks
+   `process.env.HYVEON_TEST_MODE === '1'` before attaching the `__test` namespace
+   to the `hyveon` bridge. When the flag is set, the bridge gains:
+
+   ```ts
+   window.hyveon.__test.mock(channel, handler)
+   ```
+
+   `channel` is an IPC channel string (e.g. `'games.list'`). `handler` is a
+   replacement function or a plain value. Thereafter every `invoke(channel, ...args)`
+   call in the preload consults a `Map<string, fn>` before forwarding to
+   `ipcRenderer.invoke`, so the Electron main process is never reached for mocked
+   channels.
+
+### Production-gating guarantee
+
+When `HYVEON_TEST_MODE` is absent (the default for packaged/production builds),
+the `if (isTestMode)` branch in the preload is never entered and
+`window.hyveon.__test` is `undefined`. The `contextBridge.exposeInMainWorld` call
+only ever exposes the production API namespaces. There is no path by which end
+users can reach the mock registry.
+
+### Two mock surfaces — choose the right one
+
+| Surface | File | When to use |
+|---------|------|-------------|
+| `window.hyveon.__test.mock(channel, handler)` | `desktop-preload/src/preload.ts` | Playwright Electron e2e specs (`electron` project) that need to control IPC responses without running the Nest server. Called via `win.evaluate(...)` inside each test body (or a `beforeEach` when all tests in a describe share the same mock). When tests share a single `ElectronApplication`, call `win.evaluate(() => window.hyveon.__test.clearMocks())` (alias: `reset()`) in `afterEach` so stale mock handlers don't bleed into later tests. |
+| `register(namespace, mock)` from `@hyveon/desktop-preload/test-mock-registry` | `desktop-preload/src/test-mock-registry.ts` | Vitest unit tests running under jsdom. Build a partial namespace stub with `vi.fn()`, call `register('games', stub)`, then `vi.stubGlobal('hyveon', buildMockHyveon())` so the component under test gets a fully-typed `window.hyveon`. Call `clear()` in `afterEach`. |
+
+The `test-mock-registry` module is **not** imported by the preload script or any
+production code; it exists only for jsdom-environment test helpers.
+
+**Known limitation.** A mock handler registered through `contextBridge` cannot be
+backed by a real async generator — Electron's structured clone across the bridge
+drops the generator protocol. Assertions on streamed chunk content belong in
+jsdom/Vitest specs instead.
