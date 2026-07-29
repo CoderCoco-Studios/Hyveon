@@ -176,7 +176,7 @@ fetch the skill body from the marketplace repo and follow it manually.
 
 ## PR review workflow
 
-Most suggestions are not actionable — expect to apply roughly one in three.
+Judge each suggestion on its merits.
 
 - **Fix** if genuinely buggy, insecure, crashing, or logically wrong.
 - **Decline** if stylistic, naming, "consider…", or a minor nit — reply with a concrete reason,
