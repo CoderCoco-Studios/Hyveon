@@ -286,11 +286,16 @@ function removeDirBestEffort(path: string, context: string): void {
  * removed via {@link removeDirBestEffort}. The re-verification `get()` call
  * *after* the rename is itself wrapped too: if it fails, the just-renamed
  * directory is removed rather than left at the final path for a later call
- * to treat as valid, and the failure is classified the same way every other
- * provisioning failure is. A later call sees no directory at the pinned
- * path and reprovisions from scratch, satisfying the "Interrupted download
- * leaves no usable partial" scenario structurally rather than via an
- * `existsSync` staleness check that a partial write could fool.
+ * to treat as valid — and, if this was a swap-aside (see below) rather than
+ * an install into a previously-empty `root`, the prior occupant is restored
+ * from the trash directory instead of leaving `root` empty — and the
+ * failure is classified the same way every other provisioning failure is. A
+ * later call (or this one's caller, if a restore succeeded) sees either no
+ * directory at the pinned path or the restored prior install, and
+ * reprovisions from scratch only in the former case, satisfying the
+ * "Interrupted download leaves no usable partial" scenario structurally
+ * rather than via an `existsSync` staleness check that a partial write
+ * could fool.
  *
  * ## Swap-aside, not delete-then-install
  *
@@ -305,13 +310,22 @@ function removeDirBestEffort(path: string, context: string): void {
  * handles this by swapping, not deleting: once a fresh install to staging is
  * verified, any existing occupant of `root` is `renameSync`'d aside to a
  * sibling `.trash-<uuid>` directory *first*, then the verified staging
- * install is `renameSync`'d into `root`, and only then is the trash
- * directory removed. A same-parent `renameSync` is atomic, so `root` is
- * never observed empty between the two renames. This means a possibly-still-
- * good install is never destroyed before its replacement is known to
- * succeed — if the fresh install to staging itself fails, `root` (and
- * whatever ambiguous-but-possibly-fine entry occupies it) is never touched
- * at all, since the swap only runs after that install is verified.
+ * install is `renameSync`'d into `root`. A same-parent `renameSync` is
+ * atomic, so `root` is never observed empty between the two renames. This
+ * means a possibly-still-good install is never destroyed before its
+ * replacement is known to succeed — if the fresh install to staging itself
+ * fails, `root` (and whatever ambiguous-but-possibly-fine entry occupies it)
+ * is never touched at all, since the swap only runs after that install is
+ * verified.
+ *
+ * The trash directory itself is *not* removed the moment the swap completes
+ * — it's kept until the post-rename re-verification `get()` (see "No
+ * partial-install reuse" above) confirms the newly-swapped-in install
+ * actually works. If that verification fails instead, the trashed entry is
+ * `renameSync`'d back into `root` rather than discarded, so a transient
+ * failure at this last step can't leave the app with neither the old nor
+ * the new install — only once verification succeeds is the trash directory
+ * finally removed.
  *
  * ## Memoization that survives a failed attempt
  *
@@ -498,7 +512,13 @@ export class PulumiEngineService {
       }
       throw new PulumiEngineCacheWriteError(versionsDir, err);
     }
-    if (trashDir) removeDirBestEffort(trashDir, 'superseded by a fresh verified install');
+    // `trashDir` is deliberately NOT removed yet. The swap has completed on
+    // disk, but the new install at `root` still has to survive the
+    // post-rename re-verification below before it's trusted — removing the
+    // prior occupant here would defeat the entire point of swapping instead
+    // of deleting (see the class TSDoc's "Swap-aside, not delete-then-
+    // install" section): a verification failure a few lines down would then
+    // leave neither the old nor the new install standing.
 
     // The `PulumiCommand` returned by `install()` above still points at the
     // now-renamed-away staging path — re-resolve a fresh one against the
@@ -507,17 +527,32 @@ export class PulumiEngineService {
     // resolve again (e.g. a transient exec failure immediately after the
     // move) — that must not let a raw SDK error escape with an unvalidated
     // install left sitting at the final path for a later `tryReuseCached`
-    // to stumble on; it's cleaned up and classified like every other
-    // provisioning failure instead.
+    // to stumble on. If a prior occupant is still parked in `trashDir`
+    // (never touched above), it's restored to `root` rather than leaving the
+    // app with no engine at all — the same "don't destroy a good install
+    // before the replacement is confirmed" guarantee the swap exists for,
+    // just extended one step further to cover this verification too.
     let final: PulumiCommand;
     try {
       final = await PulumiCommand.get({ root, version: pin, skipVersionCheck: false });
       this.assertExactPin(final, pin, root);
     } catch (err) {
       removeDirBestEffort(root, 'failed post-rename verification');
+      if (trashDir) {
+        try {
+          renameSync(trashDir, root);
+        } catch (restoreErr) {
+          logger.error('Failed to restore prior Pulumi engine install after post-rename verification failed', {
+            root,
+            trashDir,
+            restoreErr,
+          });
+        }
+      }
       throw classifyProvisioningError(err, versionsDir);
     }
 
+    if (trashDir) removeDirBestEffort(trashDir, 'superseded by a fresh verified install');
     this.pruneOldVersions(versionsDir, root);
     return final;
   }
