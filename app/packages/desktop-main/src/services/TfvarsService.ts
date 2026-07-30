@@ -50,7 +50,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { basename } from 'path';
 import type { DeploymentConfig, GameServer, GameServerConfig, RemoteFileStore } from '@hyveon/shared';
-import { OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
+import {
+  GAME_NAME_PATTERN,
+  GAME_NAME_PATTERN_DESCRIPTION,
+  OptimisticLockError,
+  RemoteFileConflictError,
+} from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
@@ -113,46 +118,20 @@ export class GameServerEntryError extends Error {
 }
 
 /**
- * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
- * JSON object key AND as a component of every AWS-side identifier the Pulumi
- * program (`@hyveon/infra`) derives from it — the strictest of which is the
- * per-game DNS label (`${game}.${hostedZoneName}`, used by `ecs.ts`'s Caddy
- * sidecar `--from` argument and the DNS-update Lambda's Route 53 record
- * name): RFC 1123 requires a DNS label to be lowercase alphanumeric with
- * hyphens allowed only between other characters, never leading or trailing.
- *
- * This is intentionally STRICTER than the retired `hclSurgeon.ts`'s
- * `HCL_IDENTIFIER_PATTERN` (`/^[A-Za-z_][A-Za-z0-9_-]*$/`), which allowed
- * uppercase letters, a leading underscore, and a trailing hyphen — all of
- * which would already have broken DNS resolution / ACME certificate
- * issuance downstream even though they were valid bare HCL identifiers. JSON
- * object keys have no syntactic constraint of their own, so this pattern is
- * now the *only* validation on a new game name, making it worth tightening
- * to what actually works end-to-end rather than merely what the old text
- * format's lexer required.
- *
- * The 32-character cap leaves headroom under the tightest fixed downstream
- * budget — the Lambda function name / IAM role name limit (64 characters)
- * shared by the `${projectName}-efs-seeder-<game>[-policy]` naming scheme
- * (`app/packages/infra/src/lambdas.ts`, `iam.ts`) — for any reasonable
- * `projectName`; this validator has no access to the configured
- * `projectName` to compute an exact per-deployment budget, so 32 is a
- * deliberately conservative fixed constant rather than a tight bound.
- */
-const GAME_NAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
-
-/**
  * Throws {@link GameServerEntryError} (`reason: 'invalid-name'`) unless
- * `name` matches {@link GAME_NAME_PATTERN}. Called before any parsing of the
- * current config document — this check needs only the proposed `name`
+ * `name` matches `@hyveon/shared`'s {@link GAME_NAME_PATTERN} — see that
+ * constant's doc for the full DNS-safety rationale and why it's exported
+ * from `gameServerValidator.ts` rather than duplicated here (this exact
+ * duplication once caused the web wizard's client-side check to drift onto
+ * the retired HCL-identifier pattern instead). Called before any parsing of
+ * the current config document — this check needs only the proposed `name`
  * itself, so it stays cheap and fails fast regardless of the underlying
  * config's state.
  */
 function assertValidGameName(name: string): void {
   if (!GAME_NAME_PATTERN.test(name)) {
     throw new GameServerEntryError(
-      `Game name "${name}" is invalid — must be a lowercase alphanumeric DNS-safe label (letters, digits, and ` +
-        'internal hyphens only, 1-32 characters, no leading/trailing hyphen) so it can be used as both the ' +
+      `Game name "${name}" is invalid — must be ${GAME_NAME_PATTERN_DESCRIPTION} so it can be used as both the ` +
         'config key and a DNS label / AWS resource-name component.',
       'invalid-name',
     );
@@ -303,7 +282,10 @@ export class TfvarsService {
    * method's doc for the S3-mode conditional-put / `OptimisticLockError`
    * contract. Throws {@link GameServerEntryError} if `name` fails
    * {@link assertValidGameName}, if `name` already exists in `gameServers`,
-   * or if the config JSON itself is malformed/missing its `gameServers` map.
+   * or if the config document parses but its `gameServers` map is missing/
+   * not an object. A malformed-JSON parse failure also propagates from here,
+   * but as a plain `Error` (from {@link parseConfigContents}), not a
+   * {@link GameServerEntryError}.
    *
    * @param name - The `gameServers` map key to add.
    * @param config - The new entry's fields (everything but `name`, which is
@@ -329,7 +311,11 @@ export class TfvarsService {
    * writes the result back via {@link writeConfig} — see that method's doc
    * for the S3-mode conditional-put / `OptimisticLockError` contract. Throws
    * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
-   * already exist in `gameServers`.
+   * already exist in `gameServers`, or (`reason: 'structural'`) if the
+   * config document parses but its `gameServers` map is missing/not an
+   * object. A malformed-JSON parse failure also propagates from here, but as
+   * a plain `Error` (from {@link parseConfigContents}), not a
+   * {@link GameServerEntryError}.
    *
    * @param name - The `gameServers` map key to update.
    * @param config - The entry's new fields (everything but `name`).
@@ -354,7 +340,11 @@ export class TfvarsService {
    * back via {@link writeConfig} — see that method's doc for the S3-mode
    * conditional-put / `OptimisticLockError` contract. Throws
    * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
-   * exist in `gameServers`.
+   * exist in `gameServers`, or (`reason: 'structural'`) if the config
+   * document parses but its `gameServers` map is missing/not an object. A
+   * malformed-JSON parse failure also propagates from here, but as a plain
+   * `Error` (from {@link parseConfigContents}), not a
+   * {@link GameServerEntryError}.
    *
    * @param name - The `gameServers` map key to remove.
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
