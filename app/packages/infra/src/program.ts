@@ -11,9 +11,14 @@ import type { PulumiFn } from '@pulumi/pulumi/automation';
 import type { DeploymentConfig } from '@hyveon/shared';
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
-import { defineIamRoles, type IamRoleResources } from './iam.js';
+import { defineIamRoles, defineIamPolicies, type IamRoleResources, type IamPolicyResources } from './iam.js';
 import { defineEfs, type EfsResources } from './efs.js';
 import { defineEcs, type EcsResources } from './ecs.js';
+import { defineLambdas, type LambdaResources } from './lambdas.js';
+import { defineDynamoDb, type DynamoDbResources } from './dynamodb.js';
+import { defineSecrets, type SecretsResources } from './secrets.js';
+import { defineRoute53, type Route53Resources } from './route53.js';
+import { defineDiscordTableItems, defineEfsSeederInvocations, type DiscordTableItemResources } from './escapes.js';
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
@@ -49,12 +54,11 @@ export interface InfraProgramOptions {
   /**
    * The directory every `@hyveon/lambda-*` package's prebuilt
    * `dist/handler.cjs` bundle is resolved against — `lambdas.ts`'s
-   * `DefineLambdasArgs.lambdaBundlesDir`, threaded straight through once
-   * `defineLambdas` is wired into {@link defineAll} (see the
-   * `TODO(task 3.8/3.9)` comment there). See `lambdas.ts`'s file doc, "The
-   * lambda-bundle path contract", for the full rationale (including why it
-   * has no default anywhere in this package) and what Phase 7's
-   * `PulumiService` must resolve and supply here at runtime.
+   * `DefineLambdasArgs.lambdaBundlesDir`, threaded straight through to the
+   * `defineLambdas` call inside {@link defineAll}. See `lambdas.ts`'s file
+   * doc, "The lambda-bundle path contract", for the full rationale
+   * (including why it has no default anywhere in this package) and what
+   * Phase 7's `PulumiService` must resolve and supply here at runtime.
    */
   lambdaBundlesDir: string;
 }
@@ -82,17 +86,30 @@ export interface InfraResources {
    * {@link SecurityGroupResources}.
    */
   securityGroups: SecurityGroupResources;
-  /**
-   * IAM roles + the ECS task-execution managed-policy attachment (task 3.5)
-   * — see {@link IamRoleResources}. `defineIamPolicies`'s five inline
-   * policies are NOT included here yet; see the `TODO(task 3.8/3.9)`
-   * comment in {@link defineAll} for why they stay unwired.
-   */
+  /** IAM roles + the ECS task-execution managed-policy attachment (task 3.5) — see {@link IamRoleResources}. */
   iamRoles: IamRoleResources;
   /** EFS resources (task 3.2) — see {@link EfsResources}. */
   efs: EfsResources;
   /** ECS cluster, log groups, and task definitions (task 3.3) — see {@link EcsResources}. */
   ecs: EcsResources;
+  /** DynamoDB tables (task 3.8) — see {@link DynamoDbResources}. */
+  dynamoDb: DynamoDbResources;
+  /** Discord Secrets Manager secrets and their create-only placeholder versions (task 3.8) — see {@link SecretsResources}. */
+  secrets: SecretsResources;
+  /** The Route 53 hosted-zone lookup (task 3.9) — see {@link Route53Resources}. No DNS record resource is ever part of this — see `route53.ts`'s file doc. */
+  route53: Route53Resources;
+  /** The five Lambda functions and their EventBridge/permission wiring (tasks 3.6/3.7) — see {@link LambdaResources}. */
+  lambdas: LambdaResources;
+  /**
+   * The five inline IAM policies (task 3.5's other half — see `iam.ts`'s
+   * file doc for why roles and policies are split across two functions) —
+   * see {@link IamPolicyResources}.
+   */
+  iamPolicies: IamPolicyResources;
+  /** The two conditional Discord DynamoDB seed rows (task 3.10) — see {@link DiscordTableItemResources}. */
+  discordTableItems: DiscordTableItemResources;
+  /** One `aws.lambda.Invocation` per game with `file_seeds` (task 3.10) — see `escapes.ts`'s `defineEfsSeederInvocations`. */
+  efsSeederInvocations: Record<string, aws.lambda.Invocation>;
 }
 
 /**
@@ -125,16 +142,12 @@ export interface InfraResources {
  * @param config - The full deployment configuration to derive infrastructure
  *   from.
  * @param options - Machine-local inputs `DeploymentConfig` deliberately
- *   excludes — see {@link InfraProgramOptions}. Not yet consumed inside this
- *   function's body (`defineLambdas` isn't wired in yet — see the
- *   `TODO(task 3.8/3.9)` comment below), but threaded through now so the
- *   signature is already in place for that wiring.
+ *   excludes — see {@link InfraProgramOptions}. `options.lambdaBundlesDir` is
+ *   threaded straight through to the `defineLambdas` call below.
  * @returns Every declared resource area, keyed by module — see
  *   {@link InfraResources}.
  */
 export function defineAll(config: DeploymentConfig, options: InfraProgramOptions): InfraResources {
-  void options; // TODO(task 3.8/3.9): becomes `defineLambdas`' `lambdaBundlesDir` once wired in below.
-
   const provider = new aws.Provider('aws', {
     region: config.awsRegion,
     defaultTags: { tags: DEFAULT_TAGS },
@@ -185,34 +198,118 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   // rule on the `efs` security group are ALREADY wired in above, as part of
   // `defineSecurityGroups` — `securityGroups.efsSeeder` is real whenever at
   // least one game declares `file_seeds` (see `securityGroups.ts`'s file
-  // doc). Neither depends on any deferred task-3.8/3.9 value or on
-  // `defineLambdas`, unlike the two items in the TODO below.
-  //
-  // TODO(task 3.8/3.9): `defineLambdas` (`lambdas.ts`) is fully implemented
-  // and tested (task 3.6/3.7) but NOT wired in here yet — same status
-  // `defineIamPolicies` was already left in after task 3.5. Both share the
-  // same blocker: each needs at least one deferred `pulumi.Input` this
-  // dispatch has no real resource to supply (`dynamodbDiscordTableName`/
-  // `dynamodbDiscordTableArn` + `discordPublicKeySecretArn`, task 3.8;
-  // `hostedZoneId`, task 3.9) — see `lambdas.ts`'s file doc, "Why
-  // `defineLambdas` is not wired into `defineAll` yet", for the full
-  // rationale. Once tasks 3.8 and 3.9 land, wire both in this order — the
-  // only order that satisfies every dependency:
-  //
-  //   1. `defineLambdas(...)` — needs `iamRoles` (already in scope; use
-  //      `iamRoles.<x>LambdaRole.arn` for each function's `role`),
-  //      `efs`/`ecs` (already in scope), `securityGroups.efsSeeder?.id` for
-  //      `efsSeederSecurityGroupId` (already in scope — see the NOTE
-  //      above), `options.lambdaBundlesDir` (already threaded through this
-  //      function's own signature — see {@link InfraProgramOptions}), and
-  //      the new deferred inputs from 3.8/3.9.
-  //   2. `defineIamPolicies(...)` from `./iam.js` — needs `iamRoles` (by
-  //      reference) plus every deferred ARN: `efsFileSystemArn` (already
-  //      available: `efs.fileSystem.arn`), `dynamodbDiscordTableArn` +
-  //      `discordPublicKeySecretArn` (task 3.8), `followupLambdaArn` (now
-  //      real: `lambdas.followupFunction.arn`), and `hostedZoneId`
-  //      (task 3.9).
-  return { provider, network, securityGroups, iamRoles, efs, ecs };
+  // doc).
+
+  // ── DynamoDB tables + Secrets Manager secrets (task 3.8) ──────────────────
+  // Neither depends on anything declared above — both need only `config`
+  // and `provider` — so they're free to run anywhere in this function; kept
+  // here, right after the resources ported by tasks 3.1–3.7, so every
+  // dispatch that still needs one of their outputs (`defineLambdas`,
+  // `defineIamPolicies`, `defineDiscordTableItems` below) can find it
+  // already in scope.
+  const dynamoDb = defineDynamoDb({
+    projectName: config.projectName,
+    auditTableName: config.auditTableName,
+    runsTableName: config.runsTableName,
+    provider,
+  });
+
+  const secrets = defineSecrets({
+    projectName: config.projectName,
+    provider,
+  });
+
+  // ── Route 53 hosted-zone lookup (task 3.9) ─────────────────────────────────
+  const route53 = defineRoute53({
+    hostedZoneName: config.hostedZoneName,
+    provider,
+  });
+
+  // ── The two conditional Discord DynamoDB seed rows (task 3.10) ───────────
+  // Only needs `dynamoDb.discordTable` (just declared above) plus plain
+  // config fields — no dependency on `lambdas`/`iamPolicies` below, unlike
+  // `defineEfsSeederInvocations` further down.
+  const discordTableItems = defineDiscordTableItems({
+    projectName: config.projectName,
+    provider,
+    discordTable: dynamoDb.discordTable,
+    baseAllowedGuilds: config.baseAllowedGuilds,
+    baseAdminUserIds: config.baseAdminUserIds,
+    baseAdminRoleIds: config.baseAdminRoleIds,
+    discordApplicationId: config.discordApplicationId,
+  });
+
+  // ── Lambda functions (tasks 3.6/3.7) ───────────────────────────────────────
+  // Every deferred input `lambdas.ts`'s file doc flagged as blocking this
+  // wiring is now real: `dynamoDb.discordTable.name`/`secrets.discordPublicKeySecret.arn`
+  // (task 3.8, just declared above) and `route53.zoneId` (task 3.9, just
+  // declared above).
+  const lambdas = defineLambdas({
+    projectName: config.projectName,
+    awsRegion: config.awsRegion,
+    hostedZoneName: config.hostedZoneName,
+    dnsTtl: config.dnsTtl,
+    watchdogIntervalMinutes: config.watchdogIntervalMinutes,
+    watchdogIdleChecks: config.watchdogIdleChecks,
+    watchdogMinPackets: config.watchdogMinPackets,
+    gameServers: config.gameServers,
+    roles: iamRoles,
+    publicSubnetIds: network.publicSubnets.map((subnet) => subnet.id),
+    efsSeederSecurityGroupId: securityGroups.efsSeeder?.id,
+    gameServersSecurityGroupId: securityGroups.gameServers.id,
+    ecsClusterName: ecs.cluster.name,
+    ecsClusterArn: ecs.cluster.arn,
+    efs,
+    lambdaBundlesDir: options.lambdaBundlesDir,
+    dynamodbDiscordTableName: dynamoDb.discordTable.name,
+    discordPublicKeySecretArn: secrets.discordPublicKeySecret.arn,
+    hostedZoneId: route53.zoneId,
+    provider,
+  });
+
+  // ── IAM inline policies (task 3.5's other half) ────────────────────────────
+  // Necessarily last among the "core" dispatches: `followupLambdaArn` does
+  // not exist until `defineLambdas` (just above) has created the followup
+  // function — see `iam.ts`'s file doc, "Why this is two functions, not
+  // one", for why no other call order satisfies every dependency.
+  const iamPolicies = defineIamPolicies({
+    projectName: config.projectName,
+    provider,
+    roles: iamRoles,
+    efsFileSystemArn: efs.fileSystem.arn,
+    dynamodbDiscordTableArn: dynamoDb.discordTable.arn,
+    discordPublicKeySecretArn: secrets.discordPublicKeySecret.arn,
+    followupLambdaArn: lambdas.followupFunction.arn,
+    hostedZoneId: route53.zoneId,
+  });
+
+  // ── Per-game EFS-seeder Lambda invocations (task 3.10) ─────────────────────
+  // Runs last: needs both `lambdas.efsSeederFunctions` (just above) and
+  // `iamPolicies.efsSeederPolicies` (just above) — the latter for its
+  // review-mandated `dependsOn` edge; see `escapes.ts`'s file doc.
+  const efsSeederInvocations = defineEfsSeederInvocations({
+    projectName: config.projectName,
+    provider,
+    gameServers: config.gameServers,
+    efsSeederFunctions: lambdas.efsSeederFunctions,
+    efsSeederPolicies: iamPolicies.efsSeederPolicies,
+  });
+
+  return {
+    provider,
+    network,
+    securityGroups,
+    iamRoles,
+    efs,
+    ecs,
+    dynamoDb,
+    secrets,
+    route53,
+    lambdas,
+    iamPolicies,
+    discordTableItems,
+    efsSeederInvocations,
+  };
 }
 
 /**

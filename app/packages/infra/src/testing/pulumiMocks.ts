@@ -39,7 +39,23 @@ export interface RecordedResource {
   inputs: Record<string, unknown>;
 }
 
-/** What {@link installPulumiMocks} returns: a live handle onto every resource constructed since it was called. */
+/**
+ * One data-source invocation (`aws.getX(...)`/`aws.getXOutput(...)`)
+ * recorded by the mock `call` handler — added alongside {@link RecordedResource}
+ * specifically so a spec can assert on the *arguments* a lookup was invoked
+ * with (e.g. `route53.test.ts` asserting `defineRoute53` calls
+ * `aws.route53.getZoneOutput` with the configured `hostedZoneName` and
+ * `privateZone: false`), not just on the fixed result {@link CALL_MOCKS}
+ * returns for it.
+ */
+export interface RecordedCall {
+  /** Invoke token, e.g. `"aws:route53/getZone:getZone"`. */
+  token: string;
+  /** The resolved input arguments passed to the invoke. */
+  inputs: Record<string, unknown>;
+}
+
+/** What {@link installPulumiMocks} returns: a live handle onto every resource constructed and every data-source call made since it was called. */
 export interface PulumiMockHandle {
   /**
    * Every resource constructed since {@link installPulumiMocks} was called,
@@ -48,6 +64,13 @@ export interface PulumiMockHandle {
    * need to re-fetch it afterward.
    */
   resources: RecordedResource[];
+  /**
+   * Every data-source invocation made since {@link installPulumiMocks} was
+   * called, in call order — same "same array reference, mutated in place"
+   * contract as {@link resources}. See {@link RecordedCall}'s doc for why
+   * this exists alongside {@link resources}.
+   */
+  calls: RecordedCall[];
 }
 
 /**
@@ -61,6 +84,22 @@ export interface PulumiMockHandle {
 const CALL_MOCKS: Record<string, Record<string, unknown>> = {
   'aws:index/getAvailabilityZones:getAvailabilityZones': {
     names: ['us-east-1a', 'us-east-1b', 'us-east-1c'],
+  },
+  // `route53.ts`'s `defineRoute53` (task 3.9) — a fixed result regardless of
+  // the queried `name`, matching every other entry in this table.
+  'aws:route53/getZone:getZone': {
+    zoneId: 'Z1234567890ABC',
+    name: 'example.com',
+    arn: 'arn:aws:route53:::hostedzone/Z1234567890ABC',
+    id: 'Z1234567890ABC',
+    callerReference: 'mock-caller-reference',
+    comment: '',
+    linkedServiceDescription: '',
+    linkedServicePrincipal: '',
+    nameServers: ['ns-1.awsdns-mock.com'],
+    primaryNameServer: 'ns-1.awsdns-mock.com',
+    resourceRecordSetCount: 0,
+    tags: {},
   },
 };
 
@@ -77,6 +116,7 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
  */
 export function installPulumiMocks(): PulumiMockHandle {
   const resources: RecordedResource[] = [];
+  const calls: RecordedCall[] = [];
 
   pulumi.runtime.setMocks(
     {
@@ -85,6 +125,7 @@ export function installPulumiMocks(): PulumiMockHandle {
         return { id: `${mockArgs.name}-id`, state: mockArgs.inputs };
       },
       call(mockArgs) {
+        calls.push({ token: mockArgs.token, inputs: mockArgs.inputs });
         const result = CALL_MOCKS[mockArgs.token];
         if (!result) {
           throw new Error(`installPulumiMocks: no mock registered for call token "${mockArgs.token}"`);
@@ -97,7 +138,7 @@ export function installPulumiMocks(): PulumiMockHandle {
     false,
   );
 
-  return { resources };
+  return { resources, calls };
 }
 
 /**

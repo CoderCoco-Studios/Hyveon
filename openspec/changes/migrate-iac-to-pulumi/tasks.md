@@ -23,9 +23,9 @@
 - [x] 3.5 Port IAM roles and policies (6 roles, 5 inline policies, 1 attachment)
 - [x] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
 - [x] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
-- [ ] 3.8 Port DynamoDB tables (discord, runs, audit) and the Secrets Manager secrets, declaring placeholder versions only — drop the `discord_bot_token` / `discord_public_key` inputs so no secret value can enter the stack, and ensure a re-deploy never resets a configured secret back to its placeholder
-- [ ] 3.9 Port Route53: hosted-zone lookup and the updater Lambda only — assert no per-game DNS record resources exist, since the Lambda is the sole writer
-- [ ] 3.10 Port the remaining imperative escapes (`aws_dynamodb_table_item` ×2, `aws_lambda_invocation`, `terraform_data`, `aws_secretsmanager_secret_version` ×2) as explicit constructs, and document why each is not a plain resource
+- [x] 3.8 Port DynamoDB tables (discord, runs, audit) and the Secrets Manager secrets, declaring placeholder versions only — drop the `discord_bot_token` / `discord_public_key` inputs so no secret value can enter the stack, and ensure a re-deploy never resets a configured secret back to its placeholder
+- [x] 3.9 Port Route53: hosted-zone lookup and the updater Lambda only — assert no per-game DNS record resources exist, since the Lambda is the sole writer
+- [x] 3.10 Port the remaining imperative escapes (`aws_dynamodb_table_item` ×2, `aws_lambda_invocation`, `terraform_data`, `aws_secretsmanager_secret_version` ×2) as explicit constructs, and document why each is not a plain resource
 - [ ] 3.11 Export the stack outputs defined in 2.4
 - [ ] 3.12 Diff the synthesized resource inventory against the 69 Terraform resources and record any intentional omission with its reason
 

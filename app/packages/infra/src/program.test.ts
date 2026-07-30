@@ -46,6 +46,25 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     promiseOf(result.ecs.cluster.id),
     ...Object.values(result.ecs.logGroups).map((lg) => promiseOf(lg.id)),
     ...Object.values(result.ecs.taskDefinitions).map((td) => promiseOf(td.id)),
+    promiseOf(result.dynamoDb.discordTable.id),
+    promiseOf(result.dynamoDb.runsTable.id),
+    promiseOf(result.dynamoDb.auditTable.id),
+    promiseOf(result.secrets.discordBotTokenSecretVersion.id),
+    promiseOf(result.secrets.discordPublicKeySecretVersion.id),
+    promiseOf(result.route53.zoneId),
+    promiseOf(result.lambdas.interactionsFunctionUrl.id),
+    promiseOf(result.lambdas.followupFunction.id),
+    promiseOf(result.lambdas.watchdogEventBridgePermission.id),
+    promiseOf(result.lambdas.dnsUpdaterEventBridgePermission.id),
+    ...Object.values(result.lambdas.efsSeederFunctions).map((fn) => promiseOf(fn.id)),
+    promiseOf(result.iamPolicies.watchdogLambdaPolicy.id),
+    promiseOf(result.iamPolicies.followupLambdaPolicy.id),
+    promiseOf(result.iamPolicies.interactionsLambdaPolicy.id),
+    promiseOf(result.iamPolicies.dnsUpdaterLambdaPolicy.id),
+    ...Object.values(result.iamPolicies.efsSeederPolicies).map((policy) => promiseOf(policy.id)),
+    ...(result.discordTableItems.discordBaseConfigItem ? [promiseOf(result.discordTableItems.discordBaseConfigItem.id)] : []),
+    ...(result.discordTableItems.discordConfigSeedItem ? [promiseOf(result.discordTableItems.discordConfigSeedItem.id)] : []),
+    ...Object.values(result.efsSeederInvocations).map((invocation) => promiseOf(invocation.id)),
   ]);
   return result;
 }
@@ -80,7 +99,7 @@ describe('defineAll', () => {
     mocks = installPulumiMocks();
   });
 
-  it('should declare the full networking, security-group, IAM-role, EFS, and ECS resource set', async () => {
+  it('should declare the full networking, security-group, IAM, EFS, ECS, DynamoDB, secrets, route53, and Lambda resource set', async () => {
     await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon' }));
 
     const types = mocks.resources.map((resource) => resource.type);
@@ -96,9 +115,34 @@ describe('defineAll', () => {
     // FIXTURE_GAME_SERVERS: 4 games × 1 volume each = 4 game access points, plus 1 https (delta) cert access point.
     expect(types.filter((type) => type === 'aws:efs/accessPoint:AccessPoint')).toHaveLength(5);
     expect(types).toContain('aws:ecs/cluster:Cluster');
-    expect(types.filter((type) => type === 'aws:cloudwatch/logGroup:LogGroup')).toHaveLength(4);
+    // 4 ECS per-game log groups + 4 Lambda log groups (interactions/followup/watchdog/dns-updater;
+    // FIXTURE_GAME_SERVERS declares no file_seeds, so no efs-seeder log group).
+    expect(types.filter((type) => type === 'aws:cloudwatch/logGroup:LogGroup')).toHaveLength(8);
     expect(types.filter((type) => type === 'aws:ecs/taskDefinition:TaskDefinition')).toHaveLength(4);
     expect(types).not.toContain('aws:ecs/service:Service');
+
+    // Task 3.8: DynamoDB tables + Secrets Manager.
+    expect(types.filter((type) => type === 'aws:dynamodb/table:Table')).toHaveLength(3);
+    expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(2);
+    expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(2);
+
+    // Task 3.9: Route 53 is a pure data-source lookup — no resource of any kind, and specifically no DNS record.
+    expect(types).not.toContain('aws:route53/record:Record');
+
+    // Tasks 3.6/3.7: the five Lambda functions — FIXTURE_GAME_SERVERS has no
+    // file_seeds, so only the four non-per-game functions are declared here.
+    expect(types.filter((type) => type === 'aws:lambda/function:Function')).toHaveLength(4);
+    expect(types).toContain('aws:lambda/functionUrl:FunctionUrl');
+    expect(types.filter((type) => type === 'aws:cloudwatch/eventRule:EventRule')).toHaveLength(2);
+
+    // Task 3.5's other half: the five inline IAM policies (no efs-seeder policy for this fixture).
+    expect(types.filter((type) => type === 'aws:iam/rolePolicy:RolePolicy')).toHaveLength(4);
+
+    // Task 3.10: no table item/invocation for this fixture — buildTestDeploymentConfig's
+    // defaults have empty base-allowlist/admin arrays, an empty discordApplicationId,
+    // and FIXTURE_GAME_SERVERS declares no file_seeds.
+    expect(types).not.toContain('aws:dynamodb/tableItem:TableItem');
+    expect(types).not.toContain('aws:lambda/invocation:Invocation');
 
     const names = mocks.resources.map((resource) => resource.name);
     expect(names).toContain('hyveon-vpc');
@@ -107,6 +151,85 @@ describe('defineAll', () => {
     expect(names).toContain('hyveon-efs-sg');
     expect(names).toContain('hyveon-saves');
     expect(names).toContain('hyveon-cluster');
+    expect(names).toContain('hyveon-discord');
+    expect(names).toContain('hyveon-runs');
+    expect(names).toContain('hyveon-audit');
+    expect(names).toContain('hyveon-discord-bot-token');
+    expect(names).toContain('hyveon-discord-public-key');
+    expect(names).toContain('hyveon-interactions');
+    expect(names).toContain('hyveon-followup');
+    expect(names).toContain('hyveon-watchdog');
+    expect(names).toContain('hyveon-dns-updater');
+  });
+
+  it('should wire the interactions/followup/dns-updater Lambdas to the real discord table name, secret ARN, and hosted-zone id', async () => {
+    const result = await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon' }));
+
+    const discordTableName = await promiseOf(result.dynamoDb.discordTable.name);
+    const publicKeySecretArn = await promiseOf(result.secrets.discordPublicKeySecret.arn);
+    const zoneId = await promiseOf(result.route53.zoneId);
+
+    const interactionsFn = mocks.resources.find((resource) => resource.name === 'hyveon-interactions');
+    const interactionsVars = (interactionsFn?.inputs.environment as { variables: Record<string, unknown> }).variables;
+    expect(interactionsVars.TABLE_NAME).toBe(discordTableName);
+    expect(interactionsVars.DISCORD_PUBLIC_KEY_SECRET_ARN).toBe(publicKeySecretArn);
+
+    const dnsUpdaterFn = mocks.resources.find((resource) => resource.name === 'hyveon-dns-updater');
+    const dnsUpdaterVars = (dnsUpdaterFn?.inputs.environment as { variables: Record<string, unknown> }).variables;
+    expect(dnsUpdaterVars.TABLE_NAME).toBe(discordTableName);
+    expect(dnsUpdaterVars.HOSTED_ZONE_ID).toBe(zoneId);
+  });
+
+  it('should wire the interactions Lambda policy and dns-updater Lambda policy to the real discord table ARN and hosted-zone id', async () => {
+    const result = await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon' }));
+
+    const discordTableArn = await promiseOf(result.dynamoDb.discordTable.arn);
+    const zoneId = await promiseOf(result.route53.zoneId);
+
+    const interactionsPolicy = mocks.resources.find((resource) => resource.name === 'hyveon-interactions-lambda-policy');
+    const interactionsStatements = (JSON.parse(interactionsPolicy?.inputs.policy as string) as { Statement: Array<Record<string, unknown>> })
+      .Statement;
+    expect(interactionsStatements).toContainEqual({ Effect: 'Allow', Action: ['dynamodb:GetItem'], Resource: discordTableArn });
+
+    const dnsUpdaterPolicy = mocks.resources.find((resource) => resource.name === 'hyveon-dns-updater-lambda-policy');
+    const dnsUpdaterStatements = (JSON.parse(dnsUpdaterPolicy?.inputs.policy as string) as { Statement: Array<Record<string, unknown>> })
+      .Statement;
+    expect(dnsUpdaterStatements).toContainEqual({
+      Effect: 'Allow',
+      Action: ['route53:ChangeResourceRecordSets', 'route53:ListResourceRecordSets', 'route53:GetChange'],
+      Resource: [`arn:aws:route53:::hostedzone/${zoneId}`, 'arn:aws:route53:::change/*'],
+    });
+  });
+
+  it('should declare the discordBaseConfigItem and discordConfigSeedItem when baseAllowedGuilds and discordApplicationId are configured', async () => {
+    const result = await runDefineAll(
+      buildTestDeploymentConfig({ projectName: 'hyveon', baseAllowedGuilds: ['guild-1'], discordApplicationId: '123456789012345678' }),
+    );
+
+    expect(result.discordTableItems.discordBaseConfigItem).toBeDefined();
+    expect(result.discordTableItems.discordConfigSeedItem).toBeDefined();
+    const types = mocks.resources.map((resource) => resource.type);
+    expect(types.filter((type) => type === 'aws:dynamodb/tableItem:TableItem')).toHaveLength(2);
+  });
+
+  it('should declare one efs-seeder invocation wired to the real seeder function name for a game with file_seeds', async () => {
+    const gameServersWithSeeds = {
+      ...buildTestDeploymentConfig({ projectName: 'hyveon' }).gameServers,
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 1234, protocol: 'tcp' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        file_seeds: [{ path: '/data/config.yml', content: 'foo: bar' }],
+      },
+    };
+    const result = await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon', gameServers: gameServersWithSeeds }));
+
+    expect(Object.keys(result.efsSeederInvocations)).toEqual(['echo']);
+    const invocation = mocks.resources.find((resource) => resource.name === 'hyveon-efs-seeder-echo-invocation');
+    expect(invocation?.type).toBe('aws:lambda/invocation:Invocation');
+    expect(invocation?.inputs.functionName).toBe(await promiseOf(result.lambdas.efsSeederFunctions.echo.name));
   });
 
   it('should construct the AWS provider with the region from config.awsRegion', async () => {
