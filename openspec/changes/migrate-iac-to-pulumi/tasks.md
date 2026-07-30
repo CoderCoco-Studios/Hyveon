@@ -21,8 +21,8 @@
 - [x] 3.3 Port ECS: cluster and per-game task definitions derived by iteration over the config map, including the Caddy sidecar container for `https = true` games
 - [x] 3.4 Port security groups, including the deduplicated per-game port ingress and the 443/80 opening for HTTPS games
 - [x] 3.5 Port IAM roles and policies (6 roles, 5 inline policies, 1 attachment)
-- [ ] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
-- [ ] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
+- [x] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
+- [x] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
 - [ ] 3.8 Port DynamoDB tables (discord, runs, audit) and the Secrets Manager secrets, declaring placeholder versions only — drop the `discord_bot_token` / `discord_public_key` inputs so no secret value can enter the stack, and ensure a re-deploy never resets a configured secret back to its placeholder
 - [ ] 3.9 Port Route53: hosted-zone lookup and the updater Lambda only — assert no per-game DNS record resources exist, since the Lambda is the sole writer
 - [ ] 3.10 Port the remaining imperative escapes (`aws_dynamodb_table_item` ×2, `aws_lambda_invocation`, `terraform_data`, `aws_secretsmanager_secret_version` ×2) as explicit constructs, and document why each is not a plain resource
