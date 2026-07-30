@@ -82,6 +82,34 @@ describe('EditGameForm', () => {
     expect(await screen.findByLabelText('Name')).toBeDisabled();
   });
 
+  it('should allow saving a legacy, non-DNS-safe declared name (e.g. containing an underscore) without a client-side name error blocking Save', async () => {
+    // Regression test: the current DNS-safe name pattern is create-only —
+    // editing an already-declared game must never re-validate its
+    // (immutable, read-only) name against that pattern. Before this fix,
+    // `EditGameForm` ran the same `checkName()` the add wizard uses, so a
+    // legacy HCL-era name containing an underscore would permanently
+    // disable Save for that game with no way to fix it (the name field is
+    // read-only, so the operator couldn't even correct the "invalid" name).
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame({ name: 'My_Legacy_Server' })} />);
+
+    const imageField = await screen.findByLabelText('Image');
+    await userEvent.clear(imageField);
+    await userEvent.type(imageField, 'itzg/minecraft-server-2');
+
+    const saveButton = screen.getByRole('button', { name: 'Save changes' });
+    expect(saveButton).toBeEnabled();
+
+    await userEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'My_Legacy_Server',
+        config: { ...samplePayloadConfig(), image: 'itzg/minecraft-server-2' },
+      }),
+    );
+  });
+
   it('should show a hint linking to the Terraform page to apply the change', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
