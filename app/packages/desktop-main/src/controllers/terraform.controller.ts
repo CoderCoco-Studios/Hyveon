@@ -7,6 +7,8 @@ import { RunLockHeldError } from '@hyveon/shared';
 import type { StackOutputs } from '@hyveon/shared';
 import {
   PulumiService,
+  PulumiOperationInFlightError,
+  PulumiRollbackPlanFailedError,
   type PulumiRunChunk,
   type PulumiPreviewResult,
   type PulumiUpResult,
@@ -221,7 +223,13 @@ interface TerraformRollbackResolveAck {
  * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
  * `confirmed: false` means no write was attempted, or a write was attempted
  * and the restore-then-plan unit failed partway through — `error` is always
- * a human-readable description of why.
+ * a human-readable description of why. `versionId` is ALSO populated on a
+ * `confirmed: false` ack specifically when the failure is
+ * `PulumiRollbackPlanFailedError` (the restore write succeeded but the
+ * follow-up plan didn't) — it names the version that was actually restored
+ * as the new head despite the ack reporting failure, so a caller can act on
+ * it (e.g. offer "plan against the restored version" as a next step) instead
+ * of only reading it out of `error`'s prose.
  */
 interface TerraformRollbackConfirmAck {
   confirmed: boolean;
@@ -435,7 +443,7 @@ export class TerraformController implements OnModuleInit {
    * otherwise hang. This hook bridges the gap, mirroring
    * `LogsController.onModuleInit`'s handling of `logs.stream` — see
    * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which excludes these
-   * three channels from the generic bridge for the same reason: each handler
+   * four channels from the generic bridge for the same reason: each handler
    * pushes follow-up chunk/end messages over side channels for the duration
    * of a long-running run rather than resolving a single value.
    *
@@ -443,7 +451,21 @@ export class TerraformController implements OnModuleInit {
    * 7.10) — {@link init} no longer streams anything (see its own TSDoc), so
    * it's resolved by the generic `ipcMain.handle` bridge like any other
    * single-value channel; only `terraform.plan`/`terraform.apply`/
-   * `terraform.destroy` still need this manual registration.
+   * `terraform.destroy`/`terraform.rollback.confirm` still need this manual
+   * registration.
+   *
+   * `terraform.rollback.confirm` was added to this set in task 7.10 fix
+   * round 1: {@link confirmRollback}'s own `ctx: { evt }` second parameter
+   * has no `@Payload()`/etc. decorator, exactly like `plan`/`apply`/`destroy`
+   * — so leaving it off the generic bridge meant NestJS's `RpcContextCreator`
+   * sized its `initialArgs` array to the one decorated parameter it saw
+   * (`@Payload()` at index 0) and silently dropped `ctx`, which arrived as
+   * `undefined` at runtime. Every real invocation then threw
+   * `TypeError: Cannot read properties of undefined (reading 'evt')` on
+   * {@link confirmRollback}'s first line inside its own `try` — a crash the
+   * unit tests never caught because they all call
+   * `controller.confirmRollback(payload, ctx)` directly, bypassing the
+   * transport layer this bridge exists to fix.
    *
    * Only runs inside a real Electron main process. In plain-Node runtimes
    * (integration test server, Docker, CI) `process.versions.electron` is
@@ -480,6 +502,15 @@ export class TerraformController implements OnModuleInit {
     ipcMain.removeHandler('terraform.destroy');
     ipcMain.handle('terraform.destroy', (evt, payload: TerraformDestroyPayload) =>
       this.destroy(payload, { evt: evt as IpcMainInvokeEvent }),
+    );
+    // `terraform.rollback.confirm` streams chunk messages the same way
+    // `terraform.destroy` does — see `SELF_BRIDGED_PATTERNS` in
+    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
+    // the same reason (task 7.10 fix round 1 — see this method's own TSDoc
+    // for the crash this closes).
+    ipcMain.removeHandler('terraform.rollback.confirm');
+    ipcMain.handle('terraform.rollback.confirm', (evt, payload: TerraformRollbackPayload) =>
+      this.confirmRollback(payload, { evt: evt as IpcMainInvokeEvent }),
     );
   }
 
@@ -690,20 +721,27 @@ export class TerraformController implements OnModuleInit {
    * output) ever happens. So the first `.next()` call on the returned
    * generator either REJECTS (any gate-step failure — most importantly
    * `RunLockHeldError`, propagated unwrapped by gate step 8's losing race,
-   * mapped below to `conflict: 'up'`) or RESOLVES with the operation
-   * genuinely under way. This method exploits that: it `await`s the first
-   * `.next()` call BEFORE acking, so `{ started: true, runId }` is only ever
-   * returned once the gate has actually passed — a stronger, more accurate
-   * guarantee than the pre-migration controller's ack ever gave (that
-   * version's ack could resolve `started: true` before some pre-spawn
-   * failures were even known, deferring them to the end channel instead).
+   * mapped below to `conflict: 'up'`; or `PulumiOperationInFlightError`,
+   * thrown by the gate's own top-of-function `operationInFlight` busy check,
+   * mapped to `conflict: <its own inFlight value>` — I2, fix round 1: this
+   * cheaper, earlier in-process mutex check needs the exact same `conflict`
+   * treatment as the durable lock race, since the renderer's busy banner
+   * reads `ack.conflict` regardless of which guard refused the submission)
+   * or RESOLVES with the operation genuinely under way. This method exploits
+   * that: it `await`s the first `.next()` call BEFORE acking, so
+   * `{ started: true, runId }` is only ever returned once the gate has
+   * actually passed — a stronger, more accurate guarantee than the
+   * pre-migration controller's ack ever gave (that version's ack could
+   * resolve `started: true` before some pre-spawn failures were even known,
+   * deferring them to the end channel instead).
    *
    * Validates `payload` first (`planRunId`/`planHash` both non-empty
    * strings) — the only validation this controller still performs itself;
    * everything else is the gate's job. A gate failure resolves
-   * `{ started: false, error }` (plus `conflict: 'up'` specifically for a
-   * lost `RunLockHeldError` race) without ever touching {@link activeApplies}
-   * or recording an audit entry.
+   * `{ started: false, error }` (plus `conflict: 'up'` for a lost
+   * `RunLockHeldError` race, or `conflict: <inFlight>` for a busy-workspace
+   * `PulumiOperationInFlightError`) without ever touching
+   * {@link activeApplies} or recording an audit entry.
    *
    * Once the gate has passed, {@link activeApplies} is populated, a
    * `'destroyed'` listener is armed on the `WebContents`, a best-effort audit
@@ -756,6 +794,16 @@ export class TerraformController implements OnModuleInit {
       if (err instanceof RunLockHeldError) {
         logger.error('terraform apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
         return { started: false, error: err.message, conflict: 'up' };
+      }
+      if (err instanceof PulumiOperationInFlightError) {
+        // Mirrors plan()'s pre-flight conflict shape (I2, fix round 1): the
+        // in-process operationInFlight mutex is a cheaper, earlier-checked
+        // guard than the durable RunLockHeldError race above, but a busy
+        // refusal from it must populate `conflict` exactly the same way —
+        // the renderer's busy banner (terraform.page.tsx) reads ack.conflict
+        // regardless of which of the two guards refused the submission.
+        logger.error('terraform apply rejected: workspace busy', { planRunId: payload.planRunId, inFlight: err.inFlight });
+        return { started: false, error: err.message, conflict: err.inFlight };
       }
       const error = err instanceof Error ? err.message : String(err);
       logger.error('terraform apply rejected', { planRunId: payload.planRunId, error });
@@ -853,7 +901,10 @@ export class TerraformController implements OnModuleInit {
    * first `yield`. This method awaits that first `.next()` call before
    * acking, exactly like {@link apply} — a gate failure (most notably
    * `DestroyNotConfirmedError` for a missing/stale/already-consumed token,
-   * or `RunLockHeldError` for a lost lock race, mapped to `conflict: 'destroy'`)
+   * `RunLockHeldError` for a lost lock race mapped to `conflict: 'destroy'`,
+   * or `PulumiOperationInFlightError` for the top-of-function busy check
+   * mapped to `conflict: <its own inFlight value>` — I2, fix round 1, mirrors
+   * {@link apply}'s identical treatment)
    * resolves `{ started: false, error }` without ever touching
    * {@link activeDestroys} or recording an audit entry, and — critically —
    * without burning a token that a genuinely concurrent, unrelated rejection
@@ -909,6 +960,13 @@ export class TerraformController implements OnModuleInit {
       if (err instanceof RunLockHeldError) {
         logger.error('terraform destroy rejected: apply lock already held', { runId, lock: err.lock });
         return { started: false, error: err.message, conflict: 'destroy' };
+      }
+      if (err instanceof PulumiOperationInFlightError) {
+        // Mirrors apply()'s equivalent branch (I2, fix round 1) — see that
+        // catch block's comment for why the in-process mutex needs the same
+        // `conflict` treatment as the durable RunLockHeldError race above.
+        logger.error('terraform destroy rejected: workspace busy', { runId, inFlight: err.inFlight });
+        return { started: false, error: err.message, conflict: err.inFlight };
       }
       const error = err instanceof Error ? err.message : String(err);
       logger.error('terraform destroy rejected', { runId, error });
@@ -1183,9 +1241,14 @@ export class TerraformController implements OnModuleInit {
    * `previewCore` always records the configuration version id it actually
    * observed for a successful plan before returning).
    *
-   * Reachable via the Electron IPC transport (`terraform.rollback.confirm`),
-   * bridged automatically by the generic `ipcMain.handle` bridge since it
-   * still resolves a single value.
+   * Reachable via the Electron IPC transport (`terraform.rollback.confirm`).
+   * Despite ultimately resolving a single `TerraformRollbackConfirmAck`, this
+   * channel is bridged manually by {@link onModuleInit} (task 7.10 fix round
+   * 1), not by the generic `ipcMain.handle` bridge — see that method's own
+   * TSDoc and `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts` for why: the
+   * `ctx: { evt }` second parameter below is undecorated, exactly like
+   * {@link plan}/{@link apply}/{@link destroy}, and the generic bridge cannot
+   * supply it correctly through NestJS's transport layer.
    */
   @MessagePattern('terraform.rollback.confirm')
   async confirmRollback(
@@ -1260,6 +1323,14 @@ export class TerraformController implements OnModuleInit {
       return { confirmed: true, versionId };
     } catch (err) {
       logger.error('terraform rollback confirm error', { err, applyRunId: payload.applyRunId });
+      if (err instanceof PulumiRollbackPlanFailedError) {
+        // The restore write DID succeed — err.restoredVersionId is now the
+        // new head — only the follow-up plan failed. Surface it
+        // programmatically (not just in err.message's prose) so a caller can
+        // act on it, e.g. offer "plan against the restored version" as a
+        // next step, per this ack field's own TSDoc.
+        return { confirmed: false, versionId: err.restoredVersionId, error: err.message };
+      }
       const error = err instanceof Error ? err.message : String(err);
       return { confirmed: false, error };
     } finally {

@@ -148,6 +148,26 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
+  it('should skip "terraform.rollback.confirm" entirely, leaving it to bridge itself', async () => {
+    // C1, fix round 1: this channel was originally left off SELF_BRIDGED_PATTERNS
+    // despite TerraformController.confirmRollback taking an undecorated `ctx`
+    // second parameter exactly like terraform.plan/apply/destroy — routing it
+    // through the generic bridge silently dropped `ctx`, crashing every real
+    // invocation. See ipc-main-bridge.ts's own doc comment for the full root
+    // cause.
+    expect(SELF_BRIDGED_PATTERNS.has('terraform.rollback.confirm')).toBe(true);
+
+    const { transport } = makeTransport(['terraform.rollback.confirm', 'games.list']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.rollback.confirm');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.rollback.confirm', expect.any(Function));
+    // The sibling pattern on the same map is still bridged normally.
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
   it('should bridge "terraform.init" generically, since it no longer streams under the Pulumi engine', async () => {
     // Task 7.10 (migrate-iac-to-pulumi): TerraformController.init became an
     // inert single-value rejection once TerraformService (and the real

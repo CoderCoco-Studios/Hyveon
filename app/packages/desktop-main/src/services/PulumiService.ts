@@ -2061,6 +2061,9 @@ export class PulumiService {
    *   still carry (gate step 5) — normally the same value the originating
    *   `preview()` call returned.
    * @param signal - Optional cancellation signal — see "Cancellation" above.
+   * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
+   *   `destroy`/`rollback` is already in flight on this instance (the
+   *   top-of-function busy check, before gate step 1).
    * @throws {@link PulumiPlanRunNotFoundError}, {@link PulumiPlanRunWrongKindError},
    *   {@link PulumiPlanNotApprovedError}, {@link PulumiApprovalExpiredError},
    *   {@link PulumiPlanHashMismatchError}, {@link StalePlanError}, or
@@ -2097,10 +2100,7 @@ export class PulumiService {
     // workspace-is-free observation" the `iac-plan-apply-page` spec and
     // task 7.7 both explicitly rule out as the gate.
     if (this.operationInFlight) {
-      throw new Error(
-        `PulumiService.apply() cannot run while ${this.operationInFlight}() is already ` +
-          'running; wait for it to finish before calling apply() again.',
-      );
+      throw new PulumiOperationInFlightError(this.operationInFlight);
     }
     PulumiService.assertValidRunId(planRunId);
     // Hoisted above the try block — mirrors preview()'s identical hoist and
@@ -3046,8 +3046,10 @@ export class PulumiService {
    * @param preMintedRunId - Optional caller-minted `runId` (mirrors
    *   `TerraformService.destroy`'s identically-named parameter) — must match
    *   {@link RUN_ID_PATTERN}.
-   * @throws A descriptive `Error` if another `preview`/`up`/`destroy` is
-   *   already in flight on this instance, if `preMintedRunId` doesn't match
+   * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
+   *   `destroy`/`rollback` is already in flight on this instance (the
+   *   top-of-function busy check).
+   * @throws A descriptive `Error` if `preMintedRunId` doesn't match
    *   {@link RUN_ID_PATTERN}, if the state bucket/region aren't configured, or
    *   if no stack has ever been created (no passphrase on record).
    * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if the durable
@@ -3070,10 +3072,7 @@ export class PulumiService {
     preMintedRunId?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
     if (this.operationInFlight) {
-      throw new Error(
-        `PulumiService.destroy() cannot run while ${this.operationInFlight}() is already ` +
-          'running; wait for it to finish before calling destroy() again.',
-      );
+      throw new PulumiOperationInFlightError(this.operationInFlight);
     }
     if (preMintedRunId !== undefined) {
       PulumiService.assertValidRunId(preMintedRunId);
@@ -4461,6 +4460,30 @@ export class PulumiService {
     if (!RUN_ID_PATTERN.test(runId)) {
       throw new Error(`PulumiService: runId "${runId}" is not a valid run id.`);
     }
+  }
+}
+
+/**
+ * Thrown by `PulumiService.apply`/`.destroy`'s top-of-function
+ * `operationInFlight` busy check when another operation is already running
+ * against the shared workspace. Added in task 7.10 fix
+ * round 1: `apply()`/`destroy()` originally threw a plain `Error` here, which
+ * `TerraformController`'s `catch` blocks (mirroring their `RunLockHeldError`
+ * handling for the durable lock) had no way to distinguish from any other
+ * gate failure — so a busy-workspace refusal from this synchronous check
+ * silently lost the `conflict` field the pre-migration controller always
+ * populated for it, breaking the renderer's busy-banner UX
+ * (`terraform.page.tsx` reads `ack.conflict`). A typed error lets the
+ * controller map {@link inFlight} straight onto `TerraformPlanAck.conflict`
+ * without parsing a message string.
+ */
+export class PulumiOperationInFlightError extends Error {
+  constructor(public readonly inFlight: 'preview' | 'up' | 'destroy' | 'rollback') {
+    super(
+      `PulumiService cannot run this operation while ${inFlight}() is already running; wait for ` +
+        'it to finish before submitting another.',
+    );
+    this.name = 'PulumiOperationInFlightError';
   }
 }
 
