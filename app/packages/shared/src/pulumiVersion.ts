@@ -6,7 +6,7 @@
  * `@hyveon/shared` (rather than `@hyveon/desktop-main`) so both
  * `PulumiEngineService`'s `PulumiCommand.install({ version: new SemVer(PULUMI_ENGINE_VERSION) })`
  * call and Settings' resolved-version display can import a single source of
- * truth, mirroring {@link MINIMUM_TERRAFORM_VERSION}'s split between
+ * truth, mirroring `MINIMUM_TERRAFORM_VERSION`'s split between
  * `@hyveon/shared` and its consumers.
  *
  * Unlike `MINIMUM_TERRAFORM_VERSION`, this is an exact pin, not a floor: the

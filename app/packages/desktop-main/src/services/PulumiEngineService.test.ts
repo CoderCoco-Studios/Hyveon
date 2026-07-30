@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
 import { SemVer } from 'semver';
 import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 
@@ -7,17 +8,25 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
  * vi.mock() calls are lifted to the top of the compiled output above regular
  * declarations — mirrors TerraformService.test.ts's `execFileMock` pattern.
  */
-const { getMock, installMock, existsSyncMock, mkdirSyncMock, renameSyncMock, rmSyncMock, loggerMock } = vi.hoisted(
-  () => ({
-    getMock: vi.fn(),
-    installMock: vi.fn(),
-    existsSyncMock: vi.fn(),
-    mkdirSyncMock: vi.fn(),
-    renameSyncMock: vi.fn(),
-    rmSyncMock: vi.fn(),
-    loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  }),
-);
+const {
+  getMock,
+  installMock,
+  existsSyncMock,
+  mkdirSyncMock,
+  readdirSyncMock,
+  renameSyncMock,
+  rmSyncMock,
+  loggerMock,
+} = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  installMock: vi.fn(),
+  existsSyncMock: vi.fn(),
+  mkdirSyncMock: vi.fn(),
+  readdirSyncMock: vi.fn(),
+  renameSyncMock: vi.fn(),
+  rmSyncMock: vi.fn(),
+  loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 vi.mock('@pulumi/pulumi/automation/index.js', () => ({
   PulumiCommand: {
@@ -29,6 +38,7 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
 vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
+  readdirSync: readdirSyncMock,
   renameSync: renameSyncMock,
   rmSync: rmSyncMock,
 }));
@@ -65,14 +75,18 @@ function makeService(userDataPath: string | null = '/fake/userData'): TestablePu
   return service;
 }
 
+/** Absolute path to the `versions/` directory under the fake `userData`'s engine cache root. */
+const VERSIONS_DIR = '/fake/userData/pulumi/versions';
+
 /** Absolute path to the pinned version's install directory under the fake `userData`. */
-const PIN_ROOT = `/fake/userData/pulumi/versions/${PULUMI_ENGINE_VERSION}`;
+const PIN_ROOT = join(VERSIONS_DIR, PULUMI_ENGINE_VERSION);
 
 beforeEach(() => {
   getMock.mockReset();
   installMock.mockReset();
   existsSyncMock.mockReset();
   mkdirSyncMock.mockReset();
+  readdirSyncMock.mockReset();
   renameSyncMock.mockReset();
   rmSyncMock.mockReset();
   loggerMock.debug.mockReset();
@@ -80,10 +94,12 @@ beforeEach(() => {
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
 
-  // Default: empty cache, install succeeds first try, final re-resolve succeeds.
+  // Default: empty cache, install succeeds first try, final re-resolve
+  // succeeds, pruning finds nothing else to sweep.
   existsSyncMock.mockReturnValue(false);
   installMock.mockResolvedValue(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
   getMock.mockResolvedValue(fakeCommand(PIN_ROOT, PULUMI_ENGINE_VERSION));
+  readdirSyncMock.mockReturnValue([]);
 });
 
 describe('PulumiEngineService construction', () => {
@@ -159,6 +175,34 @@ describe('PulumiEngineService.resolve — memoization and concurrency', () => {
     expect(firstResult).toBe(secondResult);
   });
 
+  it('should call PulumiCommand.install exactly once across two concurrent resolve() calls that both end up rejecting', async () => {
+    // The highest-risk variant of the concurrency guarantee: it's easy to
+    // accidentally get "one install call" right for the success path (a
+    // resolved value is trivially shared) while a naive implementation
+    // still double-triggers on failure (e.g. if each caller raced its own
+    // fallback attempt). This proves the *rejection* is shared too, and that
+    // sharing a rejection doesn't itself double-invoke install.
+    const service = makeService();
+
+    let rejectInstall!: (err: Error) => void;
+    const gate = new Promise<never>((_resolvePromise, rejectPromise) => {
+      rejectInstall = rejectPromise;
+    });
+    installMock.mockImplementationOnce(() => gate);
+
+    const first = service.resolve();
+    const second = service.resolve();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(installMock).toHaveBeenCalledTimes(1);
+
+    rejectInstall(new Error('Failed to download https://get.pulumi.com/install.sh: network unreachable'));
+
+    await expect(first).rejects.toThrow(PulumiEngineNetworkError);
+    await expect(second).rejects.toThrow(PulumiEngineNetworkError);
+    expect(installMock).toHaveBeenCalledTimes(1);
+  });
+
   it('should memoize a successful resolution so a later call does not reprovision', async () => {
     const service = makeService();
 
@@ -202,7 +246,9 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     existsSyncMock.mockReturnValue(true);
     // The pin's own directory reports a stale/mismatched version — a
     // defensive scenario since PulumiCommand.get()'s own check is a
-    // minimum-version check, not exact-match (see the service's TSDoc).
+    // minimum-version check, not exact-match (see the service's TSDoc). A
+    // confirmed version mismatch is *provable* evidence of a bad entry, so
+    // it's deleted outright rather than left for the swap-aside path.
     getMock.mockResolvedValueOnce(fakeCommand(PIN_ROOT, '3.200.0'));
     installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
     getMock.mockResolvedValueOnce(fakeCommand(PIN_ROOT, PULUMI_ENGINE_VERSION));
@@ -216,15 +262,17 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     expect(service.getResolvedVersion()).toBe(PULUMI_ENGINE_VERSION);
   });
 
-  it('should discard a cache entry that fails to execute at all', async () => {
+  it('should discard a cache entry whose binary is genuinely missing (ENOENT)', async () => {
     const service = makeService();
     existsSyncMock.mockReturnValue(true);
-    getMock.mockRejectedValueOnce(new Error('spawn ENOENT'));
+    const enoent: NodeJS.ErrnoException = Object.assign(new Error('spawn pulumi ENOENT'), { code: 'ENOENT' });
+    getMock.mockRejectedValueOnce(enoent);
     installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
     getMock.mockResolvedValueOnce(fakeCommand(PIN_ROOT, PULUMI_ENGINE_VERSION));
 
     await service.resolve();
 
+    // ENOENT is provable evidence (the binary isn't there at all) — deleted outright.
     expect(rmSyncMock).toHaveBeenCalledWith(PIN_ROOT, { recursive: true, force: true });
     expect(installMock).toHaveBeenCalledTimes(1);
   });
@@ -236,6 +284,54 @@ describe('PulumiEngineService.resolve — cache reuse and version pinning', () =
     await expect(service.resolve()).rejects.toThrow(PulumiEngineIntegrityError);
     // A mismatched fresh install must never be renamed into the final path.
     expect(renameSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('PulumiEngineService.resolve — ambiguous cache failures are not deleted', () => {
+  it('should leave an ambiguous cache entry in place and swap it aside once a fresh install is verified', async () => {
+    const service = makeService();
+    // Only PIN_ROOT "exists" — nothing else on disk yet.
+    existsSyncMock.mockImplementation((path: unknown) => path === PIN_ROOT);
+    const ebusy: NodeJS.ErrnoException = Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    getMock.mockRejectedValueOnce(ebusy); // tryReuseCached's check fails ambiguously
+    installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
+    getMock.mockResolvedValueOnce(fakeCommand(PIN_ROOT, PULUMI_ENGINE_VERSION)); // final re-resolve after swap
+
+    const command = await service.resolve();
+
+    // Never deleted outright — an ambiguous exec failure is not proof it's bad.
+    expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
+
+    // Swapped aside, then the verified staging install took its place.
+    const renameCalls = renameSyncMock.mock.calls as [string, string][];
+    expect(renameCalls).toHaveLength(2);
+    const [swapAside, swapIn] = renameCalls;
+    expect(swapAside?.[0]).toBe(PIN_ROOT);
+    expect(swapAside?.[1]).toMatch(/\.trash-/);
+    expect(swapIn?.[0]).toMatch(/\.staging-/);
+    expect(swapIn?.[1]).toBe(PIN_ROOT);
+
+    // The superseded (swapped-aside) entry is cleaned up afterward.
+    expect(rmSyncMock).toHaveBeenCalledWith(swapAside?.[1], { recursive: true, force: true });
+
+    expect(String(command.version)).toBe(PULUMI_ENGINE_VERSION);
+  });
+
+  it('should leave an ambiguous cache entry fully untouched when the reprovisioning attempt itself fails', async () => {
+    const service = makeService();
+    existsSyncMock.mockImplementation((path: unknown) => path === PIN_ROOT);
+    const etxtbsy: NodeJS.ErrnoException = Object.assign(new Error('text file busy'), { code: 'ETXTBSY' });
+    getMock.mockRejectedValueOnce(etxtbsy);
+    installMock.mockRejectedValueOnce(new Error('install.sh exited 1: interrupted'));
+
+    await expect(service.resolve()).rejects.toThrow();
+
+    // The swap-aside logic only runs once a fresh install is already
+    // verified — since the fresh install itself failed here, `root` (and
+    // whatever ambiguous entry occupies it) must never be touched at all:
+    // no rename, and no delete of PIN_ROOT.
+    expect(renameSyncMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
   });
 });
 
@@ -271,6 +367,43 @@ describe('PulumiEngineService.resolve — no partial-install reuse', () => {
     expect(installArgs.root).toMatch(/\.staging-/);
     expect(renameSyncMock).toHaveBeenCalledWith(installArgs.root, PIN_ROOT);
   });
+
+  it('should clean up and throw a classified error when the post-rename verification get() fails', async () => {
+    const service = makeService();
+    installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
+    const eacces: NodeJS.ErrnoException = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    getMock.mockRejectedValueOnce(eacces); // the final re-resolve, not the (skipped) cache check
+
+    await expect(service.resolve()).rejects.toThrow(PulumiEngineCacheWriteError);
+
+    // The just-renamed, now-unverifiable directory is cleaned up rather than
+    // left at the final path for a later tryReuseCached to stumble on.
+    expect(rmSyncMock).toHaveBeenCalledWith(PIN_ROOT, { recursive: true, force: true });
+  });
+});
+
+describe('PulumiEngineService.resolve — pruning superseded versions', () => {
+  it('should best-effort remove sibling version directories other than the current pin after a successful install', async () => {
+    const service = makeService();
+    readdirSyncMock.mockReturnValue(['3.200.0', PULUMI_ENGINE_VERSION, '.staging-leftover', '.trash-leftover']);
+
+    await service.resolve();
+
+    expect(readdirSyncMock).toHaveBeenCalledWith(VERSIONS_DIR);
+    expect(rmSyncMock).toHaveBeenCalledWith(join(VERSIONS_DIR, '3.200.0'), { recursive: true, force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.staging-leftover'), expect.anything());
+    expect(rmSyncMock).not.toHaveBeenCalledWith(join(VERSIONS_DIR, '.trash-leftover'), expect.anything());
+    expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
+  });
+
+  it('should not fail provisioning if listing the versions directory for pruning fails', async () => {
+    const service = makeService();
+    readdirSyncMock.mockImplementationOnce(() => {
+      throw new Error('EIO');
+    });
+
+    await expect(service.resolve()).resolves.toBeDefined();
+  });
 });
 
 describe('PulumiEngineService.resolve — typed provisioning errors', () => {
@@ -281,6 +414,18 @@ describe('PulumiEngineService.resolve — typed provisioning errors', () => {
     );
 
     await expect(service.resolve()).rejects.toThrow(PulumiEngineNetworkError);
+  });
+
+  it('should reject with PulumiEngineIntegrityError, not a network error, when the download fails with an HTTP status', async () => {
+    // The SDK's download() uses the same "Failed to download <url>: ..."
+    // prefix for both a true network failure and a reachable server
+    // responding non-2xx — a 404 means the server *was* reached.
+    const service = makeService();
+    installMock.mockRejectedValueOnce(
+      new Error('Failed to download https://get.pulumi.com/install.sh: 404 Not Found'),
+    );
+
+    await expect(service.resolve()).rejects.toThrow(PulumiEngineIntegrityError);
   });
 
   it('should reject with PulumiEngineIntegrityError when the install script exits non-zero for an unrecognised reason', async () => {
@@ -321,15 +466,15 @@ describe('PulumiEngineService.resolve — typed provisioning errors', () => {
 });
 
 describe('PulumiEngineService — engine cache root resolution', () => {
-  const originalEnv = process.env['PULUMI_ENGINE_DIR'];
+  const originalEnv = process.env['HYVEON_PULUMI_ENGINE_DIR'];
 
   afterEach(() => {
-    if (originalEnv === undefined) delete process.env['PULUMI_ENGINE_DIR'];
-    else process.env['PULUMI_ENGINE_DIR'] = originalEnv;
+    if (originalEnv === undefined) delete process.env['HYVEON_PULUMI_ENGINE_DIR'];
+    else process.env['HYVEON_PULUMI_ENGINE_DIR'] = originalEnv;
   });
 
-  it('should install under an env override when PULUMI_ENGINE_DIR is set', async () => {
-    process.env['PULUMI_ENGINE_DIR'] = '/env/override';
+  it('should install under an env override when HYVEON_PULUMI_ENGINE_DIR is set', async () => {
+    process.env['HYVEON_PULUMI_ENGINE_DIR'] = '/env/override';
     const service = makeService('/fake/userData');
     await service.resolve();
 
