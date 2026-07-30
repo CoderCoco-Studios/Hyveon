@@ -10,7 +10,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname as osHostname, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import type Store from 'electron-store';
 
@@ -265,6 +265,76 @@ describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', (
     const result = service.getPulumiPassphrase();
 
     expect(result).toBe('super-secret-passphrase');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lock-ownership records — Task 4.8's ownership-record mechanism
+// (recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts)
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts', () => {
+  let service: ElectronStoreService;
+
+  beforeEach(() => {
+    service = new ElectronStoreService(makeSafeStorage());
+  });
+
+  it('should record an outstanding attempt with this machine identity and a fresh run id', () => {
+    const runId = service.recordPulumiLockAttempt('production');
+
+    expect(typeof runId).toBe('string');
+    expect(runId.length).toBeGreaterThan(0);
+    const [record] = service.listPulumiLockAttempts('production');
+    expect(record).toMatchObject({ stackName: 'production', username: userInfo().username, hostname: osHostname() });
+    expect(new Date(record.startedAt).toString()).not.toBe('Invalid Date');
+  });
+
+  it('should return a distinct run id for each call and keep both records', () => {
+    const runId1 = service.recordPulumiLockAttempt('production');
+    const runId2 = service.recordPulumiLockAttempt('production');
+
+    expect(runId1).not.toBe(runId2);
+    expect(service.listPulumiLockAttempts('production')).toHaveLength(2);
+  });
+
+  it('should scope listPulumiLockAttempts to the given stack name', () => {
+    service.recordPulumiLockAttempt('production');
+    service.recordPulumiLockAttempt('staging');
+
+    expect(service.listPulumiLockAttempts('production')).toHaveLength(1);
+    expect(service.listPulumiLockAttempts('staging')).toHaveLength(1);
+  });
+
+  it('should return an empty array when nothing has ever been recorded', () => {
+    expect(service.listPulumiLockAttempts('production')).toEqual([]);
+  });
+
+  it('should remove only the cleared record, leaving other outstanding records intact', () => {
+    const runId1 = service.recordPulumiLockAttempt('production');
+    const runId2 = service.recordPulumiLockAttempt('production');
+
+    service.clearPulumiLockAttempt(runId1);
+
+    const remaining = service.listPulumiLockAttempts('production');
+    expect(remaining).toHaveLength(1);
+    expect(service.get('pulumi')?.lockOwnership?.[runId1]).toBeUndefined();
+    expect(service.get('pulumi')?.lockOwnership?.[runId2]).toBeDefined();
+  });
+
+  it('should be a no-op when clearing a run id that was never recorded', () => {
+    expect(() => service.clearPulumiLockAttempt('never-recorded')).not.toThrow();
+    expect(service.listPulumiLockAttempts('production')).toEqual([]);
+  });
+
+  it('should not disturb the stored passphrase when recording or clearing a lock attempt', () => {
+    service.setPulumiPassphrase('super-secret-passphrase');
+    const before = service.get('pulumi')?.passphrase;
+
+    const runId = service.recordPulumiLockAttempt('production');
+    service.clearPulumiLockAttempt(runId);
+
+    expect(service.get('pulumi')?.passphrase).toBe(before);
   });
 });
 

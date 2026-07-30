@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { hostname as osHostname, userInfo } from 'node:os';
 import { Injectable } from '@nestjs/common';
 import type Store from 'electron-store';
 import { logger } from '../logger.js';
@@ -23,6 +25,43 @@ export interface PastedAwsCredentials {
   /** Stored as an encrypted base64 blob — do not read this field directly. */
   secretAccessKey: string;
   region?: string;
+}
+
+/**
+ * A single outstanding record of "this installation caused the backend's DIY
+ * lock to be taken" — Task 4.8's ownership-record mechanism, per the
+ * `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
+ * requirement: "The app MUST record the identity of every lock it causes to
+ * be taken." Written via {@link ElectronStoreService.recordPulumiLockAttempt}
+ * immediately before a `preview`/`up`/`destroy` invocation that could take the
+ * lock, and cleared via {@link ElectronStoreService.clearPulumiLockAttempt}
+ * once that operation completes *normally* — a record still present later is
+ * evidence (not proof by itself; see `PulumiLockRecovery.classifyStackLockConflict`)
+ * that this installation's own prior run may have orphaned the lock, e.g. via
+ * a crash or the forceful-termination escalation path (Task 4.7).
+ *
+ * `username`/`hostname` are **not secret** — no encryption via
+ * {@link SafeStorageService} is applied to this field, unlike
+ * `pulumi.passphrase` above.
+ */
+export interface PulumiLockOwnershipRecord {
+  /** Bare Pulumi stack name (see `PULUMI_STACK_NAME`) this attempt was made against. */
+  stackName: string;
+  /** ISO-8601 timestamp captured when this attempt was recorded, i.e. immediately before the SDK invocation. */
+  startedAt: string;
+  /**
+   * `os.userInfo().username` of *this* process at the moment the attempt was
+   * recorded — the same OS-level identity the `pulumi` CLI child process
+   * (spawned directly from this Electron process, inheriting its OS session)
+   * will report via Go's `user.Current().Username` in its own lock file, per
+   * `pkg/backend/diy/lock.go`. This is the closest available proxy for "this
+   * installation" — see `PulumiLockRecovery`'s file-level TSDoc for why a
+   * tighter, run-specific identifier (e.g. the CLI child's own PID) is not
+   * obtainable through the Automation API's public surface.
+   */
+  username: string;
+  /** `os.hostname()` of this machine at the moment the attempt was recorded — see {@link username}'s doc comment. */
+  hostname: string;
 }
 
 /**
@@ -93,6 +132,13 @@ export interface AppStoreSchema {
   pulumi?: {
     /** Stored as an encrypted base64 blob — do not read this field directly. */
     passphrase?: string;
+    /**
+     * Outstanding lock-ownership records, keyed by a freshly-minted run id —
+     * see {@link PulumiLockOwnershipRecord}'s doc comment and Task 4.8's
+     * `PulumiLockRecovery` module. Not secret — stored in plaintext, unlike
+     * `passphrase` above.
+     */
+    lockOwnership?: Record<string, PulumiLockOwnershipRecord>;
   };
 }
 
@@ -304,6 +350,64 @@ export class ElectronStoreService {
     const current = this.get('pulumi') ?? {};
     this.set('pulumi', { ...current, passphrase: encrypted });
     logger.debug('ElectronStoreService: pulumi.passphrase written (encrypted)');
+  }
+
+  /**
+   * Records that an infrastructure operation against `stackName` is about to
+   * invoke the Pulumi engine — Task 4.8's ownership-record mechanism (see
+   * {@link PulumiLockOwnershipRecord}'s doc comment). Must be called
+   * immediately before the SDK invocation that could take the backend's DIY
+   * lock, so a crash or the Task 4.7 forceful-termination escalation path
+   * mid-operation still leaves a record this installation can later prove
+   * against via `PulumiLockRecovery.classifyStackLockConflict`. Merges into
+   * any existing `pulumi.lockOwnership` map rather than overwriting it.
+   *
+   * @returns The freshly-minted run id. Pass it to
+   *   {@link clearPulumiLockAttempt} once the operation completes *normally*
+   *   — never when it was forcefully terminated, since the entire point of
+   *   this record is to survive exactly that case.
+   */
+  recordPulumiLockAttempt(stackName: string): string {
+    const runId = randomUUID();
+    const current = this.get('pulumi') ?? {};
+    const record: PulumiLockOwnershipRecord = {
+      stackName,
+      startedAt: new Date().toISOString(),
+      username: userInfo().username,
+      hostname: osHostname(),
+    };
+    this.set('pulumi', { ...current, lockOwnership: { ...current.lockOwnership, [runId]: record } });
+    return runId;
+  }
+
+  /**
+   * Clears the ownership record for `runId` — call once an operation
+   * completes normally (success, or a genuine non-abort failure): a normal
+   * CLI exit releases its own backend lock via the DIY backend's own
+   * `Unlock()` call, so the record is no longer needed as reclaim evidence.
+   * Never call this when the operation was forcefully terminated (Task
+   * 4.7) — see {@link recordPulumiLockAttempt}'s doc comment. A no-op if
+   * `runId` is not present (already cleared, or never recorded).
+   */
+  clearPulumiLockAttempt(runId: string): void {
+    const current = this.get('pulumi') ?? {};
+    if (!current.lockOwnership || !(runId in current.lockOwnership)) return;
+    const remaining = { ...current.lockOwnership };
+    delete remaining[runId];
+    this.set('pulumi', { ...current, lockOwnership: remaining });
+  }
+
+  /**
+   * Lists every currently-outstanding lock-ownership record for `stackName`
+   * — every attempt this installation has recorded that has not since been
+   * cleared via {@link clearPulumiLockAttempt}. Used by
+   * `PulumiLockRecovery.classifyStackLockConflict` to decide whether a
+   * conflicting backend lock is a provable orphan of this installation's own
+   * prior run.
+   */
+  listPulumiLockAttempts(stackName: string): PulumiLockOwnershipRecord[] {
+    const lockOwnership = this.get('pulumi')?.lockOwnership ?? {};
+    return Object.values(lockOwnership).filter((record) => record.stackName === stackName);
   }
 
   /**
