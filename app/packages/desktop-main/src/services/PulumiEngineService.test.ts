@@ -333,6 +333,44 @@ describe('PulumiEngineService.resolve — ambiguous cache failures are not delet
     expect(renameSyncMock).not.toHaveBeenCalled();
     expect(rmSyncMock).not.toHaveBeenCalledWith(PIN_ROOT, expect.anything());
   });
+
+  it('should restore the prior install from the trash directory when post-rename verification fails after a successful swap-aside', async () => {
+    // The gap the coordinator's round-1 re-review flagged: an ambiguous
+    // entry gets swapped aside, the fresh install passes its own
+    // pre-rename verification, but the *separate* post-rename get()
+    // re-check then fails (a transient exec flake right after the move).
+    // The trashed prior install must survive that failure — it was never
+    // proven bad, and deleting it here would leave the app with no engine
+    // at all, worse off than before this call started.
+    const service = makeService();
+    // Only PIN_ROOT "exists" before the swap.
+    existsSyncMock.mockImplementation((path: unknown) => path === PIN_ROOT);
+    const ebusy: NodeJS.ErrnoException = Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    getMock.mockRejectedValueOnce(ebusy); // tryReuseCached's ambiguous check
+    installMock.mockResolvedValueOnce(fakeCommand('/staging', PULUMI_ENGINE_VERSION));
+    const eacces: NodeJS.ErrnoException = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    getMock.mockRejectedValueOnce(eacces); // the post-rename re-verification, after the swap already completed
+
+    await expect(service.resolve()).rejects.toThrow(PulumiEngineCacheWriteError);
+
+    // Swap-aside completed (two renames), then a third rename restores the
+    // trashed prior install back to PIN_ROOT once verification failed.
+    const renameCalls = renameSyncMock.mock.calls as [string, string][];
+    expect(renameCalls).toHaveLength(3);
+    const [swapAside, swapIn, restore] = renameCalls;
+    expect(swapAside?.[0]).toBe(PIN_ROOT);
+    expect(swapAside?.[1]).toMatch(/\.trash-/);
+    expect(swapIn?.[0]).toMatch(/\.staging-/);
+    expect(swapIn?.[1]).toBe(PIN_ROOT);
+    expect(restore?.[0]).toBe(swapAside?.[1]);
+    expect(restore?.[1]).toBe(PIN_ROOT);
+
+    // The unverifiable new content swapped into PIN_ROOT is cleaned up
+    // before the restore, but the trashed prior install itself is never
+    // rmSync'd — it's recovered via rename, not deleted.
+    expect(rmSyncMock).toHaveBeenCalledWith(PIN_ROOT, { recursive: true, force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(swapAside?.[1], expect.anything());
+  });
 });
 
 describe('PulumiEngineService.resolve — no partial-install reuse', () => {
