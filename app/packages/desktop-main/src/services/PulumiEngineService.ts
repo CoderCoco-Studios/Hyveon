@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -96,61 +96,134 @@ export class PulumiEngineCacheWriteError extends Error {
 }
 
 /**
- * Matches the SDK's own `download()` failure messages
- * (`automation/download.js`: `"Failed to download <url>: ..."` /
- * `"Timed out downloading <url>"`, thrown when fetching the install script
- * itself before it ever runs) plus common DNS/connection errno strings a
- * network-unreachable install script's stderr tends to contain. Used by
- * {@link classifyProvisioningError} to distinguish
- * {@link PulumiEngineNetworkError} from {@link PulumiEngineIntegrityError}
- * for failures that aren't a recognised filesystem errno (see
- * {@link CACHE_WRITE_ERRNO_CODES}).
+ * Thrown internally by {@link PulumiEngineService.assertExactPin} when a
+ * resolved `PulumiCommand`'s reported version isn't exactly the pin. Not
+ * exported — every call site catches and re-classifies it into one of the
+ * three typed provisioning errors above via {@link classifyProvisioningError}
+ * (fresh-install path) or treats it as positive evidence of a bad cache
+ * entry via {@link isProvablyBadCacheEntry} (cache-reuse path). Kept as a
+ * distinct class specifically so {@link isProvablyBadCacheEntry} can
+ * distinguish "the binary ran and definitively reported the wrong version"
+ * (provable) from "the binary couldn't be run at all" (ambiguous — see that
+ * function's TSDoc) via `instanceof` rather than by parsing a message.
  */
-const NETWORK_ERROR_PATTERN =
-  /failed to download|timed out downloading|enotfound|econnrefused|etimedout|eai_again|enetunreach|econnreset|network/i;
+class PulumiEnginePinMismatchError extends Error {
+  constructor(root: string, actual: SemVer | null, expected: SemVer) {
+    super(`engine at "${root}" reports version "${String(actual)}", expected exactly "${expected.toString()}"`);
+    this.name = 'PulumiEnginePinMismatchError';
+  }
+}
+
+/**
+ * Matches an SDK `download()` failure message ending in an HTTP status code
+ * (`": 404 Not Found"`) — `automation/download.js` uses the same
+ * `"Failed to download <url>: ..."` prefix for both "the server couldn't be
+ * reached at all" (network) and "the server responded with a non-2xx
+ * status" (not a network problem — the server was reached). Used by
+ * {@link isNetworkFailureMessage} to exclude the latter.
+ */
+const HTTP_STATUS_SUFFIX_PATTERN = /:\s*\d{3}\b/;
+
+/**
+ * Matches unambiguous network/DNS/connection/timeout signals: the SDK's own
+ * `download()` timeout message and common errno strings a genuinely
+ * unreachable host's failure tends to surface in an install script's
+ * stderr. Deliberately excludes a bare `network` alternative — that
+ * over-matched arbitrary install-script stderr that happened to mention the
+ * word for an unrelated reason.
+ */
+const NETWORK_ERRNO_PATTERN = /timed out downloading|enotfound|econnrefused|etimedout|eai_again|enetunreach|econnreset/i;
+
+/**
+ * Matches the SDK's `download()` failure message prefix
+ * (`"Failed to download <url>: ..."`), which covers both a true network
+ * failure and a reachable-but-non-2xx HTTP response — see
+ * {@link HTTP_STATUS_SUFFIX_PATTERN}, which {@link isNetworkFailureMessage}
+ * uses to tell them apart.
+ */
+const DOWNLOAD_FAILURE_PREFIX_PATTERN = /failed to download/i;
+
+/**
+ * True when `message` describes a genuine network/DNS/connection failure
+ * (as opposed to, e.g., a reachable server responding 404, or an unrelated
+ * install-script failure) — see {@link classifyProvisioningError}.
+ */
+function isNetworkFailureMessage(message: string): boolean {
+  if (NETWORK_ERRNO_PATTERN.test(message)) return true;
+  return DOWNLOAD_FAILURE_PREFIX_PATTERN.test(message) && !HTTP_STATUS_SUFFIX_PATTERN.test(message);
+}
 
 /** `NodeJS.ErrnoException` codes treated as an unwritable cache directory. */
 const CACHE_WRITE_ERRNO_CODES = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOSPC']);
 
 /**
  * Classifies a failure raised while installing the engine (either from
- * `PulumiCommand.install()` itself, or from the pre-flight `mkdirSync`/
- * `renameSync` calls around it) into one of the three typed provisioning
- * errors the spec requires distinct handling for. Filesystem errno codes are
- * checked first since they're unambiguous signals straight from Node — a
- * message-pattern match is only consulted for errors that don't carry one
- * (e.g. the SDK's own pre-script `download()` failure, or the install
- * script's own non-zero exit, whose `CommandError` carries stdout/stderr
- * text but no errno code). Anything that matches neither is treated as an
- * integrity failure — the conservative default, since silently mis-reporting
- * a real integrity failure as "no network" would send an operator chasing
- * their connection instead of retrying (which self-heals a rare
- * misclassification either way, since a failed attempt is never memoized).
+ * `PulumiCommand.install()`/`PulumiCommand.get()` themselves, or from the
+ * `mkdirSync`/`renameSync` calls around them) into one of the three typed
+ * provisioning errors the spec requires distinct handling for. Checked in
+ * order: a version mismatch is always an integrity failure (the binary ran
+ * fine, it's just the wrong one); filesystem errno codes are checked next
+ * since they're unambiguous signals straight from Node; a message-pattern
+ * match is only consulted for errors that carry neither (e.g. the SDK's own
+ * pre-script `download()` failure, or the install script's own non-zero
+ * exit, whose `CommandError` carries stdout/stderr text but no errno code).
+ * Anything that matches none of the above is treated as an integrity
+ * failure — the conservative default, since silently mis-reporting a real
+ * integrity failure as "no network" would send an operator chasing their
+ * connection instead of retrying (which self-heals a rare misclassification
+ * either way, since a failed attempt is never memoized).
  */
 function classifyProvisioningError(err: unknown, root: string): Error {
+  if (err instanceof PulumiEnginePinMismatchError) {
+    return new PulumiEngineIntegrityError(root, err);
+  }
   const errno = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : undefined;
   if (errno && CACHE_WRITE_ERRNO_CODES.has(errno)) {
     return new PulumiEngineCacheWriteError(root, err);
   }
   const message = err instanceof Error ? err.message : String(err);
-  if (NETWORK_ERROR_PATTERN.test(message)) {
+  if (isNetworkFailureMessage(message)) {
     return new PulumiEngineNetworkError(root, err);
   }
   return new PulumiEngineIntegrityError(root, err);
 }
 
 /**
+ * True when `err` is positive evidence that a cache entry is actually
+ * invalid — a confirmed exact-version mismatch, the binary genuinely
+ * missing (`ENOENT`), or the SDK's own "couldn't parse the version" failure
+ * (the binary ran and returned unparseable output) — as opposed to an
+ * *ambiguous* exec failure (`EBUSY`/`ETXTBSY`/antivirus interference/a
+ * transient spawn error) that says nothing about whether the install itself
+ * is actually bad. {@link PulumiEngineService.tryReuseCached} only deletes a
+ * cache entry outright when this returns `true`; on an ambiguous failure it
+ * leaves the entry in place and lets {@link PulumiEngineService.installFresh}'s
+ * swap-aside handle it safely instead. Mirrors the "provable ownership"
+ * standard the `pulumi-engine-runtime` spec's stale-lock-recovery
+ * requirement applies to a different resource: don't destroy something on
+ * an absence of proof, only on positive evidence.
+ */
+function isProvablyBadCacheEntry(err: unknown): boolean {
+  if (err instanceof PulumiEnginePinMismatchError) return true;
+  const errno = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : undefined;
+  if (errno === 'ENOENT') return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /failed to parse pulumi cli version/i.test(message);
+}
+
+/**
  * Removes a directory tree best-effort, logging (rather than throwing) if
  * cleanup itself fails — mirrors `ConfigService.seedTerraformWorkspace`'s
- * staging-directory cleanup. Used both to discard a failed/corrupt staging
- * install and to discard a cache entry that failed re-verification.
+ * staging-directory cleanup. Used to discard a failed/corrupt staging
+ * install, a provably-bad cache entry, an unverifiable post-rename install,
+ * a superseded (swapped-aside) prior install, and a superseded pinned
+ * version during pruning.
  *
  * Calls `rmSync` unconditionally with `force: true` rather than gating on an
  * `existsSync` check first — `force: true` already swallows a missing path,
  * so the extra check would only add a syscall (and a TOCTOU gap) without
- * changing the outcome: a failed install may or may not have left anything
- * on disk at `path`, and either way this call is a safe no-op or a real
- * cleanup.
+ * changing the outcome: the path may or may not exist by the time this
+ * runs, and either way this call is a safe no-op or a real cleanup.
  */
 function removeDirBestEffort(path: string, context: string): void {
   try {
@@ -196,39 +269,66 @@ function removeDirBestEffort(path: string, context: string): void {
  * (`$HOME/.pulumi/versions/$VERSION`), just relocated under `userData`.
  * {@link assertExactPin} additionally guards against the minimum-check
  * behaviour above at both the cache-hit and fresh-install paths, in case a
- * directory is ever manually tampered with.
+ * directory is ever manually tampered with. {@link pruneOldVersions} keeps
+ * this from growing unbounded across pin bumps.
  *
  * ## No partial-install reuse
  *
  * {@link installFresh} never installs directly into the pin's final
  * directory. It installs into a sibling staging directory
- * (`<cacheRoot>/.staging-<uuid>`), and only `renameSync`s it into the final
- * `<cacheRoot>/versions/<pin>` path once `PulumiCommand.install()` has
- * resolved *and* {@link assertExactPin} has verified the installed binary
- * reports exactly the pinned version. An interrupted or corrupted install
- * (network drop mid-download, a script that exits non-zero, a binary that
- * fails to execute) therefore never touches the final directory at all — it
- * only ever leaves debris in the staging directory, which is removed via
- * {@link removeDirBestEffort}. A later call sees no directory at the pinned
+ * (`<cacheRoot>/versions/.staging-<uuid>`), and only `renameSync`s it into
+ * the final `<cacheRoot>/versions/<pin>` path once `PulumiCommand.install()`
+ * has resolved *and* {@link assertExactPin} has verified the installed
+ * binary reports exactly the pinned version. An interrupted or corrupted
+ * install (network drop mid-download, a script that exits non-zero, a
+ * binary that fails to execute) therefore never touches the final directory
+ * at all — it only ever leaves debris in the staging directory, which is
+ * removed via {@link removeDirBestEffort}. The re-verification `get()` call
+ * *after* the rename is itself wrapped too: if it fails, the just-renamed
+ * directory is removed rather than left at the final path for a later call
+ * to treat as valid, and the failure is classified the same way every other
+ * provisioning failure is. A later call sees no directory at the pinned
  * path and reprovisions from scratch, satisfying the "Interrupted download
  * leaves no usable partial" scenario structurally rather than via an
  * `existsSync` staleness check that a partial write could fool.
  *
+ * ## Swap-aside, not delete-then-install
+ *
+ * {@link tryReuseCached} only deletes a cache entry outright when it has
+ * positive evidence the entry is bad (see {@link isProvablyBadCacheEntry}).
+ * On an *ambiguous* verification failure (the binary couldn't be exec'd for
+ * a reason that says nothing about whether it's actually corrupt — a
+ * transient spawn failure, antivirus interference, a locked file) it leaves
+ * the entry in place and returns `null`, so {@link installFresh} still
+ * attempts a fresh install. That means `installFresh` can encounter a
+ * `root` that's already occupied by an entry nobody has condemned yet. It
+ * handles this by swapping, not deleting: once a fresh install to staging is
+ * verified, any existing occupant of `root` is `renameSync`'d aside to a
+ * sibling `.trash-<uuid>` directory *first*, then the verified staging
+ * install is `renameSync`'d into `root`, and only then is the trash
+ * directory removed. A same-parent `renameSync` is atomic, so `root` is
+ * never observed empty between the two renames. This means a possibly-still-
+ * good install is never destroyed before its replacement is known to
+ * succeed — if the fresh install to staging itself fails, `root` (and
+ * whatever ambiguous-but-possibly-fine entry occupies it) is never touched
+ * at all, since the swap only runs after that install is verified.
+ *
  * ## Memoization that survives a failed attempt
  *
  * {@link resolve} memoizes the in-flight *promise*, so concurrent callers
- * share exactly one provisioning attempt (verified in
- * `PulumiEngineService.test.ts` by asserting `PulumiCommand.install` is
- * called exactly once across concurrent `resolve()` calls) — mirroring
- * `TerraformService.resolve()`. Unlike `TerraformService.resolve()`,
- * though, a **rejected** attempt is deliberately not left memoized: the
- * field is reset to `null` the moment the shared promise rejects, so the
- * *next* `resolve()` call (after this one has settled) starts a fresh
- * provisioning attempt instead of replaying the same stale rejection
- * forever. `TerraformService` can afford to memoize a lookup failure
- * permanently because "no `terraform` on PATH" is a static fact about the
- * machine; engine provisioning failures (no network, a momentarily locked
- * cache directory) are often transient, and the "Provisioning fails with no
+ * share exactly one provisioning attempt whether it ultimately succeeds or
+ * fails (verified in `PulumiEngineService.test.ts` by asserting
+ * `PulumiCommand.install` is called exactly once across concurrent
+ * `resolve()` calls, in both the success and failure case) — mirroring
+ * `TerraformService.resolve()`. Unlike `TerraformService.resolve()`, though,
+ * a **rejected** attempt is deliberately not left memoized: the field is
+ * reset to `null` the moment the shared promise rejects, so the *next*
+ * `resolve()` call (after this one has settled) starts a fresh provisioning
+ * attempt instead of replaying the same stale rejection forever.
+ * `TerraformService` can afford to memoize a lookup failure permanently
+ * because "no `terraform` on PATH" is a static fact about the machine;
+ * engine provisioning failures (no network, a momentarily locked cache
+ * directory) are often transient, and the "Provisioning fails with no
  * network" scenario explicitly requires "a retry is offered" — a retry that
  * only re-attempts anything if the failure wasn't memoized.
  */
@@ -304,11 +404,12 @@ export class PulumiEngineService {
 
   /**
    * Attempts to reuse an already-installed engine at `root`. Returns `null`
-   * (never throws) when nothing is installed there yet, or when what's there
-   * fails to execute or reports a version other than the exact pin — in
-   * either failure case the directory is removed via
-   * {@link removeDirBestEffort} so it can't be mistaken for a valid install
-   * on a later call, and the caller falls through to {@link installFresh}.
+   * (never throws) when nothing is installed there yet, or when what's
+   * there fails verification — but only *deletes* the entry when
+   * {@link isProvablyBadCacheEntry} confirms the failure is positive
+   * evidence of corruption, not merely an inconclusive exec failure. See
+   * the class TSDoc's "Swap-aside, not delete-then-install" section for why
+   * an ambiguous failure is left in place rather than removed.
    */
   private async tryReuseCached(root: string, pin: SemVer): Promise<PulumiCommand | null> {
     if (!existsSync(root)) return null;
@@ -318,24 +419,33 @@ export class PulumiEngineService {
       this.assertExactPin(command, pin, root);
       return command;
     } catch (err) {
-      logger.warn('Pulumi engine cache entry failed verification — discarding and reprovisioning', {
-        root,
-        err,
-      });
-      removeDirBestEffort(root, 'stale cache entry');
+      if (isProvablyBadCacheEntry(err)) {
+        logger.warn('Pulumi engine cache entry is provably invalid — discarding and reprovisioning', {
+          root,
+          err,
+        });
+        removeDirBestEffort(root, 'provably invalid cache entry');
+      } else {
+        logger.warn(
+          'Pulumi engine cache entry failed an ambiguous, possibly-transient check — leaving it in ' +
+            'place and reprovisioning fresh; a successful reprovision will swap it aside rather than lose it',
+          { root, err },
+        );
+      }
       return null;
     }
   }
 
   /**
    * Installs the pinned engine into a fresh staging directory, verifies it,
-   * and only then renames it into `root` — see the class TSDoc's "No
-   * partial-install reuse" section for why this order is what makes an
-   * interrupted install structurally unable to leave a usable partial at
-   * `root`. Throws {@link PulumiEngineNetworkError},
-   * {@link PulumiEngineIntegrityError}, or {@link PulumiEngineCacheWriteError}
-   * (via {@link classifyProvisioningError}) on any failure, after best-effort
-   * staging-directory cleanup.
+   * and only then swaps it into `root` — see the class TSDoc's "No
+   * partial-install reuse" and "Swap-aside, not delete-then-install"
+   * sections for the guarantees this ordering provides. Throws
+   * {@link PulumiEngineNetworkError}, {@link PulumiEngineIntegrityError}, or
+   * {@link PulumiEngineCacheWriteError} (via {@link classifyProvisioningError})
+   * on any failure, after best-effort cleanup of whatever this call itself
+   * touched. On success, prunes superseded pinned versions via
+   * {@link pruneOldVersions}.
    */
   private async installFresh(root: string, pin: SemVer): Promise<PulumiCommand> {
     // Parent of the pin's own directory (`<engineCacheRoot>/versions`) — the
@@ -350,40 +460,107 @@ export class PulumiEngineService {
     }
 
     const stagingDir = join(versionsDir, `.staging-${randomUUID()}`);
-    let installed: PulumiCommand;
     try {
-      installed = await PulumiCommand.install({ version: pin, root: stagingDir, skipVersionCheck: false });
+      const installed = await PulumiCommand.install({ version: pin, root: stagingDir, skipVersionCheck: false });
       this.assertExactPin(installed, pin, stagingDir);
     } catch (err) {
       removeDirBestEffort(stagingDir, 'failed install');
       throw classifyProvisioningError(err, versionsDir);
     }
 
+    // Swap the verified staging install into place. `root` may already be
+    // occupied by an entry `tryReuseCached` deliberately left in place
+    // rather than deleting on inconclusive evidence — move it aside first
+    // rather than deleting it before the new install is confirmed to
+    // succeed. Both renames are same-parent (`versionsDir`), so each is
+    // atomic: `root` is never observed empty or partially written.
+    const trashDir = existsSync(root) ? join(versionsDir, `.trash-${randomUUID()}`) : null;
     try {
+      if (trashDir) renameSync(root, trashDir);
       renameSync(stagingDir, root);
     } catch (err) {
       removeDirBestEffort(stagingDir, 'failed rename into place');
+      // Best-effort restore: if the prior occupant was already moved aside
+      // but the swap didn't complete, put it back rather than leaving
+      // `root` empty — this is exactly the "don't destroy a good install
+      // before the new one is known to succeed" guarantee the swap exists
+      // for.
+      if (trashDir && existsSync(trashDir) && !existsSync(root)) {
+        try {
+          renameSync(trashDir, root);
+        } catch (restoreErr) {
+          logger.error('Failed to restore prior Pulumi engine install after a failed swap', {
+            root,
+            trashDir,
+            restoreErr,
+          });
+        }
+      }
       throw new PulumiEngineCacheWriteError(versionsDir, err);
     }
+    if (trashDir) removeDirBestEffort(trashDir, 'superseded by a fresh verified install');
 
-    // `installed.command` still points at the now-renamed-away staging path
-    // — re-resolve a fresh `PulumiCommand` against the final `root` rather
-    // than returning the stale one.
-    return PulumiCommand.get({ root, version: pin, skipVersionCheck: false });
+    // The `PulumiCommand` returned by `install()` above still points at the
+    // now-renamed-away staging path — re-resolve a fresh one against the
+    // final `root`. This call is itself wrapped: a failure here means a
+    // verified-good install just got renamed into place but then failed to
+    // resolve again (e.g. a transient exec failure immediately after the
+    // move) — that must not let a raw SDK error escape with an unvalidated
+    // install left sitting at the final path for a later `tryReuseCached`
+    // to stumble on; it's cleaned up and classified like every other
+    // provisioning failure instead.
+    let final: PulumiCommand;
+    try {
+      final = await PulumiCommand.get({ root, version: pin, skipVersionCheck: false });
+      this.assertExactPin(final, pin, root);
+    } catch (err) {
+      removeDirBestEffort(root, 'failed post-rename verification');
+      throw classifyProvisioningError(err, versionsDir);
+    }
+
+    this.pruneOldVersions(versionsDir, root);
+    return final;
   }
 
   /**
-   * Throws a plain `Error` (classified by the caller into one of the typed
-   * provisioning errors) unless `command.version` is defined and exactly
-   * equal to `pin` — guards against `PulumiCommand.get()`/`install()`'s own
-   * check being a minimum-version check rather than an exact match, per the
-   * class TSDoc's "Version-namespaced cache" section.
+   * Throws {@link PulumiEnginePinMismatchError} unless `command.version` is
+   * defined and exactly equal to `pin` — guards against
+   * `PulumiCommand.get()`/`install()`'s own check being a minimum-version
+   * check rather than an exact match, per the class TSDoc's "Version-
+   * namespaced cache" section.
    */
   private assertExactPin(command: PulumiCommand, pin: SemVer, root: string): void {
     if (!command.version || command.version.compare(pin) !== 0) {
-      throw new Error(
-        `engine at "${root}" reports version "${String(command.version)}", expected exactly "${pin.toString()}"`,
-      );
+      throw new PulumiEnginePinMismatchError(root, command.version, pin);
+    }
+  }
+
+  /**
+   * Best-effort removes every entry directly under `versionsDir` other than
+   * the current pin's own directory (`keepRoot`) and any in-flight
+   * `.staging-`/`.trash-` directory — version-namespacing (see the class
+   * TSDoc) solved staleness by never reusing an old pin's directory, but
+   * without pruning the cache would otherwise grow by a few hundred MB on
+   * every pin bump for the lifetime of the installation. Called once per
+   * successful provisioning, right after a new pin's directory is confirmed
+   * installed and verified. Never throws — a pruning failure (including
+   * failing to even list `versionsDir`) is logged and otherwise ignored,
+   * since failing to reclaim disk space is not a reason to fail
+   * provisioning that already succeeded.
+   */
+  private pruneOldVersions(versionsDir: string, keepRoot: string): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(versionsDir);
+    } catch (err) {
+      logger.warn('Failed to list Pulumi engine versions directory for pruning', { versionsDir, err });
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.startsWith('.staging-') || entry.startsWith('.trash-')) continue;
+      const entryPath = join(versionsDir, entry);
+      if (entryPath === keepRoot) continue;
+      removeDirBestEffort(entryPath, 'superseded pinned version');
     }
   }
 
@@ -401,8 +578,11 @@ export class PulumiEngineService {
    * pin this service has ever provisioned) is installed under. Mirrors
    * `ConfigService.getRunsDir()`'s resolution order:
    *
-   *  1. `PULUMI_ENGINE_DIR` env var — wins when set, resolved against
-   *     `process.cwd()` so a relative override behaves predictably in dev/test.
+   *  1. `HYVEON_PULUMI_ENGINE_DIR` env var — wins when set, resolved against
+   *     `process.cwd()` so a relative override behaves predictably in
+   *     dev/test. Prefixed `HYVEON_` (rather than a bare `PULUMI_ENGINE_DIR`)
+   *     so it can't collide with a variable Pulumi's own CLI or SDK might
+   *     introduce.
    *  2. Electron `userData` directory (`<userData>/pulumi`) — the app-owned
    *     location the spec requires ("never `~/.pulumi`"), available whenever
    *     this process is running inside Electron (see {@link resolveUserDataPath}).
@@ -411,7 +591,7 @@ export class PulumiEngineService {
    *     exists.
    */
   private getEngineCacheRoot(): string {
-    const envOverride = process.env['PULUMI_ENGINE_DIR'];
+    const envOverride = process.env['HYVEON_PULUMI_ENGINE_DIR'];
     if (envOverride) return resolve(envOverride);
 
     const userData = this.resolveUserDataPath();
