@@ -131,10 +131,10 @@ describe('GamesController', () => {
   });
 
   describe('listGames', () => {
-    it('should invalidate the tfstate cache before reading game names', async () => {
+    it('should NOT invalidate the stack-outputs cache — this channel is called on every games-list page visit, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would pay that cost far more often than a fresh deploy could plausibly have happened', async () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeTfvars(), makeGamesWrite()).listGames();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before reading game names', async () => {
@@ -177,10 +177,10 @@ describe('GamesController', () => {
   });
 
   describe('listStatus', () => {
-    it('should invalidate cache before querying ECS', async () => {
+    it('should NOT invalidate the stack-outputs cache — this channel backs the dashboard 20-second status poller, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeTfvars(), makeGamesWrite()).listStatus();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before querying ECS', async () => {
