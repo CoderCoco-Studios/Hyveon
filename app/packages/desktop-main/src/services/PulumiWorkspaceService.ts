@@ -12,7 +12,7 @@ import { Injectable } from '@nestjs/common';
 import { LocalWorkspace } from '@pulumi/pulumi/automation/index.js';
 import type { LocalWorkspaceOptions, PulumiFn, Stack } from '@pulumi/pulumi/automation/index.js';
 import { logger } from '../logger.js';
-import { PulumiEngineService } from './PulumiEngineService.js';
+import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 
@@ -257,6 +257,17 @@ export interface PulumiWorkspaceInput {
    * own separate clearing API for that.
    */
   credentialEnvVars?: Record<string, string>;
+  /**
+   * Task 4.6's phase-reporting extension point — forwarded verbatim to
+   * {@link PulumiEngineService.resolve}, so `('engine', 'start' | 'end')` is
+   * reported around this call's own engine-resolution step. See that
+   * method's TSDoc for exactly what 4.6 could and could not wire up yet —
+   * `'plugins'`/`'operation'` are never reported by anything in this file,
+   * since neither has any observable event in the code Phase 4 builds
+   * (plugin download and the operation itself both belong to Phase 7's
+   * `PulumiService`).
+   */
+  onPhase?: PulumiPhaseCallback;
 }
 
 /**
@@ -324,7 +335,7 @@ export class PulumiWorkspaceService {
     // reasonable order in which the passphrase can be an afterthought.
     const passphrase = this.resolvePassphrase(input.stackExists);
 
-    const pulumiCommand = await this.engine.resolve();
+    const pulumiCommand = await this.engine.resolve(input.onPhase);
     const pulumiHome = this.ensureDir(this.getPulumiHomeDir());
     const workDir = this.ensureDir(this.getWorkDir());
     logger.debug('PulumiWorkspaceService: resolved workspace paths', { pulumiHome, workDir });
