@@ -23,7 +23,7 @@ import { logger } from '../logger.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiEngineService } from './PulumiEngineService.js';
-import { PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
+import { PULUMI_PROJECT_NAME, PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import {
   PulumiOperationAbortedError,
   PulumiOperationEscalatedError,
@@ -302,12 +302,14 @@ const DESTROY_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
  * (always-constant) stack name, fully determines which real Pulumi stack
  * `stack.destroy()` will run against.
  *
- * `stackName` is still recorded and compared (`PULUMI_STACK_NAME`,
- * unconditionally) even though it can never mismatch today — cheap to check,
- * literally what the spec's prose names ("the workspace **and stack** it was
- * issued for"), and future-proof for free: if this app ever grows a second
- * stack, the binding mechanism already accounts for it without a schema
- * change, only a population change.
+ * `stackName`/`projectName` are still recorded and compared (`PULUMI_STACK_NAME`/
+ * `PULUMI_PROJECT_NAME`, unconditionally) even though NEITHER can ever
+ * mismatch today (both are hardcoded constants, never `org/project/stack`
+ * user input) — cheap to check, literally what the spec's prose names ("the
+ * workspace **and stack** it was issued for"), and future-proof for free: if
+ * this app ever grows a second stack or project, the binding mechanism
+ * already accounts for it without a schema change, only a population
+ * change.
  *
  * `null` when no token has been minted, or once the most recently minted one
  * has been consumed or superseded by a newer {@link PulumiService.mintDestroyConfirmationToken}
@@ -330,6 +332,8 @@ interface PulumiPendingDestroyConfirmation {
   stateBucketRegion: string | undefined;
   /** {@link PULUMI_STACK_NAME} at mint time — always the same constant today; see this interface's doc comment for why it's still recorded. */
   stackName: string;
+  /** {@link PULUMI_PROJECT_NAME} at mint time — always the same constant today, for the identical reason {@link stackName} is still recorded. */
+  projectName: string;
 }
 
 /**
@@ -2610,6 +2614,7 @@ export class PulumiService {
       stateBucket: this.store.get('bootstrap')?.stateBucket,
       stateBucketRegion: this.store.get('aws')?.region,
       stackName: PULUMI_STACK_NAME,
+      projectName: PULUMI_PROJECT_NAME,
     };
     return this.pendingDestroyConfirmation.token;
   }
@@ -2647,51 +2652,67 @@ export class PulumiService {
    * spec's "Concurrent submissions cannot share one token" scenario is
    * explicit that the LOSER of a same-token race must observe
    * `DestroyNotConfirmedError` specifically — not `RunLockHeldError`, not a
-   * generic "busy" refusal. That requirement is only satisfiable if token
-   * consumption is decided BEFORE any `await` in this method, using nothing
-   * but JS's own single-threaded run-to-completion semantics — a durable,
-   * cross-process lock (`RunLockService`, an actual DynamoDB round trip) is
-   * fundamentally the wrong primitive to arbitrate that specific race,
-   * because it cannot be reached synchronously. This is why this method's
-   * gate is ordered token-first, the OPPOSITE of where a "single-use
-   * credential shouldn't be spent needlessly" instinct might place it (and
-   * the opposite of where an earlier draft of this method placed it, before
-   * this exact scenario was worked through against the spec):
+   * generic "busy" refusal.
+   *
+   * **Only ONE ordering constraint below is actually forced by that spec
+   * requirement — everything else is a deliberate choice, and this section
+   * is explicit about which is which** (an earlier draft of this method
+   * conflated the two, over-generalizing "the token must precede the one
+   * genuinely-forced boundary" into "the token must precede everything
+   * else", which needlessly burned tokens on refusals that had nothing to
+   * do with the race the ordering was protecting against — caught and fixed
+   * in review):
+   *
+   * - **Forced**: the token MUST be consumed before {@link RunLockService.createRun}
+   *   (gate step 4 below) — `createRun` is this method's first genuine
+   *   `await` boundary (a DynamoDB round trip when the runs table is
+   *   deployed), so any ordering that reaches it before the token is
+   *   consumed would let a same-token race be decided by `createRun`'s own
+   *   atomicity instead — the loser would observe `RunLockHeldError`, not
+   *   `DestroyNotConfirmedError`, violating the spec scenario outright.
+   * - **NOT forced**: whether the pure, synchronous config-presence checks
+   *   (gate step 2 below — state bucket/region configured, a stack has
+   *   actually been created) run before or after the token. Both orderings
+   *   are equally synchronous (neither has an `await` in it), so EITHER
+   *   ordering decides a same-token race identically — at the token check,
+   *   with nothing async above it, with `RunLockService` never touched by
+   *   the loser. This dispatch places these checks BEFORE the token
+   *   (corrected from an earlier draft that placed them after): a call that
+   *   was always going to fail an ordinary "is anything even deployed yet"
+   *   check should not additionally burn the operator's single-use
+   *   confirmation on top of that failure, and nothing about the spec
+   *   requires it to.
    *
    * 1. {@link operationInFlight} busy check (top, cheap, no reservation,
    *    still synchronous) — mirrors `apply`'s identical top-of-function
    *    check: refuses immediately if `preview`/`up`/an already-running
    *    `destroy` (from an EARLIER, already-committed call) is using the
    *    shared local workspace, before the token is ever even read.
-   * 2. **THE authoritative safety gate, consumed here — synchronously, with
-   *    nothing async above it**: {@link assertFreshDestroyConfirmation}.
-   *    Two calls sharing the same token, driven "concurrently" (their
-   *    `.next()` calls issued back-to-back before either has awaited
-   *    anything), are strictly ordered by JS itself — whichever call's
-   *    `.next()` executes first runs this whole gate step, including the
-   *    token's synchronous clear, to completion before the other call's
-   *    `.next()` begins at all. The loser observes the token already
-   *    consumed and throws {@link DestroyNotConfirmedError} — exactly the
-   *    spec's required outcome, decided without ever touching
-   *    `RunLockService`. Nothing has been reserved anywhere by the time this
-   *    step could throw (no lock, no `operationInFlight`, no active-run
-   *    buffer), so a rejection here is a clean, zero-side-effect unwind.
-   * 3. Pure, idempotent read checks — state bucket/region configured, a
-   *    stack has actually been created (passphrase on record). These run
-   *    AFTER the token (a call that was always going to fail these has
-   *    already spent its token by this point — an accepted, deliberate
-   *    trade-off; see below) but still BEFORE the durable-lock reservation,
-   *    mirroring `apply`'s own config-existence checks (gate step 6)
-   *    preceding its reservation (step 8).
-   * 4. **THEN, and only then**: `RunLockService.createRun()` (called with
-   *    `'destroy'`, the resolved initiator, and this run's `runId`) — task
-   *    7.7's SAME atomic compare-and-set `apply`'s gate step 8 uses,
-   *    reserving this app's single durable run slot for `runId`. A losing
-   *    race rejects with `RunLockHeldError`, propagated unwrapped, exactly
-   *    like `apply`. Deliberately last among the reservations: by the time
-   *    this runs, the token has already proven THIS call is the one the
-   *    operator actually confirmed, so it's the only call worth reserving
-   *    the durable lock for in the first place.
+   * 2. Pure, synchronous config-presence checks — state bucket/region
+   *    configured, a stack has actually been created (passphrase on
+   *    record). NOT forced to precede the token (see above) — ordered here
+   *    as a deliberate choice, not a spec requirement.
+   * 3. **THE authoritative safety gate, consumed here — still synchronously,
+   *    with nothing async above it (steps 1-2 are also synchronous, so this
+   *    property holds regardless of their relative order)**:
+   *    {@link assertFreshDestroyConfirmation}. Two calls sharing the same
+   *    token, driven "concurrently" (their `.next()` calls issued
+   *    back-to-back before either has awaited anything), are strictly
+   *    ordered by JS itself — whichever call's `.next()` executes first
+   *    runs this whole gate step, including the token's synchronous clear,
+   *    to completion before the other call's `.next()` begins at all. The
+   *    loser observes the token already consumed and throws
+   *    {@link DestroyNotConfirmedError} — exactly the spec's required
+   *    outcome, decided without ever touching `RunLockService`. Nothing has
+   *    been reserved anywhere by the time this step could throw (no lock,
+   *    no `operationInFlight`, no active-run buffer), so a rejection here is
+   *    a clean, zero-side-effect unwind.
+   * 4. **THEN, and only then — this ordering IS forced (see above)**:
+   *    `RunLockService.createRun()` (called with `'destroy'`, the resolved
+   *    initiator, and this run's `runId`) — task 7.7's SAME atomic
+   *    compare-and-set `apply`'s gate step 8 uses, reserving this app's
+   *    single durable run slot for `runId`. A losing race rejects with
+   *    `RunLockHeldError`, propagated unwrapped, exactly like `apply`.
    * 5. The SAME post-`createRun` {@link operationInFlight} TOCTOU re-check
    *    `apply` performs (closing the gap a concurrent `preview`/already-
    *    winning `up` could have opened during that `await`) — on a loss, the
@@ -2699,32 +2720,34 @@ export class PulumiService {
    *    `apply`'s identical branch byte-for-byte.
    * 6. **Commit**: `operationInFlight = 'destroy'`, `beginActiveRun(runId)`,
    *    `startedAt` captured. Nothing above this line has reserved anything
-   *    that survives a refusal EXCEPT the token itself (step 2 — spec-
+   *    that survives a refusal EXCEPT the token itself (step 3 — spec-
    *    mandated to be spent regardless of what happens afterward; there is
    *    no "un-consume") — every other branch that throws before this point
    *    either reserved nothing at all, or explicitly released what it
    *    reserved (the durable lock) before throwing.
    *
-   * **Accepted trade-off, stated explicitly**: because the token is consumed
-   * before steps 3-5, a destroy submitted while genuinely unconfigured, or
-   * while a different process holds the durable lock, spends its token even
-   * though it was always going to be refused — the operator must re-open the
-   * confirmation modal and mint a fresh one to retry. This regresses one
-   * property the pre-migration split had (`TerraformController.destroy`
-   * acquired `RunService`'s lock BEFORE ever calling `TerraformService.destroy`,
-   * whose own token check ran only once the generator itself started, so a
-   * `RunLockHeldError`-style refusal never burned a token there). Both
-   * realistic instances of this — "genuinely unconfigured" and "a DIFFERENT
-   * process holds the lock" — are rare in this single-desktop-app context
-   * (you cannot reach a destroy-confirmation modal without a deployed stack,
-   * and this app never runs two instances against the same stack under
-   * normal operation); step 1's {@link operationInFlight} check still fully
-   * protects the actually-common case (a second click, or a second IPC
-   * submission, while THIS process's own destroy/apply/preview is already
-   * running) without spending anything. The alternative — checking the token
-   * last, as an earlier draft of this method did — was rejected because it
-   * cannot satisfy the spec's concurrent-shared-token scenario at all (see
-   * step 2 above): that trade-off is not available to choose.
+   * **Residual, genuinely-forced trade-off, stated explicitly**: because
+   * step 4 (the ONE ordering the spec actually forces after the token) can
+   * still lose its race — a DIFFERENT process already holding the durable
+   * lock — a destroy can still spend its token on a call that was always
+   * going to be refused with `RunLockHeldError`. There is no synchronous way
+   * to know whether `createRun` will win BEFORE calling it (the durable lock
+   * is only observable via that same async round trip), so this one case
+   * cannot be moved earlier the way the config checks were. It is rare in
+   * this single-desktop-app context (this app never runs two instances
+   * against the same stack under normal operation) and, per the destroy
+   * gate's own governing spec, burning a token here is the fail-safe
+   * outcome, not an unsafe one — a spent token only forces re-confirmation,
+   * never a silent no-op. Step 1's {@link operationInFlight} check fully
+   * protects the actually-common conflict case (a second click, or a second
+   * IPC submission, while THIS process's own destroy/apply/preview is
+   * already running) without spending anything, and step 2 now fully
+   * protects the "nothing is configured yet" case too. The alternative —
+   * checking the token strictly last, as an earlier draft of this method
+   * did — was rejected because it cannot satisfy the spec's
+   * concurrent-shared-token scenario at all (see the "Forced" bullet
+   * above): that alternative was never actually available to choose,
+   * unlike the config-check ordering, which was.
    *
    * `operationInFlight` is, exactly like `apply`, only ever SET once —
    * immediately after commit (step 6) — never at the top-of-function check
@@ -2939,27 +2962,28 @@ export class PulumiService {
     let operationSettled = false;
 
     try {
+      // Single abort check for this method's whole synchronous prologue
+      // (gate steps 2-3 below — the config-presence checks and the token
+      // consumption) — nothing yields between here and the createRun()
+      // `await` further down, so a second check partway through that
+      // prologue could never observe a state change (nothing else runs on
+      // this thread in between) and would be dead code — deliberately not
+      // duplicated here, unlike preview()/apply(), where each such check
+      // sits after a genuine `await` and is therefore live.
       if (internalController.signal.aborted) {
         return undefined;
       }
 
-      // --- Gate step 2: THE authoritative safety gate, checked FIRST among
-      // the substantive gate steps — fully synchronous, no `await` anywhere
-      // above this point in the method, so token consumption is atomic for
-      // two calls racing on the SAME token: JS's own run-to-completion
-      // semantics mean whichever call's `.next()` runs first executes this
-      // whole line (and the synchronous clear inside
-      // assertFreshDestroyConfirmation) to completion before the other
-      // call's `.next()` is even invoked. See this method's TSDoc, "Gate
-      // structure", for the full ordering rationale and why this differs
-      // from apply()'s "reservation last" shape. ---
+      // --- Gate step 2: pure, synchronous config-presence checks — state
+      // bucket/region configured, a stack has actually been created. NOT
+      // forced to precede the token by the governing spec (unlike gate step
+      // 4's ordering relative to step 3, below) — placed here as a
+      // deliberate choice so a call that was always going to fail an
+      // ordinary "is anything even deployed yet" check doesn't also burn
+      // the operator's single-use confirmation token. See this method's
+      // TSDoc, "Gate structure", for the full forced-vs-chosen breakdown. ---
       const stateBucket = this.store.get('bootstrap')?.stateBucket;
       const stateBucketRegion = this.store.get('aws')?.region;
-      this.assertFreshDestroyConfirmation(confirmationToken, stateBucket, stateBucketRegion);
-
-      // --- Gate step 3: pure, idempotent read checks — ordered before the
-      // durable-lock reservation, mirroring apply()'s gate-steps-before-
-      // createRun discipline (see this method's TSDoc, "Gate structure"). ---
       if (!stateBucket || !stateBucketRegion) {
         throw new Error(
           'Cannot run pulumi destroy: the state bucket / AWS region has not been configured yet. ' +
@@ -2974,12 +2998,21 @@ export class PulumiService {
         );
       }
 
-      if (internalController.signal.aborted) {
-        return undefined;
-      }
+      // --- Gate step 3: THE authoritative safety gate — still fully
+      // synchronous, still with nothing async above it (step 2 above is
+      // also synchronous, so this property holds regardless of their
+      // relative order), so token consumption remains atomic for two calls
+      // racing on the SAME token: JS's own run-to-completion semantics mean
+      // whichever call's `.next()` runs first executes this whole line
+      // (and the synchronous clear inside assertFreshDestroyConfirmation)
+      // to completion before the other call's `.next()` is even invoked.
+      // THIS is the check that is genuinely forced to precede gate step 4
+      // (createRun) — see this method's TSDoc, "Gate structure". ---
+      this.assertFreshDestroyConfirmation(confirmationToken, stateBucket, stateBucketRegion);
 
       // --- Gate step 4: THE atomic, authoritative durable-lock reservation
-      // (mirrors apply()'s gate step 8 exactly) ---
+      // (mirrors apply()'s gate step 8 exactly) — this is the ordering
+      // constraint gate step 3 above is genuinely forced to precede. ---
       const initiator = PulumiService.resolveInitiator();
       const reservedRunId = preMintedRunId ?? randomUUID();
       await this.getRunLockService().createRun('destroy', initiator, reservedRunId);
@@ -3368,6 +3401,20 @@ export class PulumiService {
    * behavior: a genuinely correct, still-valid token remains usable by a
    * subsequent call even if an earlier call supplied a wrong one first (e.g.
    * a stale IPC retry racing a fresh one).
+   *
+   * Logs a `logger.warn` naming the SPECIFIC rejection reason (no token ever
+   * minted, token mismatch, expired, or target mismatch) before throwing on
+   * every failure branch — this gate is, per design.md, the ONLY thing
+   * standing between an accidental invocation and destroying all managed
+   * infrastructure, and `AuditService` only records ACCEPTED submissions
+   * (the `iac-destroy-flow` spec's audit requirement is scoped to those), so
+   * a rejected destroy attempt would otherwise leave no forensic record at
+   * all beyond the bare `DestroyNotConfirmedError` message reaching
+   * whichever caller invoked this method. This is especially load-bearing
+   * for the target-mismatch case (a Reconfigure completed between mint and
+   * confirm): without a distinguishing log line, that rejection is
+   * indistinguishable after the fact from an operator simply re-submitting
+   * a stale token.
    */
   private assertFreshDestroyConfirmation(
     token: string,
@@ -3375,14 +3422,37 @@ export class PulumiService {
     currentStateBucketRegion: string | undefined,
   ): void {
     const pending = this.pendingDestroyConfirmation;
+    if (!pending) {
+      logger.warn('pulumi destroy confirmation rejected: no confirmation token has ever been minted');
+      throw new DestroyNotConfirmedError();
+    }
+    if (pending.token !== token) {
+      logger.warn('pulumi destroy confirmation rejected: supplied token does not match the most recently minted token');
+      throw new DestroyNotConfirmedError();
+    }
+    if (Date.now() > pending.expiresAt) {
+      logger.warn('pulumi destroy confirmation rejected: the most recently minted token has expired', {
+        expiresAt: pending.expiresAt,
+      });
+      throw new DestroyNotConfirmedError();
+    }
     if (
-      !pending ||
-      pending.token !== token ||
-      Date.now() > pending.expiresAt ||
       pending.stateBucket !== currentStateBucket ||
       pending.stateBucketRegion !== currentStateBucketRegion ||
-      pending.stackName !== PULUMI_STACK_NAME
+      pending.stackName !== PULUMI_STACK_NAME ||
+      pending.projectName !== PULUMI_PROJECT_NAME
     ) {
+      logger.warn(
+        'pulumi destroy confirmation rejected: token is bound to a different target — the state bucket/region ' +
+          '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
+          'between',
+        {
+          mintedStateBucket: pending.stateBucket,
+          currentStateBucket,
+          mintedStateBucketRegion: pending.stateBucketRegion,
+          currentStateBucketRegion,
+        },
+      );
       throw new DestroyNotConfirmedError();
     }
     this.pendingDestroyConfirmation = null;
