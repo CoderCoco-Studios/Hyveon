@@ -67,7 +67,8 @@ On the AWS side you need:
         "dynamodb:*",
         "secretsmanager:*",
         "s3:*",
-        "cloudfront:*"
+        "cloudfront:*",
+        "acm:*"
       ],
       "Resource": "*"
     },
@@ -136,6 +137,7 @@ Two permission areas used by Terraform are **not** covered by any AWS managed po
 
 - **EventBridge tag operations** — the AWS provider tags EventBridge rules on creation, which requires `events:TagResource`, `events:UntagResource`, and `events:ListTagsForResource`. `events:*` above already grants these — if you tighten the policy later, keep those three actions in.
 - **CloudFront** — the Discord interactions endpoint is fronted by a CloudFront distribution. `cloudfront:*` above covers creation, updates, tagging, and deletion of distributions.
+- **ACM (Certificate Manager)** — CloudFront's custom domain (`discord.{hosted_zone_name}`) needs a DNS-validated ACM certificate, always provisioned in `us-east-1` regardless of `aws_region`. This needs `acm:RequestCertificate`, `acm:DescribeCertificate`, `acm:AddTagsToCertificate`, and `acm:DeleteCertificate` at minimum; `acm:*` above covers all of it. ACM certificate ARNs aren't predictable before creation (unlike the project-prefixed IAM roles/policies in `HyveonIAM`), so this is scoped like `cloudfront:*`/`route53:*` above — `Resource: "*"` within the `HyveonDeploy` statement, not a separate ARN-scoped statement.
 
 This policy is the **single source of truth** for IAM permissions. If you need to add or remove permissions, edit it here — do not create separate inline policies or update the README independently.
 

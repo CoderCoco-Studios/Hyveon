@@ -4,6 +4,17 @@ import { defineDiscordDomain } from './discordDomain.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
 
 /**
+ * The exact ARN `testing/pulumiMocks.ts`'s `RESOURCE_STATE_MOCKS` entry for
+ * `aws:acm/certificate:Certificate` deterministically derives for
+ * `domainName: 'discord.example.com'` (this file's fixture `hostedZoneName`,
+ * `'example.com'`) — computed independently here (not read back through
+ * `result.certificate.arn`) so the assertions below actually verify the
+ * certificate/viewer-certificate wiring instead of trivially matching
+ * whatever the resource graph happens to already contain.
+ */
+const EXPECTED_CERTIFICATE_ARN = 'arn:aws:acm:us-east-1:123456789012:certificate/mock-discord-example-com';
+
+/**
  * No test in this file exercises a conditionality gate: unlike
  * `escapes.ts`'s two DynamoDB table items, `discord-domain.tf` has no
  * top-level `count`/`for_each` gate — every resource here is declared
@@ -62,11 +73,27 @@ describe('defineDiscordDomain', () => {
     const aliasA = byName('hyveon-discord-alias-a');
     const aliasAaaa = byName('hyveon-discord-alias-aaaa');
 
+    // Identity relations alone (cert ≡ certValidation, others ≡ each other
+    // but ≢ cert) can't detect an INVERTED pinning — swapping which provider
+    // handle got passed to which resource would satisfy every relation below
+    // just as well. `MockResourceArgs.provider` is a
+    // `<providerUrn>::<providerId>` string that embeds the provider's own
+    // Pulumi logical name (`'aws-us-east-1'` vs `'aws'` — see this file's
+    // `beforeEach`), so asserting on that substring pins down WHICH provider,
+    // not just "some provider distinct from the others'."
+    expect(certificate?.provider).toContain('aws-us-east-1');
+    expect(certificateValidation?.provider).toContain('aws-us-east-1');
+    expect(distribution?.provider).not.toContain('aws-us-east-1');
+    expect(validationRecord?.provider).not.toContain('aws-us-east-1');
+    expect(aliasA?.provider).not.toContain('aws-us-east-1');
+    expect(aliasAaaa?.provider).not.toContain('aws-us-east-1');
+
+    // Identity relations, kept alongside the substring checks above: every
+    // regional resource shares the exact same provider INSTANCE (not just
+    // "some non-us-east-1 provider"), and the certificate/validation pair
+    // shares the exact same us-east-1 instance.
     expect(certificate?.provider).toBeDefined();
     expect(certificateValidation?.provider).toBe(certificate?.provider);
-
-    // Every other resource shares one provider identity, and it's NOT the
-    // us-east-1 one the certificate/validation used.
     expect(validationRecord?.provider).toBeDefined();
     expect(validationRecord?.provider).not.toBe(certificate?.provider);
     expect(distribution?.provider).toBe(validationRecord?.provider);
@@ -90,7 +117,13 @@ describe('defineDiscordDomain', () => {
   it('should wait for validation using the validation record fqdn against the certificate arn', async () => {
     const result = await run();
 
-    expect(await promiseOf(result.certificateValidation.certificateArn)).toBe(await promiseOf(result.certificate.arn));
+    // Asserted against `EXPECTED_CERTIFICATE_ARN` (computed independently of
+    // the resource graph — see its doc), not by comparing the two live
+    // outputs to each other: two `undefined`s used to compare equal too,
+    // which made this assertion pass even when neither field actually
+    // resolved to a real ARN.
+    expect(await promiseOf(result.certificate.arn)).toBe(EXPECTED_CERTIFICATE_ARN);
+    expect(await promiseOf(result.certificateValidation.certificateArn)).toBe(EXPECTED_CERTIFICATE_ARN);
     expect(await promiseOf(result.certificateValidation.validationRecordFqdns)).toEqual([
       await promiseOf(result.certificateValidationRecord.fqdn),
     ]);
@@ -135,11 +168,15 @@ describe('defineDiscordDomain', () => {
   });
 
   it("should set the distribution's viewer certificate to the validated certificate's arn with sni-only and TLSv1.2_2021", async () => {
-    const result = await run();
+    await run();
 
+    // Asserted against the independently-computed `EXPECTED_CERTIFICATE_ARN`
+    // literal, not `promiseOf(result.certificateValidation.certificateArn)`
+    // read back from the resource graph — a self-referential comparison
+    // would trivially pass no matter what value ended up wired in.
     const distribution = mocks.resources.find((resource) => resource.name === 'hyveon-discord-cf');
     expect(distribution?.inputs.viewerCertificate).toEqual({
-      acmCertificateArn: await promiseOf(result.certificateValidation.certificateArn),
+      acmCertificateArn: EXPECTED_CERTIFICATE_ARN,
       sslSupportMethod: 'sni-only',
       minimumProtocolVersion: 'TLSv1.2_2021',
     });

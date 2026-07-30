@@ -170,6 +170,14 @@ describe('defineAll', () => {
     expect(types.filter((type) => type === 'aws:acm/certificateValidation:CertificateValidation')).toHaveLength(1);
     expect(types.filter((type) => type === 'aws:cloudfront/distribution:Distribution')).toHaveLength(1);
 
+    // The distribution's origin must be the REAL interactions Function URL's
+    // host (mocked by `pulumiMocks.ts`'s `RESOURCE_STATE_MOCKS` entry for
+    // `aws:lambda/functionUrl:FunctionUrl`) — the one assertion that would
+    // catch the distribution being wired to the wrong Lambda's URL.
+    const distribution = mocks.resources.find((resource) => resource.type === 'aws:cloudfront/distribution:Distribution');
+    const origins = distribution?.inputs.origins as Array<Record<string, unknown>>;
+    expect(origins[0].domainName).toBe('mock-function-url.lambda-url.us-east-1.on.aws');
+
     const names = mocks.resources.map((resource) => resource.name);
     expect(names).toContain('hyveon-vpc');
     expect(names).toContain('hyveon-sg');

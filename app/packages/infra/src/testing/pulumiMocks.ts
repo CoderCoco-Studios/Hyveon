@@ -134,8 +134,18 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
 const RESOURCE_STATE_MOCKS: Record<string, (inputs: Record<string, unknown>) => Record<string, unknown>> = {
   // `discordDomain.ts`'s `defineDiscordDomain` — a single-domain certificate
   // (no `subjectAlternativeNames`), so exactly one validation option is
-  // enough to exercise `certificate.domainValidationOptions[0]`.
+  // enough to exercise `certificate.domainValidationOptions[0]`. `arn` is
+  // deterministically DERIVED from `domainName` (not a fixed literal) so a
+  // spec can independently predict the exact string and assert it downstream
+  // (`certificateValidation.certificateArn`, `viewerCertificate.acmCertificateArn`)
+  // WITHOUT reading it back through the resource graph itself — a real,
+  // non-`undefined` value here is what makes those downstream assertions
+  // actually load-bearing instead of an `undefined === undefined` vacuous
+  // pass (both `certificate.arn` and `certificateValidation.certificateArn`
+  // used to resolve to `undefined` before this entry existed, since `arn` is
+  // a computed-only ACM output, never part of `CertificateArgs`).
   'aws:acm/certificate:Certificate': (inputs) => ({
+    arn: `arn:aws:acm:us-east-1:123456789012:certificate/mock-${(inputs.domainName as string).replace(/\./g, '-')}`,
     domainValidationOptions: [
       {
         domainName: inputs.domainName,
