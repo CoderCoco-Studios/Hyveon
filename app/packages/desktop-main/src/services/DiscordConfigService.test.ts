@@ -10,9 +10,9 @@
  * file-backed service) still behaves.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SecretsStore } from '@hyveon/shared';
+import type { SecretsStore, StackOutputs } from '@hyveon/shared';
 import { DiscordConfigService } from './DiscordConfigService.js';
-import { ConfigService, type TfOutputs } from './ConfigService.js';
+import { ConfigService } from './ConfigService.js';
 
 const getDiscordConfigMock = vi.fn();
 const getBaseDiscordConfigMock = vi.fn();
@@ -28,22 +28,26 @@ vi.mock('@hyveon/shared', async () => {
   };
 });
 
-/** Minimal `TfOutputs` stub exposing just the Discord-store fields. */
-const TF: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: '',
-  ecs_cluster_arn: '',
-  subnet_ids: '',
-  security_group_id: '',
-  file_manager_security_group_id: '',
-  efs_file_system_id: '',
-  efs_access_points: {},
-  domain_name: '',
-  game_names: [],
-  discord_table_name: 'test-discord',
-  discord_bot_token_secret_arn: 'arn:bot-token',
-  discord_public_key_secret_arn: 'arn:public-key',
-  interactions_invoke_url: 'https://url',
+/** Minimal `StackOutputs` stub exposing just the Discord-store fields. */
+const TF: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: '',
+  ecsClusterArn: '',
+  subnetIds: [],
+  securityGroupId: '',
+  fileManagerSecurityGroupId: '',
+  efsFileSystemId: '',
+  efsAccessPoints: {},
+  domainName: '',
+  gameNames: [],
+  discordTableName: 'test-discord',
+  auditTableName: '',
+  runsTableName: '',
+  discordBotTokenSecretArn: 'arn:bot-token',
+  discordPublicKeySecretArn: 'arn:public-key',
+  interactionsInvokeUrl: 'https://url',
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 /** `get` mock for the injected `SecretsStore` stub — keyed by secret name/ARN so bot-token and public-key lookups can be stubbed independently. */
@@ -57,10 +61,10 @@ function makeSecretsStore(): SecretsStore {
 }
 
 function makeService(
-  outputs: TfOutputs | null = TF,
+  outputs: StackOutputs | null = TF,
   secrets: SecretsStore = makeSecretsStore(),
 ): DiscordConfigService {
-  const config = { getTfOutputs: () => outputs } as Partial<ConfigService> as ConfigService;
+  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new DiscordConfigService(config, secrets);
 }
 

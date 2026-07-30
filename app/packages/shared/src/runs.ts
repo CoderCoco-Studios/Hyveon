@@ -1,3 +1,5 @@
+import type { ChangeSummary } from './changeSummary.js';
+
 /**
  * Which `terraform` subcommand a {@link RunRecord} describes. Mirrors the
  * subset of `TerraformService`'s public surface that produces a run worth
@@ -90,6 +92,21 @@ export interface RunRecord {
    * other run.
    */
   rolledBackFrom?: string;
+  /**
+   * The structured resource-change summary this run's `preview`/`up`
+   * reported, sourced verbatim from the Automation API's `SummaryEvent` —
+   * see {@link ChangeSummary}'s doc comment for the "`{}` means summary
+   * missed, not no changes" sharp edge every reader of this field must
+   * respect. Optional so older records (persisted before this field existed,
+   * and every `destroy` record, which has no comparable summary) remain
+   * readable without a migration: absence means "no summary was ever
+   * recorded for this run" (a pre-existing record, or a run kind that
+   * doesn't produce one), which reads identically to "summary event
+   * missed" — both are "nothing to show", just for different reasons.
+   * `RunRecordService`/`AwsRunRecordStore`'s read path must not assume this
+   * field's presence.
+   */
+  changeSummary?: ChangeSummary;
 }
 
 /**

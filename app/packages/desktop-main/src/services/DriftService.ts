@@ -83,7 +83,7 @@ function changedFields(
 /**
  * Pure computation of a {@link DriftReport} from a declared game list
  * (`TfvarsService.getGameServers()`), the applied game config snapshot
- * (`ConfigService.getTfOutputs()?.applied_game_servers`), and the
+ * (`ConfigService.getStackOutputs()?.appliedGameServers`), and the
  * authoritative set of deployed game names (`deployedNames`, mirroring the
  * `deployed` parameter of `mergeGameLists()` in `./mergeGameLists.ts`). No
  * I/O — safe to unit test directly.
@@ -98,10 +98,10 @@ function changedFields(
  *  - Present in both with every compared field matching → no entry (in
  *    sync games are omitted from the report entirely).
  *
- * `applied` is `null` when `terraform.tfstate` has no `applied_game_servers`
- * output yet (state predates the output, or `terraform apply` hasn't run
- * since it was added). In that case `deployedNames` is expected to fall back
- * to `tfOutputs.game_names` (the caller's responsibility — see
+ * `applied` is `null` when the deployed stack has no `appliedGameServers`
+ * output yet (state predates the output, or nothing has been applied since
+ * it was added). In that case `deployedNames` is expected to fall back
+ * to `stackOutputs.gameNames` (the caller's responsibility — see
  * {@link DriftService.getDrift}), so games already known to be deployed via
  * `game_names` are still correctly excluded from `'pending_create'` and
  * still produce `'pending_delete'` entries when no longer declared, even
@@ -150,9 +150,9 @@ export function computeDrift(
 /**
  * Computes drift between the declared game server configuration
  * (`terraform.tfvars`, via {@link TfvarsService.getGameServers}) and the
- * applied configuration Terraform last wrote to `terraform.tfstate` (via
- * {@link ConfigService.getTfOutputs}'s `applied_game_servers` and
- * `game_names` outputs). See issue #94.
+ * applied configuration last written to the deployed Pulumi stack (via
+ * {@link ConfigService.getStackOutputs}'s `appliedGameServers` and
+ * `gameNames` outputs). See issue #94.
  *
  * All comparison logic lives in the pure, exported {@link computeDrift}
  * function — this service is a thin I/O wrapper that fetches the inputs and
@@ -176,11 +176,11 @@ export class DriftService {
     this.config.invalidateCache();
     this.tfvars.invalidateCache();
     const declared = await this.tfvars.getGameServers();
-    const tfOutputs = this.config.getTfOutputs();
-    const applied = tfOutputs?.applied_game_servers ?? null;
-    const deployedNames = tfOutputs?.applied_game_servers
-      ? Object.keys(tfOutputs.applied_game_servers)
-      : (tfOutputs?.game_names ?? []);
+    const stackOutputs = await this.config.getStackOutputs();
+    const applied = stackOutputs?.appliedGameServers ?? null;
+    const deployedNames = stackOutputs?.appliedGameServers
+      ? Object.keys(stackOutputs.appliedGameServers)
+      : (stackOutputs?.gameNames ?? []);
     return computeDrift(declared, applied, deployedNames);
   }
 }
