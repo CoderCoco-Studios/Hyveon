@@ -2,13 +2,15 @@ import 'reflect-metadata';
 import * as os from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TerraformController } from './terraform.controller.js';
-import type {
-  PulumiService,
-  PulumiRunChunk,
-  PulumiPreviewResult,
-  PulumiUpResult,
-  PulumiDestroyResult,
-  PulumiRunRecord,
+import {
+  PulumiOperationInFlightError,
+  PulumiRollbackPlanFailedError,
+  type PulumiService,
+  type PulumiRunChunk,
+  type PulumiPreviewResult,
+  type PulumiUpResult,
+  type PulumiDestroyResult,
+  type PulumiRunRecord,
 } from '../services/PulumiService.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { AuditService, RecordAuditEntryParams } from '../services/AuditService.js';
@@ -351,6 +353,63 @@ describe('TerraformController', () => {
       await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.destroy.mintToken', expect.any(Function));
     });
+
+    // -------------------------------------------------------------------------
+    // C1 (fix round 1): "terraform.rollback.confirm" was originally missing
+    // from this manual-registration set. Left off, it fell through to the
+    // GENERIC ipcMain.handle bridge, which invokes the underlying NestJS
+    // handler as `handler(payload, { evt })` via the transport's own
+    // RpcContextCreator — but confirmRollback's `ctx` parameter carries no
+    // `@Payload()`/etc decorator, so RpcContextCreator sized its internal
+    // args array to the one decorated parameter it saw and silently dropped
+    // `ctx`, which arrived as `undefined` at runtime. Every real invocation
+    // then threw `TypeError: Cannot read properties of undefined (reading
+    // 'evt')` on confirmRollback's first line. These tests both prove the
+    // registration exists AND — the actual blind spot that let this ship —
+    // that the registered callback constructs `ctx` from `evt` correctly,
+    // dispatching through the same `(evt, payload) => ...` shape the real
+    // ipcMain.handle callback fires with, rather than calling
+    // controller.confirmRollback(payload, ctx) directly.
+    // -------------------------------------------------------------------------
+
+    it('should register ipcMain.handle for "terraform.rollback.confirm" so ipcRenderer.invoke can resolve', async () => {
+      await new TerraformController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.rollback.confirm', expect.any(Function));
+    });
+
+    it('should remove any existing "terraform.rollback.confirm" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+      await new TerraformController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.rollback.confirm');
+      const removeCalls = mockIpcMainRemoveHandler.mock.calls
+        .map(([pattern]: [string]) => pattern)
+        .filter((pattern: string) => pattern === 'terraform.rollback.confirm');
+      const handleCalls = mockIpcMainHandle.mock.calls
+        .map(([pattern]: [string]) => pattern)
+        .filter((pattern: string) => pattern === 'terraform.rollback.confirm');
+      expect(removeCalls).toHaveLength(1);
+      expect(handleCalls).toHaveLength(1);
+    });
+
+    it('should invoke confirmRollback as confirmRollback(payload, { evt }) when the registered ipcMain.handle callback fires — the exact ctx-construction step the original bug dropped', async () => {
+      const pulumi = makePulumi();
+      const controller = new TerraformController(pulumi);
+      const confirmRollbackSpy = vi
+        .spyOn(controller, 'confirmRollback')
+        .mockResolvedValue({ confirmed: false, error: 'stub' });
+
+      await controller.onModuleInit();
+
+      const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+        ([pattern]: [string]) => pattern === 'terraform.rollback.confirm',
+      ) as [string, (evt: unknown, payload: unknown) => unknown];
+      expect(registeredCallback).toBeTypeOf('function');
+
+      const fakeEvt = { sender: { id: 7 } };
+      const payload = { applyRunId: 'apply-run-1' };
+      await registeredCallback(fakeEvt, payload);
+
+      expect(confirmRollbackSpy).toHaveBeenCalledWith(payload, { evt: fakeEvt });
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -566,6 +625,66 @@ describe('TerraformController', () => {
       const recordedEntry = record.mock.calls[0][0] as RecordAuditEntryParams;
       expect(recordedEntry).toMatchObject({ action: 'plan', versionId: 'v42' });
     });
+
+    // -------------------------------------------------------------------------
+    // I1 (fix round 1): ported TOCTOU regression test. The original
+    // `terraform.controller.test.ts` (pre-task-7.10) pinned the load-bearing
+    // ordering where `stream.next()` — which synchronously reserves the
+    // shared workspace inside PulumiService.preview, before its own first
+    // `await` — happens BEFORE `await this.audit?.record(...)`. That ordering
+    // is exactly as load-bearing in the rewritten controller: if a future
+    // edit ever moved the audit-record await above the `.next()` call, two
+    // concurrent plan submissions could both pass the top-of-function
+    // `getOperationInFlight()` busy check before either one actually reserves
+    // the workspace. No equivalent test existed in this rewritten file, so
+    // that regression could reopen with a fully green suite.
+    // -------------------------------------------------------------------------
+
+    it('should never resolve { started: true } for a second concurrent submission while a plan is already in flight, even when audit.record() is slow', async () => {
+      const pulumi = makePulumi();
+      let inFlight: 'preview' | 'up' | 'destroy' | 'rollback' | null = null;
+      vi.mocked(pulumi.getOperationInFlight).mockImplementation(() => inFlight);
+      // Mirrors PulumiService.preview's own synchronous check-and-set of
+      // operationInFlight, which runs before its own first `await` (see that
+      // method's TSDoc). An async generator's body runs synchronously up to
+      // its first internal `await`/`yield` the instant `.next()` is called —
+      // even before the returned promise is itself awaited — so setting
+      // `inFlight` here reproduces the exact ordering plan() depends on.
+      // eslint-disable-next-line require-yield -- generator only needs to run its synchronous prefix; it never actually settles in this test
+      async function* reservesThenHangs(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+        inFlight = 'preview';
+        await new Promise<void>(() => { /* never resolves — only the synchronous prefix matters here */ });
+      }
+      vi.mocked(pulumi.preview).mockImplementation(reservesThenHangs);
+      let resolveAudit: (() => void) | undefined;
+      const record = vi.fn().mockImplementation(
+        () => new Promise<void>((resolve) => { resolveAudit = resolve; }),
+      );
+      const audit: AuditService = { record } as unknown as AuditService;
+      const controller = new TerraformController(pulumi, audit);
+      const { ctx: ctx1 } = makeCtx();
+      const { ctx: ctx2 } = makeCtx();
+
+      // First submission: synchronously reserves the workspace via
+      // stream.next(), then suspends on the slow audit.record() call before
+      // it ever acks.
+      const firstAckPromise = controller.plan({}, ctx1);
+
+      // Second submission arrives while the first is still awaiting its slow
+      // audit.record() call. If the reservation-before-audit ordering were
+      // ever broken (audit.record() awaited before stream.next() reserves),
+      // `inFlight` would still be `null` here and this would wrongly resolve
+      // `{ started: true }`, racing the first submission.
+      const secondAck = await controller.plan({}, ctx2);
+
+      expect(secondAck).toEqual({ started: false, error: expect.any(String), conflict: 'preview' });
+      expect(secondAck.runId).toBeUndefined();
+      expect(pulumi.preview).toHaveBeenCalledTimes(1);
+
+      resolveAudit?.();
+      const firstAck = await firstAckPromise;
+      expect(firstAck.started).toBe(true);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -655,6 +774,29 @@ describe('TerraformController', () => {
       const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
+      expect(sender.send).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('should reject with { started: false, error, conflict: "preview" } and never touch activeApplies or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
+      // I2 (fix round 1): PulumiService.apply's own in-process
+      // operationInFlight mutex (checked before any of the 8 gate steps) is
+      // cheaper and earlier than the durable RunLockHeldError race above —
+      // but before this fix, only RunLockHeldError populated `conflict`; a
+      // plain busy-mutex rejection fell into the generic branch and silently
+      // lost the field the renderer's busy banner (terraform.page.tsx) reads.
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate the top-of-function busy check
+      async function* rejectsBusy(): AsyncGenerator<PulumiRunChunk> {
+        throw new PulumiOperationInFlightError('preview');
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(rejectsBusy);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'preview' });
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
@@ -905,6 +1047,26 @@ describe('TerraformController', () => {
       const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'destroy' });
+      expect(sender.send).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('should reject with { started: false, error, conflict: "up" } and never touch activeDestroys or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
+      // I2 (fix round 1), mirrors the equivalent apply() test — see that
+      // test's comment for why the in-process busy mutex needs the exact
+      // same `conflict` treatment as the durable RunLockHeldError race above.
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate the top-of-function busy check
+      async function* rejectsBusy(): AsyncGenerator<PulumiRunChunk> {
+        throw new PulumiOperationInFlightError('up');
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(rejectsBusy);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
@@ -1479,6 +1641,35 @@ describe('TerraformController', () => {
 
       await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('should return { confirmed: false, versionId, error } — surfacing the version that WAS restored — when the restore-then-plan unit fails with PulumiRollbackPlanFailedError', async () => {
+      // I3 (fix round 1): the restore write succeeded (the config version
+      // named by restoredVersionId is now the new head) even though the
+      // follow-up plan inside PulumiService.confirmRollback failed — before
+      // this fix, that fact was only readable out of err.message's prose,
+      // not programmatically, so a caller couldn't act on it (e.g. offer
+      // "plan against the restored version" as a next step).
+      const pulumi = makePulumi();
+      const error = new PulumiRollbackPlanFailedError(
+        'apply-run-1',
+        'tfvars-v-restored-but-orphaned',
+        new Error('pulumi preview failed: engine version mismatch'),
+      );
+      vi.mocked(pulumi.confirmRollback).mockImplementation(() => {
+        throw error;
+      });
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(result).toEqual({
+        confirmed: false,
+        versionId: 'tfvars-v-restored-but-orphaned',
+        error: error.message,
+      });
       expect(record).not.toHaveBeenCalled();
     });
   });

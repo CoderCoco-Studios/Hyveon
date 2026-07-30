@@ -72,6 +72,7 @@
 - [x] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable (`ChangeSummary`/`OpType` in new `@hyveon/shared/changeSummary.ts`; type plumbed through `RunRecordService`/`AwsRunRecordStore`, nothing calls it with a value yet — that's 7.1/7.2's job)
 - [x] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors (13 original classes found, not 12; 11 ported + `PulumiPartialApplyError` added, colocated in new `PulumiService.ts`; `PulumiUnrecognizedLockError` confirmed as the existing stale-lock class, not recreated — see task-7.4-7.8-7.9-report.md)
 - [x] 7.10 Delete `TerraformService.ts` and its tests
+- [ ] 7.11 Rebuild Tier-2 integration coverage for plan/apply/destroy/rollback orchestration, lost when `TerraformService`'s fake-`terraform`-binary-on-PATH mechanism was deleted in task 7.10 (no Pulumi Automation API analogue exists for that mechanism — task 11.1's `PulumiService` stub injected at the DI seam replaces it for the Playwright `ipc` fixture layer, but the deeper plan/apply/destroy/rollback orchestration paths those deleted Tier-2 specs exercised have no replacement yet; found during task 7.10 fix round 1 code review)
 
 ## 8. Controllers and preload
 

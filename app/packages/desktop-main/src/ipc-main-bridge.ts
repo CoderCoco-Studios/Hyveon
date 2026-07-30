@@ -26,6 +26,17 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   progress over a side channel for the duration of a long-running run (see
  *   #307). `terraform.destroy.mintToken` is *not* in this set — it resolves
  *   a single value, so the generic bridge handles it.
+ * - `terraform.rollback.confirm`: bridged manually by the same controller for
+ *   the same reason as `terraform.plan`/`terraform.apply`/`terraform.destroy`
+ *   — `PulumiService.confirmRollback` (task 7.6) is an `AsyncGenerator` that
+ *   streams a real plan run internally, and `TerraformController.confirmRollback`
+ *   forwards each chunk over its own side channel for the duration of that
+ *   run before resolving (task 7.10 fix round 1: this channel was originally
+ *   left off this set, which silently dropped the undecorated `ctx` parameter
+ *   NestJS's `RpcContextCreator` never sized its `initialArgs` array for,
+ *   crashing every real invocation with a "Cannot read properties of
+ *   undefined (reading 'evt')" TypeError — see the fix-round-1 report for the
+ *   full root cause).
  * - `terraform.runs.logs`: bridged manually by `TerraformRunsController`
  *   because the handler streams a run's live/replayed output over a side
  *   channel derived from a `streamId` it mints itself, the same
@@ -37,6 +48,7 @@ export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'terraform.plan',
   'terraform.apply',
   'terraform.destroy',
+  'terraform.rollback.confirm',
   'terraform.runs.logs',
 ]);
 
