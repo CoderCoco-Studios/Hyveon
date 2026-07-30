@@ -4,9 +4,10 @@
  * that trigger the watchdog and DNS-updater Lambdas — ported from
  * `terraform/aws/interactions.tf`, `followup.tf`, `watchdog.tf`, `route53.tf`
  * (its Lambda + EventBridge blocks only — the hosted-zone data-source lookup
- * is task 3.9's), and `efs-seeder.tf` (its Lambda + security-group blocks
- * only — the per-game IAM role/policy pair was already ported by task 3.5,
- * see `iam.ts`'s `IamRoleResources.efsSeederRoles` /
+ * is task 3.9's), and `efs-seeder.tf` (its Lambda block only — the shared
+ * security group was moved to `securityGroups.ts` in a fix-review round, see
+ * that file's doc for why, and the per-game IAM role/policy pair was already
+ * ported by task 3.5, see `iam.ts`'s `IamRoleResources.efsSeederRoles` /
  * `IamPolicyResources.efsSeederPolicies`). Tasks 3.6 and 3.7 of
  * `migrate-iac-to-pulumi`.
  *
@@ -29,7 +30,7 @@
  * | `aws_cloudwatch_event_rule.ecs_task_change` | {@link LambdaResources.ecsTaskChangeRule} |
  * | `aws_cloudwatch_event_target.dns_updater` | {@link LambdaResources.dnsUpdaterEventTarget} |
  * | `aws_lambda_permission.dns_updater_eventbridge` | {@link LambdaResources.dnsUpdaterEventBridgePermission} |
- * | `aws_security_group.efs_seeder` | {@link LambdaResources.efsSeederSecurityGroup} |
+ * | `aws_security_group.efs_seeder` | `securityGroups.ts`'s `SecurityGroupResources.efsSeeder` (NOT this file) |
  * | `aws_cloudwatch_log_group.efs_seeder` (`for_each`) | {@link LambdaResources.efsSeederLogGroups} |
  * | `aws_lambda_function.efs_seeder` (`for_each`) | {@link LambdaResources.efsSeederFunctions} |
  *
@@ -39,6 +40,15 @@
  * trigger) is NOT ported here — task 3.10 owns it, alongside the rest of the
  * HCL's other "imperative escape" resources
  * (`aws_dynamodb_table_item`/`terraform_data`/`aws_secretsmanager_secret_version`).
+ * Note for whoever picks up task 3.10: unlike this file's four other
+ * functions (see "Lambda role/policy creation order" below), the seeder
+ * invocation's port MUST carry an explicit `dependsOn` on
+ * `policies.efsSeederPolicies[game]` — the HCL invokes
+ * `aws_lambda_invocation.efs_seeder` within the same `apply` as
+ * `aws_iam_role_policy.efs_seeder`, relying on Terraform's `depends_on` for
+ * ordering, and this program's policies now attach strictly AFTER the
+ * functions exist (see below), so the invocation has no automatic Pulumi
+ * dependency edge onto the policy it actually needs at invoke time.
  *
  * ## The lambda-bundle path contract
  *
@@ -91,10 +101,13 @@
  *    entry copying each package's `dist/handler.cjs` to
  *    `resourcesPath/lambda/<name>/dist/handler.cjs` before this contract can
  *    resolve correctly in a packaged build.
- *  - **`defineAll`** (`program.ts`) does not thread this parameter yet
- *    either: `defineLambdas` is not wired into `defineAll` at all in this
- *    dispatch — see this file's doc, "Why `defineLambdas` is not wired into
- *    `defineAll` yet", and `program.ts`'s own `TODO(task 3.6)` comment.
+ *  - **`defineAll`/`createInfraProgram`** (`program.ts`) already thread a
+ *    second `options: InfraProgramOptions` parameter carrying
+ *    `lambdaBundlesDir` through to wherever `defineLambdas` is eventually
+ *    called from `defineAll` — see `program.ts`'s `InfraProgramOptions` doc
+ *    and its `TODO(task 3.8/3.9)` comment. `defineAll` itself does not yet
+ *    call `defineLambdas` (see below), so `options` is currently unused
+ *    inside `defineAll`'s body beyond being captured for that future call.
  *
  * ## Why `defineLambdas` is not wired into `defineAll` yet
  *
@@ -108,10 +121,14 @@
  * parameter defaulting to `undefined` would silently deploy a broken
  * environment variable instead of failing to compile. This is the exact
  * situation `defineIamPolicies` was already in after task 3.5 — see this
- * file's doc and `program.ts`'s `TODO(task 3.6)` comment for the resulting
- * call-order contract (`defineIamRoles` → `defineLambdas` →
- * `defineEfsSeederIngress` → `defineIamPolicies`) and exactly what remains
- * before all four can be wired into `defineAll` together.
+ * file's doc and `program.ts`'s `TODO(task 3.8/3.9)` comment for the
+ * resulting call-order contract (`defineIamRoles` + `defineSecurityGroups`,
+ * both already wired → `defineLambdas` → `defineIamPolicies`) and exactly
+ * what remains before both can be wired into `defineAll` together. The
+ * EFS-seeder security group itself has NO such blocker — it depends only on
+ * `gameServers`/`vpcId`/`projectName`, so it is already wired into
+ * `defineAll` today via `securityGroups.ts`'s `defineSecurityGroups`, not
+ * gated on this file's `defineLambdas` call at all.
  *
  * ## Lambda role/policy creation order — a deliberate deviation from the HCL
  *
@@ -144,7 +161,9 @@
  * that filesystem has a mount target in the Lambda's VPC/subnet, and Lambda
  * auto-creates a never-expiring log group on first invocation if this
  * program's own 7-day-retention log group doesn't already exist — see each
- * seeder function's `dependsOn` below.
+ * seeder function's `dependsOn` below. See this file's doc, the note above
+ * about `aws_lambda_invocation.efs_seeder`, for the corresponding
+ * `dependsOn` task 3.10 must add for the seeder invocation itself.
  */
 
 import path from 'node:path';
@@ -200,14 +219,6 @@ export interface LambdaResources {
   /** Grants `events.amazonaws.com` permission to invoke {@link dnsUpdaterFunction}, scoped to {@link ecsTaskChangeRule}'s ARN (`aws_lambda_permission.dns_updater_eventbridge`). */
   dnsUpdaterEventBridgePermission: aws.lambda.Permission;
 
-  /**
-   * Shared security group for every EFS-seeder Lambda (`aws_security_group.efs_seeder`,
-   * `count = length(local.games_with_seeds) > 0 ? 1 : 0`). `undefined` when
-   * no configured game declares `file_seeds` — mirrors the HCL's `count`
-   * gate; the caller must check this before wiring `securityGroups.ts`'s
-   * `defineEfsSeederIngress`, which needs its `.id`.
-   */
-  efsSeederSecurityGroup: aws.ec2.SecurityGroup | undefined;
   /** One log group per game with `file_seeds`, keyed by game name (`aws_cloudwatch_log_group.efs_seeder`). Empty when no game declares seeds. */
   efsSeederLogGroups: Record<string, aws.cloudwatch.LogGroup>;
   /** One Lambda function per game with `file_seeds`, keyed the same way as {@link efsSeederLogGroups} and `iam.ts`'s `IamRoleResources.efsSeederRoles` (`aws_lambda_function.efs_seeder`). Empty when no game declares seeds. */
@@ -236,10 +247,19 @@ export interface DefineLambdasArgs {
   /** The role set `iam.ts`'s `defineIamRoles` returned — every function's `role` is one of these roles' `.arn`. */
   roles: IamRoleResources;
 
-  /** The VPC id (`network.ts`'s `NetworkResources.vpc.id`) the shared EFS-seeder security group is created in (`aws_security_group.efs_seeder`'s `vpc_id`). */
-  vpcId: pulumi.Input<string>;
   /** The public subnet ids (`network.ts`'s `NetworkResources.publicSubnets` mapped to `.id`) — the followup function's `SUBNET_IDS` environment variable and every EFS-seeder function's `vpc_config.subnet_ids`. */
   publicSubnetIds: pulumi.Input<string>[];
+  /**
+   * The shared EFS-seeder security group's id — `securityGroups.ts`'s
+   * `SecurityGroupResources.efsSeeder?.id` (that module, not this one, now
+   * owns constructing the group itself; see this file's doc). `undefined`
+   * is only valid when no game declares `file_seeds` (mirroring
+   * `SecurityGroupResources.efsSeeder`'s own `undefined` case) — passing
+   * `undefined` while `gameServers` has at least one `file_seeds`-declaring
+   * entry is a caller bug and {@link defineLambdas} throws rather than
+   * silently omitting `vpc_config.security_group_ids`.
+   */
+  efsSeederSecurityGroupId: pulumi.Input<string> | undefined;
   /** The `game_servers` security group's id (`securityGroups.ts`'s `SecurityGroupResources.gameServers.id`) — the followup function's `SECURITY_GROUP_ID` environment variable. */
   gameServersSecurityGroupId: pulumi.Input<string>;
   /** The ECS cluster's name (`ecs.ts`'s `EcsResources.cluster.name`) — the followup and watchdog functions' `ECS_CLUSTER` environment variable. */
@@ -384,8 +404,9 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
  * address table, the lambda-bundle path contract, and why this function is
  * not yet called from `program.ts`'s `defineAll`. Must be called from inside
  * the Pulumi inline-program closure, never at module scope, and after
- * `defineIamRoles`, `defineEfs`, and `defineEcs` (all three of whose outputs
- * it consumes).
+ * `defineIamRoles`, `defineSecurityGroups`, `defineEfs`, and `defineEcs`
+ * (all four of whose outputs it consumes — `defineSecurityGroups` for
+ * `efsSeederSecurityGroupId`).
  *
  * @param args - Naming, config, IAM, network, EFS, bundle-path, and
  *   deferred-value inputs — see {@link DefineLambdasArgs}.
@@ -402,8 +423,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     watchdogMinPackets,
     gameServers,
     roles,
-    vpcId,
     publicSubnetIds,
+    efsSeederSecurityGroupId,
     gameServersSecurityGroupId,
     ecsClusterName,
     ecsClusterArn,
@@ -415,6 +436,20 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     provider,
   } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
+
+  // Validated up front, before any resource is constructed — deliberately
+  // NOT deferred to the seeder loop further down. A mid-function throw
+  // after some (but not all) of this function's resources are already
+  // under construction would leave those in-flight mock registrations
+  // unawaited, which `testing/pulumiMocks.ts`'s doc flags as exactly the
+  // kind of race a test must never risk leaving behind.
+  const seederGames = Object.entries(roles.efsSeederRoles);
+  if (seederGames.length > 0 && efsSeederSecurityGroupId === undefined) {
+    throw new Error(
+      'defineLambdas: at least one game declares file_seeds but efsSeederSecurityGroupId is undefined — ' +
+        'pass securityGroups.efsSeeder?.id (defineSecurityGroups must be called with the same gameServers map).',
+    );
+  }
 
   // ── Followup Lambda (followup.tf) — declared before interactions so its
   // function name is in scope for interactions' FOLLOWUP_LAMBDA_NAME below,
@@ -690,36 +725,24 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  // ── EFS-seeder shared security group + per-game Lambdas (efs-seeder.tf) ───
+  // ── Per-game EFS-seeder Lambdas (efs-seeder.tf) ────────────────────────────
   // Iterates `roles.efsSeederRoles` (not a freshly-recomputed
   // `gamesWithFileSeeds`) so this set can never drift from the roles
   // `defineIamRoles` actually created — the same "never drift" argument
   // `iam.ts`'s `defineIamPolicies` already applies to its own
-  // `efsSeederPolicies` loop.
-  const seederGames = Object.entries(roles.efsSeederRoles);
-
-  let efsSeederSecurityGroup: aws.ec2.SecurityGroup | undefined;
+  // `efsSeederPolicies` loop. The shared security group these functions'
+  // `vpc_config` reference is NOT constructed here — `securityGroups.ts`
+  // now owns it (see this file's doc); `efsSeederSecurityGroupId` is that
+  // group's `.id`, passed straight through and already validated above.
   const efsSeederLogGroups: Record<string, aws.cloudwatch.LogGroup> = {};
   const efsSeederFunctions: Record<string, aws.lambda.Function> = {};
 
   if (seederGames.length > 0) {
-    // `lifecycle { create_before_destroy = true }` in the HCL is not
-    // replicated as an explicit Pulumi option — same rationale as
-    // `securityGroups.ts`'s other groups: Pulumi's default replacement
-    // behaviour already creates a group's replacement before deleting the
-    // old one.
-    efsSeederSecurityGroup = new aws.ec2.SecurityGroup(
-      `${projectName}-efs-seeder-sg`,
-      {
-        namePrefix: `${projectName}-efs-seeder-sg-`,
-        description: 'EFS seeder Lambdas — outbound NFS to EFS only',
-        vpcId,
-        egress: [{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }],
-        tags: { Name: `${projectName}-efs-seeder-sg` },
-      },
-      opts,
-    );
-    const seederSecurityGroupId = efsSeederSecurityGroup.id;
+    // Non-null per the up-front validation above (`seederGames.length > 0`
+    // there already ruled out `undefined`) — re-asserted as a local const
+    // rather than a bare `!` at the use site so the narrowing is explicit
+    // and doesn't need re-justifying inside the loop below.
+    const seederSecurityGroupId = efsSeederSecurityGroupId as pulumi.Input<string>;
 
     for (const [game, role] of seederGames) {
       const config = gameServers[game];
@@ -789,7 +812,6 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     ecsTaskChangeRule,
     dnsUpdaterEventTarget,
     dnsUpdaterEventBridgePermission,
-    efsSeederSecurityGroup,
     efsSeederLogGroups,
     efsSeederFunctions,
   };

@@ -1,38 +1,43 @@
 /**
  * Security-group resources — ported from `terraform/aws/main.tf`'s
- * `## Security Groups` block: `game_servers`, `file_manager`, and `efs`.
+ * `## Security Groups` block (`game_servers`, `file_manager`, `efs`) plus
+ * `aws_security_group.efs_seeder` from `terraform/aws/efs-seeder.tf`.
  *
- * The `efs` group's HCL declares a second, conditional ingress rule sourced
- * from `aws_security_group.efs_seeder[0]` (`local.games_with_seeds`-gated),
- * as a `dynamic "ingress"` block inline on `aws_security_group.efs` itself
- * (`terraform/aws/main.tf:170-179`) — HCL can do this because its evaluation
- * is declarative; `aws_security_group.efs_seeder` lives textually later, in
- * `efs-seeder.tf`, and Terraform's graph doesn't care about file order.
- * {@link defineSecurityGroups} (this function) does NOT port that second
- * rule inline for exactly the reason task 3.4 originally deferred it: by the
- * time this function runs (early in `defineAll`, before IAM/EFS/ECS/Lambdas),
- * no seeder security group exists yet to reference, and Pulumi's `ingress`
- * array is a plain input captured once at construction — it cannot be
- * appended to after the fact the way Terraform's declarative graph allows.
+ * `efs_seeder` lives in THIS file, not `lambdas.ts`, as of a fix-review
+ * round on task 3.6/3.7: an earlier version declared the seeder security
+ * group in `lambdas.ts` and attached its ingress rule to `efs` as a
+ * standalone `aws.ec2.SecurityGroupRule`. `@pulumi/aws`'s own
+ * `SecurityGroupRule` docs warn explicitly against mixing a security
+ * group's in-line `ingress`/`egress` rules with standalone
+ * `SecurityGroupRule` resources targeting that same group — the combination
+ * produces rule conflicts, perpetual diffs, and rules getting silently
+ * overwritten. The `efs` group here already declares its NFS-from-game-
+ * servers rule in-line, so that mix was exactly the broken combination:
+ * every `pulumi up`/refresh with a seeded game would see the seeder's
+ * standalone rule as drift against `efs`'s own in-line state and fight over
+ * it, flapping NFS port 2049 access.
  *
- * Task 3.6 ports `aws_security_group.efs_seeder` itself into `lambdas.ts`
- * (grouped with the EFS-seeder Lambda functions it secures, mirroring
- * `efs-seeder.tf`'s own file grouping) and adds the second ingress rule here,
- * as a **separate** {@link defineEfsSeederIngress} function/resource
- * (`aws.ec2.SecurityGroupRule`, not a second inline `ingress` entry on the
- * `efs` `SecurityGroup` itself) — the standard Pulumi pattern for attaching a
- * rule to a security group after some other, later-constructed resource's id
- * becomes available. Same real-world AWS effect as the HCL's inline dynamic
- * block (one more ingress rule on the same security group); different Pulumi
- * resource type, because Pulumi's resource model has no equivalent of
- * "reopen an already-constructed resource's array input." See
- * {@link defineEfsSeederIngress}'s own doc for its conditionality and current
- * (unwired) status.
+ * The fix does what the HCL itself does: `aws_security_group.efs`'s second
+ * ingress rule (`main.tf`'s second `dynamic "ingress"` block, gated on
+ * `local.games_with_seeds` being non-empty) is a second IN-LINE entry in
+ * the SAME resource's `ingress` array, not a separate resource. Reproducing
+ * that in Pulumi means the seeder security group must exist BEFORE `efs`'s
+ * `ingress` array is constructed — so {@link defineSecurityGroups} declares
+ * `aws_security_group.efs_seeder` first (it needs only `projectName`/
+ * `vpcId`/`gameServers` — see `iam.ts`'s `gamesWithFileSeeds`, reused here
+ * to determine whether any game declares `file_seeds`) and folds its
+ * conditional ingress entry directly into `efs`'s own `ingress` array —
+ * exact HCL parity, no standalone rule resource at all.
+ *
+ * `lambdas.ts`'s EFS-seeder Lambda functions take the resulting security
+ * group's id as a plain input (`DefineLambdasArgs.efsSeederSecurityGroupId`)
+ * rather than constructing their own — see that file's doc.
  */
 
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
+import { gamesWithFileSeeds } from './iam.js';
 
 /** Every resource {@link defineSecurityGroups} declares, keyed by role. */
 export interface SecurityGroupResources {
@@ -42,10 +47,20 @@ export interface SecurityGroupResources {
   fileManager: aws.ec2.SecurityGroup;
   /**
    * EFS security group (`aws_security_group.efs`) — allows NFS (port 2049)
-   * from {@link gameServers} and {@link fileManager}. See this file's doc for
-   * why the HCL's second, seeder-sourced ingress rule is not included here.
+   * from {@link gameServers} and {@link fileManager}, plus a conditional
+   * third ingress source, {@link efsSeeder}, when at least one configured
+   * game declares `file_seeds`. See this file's doc for why that rule is a
+   * second in-line `ingress` array entry, not a separate resource.
    */
   efs: aws.ec2.SecurityGroup;
+  /**
+   * Shared security group for every EFS-seeder Lambda
+   * (`aws_security_group.efs_seeder`, `count = length(local.games_with_seeds) > 0 ? 1 : 0`).
+   * `undefined` when no configured game declares `file_seeds` — mirrors the
+   * HCL's `count` gate. `lambdas.ts`'s EFS-seeder functions take its `.id`
+   * as a plain input rather than constructing their own security group.
+   */
+  efsSeeder: aws.ec2.SecurityGroup | undefined;
 }
 
 /** Arguments {@link defineSecurityGroups} needs to declare the security groups. */
@@ -205,87 +220,65 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
+  // ── EFS-seeder security group (efs-seeder.tf) — declared BEFORE `efs`
+  // below so its id is in scope for `efs`'s own conditional ingress entry.
+  // Same "create_before_destroy" non-replication rationale as the other two
+  // groups above (Pulumi's default replacement behaviour already matches
+  // the HCL's `lifecycle` block's intent).
+  const seederGames = gamesWithFileSeeds(gameServers);
+  const hasSeeders = Object.keys(seederGames).length > 0;
+
+  const efsSeederSg = hasSeeders
+    ? new aws.ec2.SecurityGroup(
+        `${projectName}-efs-seeder-sg`,
+        {
+          namePrefix: `${projectName}-efs-seeder-sg-`,
+          description: 'EFS seeder Lambdas — outbound NFS to EFS only',
+          vpcId,
+          egress: [openEgress],
+          tags: { Name: `${projectName}-efs-seeder-sg` },
+        },
+        opts,
+      )
+    : undefined;
+
+  // Same rule the HCL declares as `aws_security_group.efs`'s NFS-from-
+  // game-servers ingress entry, plus a conditional second entry sourced
+  // from `efsSeederSg` — both IN-LINE in this one array, exactly like the
+  // HCL's two `ingress`/`dynamic "ingress"` blocks on the same resource.
+  // See this file's doc for why a standalone `SecurityGroupRule` for the
+  // second entry is NOT used.
+  const efsIngress: pulumi.Input<aws.types.input.ec2.SecurityGroupIngress>[] = [
+    {
+      description: 'NFS from game servers',
+      fromPort: 2049,
+      toPort: 2049,
+      protocol: 'tcp',
+      securityGroups: [gameServersSg.id, fileManagerSg.id],
+    },
+  ];
+  if (efsSeederSg) {
+    efsIngress.push({
+      description: 'NFS from EFS seeder Lambdas',
+      fromPort: 2049,
+      toPort: 2049,
+      protocol: 'tcp',
+      securityGroups: [efsSeederSg.id],
+    });
+  }
+
   const efsSg = new aws.ec2.SecurityGroup(
     `${projectName}-efs-sg`,
     {
       namePrefix: `${projectName}-efs-sg-`,
       description: 'Allow NFS from game server tasks',
       vpcId,
-      ingress: [
-        {
-          description: 'NFS from game servers',
-          fromPort: 2049,
-          toPort: 2049,
-          protocol: 'tcp',
-          securityGroups: [gameServersSg.id, fileManagerSg.id],
-        },
-        // The HCL's second ingress rule here (NFS from the EFS-seeder
-        // Lambdas, sourced from `aws_security_group.efs_seeder[0]` and
-        // gated on `local.games_with_seeds`) cannot be embedded inline in
-        // this array — see this file's doc. {@link defineEfsSeederIngress}
-        // below declares it as a separate resource once task 3.6's seeder
-        // security group exists.
-      ],
+      ingress: efsIngress,
       egress: [openEgress],
       tags: { Name: `${projectName}-efs-sg` },
     },
     opts,
   );
 
-  return { gameServers: gameServersSg, fileManager: fileManagerSg, efs: efsSg };
-}
-
-/** Arguments {@link defineEfsSeederIngress} needs to declare the seeder-sourced ingress rule. */
-export interface DefineEfsSeederIngressArgs {
-  /** The `efs` security group's id (`SecurityGroupResources.efs.id`) — the rule attaches to this group. */
-  efsSecurityGroupId: pulumi.Input<string>;
-  /**
-   * The EFS-seeder security group's id (`lambdas.ts`'s
-   * `LambdaResources.efsSeederSecurityGroup.id`) — the rule's traffic
-   * source. Always defined when this function is called; conditionality
-   * (`local.games_with_seeds` non-empty) is expressed by the caller simply
-   * not calling this function at all when no seeder security group exists,
-   * not by an internal branch here — the same "absence of a call/loop
-   * iteration is the conditionality" idiom `defineIamPolicies`'s
-   * `efsSeederPolicies` loop already uses.
-   */
-  efsSeederSecurityGroupId: pulumi.Input<string>;
-  /** The regional AWS provider every resource is declared against (region + default tags). */
-  provider: aws.Provider;
-}
-
-/**
- * Declares the seeder-sourced NFS ingress rule the HCL attaches inline to
- * `aws_security_group.efs` — the second dynamic ingress block in
- * `terraform/aws/main.tf`, gated on `local.games_with_seeds` being non-empty
- * — ported here, as task 3.6 of `migrate-iac-to-pulumi`, as a standalone
- * `aws.ec2.SecurityGroupRule` rather than a second entry in
- * {@link defineSecurityGroups}'s `efs` `ingress` array; see this file's doc
- * for why. Same port/protocol/description as the HCL's inline block.
- *
- * NOT called from `program.ts`'s `defineAll` yet — see that file's
- * `TODO(task 3.6)` comment: it needs `lambdas.efsSeederSecurityGroup`, which
- * only exists once `defineLambdas` (also implemented, also not yet wired —
- * same TODO) has run.
- *
- * @param args - The two security-group ids and provider — see
- *   {@link DefineEfsSeederIngressArgs}.
- * @returns The declared `aws.ec2.SecurityGroupRule`.
- */
-export function defineEfsSeederIngress(args: DefineEfsSeederIngressArgs): aws.ec2.SecurityGroupRule {
-  const { efsSecurityGroupId, efsSeederSecurityGroupId, provider } = args;
-
-  return new aws.ec2.SecurityGroupRule(
-    'efs-seeder-ingress',
-    {
-      type: 'ingress',
-      description: 'NFS from EFS seeder Lambdas',
-      fromPort: 2049,
-      toPort: 2049,
-      protocol: 'tcp',
-      securityGroupId: efsSecurityGroupId,
-      sourceSecurityGroupId: efsSeederSecurityGroupId,
-    },
-    { provider },
-  );
+  return { gameServers: gameServersSg, fileManager: fileManagerSg, efs: efsSg, efsSeeder: efsSeederSg };
 }

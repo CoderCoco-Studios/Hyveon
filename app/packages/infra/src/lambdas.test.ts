@@ -30,12 +30,19 @@ const DEFERRED_VALUES = {
 
 /** Non-deferred network/ECS mock inputs — plain strings, matching the "mock ID string" style `ecs.test.ts`/`securityGroups.test.ts` already use for inputs that don't need a real backing resource in these tests. */
 const MOCK_NETWORK_INPUTS = {
-  vpcId: 'vpc-mock',
   publicSubnetIds: ['subnet-mock-0', 'subnet-mock-1'],
   gameServersSecurityGroupId: 'sg-game-servers-mock',
   ecsClusterName: 'hyveon-cluster',
   ecsClusterArn: 'arn:aws:ecs:us-east-1:123456789012:cluster/hyveon-cluster',
 };
+
+/**
+ * Mock id standing in for `securityGroups.ts`'s `SecurityGroupResources.efsSeeder?.id`
+ * — `defineLambdas` no longer constructs this security group itself (see
+ * `lambdas.ts`'s file doc); tests that exercise the EFS-seeder path pass
+ * this plain string rather than a real `defineSecurityGroups` call.
+ */
+const MOCK_EFS_SEEDER_SECURITY_GROUP_ID = 'sg-efs-seeder-mock';
 
 /** Resolves every leaf role/attachment `defineIamRoles` declares before returning — see `iam.test.ts`'s identically-named helper. */
 async function arrangeRoles(gameServers: Record<string, GameServerConfig>, provider: aws.Provider): Promise<IamRoleResources> {
@@ -78,8 +85,16 @@ async function arrangeDependencies(
   return { provider, roles, efs };
 }
 
-/** Full `defineLambdas` args, with per-test overrides for `gameServers`/`roles`/`efs`/`provider`. */
-function buildArgs(overrides: Pick<DefineLambdasArgs, 'gameServers' | 'roles' | 'efs' | 'provider'>): DefineLambdasArgs {
+/**
+ * Full `defineLambdas` args, with per-test overrides for `gameServers`/`roles`/`efs`/`provider`
+ * (required) plus anything else (optional — e.g. `watchdogIntervalMinutes`,
+ * `efsSeederSecurityGroupId`). `efsSeederSecurityGroupId` defaults to
+ * `undefined`, correct for every fixture without `file_seeds`; tests that
+ * exercise the EFS-seeder path override it to {@link MOCK_EFS_SEEDER_SECURITY_GROUP_ID}.
+ */
+function buildArgs(
+  overrides: Pick<DefineLambdasArgs, 'gameServers' | 'roles' | 'efs' | 'provider'> & Partial<DefineLambdasArgs>,
+): DefineLambdasArgs {
   return {
     projectName: 'hyveon',
     awsRegion: 'us-east-1',
@@ -89,6 +104,7 @@ function buildArgs(overrides: Pick<DefineLambdasArgs, 'gameServers' | 'roles' | 
     watchdogIdleChecks: 4,
     watchdogMinPackets: 100,
     lambdaBundlesDir: LAMBDA_BUNDLES_DIR,
+    efsSeederSecurityGroupId: undefined,
     ...MOCK_NETWORK_INPUTS,
     ...DEFERRED_VALUES,
     ...overrides,
@@ -116,7 +132,6 @@ async function runDefineLambdas(args: DefineLambdasArgs): Promise<LambdaResource
     promiseOf(result.ecsTaskChangeRule.id),
     promiseOf(result.dnsUpdaterEventTarget.id),
     promiseOf(result.dnsUpdaterEventBridgePermission.id),
-    ...(result.efsSeederSecurityGroup ? [promiseOf(result.efsSeederSecurityGroup.id)] : []),
     ...Object.values(result.efsSeederLogGroups).map((lg) => promiseOf(lg.id)),
     ...Object.values(result.efsSeederFunctions).map((fn) => promiseOf(fn.id)),
   ]);
@@ -464,18 +479,16 @@ describe('defineLambdas', () => {
     });
   });
 
-  describe('efs-seeder security group and per-game functions', () => {
-    it('should declare no seeder security group, log groups, or functions when no game declares file_seeds', async () => {
+  describe('efs-seeder per-game log groups and functions', () => {
+    it('should declare no log groups or functions when no game declares file_seeds', async () => {
       const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
       const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
 
-      expect(result.efsSeederSecurityGroup).toBeUndefined();
       expect(result.efsSeederLogGroups).toEqual({});
       expect(result.efsSeederFunctions).toEqual({});
-      expect(mocks.resources.some((resource) => resource.name === 'hyveon-efs-seeder-sg')).toBe(false);
     });
 
-    it('should declare the shared seeder security group and one log group/function per game with file_seeds', async () => {
+    it('should throw when a game declares file_seeds but no efsSeederSecurityGroupId was supplied', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         ...FIXTURE_GAME_SERVERS,
         echo: {
@@ -488,14 +501,28 @@ describe('defineLambdas', () => {
         },
       };
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
-      const result = await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider }));
 
-      expect(result.efsSeederSecurityGroup).toBeDefined();
-      const sg = findByName(mocks.resources, 'hyveon-efs-seeder-sg');
-      expect(sg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
-      expect(sg.inputs.namePrefix).toBe('hyveon-efs-seeder-sg-');
-      expect(sg.inputs.vpcId).toBe(MOCK_NETWORK_INPUTS.vpcId);
-      expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
+      expect(() => defineLambdas(buildArgs({ gameServers, roles, efs, provider, efsSeederSecurityGroupId: undefined }))).toThrow(
+        /efsSeederSecurityGroupId is undefined/,
+      );
+    });
+
+    it('should declare one log group/function per game with file_seeds, wired to the externally-supplied security group id', async () => {
+      const gameServers: Record<string, GameServerConfig> = {
+        ...FIXTURE_GAME_SERVERS,
+        echo: {
+          image: 'example/echo:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [{ container: 1234, protocol: 'tcp' }],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+          file_seeds: [{ path: '/data/config.yml', content: 'foo: bar' }],
+        },
+      };
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      const result = await runDefineLambdas(
+        buildArgs({ gameServers, roles, efs, provider, efsSeederSecurityGroupId: MOCK_EFS_SEEDER_SECURITY_GROUP_ID }),
+      );
 
       expect(Object.keys(result.efsSeederLogGroups)).toEqual(['echo']);
       const logGroup = findByName(mocks.resources, 'hyveon-efs-seeder-echo-logs');
@@ -510,10 +537,9 @@ describe('defineLambdas', () => {
       expect(fn.inputs.timeout).toBe(60);
       expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
 
-      const seederSgId = await promiseOf(result.efsSeederSecurityGroup?.id ?? Promise.reject(new Error('expected a seeder security group')));
       expect(fn.inputs.vpcConfig).toEqual({
         subnetIds: MOCK_NETWORK_INPUTS.publicSubnetIds,
-        securityGroupIds: [seederSgId],
+        securityGroupIds: [MOCK_EFS_SEEDER_SECURITY_GROUP_ID],
       });
 
       const accessPointArn = await promiseOf(efs.gameAccessPoints['echo-saves'].arn);
@@ -546,7 +572,9 @@ describe('defineLambdas', () => {
         },
       };
       const { provider, roles, efs } = await arrangeDependencies(gameServers);
-      const result = await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider }));
+      const result = await runDefineLambdas(
+        buildArgs({ gameServers, roles, efs, provider, efsSeederSecurityGroupId: MOCK_EFS_SEEDER_SECURITY_GROUP_ID }),
+      );
 
       expect(Object.keys(result.efsSeederFunctions).sort()).toEqual(Object.keys(roles.efsSeederRoles).sort());
       expect(Object.keys(result.efsSeederFunctions).sort()).toEqual(['echo', 'foxtrot']);

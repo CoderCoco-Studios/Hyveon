@@ -1,16 +1,21 @@
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dedupedDirectGamePorts, defineEfsSeederIngress, defineSecurityGroups, hasHttpsGame } from './securityGroups.js';
+import { dedupedDirectGamePorts, defineSecurityGroups, hasHttpsGame } from './securityGroups.js';
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
-/** Resolves all three security groups' `id`s, guaranteeing the mock recorder has captured everything `defineSecurityGroups` declares before assertions run — see `pulumiMocks.ts`'s file doc. */
+/** Resolves every security group `defineSecurityGroups` declares (including the conditional `efsSeeder`, when present), guaranteeing the mock recorder has captured everything before assertions run — see `pulumiMocks.ts`'s file doc. */
 async function runDefineSecurityGroups(
   args: Parameters<typeof defineSecurityGroups>[0],
 ): Promise<ReturnType<typeof defineSecurityGroups>> {
   const result = defineSecurityGroups(args);
-  await Promise.all([promiseOf(result.gameServers.id), promiseOf(result.fileManager.id), promiseOf(result.efs.id)]);
+  await Promise.all([
+    promiseOf(result.gameServers.id),
+    promiseOf(result.fileManager.id),
+    promiseOf(result.efs.id),
+    ...(result.efsSeeder ? [promiseOf(result.efsSeeder.id)] : []),
+  ]);
   return result;
 }
 
@@ -152,7 +157,7 @@ describe('defineSecurityGroups', () => {
     expect(sg.inputs.tags).toEqual({ Name: 'hyveon-filemgr-sg' });
   });
 
-  it('should declare the efs security group with NFS ingress from the game-servers and file-manager groups, and no seeder rule', async () => {
+  it('should declare the efs security group with NFS ingress from the game-servers and file-manager groups only, and no efsSeeder group, when no game declares file_seeds', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
       projectName: 'hyveon',
@@ -161,15 +166,17 @@ describe('defineSecurityGroups', () => {
       provider,
     });
 
+    expect(result.efsSeeder).toBeUndefined();
+    expect(mocks.resources.some((resource) => resource.name === 'hyveon-efs-seeder-sg')).toBe(false);
+
     const sg = findByName(mocks.resources, 'hyveon-efs-sg');
     expect(sg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
     expect(sg.inputs.namePrefix).toBe('hyveon-efs-sg-');
     expect(sg.inputs.vpcId).toBe('vpc-mock');
     expect(sg.inputs.tags).toEqual({ Name: 'hyveon-efs-sg' });
 
-    // Exactly one ingress rule (NFS from game_servers + file_manager) — the
-    // HCL's second, seeder-sourced rule is deliberately not ported here
-    // (task 3.6 adds it alongside `aws_security_group.efs_seeder`).
+    // Exactly one ingress rule (NFS from game_servers + file_manager) — no
+    // seeder-sourced entry when no game declares file_seeds.
     expect(sg.inputs.ingress).toEqual([
       {
         description: 'NFS from game servers',
@@ -180,6 +187,53 @@ describe('defineSecurityGroups', () => {
       },
     ]);
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
+  });
+
+  it('should declare the shared efs_seeder security group and a second in-line efs ingress entry sourced from it when a game declares file_seeds', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 1234, protocol: 'tcp' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        file_seeds: [{ path: '/data/config.yml', content: 'foo: bar' }],
+      },
+    };
+    const result = await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    expect(result.efsSeeder).toBeDefined();
+    const seederSg = findByName(mocks.resources, 'hyveon-efs-seeder-sg');
+    expect(seederSg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
+    expect(seederSg.inputs.namePrefix).toBe('hyveon-efs-seeder-sg-');
+    expect(seederSg.inputs.vpcId).toBe('vpc-mock');
+    expect(seederSg.inputs.description).toBe('EFS seeder Lambdas — outbound NFS to EFS only');
+    expect(seederSg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
+
+    // No standalone `aws.ec2.SecurityGroupRule` anywhere — the seeder rule
+    // must be a second in-line entry in `efs`'s own `ingress` array (see
+    // this file's doc for why mixing the two is unsafe).
+    expect(mocks.resources.some((resource) => resource.type === 'aws:ec2/securityGroupRule:SecurityGroupRule')).toBe(false);
+
+    const efsSg = findByName(mocks.resources, 'hyveon-efs-sg');
+    expect(efsSg.inputs.ingress).toEqual([
+      {
+        description: 'NFS from game servers',
+        fromPort: 2049,
+        toPort: 2049,
+        protocol: 'tcp',
+        securityGroups: [await promiseOf(result.gameServers.id), await promiseOf(result.fileManager.id)],
+      },
+      {
+        description: 'NFS from EFS seeder Lambdas',
+        fromPort: 2049,
+        toPort: 2049,
+        protocol: 'tcp',
+        securityGroups: [await promiseOf(result.efsSeeder?.id ?? Promise.reject(new Error('expected an efsSeeder security group')))],
+      },
+    ]);
   });
 
   it('should add only one new ingress rule when a new game entry reuses an existing port', async () => {
@@ -199,35 +253,5 @@ describe('defineSecurityGroups', () => {
     const sg = findByName(mocks.resources, 'hyveon-sg');
     const ingress = sg.inputs.ingress as Array<{ fromPort: number }>;
     expect(ingress.filter((rule) => rule.fromPort === 25565)).toHaveLength(1);
-  });
-});
-
-describe('defineEfsSeederIngress', () => {
-  let mocks: ReturnType<typeof installPulumiMocks>;
-
-  beforeEach(() => {
-    mocks = installPulumiMocks();
-  });
-
-  it('should declare an ingress security-group rule for NFS from the seeder security group', async () => {
-    const provider = new aws.Provider('aws', { region: 'us-east-1' });
-    const rule = defineEfsSeederIngress({
-      efsSecurityGroupId: 'sg-efs-mock',
-      efsSeederSecurityGroupId: 'sg-efs-seeder-mock',
-      provider,
-    });
-    await promiseOf(rule.id);
-
-    const recorded = findByName(mocks.resources, 'efs-seeder-ingress');
-    expect(recorded.type).toBe('aws:ec2/securityGroupRule:SecurityGroupRule');
-    expect(recorded.inputs).toEqual({
-      type: 'ingress',
-      description: 'NFS from EFS seeder Lambdas',
-      fromPort: 2049,
-      toPort: 2049,
-      protocol: 'tcp',
-      securityGroupId: 'sg-efs-mock',
-      sourceSecurityGroupId: 'sg-efs-seeder-mock',
-    });
   });
 });

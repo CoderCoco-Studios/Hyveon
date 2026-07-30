@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createInfraProgram, defineAll } from './program.js';
+import { createInfraProgram, defineAll, type InfraProgramOptions } from './program.js';
 import { buildTestDeploymentConfig } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
+
+/**
+ * Literal placeholder `InfraProgramOptions` for every test below —
+ * `lambdaBundlesDir` is not exercised by any `defineAll`/`createInfraProgram`
+ * test in this file (`defineLambdas` isn't wired into `defineAll` yet — see
+ * `program.ts`'s `TODO(task 3.8/3.9)` comment), so a literal string that
+ * never touches disk is sufficient. See `lambdas.test.ts`'s identically-
+ * reasoned `LAMBDA_BUNDLES_DIR` constant.
+ */
+const TEST_INFRA_PROGRAM_OPTIONS: InfraProgramOptions = { lambdaBundlesDir: '/fixtures/lambda-bundles' };
 
 /**
  * Resolves every leaf resource `defineAll` declares (the network's route
@@ -18,7 +28,7 @@ import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
  * before it ends).
  */
 async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<ReturnType<typeof defineAll>> {
-  const result = defineAll(config);
+  const result = defineAll(config, TEST_INFRA_PROGRAM_OPTIONS);
   await Promise.all([
     ...result.network.routeTableAssociations.map((association) => promiseOf(association.id)),
     promiseOf(result.securityGroups.gameServers.id),
@@ -44,7 +54,7 @@ describe('createInfraProgram', () => {
   it('should return a zero-argument PulumiFn', () => {
     // No mocks needed: constructing the closure does not construct any
     // resource, so there is nothing for `installPulumiMocks` to intercept.
-    const programFn = createInfraProgram(buildTestDeploymentConfig());
+    const programFn = createInfraProgram(buildTestDeploymentConfig(), TEST_INFRA_PROGRAM_OPTIONS);
     expect(typeof programFn).toBe('function');
     expect(programFn.length).toBe(0);
   });
@@ -58,7 +68,7 @@ describe('createInfraProgram', () => {
     // chains settle, so it needs no completion barrier and installs no mocks
     // for later tests to accidentally race against.
     installPulumiMocks();
-    const programFn = createInfraProgram(buildTestDeploymentConfig());
+    const programFn = createInfraProgram(buildTestDeploymentConfig(), TEST_INFRA_PROGRAM_OPTIONS);
     await expect(programFn()).resolves.toBeUndefined();
   });
 });
