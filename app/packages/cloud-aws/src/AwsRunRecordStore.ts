@@ -202,6 +202,7 @@ export class AwsRunRecordStore implements RunRecordStore {
           ...(record.logInline !== undefined ? { logInline: record.logInline } : {}),
           ...(record.logS3Key !== undefined ? { logS3Key: record.logS3Key } : {}),
           ...(record.changeSummary !== undefined ? { changeSummary: record.changeSummary } : {}),
+          ...(record.engineVersion !== undefined ? { engineVersion: record.engineVersion } : {}),
         },
       }),
     );
@@ -358,6 +359,9 @@ export class AwsRunRecordStore implements RunRecordStore {
     }
     if (item['changeSummary'] !== undefined) {
       record.changeSummary = item['changeSummary'] as RunRecord['changeSummary'];
+    }
+    if (item['engineVersion'] !== undefined) {
+      record.engineVersion = item['engineVersion'] as string;
     }
     return record;
   }
