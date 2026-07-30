@@ -1,15 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
-import os from 'os';
 
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   existsSync: vi.fn(),
-  cpSync: vi.fn(),
-  renameSync: vi.fn(),
-  rmSync: vi.fn(),
 }));
 
 vi.mock('../logger.js', () => ({
@@ -21,7 +17,7 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
@@ -42,9 +38,6 @@ function makePulumiService(): PulumiService {
 const mockExists = vi.mocked(existsSync);
 const mockRead = vi.mocked(readFileSync);
 const mockWrite = vi.mocked(writeFileSync);
-const mockCp = vi.mocked(cpSync);
-const mockRename = vi.mocked(renameSync);
-const mockRm = vi.mocked(rmSync);
 
 /**
  * Builds a real `ElectronStoreService` (outside Electron, so it's backed by
@@ -81,181 +74,12 @@ class TestableConfigService extends ConfigService {
   }
 }
 
-/**
- * Build a Terraform state file payload from an `outputs` map.
- * Mirrors the shape that `terraform.tfstate` uses on disk.
- */
-function makeState(outputs: Record<string, { value: unknown }>): string {
-  return JSON.stringify({ outputs });
-}
-
 describe('ConfigService', () => {
-  /** Fresh instance per test; each has its own in-memory tfstate cache. */
+  /** Fresh instance per test; each has its own in-memory stack-outputs cache. */
   let service: ConfigService;
 
   beforeEach(() => {
     service = new ConfigService(makeElectronStore(), makePulumiService());
-  });
-
-  describe('getTfOutputs', () => {
-    it('should return null when the state file is absent', () => {
-      mockExists.mockReturnValue(false);
-      expect(service.getTfOutputs()).toBeNull();
-    });
-
-    it('should return null when the state file contains the literal null', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('null');
-      expect(service.getTfOutputs()).toBeNull();
-    });
-
-    it('should return null when the state file has no outputs key', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('{}');
-      expect(service.getTfOutputs()).toBeNull();
-    });
-
-    it('should parse outputs and fill defaults for missing keys', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(
-        makeState({
-          aws_region: { value: 'us-west-2' },
-          ecs_cluster_name: { value: 'my-cluster' },
-          game_names: { value: ['minecraft', 'factorio'] },
-        }),
-      );
-
-      const outputs = service.getTfOutputs();
-      expect(outputs).not.toBeNull();
-      expect(outputs!.aws_region).toBe('us-west-2');
-      expect(outputs!.ecs_cluster_name).toBe('my-cluster');
-      expect(outputs!.game_names).toEqual(['minecraft', 'factorio']);
-      expect(outputs!.subnet_ids).toBe('');
-      expect(outputs!.efs_access_points).toEqual({});
-      expect(outputs!.applied_game_servers).toBeNull();
-    });
-
-    it('should parse applied_game_servers when the output is present', () => {
-      mockExists.mockReturnValue(true);
-      const appliedGameServers = {
-        minecraft: {
-          image: 'itzg/minecraft-server',
-          cpu: 1024,
-          memory: 2048,
-          ports: [{ container: 25565, protocol: 'tcp' }],
-          volumes: [{ name: 'data', container_path: '/data' }],
-        },
-      };
-      mockRead.mockReturnValue(
-        makeState({
-          applied_game_servers: { value: appliedGameServers },
-        }),
-      );
-
-      const outputs = service.getTfOutputs();
-      expect(outputs!.applied_game_servers).toEqual(appliedGameServers);
-    });
-
-    it('should default applied_game_servers to null when the output is missing', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'us-west-2' } }));
-
-      expect(service.getTfOutputs()!.applied_game_servers).toBeNull();
-    });
-
-    it('should apply the fallback aws_region when outputs omit it', () => {
-      mockExists.mockReturnValue(true);
-      // A non-empty outputs map that simply doesn't include `aws_region` —
-      // distinct from an *empty* `{}` map, which is now treated as "infra
-      // not yet deployed" and short-circuits to `null` before defaults are
-      // ever filled in.
-      mockRead.mockReturnValue(makeState({ ecs_cluster_name: { value: 'my-cluster' } }));
-      expect(service.getTfOutputs()!.aws_region).toBe('us-east-1');
-    });
-
-    it('should cache parsed outputs across calls', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'eu-central-1' } }));
-
-      service.getTfOutputs();
-      service.getTfOutputs();
-
-      expect(mockRead).toHaveBeenCalledTimes(1);
-    });
-
-    it('should cache a null result so an undeployed stack is not re-read on every call', () => {
-      mockExists.mockReturnValue(false);
-
-      expect(service.getTfOutputs()).toBeNull();
-      expect(service.getTfOutputs()).toBeNull();
-
-      expect(mockExists).toHaveBeenCalledTimes(1);
-    });
-
-    it('should re-read after invalidateCache when the previous result was null', () => {
-      mockExists.mockReturnValue(false);
-      expect(service.getTfOutputs()).toBeNull();
-
-      service.invalidateCache();
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'eu-west-1' } }));
-
-      expect(service.getTfOutputs()!.aws_region).toBe('eu-west-1');
-    });
-
-    it('should force a re-read after invalidateCache', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'a' } }));
-
-      service.getTfOutputs();
-      service.invalidateCache();
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'b' } }));
-
-      expect(service.getTfOutputs()!.aws_region).toBe('b');
-      expect(mockRead).toHaveBeenCalledTimes(2);
-    });
-
-    it('should return null when the state file contains invalid JSON', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('not-json{');
-      expect(service.getTfOutputs()).toBeNull();
-    });
-
-    it('should parse audit_table_name when the output is present', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(
-        makeState({
-          audit_table_name: { value: 'hyveon-audit' },
-        }),
-      );
-
-      expect(service.getTfOutputs()!.audit_table_name).toBe('hyveon-audit');
-    });
-
-    it('should default audit_table_name to an empty string when the output is missing', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'us-west-2' } }));
-
-      expect(service.getTfOutputs()!.audit_table_name).toBe('');
-    });
-
-    it('should parse runs_table_name when the output is present', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(
-        makeState({
-          runs_table_name: { value: 'hyveon-runs' },
-        }),
-      );
-
-      expect(service.getTfOutputs()!.runs_table_name).toBe('hyveon-runs');
-    });
-
-    it('should default runs_table_name to an empty string when the output is missing', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'us-west-2' } }));
-
-      expect(service.getTfOutputs()!.runs_table_name).toBe('');
-    });
   });
 
   describe('getStackOutputs', () => {
@@ -508,36 +332,13 @@ describe('ConfigService', () => {
     let testableService: TestableConfigService;
 
     beforeEach(() => {
-      testableService = new TestableConfigService(makeElectronStore());
+      testableService = new TestableConfigService(makeElectronStore(), makePulumiService());
     });
 
     afterEach(() => {
       vi.restoreAllMocks();
-      delete process.env['TF_STATE_PATH'];
       delete process.env['SERVER_CONFIG_PATH'];
       delete process.env['HYVEON_TFVARS_BUCKET'];
-      delete process.env['TF_DIR'];
-      delete process.env['RUNS_DIR_PATH'];
-    });
-
-    it('should return packaged tfstate path when readIsPackaged returns true', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      expect(testableService.getTfStatePath()).toBe(
-        path.join('/fake/resources', 'terraform', 'aws', 'terraform.tfstate'),
-      );
-    });
-
-    it('should return the repo-relative fallback when readIsPackaged returns false', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(false);
-      const result = testableService.getTfStatePath();
-      expect(result).toMatch(/terraform[/\\]terraform\.tfstate$/);
-      expect(path.isAbsolute(result)).toBe(true);
-    });
-
-    it('should return the TF_STATE_PATH env var value when set', () => {
-      process.env['TF_STATE_PATH'] = '/custom/state/terraform.tfstate';
-      expect(service.getTfStatePath()).toBe('/custom/state/terraform.tfstate');
     });
 
     it('should return packaged server_config path when readIsPackaged returns true', () => {
@@ -577,112 +378,6 @@ describe('ConfigService', () => {
 
       expect(mockExists).not.toHaveBeenCalled();
       expect(mockRead).not.toHaveBeenCalled();
-    });
-
-    it('should return the TF_DIR env var value when set', () => {
-      process.env['TF_DIR'] = '/custom/terraform';
-      expect(service.getTerraformDir()).toBe('/custom/terraform');
-    });
-
-    it('should seed and return the writable userData terraform dir when packaged and userData is available', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue('/fake/userData');
-      mockExists.mockReturnValue(false);
-
-      const result = testableService.getTerraformDir();
-      const writableDir = path.join('/fake/userData', 'terraform');
-
-      expect(result).toBe(writableDir);
-      // Seeding stages the copy into a sibling directory and renames it into
-      // place, so `writableDir` never exists in a partially-copied state.
-      expect(mockCp).toHaveBeenCalledTimes(1);
-      const [cpFrom, cpTo] = mockCp.mock.calls[0];
-      expect(cpFrom).toBe(path.join('/fake/resources', 'terraform'));
-      expect(String(cpTo).startsWith(`${writableDir}.staging-`)).toBe(true);
-      expect(mockRename).toHaveBeenCalledWith(cpTo, writableDir);
-    });
-
-    it('should fall back to the packaged resourcesPath terraform dir and not treat writableDir as seeded when cpSync fails', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue('/fake/userData');
-      const writableDir = path.join('/fake/userData', 'terraform');
-      // Only the final writableDir check should report "exists" as false —
-      // the staging dir cleanup check runs after the throw, so report it as
-      // present so we can assert the cleanup path (rmSync) runs too.
-      mockExists.mockImplementation((p) => p !== writableDir);
-      mockCp.mockImplementation(() => {
-        throw new Error('ENOSPC: no space left on device');
-      });
-
-      const result = testableService.getTerraformDir();
-
-      expect(result).toBe(path.join('/fake/resources', 'terraform'));
-      expect(mockRename).not.toHaveBeenCalled();
-      expect(mockRm).toHaveBeenCalledTimes(1);
-      const [rmPath] = mockRm.mock.calls[0];
-      expect(String(rmPath).startsWith(`${writableDir}.staging-`)).toBe(true);
-
-      // A subsequent call must retry seeding rather than treating the failed
-      // attempt as "already seeded" — `writableDir` was never created.
-      mockCp.mockClear();
-      testableService.getTerraformDir();
-      expect(mockCp).toHaveBeenCalledTimes(1);
-    });
-
-    it('should not re-seed the writable userData terraform dir when it already exists', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue('/fake/userData');
-      mockExists.mockReturnValue(true);
-
-      const result = testableService.getTerraformDir();
-
-      expect(result).toBe(path.join('/fake/userData', 'terraform'));
-      expect(mockCp).not.toHaveBeenCalled();
-    });
-
-    it('should fall back to the packaged resourcesPath terraform dir when userData is unavailable', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue(null);
-
-      expect(testableService.getTerraformDir()).toBe(path.join('/fake/resources', 'terraform'));
-      expect(mockCp).not.toHaveBeenCalled();
-    });
-
-    it('should return the repo-root terraform dir fallback when readIsPackaged returns false', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(false);
-      const result = testableService.getTerraformDir();
-      expect(result).toMatch(/terraform$/);
-      expect(path.isAbsolute(result)).toBe(true);
-    });
-
-    describe('getRunsDir', () => {
-      it('should return the RUNS_DIR_PATH env var value when set', () => {
-        process.env['RUNS_DIR_PATH'] = '/custom/runs';
-        expect(service.getRunsDir()).toBe('/custom/runs');
-      });
-
-      it('should resolve a relative RUNS_DIR_PATH env var against process.cwd() rather than getTerraformDir()', () => {
-        process.env['RUNS_DIR_PATH'] = 'relative/runs';
-        const result = service.getRunsDir();
-        expect(result).toBe(path.resolve('relative/runs'));
-        expect(path.isAbsolute(result)).toBe(true);
-      });
-
-      it('should return <userData>/runs when the env var is unset and userData is available', () => {
-        vi.spyOn(testableService, 'readUserDataPath').mockReturnValue('/fake/userData');
-        expect(testableService.getRunsDir()).toBe(path.join('/fake/userData', 'runs'));
-      });
-
-      it('should return the OS tmpdir fallback when the env var is unset and userData is unavailable', () => {
-        vi.spyOn(testableService, 'readUserDataPath').mockReturnValue(null);
-        const result = testableService.getRunsDir();
-        expect(result).toBe(path.join(os.tmpdir(), 'hyveon-runs'));
-        expect(path.isAbsolute(result)).toBe(true);
-      });
     });
   });
 });

@@ -2,9 +2,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import { MINIMUM_TERRAFORM_VERSION } from '@hyveon/shared';
-import { lookupCommandFor } from './TerraformService.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Maps the host platform to the CLI command used to locate a binary on
+ * `PATH` — `where.exe` on Windows, `which` everywhere else. Extracted as a
+ * standalone function (rather than inlined in {@link PrerequisiteService.locate})
+ * so it can be exercised directly without spinning up the service or
+ * mocking `execFile`.
+ */
+export function lookupCommandFor(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'where.exe' : 'which';
+}
 
 /**
  * Timeout applied to every CLI probe (`which`/`where.exe` lookups and
