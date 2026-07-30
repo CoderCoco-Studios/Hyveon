@@ -6,14 +6,18 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 /**
  * Guards the one dependency invariant in this repo that nothing else can catch.
  *
- * A handful of packages are marked `external` in `electron.vite.config.ts`
- * (`@pulumi/pulumi`, `@pulumi/aws`, `@cdktf/hcl2json`) so they are loaded from
- * `node_modules` at runtime instead of being bundled into `out/main`. That makes
- * them runtime dependencies of the *packaged app*, and electron-builder only
- * copies `node_modules` belonging to the app manifest's production dependency
+ * `@pulumi/pulumi` and `@pulumi/aws` are marked `external` in
+ * `electron.vite.config.ts` so they are loaded from `node_modules` at runtime
+ * instead of being bundled into `out/main`. That makes them runtime
+ * dependencies of the *packaged app*, and electron-builder only copies
+ * `node_modules` belonging to the app manifest's production dependency
  * tree — the app manifest being the root `package.json`, per
  * `directories.app: "."` in `electron-builder.yml`. The `files` whitelist there
  * can narrow that set but never add to it.
+ *
+ * (`@cdktf/hcl2json` was externalized here too, for the same reason, before
+ * the `migrate-iac-to-pulumi` change removed it from the dependency tree
+ * entirely — see `TfvarsService.ts`'s JSON-only configuration model.)
  *
  * So the same packages are pinned in multiple manifests, for different reasons:
  *
@@ -21,8 +25,7 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
  *    compiles and typechecks against. It declares every package the root ships.
  *  - `app/packages/infra/package.json` — what the Pulumi program workspace
  *    (bundled into the main process, same as `@hyveon/shared`) compiles and
- *    typechecks against. It only needs the `@pulumi/*` subset — it doesn't use
- *    `@cdktf/hcl2json`.
+ *    typechecks against. It only needs the `@pulumi/*` subset.
  *  - the root `package.json` — what electron-builder collects and ships.
  *
  * If any of these drift, some part of the toolchain typechecks against a

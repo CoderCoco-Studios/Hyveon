@@ -31,27 +31,18 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: r('app/packages/desktop-main/src/electron-entry.ts'),
-        // `@cdktf/hcl2json` must stay external (loaded from node_modules at
-        // runtime), never bundled, for two reasons:
-        //  1. Its wasm bridge reads `main.wasm.gz` relative to its own module
-        //     file (`join(__dirname, '..', 'main.wasm.gz')`). Bundled, that
-        //     resolves to `out/main.wasm.gz`, which doesn't exist — the read
-        //     rejects and every later `parse()` call awaits a `ready` flag
-        //     that never flips, so `games.list` would hang forever.
-        //  2. The bundled copy of its Go `wasm_exec` glue runs module-scope
-        //     side effects at app startup that prevent Electron from ever
-        //     quitting — `app.close()` in Playwright's electron project then
-        //     hangs until the worker teardown timeout, failing every spec.
-        // The external package also keeps the patch-package fix
-        // (patches/@cdktf+hcl2json+0.21.0.patch) in effect. electron-builder.yml
-        // packages the module (and its transitive deps) into the installer.
-        //
-        // `@pulumi/pulumi` and `@pulumi/aws` follow the same precedent from the
-        // start rather than discovering the failure mode in CI: `@pulumi/pulumi`
-        // pulls in `@grpc/grpc-js`, which owns sockets, and bundling either
-        // package (60 MB / 15 MB unpacked) risks the exact "Electron never
-        // quits" failure the hcl2json incident produced. electron-builder.yml
-        // ships both packages (and their transitive deps) unpacked.
+        // `@pulumi/pulumi` and `@pulumi/aws` must stay external (loaded from
+        // node_modules at runtime), never bundled: `@pulumi/pulumi` pulls in
+        // `@grpc/grpc-js`, which owns sockets, and bundling either package
+        // (60 MB / 15 MB unpacked) risks an "Electron never quits" failure —
+        // a module-scope side effect or an open socket surviving into the
+        // renderer's `app.close()` path, hanging Playwright's electron
+        // project until the worker teardown timeout, failing every spec (see
+        // the retired `@cdktf/hcl2json` externalization this repo carried
+        // before the `migrate-iac-to-pulumi` change removed that dependency
+        // entirely — the exact failure mode this precedent guards against).
+        // electron-builder.yml ships both packages (and their transitive
+        // deps) unpacked.
         // The Pulumi entries are regexes, not bare strings, because Rollup's
         // `external` array matches import ids *exactly*: the string
         // `'@pulumi/pulumi'` leaves `import ... from '@pulumi/pulumi/automation'`
@@ -65,7 +56,7 @@ export default defineConfig({
         //  - `externalizeDepsPlugin()` externalizes every root package.json
         //    `dependencies` entry, adding both the bare name and a
         //    `^(name1|name2)/.+` subpath regex. The root manifest declares these
-        //    three packages (electron-builder only copies node_modules belonging
+        //    two packages (electron-builder only copies node_modules belonging
         //    to the app manifest's production dependency tree, and the `files`
         //    whitelist can narrow that set but never add to it), so the plugin
         //    covers them — including subpaths. When the root manifest had no
@@ -95,7 +86,6 @@ export default defineConfig({
         // belong to devDependencies), so this cannot resolve to a second
         // version.
         external: [
-          '@cdktf/hcl2json',
           /^@pulumi\/pulumi(\/.*)?$/,
           /^@pulumi\/aws(\/.*)?$/,
           'semver',

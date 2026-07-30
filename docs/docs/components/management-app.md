@@ -108,8 +108,10 @@ never speaks HTTP to this process.
   `DiscordConfigService` and `DiscordCommandRegistrar`. No discord.js,
   no gateway — the bot is two Lambdas plus Discord's REST API.
 - **`TfvarsModule`** — imports `ConfigModule` and `CloudProviderModule`
-  (for the `REMOTE_FILE_STORE` token in S3 mode); provides `TfvarsService`,
-  the local-vs-S3 `terraform.tfvars` reader/parser.
+  (for the `REMOTE_FILE_STORE` token); provides `TfvarsService`, the
+  S3-backed deployment-config JSON reader/parser. There is no local-file
+  fallback — see [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice)
+  below.
 - **`TerraformModule`** — imports `ConfigModule`, `CloudProviderModule`
   (for `REMOTE_FILE_STORE` and `RUN_RECORD_STORE`), and `TfvarsModule`
   (for the rollback flow); provides `TerraformService`, `RunService`
@@ -153,11 +155,13 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   (`app.isPackaged`), `<resourcesPath>/terraform/aws/terraform.tfstate`;
   (3) dev/test fallback — the repo-root `terraform/terraform.tfstate`. A
   missing or unparsable state file degrades to `null` rather than throwing,
-  so the dashboard can still render pre-apply. Several other paths
-  (`getServerConfigPath()`, `getTfvarsPath()`, the Terraform composer root)
-  follow the same env-var → packaged-resourcesPath → dev-fallback shape —
-  see the [environment variables](#env-vars) table below for each one's
-  specific env var name.
+  so the dashboard can still render pre-apply. Other paths
+  (`getServerConfigPath()`, the Terraform composer root) follow the same
+  env-var → packaged-resourcesPath → dev-fallback shape — see the
+  [environment variables](#env-vars) table below for each one's specific env
+  var name. `getConfigurationBucket()` (the configuration S3 bucket name) is
+  a different shape entirely — see
+  [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice) below.
 - **`DiscordConfigService`** — persistence facade over DynamoDB
   (`CONFIG#discord`) + Secrets Manager. Concurrent reads are coalesced via
   an inflight-promise pattern. `getRedacted()` returns
@@ -207,10 +211,9 @@ everywhere, not `console.log`.
 | `TF_STATE_PATH` | — | Overrides the resolved path to `terraform.tfstate` (see `ConfigService.getTfStatePath()` resolution order above). |
 | `TF_DIR` | — | Overrides the Terraform composer root (`terraform/`, not `terraform/aws/`) that `TerraformService` spawns the `terraform` binary in. |
 | `SERVER_CONFIG_PATH` | — | Overrides the resolved path to `server_config.json` (the watchdog-knob store). Same env → packaged → dev-fallback resolution shape as `TF_STATE_PATH`. |
-| `TFVARS_PATH` | — | Overrides the resolved path to the local fallback copy of `terraform.tfvars`, used when no S3 tfvars backend is configured. |
-| `TFVARS_CACHE_TTL_MS` | `30000` | In-memory cache TTL for `TfvarsService`'s parsed tfvars. Falls back to the default when unset, empty, non-numeric, or non-positive. |
+| `TFVARS_CACHE_TTL_MS` | `30000` | In-memory cache TTL for `TfvarsService`'s parsed configuration. Falls back to the default when unset, empty, non-numeric, or non-positive. |
 | `RUNS_DIR_PATH` | `<tmpdir>/hyveon-runs` | Directory `TerraformService` writes per-run plan/apply artifacts under. |
-| `HYVEON_TFVARS_BUCKET` | — | Overrides the S3 bucket name `TfvarsService` reads/writes tfvars against in S3 mode. Falls back to walking up from `process.cwd()` for a `.hyveon/tfvars-bucket` marker file (mirrors `scripts/tfvars-sync.ts`'s `findBucketMarker()`), then `null` (local mode). |
+| `HYVEON_TFVARS_BUCKET` | — | Dev/CI override for the S3 configuration bucket name `TfvarsService`/`TerraformService` read/write against — wins over the operator-configured value. Not how the packaged app resolves the bucket in normal use; see [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice) below for the real resolution order. |
 | `NODE_ENV` | — | `'production'` selects Winston's JSON-lines log format over the dev colourised format; read in `logger.ts`. |
 | `DIAGNOSTICS_LOG_DIR` | `os.tmpdir()` | Outside Electron only — the directory `DiagnosticsController`'s log-tail reads from. Inside Electron this is always `<userData>/logs` regardless of the env var. |
 | `HYVEON_TEST_MODE` | — | `'1'` enables the `window.hyveon.__test` mock-IPC seam in the preload script for Playwright's `electron` e2e project — see [`@hyveon/desktop-preload`](#hyveondesktop-preload) below. Absent (the default) in packaged/production builds. |
@@ -250,18 +253,26 @@ Two services, both provided by `ElectronStoreModule`:
 
 ### `TfvarsModule` / `TfvarsService`
 
-`TfvarsService` is the local-vs-S3 `terraform.tfvars` reader/parser backing
-the Games page's declared-config view, the add/edit/remove game flows, and
-drift detection. Source resolution mirrors `ConfigService.getTfvarsBucket()`
-— when `ConfigService` reports an S3 backend configured (`HYVEON_TFVARS_BUCKET`
-env var, or a `.hyveon/tfvars-bucket` marker file found by walking up from
-`process.cwd()`), reads/writes go through the injected `REMOTE_FILE_STORE`
-token; otherwise they hit `ConfigService.getTfvarsPath()` on local disk.
-Parsed results are cached in-memory for `TFVARS_CACHE_TTL_MS` (default
-30 s) so repeated reads (e.g. drift checks) don't re-parse HCL on every
-call; `invalidateCache()` is called after any write. See the
-[S3 tfvars storage guide](/guides/s3-tfvars) for the local-vs-S3 tradeoff
-this mirrors.
+`TfvarsService` is the S3-backed deployment-config JSON reader/parser
+backing the Games page's declared-config view, the add/edit/remove game
+flows, and drift detection — see `openspec/specs/desktop-only-operator-surface`'s
+"No operator-editable configuration files" requirement. There is no
+local-file fallback: `ConfigService.getConfigurationBucket()` resolves the
+configured S3 bucket (the `HYVEON_TFVARS_BUCKET` env var as a dev/CI
+override, otherwise `ElectronStoreService`'s `bootstrap.configurationBucket`
+— the value the First-Run Wizard's bootstrap step persisted), and every
+read/write goes through the injected `REMOTE_FILE_STORE` token keyed by the
+fixed `CONFIGURATION_OBJECT_KEY` constant (`@hyveon/shared`,
+`'deployment-config.json'`). When no bucket is configured,
+`getGameServers()` resolves to `[]` (never rejects — its `isConfigured()`
+method lets a caller distinguish "unconfigured" from "genuinely zero games"),
+while the write paths and `getRawConfig()` throw a typed
+`ConfigurationNotConfiguredError`. Parsed results are cached in-memory for
+`TFVARS_CACHE_TTL_MS` (default 30 s) so repeated reads (e.g. drift checks)
+don't re-fetch from S3 on every call; `invalidateCache()` is called after any
+write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see the
+[S3 tfvars storage guide](/guides/s3-tfvars)) is a separate, maintainer-facing
+CLI concern — it does not share this resolution mechanism.
 
 ### Drift detection
 
@@ -269,17 +280,18 @@ this mirrors.
 IPC channel and the [`/app/dashboard`](/app/dashboard) and
 [`/app/games`](/app/games) pages' drift indicators) computes the difference
 between the **declared** game-server config (`TfvarsService.getGameServers()`
-— what's in `terraform.tfvars` right now) and the **applied** config
-(`ConfigService.getTfOutputs()?.applied_game_servers` — what Terraform last
-actually applied). Per game, the pure `computeDrift()` function classifies:
+— what's in the configuration bucket's `deployment-config.json` right now)
+and the **applied** config (`ConfigService.getTfOutputs()?.applied_game_servers`
+— what Terraform last actually applied). Per game, the pure `computeDrift()`
+function classifies:
 
 - **`pending_create`** — declared but not yet in the deployed set.
 - **`pending_delete`** — deployed but no longer declared.
 - **`config_drift`** — declared and deployed, but `image`/`cpu`/`memory`/
   `ports`/`volumes` differ from what was last applied, with `changedFields`
   listing exactly which. `ports`/`volumes` comparisons are order-insensitive
-  (canonicalized before comparing), since HCL/JSON key order isn't
-  guaranteed stable and reordering entries in tfvars isn't a real config
+  (canonicalized before comparing), since JSON key order isn't guaranteed
+  stable and reordering entries in the configuration isn't a real config
   change.
 - Games matching on every compared field produce no entry — the report only
   lists what's out of sync.

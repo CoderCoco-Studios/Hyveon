@@ -115,23 +115,22 @@ function queueSuccessfulResolution(binaryPath = '/usr/local/bin/terraform', vers
  * `ConfigService` stub for `destroy()` tests: exposes `getTerraformDir` and
  * `getRunsDir` — the only accessors `destroy()` (directly, or via
  * {@link TerraformService.writeRunRecord}) reads. Also exposes
- * `getTfvarsBucket`/`getTfvarsPath` (defaulting to local-file mode) purely so
- * the cross-subcommand lock tests below can exercise a real `plan()`/`apply()`
- * call — `destroy()` itself never touches either accessor.
+ * `getConfigurationBucket` (defaulting to a configured bucket, since there is
+ * no local-file fallback any more) purely so the cross-subcommand lock tests
+ * below can exercise a real `plan()`/`apply()` call — `destroy()` itself
+ * never touches that accessor.
  */
 function stubDestroyConfigService(
   opts: {
     terraformDir?: string;
     runsDir?: string;
     tfvarsBucket?: string | null;
-    tfvarsPath?: string;
   } = {},
 ): ConfigService {
   return {
     getTerraformDir: () => opts.terraformDir ?? '/repo/terraform',
     getRunsDir: () => opts.runsDir ?? '/repo/runs',
-    getTfvarsBucket: () => opts.tfvarsBucket ?? null,
-    getTfvarsPath: () => opts.tfvarsPath ?? '/repo/terraform/terraform.tfvars',
+    getConfigurationBucket: () => (opts.tfvarsBucket === undefined ? 'hyveon-tfvars' : opts.tfvarsBucket),
   } as ConfigService;
 }
 
@@ -141,7 +140,11 @@ function stubDestroyConfigService(
  */
 function stubRemoteFileStore(): RemoteFileStore {
   const store: Partial<RemoteFileStore> = {
-    get: vi.fn(),
+    // Defaults to resolving a fixture config object so the cross-subcommand
+    // lock tests' incidental `plan()` calls (see `stubDestroyConfigService`'s
+    // doc) can pull a configuration snapshot and reach spawn, without every
+    // test needing to stub this explicitly.
+    get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode('{}'), etag: 'etag-fixture' }),
     put: vi.fn(),
     listVersions: vi.fn(),
   };
@@ -470,11 +473,6 @@ describe('TerraformService.destroy concurrency guard', () => {
     queueSuccessfulResolution();
     const child = new FakeChildProcess();
     queueSpawn(child);
-    // plan() pulls a local-file tfvars snapshot ahead of spawning — stub a
-    // "source file exists" answer so that read succeeds and plan() reaches
-    // spawn (and the shared workspace lock) the same way destroy() would.
-    existsSyncMock.mockReturnValue(true);
-
     const service = new TerraformService(stubDestroyConfigService(), stubRemoteFileStore(), stubRunRecordService());
     const planGen = service.plan();
     const planNext = planGen.next(); // starts plan()'s body, setting the shared in-flight flag synchronously

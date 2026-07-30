@@ -51,6 +51,21 @@
 import type { GameServerConfig } from './tfvars.js';
 
 /**
+ * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
+ * inside the operator's configuration bucket. Shared by `TfvarsService`
+ * (desktop-main) and `TerraformService`'s rollback flow (#112) — both derive
+ * the object key from this single constant rather than a filesystem path's
+ * `basename()`, which was the pre-`migrate-iac-to-pulumi` mechanism
+ * (`ConfigService.getTfvarsPath()`, retired alongside local-file mode; see
+ * Phase 6, "Configuration persisted as versioned JSON"). Deriving the key
+ * from a path was never more than an accident of the local-file-mode
+ * implementation — an env-var override to that path (`TFVARS_PATH`) could
+ * silently change the S3 key a deployment used, which this constant makes
+ * impossible.
+ */
+export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
+
+/**
  * Full deployment configuration: the top-level settings the Pulumi program
  * derives shared infrastructure from, plus the per-game map it iterates to
  * derive per-game resources. Persisted verbatim as JSON in the operator's

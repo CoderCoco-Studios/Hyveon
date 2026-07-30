@@ -13,6 +13,10 @@ import {
   installRunRecordDynamoMock,
   runRecordMockStore,
 } from '@hyveon/desktop-main/dist/test-mocks/run-record-mock.js';
+import {
+  installRemoteFileStoreMock,
+  remoteFileStoreMockStore,
+} from '@hyveon/desktop-main/dist/test-mocks/remote-file-store-mock.js';
 
 /** Absolute path to the Terraform state fixture bundled alongside this harness. */
 const DEFAULT_TF_STATE_PATH = fileURLToPath(new URL('./tfstate.fixture.json', import.meta.url));
@@ -92,11 +96,22 @@ export interface IpcHarness {
  * Sets `TF_STATE_PATH` to `tfStatePath` (defaulting to the fixture next to
  * this file — the same fixture the HTTP integration tier uses) so
  * `ConfigService` resolves tfstate-fixture-driven data instead of requiring a
- * real Terraform state file, then installs the ECS and run-record DynamoDB
- * mock interceptors and builds the `AppModule` application context. The
- * run-record mock's backing store (`runRecordMockStore`) is reset first so a
- * prior spec's plan/apply/destroy records and apply lock never leak into a
- * freshly built context.
+ * real Terraform state file, then installs the ECS, run-record DynamoDB, and
+ * configuration-bucket S3 mock interceptors and builds the `AppModule`
+ * application context. The run-record mock's backing store
+ * (`runRecordMockStore`) and the configuration-bucket mock's backing store
+ * (`remoteFileStoreMockStore`) are both reset first so a prior spec's
+ * plan/apply/destroy records, apply lock, and configuration content never
+ * leak into a freshly built context.
+ *
+ * The configuration-bucket mock backs `TfvarsService`/`TerraformService`'s
+ * `RemoteFileStore` reads/writes for specs that configure a bucket (see
+ * `terraform-shim.ts`'s `terraformFixture`, which sets `HYVEON_TFVARS_BUCKET`)
+ * — installing it here unconditionally is inert for every spec that doesn't,
+ * since `AwsRemoteFileStore` throws its own "bucket not configured" error
+ * before ever calling `S3Client.send()` in that case (there is no local-file
+ * configuration fallback any more — see the `migrate-iac-to-pulumi` change's
+ * Phase 6).
  */
 export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PATH): Promise<IpcHarness> {
   process.env['TF_STATE_PATH'] = tfStatePath;
@@ -104,6 +119,8 @@ export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PA
   installEcsMock();
   runRecordMockStore.reset();
   installRunRecordDynamoMock();
+  remoteFileStoreMockStore.reset();
+  installRemoteFileStoreMock();
 
   const context: INestApplicationContext = await NestFactory.createApplicationContext(AppModule, {
     logger: false,

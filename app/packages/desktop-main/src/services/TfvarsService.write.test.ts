@@ -16,6 +16,12 @@
  * the whole document, mutates the in-memory object, and re-serializes it —
  * so "preservation" here means "unrelated fields/entries round-trip with the
  * same values," not "identical bytes."
+ *
+ * There is no local-file fallback any more (Phase 6's "no local
+ * configuration fallback" requirement) — every write goes through the
+ * `RemoteFileStore` stub. `fs` stays mocked purely so the
+ * `ConfigurationNotConfiguredError` tests can assert it is never touched;
+ * this module no longer imports `fs` in production code at all.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -38,10 +44,10 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, existsSync, writeFileSync } from 'fs';
-import { TfvarsService, GameServerEntryError } from './TfvarsService.js';
+import { TfvarsService, GameServerEntryError, ConfigurationNotConfiguredError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 
-/** Strongly-typed mock handles for the `fs` module. */
+/** Strongly-typed mock handles for the `fs` module — asserted as NEVER called anywhere in this file. */
 const mockExists = vi.mocked(existsSync);
 const mockRead = vi.mocked(readFileSync);
 const mockWrite = vi.mocked(writeFileSync);
@@ -120,16 +126,24 @@ function makeRemoteFileStore(): RemoteFileStore & {
 
 /**
  * Builds a `ConfigService` stub exposing just the methods `TfvarsService`
- * reads. `bucket: null` selects local mode; any non-null string selects S3
- * mode.
+ * reads. `bucket: null` (the default) selects the "unconfigured" state; any
+ * non-null string selects the configured (S3) state.
  */
-function makeConfig(opts: { bucket?: string | null; path?: string }): ConfigService {
+function makeConfig(opts: { bucket?: string | null } = {}): ConfigService {
   const stub: Partial<ConfigService> = {
-    getTfvarsBucket: () => opts.bucket ?? null,
-    getTfvarsPath: () => opts.path ?? '/repo/terraform/deployment-config.json',
+    getConfigurationBucket: () => opts.bucket ?? null,
     readEnvTfvarsCacheTtlMs: () => 30000,
   };
   return stub as ConfigService;
+}
+
+/** Configures `remoteFileStore.get()` to resolve {@link FIXTURE_JSON} at the given etag — the read every write path starts from. */
+function stubCurrentConfig(
+  remoteFileStore: ReturnType<typeof makeRemoteFileStore>,
+  json: string = FIXTURE_JSON,
+  etag = 'etag-1',
+): void {
+  remoteFileStore.get.mockResolvedValue({ body: new TextEncoder().encode(json), etag });
 }
 
 describe('TfvarsService write path', () => {
@@ -140,17 +154,38 @@ describe('TfvarsService write path', () => {
     vi.clearAllMocks();
   });
 
-  describe('sibling preservation (local mode)', () => {
-    it('should leave every existing gameServers entry and every top-level field intact when addGameServer splices in a new entry', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
-
+  describe('unconfigured (no disk fallback reachable)', () => {
+    it('should reject every write method with ConfigurationNotConfiguredError without touching fs or the RemoteFileStore', async () => {
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
-      const result = await service.addGameServer('terraria', NEW_ENTRY_CONFIG);
-      expect(result).toEqual({ etag: '', versionId: undefined });
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      await expect(service.addGameServer('terraria', NEW_ENTRY_CONFIG)).rejects.toBeInstanceOf(
+        ConfigurationNotConfiguredError,
+      );
+      await expect(service.updateGameServer('palworld', UPDATED_ENTRY_CONFIG)).rejects.toBeInstanceOf(
+        ConfigurationNotConfiguredError,
+      );
+      await expect(service.removeGameServer('palworld')).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+
+      expect(mockExists).not.toHaveBeenCalled();
+      expect(mockRead).not.toHaveBeenCalled();
+      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.get).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sibling preservation', () => {
+    it('should leave every existing gameServers entry and every top-level field intact when addGameServer splices in a new entry', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const result = await service.addGameServer('terraria', NEW_ENTRY_CONFIG);
+      expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
+
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
 
       expect(written.projectName).toBe(FIXTURE_CONFIG.projectName);
       expect(written.awsRegion).toBe(FIXTURE_CONFIG.awsRegion);
@@ -160,14 +195,15 @@ describe('TfvarsService write path', () => {
     });
 
     it('should leave every other gameServers entry and every top-level field intact when updateGameServer replaces an existing entry', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', UPDATED_ENTRY_CONFIG);
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
 
       expect(written.projectName).toBe(FIXTURE_CONFIG.projectName);
       expect(written.gameServers.palworld).toEqual(UPDATED_ENTRY_CONFIG);
@@ -176,14 +212,15 @@ describe('TfvarsService write path', () => {
     });
 
     it('should leave every other gameServers entry and every top-level field intact when removeGameServer cuts an entry', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       await service.removeGameServer('palworld');
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
 
       expect(written.gameServers.palworld).toBeUndefined();
       expect(written.gameServers.valheim).toEqual(FIXTURE_CONFIG.gameServers.valheim);
@@ -193,13 +230,14 @@ describe('TfvarsService write path', () => {
 
   describe('boolean round-trip', () => {
     it('should serialize https: true as a real JSON boolean (not the string "true") when enabling HTTPS on an entry that omits the field entirely', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: true });
 
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
       expect(written.gameServers.palworld!.https).toBe(true);
     });
 
@@ -211,13 +249,14 @@ describe('TfvarsService write path', () => {
           palworld: { ...FIXTURE_CONFIG.gameServers.palworld!, https: true },
         },
       };
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify(fixtureWithHttpsTrue));
+      stubCurrentConfig(remoteFileStore, JSON.stringify(fixtureWithHttpsTrue));
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: false });
 
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
       expect(written.gameServers.palworld!.https).toBe(false);
     });
 
@@ -229,13 +268,14 @@ describe('TfvarsService write path', () => {
           palworld: { ...FIXTURE_CONFIG.gameServers.palworld!, https: true },
         },
       };
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify(fixtureWithHttpsTrue));
+      stubCurrentConfig(remoteFileStore, JSON.stringify(fixtureWithHttpsTrue));
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, memory: 32768, https: true });
 
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
       expect(written.gameServers.palworld!.https).toBe(true);
       expect(written.gameServers.palworld!.memory).toBe(32768);
       expect(written.gameServers.palworld!.image).toBe('thijsvanloef/palworld-server-docker:v2');
@@ -243,83 +283,60 @@ describe('TfvarsService write path', () => {
     });
   });
 
-  describe('local-mode write return value', () => {
-    it('should resolve with versionId: undefined since the local filesystem has no versioning concept', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
-
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
-
-      await expect(service.updateGameServer('palworld', UPDATED_ENTRY_CONFIG)).resolves.toEqual({
-        etag: '',
-        versionId: undefined,
-      });
-      await expect(service.removeGameServer('valheim')).resolves.toEqual({
-        etag: '',
-        versionId: undefined,
-      });
-    });
-  });
-
   describe('addGameServer name validation', () => {
     it('should reject a name containing uppercase letters instead of writing a corrupt DNS label', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('Terraria', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
     it('should reject a name containing an underscore, since underscores are not valid in a DNS label', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('my_server', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
     it('should reject a name with a leading hyphen', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('-terraria', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
     it('should reject an empty name', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
     it('should accept a name containing internal hyphens, since those are valid within a DNS label', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('my-server-2', NEW_ENTRY_CONFIG)).resolves.toEqual({
-        etag: '',
+        etag: 'etag-2',
         versionId: undefined,
       });
-      expect(mockWrite).toHaveBeenCalledTimes(1);
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
     });
 
     it('should reject adding a name that already exists in gameServers, with reason: \'duplicate-name\' pinned for GamesWriteService\'s coupling', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       // `GamesWriteService.createGame()`'s catch block narrows on
       // `err.reason === 'duplicate-name'` (not just the error's message) to
@@ -330,31 +347,29 @@ describe('TfvarsService write path', () => {
         reason: 'duplicate-name',
       });
       await expect(service.addGameServer('palworld', NEW_ENTRY_CONFIG)).rejects.toBeInstanceOf(GameServerEntryError);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
   });
 
   describe('updateGameServer / removeGameServer not-found', () => {
     it('should reject updateGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.updateGameServer('does-not-exist', UPDATED_ENTRY_CONFIG)).rejects.toMatchObject({
         reason: 'not-found',
       });
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
     it('should reject removeGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_JSON);
+      stubCurrentConfig(remoteFileStore);
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.removeGameServer('does-not-exist')).rejects.toMatchObject({ reason: 'not-found' });
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
   });
 
@@ -386,27 +401,29 @@ describe('TfvarsService write path', () => {
     };
 
     it('should let updateGameServer succeed on a legacy non-DNS-safe key (never re-validates an existing name)', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+      stubCurrentConfig(remoteFileStore, JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       await expect(service.updateGameServer(LEGACY_NAME, UPDATED_ENTRY_CONFIG)).resolves.toEqual({
-        etag: '',
+        etag: 'etag-2',
         versionId: undefined,
       });
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
       expect(written.gameServers[LEGACY_NAME]).toEqual(UPDATED_ENTRY_CONFIG);
     });
 
     it('should let removeGameServer succeed on a legacy non-DNS-safe key (never re-validates an existing name)', async () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+      stubCurrentConfig(remoteFileStore, JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
-      await expect(service.removeGameServer(LEGACY_NAME)).resolves.toEqual({ etag: '', versionId: undefined });
-      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      await expect(service.removeGameServer(LEGACY_NAME)).resolves.toEqual({ etag: 'etag-2', versionId: undefined });
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
       expect(written.gameServers[LEGACY_NAME]).toBeUndefined();
     });
   });
@@ -428,23 +445,8 @@ describe('TfvarsService write path', () => {
       );
     });
 
-    it('should write the file directly in local mode, mirroring the other write paths', async () => {
-      mockExists.mockReturnValue(true);
-
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
-
-      await expect(service.restoreRawTfvars(FIXTURE_JSON)).resolves.toEqual({
-        etag: '',
-        versionId: undefined,
-      });
-      expect(mockWrite).toHaveBeenCalledWith(expect.any(String), FIXTURE_JSON, 'utf-8');
-    });
-
     it('should invalidate the in-memory cache so the next getGameServers() re-reads the restored content', async () => {
-      remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_JSON),
-        etag: 'etag-1',
-      });
+      stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -458,13 +460,10 @@ describe('TfvarsService write path', () => {
     });
   });
 
-  describe('concurrent writes (S3 mode)', () => {
+  describe('concurrent writes', () => {
     it('should fail the second of two concurrent writes with a clear OptimisticLockError, not silently overwrite the first', async () => {
       // Both writers read the same starting etag...
-      remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_JSON),
-        etag: 'etag-1',
-      });
+      stubCurrentConfig(remoteFileStore);
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
       // ...the first writer's conditional put succeeds and moves the remote
@@ -492,10 +491,7 @@ describe('TfvarsService write path', () => {
     });
 
     it('should propagate the store put()\'s versionId through to the caller on a successful write', async () => {
-      remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_JSON),
-        etag: 'etag-1',
-      });
+      stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-2', versionId: 'v-123' });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -506,10 +502,7 @@ describe('TfvarsService write path', () => {
     });
 
     it('should throw OptimisticLockError (not a raw RemoteFileConflictError) when the store rejects a conditional put', async () => {
-      remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_JSON),
-        etag: 'etag-1',
-      });
+      stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockRejectedValue(
         new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
       );
@@ -519,7 +512,6 @@ describe('TfvarsService write path', () => {
       await expect(
         service.addGameServer('terraria', NEW_ENTRY_CONFIG, 'etag-stale'),
       ).rejects.toBeInstanceOf(OptimisticLockError);
-      await expect(mockWrite).not.toHaveBeenCalled();
     });
   });
 
@@ -580,6 +572,146 @@ describe('TfvarsService write path', () => {
       const lockError = caught as OptimisticLockError;
       expect(lockError.expectedEtag).toBe('etag-stale');
       expect(lockError.currentEtag).toBeUndefined();
+    });
+  });
+
+  /**
+   * Task 6.5 (`migrate-iac-to-pulumi` Phase 6) / `pulumi-infra-program`'s
+   * "Configuration round-trips losslessly" scenario: a `DeploymentConfig`
+   * with EVERY field populated — every top-level field with a non-default,
+   * non-empty value, and a `gameServers` entry with every optional
+   * `GameServerConfig` field populated (not omitted) — must survive a
+   * write-then-read cycle through `TfvarsService`'s real write/read methods
+   * deeply equal to what went in, including booleans and numerics.
+   *
+   * Exercises the *actual* service methods rather than a bare
+   * `JSON.stringify`/`parse` round trip: `addGameServer()` (which reads,
+   * mutates via the real `insertGameServerEntry`/`serializeConfig` internals,
+   * and writes) followed by a fresh `getGameServers()` and `getRawConfig()`
+   * (both driven by `fetchRawConfig()`). The stubbed `RemoteFileStore` is
+   * backed by a single mutable "object" (mirroring
+   * `games.controller.integration.test.ts`'s `makeMutableRemoteFileStore`),
+   * so the read-back genuinely reflects what the write produced rather than
+   * a canned fixture.
+   */
+  describe('comprehensive round-trip (every field, top-level and per-game)', () => {
+    it('should survive a write-then-read cycle through addGameServer/getGameServers/getRawConfig deeply equal to the original, including booleans and numerics', async () => {
+      const startingConfig: DeploymentConfig = {
+        projectName: 'full-round-trip-project',
+        awsRegion: 'eu-west-1',
+        vpcCidr: '172.16.0.0/16',
+        hostedZoneName: 'full-round-trip.example.com',
+        dnsTtl: 60,
+        watchdogIntervalMinutes: 20,
+        watchdogIdleChecks: 6,
+        watchdogMinPackets: 250,
+        baseAllowedGuilds: ['guild-a', 'guild-b'],
+        baseAdminUserIds: ['user-a'],
+        baseAdminRoleIds: ['role-a', 'role-b'],
+        discordApplicationId: 'discord-app-123',
+        auditTableName: 'custom-audit-table',
+        runsTableName: 'custom-runs-table',
+        gameServers: {
+          existing: {
+            image: 'example/existing-server:latest',
+            cpu: 1024,
+            memory: 2048,
+            ports: [{ container: 9000, protocol: 'tcp' }],
+            volumes: [{ name: 'data', container_path: '/data' }],
+          },
+        },
+      };
+      const startingJson = JSON.stringify(startingConfig, null, 2) + '\n';
+
+      /** Every optional `GameServerConfig` field populated — nothing omitted. */
+      const NEW_GAME_ALL_FIELDS = {
+        image: 'thijsvanloef/palworld-server-docker:latest',
+        cpu: 2048,
+        memory: 8192,
+        ports: [
+          { container: 8211, protocol: 'udp' },
+          { container: 27015, protocol: 'udp' },
+        ],
+        environment: [
+          { name: 'PLAYERS', value: '16' },
+          { name: 'SERVER_NAME', value: 'Full Round-Trip Server' },
+        ],
+        volumes: [
+          { name: 'saves', container_path: '/palworld' },
+          { name: 'mods', container_path: '/palworld/mods' },
+        ],
+        https: true,
+        connect_message: 'Connect to {host}:{port}',
+        file_seeds: [
+          {
+            path: '/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+            content: '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(Difficulty=None)\n',
+            mode: '0644',
+          },
+          {
+            path: '/palworld/Pal/Content/Paks/MyMod.pak',
+            content_base64: 'UEsDBBQAAAAIAAAAIQAAAAAAAAAAAAAAAAAA',
+            mode: '0600',
+          },
+        ],
+      };
+
+      // A single mutable "S3 object" backs both get() and put() — the write
+      // this test performs is genuinely what the subsequent read observes,
+      // not a separately-stubbed fixture.
+      let currentJson = startingJson;
+      let etagCounter = 1;
+      const remoteFileStore: RemoteFileStore = {
+        get: vi.fn().mockImplementation(async () => ({
+          body: new TextEncoder().encode(currentJson),
+          etag: `etag-${etagCounter}`,
+        })),
+        put: vi.fn().mockImplementation(async (_key: string, body: Uint8Array) => {
+          currentJson = new TextDecoder().decode(body);
+          etagCounter += 1;
+          return { etag: `etag-${etagCounter}` };
+        }),
+        getVersion: vi.fn(),
+        listVersions: vi.fn(),
+      };
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      const writeResult = await service.addGameServer('full-round-trip-game', NEW_GAME_ALL_FIELDS);
+      expect(writeResult.etag).toBe('etag-2');
+
+      // Read back through getRawConfig() (bypasses the in-memory cache) and
+      // confirm the WHOLE document — every top-level field plus both
+      // gameServers entries — is deeply equal to what should have resulted,
+      // not just a subset.
+      const { config: rawConfig } = await service.getRawConfig();
+      const parsed = JSON.parse(rawConfig) as DeploymentConfig;
+
+      const expectedConfig: DeploymentConfig = {
+        ...startingConfig,
+        gameServers: {
+          ...startingConfig.gameServers,
+          'full-round-trip-game': NEW_GAME_ALL_FIELDS,
+        },
+      };
+      expect(parsed).toEqual(expectedConfig);
+
+      // Explicitly assert booleans/numerics decoded to their real JS types —
+      // `toEqual` alone wouldn't catch e.g. `https` surviving as the string
+      // `"true"` or `cpu` as `"2048"`.
+      expect(typeof parsed.dnsTtl).toBe('number');
+      expect(typeof parsed.watchdogIntervalMinutes).toBe('number');
+      expect(typeof parsed.gameServers['full-round-trip-game']!.cpu).toBe('number');
+      expect(typeof parsed.gameServers['full-round-trip-game']!.https).toBe('boolean');
+      expect(parsed.gameServers['full-round-trip-game']!.https).toBe(true);
+
+      // getGameServers() (the flattened, cached read path) must agree.
+      service.invalidateCache();
+      const gameServers = await service.getGameServers();
+      expect(gameServers).toEqual([
+        { name: 'existing', ...startingConfig.gameServers.existing },
+        { name: 'full-round-trip-game', ...NEW_GAME_ALL_FIELDS },
+      ]);
     });
   });
 });

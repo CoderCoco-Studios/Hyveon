@@ -11,11 +11,17 @@ import type { ConfigService } from './ConfigService.js';
 import type { RunRecordService } from './RunRecordService.js';
 import type { TfvarsService } from './TfvarsService.js';
 
-/** Builds a `ConfigService` stub exposing only what rollback resolution reads. */
-function stubConfigService(opts: { tfvarsPath?: string } = {}): ConfigService {
-  return {
-    getTfvarsPath: () => opts.tfvarsPath ?? '/repo/terraform/terraform.tfvars',
-  } as ConfigService;
+/**
+ * Builds a `ConfigService` stub exposing only what rollback resolution
+ * reads. The S3 object key rollback resolves against is the fixed
+ * `CONFIGURATION_OBJECT_KEY` constant (`'deployment-config.json'`), not
+ * derived from any `ConfigService` accessor any more, so this stub currently
+ * exposes nothing — kept as a named builder (rather than inlining `{}`) so a
+ * future accessor rollback reads can be added here without touching every
+ * call site.
+ */
+function stubConfigService(): ConfigService {
+  return {} as ConfigService;
 }
 
 /** Builds a `RemoteFileStore` stub whose `listVersions`/`getVersion` are directly-controllable mocks. */
@@ -109,7 +115,7 @@ describe('TerraformService.resolveRollbackTarget', () => {
       versionId: 'v-prior',
       lastModified: priorLastModified,
     });
-    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('terraform.tfvars');
+    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('deployment-config.json');
   });
 
   it('should throw RollbackVersionMissingError when the apply run\'s own version is the oldest in history (no earlier version exists)', async () => {
@@ -169,7 +175,7 @@ describe('TerraformService.confirmRollback', () => {
     const service = new TerraformService(stubConfigService(), remoteFileStore, runRecordService, tfvarsService);
 
     await expect(service.confirmRollback('apply-run-1')).resolves.toEqual({ versionId: 'v-new-head' });
-    expect(remoteFileStore.getVersion).toHaveBeenCalledWith('terraform.tfvars', 'v-prior');
+    expect(remoteFileStore.getVersion).toHaveBeenCalledWith('deployment-config.json', 'v-prior');
     expect(tfvarsService.restoreRawTfvars).toHaveBeenCalledWith(priorHcl);
   });
 

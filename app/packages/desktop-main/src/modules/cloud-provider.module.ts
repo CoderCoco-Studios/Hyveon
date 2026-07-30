@@ -46,18 +46,18 @@ export interface CloudBindings {
 
 /**
  * Resolves the `{ bucket, region }` config the AWS `RemoteFileStore`'s
- * `getConfig` callback needs to target the tfvars bucket: the bucket comes
- * from `ConfigService.getTfvarsBucket()` (falling back to `''` — an empty
- * bucket name — when tfvars sync isn't configured, so `AwsRemoteFileStore`
- * surfaces its own "bucket not configured" error rather than this factory
- * silently defaulting somewhere), and the region from `getRegion()`.
- * Exported as a standalone function (rather than inlined in
+ * `getConfig` callback needs to target the configuration bucket: the bucket
+ * comes from `ConfigService.getConfigurationBucket()` (falling back to `''`
+ * — an empty bucket name — when no bucket is configured, so
+ * `AwsRemoteFileStore` surfaces its own "bucket not configured" error rather
+ * than this factory silently defaulting somewhere), and the region from
+ * `getRegion()`. Exported as a standalone function (rather than inlined in
  * {@link CLOUD_BINDINGS}) so a unit test can exercise the resolution logic
  * directly without constructing an `@aws-sdk/client-s3`-backed store, which
  * `@hyveon/desktop-main` tests aren't permitted to import.
  */
 export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: string; region: string } {
-  return { bucket: config.getTfvarsBucket() ?? '', region: config.getRegion() };
+  return { bucket: config.getConfigurationBucket() ?? '', region: config.getRegion() };
 }
 
 /**
@@ -75,22 +75,22 @@ export function resolveAuditLogStoreConfig(config: ConfigService): { tableName: 
 
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
- * `getConfig` callback needs to target the runs DynamoDB table and the tfvars
- * S3 bucket used for offloaded run logs: the table name comes from
- * `ConfigService.getTfOutputs()?.runs_table_name` (falling back to `''` when
- * the tfstate hasn't been applied yet), the bucket from
- * `ConfigService.getTfvarsBucket()` (falling back to `''` when tfvars sync
- * isn't configured), and the region from `getRegion()` — so `AwsRunRecordStore`
- * surfaces its own "not configured" errors rather than this factory silently
- * defaulting somewhere. Exported as a standalone function — see
- * {@link resolveTfvarsFileStoreConfig} for why.
+ * `getConfig` callback needs to target the runs DynamoDB table and the
+ * configuration S3 bucket used for offloaded run logs: the table name comes
+ * from `ConfigService.getTfOutputs()?.runs_table_name` (falling back to `''`
+ * when the tfstate hasn't been applied yet), the bucket from
+ * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
+ * bucket is configured), and the region from `getRegion()` — so
+ * `AwsRunRecordStore` surfaces its own "not configured" errors rather than
+ * this factory silently defaulting somewhere. Exported as a standalone
+ * function — see {@link resolveTfvarsFileStoreConfig} for why.
  */
 export function resolveRunRecordStoreConfig(
   config: ConfigService,
 ): { tableName: string; bucket: string; region: string } {
   return {
     tableName: config.getTfOutputs()?.runs_table_name ?? '',
-    bucket: config.getTfvarsBucket() ?? '',
+    bucket: config.getConfigurationBucket() ?? '',
     region: config.getRegion(),
   };
 }
