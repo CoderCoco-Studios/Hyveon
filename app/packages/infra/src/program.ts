@@ -82,11 +82,23 @@
  * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
  * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
  * | 64 | `aws_dynamodb_table.runs` | `dynamoDb.runsTable` | |
- * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService` over the AWS SDK instead (`migrate-iac-to-pulumi` tasks 5.1–5.6), not into this Pulumi stack. Chicken-and-egg: this bucket becomes the Pulumi `s3://` state backend itself (see `design.md`'s "No operator-editable files on disk"), so it must exist and be created BEFORE any Pulumi stack — including this one — can run; it cannot be a resource inside the stack that depends on it for its own state storage. |
- * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService`. |
- * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService`. |
- * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService`. |
- * | 69 | `aws_s3_bucket_lifecycle_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService`. |
+ * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureTfvarsBucket` over the AWS SDK instead (`migrate-iac-to-pulumi` tasks 5.1–5.6), not into this Pulumi stack. This bucket becomes the operator's CONFIGURATION bucket — task 5.2 renames "tfvars bucket" to "configuration bucket" throughout `BootstrapService`; `design.md`'s "No operator-editable files on disk" decision: "The S3 configuration bucket becomes the only source" — and holds `DeploymentConfig`, THIS PROGRAM'S OWN INPUT (Phase 6), so it must exist and be populated BEFORE `defineAll`/`createInfraProgram` can even be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
+ * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
+ * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
+ * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
+ * | 69 | `aws_s3_bucket_lifecycle_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
+ *
+ * **Not the Pulumi state bucket.** `BootstrapService` also provisions a
+ * SEPARATE bucket, `ensureStateBucket`, that backs the Pulumi `s3://`
+ * state backend this program's own stack persists to. That bucket has NO
+ * Terraform HCL counterpart at all — confirmed by `BootstrapService.ts`'s
+ * own TSDoc on `ensureStateBucket`: "Mirrors the intent of
+ * `terraform/bootstrap/` (which provisions the tfvars bucket, not this one
+ * — there is no Terraform resource for the state bucket itself, since
+ * Terraform can't manage the backend it also reads from)." It is therefore
+ * out of scope for this 69-resource audit entirely — not one of the 69
+ * rows, not an omission from this program, a pre-existing SDK-only
+ * resource with no HCL history to diff against.
  *
  * ## Other intentional omissions (not tied to a single numbered HCL block)
  *
@@ -101,6 +113,23 @@
  *   activation) is preserved. `tags` itself was never operator-configurable
  *   and is deliberately excluded from `DeploymentConfig` (task 2.2's
  *   decision) — see {@link DEFAULT_TAGS}'s own doc for the full rationale.
+ * - **`applied_game_servers` was `sensitive = true` in the HCL** (`terraform/aws/outputs.tf`,
+ *   rationale at `design.md:206–208`), a marking this program's
+ *   {@link StackOutputValues.appliedGameServers} does NOT replicate — Pulumi
+ *   stack outputs have no per-field sensitivity marking in the
+ *   `Record<string, any>` a `PulumiFn` returns (sensitivity is an
+ *   `Output`-level property, `pulumi.secret(...)`, not applicable to a plain
+ *   config echo like this field). `design.md` characterizes the value as
+ *   "ports/images/memory limits", which UNDERSTATES its contents: `GameServerConfig`
+ *   (the value's element type) also carries `environment` —
+ *   operator-set container environment variables, which may hold values the
+ *   operator considers sensitive even though they are not routed through
+ *   Secrets Manager. Flagged for Phase 4's task 4.5 ("no key material reaches
+ *   streamed output or logs"): Pulumi prints stack outputs by default where
+ *   Terraform redacted this one, so whatever surfaces `appliedGameServers`
+ *   downstream (`PulumiService`, CLI-equivalent logging, `pulumi up` output)
+ *   needs its own redaction — this program cannot provide it at the
+ *   `PulumiFn`-return-value layer.
  *
  * Confirmed zero unclaimed resources: every one of the 69 blocks above has
  * either a named Pulumi counterpart or an explicit, reasoned omission.
@@ -616,7 +645,8 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
  *
  * The Automation API's inline `PulumiFn` type is
  * `() => Promise<Record<string, any> | void>` (`@pulumi/pulumi/automation`'s
- * `workspace.d.ts`) — a RETURN VALUE, not a `pulumi.export(...)` call.
+ * `workspace.d.ts`) — a RETURN VALUE, not an `export`-style call (see below:
+ * no such API exists in the Node SDK anyway).
  * Confirmed by reading the SDK's own runtime, not assumed from the type
  * alone: `runtime/stack.js`'s `runInPulumiStack(init)` constructs a root
  * `Stack` resource and calls `stack.initialize({ init })`, whose body
@@ -630,13 +660,19 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
  * `Output`-wrapped fields (as {@link buildStackOutputs} does) is not only
  * valid but preferred — pre-resolving with `await`/`promiseOf` before
  * returning would only strip the dependency edges the engine tracks for
- * preview/diff purposes. `pulumi.export(...)` is sugar over the SAME
- * underlying mechanism for file-based programs with a module-scope top level
- * (it registers into a process-global exports table `runInPulumiStack`'s
- * caller reads) — it is not used here because an inline program has no such
- * module-scope top level to attach it to; the return-value path is the one
- * `LocalWorkspace`'s inline-program `PulumiFn` contract actually exercises.
- * This is the mechanism Phase 4's engine-runtime work (and Phase 7's
+ * preview/diff purposes. There is no `pulumi.export(...)` function to
+ * consider as an alternative in the Node.js SDK at all — checked directly
+ * (`Object.keys(require('@pulumi/pulumi')).filter(k => /export/i.test(k))`
+ * returns `[]`, and no `getExports`/`stackExports`-shaped symbol exists in
+ * `runtime/stack.js`); `export const` at a Pulumi program's module top level
+ * is the Node idiom for a FILE-BASED program (`cmd/run/run.js` captures a
+ * CommonJS/ESM module's own exports as the stack's outputs), and
+ * `pulumi.export(name, value)` is the Python/Go SDKs' idiom, not Node's —
+ * neither applies here regardless, since an inline `PulumiFn` closure has no
+ * module-scope top level for either mechanism to attach to. The return-value
+ * path above is the one, and only, mechanism `LocalWorkspace`'s
+ * inline-program `PulumiFn` contract exercises in this SDK. This is the
+ * mechanism Phase 4's engine-runtime work (and Phase 7's
  * `PulumiService.stack.outputs()` read-back) can rely on.
  *
  * @param config - The full deployment configuration to derive infrastructure

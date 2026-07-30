@@ -6,6 +6,10 @@ describe('@hyveon/infra public entry point', () => {
     expect(typeof infra.createInfraProgram).toBe('function');
   });
 
+  it('should export buildStackOutputs as a function', () => {
+    expect(typeof infra.buildStackOutputs).toBe('function');
+  });
+
   it('should export the network and security-group module APIs', () => {
     expect(typeof infra.defineNetwork).toBe('function');
     expect(typeof infra.cidrSubnet).toBe('function');
