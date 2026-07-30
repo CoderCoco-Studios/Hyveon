@@ -328,6 +328,24 @@ describe('PulumiService.destroy confirmation gate', () => {
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
   });
 
+  it('should reject with DestroyNotConfirmedError when a superseded (previously minted, never consumed) token is retried after a fresh one was minted', async () => {
+    // "Each attempt needs its own token" scenario, `iac-destroy-flow` spec:
+    // minting a new token immediately supersedes the prior one, even if the
+    // prior one was never itself consumed by a destroy() call.
+    const workspace = makeWorkspace(makeHappyPathDestroy());
+    const service = makeService({ workspace });
+
+    const tokenA = service.mintDestroyConfirmationToken();
+    const tokenB = service.mintDestroyConfirmationToken();
+    expect(tokenB).not.toBe(tokenA);
+
+    await expect(collectDestroyChunks(service.destroy(tokenA))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+
+    // tokenB is still the live one.
+    await expect(collectDestroyChunks(service.destroy(tokenB))).resolves.toBeDefined();
+  });
+
   it('should let two concurrent destroy() calls sharing the SAME token resolve the race via the token itself: the loser gets DestroyNotConfirmedError, not RunLockHeldError', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const runLockService = makeRunLockService();
@@ -360,20 +378,37 @@ describe('PulumiService.destroy confirmation gate', () => {
     expect(runLockService.createRun).not.toHaveBeenCalled();
   });
 
-  it('should still consume the token (documented trade-off) even when the state bucket is not configured', async () => {
-    // Minted and confirmed while genuinely unconfigured (target binding
-    // trivially matches: undefined === undefined) — the config-existence
-    // check runs AFTER the token gate (see the source's "Gate structure"
-    // doc section), so the token is spent before that later check fails.
+  it('should NOT consume the token when the config-presence checks fail — those checks run before the token gate, not after', async () => {
+    // Corrected ordering (per review): the config-existence checks are pure,
+    // synchronous, idempotent reads with no ordering constraint relative to
+    // the token gate (only createRun() must follow the token — see the
+    // source's "Gate structure" doc section for the forced-vs-chosen
+    // breakdown) — placed BEFORE the token so a call that was always going
+    // to fail an ordinary "is anything deployed yet" check doesn't also
+    // burn the operator's single-use confirmation.
+    //
+    // Uses the "stack never created" (missing passphrase) check rather than
+    // the state-bucket check specifically because `passphrase` is NOT part
+    // of target binding — minting with the bucket/region already configured
+    // (so the token's recorded target matches on retry) but the passphrase
+    // still unset isolates "was the token consumed" from "does the target
+    // still match", which changing the bucket between mint and retry would
+    // conflate.
     const workspace = makeWorkspace(makeHappyPathDestroy());
-    const service = makeService({ workspace, store: makeStore() });
+    const store = makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' });
+    const service = makeService({ workspace, store });
     const token = service.mintDestroyConfirmationToken();
 
-    await expect(collectDestroyChunks(service.destroy(token))).rejects.toThrow(/state bucket/i);
-    // The token was consumed by the first (unconfigured) attempt — a retry
-    // with the same token is refused as already-consumed, not "not
-    // configured" again.
-    await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
+    await expect(collectDestroyChunks(service.destroy(token))).rejects.toThrow(/no Pulumi stack has ever been created/i);
+
+    // The token was NOT consumed by the first (no-stack-yet) attempt —
+    // record a passphrase on the SAME store in place and retry with the
+    // SAME token on the SAME service instance: it must succeed, proving the
+    // token is still valid rather than having been silently spent on the
+    // earlier refusal.
+    store.set('pulumi', { passphrase: 'enc-secret' });
+
+    await expect(collectDestroyChunks(service.destroy(token))).resolves.toBeDefined();
   });
 });
 
