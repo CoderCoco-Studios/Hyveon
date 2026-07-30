@@ -141,7 +141,11 @@ function makeHappyPathPreview(changeSummary: Record<string, number> = { create: 
   return async (opts) => {
     opts.onOutput?.('Previewing update...\n');
     opts.onError?.('warning: something\n');
-    const event: EngineEvent = { summaryEvent: { resourceChanges: changeSummary, duration: 1 } };
+    const event: EngineEvent = {
+      sequence: 1,
+      timestamp: Math.floor(Date.now() / 1000),
+      summaryEvent: { maybeCorrupt: false, durationSeconds: 1, resourceChanges: changeSummary, policyPacks: {} },
+    };
     opts.onEvent?.(event);
     return { stdout: 'Previewing update...\n', stderr: 'warning: something\n', changeSummary };
   };
@@ -388,14 +392,17 @@ describe('PulumiService.preview plan hash and engine version', () => {
     expect(result?.planHash).toBe(expectedHash);
   });
 
-  it('should read engineVersion verbatim from the plan artifact\'s manifest.version field', async () => {
+  it('should read engineVersion from the plan artifact\'s manifest.version field, stripping the leading "v"', async () => {
     readFileSyncMock.mockReturnValue(Buffer.from(JSON.stringify({ manifest: { version: 'v3.255.0' } })));
     const workspace = makeWorkspace(makeHappyPathPreview());
     const service = makeService({ workspace });
 
     const { result } = await collectPreviewChunks(service.preview());
 
-    expect(result?.engineVersion).toBe('v3.255.0');
+    // Normalized against `PulumiEngineService.getResolvedVersion()`'s own
+    // un-prefixed shape (`SemVer.toString()` never includes a "v") so a
+    // future apply-time comparison (task 7.2) is a bare string equality.
+    expect(result?.engineVersion).toBe('3.255.0');
   });
 
   it('should fail with PulumiPlanHashError (not a raw error) when the plan artifact cannot be read after a successful preview', async () => {
@@ -425,7 +432,7 @@ describe('PulumiService.preview run persistence', () => {
       exitCode: 0,
       tfvarsVersionId: 'cfg-v1',
       changeSummary: { create: 1 },
-      engineVersion: 'v3.255.0',
+      engineVersion: '3.255.0',
     });
     expect(record['planHash']).toEqual(expect.any(String));
   });
@@ -536,13 +543,110 @@ describe('PulumiService.preview abort handling', () => {
       expect.any(String),
     );
   });
+
+  it('should abort the in-flight stack.preview() call and await its settlement before releasing the concurrency guard when the generator is force-closed', async () => {
+    // Mirrors TerraformService.plan.test.ts's "should kill the child process
+    // and wait for it to close when the generator is force-closed early"
+    // (this file's own regression coverage for the same class of bug: a
+    // force-closed generator must not report itself finished while the
+    // underlying operation is still genuinely running). Crucially — like
+    // that test — the generator must first be driven to an actual `yield`
+    // suspension point before `.return()` is called: an async generator
+    // mid-`await` (not mid-`yield`, e.g. still inside the config-fetch/
+    // workspace-construction awaits, or blocked on the internal
+    // queue-drain wait with nothing queued yet) queues a `.return()`
+    // request rather than processing it immediately, so calling `.return()`
+    // too early would never actually exercise the force-close path this
+    // test exists to cover.
+    let capturedSignal: AbortSignal | undefined;
+    let rejectPreview!: (err: unknown) => void;
+    const previewMock = vi.fn().mockImplementation((opts: PreviewOptions) => {
+      capturedSignal = opts.signal;
+      // Emit one output line synchronously so the drain loop has something
+      // to yield immediately — this is what lets the generator reach its
+      // first genuine `yield` suspension point.
+      opts.onOutput?.('Previewing update...\n');
+      // Deliberately does NOT auto-reject when `opts.signal` aborts (unlike
+      // the "aborts mid-flight" test above) — this test controls exactly
+      // when the underlying promise settles (via the later, explicit
+      // `rejectPreview` call) specifically to prove `preview()` genuinely
+      // AWAITS that settlement in its outer `finally` rather than resolving
+      // its own forced return the instant it calls `internalController.abort()`.
+      return new Promise<PreviewResult>((_resolve, reject) => {
+        rejectPreview = reject;
+      });
+    });
+    const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock } as Partial<Stack> as Stack);
+    const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace });
+
+    const gen = service.preview();
+    // Drive the generator to its first yielded chunk (mirrors
+    // TerraformService.plan.test.ts's `await first` after `child.emitStdout`)
+    // — by the time this resolves, `stack.preview()` has been called and its
+    // returned promise is genuinely pending.
+    const first = await gen.next();
+    expect(first.done).toBe(false);
+    expect(first.value).toEqual({ stream: 'stdout', line: 'Previewing update...' });
+    expect(previewMock).toHaveBeenCalledTimes(1);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // Force-close the generator (consumer `break`/`.return()`/`.throw()`)
+    // while `stack.preview()` is still genuinely pending — no signal was
+    // ever passed to `preview()` itself, so the ONLY way this can be
+    // cancelled at all is the internal controller the outer `finally` owns.
+    let returnSettled = false;
+    const returnPromise = gen.return(undefined).then((result) => {
+      returnSettled = true;
+      return result;
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    // The internal signal must have been aborted and forwarded into the
+    // exact signal `stack.preview()` was called with.
+    expect(capturedSignal?.aborted).toBe(true);
+    // The generator's forced return must NOT resolve until the in-flight
+    // operation has actually settled — this is the whole point of the fix:
+    // releasing the concurrency guard before this would let a second
+    // `preview()`/`up()`/`destroy()` call start against the same workspace
+    // while the first is still live.
+    expect(returnSettled).toBe(false);
+
+    rejectPreview(new Error('killed by SIGINT'));
+    const result = await returnPromise;
+
+    expect(returnSettled).toBe(true);
+    expect(result.done).toBe(true);
+    expect(result.value).toBeUndefined();
+
+    // The concurrency guard must be released by now — a second `.next()`
+    // call on the SAME service instance must not reject with the
+    // "already running" error. (It's expected to never fully settle in
+    // this test — this test's `previewMock` returns a fresh pending
+    // promise on every call and nothing here ever resolves it — so this
+    // only asserts it doesn't reject *synchronously with the guard error*
+    // within one macrotask, not that it completes.)
+    let secondRejection: unknown;
+    service
+      .preview()
+      .next()
+      .catch((err: unknown) => {
+        secondRejection = err;
+      });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(secondRejection).toBeUndefined();
+  });
 });
 
 describe('PulumiService.preview leaked-promise recovery', () => {
   it('should recover a leaked-promise rejection as a success, using the changeSummary already captured via onEvent', async () => {
     const workspace = makeWorkspace(async (opts) => {
       opts.onOutput?.('Previewing update...\n');
-      const event: EngineEvent = { summaryEvent: { resourceChanges: { create: 1 }, duration: 1 } };
+      const event: EngineEvent = {
+        sequence: 1,
+        timestamp: Math.floor(Date.now() / 1000),
+        summaryEvent: { maybeCorrupt: false, durationSeconds: 1, resourceChanges: { create: 1 }, policyPacks: {} },
+      };
       opts.onEvent?.(event);
       throw new Error(
         'The Pulumi runtime detected that 1 promises were still active when the process exited',
