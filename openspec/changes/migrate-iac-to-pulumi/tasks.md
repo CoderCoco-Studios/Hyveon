@@ -48,8 +48,8 @@
 - [ ] 5.2 Rename the tfvars bucket concept to the configuration bucket throughout `BootstrapService` and the wizard step, preserving the versioning and 90-day noncurrent-expiry behavior
 - [ ] 5.3 Apply all four S3 public-access-block settings to both buckets, on creation and on an already-existing bucket — `BootstrapService` currently applies none, while the `terraform/bootstrap/` module it mirrors applies all four
 - [ ] 5.4 Update the `HyveonDeployAll` policy in `docs/docs/setup.md`: add the four DIY-backend S3 actions and `s3:PutPublicAccessBlock`, remove the lock-table DynamoDB actions
-- [ ] 5.5 Update the `wizard.bootstrap.*` IPC surface for the changed resource set — drop the lock-table channel, add the public-access-block outcome to per-resource status — and mirror it in the preload and typed API
-- [ ] 5.6 Update `BootstrapService` tests and the bootstrap wizard-step tests for the added, removed, and renamed operations, including per-resource `failed` status not masking sibling resources
+- [x] 5.5 Update the `wizard.bootstrap.*` IPC surface for the changed resource set — drop the lock-table channel, add the public-access-block outcome to per-resource status — and mirror it in the preload and typed API
+- [x] 5.6 Update `BootstrapService` tests and the bootstrap wizard-step tests for the added, removed, and renamed operations, including per-resource `failed` status not masking sibling resources
 
 ## 6. Configuration store
 

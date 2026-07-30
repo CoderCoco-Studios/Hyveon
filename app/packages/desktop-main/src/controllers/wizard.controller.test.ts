@@ -42,7 +42,7 @@ function makeStore(
     wizardCompleted?: boolean;
     activeCloud?: 'aws';
     aws?: { profile?: string; region?: string };
-    bootstrap?: { stateBucket: string; lockTable: string; tfvarsBucket: string };
+    bootstrap?: { stateBucket: string; lockTable: string; configurationBucket: string };
   } = {},
 ): ElectronStoreService {
   const data: Record<string, unknown> = { ...seed };
@@ -135,9 +135,9 @@ describe('WizardController', () => {
       expect(pattern).toEqual(['wizard.bootstrap.stateBucket']);
     });
 
-    it('should register bootstrapTfvarsBucket on the "wizard.bootstrap.tfvarsBucket" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapTfvarsBucket);
-      expect(pattern).toEqual(['wizard.bootstrap.tfvarsBucket']);
+    it('should register bootstrapConfigurationBucket on the "wizard.bootstrap.configurationBucket" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapConfigurationBucket);
+      expect(pattern).toEqual(['wizard.bootstrap.configurationBucket']);
     });
 
     it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
@@ -257,7 +257,7 @@ describe('WizardController', () => {
     });
 
     it('should include the stored bootstrap resource names when present', () => {
-      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', configurationBucket: 'my-tfvars' };
       const store = makeStore({ wizardCompleted: true, bootstrap });
       const result = makeController({ store }).getState();
       expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined, bootstrap });
@@ -330,7 +330,7 @@ describe('WizardController', () => {
     it('should persist the bootstrap resource names and return them in the updated state', () => {
       const store = makeStore({ wizardCompleted: true });
       const controller = makeController({ store });
-      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', configurationBucket: 'my-tfvars' };
 
       const result = controller.saveState({ bootstrap });
 
@@ -341,10 +341,10 @@ describe('WizardController', () => {
     it('should replace the stored bootstrap resource names wholesale rather than merging', () => {
       const store = makeStore({
         wizardCompleted: true,
-        bootstrap: { stateBucket: 'old-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' },
+        bootstrap: { stateBucket: 'old-tfstate', lockTable: 'old-tflock', configurationBucket: 'old-tfvars' },
       });
       const controller = makeController({ store });
-      const bootstrap = { stateBucket: 'new-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' };
+      const bootstrap = { stateBucket: 'new-tfstate', lockTable: 'old-tflock', configurationBucket: 'old-tfvars' };
 
       controller.saveState({ bootstrap });
 
@@ -371,20 +371,20 @@ describe('WizardController', () => {
     });
   });
 
-  describe('bootstrapTfvarsBucket', () => {
+  describe('bootstrapConfigurationBucket', () => {
     it('should delegate to BootstrapService.ensureConfigurationBucket with the given bucket name', async () => {
       const bootstrap = makeBootstrap({ status: 'created' });
 
-      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
+      const result = await makeController({ bootstrap }).bootstrapConfigurationBucket({ bucketName: 'my-config-bucket' });
 
-      expect(bootstrap.ensureConfigurationBucket).toHaveBeenCalledWith('my-tfvars-bucket');
+      expect(bootstrap.ensureConfigurationBucket).toHaveBeenCalledWith('my-config-bucket');
       expect(result).toEqual({ status: 'created' });
     });
 
     it('should propagate a failed result unchanged rather than throwing', async () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
-      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
+      const result = await makeController({ bootstrap }).bootstrapConfigurationBucket({ bucketName: 'my-config-bucket' });
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
