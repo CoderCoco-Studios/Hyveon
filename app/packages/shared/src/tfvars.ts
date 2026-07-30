@@ -13,8 +13,8 @@
  * `terraform.tfvars` as the app's configuration source of truth going
  * forward. It is reused there rather than forked into a parallel
  * `camelCase` type specifically because it is already this deeply embedded
- * (`gameServerValidator.ts`'s zod schema, `hclEmit.ts`/`hclSurgeon.ts`,
- * the Games UI) — see `deploymentConfig.ts`'s file doc for the full
+ * (`gameServerValidator.ts`'s zod schema, `TfvarsService.ts`'s JSON read/write
+ * paths, the Games UI) — see `deploymentConfig.ts`'s file doc for the full
  * naming-convention rationale.
  */
 
@@ -118,15 +118,17 @@ export interface GameServer {
    * When `true`, an in-task Caddy sidecar terminates TLS via Let's Encrypt
    * in front of the game server. Terraform's `optional(bool, false)` default
    * applies whenever this field is omitted — an absent `https` MUST be read
-   * as `false`, never as an unresolved third state; `hclEmit.ts` already
-   * relies on this (it omits the `https = ...` line entirely rather than
-   * writing `https = false`, letting Terraform's own default resolve it),
-   * and every write path in the UI (`add-game-wizard`, `edit-game-form`)
-   * always sets an explicit `boolean` before submission, so `undefined`
-   * only ever arises on the read side (a hand-edited or pre-toggle tfvars
-   * entry). When `true`, `terraform/aws/variables.tf`'s `game_servers`
-   * validation block requires: at least one entry in {@link ports}; the
-   * first port's `protocol` is exactly `"tcp"`; every port's `protocol` is
+   * as `false`, never as an unresolved third state; `TfvarsService.ts`'s
+   * JSON write path preserves this (it round-trips whatever `https` value —
+   * present or absent — the caller supplied, rather than ever synthesizing
+   * an explicit `false`), and every write path in the UI (`add-game-wizard`,
+   * `edit-game-form`) always sets an explicit `boolean` before submission,
+   * so `undefined` only ever arises on the read side (a hand-edited or
+   * pre-toggle config entry). When `true`, `terraform/aws/variables.tf`'s
+   * `game_servers` validation block (retired, but still the historical
+   * source of truth this mirrors) requires: at least one entry in
+   * {@link ports}; the first port's `protocol` is exactly `"tcp"`; every
+   * port's `protocol` is
    * `"tcp"` or `"udp"`; and no port uses container port `80` or `443`
    * (reserved for the sidecar) — enforced client-side by
    * `gameServerValidator.ts`'s `checkHttpsPortRules`.

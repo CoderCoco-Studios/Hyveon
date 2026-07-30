@@ -1,24 +1,27 @@
 /**
- * Reads and parses `terraform.tfvars` into the `GameServer[]` shape declared
- * by `@hyveon/shared/tfvars.js` (which mirrors `terraform/variables.tf`'s
- * `game_servers` map).
+ * Reads and parses the app's JSON deployment configuration into the
+ * `GameServer[]` shape declared by `@hyveon/shared/tfvars.js` (which mirrors
+ * `terraform/variables.tf`'s retired `game_servers` map — see the
+ * `migrate-iac-to-pulumi` OpenSpec change).
  *
  * Source resolution mirrors the local-vs-S3 tradeoff documented in
  * `docs/docs/guides/s3-tfvars.md`:
  *  - When `ConfigService.getTfvarsBucket()` resolves to a bucket name, the
- *    raw tfvars text is fetched from that bucket via the injected
+ *    raw JSON text is fetched from that bucket via the injected
  *    `RemoteFileStore` ("S3 mode").
  *  - Otherwise the local file at `ConfigService.getTfvarsPath()` is read
  *    directly ("local mode").
  *
- * The raw HCL text is converted to JSON via `@cdktf/hcl2json`'s `parse()`
- * (a WASM-backed port of Terraform's own HCL parser), then the `game_servers`
- * map is flattened into a `GameServer[]` with the map key attached as `name`.
+ * The raw text is `JSON.parse()`d directly into a `DeploymentConfig`
+ * (`@hyveon/shared/deploymentConfig.js`) — no HCL parsing is involved any
+ * more (see the `migrate-iac-to-pulumi` change's Phase 6, "Configuration
+ * persisted as versioned JSON") — and its `gameServers` record is flattened
+ * into a `GameServer[]` with the map key attached as `name`.
  *
  * Parsed results are cached in-memory for `ConfigService.readEnvTfvarsCacheTtlMs()`
  * milliseconds so frequent callers (e.g. polling endpoints) don't re-parse the
  * file/re-fetch from S3 on every call. Call `invalidateCache()` to force a
- * fresh read before the TTL elapses (e.g. after a tfvars edit). The cache
+ * fresh read before the TTL elapses (e.g. after a config edit). The cache
  * mirrors `ConfigService.tfCache`'s tri-state approach: `undefined` means
  * "never loaded" (always a miss), while a set `CachedGameServers` entry
  * covers *both* a successful parse and a negatively-cached failed load (the
@@ -27,42 +30,42 @@
  * TTL window.
  *
  * `getGameServers()` never rejects — a missing file/object, a missing
- * `game_servers` key, or a malformed-HCL parse error are all logged via the
- * shared Winston `logger` and resolve to `[]`, mirroring `ConfigService`'s
- * graceful degradation for polling callers.
+ * `gameServers` key, or malformed JSON are all logged via the shared Winston
+ * `logger` and resolve to `[]`, mirroring `ConfigService`'s graceful
+ * degradation for polling callers.
  *
  * `addGameServer()`, `updateGameServer()`, and `removeGameServer()` (see
- * issue #96) are the write-side counterpart: they mutate the raw HCL text
- * directly via `hclSurgeon` (locate/cut/replace, byte-preserving outside the
- * touched entry) and `hclEmit` (serializing a `GameServer` back to HCL),
- * rather than going through the lossy `@cdktf/hcl2json` round-trip used for
- * reads. In S3 mode, the write is a conditional `RemoteFileStore.put()`
- * guarded by an `ifMatch` etag; a stale etag is translated from the store's
- * `RemoteFileConflictError` into a `OptimisticLockError` so callers only
- * ever need to handle one conflict type regardless of cloud provider. Local
- * mode writes the file directly with no conditional guard.
+ * issue #96, updated for the JSON migration) are the write-side counterpart:
+ * they read the current `DeploymentConfig` JSON, mutate the `gameServers`
+ * record, and `JSON.stringify` the result back — a plain, lossless
+ * serialize/deserialize round trip, unlike the byte-preserving HCL splice
+ * this service used before the migration. In S3 mode, the write is a
+ * conditional `RemoteFileStore.put()` guarded by an `ifMatch` etag; a stale
+ * etag is translated from the store's `RemoteFileConflictError` into an
+ * `OptimisticLockError` so callers only ever need to handle one conflict
+ * type regardless of cloud provider. Local mode writes the file directly
+ * with no conditional guard.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { basename } from 'path';
-import { parse as parseHcl } from '@cdktf/hcl2json';
-import type { GameServer, RemoteFileStore } from '@hyveon/shared';
+import type { DeploymentConfig, GameServer, GameServerConfig, RemoteFileStore } from '@hyveon/shared';
 import { OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
-import { HclSurgeonError, cutEntry, locateEntry, locateMapBody, replaceEntry } from './hclSurgeon.js';
-import { emitGameServerEntry } from './hclEmit.js';
 
 /**
- * Raw JSON-decoded shape of a single `game_servers` map entry as produced by
- * `@cdktf/hcl2json`, before the map key is flattened onto it as `name`.
- * Structurally identical to `GameServer` minus the `name` field. Also doubles
- * as the write-side "config" parameter shape for {@link TfvarsService.addGameServer}
- * and {@link TfvarsService.updateGameServer}, since `name` is supplied
- * separately as the `game_servers` map key in both directions.
+ * Raw JSON-decoded shape of a single `gameServers` map entry, before the map
+ * key is flattened onto it as `name`. Structurally identical to `GameServer`
+ * minus the `name` field (the same shape `@hyveon/shared`'s
+ * `GameServerConfig` alias already names) — kept as a local alias since it
+ * also doubles as the write-side "config" parameter shape for
+ * {@link TfvarsService.addGameServer} and {@link TfvarsService.updateGameServer},
+ * since `name` is supplied separately as the `gameServers` map key in both
+ * directions.
  */
-type RawGameServerEntry = Omit<GameServer, 'name'>;
+type RawGameServerEntry = GameServerConfig;
 
 /**
  * In-memory cache entry: the resolved value (empty on failure), the
@@ -76,62 +79,94 @@ interface CachedGameServers {
 }
 
 /**
- * Extracts just the `{ ... }` object-literal portion of
- * `hclEmit.emitGameServerEntry()`'s output — dropping the leading
- * `<name> = ` prefix and the trailing newline — so it can be spliced in as
- * `hclSurgeon.replaceEntry()`'s `newValueHcl` argument, which replaces only
- * the value expression; the `<name> = ` prefix already present in the
- * source HCL is left untouched by `replaceEntry()` itself.
+ * Categorizes why a {@link GameServerEntryError} was thrown, so callers
+ * (e.g. `GamesWriteService`) can distinguish a name-specific failure from a
+ * not-found or structural one instead of collapsing every error into the
+ * same result shape:
+ *  - `'invalid-name'` — the proposed entry key isn't a valid game name (see
+ *    {@link assertValidGameName}).
+ *  - `'duplicate-name'` — the proposed entry key already exists in
+ *    `gameServers`.
+ *  - `'not-found'` — the named entry doesn't exist in `gameServers` (the
+ *    `updateGameServer`/`removeGameServer` case).
+ *  - `'structural'` — the deployment config JSON itself is malformed or
+ *    missing its `gameServers` map entirely.
  */
-function extractEntryValueHcl(entryAssignmentHcl: string): string {
-  const braceStart = entryAssignmentHcl.indexOf('{');
-  return entryAssignmentHcl.slice(braceStart).replace(/\n$/, '');
+export type GameServerEntryErrorReason = 'invalid-name' | 'duplicate-name' | 'not-found' | 'structural';
+
+/**
+ * Thrown by {@link TfvarsService}'s write methods (`addGameServer`/
+ * `updateGameServer`/`removeGameServer`) for any `gameServers`-entry-level
+ * failure — invalid/duplicate/missing entry names as well as structural
+ * config-document issues. Replaces the retired `hclSurgeon.ts`'s
+ * `HclSurgeonError` one-for-one for `GamesWriteService`'s purposes — see
+ * {@link GameServerEntryErrorReason} for the specific `reason` this carries.
+ */
+export class GameServerEntryError extends Error {
+  /** Why this error was thrown — see {@link GameServerEntryErrorReason}. Defaults to `'structural'` for call sites that don't have a more specific reason to report. */
+  readonly reason: GameServerEntryErrorReason;
+
+  constructor(message: string, reason: GameServerEntryErrorReason = 'structural') {
+    super(message);
+    this.reason = reason;
+  }
 }
 
 /**
- * Default indentation added when splicing a brand-new `game_servers` entry
- * into the map body and no sibling entry's own indentation is available to
- * copy — mirrors `hclEmit.ts`'s private `INDENT` unit (2 spaces) so a fresh
- * splice matches the file's established convention (see the fixtures under
- * `__fixtures__/*.tfvars` and `TfvarsService.write.test.ts`'s `FIXTURE_TFVARS`).
+ * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
+ * JSON object key AND as a component of every AWS-side identifier the Pulumi
+ * program (`@hyveon/infra`) derives from it — the strictest of which is the
+ * per-game DNS label (`${game}.${hostedZoneName}`, used by `ecs.ts`'s Caddy
+ * sidecar `--from` argument and the DNS-update Lambda's Route 53 record
+ * name): RFC 1123 requires a DNS label to be lowercase alphanumeric with
+ * hyphens allowed only between other characters, never leading or trailing.
+ *
+ * This is intentionally STRICTER than the retired `hclSurgeon.ts`'s
+ * `HCL_IDENTIFIER_PATTERN` (`/^[A-Za-z_][A-Za-z0-9_-]*$/`), which allowed
+ * uppercase letters, a leading underscore, and a trailing hyphen — all of
+ * which would already have broken DNS resolution / ACME certificate
+ * issuance downstream even though they were valid bare HCL identifiers. JSON
+ * object keys have no syntactic constraint of their own, so this pattern is
+ * now the *only* validation on a new game name, making it worth tightening
+ * to what actually works end-to-end rather than merely what the old text
+ * format's lexer required.
+ *
+ * The 32-character cap leaves headroom under the tightest fixed downstream
+ * budget — the Lambda function name / IAM role name limit (64 characters)
+ * shared by the `${projectName}-efs-seeder-<game>[-policy]` naming scheme
+ * (`app/packages/infra/src/lambdas.ts`, `iam.ts`) — for any reasonable
+ * `projectName`; this validator has no access to the configured
+ * `projectName` to compute an exact per-deployment budget, so 32 is a
+ * deliberately conservative fixed constant rather than a tight bound.
  */
-const DEFAULT_ENTRY_INDENT = '  ';
+const GAME_NAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 
 /**
- * Matches a bare (unquoted) HCL identifier — the same shape `hclSurgeon.ts`'s
- * internal lexer (`findTopLevelIdentifier()` / `findEntryInBody()`) requires
- * for a `game_servers` map key to be recognized at all. `insertGameServerEntry()`
- * validates new entry names against this pattern *before* splicing them into
- * the map body: `locateEntry()`'s duplicate check can never match a name
- * containing characters outside this set (its own key-matching regex is the
- * same pattern), so an invalid name would otherwise sail past the "already
- * exists" guard and be written into the HCL verbatim — corrupting the file if
- * it contains structural characters like `{`, `}`, `=`, or a newline.
+ * Throws {@link GameServerEntryError} (`reason: 'invalid-name'`) unless
+ * `name` matches {@link GAME_NAME_PATTERN}. Called before any parsing of the
+ * current config document — this check needs only the proposed `name`
+ * itself, so it stays cheap and fails fast regardless of the underlying
+ * config's state.
  */
-const HCL_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+function assertValidGameName(name: string): void {
+  if (!GAME_NAME_PATTERN.test(name)) {
+    throw new GameServerEntryError(
+      `Game name "${name}" is invalid — must be a lowercase alphanumeric DNS-safe label (letters, digits, and ` +
+        'internal hyphens only, 1-32 characters, no leading/trailing hyphen) so it can be used as both the ' +
+        'config key and a DNS label / AWS resource-name component.',
+      'invalid-name',
+    );
+  }
+}
 
-/**
- * Prefixes every non-empty line of `hcl` with `indent`, re-nesting a
- * fragment that `hclEmit.emitGameServerEntry()` always emits anchored at
- * column 0 so it lines up once spliced one level deeper into the
- * `game_servers` map body (see issue #96 finding: unindented splices produced
- * `terraform fmt`-failing output). Empty lines (e.g. the trailing blank left
- * by splitting a string that ends in `\n`) are left alone so no trailing
- * whitespace is introduced. When `skipFirstLine` is set, the first line is
- * left untouched too — used when that line is spliced inline after an
- * existing `<key> = ` prefix that already sits at the target column, rather
- * than starting a new line of its own.
- */
-function indentHclLines(hcl: string, indent: string, skipFirstLine = false): string {
-  return hcl
-    .split('\n')
-    .map((line, i) => (line === '' || (skipFirstLine && i === 0) ? line : `${indent}${line}`))
-    .join('\n');
+/** Narrows `value` to a plain, non-array object — used to validate both the top-level parsed JSON and its `gameServers` field. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * Local-vs-S3 tfvars reader/parser — see the file-level doc comment above for
- * source resolution, parsing, and caching behaviour.
+ * Local-vs-S3 deployment-config reader/parser — see the file-level doc
+ * comment above for source resolution, parsing, and caching behaviour.
  */
 @Injectable()
 export class TfvarsService {
@@ -171,7 +206,7 @@ export class TfvarsService {
 
   /**
    * Drop the in-memory cache so the next `getGameServers()` call re-reads
-   * from disk/S3 instead of returning a stale parse. Called after a tfvars
+   * from disk/S3 instead of returning a stale parse. Called after a config
    * write (e.g. via `scripts/tfvars-sync.ts pull`) and by tests between
    * scenarios.
    */
@@ -181,16 +216,17 @@ export class TfvarsService {
   }
 
   /**
-   * Returns the `game_servers` map from `terraform.tfvars`, parsed into a
-   * `GameServer[]` (the map key is flattened onto each entry as `name`).
+   * Returns the `gameServers` map from the deployment config JSON, parsed
+   * into a `GameServer[]` (the map key is flattened onto each entry as
+   * `name`).
    *
    * Returns a cached result when the last resolution (success *or* failure)
    * is younger than `ConfigService.readEnvTfvarsCacheTtlMs()`; otherwise
    * reads/parses fresh (see the class doc for local-vs-S3 source resolution)
    * and re-caches. Never rejects: a missing file/object, a missing
-   * `game_servers` key, or a malformed-HCL parse error are logged and
-   * resolved to `[]` (and negatively cached for the TTL window) rather than
-   * thrown, so polling callers degrade gracefully instead of crashing.
+   * `gameServers` key, or malformed JSON are logged and resolved to `[]`
+   * (and negatively cached for the TTL window) rather than thrown, so
+   * polling callers degrade gracefully instead of crashing.
    */
   async getGameServers(): Promise<GameServer[]> {
     const ttl = this.config.readEnvTfvarsCacheTtlMs();
@@ -199,20 +235,20 @@ export class TfvarsService {
       return this.cache.value;
     }
 
-    logger.debug('tfvars cache miss — loading terraform.tfvars', {});
+    logger.debug('tfvars cache miss — loading deployment config', {});
 
     const generation = this.cacheGeneration;
 
     try {
-      const { hcl } = await this.fetchRawTfvars();
-      const value = this.parseGameServers(await this.parseHclContents(hcl));
+      const { config: raw } = await this.fetchRawConfig();
+      const value = this.flattenGameServers(this.parseConfigContents(raw));
       if (generation === this.cacheGeneration) {
         this.cache = { value, cachedAt: this.now(), failed: false };
       }
-      logger.info('Loaded terraform.tfvars game_servers', { count: value.length });
+      logger.info('Loaded deployment config gameServers', { count: value.length });
       return value;
     } catch (err) {
-      logger.error('Failed to load terraform.tfvars game_servers — returning empty list', { err });
+      logger.error('Failed to load deployment config gameServers — returning empty list', { err });
       if (generation === this.cacheGeneration) {
         this.cache = { value: [], cachedAt: this.now(), failed: true };
       }
@@ -221,7 +257,7 @@ export class TfvarsService {
   }
 
   /**
-   * Returns the raw, unparsed `terraform.tfvars` HCL text plus a source
+   * Returns the raw, unparsed deployment config JSON text plus a source
    * integrity marker: in S3 mode, the `RemoteFileStore.get()` etag (as
    * `etag`) — the same value `RemoteFileStore.put()` expects as its
    * `ifMatch` guard, so callers can round-trip a conditional write; in local
@@ -234,50 +270,49 @@ export class TfvarsService {
    * want to know immediately if the source is unreadable rather than
    * silently getting stale/empty data.
    */
-  async getRawHcl(): Promise<{ hcl: string; etag?: string }> {
-    return this.fetchRawTfvars();
+  async getRawConfig(): Promise<{ config: string; etag?: string }> {
+    return this.fetchRawConfig();
   }
 
   /**
-   * Restores `hcl` as the tfvars source's new head version verbatim — used
-   * by the rollback flow (#112) to write a prior version's exact bytes back
-   * as a fresh S3 version (history is append-only; this never deletes or
-   * reverts an existing version) rather than applying a `game_servers`-
-   * specific mutation like {@link addGameServer}/{@link updateGameServer}/
-   * {@link removeGameServer} do. Always an unconditional write (no
-   * `expectedVersionId` guard) — rollback is explicitly restoring known
-   * historic content, not editing the current head against an expected
-   * prior state. Invalidates the in-memory {@link getGameServers} cache
-   * afterward so the next read reflects the restored content, mirroring
-   * {@link writeTfvars}.
+   * Restores `rawConfig` as the config source's new head version verbatim —
+   * used by the rollback flow (#112) to write a prior version's exact bytes
+   * back as a fresh S3 version (history is append-only; this never deletes
+   * or reverts an existing version) rather than applying a
+   * `gameServers`-specific mutation like {@link addGameServer}/
+   * {@link updateGameServer}/{@link removeGameServer} do. Always an
+   * unconditional write (no `expectedVersionId` guard) — rollback is
+   * explicitly restoring known historic content, not editing the current
+   * head against an expected prior state. Invalidates the in-memory
+   * {@link getGameServers} cache afterward so the next read reflects the
+   * restored content, mirroring {@link writeConfig}.
    *
-   * @param hcl - The exact historic tfvars content to restore.
-   * @returns The write's `{ etag, versionId }` — see {@link putRawTfvars}.
+   * @param rawConfig - The exact historic config content to restore.
+   * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    */
-  async restoreRawTfvars(hcl: string): Promise<{ etag: string; versionId?: string }> {
-    const result = await this.putRawTfvars(hcl);
+  async restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
+    const result = await this.putRawConfig(rawConfig);
     this.invalidateCache();
     return result;
   }
 
   /**
-   * Adds a brand-new entry to the `game_servers` map (see issue #96). Reads
-   * the current raw HCL, splices `name = { ... }` in as the map's first
-   * entry via `hclSurgeon.locateMapBody()` + `hclEmit.emitGameServerEntry()`,
-   * and writes the result back via {@link writeTfvars} — see that method's
-   * doc for the S3-mode conditional-put / `OptimisticLockError` contract.
-   * Throws {@link HclSurgeonError} if `name` isn't a valid bare HCL
-   * identifier, if `name` already exists in `game_servers`, or if the
-   * `game_servers` map itself can't be located in the source HCL.
+   * Adds a brand-new entry to the `gameServers` map (see issue #96). Reads
+   * the current raw config JSON, splices `name` in as a new `gameServers`
+   * key, and writes the result back via {@link writeConfig} — see that
+   * method's doc for the S3-mode conditional-put / `OptimisticLockError`
+   * contract. Throws {@link GameServerEntryError} if `name` fails
+   * {@link assertValidGameName}, if `name` already exists in `gameServers`,
+   * or if the config JSON itself is malformed/missing its `gameServers` map.
    *
-   * @param name - The `game_servers` map key to add.
+   * @param name - The `gameServers` map key to add.
    * @param config - The new entry's fields (everything but `name`, which is
    *   the map key rather than an object attribute).
-   * @param expectedVersionId - The etag last read (e.g. via {@link getRawHcl}),
+   * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
    *   used as the S3-mode conditional-put guard; omit to write unconditionally.
    * @returns The written file's new `etag` (S3 mode) plus an optional
    *   `versionId` when the underlying store supports object versioning — see
-   *   {@link writeTfvars}/{@link putRawTfvars}. Local mode returns
+   *   {@link writeConfig}/{@link putRawConfig}. Local mode returns
    *   `versionId: undefined` since the filesystem has no equivalent concept.
    */
   async addGameServer(
@@ -285,28 +320,24 @@ export class TfvarsService {
     config: RawGameServerEntry,
     expectedVersionId?: string,
   ): Promise<{ etag: string; versionId?: string }> {
-    return this.writeTfvars(expectedVersionId, (hcl) => this.insertGameServerEntry(hcl, name, config));
+    return this.writeConfig(expectedVersionId, (raw) => this.insertGameServerEntry(raw, name, config));
   }
 
   /**
-   * Replaces an existing `game_servers` entry's value in place (see issue
-   * #96). Reads the current raw HCL, replaces `name`'s value via
-   * `hclSurgeon.replaceEntry()` with a freshly-serialized
-   * `hclEmit.emitGameServerEntry()` object literal — reindented to match
-   * `name`'s own line in the source so the replacement's body/closing brace
-   * land at the correct nesting depth rather than `emitGameServerEntry()`'s
-   * native column-0 formatting — and writes the result back via
-   * {@link writeTfvars} — see that method's doc for the S3-mode
-   * conditional-put / `OptimisticLockError` contract. Throws
-   * {@link HclSurgeonError} if `name` doesn't already exist in `game_servers`.
+   * Replaces an existing `gameServers` entry's value in place (see issue
+   * #96). Reads the current raw config JSON, replaces `name`'s value, and
+   * writes the result back via {@link writeConfig} — see that method's doc
+   * for the S3-mode conditional-put / `OptimisticLockError` contract. Throws
+   * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
+   * already exist in `gameServers`.
    *
-   * @param name - The `game_servers` map key to update.
+   * @param name - The `gameServers` map key to update.
    * @param config - The entry's new fields (everything but `name`).
-   * @param expectedVersionId - The etag last read (e.g. via {@link getRawHcl}),
+   * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
    *   used as the S3-mode conditional-put guard; omit to write unconditionally.
    * @returns The written file's new `etag` (S3 mode) plus an optional
    *   `versionId` when the underlying store supports object versioning — see
-   *   {@link writeTfvars}/{@link putRawTfvars}. Local mode returns
+   *   {@link writeConfig}/{@link putRawConfig}. Local mode returns
    *   `versionId: undefined` since the filesystem has no equivalent concept.
    */
   async updateGameServer(
@@ -314,41 +345,41 @@ export class TfvarsService {
     config: RawGameServerEntry,
     expectedVersionId?: string,
   ): Promise<{ etag: string; versionId?: string }> {
-    return this.writeTfvars(expectedVersionId, (hcl) => this.replaceGameServerEntry(hcl, name, config));
+    return this.writeConfig(expectedVersionId, (raw) => this.replaceGameServerEntry(raw, name, config));
   }
 
   /**
-   * Removes an entry from the `game_servers` map (see issue #96). Reads the
-   * current raw HCL, cuts `name`'s entire `key = value` assignment via
-   * `hclSurgeon.cutEntry()`, and writes the result back via
-   * {@link writeTfvars} — see that method's doc for the S3-mode
+   * Removes an entry from the `gameServers` map (see issue #96). Reads the
+   * current raw config JSON, deletes `name`'s key, and writes the result
+   * back via {@link writeConfig} — see that method's doc for the S3-mode
    * conditional-put / `OptimisticLockError` contract. Throws
-   * {@link HclSurgeonError} if `name` doesn't exist in `game_servers`.
+   * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
+   * exist in `gameServers`.
    *
-   * @param name - The `game_servers` map key to remove.
-   * @param expectedVersionId - The etag last read (e.g. via {@link getRawHcl}),
+   * @param name - The `gameServers` map key to remove.
+   * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
    *   used as the S3-mode conditional-put guard; omit to write unconditionally.
    * @returns The written file's new `etag` (S3 mode) plus an optional
    *   `versionId` when the underlying store supports object versioning — see
-   *   {@link writeTfvars}/{@link putRawTfvars}. Local mode returns
+   *   {@link writeConfig}/{@link putRawConfig}. Local mode returns
    *   `versionId: undefined` since the filesystem has no equivalent concept.
    */
   async removeGameServer(
     name: string,
     expectedVersionId?: string,
   ): Promise<{ etag: string; versionId?: string }> {
-    return this.writeTfvars(expectedVersionId, (hcl) => cutEntry(hcl, 'game_servers', name));
+    return this.writeConfig(expectedVersionId, (raw) => this.removeGameServerEntry(raw, name));
   }
 
   /**
-   * Reads the raw tfvars text, preferring the S3 backend
+   * Reads the raw config JSON text, preferring the S3 backend
    * (`ConfigService.getTfvarsBucket()`) when configured, otherwise falling
    * back to the local file at `ConfigService.getTfvarsPath()`. Throws a clear
    * error when the source is configured but the file/object doesn't exist.
    * Shared by {@link getGameServers} (which catches and swallows the error)
-   * and {@link getRawHcl} (which lets it propagate).
+   * and {@link getRawConfig} (which lets it propagate).
    */
-  private async fetchRawTfvars(): Promise<{ hcl: string; etag?: string }> {
+  private async fetchRawConfig(): Promise<{ config: string; etag?: string }> {
     const bucket = this.config.getTfvarsBucket();
     const path = this.config.getTfvarsPath();
 
@@ -356,45 +387,45 @@ export class TfvarsService {
       const key = basename(path);
       const obj = await this.remoteFileStore.get(key);
       if (!obj) {
-        throw new Error(`tfvars object "${key}" not found in S3 bucket "${bucket}".`);
+        throw new Error(`Deployment config object "${key}" not found in S3 bucket "${bucket}".`);
       }
-      return { hcl: new TextDecoder().decode(obj.body), etag: obj.etag };
+      return { config: new TextDecoder().decode(obj.body), etag: obj.etag };
     }
 
     if (!existsSync(path)) {
-      throw new Error(`tfvars file not found at "${path}".`);
+      throw new Error(`Deployment config file not found at "${path}".`);
     }
-    return { hcl: readFileSync(path, 'utf-8') };
+    return { config: readFileSync(path, 'utf-8') };
   }
 
   /**
    * Shared write path for {@link addGameServer}, {@link updateGameServer},
-   * and {@link removeGameServer}: reads the current raw HCL via
-   * {@link fetchRawTfvars}, applies `mutate` to it, writes the mutated text
-   * back via {@link putRawTfvars} (S3-mode conditional put / local-mode
+   * and {@link removeGameServer}: reads the current raw config JSON via
+   * {@link fetchRawConfig}, applies `mutate` to it, writes the mutated text
+   * back via {@link putRawConfig} (S3-mode conditional put / local-mode
    * direct write), and invalidates the in-memory `getGameServers()` cache so
    * the next read reflects the write. `mutate` running before the write
    * (rather than concurrently) keeps the S3-mode conditional-put guard
    * meaningful — `expectedVersionId` is checked against the store's
-   * current etag at write time, so a conflicting write since `fetchRawTfvars`
+   * current etag at write time, so a conflicting write since `fetchRawConfig`
    * ran is still caught even though `mutate` itself is synchronous.
    *
-   * @returns The write's `{ etag, versionId }` — see {@link putRawTfvars}.
+   * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    */
-  private async writeTfvars(
+  private async writeConfig(
     expectedVersionId: string | undefined,
-    mutate: (hcl: string) => string,
+    mutate: (raw: string) => string,
   ): Promise<{ etag: string; versionId?: string }> {
-    const { hcl } = await this.fetchRawTfvars();
-    const mutatedHcl = mutate(hcl);
-    const result = await this.putRawTfvars(mutatedHcl, expectedVersionId);
+    const { config: raw } = await this.fetchRawConfig();
+    const mutated = mutate(raw);
+    const result = await this.putRawConfig(mutated, expectedVersionId);
     this.invalidateCache();
     return result;
   }
 
   /**
-   * Writes `hcl` back to whichever tfvars source is active, mirroring
-   * {@link fetchRawTfvars}'s local-vs-S3 source resolution. In S3 mode,
+   * Writes `raw` back to whichever config source is active, mirroring
+   * {@link fetchRawConfig}'s local-vs-S3 source resolution. In S3 mode,
    * issues a conditional `RemoteFileStore.put()` — passing `expectedVersionId`
    * as `ifMatch` when provided — so a write that raced a concurrent change
    * since the caller's last read is rejected rather than silently
@@ -405,14 +436,14 @@ export class TfvarsService {
    * exclusively as `OptimisticLockError`. In local mode the file is written
    * directly with no conditional guard, since the local filesystem has no
    * etag/versioning concept to condition on (mirroring
-   * {@link fetchRawTfvars}'s local-mode `etag`-less read).
+   * {@link fetchRawConfig}'s local-mode `etag`-less read).
    *
    * @returns The underlying `RemoteFileStore.put()`'s `{ etag, versionId }`
    *   in S3 mode. Local mode has no etag/versioning concept, so `etag` is the
    *   empty string and `versionId` is `undefined`.
    */
-  private async putRawTfvars(
-    hcl: string,
+  private async putRawConfig(
+    raw: string,
     expectedVersionId?: string,
   ): Promise<{ etag: string; versionId?: string }> {
     const bucket = this.config.getTfvarsBucket();
@@ -420,7 +451,7 @@ export class TfvarsService {
 
     if (bucket) {
       const key = basename(path);
-      const body = new TextEncoder().encode(hcl);
+      const body = new TextEncoder().encode(raw);
       try {
         return await this.remoteFileStore.put(key, body, expectedVersionId ? { ifMatch: expectedVersionId } : undefined);
       } catch (err) {
@@ -432,112 +463,125 @@ export class TfvarsService {
       }
     }
 
-    writeFileSync(path, hcl, 'utf-8');
+    writeFileSync(path, raw, 'utf-8');
     return { etag: '', versionId: undefined };
   }
 
   /**
-   * Splices `name = { ... }` into `hcl`'s top-level `game_servers` map as
-   * its first entry, via `hclSurgeon.locateMapBody()` (works even when the
-   * map is currently empty, unlike `locateEntry()` which requires the key to
-   * already exist) + `hclEmit.emitGameServerEntry()`. The emitted block is
-   * reindented one level (via {@link indentHclLines}, using
-   * {@link DEFAULT_ENTRY_INDENT}) since `emitGameServerEntry()` always
-   * formats at column 0 — without this the new entry's key, body, and
-   * closing brace would sit at the wrong depth once nested inside the map.
-   * The separator between the new entry and whatever already follows
-   * `bodyStart` is chosen so exactly one newline separates them — never
-   * zero (which would jam the new entry's closing `}` against the map's own
-   * `}` when `game_servers` is empty) and never two (which would leave a
-   * stray blank line before an existing first entry). Throws
-   * {@link HclSurgeonError} if `name` isn't a valid bare HCL identifier (see
-   * {@link HCL_IDENTIFIER_PATTERN} — this must be checked *before* the
-   * duplicate-key lookup below, since `locateEntry()` can never find an
-   * existing entry whose key contains characters outside that pattern and
-   * would otherwise let a structurally dangerous name through), if `name` is
-   * already present in `game_servers` (use {@link updateGameServer} instead),
-   * or if the `game_servers` map can't be located at all in the source HCL.
+   * Parses `raw` as a {@link DeploymentConfig} and returns its `gameServers`
+   * record (throwing {@link GameServerEntryError}, `reason: 'structural'`,
+   * if `gameServers` is missing or not a plain object) — the shared
+   * "load the current document and get at its `gameServers` map, or fail
+   * structurally" step every write mutation below starts from.
    */
-  private insertGameServerEntry(hcl: string, name: string, config: RawGameServerEntry): string {
-    if (!HCL_IDENTIFIER_PATTERN.test(name)) {
-      throw new HclSurgeonError(
-        `Entry name "${name}" is not a valid HCL identifier — must match ${HCL_IDENTIFIER_PATTERN}.`,
-        'invalid-name',
-      );
+  private parseGameServersRecord(raw: string): { config: DeploymentConfig; gameServers: Record<string, RawGameServerEntry> } {
+    const config = this.parseConfigContents(raw);
+    if (!isPlainObject(config.gameServers)) {
+      throw new GameServerEntryError('"gameServers" map not found in the deployment config JSON.', 'structural');
     }
+    return { config, gameServers: config.gameServers as Record<string, RawGameServerEntry> };
+  }
 
-    if (locateEntry(hcl, 'game_servers', name)) {
-      throw new HclSurgeonError(
-        `Entry "${name}" already exists in "game_servers" — use updateGameServer() instead.`,
+  /**
+   * Splices `name` into `raw`'s `gameServers` map as a new entry. Throws
+   * {@link GameServerEntryError} if `name` isn't a valid game name (see
+   * {@link assertValidGameName} — checked *before* parsing `raw` at all,
+   * since it needs only the proposed name), if `name` is already present in
+   * `gameServers` (use {@link updateGameServer} instead), or if
+   * {@link parseGameServersRecord} can't find a `gameServers` map in `raw`.
+   */
+  private insertGameServerEntry(raw: string, name: string, config: RawGameServerEntry): string {
+    assertValidGameName(name);
+
+    const { config: parsedConfig, gameServers } = this.parseGameServersRecord(raw);
+    if (Object.prototype.hasOwnProperty.call(gameServers, name)) {
+      throw new GameServerEntryError(
+        `Entry "${name}" already exists in "gameServers" — use updateGameServer() instead.`,
         'duplicate-name',
       );
     }
 
-    const mapBody = locateMapBody(hcl, 'game_servers');
-    if (!mapBody) {
-      throw new HclSurgeonError('Top-level "game_servers" map not found in terraform.tfvars.');
+    return this.serializeConfig({ ...parsedConfig, gameServers: { ...gameServers, [name]: config } });
+  }
+
+  /**
+   * Replaces `name`'s value inside `raw`'s `gameServers` map. Throws
+   * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
+   * already exist in `gameServers`.
+   */
+  private replaceGameServerEntry(raw: string, name: string, config: RawGameServerEntry): string {
+    const { config: parsedConfig, gameServers } = this.parseGameServersRecord(raw);
+    if (!Object.prototype.hasOwnProperty.call(gameServers, name)) {
+      throw new GameServerEntryError(`Entry "${name}" not found in "gameServers".`, 'not-found');
     }
 
-    const entryHcl = indentHclLines(emitGameServerEntry({ ...config, name }), DEFAULT_ENTRY_INDENT).replace(/\n$/, '');
-    const rest = hcl.slice(mapBody.bodyStart);
-    const separator = /^[ \t]*\r?\n/.test(rest) ? '' : '\n';
-    return hcl.slice(0, mapBody.bodyStart) + '\n' + entryHcl + separator + rest;
+    return this.serializeConfig({ ...parsedConfig, gameServers: { ...gameServers, [name]: config } });
   }
 
   /**
-   * Replaces `name`'s value inside `hcl`'s top-level `game_servers` map with
-   * a freshly-serialized `hclEmit.emitGameServerEntry()` object literal,
-   * reindented (via {@link indentHclLines}) to match the indentation of
-   * `name`'s own line in the source — `emitGameServerEntry()` always formats
-   * at column 0, so without this the replacement's body/closing brace would
-   * land at the wrong depth even though its first line (the value's opening
-   * `{`) is spliced inline after the existing `name = ` prefix and needs no
-   * extra indentation of its own. Falls back to {@link DEFAULT_ENTRY_INDENT}
-   * when `name` can't be located — `hclSurgeon.replaceEntry()` below is what
-   * actually throws {@link HclSurgeonError} in that case, so the exact
-   * fallback value here is never observed by callers.
+   * Removes `name`'s entry from `raw`'s `gameServers` map. Throws
+   * {@link GameServerEntryError} (`reason: 'not-found'`) if `name` doesn't
+   * exist in `gameServers`.
    */
-  private replaceGameServerEntry(hcl: string, name: string, config: RawGameServerEntry): string {
-    const span = locateEntry(hcl, 'game_servers', name);
-    const entryIndent = span ? /^[ \t]*/.exec(hcl.slice(span.start))![0] : DEFAULT_ENTRY_INDENT;
-    const newValueHcl = indentHclLines(
-      extractEntryValueHcl(emitGameServerEntry({ ...config, name })),
-      entryIndent,
-      /* skipFirstLine */ true,
-    );
-    return replaceEntry(hcl, 'game_servers', name, newValueHcl);
+  private removeGameServerEntry(raw: string, name: string): string {
+    const { config: parsedConfig, gameServers } = this.parseGameServersRecord(raw);
+    if (!Object.prototype.hasOwnProperty.call(gameServers, name)) {
+      throw new GameServerEntryError(`Entry "${name}" not found in "gameServers".`, 'not-found');
+    }
+
+    const rest = { ...gameServers };
+    delete rest[name];
+    return this.serializeConfig({ ...parsedConfig, gameServers: rest });
   }
 
   /**
-   * Converts raw HCL tfvars text to JSON via `@cdktf/hcl2json`. Wraps parse
-   * failures (malformed HCL) in a clear, contextualized error rather than
-   * letting the library's raw error surface directly.
+   * Serializes `config` back to the JSON text persisted to disk/S3 — pretty
+   * printed (two-space indent, trailing newline) so a hand-opened config
+   * file/object stays readable, mirroring the retired HCL format's own
+   * indentation convention.
    */
-  private async parseHclContents(contents: string): Promise<Record<string, unknown>> {
+  private serializeConfig(config: DeploymentConfig): string {
+    return JSON.stringify(config, null, 2) + '\n';
+  }
+
+  /**
+   * Parses raw deployment-config JSON text into a {@link DeploymentConfig}.
+   * Wraps parse failures (malformed JSON, or a non-object top level) in a
+   * clear, contextualized error rather than letting `JSON.parse`'s raw
+   * `SyntaxError` (or a silently-accepted non-object value) surface
+   * directly.
+   */
+  private parseConfigContents(raw: string): DeploymentConfig {
+    let parsed: unknown;
     try {
-      return await parseHcl('terraform.tfvars', contents);
+      parsed = JSON.parse(raw);
     } catch (err) {
-      logger.error('Failed to parse terraform.tfvars', { err });
-      throw new Error(
-        `Failed to parse terraform.tfvars: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      logger.error('Failed to parse deployment config JSON', { err });
+      throw new Error(`Failed to parse deployment config JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    if (!isPlainObject(parsed)) {
+      logger.error('Deployment config JSON did not decode to an object', {});
+      throw new Error('Deployment config JSON did not decode to an object.');
+    }
+
+    return parsed as unknown as DeploymentConfig;
   }
 
   /**
-   * Flattens the `game_servers` map (if present) from the JSON-decoded
-   * tfvars payload into a `GameServer[]`. Returns `[]` (after logging a
-   * warning) when the key is absent or not an object, e.g. an
-   * empty/placeholder tfvars file.
+   * Flattens the `gameServers` map (if present) from the parsed
+   * {@link DeploymentConfig} into a `GameServer[]`. Returns `[]` (after
+   * logging a warning) when the key is absent or not an object, e.g. an
+   * empty/placeholder config document.
    */
-  private parseGameServers(parsed: Record<string, unknown>): GameServer[] {
-    const gameServers = parsed['game_servers'];
-    if (!gameServers || typeof gameServers !== 'object') {
-      logger.warn('terraform.tfvars has no game_servers map', {});
+  private flattenGameServers(config: DeploymentConfig): GameServer[] {
+    const gameServers = config.gameServers;
+    if (!isPlainObject(gameServers)) {
+      logger.warn('deployment config has no gameServers map', {});
       return [];
     }
 
-    return Object.entries(gameServers as Record<string, RawGameServerEntry>).map(([name, entry]) => ({
+    return Object.entries(gameServers as unknown as Record<string, RawGameServerEntry>).map(([name, entry]) => ({
       name,
       ...entry,
     }));
