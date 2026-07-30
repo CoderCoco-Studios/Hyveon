@@ -313,6 +313,87 @@ describe('ConfigService', () => {
       await expect(svc.getStackOutputs()).resolves.toEqual({ awsRegion: 'us-west-2' });
       expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2);
     });
+
+    describe('null-result TTL (self-healing after a transient failure degraded to null)', () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('should serve a cached null without re-calling PulumiService before the TTL elapses', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-30T00:00:00.000Z'));
+        const pulumi = makePulumiService();
+        vi.mocked(pulumi.getStackOutputs).mockResolvedValue(null);
+        const svc = new ConfigService(makeElectronStore(), pulumi);
+
+        await svc.getStackOutputs();
+        vi.setSystemTime(new Date('2026-07-30T00:00:19.999Z')); // just under the 20s TTL
+        await expect(svc.getStackOutputs()).resolves.toBeNull();
+
+        expect(pulumi.getStackOutputs).toHaveBeenCalledOnce();
+      });
+
+      it('should re-call PulumiService.getStackOutputs once a cached null has expired, without requiring invalidateCache', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-30T00:00:00.000Z'));
+        const pulumi = makePulumiService();
+        vi.mocked(pulumi.getStackOutputs).mockResolvedValue(null);
+        const svc = new ConfigService(makeElectronStore(), pulumi);
+
+        await svc.getStackOutputs();
+        vi.setSystemTime(new Date('2026-07-30T00:00:20.001Z')); // just past the 20s TTL
+        await svc.getStackOutputs();
+
+        expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2);
+      });
+
+      it('should recover a real StackOutputs value once the transient failure that produced the cached null clears', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-30T00:00:00.000Z'));
+        const pulumi = makePulumiService();
+        const outputs = { awsRegion: 'us-west-2' } as StackOutputs;
+        vi.mocked(pulumi.getStackOutputs).mockResolvedValueOnce(null).mockResolvedValueOnce(outputs);
+        const svc = new ConfigService(makeElectronStore(), pulumi);
+
+        await expect(svc.getStackOutputs()).resolves.toBeNull();
+        vi.setSystemTime(new Date('2026-07-30T00:00:20.001Z'));
+        await expect(svc.getStackOutputs()).resolves.toBe(outputs);
+      });
+
+      it('should NOT apply the null TTL to a resolved StackOutputs value — it stays cached indefinitely until invalidateCache', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-30T00:00:00.000Z'));
+        const pulumi = makePulumiService();
+        const outputs = { awsRegion: 'us-west-2' } as StackOutputs;
+        vi.mocked(pulumi.getStackOutputs).mockResolvedValue(outputs);
+        const svc = new ConfigService(makeElectronStore(), pulumi);
+
+        await svc.getStackOutputs();
+        vi.setSystemTime(new Date('2026-07-30T01:00:00.000Z')); // 1 hour later, well past the null TTL
+        await expect(svc.getStackOutputs()).resolves.toBe(outputs);
+
+        expect(pulumi.getStackOutputs).toHaveBeenCalledOnce();
+      });
+
+      it('should coalesce concurrent calls onto a single refetch when the cached null has just expired', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-30T00:00:00.000Z'));
+        const pulumi = makePulumiService();
+        vi.mocked(pulumi.getStackOutputs).mockResolvedValue(null);
+        const svc = new ConfigService(makeElectronStore(), pulumi);
+
+        await svc.getStackOutputs();
+        vi.setSystemTime(new Date('2026-07-30T00:00:20.001Z'));
+
+        // Both calls observe the same expired cache entry synchronously
+        // (before either's refetch has a chance to settle and update the
+        // null-TTL bookkeeping) — they must coalesce onto one underlying
+        // call, not each kick off their own.
+        await Promise.all([svc.getStackOutputs(), svc.getStackOutputs()]);
+
+        expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2); // 1 initial + 1 coalesced refetch
+      });
+    });
   });
 
   describe('getRegion', () => {
