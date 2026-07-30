@@ -17,10 +17,12 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
  * `ConfigService`'s userData seam rather than injecting `ConfigService` — so
  * this module imports nothing else.
  *
- * The workspace/backend seam that will actually drive operations through the
+ * The workspace/backend seam that actually drives operations through the
  * resolved `PulumiCommand` (constructing the Automation API `LocalWorkspace`,
- * wiring `PULUMI_HOME`, the self-managed backend, and AWS credentials) is
- * Phase 4.3/4.4's job, not this module's.
+ * wiring `PULUMI_HOME`, the self-managed backend, and the secrets
+ * passphrase) is `PulumiWorkspaceService`, in the sibling
+ * `pulumi-workspace.module.ts` — it imports this module rather than
+ * duplicating engine resolution.
  */
 @Module({
   providers: [PulumiEngineService],

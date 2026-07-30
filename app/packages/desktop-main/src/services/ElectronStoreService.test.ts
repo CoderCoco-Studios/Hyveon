@@ -209,6 +209,66 @@ describe('ElectronStoreService — setSecretAccessKey / getSecretAccessKey', () 
 });
 
 // ---------------------------------------------------------------------------
+// Passphrase field — setPulumiPassphrase / getPulumiPassphrase
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', () => {
+  let service: ElectronStoreService;
+  let safeStorage: SafeStorageService;
+
+  beforeEach(() => {
+    safeStorage = makeSafeStorage();
+    service = new ElectronStoreService(safeStorage);
+    vi.clearAllMocks();
+  });
+
+  it('should encrypt the passphrase before storing', () => {
+    vi.spyOn(safeStorage, 'encrypt').mockReturnValue('enc-passphrase');
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+
+    expect(safeStorage.encrypt).toHaveBeenCalledWith('super-secret-passphrase');
+    const stored = service.get('pulumi');
+    expect(stored?.passphrase).toBe('enc-passphrase');
+  });
+
+  it('should decrypt the passphrase when reading', () => {
+    service.set('pulumi', { passphrase: 'enc-passphrase' });
+    vi.spyOn(safeStorage, 'decrypt').mockReturnValue('super-secret-passphrase');
+
+    const result = service.getPulumiPassphrase();
+
+    expect(safeStorage.decrypt).toHaveBeenCalledWith('enc-passphrase');
+    expect(result).toBe('super-secret-passphrase');
+  });
+
+  it('should return undefined for the passphrase when not stored', () => {
+    expect(service.getPulumiPassphrase()).toBeUndefined();
+  });
+
+  it('should preserve other fields already stored under pulumi when writing the passphrase', () => {
+    service.set('pulumi', {});
+    vi.spyOn(safeStorage, 'encrypt').mockReturnValue('enc-passphrase');
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+
+    expect(service.get('pulumi')).toEqual({ passphrase: 'enc-passphrase' });
+  });
+
+  it('should round-trip the passphrase through encrypt/decrypt', () => {
+    vi.spyOn(safeStorage, 'encrypt').mockImplementation((plaintext: string) => `enc-${plaintext}`);
+    vi.spyOn(safeStorage, 'decrypt').mockImplementation((ciphertext: string) =>
+      ciphertext.startsWith('enc-') ? ciphertext.slice(4) : ciphertext,
+    );
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+    const result = service.getPulumiPassphrase();
+
+    expect(result).toBe('super-secret-passphrase');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Round-trip
 // ---------------------------------------------------------------------------
 
@@ -465,6 +525,7 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
     const service = new ElectronStoreService(safeStorage);
     const secretAccessKeyId = 'AKIASENSITIVEEXAMPLE';
     const secretAccessKey = 'super-secret-plaintext-value';
+    const pulumiPassphrase = 'super-secret-pulumi-passphrase';
 
     service.setSecretAccessKeyId(secretAccessKeyId);
     service.setSecretAccessKey(secretAccessKey);
@@ -473,10 +534,12 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
       secretAccessKey,
       region: 'us-east-1',
     });
+    service.setPulumiPassphrase(pulumiPassphrase);
 
     const rawFileContents = readFileSync(filePath, 'utf-8');
     expect(rawFileContents).not.toContain(secretAccessKeyId);
     expect(rawFileContents).not.toContain(secretAccessKey);
+    expect(rawFileContents).not.toContain(pulumiPassphrase);
     // Sanity check the file isn't simply empty/unwritten.
     expect(rawFileContents).toContain('region');
   });

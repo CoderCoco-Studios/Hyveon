@@ -7,6 +7,7 @@ import { DiscordModule } from './modules/discord.module.js';
 import { TfvarsModule } from './modules/tfvars.module.js';
 import { TerraformModule } from './modules/terraform.module.js';
 import { PulumiEngineModule } from './modules/pulumi-engine.module.js';
+import { PulumiWorkspaceModule } from './modules/pulumi-workspace.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { GamesController } from './controllers/games.controller.js';
@@ -29,16 +30,18 @@ import { AuditService } from './services/AuditService.js';
 
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
- * `TfvarsModule`, `TerraformModule`, `PulumiEngineModule`, `WizardModule`,
- * `ElectronStoreModule`) to the IPC controllers.
+ * `TfvarsModule`, `TerraformModule`, `PulumiEngineModule`,
+ * `PulumiWorkspaceModule`, `WizardModule`, `ElectronStoreModule`) to the IPC
+ * controllers.
  *
- * `PulumiEngineModule` has no controller yet — the IPC bridge that surfaces
- * `PulumiEngineService` to the renderer (Settings' resolved-version display,
- * the wizard's engine-provisioning step) is Phase 8-10's job. It's imported
- * here regardless, mirroring `TerraformModule`: construction is synchronous
- * and never throws, so wiring it into the container ahead of its controller
- * costs nothing and exercises the "Container builds without an engine"
- * scenario for real, not just in `PulumiEngineService.test.ts`'s unit tests.
+ * `PulumiEngineModule`/`PulumiWorkspaceModule` have no controller yet — the
+ * IPC bridge that surfaces them to the renderer (Settings' resolved-version
+ * display, the wizard's engine-provisioning step) is Phase 8-10's job.
+ * They're imported here regardless, mirroring `TerraformModule`: both
+ * services' construction is synchronous and never throws, so wiring them
+ * into the container ahead of their controller costs nothing and exercises
+ * the "Container builds without an engine" scenario for real, not just in
+ * their own unit tests.
  */
 @Module({
   imports: [
@@ -47,6 +50,7 @@ import { AuditService } from './services/AuditService.js';
     TfvarsModule,
     TerraformModule,
     PulumiEngineModule,
+    PulumiWorkspaceModule,
     WizardModule,
     ElectronStoreModule,
   ],
