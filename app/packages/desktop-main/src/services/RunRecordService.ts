@@ -171,10 +171,13 @@ export interface PersistRunRecordParams {
    */
   engineVersion?: string;
   /**
-   * `true` only for a `kind: 'apply'` run that failed after at least one
-   * resource step had already been applied — see {@link RunRecord.partialApply}'s
-   * doc comment (`@hyveon/shared/runs.js`). Populated by `PulumiService.apply`
-   * (task 7.2) and threaded through to {@link RunRecord.partialApply}.
+   * `true` only for a `kind: 'apply'` run that did NOT settle as a success
+   * (failed OR aborted) after at least one resource step had already been
+   * applied — independent of which of the two it was; see
+   * {@link RunRecord.partialApply}'s doc comment (`@hyveon/shared/runs.js`)
+   * for why this must never be gated behind `status === 'failed'`. Populated
+   * by `PulumiService.apply` (task 7.2) and threaded through to
+   * {@link RunRecord.partialApply}.
    */
   partialApply?: boolean;
 }

@@ -372,19 +372,31 @@ export interface PulumiRunRecord {
   /** The engine version stamped into the saved plan artifact — see {@link PulumiPreviewResult.engineVersion}. */
   engineVersion?: string;
   /**
-   * `true` only on a `kind: 'apply'` record whose `stack.up()` call failed
-   * AFTER at least one resource step had already been applied — task 7.2's
-   * "distinguish clean failure from partial apply" requirement. Deliberately
-   * an ADDITIVE field alongside `exitCode` (which stays a nonzero `1` for
-   * both a clean and a partial failure) rather than a fourth `RunStatus`
-   * value: `RunStatus` is also the hash key of the `status-index` DynamoDB
-   * GSI (`terraform/aws/runs_store.tf`), so widening its value set is an
+   * `true` only on a `kind: 'apply'` record whose `stack.up()` call did NOT
+   * settle as `'success'` — failed OR was aborted — AFTER at least one
+   * resource step had already been applied. Task 7.2's "distinguish clean
+   * failure from partial apply" requirement. Deliberately an ADDITIVE field
+   * alongside `exitCode`/`status` rather than a fourth `RunStatus` value:
+   * `RunStatus` is also the hash key of the `status-index` DynamoDB GSI
+   * (`terraform/aws/runs_store.tf`), so widening its value set is an
    * infra-affecting change this dispatch declines to take on without
    * explicit justification — an additive boolean lets the UI/later logic
    * check "is this a partial apply" without touching the GSI's key schema at
-   * all. Absent (never `false`) on every non-partial record, mirroring this
-   * file's established "absence means N/A, not false" convention for
-   * `changeSummary`/`engineVersion` above.
+   * all.
+   *
+   * **Independent of which non-`'success'` `status` the run settled with —
+   * fix round 1 correction of an earlier, incorrect doc claim.** This is
+   * `true` on a `status: 'failed'` record (`exitCode: 1`) exactly as often
+   * as on a `status: 'aborted'` one (`exitCode: null` — the operator
+   * pressing Cancel mid-`up()`, arguably the single most likely real-world
+   * way this system ends up partway through). **Any consumer MUST check
+   * `partialApply` directly and MUST NOT gate that check behind
+   * `status === 'failed'` first** — doing so silently misses every
+   * cancelled-mid-apply partial. Absent (never `false`) on every
+   * non-partial record (including every `status: 'success'` record, however
+   * many resources it touched), mirroring this file's established "absence
+   * means N/A, not false" convention for `changeSummary`/`engineVersion`
+   * above.
    */
   partialApply?: boolean;
 }
@@ -418,6 +430,15 @@ export interface PulumiUpResult {
  * vs-partial-apply distinction — see {@link PulumiRunRecord.partialApply}'s
  * doc comment for why this is a sibling flag rather than a fourth outcome
  * kind).
+ *
+ * **This type's own `partialApply` is NOT what gets persisted** — it exists
+ * only for the `'failed'` variant's own internal bookkeeping. The
+ * PERSISTED `PulumiRunRecord.partialApply` value {@link apply} actually
+ * writes is computed independently, directly from `completedSteps.length`,
+ * gated only on `outcome.kind !== 'success'` — covering the `'aborted'`
+ * variant too, which carries no `partialApply` field of its own here. See
+ * {@link apply}'s implementation and {@link PulumiRunRecord.partialApply}'s
+ * doc comment.
  */
 export type PulumiApplyOutcome =
   | { kind: 'success'; result: PulumiUpResult }
@@ -1649,18 +1670,32 @@ export class PulumiService {
    * ## Terminal-state representation (decision this dispatch)
    *
    * `RunRecord.status`/`PulumiRunRecord.exitCode` stay a closed
-   * success/failed/aborted (0/1/null) triple — a partial apply is still
-   * `exitCode: 1` ("failed"), per the additive `partialApply: true` boolean
-   * field (see {@link PulumiRunRecord.partialApply}'s doc comment for why an
-   * additive field was chosen over a fourth `RunStatus` value: `RunStatus`
-   * is the `status-index` DynamoDB GSI's hash key, and widening a GSI key's
-   * value set is a materially bigger, infra-affecting change than this
-   * dispatch's scope justifies without explicit sign-off). The UI/later
-   * logic is expected to check `status === 'failed' && partialApply` to
-   * distinguish "re-plan, some changes already landed" from a clean
-   * "re-plan, nothing changed yet" failure, per the spec's "the UI MUST
-   * direct the operator to re-plan rather than retry blindly after a
-   * partial failure".
+   * success/failed/aborted (0/1/null) triple, per the additive
+   * `partialApply: true` boolean field (see {@link PulumiRunRecord.partialApply}'s
+   * doc comment for why an additive field was chosen over a fourth
+   * `RunStatus` value: `RunStatus` is the `status-index` DynamoDB GSI's hash
+   * key, and widening a GSI key's value set is a materially bigger,
+   * infra-affecting change than this dispatch's scope justifies without
+   * explicit sign-off).
+   *
+   * **`partialApply` is independent of which non-`'success'` `status` the
+   * run settled with — fix round 1 correction.** A resource step can have
+   * already been applied whether the run subsequently *failed*
+   * (`exitCode: 1` → `status: 'failed'`) OR was *aborted* (`exitCode: null`
+   * → `status: 'aborted'`, e.g. the operator pressing Cancel mid-`up()` —
+   * arguably the single most likely real-world way this system ends up
+   * partway through). `partialApply` is computed from whether
+   * `completedSteps` is non-empty, gated only on `outcome.kind !== 'success'`
+   * (see {@link apply}'s implementation) — never on `status === 'failed'`
+   * specifically. **Any
+   * consumer (the UI, a future controller, run-history rendering) MUST check
+   * `partialApply` directly and MUST NOT gate that check behind
+   * `status === 'failed'` first** — doing so silently re-drops the aborted-
+   * cancel case this fix round restored, exactly the scenario the spec's
+   * "the UI MUST direct the operator to re-plan rather than retry blindly
+   * after a partial failure" requirement most needs to catch. The correct
+   * check is simply `record.partialApply` on its own — re-plan, don't retry
+   * blindly, whenever it's `true` — independent of `record.status`.
    *
    * ## Leaked-promise `recoverResult` (a REAL implementation this time —
    * `preview`'s investigation found nothing needed re-reading; `up` does)
@@ -1794,6 +1829,24 @@ export class PulumiService {
     // can reach the outer `finally` having never touched `operationInFlight`
     // at all, while a genuinely unrelated `preview`/`destroy` call is live).
     let ownsOperationInFlight = false;
+    // `true` once a call that genuinely attempted to release the durable
+    // apply lock has completed — set after the NORMAL-path `persistRunRecord`
+    // call (whose own `RunRecordService.persist` releases the lock in its
+    // own `finally`) and after the force-close fallback's equivalent call.
+    // Fix round 2: gates the outer `finally`'s unconditional backstop
+    // `releaseRun` call (see below) so it does NOT also fire on every
+    // ordinary successful apply — `RunService.releaseRun` awaits
+    // `ConfigService.getStackOutputs()`, which the just-run
+    // `invalidateCache()` call (on the success path) guarantees will MISS
+    // its cache and re-invoke `PulumiService.getStackOutputs()` — two more
+    // real `pulumi` CLI subprocess spawns (`stack select` + `stack output`)
+    // on the hot path of every successful apply, delaying the generator's
+    // final settlement for no reason (the lock was already correctly
+    // released moments earlier). The backstop is only ever actually needed
+    // on the ONE path this flag stays `false` for: `writeRunRecord` itself
+    // throwing, which skips `persistRunRecord` entirely (see the backstop's
+    // own comment).
+    let lockReleased = false;
     // The gate-validated tfvarsVersionId/engineVersion, hoisted the instant
     // the plan record is fetched (well before the lock is acquired) so the
     // outer `finally`'s force-closed fallback can still thread them through
@@ -1935,7 +1988,21 @@ export class PulumiService {
         // reserved from the operator's point of view yet (no run record, no
         // active-run buffer, no `startedAt`), so releasing here is the
         // correct undo of gate step 8, not a backstop for a later failure.
-        await this.getRunLockService().releaseRun(planRunId);
+        // Fix round 2: wrapped in try/catch, consistent with the outer
+        // `finally`'s own backstop `releaseRun` call — `RunService.releaseRun`
+        // is documented to never throw (low severity either way), but a
+        // rejection here must not replace this method's own descriptive
+        // refusal error (and skip the durable-lock delete this branch exists
+        // to guarantee) with whatever `releaseRun` itself rejected with.
+        try {
+          await this.getRunLockService().releaseRun(planRunId);
+        } catch (err) {
+          logger.warn('pulumi apply: failed to release the durable apply lock after the local-workspace re-check refused', {
+            planRunId,
+            inFlight,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         throw new Error(
           `pulumi apply refused: ${inFlight} is already in flight against the shared workspace; wait for it ` +
             'to finish before retrying. (The durable apply lock this call just acquired has been released.)',
@@ -2216,6 +2283,13 @@ export class PulumiService {
         engineVersion,
         resultPartialApply,
       );
+      // `persistRunRecord` (via `RunRecordService.persist`'s own `finally`)
+      // has now attempted to release the durable apply lock — the outer
+      // `finally`'s backstop below must not redundantly do it again on
+      // every ordinary successful apply. See `lockReleased`'s own doc
+      // comment (fix round 2) for the liveness bug this specifically
+      // avoids.
+      lockReleased = true;
 
       if (outcome.kind === 'success') {
         // Cache invalidation — hard requirement carried forward from task
@@ -2317,37 +2391,20 @@ export class PulumiService {
           engineVersion,
           forceCloseResultPartialApply,
         );
+        // See `lockReleased`'s own doc comment — this fallback's own
+        // `persistRunRecord` call has now attempted the release too.
+        lockReleased = true;
       }
 
-      // Fix round 1: unconditional backstop release of the durable apply
-      // lock whenever this call reached gate step 8 (`runId !== undefined`),
-      // regardless of whether `persistRunRecord` above already released it
-      // (via `RunRecordService.persist`'s own `finally` — this call becomes
-      // a harmless no-op then, per `RunService.releaseRun`'s own idempotent,
-      // never-throws contract). Without this, a `writeRunRecord` failure on
-      // the NORMAL (non-force-closed) path — `runRecordWritten` is set
-      // `true` right before that call, so a throw there skips
-      // `persistRunRecord` on that path AND skips this block's own
-      // fallback-write branch above (gated on `!runRecordWritten`) — would
-      // leak the durable lock for the full `DEFAULT_LOCK_TTL_MS` (1 hour)
-      // with nothing in-app to clear it. `TerraformController.apply`'s own
-      // streaming-loop `finally` has an identical unconditional
-      // `RunService.releaseRun` backstop one layer up; `apply` is
-      // self-contained per this task's ruling, so it inherits that
-      // obligation itself rather than leaving it to a controller that
-      // doesn't exist yet.
-      if (runId !== undefined) {
-        try {
-          await this.getRunLockService().releaseRun(runId);
-        } catch (err) {
-          logger.warn('pulumi apply: failed to release the durable apply lock as a backstop', {
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      // Fix round 1: gated on `ownsOperationInFlight` rather than
+      // Reset the LOCAL in-process mutex BEFORE the (rare, best-effort)
+      // durable-lock backstop below, not after — fix round 2 hardening: the
+      // backstop's own `await` (a real network round-trip through
+      // `RunService.releaseRun` → `ConfigService.getStackOutputs()`) has no
+      // bearing on the shared workspace directory this flag actually guards
+      // (nothing further touches `workDir` after this point on any path),
+      // so there is no reason a slow or wedged backstop call should also
+      // block a brand-new `preview`/`apply`/`destroy` call on this same
+      // instance from starting. Gated on `ownsOperationInFlight` rather than
       // unconditional — see that variable's own doc comment for why an
       // unconditional reset here would risk nulling out a concurrently
       // running, unrelated `preview`/`destroy` call's own flag on a path
@@ -2356,6 +2413,44 @@ export class PulumiService {
       // longer also sets it — see "Nothing is reserved before step 8").
       if (ownsOperationInFlight) {
         this.operationInFlight = null;
+      }
+
+      // Fix round 2: skipped entirely once `lockReleased` is already `true`
+      // — the overwhelmingly common case, since every ordinary successful or
+      // cleanly-failed apply already released the lock via `persistRunRecord`
+      // (or its force-close-fallback equivalent) moments earlier. Firing
+      // this UNCONDITIONALLY on every apply, as round 1's own fix first did,
+      // was itself a regression: `RunService.releaseRun` awaits
+      // `ConfigService.getStackOutputs()`, and on the success path the
+      // `invalidateCache()` call above guarantees that read MISSES its cache
+      // and re-invokes `PulumiService.getStackOutputs()` — two more real
+      // `pulumi` CLI subprocess spawns (`stack select` + `stack output`)
+      // delaying the generator's final settlement on every single successful
+      // apply, for a release that had already happened moments before.
+      // Reserved now for the ONE path it's actually needed — `writeRunRecord`
+      // itself throwing, which skips `persistRunRecord` on the NORMAL
+      // (non-force-closed) path entirely (`runRecordWritten` is set `true`
+      // right before that call, so a throw there also skips this block's own
+      // force-close fallback above, which is gated on `!runRecordWritten`) —
+      // and would otherwise leak the durable lock for the full
+      // `DEFAULT_LOCK_TTL_MS` (1 hour) with nothing in-app to clear it.
+      // `TerraformController.apply`'s own streaming-loop `finally` has an
+      // identical unconditional `RunService.releaseRun` backstop one layer
+      // up; `apply` is self-contained per this task's ruling, so it inherits
+      // that obligation itself rather than leaving it to a controller that
+      // doesn't exist yet. Wrapped in try/catch (matching the re-check's own
+      // `releaseRun` call above) even though `RunService.releaseRun` is
+      // documented to never throw — defensive, since this method depends on
+      // it only through the narrower `RunLockService` interface.
+      if (runId !== undefined && !lockReleased) {
+        try {
+          await this.getRunLockService().releaseRun(runId);
+        } catch (err) {
+          logger.warn('pulumi apply: failed to release the durable apply lock as a backstop', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
   }
