@@ -1,11 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } from 'fs';
-import { join, dirname, resolve } from 'path';
-import { tmpdir } from 'os';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
-import { randomUUID } from 'crypto';
-import type { GameServer, StackOutputs } from '@hyveon/shared';
+import type { StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiService } from './PulumiService.js';
@@ -17,98 +15,9 @@ const _dirname = dirname(fileURLToPath(import.meta.url));
  * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in Docker).
  * Derived by walking 4 levels up from `dist/services/`.
  * Used only as a private dev-mode fallback inside instance methods — callers
- * should use `getTfStatePath()` / `getServerConfigPath()` instead.
+ * should use `getServerConfigPath()` instead.
  */
 const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
-
-/**
- * Shape of the subset of Terraform root outputs the management app consumes.
- * Mirrors the `output` blocks in `terraform/*.tf`; add fields here (and in
- * `getTfOutputs()` below) when a new output becomes a dependency.
- */
-export interface TfOutputs {
-  aws_region: string;
-  ecs_cluster_name: string;
-  ecs_cluster_arn: string;
-  subnet_ids: string;
-  security_group_id: string;
-  file_manager_security_group_id: string;
-  efs_file_system_id: string;
-  efs_access_points: Record<string, string>;
-  domain_name: string;
-  game_names: string[];
-  discord_table_name: string;
-  audit_table_name: string;
-  runs_table_name: string;
-  discord_bot_token_secret_arn: string;
-  discord_public_key_secret_arn: string;
-  interactions_invoke_url: string | null;
-  discord_interactions_url: string | null;
-  /**
-   * Full per-game `game_servers` configuration as last applied by Terraform
-   * (the `applied_game_servers` sensitive output — see `terraform/aws/outputs.tf`),
-   * keyed by game name. Used for drift detection: field-level comparison
-   * against the currently declared tfvars config (see `@hyveon/shared/drift.ts`).
-   * `null` when the output is absent (e.g. state predates this output, or
-   * `terraform apply` hasn't run since it was added).
-   */
-  applied_game_servers: Record<string, Omit<GameServer, 'name'>> | null;
-}
-
-/**
- * Shape of the raw `terraform.tfstate` JSON as parsed off disk, restricted to
- * the `outputs` map that {@link projectTfOutputs} reads from.
- */
-export type RawTfState = { outputs?: Record<string, { value: unknown }> };
-
-/**
- * Project the subset of Terraform outputs the app cares about (see
- * {@link TfOutputs}) out of a parsed `terraform.tfstate` payload, filling in
- * defaults for any keys the state doesn't have (e.g. because a Terraform
- * apply hasn't run since a given output was added). Returns `null` when the
- * state has no `outputs` map at all, or when that map is empty — both cases
- * mean nothing has been deployed yet (an empty map is what `terraform output -json`
- * reports before the first apply) — and both are treated by callers as
- * "infra not yet deployed".
- *
- * Extracted from {@link ConfigService.getTfOutputs} as a pure function so the
- * projection logic can be exercised (and reused) independently of the
- * instance's file-reading/caching concerns.
- */
-export function projectTfOutputs(raw: RawTfState): TfOutputs | null {
-  if (!raw.outputs || Object.keys(raw.outputs).length === 0) {
-    logger.warn('Terraform state has no outputs — infra not yet deployed');
-    return null;
-  }
-
-  const out = raw.outputs;
-  const get = <T>(key: string, fallback: T): T =>
-    key in out ? (out[key]!.value as T) : fallback;
-
-  const projected: TfOutputs = {
-    aws_region: get('aws_region', 'us-east-1'),
-    ecs_cluster_name: get('ecs_cluster_name', ''),
-    ecs_cluster_arn: get('ecs_cluster_arn', ''),
-    subnet_ids: get('subnet_ids', ''),
-    security_group_id: get('security_group_id', ''),
-    file_manager_security_group_id: get('file_manager_security_group_id', ''),
-    efs_file_system_id: get('efs_file_system_id', ''),
-    efs_access_points: get('efs_access_points', {}),
-    domain_name: get('domain_name', ''),
-    game_names: get('game_names', []),
-    discord_table_name: get('discord_table_name', ''),
-    audit_table_name: get('audit_table_name', ''),
-    runs_table_name: get('runs_table_name', ''),
-    discord_bot_token_secret_arn: get('discord_bot_token_secret_arn', ''),
-    discord_public_key_secret_arn: get('discord_public_key_secret_arn', ''),
-    interactions_invoke_url: get('interactions_invoke_url', null),
-    discord_interactions_url: get('discord_interactions_url', null),
-    applied_game_servers: get('applied_game_servers', null),
-  };
-
-  logger.debug('Loaded Terraform outputs', { games: projected.game_names });
-  return projected;
-}
 
 /**
  * User-editable watchdog tuning knobs persisted to `server_config.json`.
@@ -142,18 +51,21 @@ export type ActiveCloud = 'aws';
 
 /**
  * Owns every runtime configuration source the management app reads:
- *  - `terraform.tfstate` — parsed lazily and cached until
- *    {@link ConfigService.invalidateCache} is called. Path resolved by
- *    {@link ConfigService.getTfStatePath}.
  *  - `server_config.json` — user-editable watchdog tunables. Path resolved
  *    by {@link ConfigService.getServerConfigPath}.
+ *  - The deployed Pulumi stack's outputs — read via {@link getStackOutputs},
+ *    a memoised delegate to {@link PulumiService.getStackOutputs}. This is
+ *    the modern replacement for the old `terraform.tfstate`-parsing path
+ *    (`getTfOutputs()`/`projectTfOutputs()`/`getTfStatePath()`), removed as
+ *    dead code by task 7.10 — nothing reads a local tfstate file under the
+ *    Pulumi engine.
  *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
- * Both path resolvers follow the same three-tier priority:
- *  1. Env var override (`TF_STATE_PATH` / `SERVER_CONFIG_PATH`) — always wins.
- *  2. Electron packaged build (`electron.app.isPackaged`) — uses Electron-specific
- *     paths (`resourcesPath` for tfstate, `userData` for server config).
- *  3. Dev/test fallback — repo-relative paths when not in a packaged build.
+ * `getServerConfigPath()` follows a three-tier priority:
+ *  1. Env var override (`SERVER_CONFIG_PATH`) — always wins.
+ *  2. Electron packaged build (`electron.app.isPackaged`) — `userData` for
+ *     server config.
+ *  3. Dev/test fallback — repo-relative path when not in a packaged build.
  *
  * Every other service injects this one instead of touching `process.env` or
  * reading files directly, so tests can stub env/file access cleanly.
@@ -177,17 +89,8 @@ export class ConfigService {
   ) {}
 
   /**
-   * Memoised tfstate projection. Tri-state: `undefined` means "not loaded yet",
-   * `null` means "loaded, but no usable state" (absent/empty/placeholder), and
-   * an object is a parsed projection. Caching `null` matters because callers on
-   * polling paths (e.g. status) hit this every tick — without it, an undeployed
-   * stack would re-read the file and re-log a warning on every call.
-   */
-  private tfCache: TfOutputs | null | undefined = undefined;
-
-  /**
-   * Memoised {@link getStackOutputs} result, mirroring {@link tfCache}'s
-   * tri-state shape and rationale — added because several callers (e.g.
+   * Memoised {@link getStackOutputs} result, mirroring the old `tfCache`
+   * field's tri-state shape and rationale — added because several callers (e.g.
    * `DiscordConfigService.getRedacted()`) read more than one field off a
    * single logical "the deployed config" via more than one call into this
    * class, and `getOrCreateStack()` + `stack.outputs()` is a genuinely
@@ -205,7 +108,7 @@ export class ConfigService {
    * degrades EVERY failure to a resolved `null` — a transient S3 blip, an
    * expired credential, a keychain hiccup all look identical to "genuinely
    * not deployed" from here. That's the right contract for callers (restores
-   * `getTfOutputs()`'s old never-throw guarantee), but it means a resolved
+   * the old `getTfOutputs()`'s never-throw guarantee), but it means a resolved
    * `null` is no longer proof of "not deployed" the way it was for `tfCache`
    * (which only ever cached `null` for an actually-missing/malformed file).
    * Caching it indefinitely would let one transient blip during, e.g., the
@@ -247,66 +150,32 @@ export class ConfigService {
   private static readonly STACK_OUTPUTS_NULL_TTL_MS = 20_000;
 
   /**
-   * Drop the cached tfstate parse and the cached {@link getStackOutputs}
-   * result. Called from the `/api/games` and `/api/status` handlers so a
-   * fresh deploy is picked up without a server restart; tests also call it
-   * between scenarios.
+   * Drop the cached {@link getStackOutputs} result. Called from the
+   * `/api/games` and `/api/status` handlers so a fresh deploy is picked up
+   * without a server restart; tests also call it between scenarios.
    */
   invalidateCache(): void {
-    this.tfCache = undefined;
     this.stackOutputsCache = undefined;
     this.stackOutputsCacheIsNull = false;
   }
 
   /**
-   * Parse `terraform/terraform.tfstate` (once, then memoised) and project the
-   * pieces the app cares about. Returns `null` when the runtime file is absent
-   * — callers treat that as "infra not deployed yet" and degrade gracefully.
-   */
-  getTfOutputs(): TfOutputs | null {
-    if (this.tfCache !== undefined) return this.tfCache;
-
-    let raw: RawTfState;
-
-    const tfStatePath = this.getTfStatePath();
-    if (existsSync(tfStatePath)) {
-      try {
-        raw = JSON.parse(readFileSync(tfStatePath, 'utf-8')) as RawTfState;
-      } catch (err) {
-        logger.error('Failed to parse Terraform state', { err, path: tfStatePath });
-        return (this.tfCache = null);
-      }
-      if (raw === null || raw === undefined) {
-        logger.warn('Terraform state file is empty or null', { path: tfStatePath });
-        return (this.tfCache = null);
-      }
-    } else {
-      logger.warn('Terraform state not found', { path: tfStatePath });
-      return (this.tfCache = null);
-    }
-
-    try {
-      return (this.tfCache = projectTfOutputs(raw));
-    } catch (err) {
-      logger.error('Failed to parse Terraform state', { err });
-      return (this.tfCache = null);
-    }
-  }
-
-  /**
    * Reads every value the app cares about off the deployed Pulumi stack —
-   * task 7.4's async replacement for {@link getTfOutputs}, which every
-   * caller of that method is migrated to as part of this dispatch.
-   * `getTfOutputs()` itself is intentionally left in place (unlike this
-   * method's callers) because `TerraformService.output()` still calls it via
-   * `projectTfOutputs`; both die together in task 7.10 once
-   * `TerraformService.ts` is deleted.
+   * task 7.4's async replacement for the old synchronous `getTfOutputs()`,
+   * which every caller was migrated to as part of that dispatch.
+   * `getTfOutputs()` itself, along with its `projectTfOutputs()`/
+   * `getTfStatePath()`/`TfOutputs` support, was removed by task 7.10 once
+   * nothing but `TerraformService.output()` still called it and
+   * `TerraformService.ts` itself (and the `terraform.controller.ts` handler
+   * that used to type its return value against `TfOutputs`) were deleted —
+   * nothing reads a local `terraform.tfstate` file under the Pulumi engine
+   * any more.
    *
    * A memoised delegate to {@link PulumiService.getStackOutputs} — see that
    * method's doc comment for the full "never deployed yet degrades to
    * `null`, never throws, period" contract and how it's implemented. Exposed
-   * here (rather than requiring every one of `getTfOutputs()`'s ~14 call
-   * sites to take a new `PulumiService` constructor dependency) so this
+   * here (rather than requiring every one of the old `getTfOutputs()`'s ~14
+   * call sites to take a new `PulumiService` constructor dependency) so that
    * migration's diff at each call site is the minimal `getTfOutputs()` →
    * `await getStackOutputs()` swap, mirroring how `ConfigService` already
    * re-exposes `ElectronStoreService.get('bootstrap')?.configurationBucket`
@@ -314,11 +183,11 @@ export class ConfigService {
    * configuration-bucket reader depend on `ElectronStoreService` directly.
    *
    * Cached via {@link stackOutputsCache} — see that field's doc comment for
-   * why (mirrors {@link getTfOutputs}'s `tfCache`, plus in-flight
+   * why (mirrors the old `getTfOutputs()`'s `tfCache`, plus in-flight
    * coalescing) and for why a resolved `null` additionally expires after
    * {@link STACK_OUTPUTS_NULL_TTL_MS} rather than staying cached forever.
    * Cleared unconditionally (both the value and the null-TTL clock) by
-   * {@link invalidateCache}, same as `tfCache`.
+   * {@link invalidateCache}.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
     const cacheIsStale =
@@ -369,14 +238,6 @@ export class ConfigService {
   }
 
   /**
-   * Read the Terraform composer root override from `TF_DIR`. Extracted for
-   * test-stubbing, mirroring {@link readEnvRegion}.
-   */
-  readEnvTerraformDir(): string | undefined {
-    return process.env['TF_DIR'];
-  }
-
-  /**
    * Read the tfvars in-memory cache TTL override (milliseconds) from
    * `TFVARS_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
    * {@link readEnvRegion}.
@@ -395,14 +256,6 @@ export class ConfigService {
       return DEFAULT_TFVARS_CACHE_TTL_MS;
     }
     return parsed;
-  }
-
-  /**
-   * Read the Terraform run-artifacts directory override from `RUNS_DIR_PATH`.
-   * Extracted for test-stubbing, mirroring {@link readEnvTerraformDir}.
-   */
-  readEnvRunsDir(): string | undefined {
-    return process.env['RUNS_DIR_PATH'];
   }
 
   /**
@@ -449,146 +302,6 @@ export class ConfigService {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Resolve the absolute path to `terraform.tfstate`.
-   *
-   * Resolution order:
-   *  1. `TF_STATE_PATH` env var — wins when set.
-   *  2. Electron packaged app (`app.isPackaged`) — `<resourcesPath>/terraform/aws/terraform.tfstate`.
-   *  3. Dev/test fallback — repo root `terraform/terraform.tfstate`.
-   */
-  getTfStatePath(): string {
-    const envOverride = process.env['TF_STATE_PATH'];
-    if (envOverride) return envOverride;
-
-    if (this.readIsPackaged()) {
-      return join(this.readResourcesPath()!, 'terraform', 'aws', 'terraform.tfstate');
-    }
-
-    // Dev fallback: repo root is one level above _APP_ROOT (app/)
-    return join(_APP_ROOT, '..', 'terraform', 'terraform.tfstate');
-  }
-
-  /**
-   * Resolve the absolute path to the Terraform *composer root* — the
-   * directory `TerraformService` spawns the `terraform` binary in for
-   * `init`/`plan`/`apply`/`destroy`/`output`. This is `terraform/`, which
-   * holds the thin backend/provider composer (`terraform/main.tf`) that
-   * wires in `module "cloud"` — **not** `terraform/aws/`, where the actual
-   * AWS resources live.
-   *
-   * Resolution order (identical in structure to {@link getTfStatePath}):
-   *  1. `TF_DIR` env var — wins when set.
-   *  2. Electron packaged app (`app.isPackaged`) — `<resourcesPath>/terraform` is
-   *     read-only in most installed-app layouts (macOS code-signing, Windows
-   *     `Program Files` ACLs), and `terraform init`/`apply` need to write
-   *     `.terraform/`, lock files, and plan artifacts. So the bundled composer
-   *     is seeded (once, on first use) into `<userData>/terraform` — a
-   *     writable per-user directory — via {@link seedTerraformWorkspace}, and
-   *     that writable copy is returned instead. If seeding fails, the
-   *     read-only `<resourcesPath>/terraform` is returned instead of a
-   *     partially-copied `writableDir` — see {@link seedTerraformWorkspace}.
-   *  3. Dev/test fallback — repo root `terraform/`.
-   */
-  getTerraformDir(): string {
-    const envOverride = this.readEnvTerraformDir();
-    if (envOverride) return envOverride;
-
-    if (this.readIsPackaged()) {
-      const bundledDir = join(this.readResourcesPath()!, 'terraform');
-      const userData = this.readUserDataPath();
-      if (userData) {
-        const writableDir = join(userData, 'terraform');
-        if (this.seedTerraformWorkspace(bundledDir, writableDir)) {
-          return writableDir;
-        }
-        logger.warn('Falling back to read-only bundled Terraform dir after seed failure', {
-          bundledDir,
-        });
-        return bundledDir;
-      }
-      return bundledDir;
-    }
-
-    // Dev fallback: repo root is one level above _APP_ROOT (app/)
-    return join(_APP_ROOT, '..', 'terraform');
-  }
-
-  /**
-   * Copy the bundled read-only Terraform composer (`<resourcesPath>/terraform`)
-   * into the writable `<userData>/terraform` workspace on first use. No-ops
-   * (returns `true`) when the writable directory already exists, so
-   * subsequent runs reuse the previously-seeded copy (and its `.terraform/`
-   * init state) instead of clobbering it on every launch.
-   *
-   * Copies into a sibling staging directory first, then atomically renames it
-   * into place with {@link renameSync}. This guarantees `writableDir` only
-   * ever exists in a fully-seeded state — a `cpSync` failure never leaves a
-   * partially-copied `writableDir` behind, so a future call won't mistake an
-   * incomplete copy for "already seeded" via the `existsSync` check above.
-   *
-   * @returns `true` if `writableDir` is present and fully seeded after this
-   *   call, `false` if seeding failed (caller must not treat `writableDir` as
-   *   usable in that case).
-   */
-  private seedTerraformWorkspace(bundledDir: string, writableDir: string): boolean {
-    if (existsSync(writableDir)) return true;
-
-    const stagingDir = `${writableDir}.staging-${randomUUID()}`;
-    try {
-      cpSync(bundledDir, stagingDir, { recursive: true });
-      renameSync(stagingDir, writableDir);
-      logger.info('Seeded Terraform workspace into userData', { from: bundledDir, to: writableDir });
-      return true;
-    } catch (err) {
-      logger.error('Failed to seed Terraform workspace into userData', {
-        err,
-        from: bundledDir,
-        to: writableDir,
-      });
-      try {
-        if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true, force: true });
-      } catch (cleanupErr) {
-        logger.error('Failed to clean up Terraform workspace staging directory', {
-          err: cleanupErr,
-          stagingDir,
-        });
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Resolve the absolute path to the directory `TerraformService.plan()`
-   * (and future `apply`/`destroy`) writes per-run artifacts into — the
-   * pulled tfvars snapshot, the `.tfplan` file, and partial logs, one
-   * subdirectory per `runId` (`<runsDir>/<runId>/...`). See the "Terraform
-   * run cache" row in `docs/superpowers/specs/2026-05-10-electron-desktop-pivot-design.md`.
-   *
-   * Resolution order:
-   *  1. `RUNS_DIR_PATH` env var — wins when set. Resolved with `resolve()`
-   *     against `process.cwd()` so a relative override doesn't silently
-   *     resolve against `getTerraformDir()`'s cwd (the directory
-   *     `TerraformService` spawns `terraform` from) instead of the
-   *     directory the app was launched from.
-   *  2. Electron `userData` directory (`<userData>/runs`) — a writable
-   *     per-user location that survives app updates, available whenever this
-   *     process is running inside Electron (see {@link readUserDataPath}).
-   *  3. OS temp directory (`<os.tmpdir()>/hyveon-runs`) fallback — used in
-   *     plain-Node/test contexts where no Electron `userData` path exists.
-   */
-  getRunsDir(): string {
-    const envOverride = this.readEnvRunsDir();
-    if (envOverride) return resolve(envOverride);
-
-    const userData = this.readUserDataPath();
-    if (userData) {
-      return join(userData, 'runs');
-    }
-
-    return join(tmpdir(), 'hyveon-runs');
   }
 
   /**
