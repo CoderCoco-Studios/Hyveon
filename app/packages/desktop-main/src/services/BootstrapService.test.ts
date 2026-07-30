@@ -102,6 +102,7 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'exists' });
       expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(0);
       expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(1);
     });
 
     it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/encryption/public-access-block', async () => {
@@ -283,6 +284,7 @@ describe('BootstrapService', () => {
 
       expect(result).toEqual({ status: 'exists' });
       expect(s3Mock.commandCalls(CreateBucketCommand)).toHaveLength(0);
+      expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(1);
     });
 
     it('should report a clear failure when the bucket name is owned by another account', async () => {
