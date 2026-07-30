@@ -25,6 +25,18 @@ import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } f
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
+import type { PulumiService } from './PulumiService.js';
+import type { StackOutputs } from '@hyveon/shared';
+
+/**
+ * Minimal `PulumiService` stub — `ConfigService`'s own tests never exercise
+ * `getStackOutputs()`'s delegation to the real Pulumi stack-outputs read
+ * (that's covered by `PulumiService`'s own tests), so this always resolves
+ * `null`, matching "nothing deployed".
+ */
+function makePulumiService(): PulumiService {
+  return { getStackOutputs: vi.fn().mockResolvedValue(null) } as unknown as PulumiService;
+}
 
 /** Strongly-typed mock handles for the `fs` module. */
 const mockExists = vi.mocked(existsSync);
@@ -82,7 +94,7 @@ describe('ConfigService', () => {
   let service: ConfigService;
 
   beforeEach(() => {
-    service = new ConfigService(makeElectronStore());
+    service = new ConfigService(makeElectronStore(), makePulumiService());
   });
 
   describe('getTfOutputs', () => {
@@ -246,21 +258,77 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('getRegion', () => {
-    it('should use aws_region from outputs when available', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(makeState({ aws_region: { value: 'ap-south-1' } }));
-      expect(service.getRegion()).toBe('ap-south-1');
+  describe('getStackOutputs', () => {
+    it('should delegate to PulumiService.getStackOutputs and return its resolved value', async () => {
+      const pulumi = makePulumiService();
+      const outputs = { awsRegion: 'us-west-2' } as StackOutputs;
+      vi.mocked(pulumi.getStackOutputs).mockResolvedValue(outputs);
+      const svc = new ConfigService(makeElectronStore(), pulumi);
+
+      await expect(svc.getStackOutputs()).resolves.toBe(outputs);
     });
 
-    it('should fall back to readEnvRegion when outputs unavailable', () => {
-      mockExists.mockReturnValue(false);
+    it('should return null (never throw) when PulumiService reports nothing deployed', async () => {
+      const pulumi = makePulumiService();
+      vi.mocked(pulumi.getStackOutputs).mockResolvedValue(null);
+      const svc = new ConfigService(makeElectronStore(), pulumi);
+
+      await expect(svc.getStackOutputs()).resolves.toBeNull();
+    });
+
+    it('should only call PulumiService.getStackOutputs once across concurrent and repeated calls (cached)', async () => {
+      const pulumi = makePulumiService();
+      const outputs = { awsRegion: 'us-west-2' } as StackOutputs;
+      vi.mocked(pulumi.getStackOutputs).mockResolvedValue(outputs);
+      const svc = new ConfigService(makeElectronStore(), pulumi);
+
+      const [a, b] = await Promise.all([svc.getStackOutputs(), svc.getStackOutputs()]);
+      await svc.getStackOutputs();
+
+      expect(a).toBe(outputs);
+      expect(b).toBe(outputs);
+      expect(pulumi.getStackOutputs).toHaveBeenCalledOnce();
+    });
+
+    it('should re-call PulumiService.getStackOutputs after invalidateCache', async () => {
+      const pulumi = makePulumiService();
+      vi.mocked(pulumi.getStackOutputs).mockResolvedValue(null);
+      const svc = new ConfigService(makeElectronStore(), pulumi);
+
+      await svc.getStackOutputs();
+      svc.invalidateCache();
+      await svc.getStackOutputs();
+
+      expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not cache a rejected PulumiService.getStackOutputs call, so a subsequent call retries', async () => {
+      const pulumi = makePulumiService();
+      vi.mocked(pulumi.getStackOutputs)
+        .mockRejectedValueOnce(new Error('transient AWS failure'))
+        .mockResolvedValueOnce({ awsRegion: 'us-west-2' } as StackOutputs);
+      const svc = new ConfigService(makeElectronStore(), pulumi);
+
+      await expect(svc.getStackOutputs()).rejects.toThrow('transient AWS failure');
+      await expect(svc.getStackOutputs()).resolves.toEqual({ awsRegion: 'us-west-2' });
+      expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getRegion', () => {
+    it('should use aws.region from the electron store when available', () => {
+      const store = makeElectronStore();
+      store.set('aws', { region: 'ap-south-1' });
+      const svc = new ConfigService(store, makePulumiService());
+      expect(svc.getRegion()).toBe('ap-south-1');
+    });
+
+    it('should fall back to readEnvRegion when no aws.region is stored', () => {
       vi.spyOn(service, 'readEnvRegion').mockReturnValue('eu-west-3');
       expect(service.getRegion()).toBe('eu-west-3');
     });
 
-    it('should fall back to us-east-1 when no outputs and no env region', () => {
-      mockExists.mockReturnValue(false);
+    it('should fall back to us-east-1 when no aws.region is stored and no env region', () => {
       vi.spyOn(service, 'readEnvRegion').mockReturnValue(undefined);
       expect(service.getRegion()).toBe('us-east-1');
     });
@@ -408,12 +476,12 @@ describe('ConfigService', () => {
 
     it('should return the HYVEON_TFVARS_BUCKET env var value when set, even when a configuration bucket is also stored', () => {
       process.env['HYVEON_TFVARS_BUCKET'] = 'my-project-tfvars';
-      const configuredService = new ConfigService(makeElectronStore('stored-bucket'));
+      const configuredService = new ConfigService(makeElectronStore('stored-bucket'), makePulumiService());
       expect(configuredService.getConfigurationBucket()).toBe('my-project-tfvars');
     });
 
     it('should return the configured bootstrap.configurationBucket from ElectronStoreService when HYVEON_TFVARS_BUCKET is unset', () => {
-      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'));
+      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'), makePulumiService());
       expect(configuredService.getConfigurationBucket()).toBe('operator-configured-bucket');
     });
 
@@ -422,7 +490,7 @@ describe('ConfigService', () => {
     });
 
     it('should not touch the filesystem when resolving the configuration bucket', () => {
-      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'));
+      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'), makePulumiService());
       configuredService.getConfigurationBucket();
       service.getConfigurationBucket();
 

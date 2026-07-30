@@ -249,8 +249,8 @@ export class GamesWriteService {
     });
 
     const declared = await this.tfvars.getGameServers();
-    const outputs = this.config.getTfOutputs();
-    const games = mergeGameLists(declared, outputs?.game_names ?? []);
+    const outputs = await this.config.getStackOutputs();
+    const games = mergeGameLists(declared, outputs?.gameNames ?? []);
 
     return { ok: true, game, games };
   }

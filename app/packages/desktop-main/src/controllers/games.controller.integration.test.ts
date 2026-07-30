@@ -35,12 +35,12 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, existsSync, writeFileSync } from 'fs';
-import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
+import type { DeploymentConfig, RemoteFileStore, StackOutputs } from '@hyveon/shared';
 import { RemoteFileConflictError } from '@hyveon/shared';
 import { GamesController } from './games.controller.js';
 import { TfvarsService } from '../services/TfvarsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
-import type { ConfigService, TfOutputs } from '../services/ConfigService.js';
+import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { AuditService } from '../services/AuditService.js';
 
@@ -154,10 +154,10 @@ function makeMutableRemoteFileStore(initialJson: string): RemoteFileStore & { cu
  * mode any more (Phase 6).
  */
 function makeConfig(gameNames: string[]): ConfigService {
-  const outputs: Partial<TfOutputs> = { game_names: gameNames };
+  const outputs: Partial<StackOutputs> = { gameNames };
   const config: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
     getConfigurationBucket: () => 'my-tfvars-bucket',
     readEnvTfvarsCacheTtlMs: () => 30000,
   };

@@ -63,33 +63,49 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
 /**
  * Resolves the `{ tableName, region }` config the AWS `AuditLogStore`'s
  * `getConfig` callback needs to target the audit DynamoDB table: the table
- * name comes from `ConfigService.getTfOutputs()?.audit_table_name` (falling
- * back to `''` when the tfstate hasn't been applied yet, so `AwsAuditLogStore`
- * surfaces its own "table not configured" error rather than this factory
- * silently defaulting somewhere), and the region from `getRegion()`. Exported
- * as a standalone function — see {@link resolveTfvarsFileStoreConfig} for why.
+ * name comes from `ConfigService.getStackOutputs()`'s `auditTableName`
+ * (falling back to `''` when nothing has been deployed yet, so
+ * `AwsAuditLogStore` surfaces its own "table not configured" error rather
+ * than this factory silently defaulting somewhere), and the region from
+ * `getRegion()`. Exported as a standalone function — see
+ * {@link resolveTfvarsFileStoreConfig} for why.
+ *
+ * Async since task 7.4 (`migrate-iac-to-pulumi`): `getStackOutputs()`
+ * replaced the synchronous `getTfOutputs()` this used to read. This is NOT
+ * the "DI-factory async hazard" the task brief flagged — `CLOUD_BINDINGS.aws.auditLogStore`
+ * below passes `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s
+ * lazy `getConfig` closure, not as something the (synchronous) `useFactory`
+ * provider below awaits itself; the closure is only ever invoked later, from
+ * inside `AwsAuditLogStore`'s own already-`async` methods, where awaiting a
+ * `Promise`-returning closure costs nothing extra. See `AwsAuditLogStore`'s
+ * constructor doc comment for the same reasoning spelled out at the
+ * consumer end.
  */
-export function resolveAuditLogStoreConfig(config: ConfigService): { tableName: string; region: string } {
-  return { tableName: config.getTfOutputs()?.audit_table_name ?? '', region: config.getRegion() };
+export async function resolveAuditLogStoreConfig(config: ConfigService): Promise<{ tableName: string; region: string }> {
+  const outputs = await config.getStackOutputs();
+  return { tableName: outputs?.auditTableName ?? '', region: config.getRegion() };
 }
 
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs to target the runs DynamoDB table and the
  * configuration S3 bucket used for offloaded run logs: the table name comes
- * from `ConfigService.getTfOutputs()?.runs_table_name` (falling back to `''`
- * when the tfstate hasn't been applied yet), the bucket from
+ * from `ConfigService.getStackOutputs()`'s `runsTableName` (falling back to
+ * `''` when nothing has been deployed yet), the bucket from
  * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
  * bucket is configured), and the region from `getRegion()` — so
  * `AwsRunRecordStore` surfaces its own "not configured" errors rather than
  * this factory silently defaulting somewhere. Exported as a standalone
- * function — see {@link resolveTfvarsFileStoreConfig} for why.
+ * function — see {@link resolveTfvarsFileStoreConfig} for why. Async for the
+ * same reason, and with the same "not a DI-factory hazard" caveat, as
+ * {@link resolveAuditLogStoreConfig} — see its doc comment.
  */
-export function resolveRunRecordStoreConfig(
+export async function resolveRunRecordStoreConfig(
   config: ConfigService,
-): { tableName: string; bucket: string; region: string } {
+): Promise<{ tableName: string; bucket: string; region: string }> {
+  const outputs = await config.getStackOutputs();
   return {
-    tableName: config.getTfOutputs()?.runs_table_name ?? '',
+    tableName: outputs?.runsTableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
     region: config.getRegion(),
   };
