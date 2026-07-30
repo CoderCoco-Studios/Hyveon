@@ -223,6 +223,40 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
     expect(mkdirSyncMock).toHaveBeenCalledWith(PULUMI_HOME_DIR, { recursive: true });
     expect(mkdirSyncMock).toHaveBeenCalledWith(WORK_DIR, { recursive: true });
   });
+
+  it('should not grow the number of distinct workspace directories across many repeated operations (Task 4.10)', async () => {
+    const { service } = makeService();
+    // Large enough that "one leaked directory per call" would be obvious
+    // against a stable count, but small enough to stay fast — simulates many
+    // previews/applies against the same stack over the app's lifetime.
+    const CALL_COUNT = 30;
+
+    for (let i = 0; i < CALL_COUNT; i++) {
+      // First call is the genuinely-new-stack case; every call after that
+      // mirrors a realistic caller reporting the stack now exists.
+      await service.getOrCreateStack(baseInput({ stackExists: i > 0 }));
+    }
+
+    expect(createOrSelectStackMock).toHaveBeenCalledTimes(CALL_COUNT);
+
+    // mkdirSync is called twice per operation (pulumiHome + workDir) and is
+    // idempotent under `recursive: true` — being called CALL_COUNT * 2 times
+    // total is fine and expected. What must NOT happen is CALL_COUNT * 2
+    // *distinct* paths (one leaked pair of directories per call): assert on
+    // the SET of unique paths passed to mkdirSync, not just the call count.
+    expect(mkdirSyncMock.mock.calls.length).toBe(CALL_COUNT * 2);
+    const mkdirPaths = new Set(mkdirSyncMock.mock.calls.map((call) => call[0]));
+    expect(mkdirPaths).toEqual(new Set([PULUMI_HOME_DIR, WORK_DIR]));
+
+    // Same guarantee restated at the createOrSelectStack call boundary,
+    // mirroring the 3-call path-identity test above but at a scale that
+    // makes a per-operation leak impossible to miss.
+    const paths = createOrSelectStackMock.mock.calls.map(
+      (call) => call[1] as { pulumiHome: string; workDir: string },
+    );
+    expect(new Set(paths.map((p) => p.pulumiHome)).size).toBe(1);
+    expect(new Set(paths.map((p) => p.workDir)).size).toBe(1);
+  });
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — bare stack name', () => {
