@@ -1,6 +1,7 @@
 import { hostname as osHostname, userInfo } from 'node:os';
 import { ConcurrentUpdateError } from '@pulumi/pulumi/automation/index.js';
-import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { ElectronStoreService, PulumiLockOwnershipRecord } from './ElectronStoreService.js';
+import { logger } from '../logger.js';
 
 /**
  * Task 4.8's stale-backend-lock-recovery primitives, satisfying the
@@ -46,42 +47,80 @@ import type { ElectronStoreService } from './ElectronStoreService.js';
  * only as the same best-effort backstop `PulumiWorkspaceService`'s
  * `looksLikeMissingBucket` already uses for a different failure shape.
  *
- * ## Why "provable ownership" is the CLI's PID, not ours
+ * ## Why "provable ownership" is identity + liveness + time, not identity alone
  *
  * `lockContent.Pid`/`.Username`/`.Hostname` are properties of the **`pulumi`
  * CLI child process itself** (`os.Getpid()`/`user.Current()`/`os.Hostname()`
  * in Go), not of this Electron app. As established in `PulumiCancellation.ts`'s
- * TSDoc, the Automation API never exposes that child process's PID to this
- * app — so this app can never record, in advance, the exact PID a future lock
- * file will carry, and cannot match on it. `Username`/`Hostname`, however,
- * are inherited from the OS session the CLI child is spawned under — the
- * *same* OS user and machine this Electron process itself is running as
- * (`os.userInfo().username`/`os.hostname()`). Every lock this installation
- * ever causes to be taken will carry exactly this app's own
- * username/hostname pair, which is therefore the finest-grained proof
- * available through documented means. This is an honest limitation, not a
- * gap in this task: it cannot distinguish two *separate* installations of
- * this app running under the same OS user on the same machine (an
- * unsupported, unlikely configuration) from one installation's own orphaned
- * run — see this task's report for this noted as a residual concern.
+ * TSDoc, the Automation API never exposes that child process's PID *to this
+ * app in advance* — so this app can never record, before the fact, the exact
+ * PID a future lock file will carry, and cannot match on it as an identity
+ * key. `Username`/`Hostname`, however, are inherited from the OS session the
+ * CLI child is spawned under — the *same* OS user and machine this Electron
+ * process itself is running as (`os.userInfo().username`/`os.hostname()`).
+ * Every lock this installation ever causes to be taken will carry exactly
+ * this app's own username/hostname pair.
  *
- * {@link classifyStackLockConflict} combines this identity match with
- * {@link ElectronStoreService.listPulumiLockAttempts} — this installation's
- * own record of runs it caused to reach the SDK — so a lock is only ever
- * classified as a provable own orphan when **both** (a) every parsed lock
- * entry's username/hostname matches this machine's own, **and** (b) this
- * installation has an outstanding (never-cleared) record of having actually
- * started an attempt against the same stack. Absence of an in-flight
- * operation is deliberately *not* part of this test on its own — per the
- * spec's "Another machine's active lock is not presented as stale" and
- * "In-app concurrency is reported as busy" scenarios, that distinction is
- * made by a layer above this module (the workspace-in-flight/"busy" check
+ * Username/hostname matching alone is **not sufficient** to call a lock a
+ * provable orphan, though — a fix applied after an independent review caught
+ * this as a real state-corruption risk. The failure mode: an earlier run
+ * crashes leaving an uncleared ownership record for a stack; later, a
+ * genuinely *live* `pulumi up` runs against the same stack from the same
+ * machine (a second app instance — this app never calls
+ * `app.requestSingleInstanceLock()` — or a manual CLI invocation). That live
+ * run's lock carries the same username/hostname as the stale record, so
+ * identity-only matching would misclassify an **active** lock as a reclaimable
+ * orphan, and the caller's documented reclaim action (`stack.cancel()`) would
+ * clear a lock that is not stale at all, permitting concurrent writes to
+ * state — exactly the asymmetry the spec's "Another machine's active lock is
+ * not presented as stale" scenario forbids, just triggered by a same-machine
+ * collision instead of a different machine.
+ *
+ * Both of the following are therefore required *in addition to* the identity
+ * match, using data this module already parses/persists but the initial
+ * version left unused:
+ *
+ * 1. **Liveness** ({@link isPidAlive}): the lock's own `pid` — which, unlike
+ *    matching on it as an identity key, *is* directly useful once we already
+ *    know the lock is same-machine — must be confirmed dead via
+ *    `process.kill(pid, 0)` throwing `ESRCH`. This is a standard cross-platform
+ *    existence check (works on Windows too — Node/libuv implement signal `0`
+ *    as an existence probe, not an actual signal delivery) and needs no
+ *    special privileges to check a process's mere existence.
+ * 2. **Time-consistency**: the lock must not predate every outstanding local
+ *    record — i.e. some record's `startedAt` must be at or before the lock's
+ *    `lockedAt`. A lock created before this installation ever recorded
+ *    starting an attempt cannot be the lock *that* attempt took, no matter
+ *    whose username/hostname it carries.
+ *
+ * {@link classifyStackLockConflict} requires identity match **and** liveness
+ * **and** time-consistency, for **every** parsed lock, before calling
+ * anything a provable own orphan — see {@link findReclaimEvidence}.
+ *
+ * Absence of an in-flight operation in *this app instance* is deliberately
+ * *not* part of this test on its own — per the spec's "In-app concurrency is
+ * reported as busy" scenario, that distinction is made by a layer above this
+ * module (the workspace-in-flight/"busy" check
  * `TerraformService.getWorkspaceInFlight()` already establishes the
  * precedent for — see `terraform.controller.ts`), *before* an operation ever
- * reaches the SDK call this module's classifier reacts to. This module only
- * ever runs once a `ConcurrentUpdateError` has actually been thrown by the
- * backend, which cannot happen for an operation this same instance is
- * concurrently running against its own reused, single workspace.
+ * reaches the SDK call this module's classifier reacts to. What this module
+ * additionally guards against is a **live** conflicting process — same
+ * machine or not — that this app instance is *not* the one running, which
+ * the "absence of in-flight activity" framing alone cannot rule out.
+ *
+ * ## Ownership records are bounded evidence, not permanent licence
+ *
+ * A second issue the same review caught: without pruning, a single leaked
+ * (never-cleared) record would arm auto-reclaim for that stack **forever** —
+ * exactly the situation this mechanism exists to recover from becoming a
+ * standing risk instead of a one-time recovery. {@link classifyStackLockConflict}
+ * therefore (a) treats any record older than
+ * {@link PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS} as absent — pruning it from
+ * the store outright rather than merely ignoring it, since a record that old
+ * is not read again as evidence for anything — and (b) clears the specific
+ * record(s) actually relied on once a lock is classified as a reclaimable own
+ * orphan, so that evidence cannot be reused to justify reclaiming some
+ * future, unrelated lock.
  */
 
 /**
@@ -96,7 +135,17 @@ export interface PulumiStackLockInfo {
   username: string;
   /** OS hostname of the machine that created the lock (`os.Hostname()` in the Go CLI). */
   hostname: string;
-  /** PID of the `pulumi` CLI process that created the lock — a property of that (long-exited) process, not observable or controllable from this app. */
+  /**
+   * PID of the `pulumi` CLI process that created the lock. This app never
+   * learns this PID *in advance* (the Automation API exposes no child-process
+   * handle — see `PulumiCancellation.ts`'s TSDoc), so it cannot be used as an
+   * identity key the way `username`/`hostname` are. Once a lock's
+   * username/hostname already indicate "same machine", though, this PID
+   * becomes directly useful: {@link isPidAlive} checks whether a process with
+   * this PID still exists at classification time, distinguishing a
+   * same-machine lock left behind by a process that has since exited from
+   * one whose process is still genuinely running.
+   */
   pid: number;
   /** When the lock was created, parsed from the CLI's RFC3339 timestamp. */
   lockedAt: Date;
@@ -165,43 +214,146 @@ export type PulumiLockClassification =
   | { kind: 'requires-confirmation'; locks: PulumiStackLockInfo[] };
 
 /**
+ * True when a process with `pid` still exists, checked via
+ * `process.kill(pid, 0)` — signal `0` is a standard, cross-platform (Node/
+ * libuv implement it on Windows too) existence probe that never actually
+ * delivers a signal. Returns `false` only on `ESRCH` (no such process) —
+ * the unambiguous "definitely gone" case. Any other failure, most notably
+ * `EPERM` (a process with this PID exists but is owned by another user this
+ * app can't signal), is treated conservatively as "possibly still alive"
+ * rather than risk misclassifying a live process as dead: this function is
+ * only ever used to decide whether it's safe to *skip* an operator
+ * confirmation, so a false "alive" merely costs an extra confirmation
+ * prompt, while a false "dead" would risk clearing a live lock.
+ */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : undefined;
+    return code !== 'ESRCH';
+  }
+}
+
+/**
+ * Upper bound on how long an ownership record is treated as live evidence of
+ * provable ownership — see this file's top-level TSDoc "Ownership records
+ * are bounded evidence, not permanent licence" section. Without a bound, a
+ * single record that never gets cleared (e.g. the app never runs again after
+ * recording an attempt whose CLI invocation exits some other unusual way)
+ * would arm auto-reclaim for that stack forever. 2 hours is a deliberately
+ * generous multiple of what any realistic `preview`/`up`/`destroy` against
+ * this app's stack (tens of resources) should take — tens of minutes at
+ * most — chosen to avoid false negatives on a legitimately slow run while
+ * still bounding the risk to a finite window rather than forever.
+ */
+export const PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+/** True when `record` is within {@link PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS} of `nowMs`. */
+function isRecordFresh(record: PulumiLockOwnershipRecord, nowMs: number): boolean {
+  return nowMs - new Date(record.startedAt).getTime() <= PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS;
+}
+
+/**
+ * One outstanding ownership record together with the run id it's keyed
+ * under — see {@link ElectronStoreService.listPulumiLockAttempts}.
+ */
+type OwnershipEntry = PulumiLockOwnershipRecord & { runId: string };
+
+/**
+ * True when `lock` can be proven a reclaimable orphan of *this installation's
+ * own* prior run, per this file's top-level TSDoc: identity match, the
+ * lock's process confirmed dead, and at least one fresh outstanding record
+ * whose `startedAt` is at or before the lock's `lockedAt` (a lock created
+ * before any recorded attempt began cannot be that attempt's lock). Returns
+ * the matching record (so the caller can consume it) or `null`.
+ */
+function findReclaimEvidence(
+  lock: PulumiStackLockInfo,
+  identity: { username: string; hostname: string },
+  freshRecords: OwnershipEntry[],
+): OwnershipEntry | null {
+  if (lock.username !== identity.username || lock.hostname !== identity.hostname) return null;
+  if (isPidAlive(lock.pid)) return null;
+  const lockedAtMs = lock.lockedAt.getTime();
+  return freshRecords.find((record) => new Date(record.startedAt).getTime() <= lockedAtMs) ?? null;
+}
+
+/**
  * Classifies a caught error against the `pulumi-engine-runtime` delta spec's
  * "Stale backend lock recovery" requirement's provable-ownership test — see
- * this file's top-level TSDoc for the full reasoning.
+ * this file's top-level TSDoc for the full reasoning, including the
+ * liveness/time-consistency checks added after an independent review found
+ * identity-matching alone could misclassify a live same-machine lock as a
+ * reclaimable orphan.
  *
  * A lock is `'reclaimable-own-orphan'` only when **every** parsed lock entry
- * matches `identity` (defaults to this machine's own `os.userInfo().username`/
- * `os.hostname()`) **and** `store` has at least one outstanding (never
- * cleared via `ElectronStoreService.clearPulumiLockAttempt`) record for
- * `stackName` — i.e. this installation both plausibly could have created
- * every lock present, and has direct evidence it started an attempt against
- * this stack that never reported completing normally. Requiring *every*
- * lock to match (not just one) matters because `stack.cancel()` — the
- * mechanism design.md reserves for actually clearing a stale lock — is not
- * scoped to a single lock file; reclaiming when even one present lock
- * belongs to someone else would improperly clear their lock too.
+ * has matching own-installation reclaim evidence (see
+ * {@link findReclaimEvidence}) — i.e. this installation both plausibly could
+ * have created every lock present, has confirmed each one's process is no
+ * longer running, and has a fresh local record consistent with having
+ * started that specific lock's attempt. Requiring *every* lock to match (not
+ * just one) matters because `stack.cancel()` — the mechanism design.md
+ * reserves for actually clearing a stale lock — is not scoped to a single
+ * lock file; reclaiming when even one present lock belongs to someone else
+ * (or is still live) would improperly clear their lock too.
  *
- * Anything else — no parsed locks at all, a lock whose identity doesn't
- * match, or no outstanding local record — is `'requires-confirmation'`,
+ * As a side effect, this function also prunes the store: every record older
+ * than {@link PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS} is cleared outright
+ * (it's never valid evidence for anything, so there is no reason to keep
+ * it), and if this call reaches `'reclaimable-own-orphan'`, the specific
+ * record(s) actually relied on as evidence are cleared too — consuming that
+ * evidence so it cannot be replayed to justify reclaiming some future,
+ * unrelated lock.
+ *
+ * Anything else — no parsed locks at all, an identity mismatch, a live
+ * process, or no fresh matching local record — is `'requires-confirmation'`,
  * carrying whatever locks *were* parsed (possibly none) for the caller to
  * surface via {@link PulumiUnrecognizedLockError}.
+ *
+ * @param now - Injectable for tests; defaults to the real current time.
  */
 export function classifyStackLockConflict(
   err: unknown,
   store: ElectronStoreService,
   stackName: string,
   identity: { username: string; hostname: string } = { username: userInfo().username, hostname: osHostname() },
+  now: Date = new Date(),
 ): PulumiLockClassification {
   if (!isStackLockConflict(err)) {
     return { kind: 'not-a-lock-conflict' };
   }
 
   const locks = parseStackLocks(err);
-  const hasOutstandingRecord = store.listPulumiLockAttempts(stackName).length > 0;
-  const everyLockIsOurs =
-    locks.length > 0 && locks.every((lock) => lock.username === identity.username && lock.hostname === identity.hostname);
+  const nowMs = now.getTime();
 
-  if (hasOutstandingRecord && everyLockIsOurs) {
+  const allRecords = store.listPulumiLockAttempts(stackName);
+  const freshRecords: OwnershipEntry[] = [];
+  for (const record of allRecords) {
+    if (isRecordFresh(record, nowMs)) {
+      freshRecords.push(record);
+    } else {
+      logger.warn('Pulumi lock-ownership record exceeded its max evidence age — pruning', {
+        stackName,
+        runId: record.runId,
+        startedAt: record.startedAt,
+      });
+      store.clearPulumiLockAttempt(record.runId);
+    }
+  }
+
+  if (locks.length === 0) {
+    return { kind: 'requires-confirmation', locks };
+  }
+
+  const evidenceByLock = locks.map((lock) => findReclaimEvidence(lock, identity, freshRecords));
+  const provenEvidence = evidenceByLock.filter((evidence): evidence is OwnershipEntry => evidence !== null);
+  const allReclaimable = provenEvidence.length === locks.length;
+
+  if (allReclaimable) {
+    const consumedRunIds = new Set(provenEvidence.map((evidence) => evidence.runId));
+    for (const runId of consumedRunIds) store.clearPulumiLockAttempt(runId);
     return { kind: 'reclaimable-own-orphan', locks };
   }
   return { kind: 'requires-confirmation', locks };
