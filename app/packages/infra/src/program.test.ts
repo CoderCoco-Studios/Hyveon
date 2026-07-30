@@ -24,6 +24,18 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     promiseOf(result.securityGroups.gameServers.id),
     promiseOf(result.securityGroups.fileManager.id),
     promiseOf(result.securityGroups.efs.id),
+    promiseOf(result.iamRoles.ecsTaskExecutionPolicyAttachment.id),
+    promiseOf(result.iamRoles.watchdogLambdaRole.id),
+    promiseOf(result.iamRoles.followupLambdaRole.id),
+    promiseOf(result.iamRoles.interactionsLambdaRole.id),
+    promiseOf(result.iamRoles.dnsUpdaterLambdaRole.id),
+    ...Object.values(result.iamRoles.efsSeederRoles).map((role) => promiseOf(role.id)),
+    ...result.efs.mountTargets.map((target) => promiseOf(target.id)),
+    ...Object.values(result.efs.gameAccessPoints).map((ap) => promiseOf(ap.id)),
+    ...Object.values(result.efs.caddyDataAccessPoints).map((ap) => promiseOf(ap.id)),
+    promiseOf(result.ecs.cluster.id),
+    ...Object.values(result.ecs.logGroups).map((lg) => promiseOf(lg.id)),
+    ...Object.values(result.ecs.taskDefinitions).map((td) => promiseOf(td.id)),
   ]);
   return result;
 }
@@ -58,7 +70,7 @@ describe('defineAll', () => {
     mocks = installPulumiMocks();
   });
 
-  it('should declare the full networking and security-group resource set', async () => {
+  it('should declare the full networking, security-group, IAM-role, EFS, and ECS resource set', async () => {
     await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon' }));
 
     const types = mocks.resources.map((resource) => resource.type);
@@ -68,12 +80,23 @@ describe('defineAll', () => {
     expect(types).toContain('aws:ec2/routeTable:RouteTable');
     expect(types.filter((type) => type === 'aws:ec2/routeTableAssociation:RouteTableAssociation')).toHaveLength(2);
     expect(types.filter((type) => type === 'aws:ec2/securityGroup:SecurityGroup')).toHaveLength(3);
+    expect(types).toContain('aws:iam/role:Role');
+    expect(types).toContain('aws:efs/fileSystem:FileSystem');
+    expect(types.filter((type) => type === 'aws:efs/mountTarget:MountTarget')).toHaveLength(2);
+    // FIXTURE_GAME_SERVERS: 4 games × 1 volume each = 4 game access points, plus 1 https (delta) cert access point.
+    expect(types.filter((type) => type === 'aws:efs/accessPoint:AccessPoint')).toHaveLength(5);
+    expect(types).toContain('aws:ecs/cluster:Cluster');
+    expect(types.filter((type) => type === 'aws:cloudwatch/logGroup:LogGroup')).toHaveLength(4);
+    expect(types.filter((type) => type === 'aws:ecs/taskDefinition:TaskDefinition')).toHaveLength(4);
+    expect(types).not.toContain('aws:ecs/service:Service');
 
     const names = mocks.resources.map((resource) => resource.name);
     expect(names).toContain('hyveon-vpc');
     expect(names).toContain('hyveon-sg');
     expect(names).toContain('hyveon-filemgr-sg');
     expect(names).toContain('hyveon-efs-sg');
+    expect(names).toContain('hyveon-saves');
+    expect(names).toContain('hyveon-cluster');
   });
 
   it('should construct the AWS provider with the region from config.awsRegion', async () => {
@@ -111,6 +134,31 @@ describe('defineAll', () => {
           await promiseOf(result.securityGroups.gameServers.id),
           await promiseOf(result.securityGroups.fileManager.id),
         ],
+      },
+    ]);
+  });
+
+  it('should wire each mount target to the efs security group id and each task definition to the ecs task-execution role arn', async () => {
+    const result = await runDefineAll(buildTestDeploymentConfig());
+
+    const efsSecurityGroupId = await promiseOf(result.securityGroups.efs.id);
+    for (const target of mocks.resources.filter((resource) => resource.type === 'aws:efs/mountTarget:MountTarget')) {
+      expect(target.inputs.securityGroups).toEqual([efsSecurityGroupId]);
+    }
+
+    const executionRoleArn = await promiseOf(result.iamRoles.ecsTaskExecutionRole.arn);
+    const alphaTaskDef = mocks.resources.find((resource) => resource.name === 'alpha-server');
+    expect(alphaTaskDef?.inputs.executionRoleArn).toBe(executionRoleArn);
+
+    const alphaAccessPointId = await promiseOf(result.efs.gameAccessPoints['alpha-saves'].id);
+    expect(alphaTaskDef?.inputs.volumes).toEqual([
+      {
+        name: 'alpha-saves',
+        efsVolumeConfiguration: {
+          fileSystemId: await promiseOf(result.efs.fileSystem.id),
+          transitEncryption: 'ENABLED',
+          authorizationConfig: { accessPointId: alphaAccessPointId, iam: 'DISABLED' },
+        },
       },
     ]);
   });

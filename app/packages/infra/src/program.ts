@@ -11,6 +11,9 @@ import type { PulumiFn } from '@pulumi/pulumi/automation';
 import type { DeploymentConfig } from '@hyveon/shared';
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
+import { defineIamRoles, type IamRoleResources } from './iam.js';
+import { defineEfs, type EfsResources } from './efs.js';
+import { defineEcs, type EcsResources } from './ecs.js';
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
@@ -41,9 +44,8 @@ const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
  * `createInfraProgram`'s closure also binds this shape to a local variable
  * (even though it currently returns none of it — see that function's doc)
  * so later dispatches extending the closure body have downstream resources
- * (e.g. `securityGroups.gameServers.id` for an EFS mount target's security
- * group, once task 3.2 needs it) visibly in scope rather than needing to
- * re-derive them.
+ * (e.g. `ecs.taskDefinitions` for a future Lambda's `RunTask` wiring, once
+ * task 3.6 needs it) visibly in scope rather than needing to re-derive them.
  */
 export interface InfraResources {
   /** The AWS provider every resource below is declared against. */
@@ -52,6 +54,17 @@ export interface InfraResources {
   network: NetworkResources;
   /** Security-group resources (task 3.4) — see {@link SecurityGroupResources}. */
   securityGroups: SecurityGroupResources;
+  /**
+   * IAM roles + the ECS task-execution managed-policy attachment (task 3.5)
+   * — see {@link IamRoleResources}. `defineIamPolicies`'s five inline
+   * policies are NOT included here yet; see the `TODO(task 3.6)` comment in
+   * {@link defineAll} for why they stay unwired.
+   */
+  iamRoles: IamRoleResources;
+  /** EFS resources (task 3.2) — see {@link EfsResources}. */
+  efs: EfsResources;
+  /** ECS cluster, log groups, and task definitions (task 3.3) — see {@link EcsResources}. */
+  ecs: EcsResources;
 }
 
 /**
@@ -105,23 +118,45 @@ export function defineAll(config: DeploymentConfig): InfraResources {
     provider,
   });
 
-  // TODO(task 3.6): wire in `./iam.js` in this order — the only order that
-  // satisfies every dependency (see `iam.ts`'s file doc for the full
-  // rationale, including why roles and policies are two separate functions,
-  // not one):
-  //   1. `defineIamRoles(...)` — needs nothing from any later task (every
-  //      role's trust policy is a static literal); could be called here
-  //      today, but is left for task 3.6 to wire in alongside the rest of
-  //      this list rather than split across two commits.
-  //   2. `defineLambdas(...)` (task 3.6) — creates the Lambda functions
-  //      using each role's `.arn` from step 1 (e.g.
-  //      `followupLambdaRole.arn` for the followup function's `role`).
-  //   3. `defineIamPolicies(...)` — needs the roles from step 1 (by
-  //      reference) plus every deferred ARN: `efsFileSystemArn` (task 3.2),
-  //      `dynamodbDiscordTableArn` + `discordPublicKeySecretArn` (task 3.8),
-  //      `followupLambdaArn` (the followup function's `.arn` from step 2),
-  //      and `hostedZoneId` (task 3.9).
-  return { provider, network, securityGroups };
+  // `defineIamRoles(...)` needs nothing from any later task (every role's
+  // trust policy is a static literal) — wired in now because `defineEcs`
+  // below consumes `iamRoles.ecsTaskExecutionRole.arn` for every task
+  // definition's `execution_role_arn`.
+  const iamRoles = defineIamRoles({
+    projectName: config.projectName,
+    gameServers: config.gameServers,
+    provider,
+  });
+
+  const efs = defineEfs({
+    projectName: config.projectName,
+    gameServers: config.gameServers,
+    publicSubnets: network.publicSubnets.map((subnet) => subnet.id),
+    efsSecurityGroupId: securityGroups.efs.id,
+    provider,
+  });
+
+  const ecs = defineEcs({
+    projectName: config.projectName,
+    awsRegion: config.awsRegion,
+    hostedZoneName: config.hostedZoneName,
+    gameServers: config.gameServers,
+    efs,
+    executionRoleArn: iamRoles.ecsTaskExecutionRole.arn,
+    provider,
+  });
+
+  // TODO(task 3.6): wire in `defineLambdas(...)` here, using
+  // `iamRoles.<x>LambdaRole.arn` for each function's `role`. Then wire
+  // `defineIamPolicies(...)` from `./iam.js` — the only order that satisfies
+  // every dependency (see `iam.ts`'s file doc for the full rationale,
+  // including why roles and policies are two separate functions, not one):
+  // it needs `iamRoles` (by reference) plus every deferred ARN:
+  // `efsFileSystemArn` (now available: `efs.fileSystem.arn`),
+  // `dynamodbDiscordTableArn` + `discordPublicKeySecretArn` (task 3.8),
+  // `followupLambdaArn` (the followup function's `.arn` from `defineLambdas`),
+  // and `hostedZoneId` (task 3.9).
+  return { provider, network, securityGroups, iamRoles, efs, ecs };
 }
 
 /**
