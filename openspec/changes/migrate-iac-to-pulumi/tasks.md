@@ -35,8 +35,8 @@
 - [x] 4.2 Implement `PulumiEngineService`: memoized resolution, install into `<userData>`, non-throwing constructor, typed provisioning errors, no partial-install reuse
 - [x] 4.3 Implement the workspace seam: `pulumiCommand`, `pulumiHome`, one stable reused `workDir` per stack under `userData` (relocating the tmpdir leak is not fixing it — reuse, do not create per operation), `PULUMI_BACKEND_URL`, bare stack name
 - [x] 4.4 Generate a passphrase, store it via `SafeStorageService`, and supply it on every invocation — it must exist before the first stack is created (a missing passphrase is a hard exit-1 under `--non-interactive`, not a prompt), and a missing passphrase for an existing stack must fail loudly rather than generate a replacement
-- [ ] 4.5 Propagate wizard-selected credentials into `envVars` — named profile via `AWS_PROFILE`, pasted keys decrypted in the main process — and add a test asserting no key material reaches streamed output or logs
-- [ ] 4.6 Report engine provisioning, provider plugin download, and the operation itself as distinct phases
+- [x] 4.5 Propagate wizard-selected credentials into `envVars` — named profile via `AWS_PROFILE`, pasted keys decrypted in the main process — and add a test asserting no key material reaches streamed output or logs
+- [x] 4.6 Report engine provisioning, provider plugin download, and the operation itself as distinct phases
 - [ ] 4.7 Implement cancellation: `AbortSignal` for user cancel plus a bounded escalation timer to forceful termination, since the SDK never escalates past `SIGINT`
 - [ ] 4.8 Implement lock recovery keyed on provable ownership: record the identity of every lock the app causes to be taken, reclaim the app's own orphans (including after forceful termination) without prompting, and require operator confirmation showing holder and age for any lock it cannot prove it owns
 - [ ] 4.9 Handle the "succeeded then threw" leaked-promise path so a successful apply is not reported as a failure

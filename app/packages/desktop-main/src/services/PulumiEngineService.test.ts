@@ -528,3 +528,76 @@ describe('PulumiEngineService — engine cache root resolution', () => {
     expect(installArgs.root).toContain('hyveon-pulumi-engine');
   });
 });
+
+describe('PulumiEngineService.resolve — phase reporting (Task 4.6)', () => {
+  it('should report ("engine", "start") synchronously before provisioning does any work, then ("engine", "end") once resolution settles', async () => {
+    const service = makeService();
+    const calls: Array<['engine', 'start' | 'end']> = [];
+    const onPhase = vi.fn((phase: 'engine' | 'plugins' | 'operation', status: 'start' | 'end') => {
+      calls.push([phase as 'engine', status]);
+    });
+
+    const resultPromise = service.resolve(onPhase);
+    // 'start' fires synchronously — before the returned promise has even had
+    // a chance to settle, let alone before any microtask has run.
+    expect(calls).toEqual([['engine', 'start']]);
+
+    await resultPromise;
+
+    expect(calls).toEqual([
+      ['engine', 'start'],
+      ['engine', 'end'],
+    ]);
+  });
+
+  it('should report ("engine", "end") on a rejection too, not only on success', async () => {
+    const service = makeService();
+    installMock.mockRejectedValueOnce(new Error('Failed to download https://get.pulumi.com/install.sh: no network'));
+    const onPhase = vi.fn();
+
+    await expect(service.resolve(onPhase)).rejects.toThrow(PulumiEngineNetworkError);
+
+    expect(onPhase).toHaveBeenNthCalledWith(1, 'engine', 'start');
+    expect(onPhase).toHaveBeenNthCalledWith(2, 'engine', 'end');
+  });
+
+  it('should report a start/end pair per call, even for a caller that only joins an already in-flight or already-settled resolution', async () => {
+    const service = makeService();
+    const firstOnPhase = vi.fn();
+    const secondOnPhase = vi.fn();
+
+    await service.resolve(firstOnPhase);
+    await service.resolve(secondOnPhase);
+
+    expect(firstOnPhase.mock.calls).toEqual([
+      ['engine', 'start'],
+      ['engine', 'end'],
+    ]);
+    // The second call reuses the memoized resolution (installMock still only
+    // called once — see the memoization describe block above) but still
+    // reports its own start/end pair, since from *this* caller's point of
+    // view it genuinely was waiting on the engine phase.
+    expect(secondOnPhase.mock.calls).toEqual([
+      ['engine', 'start'],
+      ['engine', 'end'],
+    ]);
+    expect(installMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not require onPhase — omitting it must not throw', async () => {
+    const service = makeService();
+
+    await expect(service.resolve()).resolves.toBeDefined();
+  });
+
+  it('should never report a "plugins" or "operation" phase — Phase 7 has not landed the code that would observe either', async () => {
+    const service = makeService();
+    const onPhase = vi.fn();
+
+    await service.resolve(onPhase);
+
+    for (const call of onPhase.mock.calls) {
+      expect(call[0]).toBe('engine');
+    }
+  });
+});

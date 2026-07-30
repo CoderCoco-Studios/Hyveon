@@ -24,6 +24,31 @@ function describeCause(cause: unknown): string {
 }
 
 /**
+ * The distinct phases the `pulumi-engine-runtime` delta spec's "Provider
+ * plugins are reported as their own phase" scenario names: engine
+ * provisioning itself, provider plugin download, and the infrastructure
+ * operation (`preview`/`up`/`destroy`) that follows. `'plugins'` and
+ * `'operation'` are named here for the callback's shape to stay forward-
+ * compatible, but **neither is ever invoked by Phase 4 code** — see
+ * {@link PulumiEngineService.resolve}'s TSDoc "What 4.6 could not complete
+ * now" section for exactly why, and what Phase 7 must add to actually fire
+ * them.
+ */
+export type PulumiProvisioningPhase = 'engine' | 'plugins' | 'operation';
+
+/** Whether a {@link PulumiProvisioningPhase} is beginning or has settled (success or failure alike). */
+export type PulumiPhaseStatus = 'start' | 'end';
+
+/**
+ * Coarse start/end progress reporting for a {@link PulumiProvisioningPhase} —
+ * see {@link PulumiEngineService.resolve}'s TSDoc for why this is coarse
+ * (start/end only, no granular percentage) rather than fine-grained: neither
+ * `PulumiCommand.install()` nor the underlying `get.pulumi.com` install
+ * script exposes a progress hook this service could forward.
+ */
+export type PulumiPhaseCallback = (phase: PulumiProvisioningPhase, status: PulumiPhaseStatus) => void;
+
+/**
  * Thrown by {@link PulumiEngineService.resolve} when the pinned engine
  * version can't be provisioned because `get.pulumi.com` (or the release
  * asset it redirects to) couldn't be reached — matched from the SDK's own
@@ -368,15 +393,71 @@ export class PulumiEngineService {
    * Rejects with {@link PulumiEngineNetworkError}, {@link PulumiEngineIntegrityError},
    * or {@link PulumiEngineCacheWriteError} if provisioning fails; a rejected
    * attempt is not memoized, so the next call retries from scratch.
+   *
+   * @param onPhase - Task 4.6's phase-reporting extension point. When
+   *   supplied, this call reports `('engine', 'start')` synchronously before
+   *   doing anything else, and `('engine', 'end')` once *this specific call's*
+   *   returned promise settles — whether it settles by resolving (this call
+   *   provisioned fresh, or joined/reused an already-resolved or in-flight
+   *   attempt) or by rejecting. Reporting is per-call, not per-provisioning-
+   *   attempt: two concurrent `resolve(onPhase)` callers each get their own
+   *   `start`/`end` pair even though (per the memoization guarantee above)
+   *   only one `PulumiCommand.install()` actually runs — from each caller's
+   *   own point of view, it genuinely was waiting on the engine phase for
+   *   that whole span, which is what the spec's "reports provisioning
+   *   progress to the caller" language asks for.
+   *
+   * ## What 4.6 could not complete now
+   *
+   * `PulumiCommand.install()` (`@pulumi/pulumi/automation/cmd.js`) offers no
+   * output or progress hook of its own — confirmed during Phase 4.1/4.2's
+   * investigation and unchanged here — so `'engine'` is necessarily coarse
+   * start/end, never a percentage or byte count.
+   *
+   * `'plugins'` (provider plugin download) and `'operation'` (the
+   * `preview`/`up`/`destroy` itself) are named in {@link PulumiProvisioningPhase}
+   * so this callback's shape doesn't need to change again once Phase 7
+   * lands, but **this method never invokes either**. Plugin download is not
+   * something `PulumiEngineService`/`PulumiCommand.install()` controls or can
+   * observe at all: it happens lazily, triggered implicitly the first time a
+   * resource provider is actually needed during `stack.preview()`/`.up()` —
+   * calls that do not exist anywhere in this codebase yet (Phase 7's
+   * `PulumiService`). `PulumiWorkspaceService.getOrCreateStack` (Task
+   * 4.3/4.4) only reaches `LocalWorkspace.createOrSelectStack`
+   * (`stack select`/`stack init`), which never needs a provider plugin, so
+   * there is no plugin-download event anywhere in the code this phase (4)
+   * builds for this callback to observe. Reporting a fake `'plugins'`
+   * `start`/`end` pair around nothing would be exactly the invented, no-op
+   * signal the task brief says not to add. Phase 7 must call
+   * `onPhase?.('plugins', 'start')` immediately before its first
+   * `stack.preview()`/`.up()`/`.destroy()` call and `'end'` once that call's
+   * plugin-acquisition step is known to have completed (the Automation API
+   * itself gives no separate "plugins done, running now" event either — see
+   * design.md's spike notes — so Phase 7 will likely need its own
+   * approximation, e.g. reporting `'plugins'` end and `'operation'` start
+   * together once the first CLI output line arrives). This method's
+   * `onPhase` parameter and the {@link PulumiProvisioningPhase} type are the
+   * "callback plumbing exists and is wired through" half of that work;
+   * actually firing `'plugins'`/`'operation'` is Phase 7's.
    */
-  resolve(): Promise<PulumiCommand> {
+  resolve(onPhase?: PulumiPhaseCallback): Promise<PulumiCommand> {
+    onPhase?.('engine', 'start');
     if (!this.resolution) {
       this.resolution = this.provision().catch((err: unknown) => {
         this.resolution = null;
         throw err;
       });
     }
-    return this.resolution;
+    return this.resolution.then(
+      (command) => {
+        onPhase?.('engine', 'end');
+        return command;
+      },
+      (err: unknown) => {
+        onPhase?.('engine', 'end');
+        throw err;
+      },
+    );
   }
 
   /**
