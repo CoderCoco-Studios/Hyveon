@@ -69,6 +69,7 @@ import {
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import type { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
 /** `bootstrap`/`aws`/`pulumi` fields `preview()` reads off the store before ever calling Pulumi. */
@@ -119,9 +120,23 @@ function makeRemoteFileStore(
   };
 }
 
-/** `RunRecordPersister` stub backed by a directly-inspectable `persist` mock. */
-function makeRunRecordPersister(): RunRecordPersister & { persist: ReturnType<typeof vi.fn> } {
-  return { persist: vi.fn().mockResolvedValue(undefined) };
+/**
+ * `RunRecordPersister` stub backed by directly-inspectable `persist`/
+ * `getByRunId` mocks. `getByRunId` (task 7.2's addition to the interface,
+ * used by `apply()`'s gate) defaults to rejecting loudly — none of this
+ * file's `preview()` tests ever reach it, so an unexpected call fails loudly
+ * instead of silently resolving `undefined`.
+ */
+function makeRunRecordPersister(): RunRecordPersister & {
+  persist: ReturnType<typeof vi.fn>;
+  getByRunId: ReturnType<typeof vi.fn>;
+} {
+  return {
+    persist: vi.fn().mockResolvedValue(undefined),
+    getByRunId: vi.fn(() => {
+      throw new Error('RunRecordPersister.getByRunId() was not expected to be called by this test');
+    }),
+  };
 }
 
 /** Shape `preview()`'s `stack.preview` mock is driven with — lets each test script onOutput/onError/onEvent calls and the eventual settlement. */
@@ -168,12 +183,30 @@ function makeModuleRef(runRecordPersister: RunRecordPersister, remoteFileStore: 
   return { get } as unknown as ModuleRef;
 }
 
+/**
+ * Stub `PulumiEngineService` — `preview()` never touches it (task 7.2's
+ * `apply()` gate is this dependency's only real caller), so both methods
+ * throwing is intentional, mirroring `makeRunRecordPersister`'s
+ * `getByRunId` stub above.
+ */
+function makeEngine(): PulumiEngineService {
+  return {
+    resolve: vi.fn(() => {
+      throw new Error('PulumiEngineService.resolve() was not expected to be called by this test');
+    }),
+    getResolvedVersion: vi.fn(() => {
+      throw new Error('PulumiEngineService.getResolvedVersion() was not expected to be called by this test');
+    }),
+  } as unknown as PulumiEngineService;
+}
+
 /** Constructs `PulumiService` with every dependency stubbed, using real `createHash`. */
 function makeService(opts: {
   workspace: PulumiWorkspaceService;
   store?: ElectronStoreService;
   runRecordPersister?: ReturnType<typeof makeRunRecordPersister>;
   remoteFileStore?: ReturnType<typeof makeRemoteFileStore>;
+  engine?: PulumiEngineService;
 }): PulumiService {
   const runRecordPersister = opts.runRecordPersister ?? makeRunRecordPersister();
   const remoteFileStore = opts.remoteFileStore ?? makeRemoteFileStore();
@@ -181,6 +214,7 @@ function makeService(opts: {
     opts.workspace,
     opts.store ?? makeFullyConfiguredStore(),
     makeModuleRef(runRecordPersister, remoteFileStore),
+    opts.engine ?? makeEngine(),
   );
 }
 
