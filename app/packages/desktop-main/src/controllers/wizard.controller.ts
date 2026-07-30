@@ -16,11 +16,6 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
-/** Payload accepted by {@link WizardController.bootstrapLockTable}. */
-export interface BootstrapLockTableInput {
-  tableName: string;
-}
-
 /** Payload accepted by {@link WizardController.bootstrapTfvarsBucket}. */
 export interface BootstrapTfvarsBucketInput {
   bucketName: string;
@@ -203,22 +198,20 @@ export class WizardController {
   }
 
   /**
-   * Idempotently creates/ensures the Terraform state-lock DynamoDB table.
-   * See `BootstrapService.ensureLockTable` for the full idempotency mapping.
-   */
-  @MessagePattern('wizard.bootstrap.lockTable')
-  bootstrapLockTable(@Payload() body: BootstrapLockTableInput): Promise<BootstrapResult> {
-    return this.bootstrap.ensureLockTable(body.tableName);
-  }
-
-  /**
-   * Idempotently creates/ensures the versioned tfvars S3 bucket (versioning +
-   * 90-day noncurrent-version-expiration lifecycle rule). See
-   * `BootstrapService.ensureTfvarsBucket` for the full idempotency mapping.
+   * Idempotently creates/ensures the versioned configuration S3 bucket
+   * (versioning + 90-day noncurrent-version-expiration lifecycle rule +
+   * public-access-block). See `BootstrapService.ensureConfigurationBucket`
+   * for the full idempotency mapping.
+   *
+   * @remarks
+   * The handler name, payload type, and IPC channel (`wizard.bootstrap.tfvarsBucket`)
+   * still say "tfvars" — renaming the controller surface, preload mirror, and
+   * wizard-step renderer to "configuration bucket" is task 5.5's scope, not
+   * this one. Only the `BootstrapService` delegate call is renamed here.
    */
   @MessagePattern('wizard.bootstrap.tfvarsBucket')
   bootstrapTfvarsBucket(@Payload() body: BootstrapTfvarsBucketInput): Promise<BootstrapResult> {
-    return this.bootstrap.ensureTfvarsBucket(body.bucketName);
+    return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
   /**

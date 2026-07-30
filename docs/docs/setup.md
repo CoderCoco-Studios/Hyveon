@@ -101,6 +101,21 @@ On the AWS side you need:
         "arn:aws:s3:::${project_name}-tfvars",
         "arn:aws:s3:::${project_name}-tfvars/*"
       ]
+    },
+    {
+      "Sid": "HyveonStateBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:PutBucketPublicAccessBlock"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${project_name}-tf-state",
+        "arn:aws:s3:::${project_name}-tf-state/*"
+      ]
     }
   ]
 }
@@ -132,6 +147,19 @@ On the AWS side you need:
 > depends on and scopes them to just the two tfvars ARNs. If you change
 > `project_name` or `tfvars_bucket_name`, update the two ARN patterns in
 > `HyveonTfvarsBucket` to match.
+
+> **`HyveonStateBucket` scopes the exact actions the self-managed
+> infrastructure state backend needs** on `${project_name}-tf-state` — the
+> bucket the desktop app's bootstrap step creates to hold infra state.
+> `s3:ListBucket` (bucket-level) plus `s3:GetObject`/`s3:PutObject`/`s3:DeleteObject`
+> (object-level) are exactly what a DIY S3 state backend needs to read and
+> write state objects, locks, and history under its own prefix — nothing
+> more. `s3:PutBucketPublicAccessBlock` lets bootstrap harden the bucket
+> against public access, the same as it already does for the tfvars bucket.
+> As with `HyveonTfvarsBucket`, `s3:*` in `HyveonDeploy` already covers these
+> actions on every bucket — this statement documents the specific dependency.
+> If you change `project_name` or the state bucket's name, update the two ARN
+> patterns in `HyveonStateBucket` to match.
 
 Two permission areas used by Terraform are **not** covered by any AWS managed policy and are explicitly included above to avoid `AccessDenied` during `terraform apply`:
 
