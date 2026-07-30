@@ -693,6 +693,26 @@ export class PulumiService {
   ) {}
 
   /**
+   * Read-only accessor for {@link operationInFlight} — task 7.10's addition,
+   * mirroring `TerraformService.getWorkspaceInFlight()`'s exact contract and
+   * return type so `TerraformController`'s pre-flight busy checks (`plan()`'s
+   * `getOperationInFlight()` call, in particular) keep working unchanged
+   * after the task 7.10 repoint from `TerraformService` onto `PulumiService`.
+   *
+   * Deliberately just a getter — no behavior change to {@link operationInFlight}
+   * itself, and no new way to observe or influence it beyond what every
+   * `preview`/`apply`/`destroy`/`confirmRollback` call site already does
+   * internally. `'rollback'` is a real, distinct fourth state (task 7.6,
+   * {@link confirmRollback}) alongside `'preview'`/`'up'`/`'destroy'` — this
+   * accessor's return type is kept in exact sync with {@link operationInFlight}'s
+   * own declared type rather than a separately-maintained copy, so a future
+   * state added to one can't silently drift out of sync with the other.
+   */
+  getOperationInFlight(): 'preview' | 'up' | 'destroy' | 'rollback' | null {
+    return this.operationInFlight;
+  }
+
+  /**
    * Lazily resolves the real `RunRecordService` singleton (bound to
    * {@link RUN_RECORD_PERSISTER} by `run-record.module.ts`) from anywhere in
    * the application's provider container — see the constructor's doc
@@ -3968,6 +3988,51 @@ export class PulumiService {
     return createHash('sha256')
       .update(Buffer.concat([readFileSync(artifactPath), Buffer.from(configVersionId, 'utf8')]))
       .digest('hex');
+  }
+
+  /**
+   * Reads and parses the persisted {@link PulumiRunRecord} for `runId` from
+   * `<runsDir>/<runId>/run.json` (see {@link writeRunRecord}) — task 7.10's
+   * port of `TerraformService.readRunRecord`, the run-detail counterpart to
+   * {@link streamRunOutput}'s output feed. Returns `null` (rather than
+   * throwing) when no `run.json` exists for `runId` yet — e.g. the run is
+   * still in flight and hasn't settled, or `runId` doesn't exist at all.
+   * Callers that need to distinguish "still running" from "unknown run"
+   * should also consult `RunService.getCurrentLock()` (the durable apply
+   * lock, task 7.7) or attempt a live {@link streamRunOutput} subscription —
+   * exactly like `TerraformRunsController.get()` already does, unchanged by
+   * this port.
+   *
+   * @throws A plain `Error` synchronously if `runId` isn't a bare path
+   *   segment matching {@link RUN_ID_PATTERN} (via {@link assertValidRunId}).
+   */
+  readRunRecord(runId: string): PulumiRunRecord | null {
+    PulumiService.assertValidRunId(runId);
+    const recordPath = join(this.getRunsDir(), runId, 'run.json');
+    if (!existsSync(recordPath)) {
+      return null;
+    }
+    return JSON.parse(readFileSync(recordPath, 'utf8')) as PulumiRunRecord;
+  }
+
+  /**
+   * Reports whether {@link previewCore}'s persisted plan artifact exists on
+   * disk for `runId` — `<runsDir>/<runId>/<runId>.plan.json`, the exact path
+   * {@link apply}'s gate step 6 re-hashes (see that method's own "Gate
+   * structure" doc section) — task 7.10's port of
+   * `TerraformService.hasPlanArtifact`, adapted from that method's
+   * `.tfplan`-suffixed artifact-path convention to `previewCore`'s own
+   * `.plan.json`-suffixed one (Pulumi's `--save-plan` JSON artifact, not a
+   * Terraform binary plan file). Used by `TerraformRunsController.get()` to
+   * distinguish a `plan` record that's still applyable from one whose
+   * artifact has since been cleaned up.
+   *
+   * @throws A plain `Error` synchronously if `runId` isn't a bare path
+   *   segment matching {@link RUN_ID_PATTERN} (via {@link assertValidRunId}).
+   */
+  hasPlanArtifact(runId: string): boolean {
+    PulumiService.assertValidRunId(runId);
+    return existsSync(join(this.getRunsDir(), runId, `${runId}.plan.json`));
   }
 
   /**

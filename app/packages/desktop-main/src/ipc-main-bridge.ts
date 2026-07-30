@@ -10,13 +10,14 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   the handler needs to push follow-up chunk/end messages over side channels
  *   derived from a `streamId` it mints itself — see
  *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
- * - `terraform.init`: bridged manually by its own controller because the
- *   handler streams progress events over a side channel for the duration of
- *   a long-running `terraform init` invocation, the same self-bridging
- *   pattern `logs.stream` uses.
- * - `terraform.plan`: bridged manually by the same controller for the same
- *   reason as `terraform.init` — it streams `terraform plan` progress over a
- *   side channel for the duration of a long-running run.
+ * - `terraform.init`: NOT self-bridged (unlike before task 7.10 of the
+ *   `migrate-iac-to-pulumi` change) — `TerraformController.init` no longer
+ *   streams anything under the Pulumi engine (see that method's own TSDoc);
+ *   it resolves a single value like any other channel, so the generic bridge
+ *   below handles it now.
+ * - `terraform.plan`: bridged manually by its controller because it streams
+ *   `pulumi preview` progress over a side channel for the duration of a
+ *   long-running run, the same self-bridging pattern `logs.stream` uses.
  * - `terraform.apply`: bridged manually by the same controller for the same
  *   reason as `terraform.plan` — it streams `terraform apply` progress over a
  *   side channel for the duration of a long-running run (see #109).
@@ -33,7 +34,6 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
-  'terraform.init',
   'terraform.plan',
   'terraform.apply',
   'terraform.destroy',

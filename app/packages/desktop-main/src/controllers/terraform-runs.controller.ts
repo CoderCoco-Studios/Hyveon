@@ -4,10 +4,10 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import { computeRunDetailStatus, type RunDetailStatus, type RunPageResult, type RunStatus } from '@hyveon/shared';
 import {
-  TerraformService,
-  type TerraformRunChunk,
-  type TerraformRunRecord,
-} from '../services/TerraformService.js';
+  PulumiService,
+  type PulumiRunChunk,
+  type PulumiRunRecord,
+} from '../services/PulumiService.js';
 import { RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
@@ -34,15 +34,19 @@ export interface TerraformRunsGetPayload {
 /**
  * Result of {@link TerraformRunsController.get}: `found: false` when `runId`
  * is neither the currently held apply lock nor a persisted
- * `TerraformRunRecord` on disk. `found: true` always carries the derived
+ * `PulumiRunRecord` on disk. `found: true` always carries the derived
  * {@link RunDetailStatus}; `record` is present only once the run has produced
- * a persisted `TerraformRunRecord` (i.e. every status except `running`, since
- * a run in flight hasn't closed its process yet — see
- * `TerraformRunRecord`'s file-level doc comment).
+ * a persisted `PulumiRunRecord` (i.e. every status except `running`, since a
+ * run in flight hasn't closed its process yet — see `PulumiRunRecord`'s doc
+ * comment). `record`'s TYPE changed from `TerraformRunRecord` to
+ * `PulumiRunRecord` as part of task 7.10's repoint (the underlying local
+ * `run.json` read moved from `TerraformService.readRunRecord` to
+ * `PulumiService.readRunRecord`, a new task-7.10 method) — the channel name
+ * and the rest of this result's shape are unchanged.
  */
 export type TerraformRunsGetResult =
   | { found: false }
-  | { found: true; status: RunDetailStatus; record?: TerraformRunRecord };
+  | { found: true; status: RunDetailStatus; record?: PulumiRunRecord };
 
 /** Payload accepted by {@link TerraformRunsController.logs}. */
 export interface TerraformRunsLogsPayload {
@@ -57,20 +61,20 @@ const LOGS_END_CHANNEL = 'terraform.runs.logs.end';
 
 /**
  * Message payload sent, in order, on {@link LOGS_CHUNK_CHANNEL} for every
- * chunk `TerraformService.streamRunOutput` yields. `streamId` ties the chunk
+ * chunk `PulumiService.streamRunOutput` yields. `streamId` ties the chunk
  * back to the `logs()` call that produced it (see
  * {@link TerraformRunsLogsAck.streamId}) so the renderer can never mix up
  * output from two overlapping subscriptions.
  */
 interface TerraformRunsLogsChunkMessage {
   streamId: string;
-  chunk: TerraformRunChunk;
+  chunk: PulumiRunChunk;
 }
 
 /**
  * Message payload sent exactly once on {@link LOGS_END_CHANNEL} once the run
  * identified by `logs()`'s `runId` reaches a terminal status — either
- * `TerraformService.streamRunOutput`'s generator ends cleanly (the run
+ * `PulumiService.streamRunOutput`'s generator ends cleanly (the run
  * settled, or a finished run's persisted log finished replaying) or it threw
  * (`error` carries the stringified failure). `streamId` identifies which
  * `logs()` call this terminates.
@@ -90,26 +94,34 @@ interface TerraformRunsLogsAck {
 }
 
 /**
- * IPC-only controller for reading the status/detail of a single `terraform`
- * plan/apply/destroy run (issue #108) — no HTTP routes are registered here.
+ * IPC-only controller for reading the status/detail of a single Pulumi
+ * preview/apply/destroy run (issue #108) — no HTTP routes are registered
+ * here.
+ *
+ * Task 7.10 (`migrate-iac-to-pulumi`) repointed this controller from the
+ * deleted `TerraformService` onto `PulumiService` — channel names and
+ * payload/ack shapes are unchanged; only the backing service (and, for
+ * {@link get}, the persisted record's TYPE — see
+ * {@link TerraformRunsGetResult}'s own doc comment) changed.
  *
  * `get()` combines two data sources to derive the run's
  * {@link RunDetailStatus} via the shared, pure `computeRunDetailStatus`
  * helper: `RunService.getCurrentLock()` (the in-flight apply lock, #106) for
- * a still-running run, and `TerraformService.readRunRecord()` /
- * `TerraformService.hasPlanArtifact()` (the local `<runsDir>/<runId>/run.json`
- * + `.tfplan` artifact, #108's `TerraformService` half) for a finished one.
+ * a still-running run, and `PulumiService.readRunRecord()` /
+ * `PulumiService.hasPlanArtifact()` (the local `<runsDir>/<runId>/run.json`
+ * + saved plan artifact, task 7.10's new `PulumiService` accessors) for a
+ * finished one.
  *
- * `logs()` bridges `TerraformService.streamRunOutput`'s async-generator
- * output onto the fixed `terraform.runs.logs.chunk` / `terraform.runs.logs.end`
- * side channels, mirroring `TerraformController.init`/`plan`'s streaming
- * shape, so the renderer can watch (or re-attach to) a run's live or
- * persisted output.
+ * `logs()` bridges `PulumiService.streamRunOutput`'s async-generator output
+ * (an identical signature to `TerraformService.streamRunOutput` — trivial
+ * swap) onto the fixed `terraform.runs.logs.chunk` / `terraform.runs.logs.end`
+ * side channels, mirroring `TerraformController.plan`'s streaming shape, so
+ * the renderer can watch (or re-attach to) a run's live or persisted output.
  */
 @Controller()
 export class TerraformRunsController implements OnModuleInit {
   constructor(
-    private readonly terraform: TerraformService,
+    private readonly pulumi: PulumiService,
     private readonly runService: RunService,
     private readonly runRecordService: RunRecordService,
   ) {}
@@ -124,7 +136,7 @@ export class TerraformRunsController implements OnModuleInit {
    * internal dispatcher — it does **not** call `ipcMain.handle`, so
    * `ipcRenderer.invoke` would otherwise hang. This hook bridges the gap,
    * mirroring `TerraformController.onModuleInit`'s handling of
-   * `terraform.init`/`terraform.plan` — see `SELF_BRIDGED_PATTERNS` in
+   * `terraform.plan`/`terraform.apply`/`terraform.destroy` — see `SELF_BRIDGED_PATTERNS` in
    * `../ipc-main-bridge.ts`, which excludes `terraform.runs.logs` from the
    * generic bridge for the same reason: the handler pushes follow-up
    * chunk/end messages over side channels for the duration of a run's output
@@ -156,11 +168,11 @@ export class TerraformRunsController implements OnModuleInit {
    *
    * - `{ found: true, status: 'running' }` when `runId` matches the run
    *   currently holding the apply lock (`RunService.getCurrentLock()`) — no
-   *   `record` is attached, since a {@link TerraformRunRecord} is only ever
-   *   persisted once the run's process has closed.
+   *   `record` is attached, since a {@link PulumiRunRecord} is only ever
+   *   persisted once the run has settled.
    * - `{ found: true, status, record }` when a persisted
-   *   {@link TerraformRunRecord} exists for `runId` — `status` is derived via
-   *   `computeRunDetailStatus`, checking `TerraformService.hasPlanArtifact()`
+   *   {@link PulumiRunRecord} exists for `runId` — `status` is derived via
+   *   `computeRunDetailStatus`, checking `PulumiService.hasPlanArtifact()`
    *   for `plan` records to distinguish `awaiting_approval` from a terminal
    *   `success`/`failed`/`aborted`.
    * - `{ found: false }` when `runId` is neither in flight nor has a
@@ -186,12 +198,12 @@ export class TerraformRunsController implements OnModuleInit {
       return { found: true, status: 'running' };
     }
 
-    const record = this.terraform.readRunRecord(runId);
+    const record = this.pulumi.readRunRecord(runId);
     if (!record) {
       return { found: false };
     }
 
-    const planArtifactExists = record.kind === 'plan' ? this.terraform.hasPlanArtifact(runId) : false;
+    const planArtifactExists = record.kind === 'plan' ? this.pulumi.hasPlanArtifact(runId) : false;
     const status = computeRunDetailStatus({
       isInFlight: false,
       kind: record.kind,
@@ -207,13 +219,13 @@ export class TerraformRunsController implements OnModuleInit {
    * and returns an opaque `streamId` immediately. Chunks are pushed to the
    * renderer via `sender.send` on {@link LOGS_CHUNK_CHANNEL} as
    * `{ streamId, chunk }`, forwarded in order straight from
-   * `TerraformService.streamRunOutput` — which itself either replays an
+   * `PulumiService.streamRunOutput` — which itself either replays an
    * in-flight run's buffered + live output or, for a finished run, replays
    * its persisted `terraform.log`.
    *
    * Exactly one terminal message is sent on {@link LOGS_END_CHANNEL} once the
    * run reaches a terminal status: `{ streamId }` when
-   * `TerraformService.streamRunOutput`'s generator ends cleanly (the run
+   * `PulumiService.streamRunOutput`'s generator ends cleanly (the run
    * settled, or a finished run's log finished replaying), or
    * `{ streamId, error }` when it throws (e.g. `runId` doesn't match any
    * known run).
@@ -256,7 +268,7 @@ export class TerraformRunsController implements OnModuleInit {
     // invoke reply mechanism, which only supports a single return value.
     void (async () => {
       try {
-        for await (const chunk of this.terraform.streamRunOutput(runId, ac.signal)) {
+        for await (const chunk of this.pulumi.streamRunOutput(runId, ac.signal)) {
           if (sender.isDestroyed()) { ac.abort(); return; }
           const chunkMessage: TerraformRunsLogsChunkMessage = { streamId, chunk };
           sender.send(LOGS_CHUNK_CHANNEL, chunkMessage);
