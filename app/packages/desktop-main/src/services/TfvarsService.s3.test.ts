@@ -68,13 +68,13 @@ function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint
 
 /**
  * Builds a `ConfigService` stub exposing just the methods `TfvarsService`
- * reads: a configured S3 bucket (selecting S3 mode) and a config path whose
- * basename becomes the S3 object key.
+ * reads: a configured S3 bucket. The S3 object key is always the fixed
+ * `CONFIGURATION_OBJECT_KEY` constant (`'deployment-config.json'`) — no
+ * longer derived from any path.
  */
-function makeConfig(opts: { bucket: string; path?: string }): ConfigService {
+function makeConfig(opts: { bucket: string }): ConfigService {
   const stub: Partial<ConfigService> = {
-    getTfvarsBucket: () => opts.bucket,
-    getTfvarsPath: () => opts.path ?? '/repo/terraform/deployment-config.json',
+    getConfigurationBucket: () => opts.bucket,
     readEnvTfvarsCacheTtlMs: () => 30000,
   };
   return stub as ConfigService;
@@ -93,7 +93,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
     const service = new TfvarsService(
-      makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/deployment-config.json' }),
+      makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
 
@@ -141,7 +141,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
     const service = new TfvarsService(
-      makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/deployment-config.json' }),
+      makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
 

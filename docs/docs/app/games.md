@@ -255,23 +255,22 @@ Terraform apply.
 
 ## Concurrent-edit conflicts
 
-If you store `terraform.tfvars` in S3 (see [S3 tfvars storage](/guides/s3-tfvars)),
-the app can guard writes with an optimistic-concurrency check: the write
-carries the object version the app last read, and S3 rejects it if someone
-else has written since. That surfaces as:
+The app stores your deployment configuration as a versioned object in your S3
+configuration bucket (there is no local-file mode), and can guard writes with
+an optimistic-concurrency check: the write carries the object version the app
+last read, and S3 rejects it if someone else has written since. That
+surfaces as:
 
 > Optimistic lock failed: expected etag "abc123" but remote is now "def456".
 
 There is no automatic retry. Reload the games list to pick up the newer state
 and redo your change.
 
-Two honest caveats about this mechanism as it stands:
+One honest caveat about this mechanism as it stands:
 
-- **In local-file mode there is no guard at all.** A plain filesystem
-  `terraform.tfvars` has no version to condition on, so the last write wins.
 - **The app's own screens do not currently opt in.** The wizard, the edit form
   and the remove dialog all issue unconditional writes, so in practice you
   will not see this error from the UI today. The plumbing exists end to end
   and is exercised by the test suite; the UI simply does not send the expected
-  version yet. If two people are editing the same tfvars concurrently, treat
-  it as last-write-wins and coordinate out of band.
+  version yet. If two people are editing the same configuration concurrently,
+  treat it as last-write-wins and coordinate out of band.

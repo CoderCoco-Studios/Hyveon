@@ -146,6 +146,7 @@ export default tseslint.config(
       'packages/desktop-main/src/services/IamCheckService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
+      'packages/desktop-main/src/test-mocks/remote-file-store-mock.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': ['error', {

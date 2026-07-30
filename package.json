@@ -14,7 +14,6 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@cdktf/hcl2json": "^0.21.0",
     "@pulumi/aws": "7.39.0",
     "@pulumi/pulumi": "3.255.0"
   },

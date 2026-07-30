@@ -32,13 +32,12 @@ function buildConfig(overrides: Partial<Omit<GameServer, 'name'>> = {}): Omit<Ga
   return config;
 }
 
-/** Build a ConfigService stub with `invalidateCache`, `getTfOutputs`, and `getTfvarsBucket` pre-wired. */
-function makeConfig(options: { outputs?: Partial<TfOutputs> | null; bucket?: string | null } = {}): ConfigService {
-  const { outputs = { game_names: [] }, bucket = null } = options;
+/** Build a ConfigService stub with `invalidateCache` and `getTfOutputs` pre-wired. */
+function makeConfig(options: { outputs?: Partial<TfOutputs> | null } = {}): ConfigService {
+  const { outputs = { game_names: [] } } = options;
   return {
     invalidateCache: vi.fn(),
     getTfOutputs: vi.fn().mockReturnValue(outputs),
-    getTfvarsBucket: vi.fn().mockReturnValue(bucket),
   } as Partial<ConfigService> as ConfigService;
 }
 
@@ -107,16 +106,8 @@ describe('GamesWriteService', () => {
       });
     });
 
-    it('should emit a structured audit log entry noting local mode when no tfvars bucket is configured', async () => {
-      const service = new GamesWriteService(makeConfig({ bucket: null }), makeTfvars(), makeAudit());
-
-      await service.createGame({ name: 'ark', config: buildConfig() });
-
-      expect(logger.info).toHaveBeenCalledWith('Game server write', { action: 'create', game: 'ark', mode: 'local' });
-    });
-
-    it('should emit a structured audit log entry noting s3 mode when a tfvars bucket is configured', async () => {
-      const service = new GamesWriteService(makeConfig({ bucket: 'my-bucket' }), makeTfvars(), makeAudit());
+    it('should emit a structured audit log entry noting s3 mode (the only mode; there is no local-file fallback)', async () => {
+      const service = new GamesWriteService(makeConfig(), makeTfvars(), makeAudit());
 
       await service.createGame({ name: 'ark', config: buildConfig() });
 
@@ -342,7 +333,7 @@ describe('GamesWriteService', () => {
 
     it('should emit a structured audit log entry with the game name even though no game object is returned', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const service = new GamesWriteService(makeConfig({ bucket: 'my-bucket' }), tfvars, makeAudit());
+      const service = new GamesWriteService(makeConfig(), tfvars, makeAudit());
 
       await service.deleteGame({ name: 'minecraft' });
 
