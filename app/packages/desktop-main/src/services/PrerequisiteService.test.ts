@@ -14,7 +14,7 @@ vi.mock('node:child_process', () => ({
   execFile: execFileMock,
 }));
 
-import { PrerequisiteService } from './PrerequisiteService.js';
+import { PrerequisiteService, lookupCommandFor } from './PrerequisiteService.js';
 
 /** Error-first callback shape `util.promisify` invokes the mocked `execFile` with. */
 type ExecFileCallback = (error: Error | null, result?: { stdout: string; stderr: string }) => void;
@@ -69,6 +69,20 @@ const AWS_PATH = '/usr/local/bin/aws';
 
 beforeEach(() => {
   execFileMock.mockReset();
+});
+
+describe('lookupCommandFor', () => {
+  it('should return where.exe for the win32 platform', () => {
+    expect(lookupCommandFor('win32')).toBe('where.exe');
+  });
+
+  it('should return which for the darwin platform', () => {
+    expect(lookupCommandFor('darwin')).toBe('which');
+  });
+
+  it('should return which for the linux platform', () => {
+    expect(lookupCommandFor('linux')).toBe('which');
+  });
 });
 
 describe('PrerequisiteService.isVersionAtLeast', () => {
