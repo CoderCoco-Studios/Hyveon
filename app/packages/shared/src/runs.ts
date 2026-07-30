@@ -107,6 +107,20 @@ export interface RunRecord {
    * field's presence.
    */
   changeSummary?: ChangeSummary;
+  /**
+   * The Pulumi engine version stamped into this run's saved plan artifact
+   * (`plan.json`'s top-level `manifest.version`, e.g. `"v3.255.0"` — stored
+   * verbatim, WITH the `v` prefix the artifact itself carries, not
+   * normalized against `PulumiEngineService.getResolvedVersion()`'s
+   * un-prefixed shape). Set only by a `plan`-kind record produced by
+   * `PulumiService.preview` (task 7.1); absent on every `apply`/`destroy`
+   * record and on any record predating this field. A future apply-time gate
+   * (task 7.2) compares this against the currently-resolved engine version
+   * to refuse applying a plan produced by a different engine — see the
+   * `iac-plan-apply-page` spec's "Engine upgraded between plan and apply"
+   * scenario.
+   */
+  engineVersion?: string;
 }
 
 /**

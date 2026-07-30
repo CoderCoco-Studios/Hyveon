@@ -172,6 +172,17 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
  * and depend only on the corresponding `@hyveon/shared` interface, never on the
  * concrete AWS class — that's what keeps swapping the active cloud a one-module
  * change instead of a call-site hunt.
+ *
+ * `PulumiService.preview` (task 7.1, `migrate-iac-to-pulumi`) resolves
+ * `REMOTE_FILE_STORE` from this module lazily via a `ModuleRef.get()`
+ * strict-false lookup rather than a constructor dependency — see
+ * `run-record.module.ts`'s doc comment for why a static `imports:` edge from
+ * `PulumiServiceModule` back to this module (reachable from `ConfigModule`,
+ * which imports `PulumiServiceModule`) was tried, found to deadlock the real
+ * module graph even with every cycle edge `forwardRef()`-wrapped, and
+ * abandoned in favor of the `ModuleRef` lookup. This module's own
+ * `ConfigModule` import therefore stays the plain, non-circular import it
+ * always was.
  */
 @Module({
   imports: [ConfigModule],
