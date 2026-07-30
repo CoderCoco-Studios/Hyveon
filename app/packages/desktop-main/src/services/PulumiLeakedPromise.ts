@@ -67,6 +67,57 @@ import { logger } from '../logger.js';
  * is, by that same construction, proof the actual CLI operation succeeded —
  * no separate CLI-exit-code tracking is needed to corroborate it.
  *
+ * ## Verified: recovering "success" this way still leaks gRPC servers and a temp log file
+ *
+ * A review of this task's first draft caught that its own quoted source
+ * already proved a further, unaddressed consequence. Re-reading `stack.js`'s
+ * `up()` (lines ~276-279 for `onExit`'s definition, ~303-306 for the
+ * `finally` block that calls it) closely: `onExit` itself is
+ *
+ * ```js
+ * onExit = (hasError) => {
+ *     languageServer.onPulumiExit(hasError);  // <- can throw (the leak check)
+ *     server.forceShutdown();                 // <- never reached if the line above throws
+ * };
+ * ```
+ *
+ * and the `finally` block that calls it is
+ *
+ * ```js
+ * finally {
+ *     onExit(didError);
+ *     await cleanUp(logFile, await logPromise, eventsServer);  // <- never reached either
+ * }
+ * ```
+ *
+ * A throw partway through a `finally` block aborts the *rest of that same
+ * `finally` block*, not just the `try`'s outcome. So when the leak check
+ * throws: `server.forceShutdown()` — which would have torn down the
+ * inline-program language-server gRPC server bound to `127.0.0.1:<port>` —
+ * **never runs**, and neither does `cleanUp(logFile, ..., eventsServer)`,
+ * which would have closed the event-log gRPC server (when `onEvent` was
+ * used) and deleted the temp log file. All three resources are left
+ * dangling for the lifetime of the Electron process. Converting this
+ * rejection into a reported success (via
+ * {@link runTreatingLeakedPromiseAsSuccess}) makes the leak *silent* on top
+ * of that — the operation is recorded as having succeeded, so nothing
+ * downstream has any reason to notice a server or file was left behind.
+ *
+ * This directly contradicts design.md's Risks section claim ("every gRPC
+ * server and temp resource is torn down in a `finally`") for this one
+ * specific path — that claim is true for every *other* exit from `up`/
+ * `preview`/`destroy` (a genuine failure, or a genuine success with no
+ * leaked promise), just not this one, and design.md has been corrected to
+ * say so. This is the same class of failure as the `@cdktf/hcl2json`
+ * quit-hang incident this repo has already been burned by once. Nothing in
+ * this module can fix it — `server`, `eventsServer`, and `logFile` are
+ * local variables entirely inside `stack.js`, never exposed to any caller —
+ * so the mitigation is process-level, not code-level: **Phase 7/11's "app
+ * quits cleanly after an operation" e2e check must specifically include a
+ * run that exercises this leaked-promise-recovery path** (an inline program
+ * that deliberately leaves a dangling promise), not only the ordinary
+ * happy-path `up`/`destroy`, since the happy path alone cannot catch this.
+ *
  * ## What this task could and could not complete
  *
  * {@link isLeakedPromiseError} (the classifier) and
@@ -131,10 +182,16 @@ export async function runTreatingLeakedPromiseAsSuccess<T>(
       throw err;
     }
     const leakError = err instanceof Error ? err : new Error(String(err));
+    // Logged as `message`/`stack` rather than the raw Error object: `Error`'s
+    // own properties are non-enumerable, so passing `{ err: leakError }`
+    // directly would serialize to `{}` through this logger's
+    // `JSON.stringify`-based formatters (both the dev `devPrintf` format and
+    // the production `winston.format.json()` format), silently discarding
+    // the detail this log line exists to capture.
     logger.warn(
       'Pulumi inline program left a leaked promise after an otherwise successful operation — recovering the ' +
         'result out-of-band rather than reporting a false failure',
-      { err: leakError },
+      { message: leakError.message, stack: leakError.stack },
     );
     return recoverResult(leakError);
   }

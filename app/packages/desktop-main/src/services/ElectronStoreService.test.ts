@@ -286,7 +286,12 @@ describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAtte
     expect(typeof runId).toBe('string');
     expect(runId.length).toBeGreaterThan(0);
     const [record] = service.listPulumiLockAttempts('production');
-    expect(record).toMatchObject({ stackName: 'production', username: userInfo().username, hostname: osHostname() });
+    expect(record).toMatchObject({
+      runId,
+      stackName: 'production',
+      username: userInfo().username,
+      hostname: osHostname(),
+    });
     expect(new Date(record.startedAt).toString()).not.toBe('Invalid Date');
   });
 
