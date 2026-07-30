@@ -62,7 +62,7 @@
 
 ## 7. Service replacement
 
-- [ ] 7.1 Implement `PulumiService.preview` returning structured `changeSummary`, saving the update plan as a run artifact, reusing the existing chunk line-splitting for `onOutput`/`onError`
+- [x] 7.1 Implement `PulumiService.preview` returning structured `changeSummary`, saving the update plan as a run artifact, reusing the existing chunk line-splitting for `onOutput`/`onError`
 - [ ] 7.2 Implement `PulumiService.up` constrained by the saved plan, distinguishing clean failure from partial apply in the run's terminal state
 - [ ] 7.3 Implement `PulumiService.destroy` behind the existing confirmation-token gate; assert no untokened call site exists
 - [x] 7.4 Implement stack output reads replacing `ConfigService.getTfOutputs()`, degrading to "not deployed yet" for a never-deployed stack (`PulumiService.getStackOutputs()`, delegated to via `ConfigService.getStackOutputs()`; all ~14 real call sites migrated — see task-7.4-7.8-7.9-report.md)
