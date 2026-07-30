@@ -10,7 +10,7 @@ import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
 import type { ConfigService, TfOutputs } from './ConfigService.js';
 import type { TfvarsService } from './TfvarsService.js';
-import { GameServerEntryError } from './TfvarsService.js';
+import { ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { logger } from '../logger.js';
 
 /** Minimal, valid `GameServer` fixture matching the Fargate cpu/memory pairing table. */
@@ -207,6 +207,26 @@ describe('GamesWriteService', () => {
       expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { err: structuralError });
       expect(audit.record).not.toHaveBeenCalled();
     });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when addGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars();
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.addGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.createGame({ name: 'ark', config: buildConfig() });
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'setup_incomplete',
+        message: notConfiguredError.message,
+      });
+      // Pinned distinctly from the generic catch-all so a caller can tell
+      // "setup incomplete" apart from an ordinary unexpected failure.
+      expect(result).not.toMatchObject({ code: 'error' });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateGame', () => {
@@ -295,6 +315,20 @@ describe('GamesWriteService', () => {
       expect(result).toEqual({ ok: false, code: 'not_found', message: expect.stringContaining('not found') });
       expect(audit.record).not.toHaveBeenCalled();
     });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when updateGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.updateGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.updateGame({ name: 'minecraft', config: buildConfig() });
+
+      expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: notConfiguredError.message });
+      expect(result).not.toMatchObject({ code: 'error' });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteGame', () => {
@@ -366,6 +400,20 @@ describe('GamesWriteService', () => {
       const result = await service.deleteGame({ name: 'ark' });
 
       expect(result).toEqual({ ok: false, code: 'not_found', message: expect.stringContaining('not found') });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when removeGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.removeGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.deleteGame({ name: 'minecraft' });
+
+      expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: notConfiguredError.message });
+      expect(result).not.toMatchObject({ code: 'error' });
       expect(audit.record).not.toHaveBeenCalled();
     });
   });
