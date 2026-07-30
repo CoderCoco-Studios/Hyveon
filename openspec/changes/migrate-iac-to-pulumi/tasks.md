@@ -71,7 +71,7 @@
 - [x] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
 - [x] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable (`ChangeSummary`/`OpType` in new `@hyveon/shared/changeSummary.ts`; type plumbed through `RunRecordService`/`AwsRunRecordStore`, nothing calls it with a value yet — that's 7.1/7.2's job)
 - [x] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors (13 original classes found, not 12; 11 ported + `PulumiPartialApplyError` added, colocated in new `PulumiService.ts`; `PulumiUnrecognizedLockError` confirmed as the existing stale-lock class, not recreated — see task-7.4-7.8-7.9-report.md)
-- [ ] 7.10 Delete `TerraformService.ts` and its tests
+- [x] 7.10 Delete `TerraformService.ts` and its tests
 
 ## 8. Controllers and preload
 
