@@ -1,6 +1,6 @@
 import * as aws from '@pulumi/aws';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { defineSecrets, secretVersionResourceOptions, type SecretsResources } from './secrets.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineSecrets, secretResourceOptions, type SecretsResources } from './secrets.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
 /** Resolves every leaf resource `defineSecrets` declares, guaranteeing the mock recorder has captured the full set before assertions run (see `pulumiMocks.ts`'s `promiseOf` doc). */
@@ -35,6 +35,14 @@ function findByName(resources: RecordedResource[], name: string): RecordedResour
 function unwrapSecretString(recordedValue: unknown): string {
   return (recordedValue as { value: string }).value;
 }
+
+// File-level, not per-`describe`: `secretResourceOptions.forVersion` is a
+// shared exported object property — a `vi.spyOn` on it in one test must not
+// leak into a later one (in this file or, if module state were ever shared,
+// another), so every test that spies on it gets a fresh unwrapped function.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('defineSecrets', () => {
   let mocks: ReturnType<typeof installPulumiMocks>;
@@ -93,12 +101,36 @@ describe('defineSecrets', () => {
     };
     expect(Object.keys(args).sort()).toEqual(['projectName', 'provider']);
   });
+
+  it('should declare both SecretVersion resources via secretResourceOptions.forVersion, not an equivalent-but-uninspected options object', async () => {
+    // Call-site coverage, not just factory-output coverage: spies the exact
+    // function object `defineSecrets` calls, so a future edit that quietly
+    // swaps a `new aws.secretsmanager.SecretVersion(...)` call site back to
+    // the plain `{ provider }` options already in scope (silently dropping
+    // the create-only `ignoreChanges` guard) fails this test — a test that
+    // only called `secretResourceOptions.forVersion(provider)` directly and
+    // asserted its return value would NOT catch that regression. See
+    // `secrets.ts`'s file doc, the paragraph on `secretResourceOptions`, for
+    // the full rationale (mocks can't observe `ignoreChanges` on the
+    // constructed resource itself).
+    const forVersionSpy = vi.spyOn(secretResourceOptions, 'forVersion');
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+
+    await runDefineSecrets({ projectName: 'hyveon', provider });
+
+    expect(forVersionSpy).toHaveBeenCalledTimes(2);
+    expect(forVersionSpy).toHaveBeenNthCalledWith(1, provider);
+    expect(forVersionSpy).toHaveBeenNthCalledWith(2, provider);
+    for (const call of forVersionSpy.mock.results) {
+      expect(call.value).toEqual({ provider, ignoreChanges: ['secretString'] });
+    }
+  });
 });
 
-describe('secretVersionResourceOptions', () => {
+describe('secretResourceOptions.forVersion', () => {
   it('should carry ignoreChanges: ["secretString"] so a re-deploy never resets a configured secret back to its placeholder', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
-    const opts = secretVersionResourceOptions(provider);
+    const opts = secretResourceOptions.forVersion(provider);
 
     expect(opts.ignoreChanges).toEqual(['secretString']);
     expect(opts.provider).toBe(provider);

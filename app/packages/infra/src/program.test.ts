@@ -4,12 +4,15 @@ import { buildTestDeploymentConfig } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
 
 /**
- * Literal placeholder `InfraProgramOptions` for every test below —
- * `lambdaBundlesDir` is not exercised by any `defineAll`/`createInfraProgram`
- * test in this file (`defineLambdas` isn't wired into `defineAll` yet — see
- * `program.ts`'s `TODO(task 3.8/3.9)` comment), so a literal string that
- * never touches disk is sufficient. See `lambdas.test.ts`'s identically-
- * reasoned `LAMBDA_BUNDLES_DIR` constant.
+ * Literal placeholder `InfraProgramOptions` for every test below.
+ * `lambdaBundlesDir` IS exercised — `defineAll` calls `defineLambdas`, which
+ * resolves each function's bundle path against it — but a literal string
+ * that never touches disk is still sufficient: `pulumi.asset.FileAsset`/
+ * `AssetArchive` construction never touches the filesystem (wraps the given
+ * path in `Promise.resolve(...)`), and `pulumi.runtime.setMocks`
+ * (`testing/pulumiMocks.ts`) intercepts every resource registration before
+ * any real engine or upload is involved. See `lambdas.test.ts`'s
+ * identically-reasoned `LAMBDA_BUNDLES_DIR` constant.
  */
 const TEST_INFRA_PROGRAM_OPTIONS: InfraProgramOptions = { lambdaBundlesDir: '/fixtures/lambda-bundles' };
 

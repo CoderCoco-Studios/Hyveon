@@ -37,18 +37,21 @@
  * `data.archive_file.*` (all five) has no Pulumi resource counterpart — see
  * {@link lambdaCode}'s doc for how its zip-a-single-file behaviour is
  * reproduced. `aws_lambda_invocation.efs_seeder` (the file-seed write
- * trigger) is NOT ported here — task 3.10 owns it, alongside the rest of the
- * HCL's other "imperative escape" resources
- * (`aws_dynamodb_table_item`/`terraform_data`/`aws_secretsmanager_secret_version`).
- * Note for whoever picks up task 3.10: unlike this file's four other
- * functions (see "Lambda role/policy creation order" below), the seeder
- * invocation's port MUST carry an explicit `dependsOn` on
- * `policies.efsSeederPolicies[game]` — the HCL invokes
- * `aws_lambda_invocation.efs_seeder` within the same `apply` as
- * `aws_iam_role_policy.efs_seeder`, relying on Terraform's `depends_on` for
- * ordering, and this program's policies now attach strictly AFTER the
- * functions exist (see below), so the invocation has no automatic Pulumi
- * dependency edge onto the policy it actually needs at invoke time.
+ * trigger) is NOT ported in this file — `escapes.ts`'s
+ * `defineEfsSeederInvocations` owns it, alongside the rest of the HCL's
+ * other "imperative escape" resources
+ * (`aws_dynamodb_table_item`/`terraform_data`/`aws_secretsmanager_secret_version`;
+ * see that file's doc for the full inventory and rationale). Unlike this
+ * file's four other functions (see "Lambda role/policy creation order"
+ * below), the seeder invocation carries an explicit `dependsOn` on
+ * `efsSeederPolicies[game]` — the HCL invokes `aws_lambda_invocation.efs_seeder`
+ * within the same `apply` as `aws_iam_role_policy.efs_seeder`, relying on
+ * Terraform's `depends_on` for ordering, and this program's policies attach
+ * strictly AFTER the functions exist (see below), so the invocation has no
+ * automatic Pulumi dependency edge onto the policy it actually needs at
+ * invoke time. `program.ts`'s `defineAll` calls `defineEfsSeederInvocations`
+ * after both this file's `defineLambdas` and `iam.ts`'s `defineIamPolicies`
+ * — the only order that satisfies that `dependsOn`.
  *
  * ## The lambda-bundle path contract
  *
@@ -101,34 +104,28 @@
  *    entry copying each package's `dist/handler.cjs` to
  *    `resourcesPath/lambda/<name>/dist/handler.cjs` before this contract can
  *    resolve correctly in a packaged build.
- *  - **`defineAll`/`createInfraProgram`** (`program.ts`) already thread a
- *    second `options: InfraProgramOptions` parameter carrying
- *    `lambdaBundlesDir` through to wherever `defineLambdas` is eventually
- *    called from `defineAll` — see `program.ts`'s `InfraProgramOptions` doc
- *    and its `TODO(task 3.8/3.9)` comment. `defineAll` itself does not yet
- *    call `defineLambdas` (see below), so `options` is currently unused
- *    inside `defineAll`'s body beyond being captured for that future call.
+ *  - **`defineAll`/`createInfraProgram`** (`program.ts`) thread a second
+ *    `options: InfraProgramOptions` parameter carrying `lambdaBundlesDir`
+ *    straight through to the `defineLambdas` call inside `defineAll` — see
+ *    `program.ts`'s `InfraProgramOptions` doc.
  *
- * ## Why `defineLambdas` is not wired into `defineAll` yet
+ * ## Deferred inputs, now real
  *
- * Three environment variables across the five functions are only resolvable
- * once later tasks land: `TABLE_NAME`/`DISCORD_PUBLIC_KEY_SECRET_ARN`
- * (task 3.8 — DynamoDB + Secrets Manager) and `HOSTED_ZONE_ID` (task 3.9 —
- * Route 53). {@link DefineLambdasArgs} threads all three as required
- * `pulumi.Input<string>` parameters (`dynamodbDiscordTableName`,
- * `discordPublicKeySecretArn`, `hostedZoneId`) rather than optional ones,
- * for the same reason `iam.ts`'s `DefineIamPoliciesArgs` does: an optional
- * parameter defaulting to `undefined` would silently deploy a broken
- * environment variable instead of failing to compile. This is the exact
- * situation `defineIamPolicies` was already in after task 3.5 — see this
- * file's doc and `program.ts`'s `TODO(task 3.8/3.9)` comment for the
- * resulting call-order contract (`defineIamRoles` + `defineSecurityGroups`,
- * both already wired → `defineLambdas` → `defineIamPolicies`) and exactly
- * what remains before both can be wired into `defineAll` together. The
- * EFS-seeder security group itself has NO such blocker — it depends only on
- * `gameServers`/`vpcId`/`projectName`, so it is already wired into
- * `defineAll` today via `securityGroups.ts`'s `defineSecurityGroups`, not
- * gated on this file's `defineLambdas` call at all.
+ * Three environment variables across the five functions were only
+ * resolvable once later tasks landed: `TABLE_NAME`/`DISCORD_PUBLIC_KEY_SECRET_ARN`
+ * (DynamoDB + Secrets Manager, `dynamodb.ts`/`secrets.ts`) and
+ * `HOSTED_ZONE_ID` (Route 53, `route53.ts`). {@link DefineLambdasArgs} threads
+ * all three as required `pulumi.Input<string>` parameters
+ * (`dynamodbDiscordTableName`, `discordPublicKeySecretArn`, `hostedZoneId`)
+ * rather than optional ones, for the same reason `iam.ts`'s
+ * `DefineIamPoliciesArgs` does: an optional parameter defaulting to
+ * `undefined` would silently deploy a broken environment variable instead of
+ * failing to compile. `program.ts`'s `defineAll` now supplies real values for
+ * all three (`dynamoDb.discordTable.name`, `secrets.discordPublicKeySecret.arn`,
+ * `route53.zoneId`) — see that file's doc for the full call sequence. The
+ * EFS-seeder security group itself never had this blocker — it depends only
+ * on `gameServers`/`vpcId`/`projectName` (`securityGroups.ts`'s
+ * `defineSecurityGroups`).
  *
  * ## Lambda role/policy creation order — a deliberate deviation from the HCL
  *
@@ -163,7 +160,8 @@
  * program's own 7-day-retention log group doesn't already exist — see each
  * seeder function's `dependsOn` below. See this file's doc, the note above
  * about `aws_lambda_invocation.efs_seeder`, for the corresponding
- * `dependsOn` task 3.10 must add for the seeder invocation itself.
+ * `dependsOn` `escapes.ts`'s `defineEfsSeederInvocations` carries for the
+ * seeder invocation itself.
  */
 
 import path from 'node:path';
@@ -280,25 +278,24 @@ export interface DefineLambdasArgs {
 
   /**
    * `aws_dynamodb_table.discord.name` — the interactions, followup, and
-   * dns-updater functions' `TABLE_NAME` environment variable. TODO(task 3.8):
-   * threaded here as a required parameter because the DynamoDB tables have
-   * not been ported yet — a real caller must pass the real table's `.name`
-   * once task 3.8 lands. See this file's doc, "Why `defineLambdas` is not
-   * wired into `defineAll` yet".
+   * dns-updater functions' `TABLE_NAME` environment variable. Threaded here
+   * as a required parameter because `dynamodb.ts`'s `defineDynamoDb` owns
+   * that table; `program.ts`'s `defineAll` passes `dynamoDb.discordTable.name`.
    */
   dynamodbDiscordTableName: pulumi.Input<string>;
   /**
    * `aws_secretsmanager_secret.discord_public_key.arn` — the interactions
    * function's `DISCORD_PUBLIC_KEY_SECRET_ARN` environment variable.
-   * TODO(task 3.8): threaded here as a required parameter because the
-   * Secrets Manager secrets have not been ported yet.
+   * Threaded here as a required parameter because `secrets.ts`'s
+   * `defineSecrets` owns that secret; `program.ts`'s `defineAll` passes
+   * `secrets.discordPublicKeySecret.arn`.
    */
   discordPublicKeySecretArn: pulumi.Input<string>;
   /**
    * `data.aws_route53_zone.main.zone_id` — the dns-updater function's
-   * `HOSTED_ZONE_ID` environment variable. TODO(task 3.9): threaded here as
-   * a required parameter because the Route 53 hosted-zone lookup has not
-   * been ported yet.
+   * `HOSTED_ZONE_ID` environment variable. Threaded here as a required
+   * parameter because `route53.ts`'s `defineRoute53` owns that lookup;
+   * `program.ts`'s `defineAll` passes `route53.zoneId`.
    */
   hostedZoneId: pulumi.Input<string>;
 
@@ -401,12 +398,13 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
  * interactions Function URL, and the watchdog/dns-updater EventBridge
  * rule/target/permission triples (tasks 3.6 and 3.7 of
  * `migrate-iac-to-pulumi`) — see this file's doc for the full HCL→Pulumi
- * address table, the lambda-bundle path contract, and why this function is
- * not yet called from `program.ts`'s `defineAll`. Must be called from inside
- * the Pulumi inline-program closure, never at module scope, and after
- * `defineIamRoles`, `defineSecurityGroups`, `defineEfs`, and `defineEcs`
- * (all four of whose outputs it consumes — `defineSecurityGroups` for
- * `efsSeederSecurityGroupId`).
+ * address table and the lambda-bundle path contract. Must be called from
+ * inside the Pulumi inline-program closure, never at module scope, and after
+ * `defineIamRoles`, `defineSecurityGroups`, `defineEfs`, `defineEcs`,
+ * `defineDynamoDb`, `defineSecrets`, and `defineRoute53` (all seven of whose
+ * outputs it consumes — `defineSecurityGroups` for `efsSeederSecurityGroupId`,
+ * the latter three for the deferred inputs described above). `program.ts`'s
+ * `defineAll` calls this function in exactly that order.
  *
  * @param args - Naming, config, IAM, network, EFS, bundle-path, and
  *   deferred-value inputs — see {@link DefineLambdasArgs}.

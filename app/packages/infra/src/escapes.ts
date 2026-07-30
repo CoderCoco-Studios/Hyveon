@@ -130,20 +130,53 @@ export interface DefineDiscordTableItemsArgs {
 }
 
 /**
- * Builds the `pulumi.CustomResourceOptions` the `discord_config_seed` item is
- * declared with — `ignoreChanges: ['item']`, the Pulumi equivalent of the
- * HCL's `lifecycle { ignore_changes = [item] }`. Exported specifically so a
- * test can assert on it directly, for the same reason `secrets.ts`'s
- * `secretVersionResourceOptions` is: Pulumi's mock test harness does not
- * expose `ignoreChanges` to a `newResource` mock callback — see that
- * function's doc for the full rationale, which applies identically here.
- *
- * @param provider - The regional AWS provider the item is declared against.
- * @returns The resource options, provider plus the create-only `ignoreChanges` entry.
+ * Builds the `pulumi.CustomResourceOptions` this file's two SPEC-CRITICAL/
+ * review-mandated resource kinds are declared with: the `discord_config_seed`
+ * item's create-only `ignoreChanges: ['item']` (the Pulumi equivalent of the
+ * HCL's `lifecycle { ignore_changes = [item] }`) and each EFS-seeder
+ * invocation's required `dependsOn: [policy]` edge (see this file's doc,
+ * "Why each ported resource is not a plain declarative resource," for both
+ * rationales). Exposed as methods on an exported object (not bare functions)
+ * specifically so a spec can `vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem')`/
+ * `vi.spyOn(escapeResourceOptions, 'forEfsSeederInvocation')` and assert
+ * {@link defineDiscordTableItems}/{@link defineEfsSeederInvocations}
+ * themselves call these exact functions at each resource's construction
+ * site — not merely that the functions, called directly, return the right
+ * shape. Pulumi's mock test harness (`testing/pulumiMocks.ts`) does not
+ * expose `ignoreChanges`/`dependsOn` (or any other `CustomResourceOptions`
+ * field) to a `newResource` mock callback — confirmed by reading
+ * `@pulumi/pulumi`'s `runtime/mocks.d.ts`, whose `MockResourceArgs` carries
+ * only `type`/`name`/`inputs`/`provider`/`custom`/`id` — so there is no way
+ * to assert either option's presence by inspecting a recorded resource the
+ * way every other test in this package does. A test that only calls
+ * `escapeResourceOptions.forX(...)` directly and checks its return value
+ * would NOT catch a future edit that quietly swaps a construction call site
+ * back to the plain `{ provider }` options in scope (silently dropping the
+ * create-only guard, or the required `dependsOn` edge) — the spy closes
+ * exactly that gap, by asserting the function object the `defineX` caller
+ * actually invokes, not a same-named copy the test constructs independently.
+ * `secrets.ts`'s `secretResourceOptions` establishes this same pattern for
+ * the two secret versions — see that file's doc for the identical rationale
+ * spelled out in full.
  */
-export function discordConfigSeedItemResourceOptions(provider: aws.Provider): pulumi.CustomResourceOptions {
-  return { provider, ignoreChanges: ['item'] };
-}
+export const escapeResourceOptions = {
+  /**
+   * @param provider - The regional AWS provider the item is declared against.
+   * @returns The resource options, provider plus the create-only `ignoreChanges` entry.
+   */
+  forDiscordConfigSeedItem(provider: aws.Provider): pulumi.CustomResourceOptions {
+    return { provider, ignoreChanges: ['item'] };
+  },
+
+  /**
+   * @param provider - The regional AWS provider the invocation is declared against.
+   * @param policy - The per-game `efsSeederPolicies` entry the invocation must depend on.
+   * @returns The resource options, provider plus the required `dependsOn` entry.
+   */
+  forEfsSeederInvocation(provider: aws.Provider, policy: aws.iam.RolePolicy): pulumi.CustomResourceOptions {
+    return { provider, dependsOn: [policy] };
+  },
+};
 
 /**
  * Declares the two conditional Discord table rows (task 3.10 of
@@ -210,7 +243,7 @@ export function defineDiscordTableItems(args: DefineDiscordTableItemsArgs): Disc
               updatedAt: { N: '0' },
             }),
           },
-          discordConfigSeedItemResourceOptions(provider),
+          escapeResourceOptions.forDiscordConfigSeedItem(provider),
         )
       : undefined;
 
@@ -261,27 +294,6 @@ function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds']): string {
 }
 
 /**
- * Builds the `pulumi.CustomResourceOptions` a single EFS-seeder invocation is
- * declared with — `provider` plus the review-mandated `dependsOn: [policy]`
- * edge (see this file's doc, "Why each ported resource is not a plain
- * declarative resource," for the full rationale). Exported specifically so a
- * test can assert on it directly, for the same reason `secrets.ts`'s
- * `secretVersionResourceOptions` and this file's own
- * `discordConfigSeedItemResourceOptions` are: Pulumi's mock test harness
- * does not expose `dependsOn` (or any other `CustomResourceOptions` field)
- * to a `newResource` mock callback, so asserting on this function's own
- * return value is the closest a mock-level test can get to verifying the
- * edge is present.
- *
- * @param provider - The regional AWS provider the invocation is declared against.
- * @param policy - The per-game `efsSeederPolicies` entry the invocation must depend on.
- * @returns The resource options, provider plus the required `dependsOn` entry.
- */
-export function efsSeederInvocationResourceOptions(provider: aws.Provider, policy: aws.iam.RolePolicy): pulumi.CustomResourceOptions {
-  return { provider, dependsOn: [policy] };
-}
-
-/**
  * Declares one `aws.lambda.Invocation` per game with `file_seeds` (task 3.10
  * of `migrate-iac-to-pulumi`) — see this file's doc for the full rationale
  * and the review-mandated `dependsOn` constraint. Must be called from inside
@@ -323,7 +335,7 @@ export function defineEfsSeederInvocations(args: DefineEfsSeederInvocationsArgs)
         triggers: { seedsHash: fileSeedsHash(fileSeeds) },
         input: JSON.stringify({ game, seeds: fileSeeds, container_path: containerPath }),
       },
-      efsSeederInvocationResourceOptions(provider, policy),
+      escapeResourceOptions.forEfsSeederInvocation(provider, policy),
     );
   }
 

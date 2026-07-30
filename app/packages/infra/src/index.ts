@@ -22,13 +22,8 @@ export { defineLambdas, bundlePath } from './lambdas.js';
 export type { DynamoDbResources, DefineDynamoDbArgs } from './dynamodb.js';
 export { defineDynamoDb } from './dynamodb.js';
 export type { SecretsResources, DefineSecretsArgs } from './secrets.js';
-export { defineSecrets, secretVersionResourceOptions } from './secrets.js';
+export { defineSecrets, secretResourceOptions } from './secrets.js';
 export type { Route53Resources, DefineRoute53Args } from './route53.js';
 export { defineRoute53 } from './route53.js';
 export type { DiscordTableItemResources, DefineDiscordTableItemsArgs, DefineEfsSeederInvocationsArgs } from './escapes.js';
-export {
-  defineDiscordTableItems,
-  defineEfsSeederInvocations,
-  discordConfigSeedItemResourceOptions,
-  efsSeederInvocationResourceOptions,
-} from './escapes.js';
+export { defineDiscordTableItems, defineEfsSeederInvocations, escapeResourceOptions } from './escapes.js';

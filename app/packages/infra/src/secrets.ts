@@ -42,22 +42,31 @@
  * `pulumi-infra-program`'s "Re-deploying does not overwrite configured
  * secrets" scenario guards against).
  *
- * {@link secretVersionResourceOptions} is factored out as its own exported
- * function specifically so it can be unit-tested directly: Pulumi's mock
- * test harness (`testing/pulumiMocks.ts`) does not expose `ignoreChanges` (or
- * any other `CustomResourceOptions` field) to a `newResource` mock
- * callback — confirmed by reading `@pulumi/pulumi`'s `runtime/mocks.d.ts`,
- * whose `MockResourceArgs` carries only `type`/`name`/`inputs`/`provider`/
- * `custom`/`id`. There is therefore no way to assert "this constructed
- * resource carries `ignoreChanges: ['secretString']`" by inspecting a
- * recorded resource the way every other test in this package does; asserting
- * on this function's own return value is the closest a mock-level test can
- * get. The engine-level guarantee this option requests — that a real
- * `pulumi up` computes no diff for the value Secrets Manager actually
- * holds — is real Pulumi-engine behavior with no local mock equivalent, and is only
- * ever exercised at a real deploy (`pulumi-infra-program`'s "Preservation is
- * covered by a test" scenario's fuller integration-level case belongs to a
- * later phase's test surface, not this unit-test package).
+ * {@link secretResourceOptions}`.forVersion` is factored out as its own
+ * exported **object method** (not a bare function) specifically so a test
+ * can verify it twofold: (1) that calling it returns the right options, and
+ * (2) — the part a bare exported function cannot support — that
+ * {@link defineSecrets} actually calls it at each `new aws.secretsmanager.SecretVersion(...)`
+ * call site, via `vi.spyOn(secretResourceOptions, 'forVersion')`. Pulumi's
+ * mock test harness (`testing/pulumiMocks.ts`) does not expose
+ * `ignoreChanges` (or any other `CustomResourceOptions` field) to a
+ * `newResource` mock callback — confirmed by reading `@pulumi/pulumi`'s
+ * `runtime/mocks.d.ts`, whose `MockResourceArgs` carries only
+ * `type`/`name`/`inputs`/`provider`/`custom`/`id` — so there is no way to
+ * assert "this constructed resource carries `ignoreChanges: ['secretString']`"
+ * by inspecting a recorded resource the way every other test in this package
+ * does. A test that only calls `secretResourceOptions.forVersion(provider)`
+ * directly and checks its return value would NOT catch a future edit that
+ * quietly swaps a `SecretVersion` call site back to the plain `{ provider }`
+ * options in scope — the spy closes exactly that gap, by asserting the
+ * function object `defineSecrets` actually calls, not a same-named copy the
+ * test constructs independently. The engine-level guarantee this option
+ * requests — that a real `pulumi up` computes no diff for the value Secrets
+ * Manager actually holds — is real Pulumi-engine behavior with no local mock
+ * equivalent, and is only ever exercised at a real deploy
+ * (`pulumi-infra-program`'s "Preservation is covered by a test" scenario's
+ * fuller integration-level case belongs to a later phase's test surface, not
+ * this unit-test package).
  */
 
 import * as aws from '@pulumi/aws';
@@ -102,17 +111,22 @@ const PLACEHOLDER_SECRET_VALUE = 'placeholder';
 
 /**
  * Builds the `pulumi.CustomResourceOptions` every placeholder secret version
- * below is declared with — `ignoreChanges: ['secretString']`. Exported
- * specifically so a test can assert on it directly; see this file's doc,
- * "Create-only secret versions", for why that is the only way a unit test in
- * this package can cover this option's presence.
- *
- * @param provider - The regional AWS provider the version is declared against.
- * @returns The resource options, provider plus the create-only `ignoreChanges` entry.
+ * is declared with — `ignoreChanges: ['secretString']`. Exposed as a method
+ * on an exported object (not a bare function) specifically so a spec can
+ * `vi.spyOn(secretResourceOptions, 'forVersion')` and assert `defineSecrets`
+ * itself calls this exact function at each `SecretVersion` call site — see
+ * this file's doc, "Create-only secret versions", for the full rationale and
+ * why a bare exported function can't support that call-site assertion.
  */
-export function secretVersionResourceOptions(provider: aws.Provider): pulumi.CustomResourceOptions {
-  return { provider, ignoreChanges: ['secretString'] };
-}
+export const secretResourceOptions = {
+  /**
+   * @param provider - The regional AWS provider the version is declared against.
+   * @returns The resource options, provider plus the create-only `ignoreChanges` entry.
+   */
+  forVersion(provider: aws.Provider): pulumi.CustomResourceOptions {
+    return { provider, ignoreChanges: ['secretString'] };
+  },
+};
 
 /**
  * Declares the two Discord secrets and their create-only placeholder
@@ -144,7 +158,7 @@ export function defineSecrets(args: DefineSecretsArgs): SecretsResources {
       secretId: discordBotTokenSecret.id,
       secretString: PLACEHOLDER_SECRET_VALUE,
     },
-    secretVersionResourceOptions(provider),
+    secretResourceOptions.forVersion(provider),
   );
 
   const discordPublicKeySecret = new aws.secretsmanager.Secret(
@@ -163,7 +177,7 @@ export function defineSecrets(args: DefineSecretsArgs): SecretsResources {
       secretId: discordPublicKeySecret.id,
       secretString: PLACEHOLDER_SECRET_VALUE,
     },
-    secretVersionResourceOptions(provider),
+    secretResourceOptions.forVersion(provider),
   );
 
   return { discordBotTokenSecret, discordBotTokenSecretVersion, discordPublicKeySecret, discordPublicKeySecretVersion };

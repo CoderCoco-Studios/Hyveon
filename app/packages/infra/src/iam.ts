@@ -49,17 +49,12 @@
  * {@link defineIamPolicies} (the five inline policies — needs the roles
  * back, plus every deferred ARN) mirrors the HCL's own separation and
  * restores a satisfiable order: `defineIamRoles()` → `defineLambdas()`
- * (task 3.6, using `roles.followupLambdaRole.arn` etc.) → `defineIamPolicies()`
+ * (using `roles.followupLambdaRole.arn` etc.) → `defineIamPolicies()`
  * (using the roles plus the now-real `followupLambdaArn` from the Lambda
- * step, and whatever DynamoDB/EFS/Secrets/Route53 ARNs tasks 3.2/3.8/3.9
- * have supplied by then).
- *
- * NOT called from `program.ts`'s `defineAll` yet — see the `TODO(task 3.6)`
- * comment there for the order above, spelled out against real call sites.
- * `defineIamRoles` itself has no deferred inputs and could be wired in
- * immediately; it is left alongside `defineIamPolicies` for a later task to
- * wire in together, since `program.ts`'s `InfraResources` doesn't yet have
- * anywhere meaningful to route a bare role set on its own.
+ * step, and the DynamoDB/EFS/Secrets/Route53 ARNs `dynamodb.ts`/`efs.ts`/
+ * `secrets.ts`/`route53.ts` supply). `program.ts`'s `defineAll` calls both
+ * functions in exactly this order — see its file doc for the full call
+ * sequence across every resource area.
  */
 
 import * as aws from '@pulumi/aws';
@@ -150,45 +145,45 @@ export interface DefineIamPoliciesArgs {
   /**
    * `aws_efs_file_system.saves.arn` — the shared EFS filesystem every
    * per-game EFS-seeder role's inline policy grants
-   * `elasticfilesystem:ClientMount`/`ClientWrite` against. TODO(task 3.2):
-   * threaded here as a required parameter because `defineEfs` (task 3.2 of
-   * `migrate-iac-to-pulumi`) has not run yet — `program.ts` must pass its
-   * real `aws_efs_file_system.saves` equivalent's `.arn` once it exists.
+   * `elasticfilesystem:ClientMount`/`ClientWrite` against. Threaded here as a
+   * required parameter (rather than constructed by this function) because
+   * `efs.ts`'s `defineEfs` owns that resource; `program.ts`'s `defineAll`
+   * passes `efs.fileSystem.arn`.
    */
   efsFileSystemArn: pulumi.Input<string>;
   /**
    * `aws_dynamodb_table.discord.arn` — the shared Discord state table.
    * Granted to the followup Lambda (`dynamodb:GetItem`/`PutItem`), the
    * interactions Lambda (`dynamodb:GetItem`), and the DNS-updater Lambda
-   * (`dynamodb:GetItem`/`DeleteItem`). TODO(task 3.8): threaded here as a
-   * required parameter because the DynamoDB tables have not been ported yet
-   * — `program.ts` must pass the real table's `.arn` once it exists.
+   * (`dynamodb:GetItem`/`DeleteItem`). Threaded here as a required parameter
+   * because `dynamodb.ts`'s `defineDynamoDb` owns that table; `program.ts`'s
+   * `defineAll` passes `dynamoDb.discordTable.arn`.
    */
   dynamodbDiscordTableArn: pulumi.Input<string>;
   /**
    * `aws_secretsmanager_secret.discord_public_key.arn` — granted to the
    * interactions Lambda (`secretsmanager:GetSecretValue`) to verify Discord's
-   * Ed25519 request signature. TODO(task 3.8): threaded here as a required
-   * parameter because the Secrets Manager secrets have not been ported yet.
+   * Ed25519 request signature. Threaded here as a required parameter because
+   * `secrets.ts`'s `defineSecrets` owns that secret; `program.ts`'s
+   * `defineAll` passes `secrets.discordPublicKeySecret.arn`.
    */
   discordPublicKeySecretArn: pulumi.Input<string>;
   /**
    * `aws_lambda_function.followup.arn` — granted to the interactions Lambda
    * (`lambda:InvokeFunction`) so it can async-invoke the followup Lambda for
-   * slow ECS work. TODO(task 3.6): threaded here as a required parameter
-   * because the Lambda functions have not been ported yet. Satisfiable in
-   * order: `defineIamRoles()` supplies `roles.followupLambdaRole.arn` for
-   * the Lambda function's own `role` argument; `defineLambdas()` (task 3.6)
-   * creates that function and its `.arn` flows into this field for the
-   * `defineIamPolicies()` call that follows — see this file's doc.
+   * slow ECS work. Threaded here as a required parameter because
+   * `lambdas.ts`'s `defineLambdas` owns that function and must run first —
+   * see this file's doc for the full call-order rationale. `program.ts`'s
+   * `defineAll` calls `defineLambdas()` before `defineIamPolicies()` and
+   * passes `lambdas.followupFunction.arn`.
    */
   followupLambdaArn: pulumi.Input<string>;
   /**
    * `data.aws_route53_zone.main.zone_id` — the looked-up hosted zone,
    * interpolated into the DNS-updater Lambda's `route53:*` resource ARNs
-   * (`arn:aws:route53:::hostedzone/${zone_id}`). TODO(task 3.9): threaded
-   * here as a required parameter because the Route 53 hosted-zone lookup has
-   * not been ported yet.
+   * (`arn:aws:route53:::hostedzone/${zone_id}`). Threaded here as a required
+   * parameter because `route53.ts`'s `defineRoute53` owns that lookup;
+   * `program.ts`'s `defineAll` passes `route53.zoneId`.
    */
   hostedZoneId: pulumi.Input<string>;
 }

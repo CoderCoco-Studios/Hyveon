@@ -1,13 +1,16 @@
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  defineDiscordTableItems,
-  defineEfsSeederInvocations,
-  discordConfigSeedItemResourceOptions,
-  efsSeederInvocationResourceOptions,
-} from './escapes.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineDiscordTableItems, defineEfsSeederInvocations, escapeResourceOptions } from './escapes.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
+
+// File-level, not per-`describe`: `escapeResourceOptions`'s methods are
+// shared exported object properties — a `vi.spyOn` on either in one test
+// must not leak into a later one, so every test that spies on either gets a
+// fresh unwrapped function.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** Finds the single recorded resource with the given Pulumi logical name, failing loudly if there isn't exactly one. */
 function findByName(resources: RecordedResource[], name: string): RecordedResource {
@@ -179,12 +182,56 @@ describe('defineDiscordTableItems', () => {
       updatedAt: { N: '0' },
     });
   });
+
+  it('should declare discordConfigSeedItem via escapeResourceOptions.forDiscordConfigSeedItem, not an equivalent-but-uninspected options object', async () => {
+    // Call-site coverage, not just factory-output coverage — see
+    // `escapes.ts`'s file doc, the paragraph on `escapeResourceOptions`, for
+    // why a test that only calls `forDiscordConfigSeedItem` directly can't
+    // catch a future edit that quietly swaps the item's construction call
+    // site back to the plain `{ provider }` options already in scope
+    // (silently dropping the create-only `ignoreChanges` guard).
+    const forSeedItemSpy = vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem');
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const discordTable = await arrangeDiscordTable(provider);
+
+    defineDiscordTableItems({
+      projectName: 'hyveon',
+      provider,
+      discordTable,
+      baseAllowedGuilds: [],
+      baseAdminUserIds: [],
+      baseAdminRoleIds: [],
+      discordApplicationId: '123456789012345678',
+    });
+
+    expect(forSeedItemSpy).toHaveBeenCalledTimes(1);
+    expect(forSeedItemSpy).toHaveBeenCalledWith(provider);
+    expect(forSeedItemSpy.mock.results[0].value).toEqual({ provider, ignoreChanges: ['item'] });
+  });
+
+  it('should NOT call escapeResourceOptions.forDiscordConfigSeedItem when discordApplicationId is empty (item not declared)', async () => {
+    const forSeedItemSpy = vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem');
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const discordTable = await arrangeDiscordTable(provider);
+
+    defineDiscordTableItems({
+      projectName: 'hyveon',
+      provider,
+      discordTable,
+      baseAllowedGuilds: [],
+      baseAdminUserIds: [],
+      baseAdminRoleIds: [],
+      discordApplicationId: '',
+    });
+
+    expect(forSeedItemSpy).not.toHaveBeenCalled();
+  });
 });
 
-describe('discordConfigSeedItemResourceOptions', () => {
+describe('escapeResourceOptions.forDiscordConfigSeedItem', () => {
   it('should carry ignoreChanges: ["item"] so a re-deploy never reverts an operator-edited CONFIG#discord row', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
-    const opts = discordConfigSeedItemResourceOptions(provider);
+    const opts = escapeResourceOptions.forDiscordConfigSeedItem(provider);
 
     expect(opts.ignoreChanges).toEqual(['item']);
     expect(opts.provider).toBe(provider);
@@ -314,14 +361,40 @@ describe('defineEfsSeederInvocations', () => {
 
     expect(secondHash).not.toBe(firstHash);
   });
+
+  it('should declare each invocation via escapeResourceOptions.forEfsSeederInvocation, not an equivalent-but-uninspected options object', async () => {
+    // Call-site coverage, not just factory-output coverage — see
+    // `escapes.ts`'s file doc, the paragraph on `escapeResourceOptions`, for
+    // why a test that only calls `forEfsSeederInvocation` directly can't
+    // catch a future edit that quietly swaps the invocation's construction
+    // call site back to the plain `{ provider }` options already in scope
+    // (silently dropping the review-mandated `dependsOn` edge).
+    const forInvocationSpy = vi.spyOn(escapeResourceOptions, 'forEfsSeederInvocation');
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const fn = new aws.lambda.Function('hyveon-efs-seeder-echo', { role: 'arn:aws:iam::123456789012:role/mock' }, { provider });
+    const policy = new aws.iam.RolePolicy('hyveon-efs-seeder-echo-policy', { role: 'mock-role', policy: '{}' }, { provider });
+
+    const result = defineEfsSeederInvocations({
+      projectName: 'hyveon',
+      provider,
+      gameServers: { echo: SEEDED_GAME },
+      efsSeederFunctions: { echo: fn },
+      efsSeederPolicies: { echo: policy },
+    });
+    await promiseOf(result.echo.id);
+
+    expect(forInvocationSpy).toHaveBeenCalledTimes(1);
+    expect(forInvocationSpy).toHaveBeenCalledWith(provider, policy);
+    expect(forInvocationSpy.mock.results[0].value).toEqual({ provider, dependsOn: [policy] });
+  });
 });
 
-describe('efsSeederInvocationResourceOptions', () => {
+describe('escapeResourceOptions.forEfsSeederInvocation', () => {
   it('should carry dependsOn: [policy] so the invocation waits on the review-mandated IAM policy edge', () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const policy = new aws.iam.RolePolicy('mock-policy', { role: 'mock-role', policy: '{}' }, { provider });
 
-    const opts = efsSeederInvocationResourceOptions(provider, policy);
+    const opts = escapeResourceOptions.forEfsSeederInvocation(provider, policy);
 
     expect(opts.dependsOn).toEqual([policy]);
     expect(opts.provider).toBe(provider);
