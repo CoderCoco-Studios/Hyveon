@@ -107,10 +107,16 @@ export const RUN_LOCK_SERVICE = Symbol('RUN_LOCK_SERVICE');
 /**
  * The slice of `RunService`'s public surface {@link PulumiService.apply}
  * depends on — see {@link RUN_LOCK_SERVICE}'s doc comment. Structurally
- * identical to `RunService.createRun`'s own signature.
+ * identical to `RunService.createRun`/`.releaseRun`'s own signatures.
+ * `releaseRun` (fix round 1's addition) backstops two distinct paths: the
+ * post-`createRun` re-check that closes the apply-vs-`preview`/`destroy`
+ * local-workspace race (see {@link apply}'s TSDoc), and the outer `finally`'s
+ * unconditional release covering a `writeRunRecord` failure that would
+ * otherwise skip `persistRunRecord`'s own lock-releasing `finally` entirely.
  */
 export interface RunLockService {
   createRun(kind: RunKind, initiator: string, runId?: string): Promise<RunLock>;
+  releaseRun(runId: string): Promise<void>;
 }
 
 /**
@@ -1448,6 +1454,35 @@ export class PulumiService {
    *    `{ started: false, conflict: 'apply' }`, the same way
    *    `TerraformController.apply` did.
    *
+   * ## Fix round 1: the top-of-function `operationInFlight` check was itself
+   * the forbidden "preceding workspace-is-free observation"
+   *
+   * The version of this method a first review round caught: `operationInFlight`
+   * was both CHECKED and SET at the very top of the method, before gate step
+   * 1 ever ran. That set is exactly the "is the workspace free" observation
+   * the `iac-plan-apply-page` spec and task 7.7 both explicitly forbid as the
+   * gate — it meant two `apply()` calls in the SAME process (the only
+   * concurrency case that matters for a single desktop app) could never both
+   * reach step 8 at all: the second was refused immediately, before reading
+   * anything, with a generic `Error` rather than `RunLockHeldError`, and the
+   * spec's "two simultaneous applies are ordered by the lock" scenario was
+   * never actually exercised.
+   *
+   * The fix: `operationInFlight` is now only ever SET once — synchronously,
+   * immediately after `createRun` above resolves (see the re-check
+   * immediately below) — never at the top. The top-of-function check
+   * (unchanged in shape, just no longer paired with a set) still exists and
+   * still matters, but for a narrower, legitimate purpose: refusing an
+   * `apply()` call that arrives while a `preview`/`destroy` call, or an
+   * `apply` that has ALREADY won its lock and is actively running the
+   * engine, is genuinely using the shared local workspace directory
+   * (`operationInFlight`'s own doc comment — a concern entirely independent
+   * of the durable apply lock, since two Automation API invocations against
+   * the same `workDir`/`Pulumi.<stack>.yaml` would corrupt local state
+   * regardless of what `RunService` thinks). It can no longer be true that
+   * two `apply()` calls both racing through steps 1-7 ever observe each
+   * other via this field — only `createRun`'s own atomicity orders them now.
+   *
    * `initiator` is resolved internally via {@link resolveInitiator}
    * (`os.userInfo().username`, duplicating `TerraformController.resolveApprover()`'s
    * identical lookup) rather than taken as a parameter — this method is
@@ -1465,12 +1500,29 @@ export class PulumiService {
    *
    * ## Nothing is reserved before step 8 — verified, not just asserted
    *
-   * `this.beginActiveRun(runId)` (the active-run streaming buffer) and
-   * `this.store.recordPulumiLockAttempt(...)` (the DIY-lock ownership
-   * record, see below) are BOTH called only after step 8's `createRun` has
-   * already resolved successfully — reading this method top-to-bottom
-   * confirms no side effect precedes the atomic reservation, satisfying task
-   * 7.7's "nothing before this point may reserve anything".
+   * `this.beginActiveRun(runId)`, `this.operationInFlight = 'up'` (fix round
+   * 1 — see above), and `this.store.recordPulumiLockAttempt(...)` (the
+   * DIY-lock ownership record, see below) are ALL called only after step 8's
+   * `createRun` has already resolved successfully AND the post-`createRun`
+   * local-workspace re-check immediately below has itself passed — reading
+   * this method top-to-bottom confirms no side effect precedes the atomic
+   * reservation, satisfying task 7.7's "nothing before this point may
+   * reserve anything". Gate step 8 is immediately followed by exactly one
+   * more check before anything is actually reserved: a re-read of
+   * `operationInFlight`, closing the residual TOCTOU gap between the
+   * top-of-function check and this point (a `preview`/`destroy` call could
+   * have started and set the field during the `await`s gate steps 1-7 took)
+   * — mirrors `TerraformController.apply`'s own identical post-`createRun`
+   * re-check of `getWorkspaceInFlight()` ("a concurrent plan/init could have
+   * reserved the workspace during that gap; this re-check closes it"). If
+   * that re-check finds the field already set, the durable lock this call
+   * just won is released (`RunLockService.releaseRun`) and the call is
+   * refused — nothing was ever reserved from the operator's point of view
+   * (no run record, no active-run buffer), so releasing here is simply
+   * undoing gate step 8, not a failure-recovery backstop. This re-check can
+   * only ever observe `'preview'`/`'destroy'` in practice, never `'up'` from
+   * a sibling `apply` — `RunService`'s lock is a single global slot, so two
+   * `createRun` calls can never both succeed while either is still held.
    *
    * ## Does `up()` take the DIY backend lock? (confirmed this dispatch)
    *
@@ -1708,6 +1760,18 @@ export class PulumiService {
     planHash: string,
     signal?: AbortSignal,
   ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
+    // Checked (never SET here — see "Nothing is reserved before step 8"
+    // below, fix round 1) so an `apply()` call arriving while a `preview`/
+    // `destroy`/already-lock-won `apply` is genuinely running the engine is
+    // refused immediately, without wasting a gate read that would lose
+    // anyway. Deliberately does NOT gate two applies racing for the SAME
+    // (or different) plan: those must both reach gate step 8 and be ordered
+    // by `RunLockService.createRun`'s own atomicity, never by this
+    // observation — see this method's TSDoc, "Nothing is reserved before
+    // step 8", for the fix-round-1 finding that setting this field here
+    // (as this method originally did) was exactly the forbidden "preceding
+    // workspace-is-free observation" the `iac-plan-apply-page` spec and
+    // task 7.7 both explicitly rule out as the gate.
     if (this.operationInFlight) {
       throw new Error(
         `PulumiService.apply() cannot run while ${this.operationInFlight}() is already ` +
@@ -1715,7 +1779,6 @@ export class PulumiService {
       );
     }
     PulumiService.assertValidRunId(planRunId);
-    this.operationInFlight = 'up';
     // Hoisted above the try block — mirrors preview()'s identical hoist and
     // rationale: a force-closed generator unwinds straight to the outer
     // `finally`, which needs to see these regardless of how far the gate/
@@ -1723,6 +1786,14 @@ export class PulumiService {
     let runId: string | undefined;
     let startedAt: string | undefined;
     let runRecordWritten = false;
+    // `true` only once THIS invocation has itself set `operationInFlight`
+    // (post gate-step-8, see below) — gates the outer `finally`'s reset so a
+    // gate failure that never touched the field can never null out some
+    // OTHER concurrently-running operation's own flag (fix round 1: with the
+    // top check above no longer also setting the field, a failing gate call
+    // can reach the outer `finally` having never touched `operationInFlight`
+    // at all, while a genuinely unrelated `preview`/`destroy` call is live).
+    let ownsOperationInFlight = false;
     // The gate-validated tfvarsVersionId/engineVersion, hoisted the instant
     // the plan record is fetched (well before the lock is acquired) so the
     // outer `finally`'s force-closed fallback can still thread them through
@@ -1731,6 +1802,13 @@ export class PulumiService {
     // control flow.
     let tfvarsVersionId: string | undefined;
     let engineVersion: string | undefined;
+    // Hoisted (fix round 1) so the outer `finally`'s force-closed fallback
+    // can persist real changeSummary/partial-apply data instead of nothing —
+    // see this method's TSDoc, "Partial-apply detection", for why this must
+    // be visible on every settlement path, not only a clean `outcome.kind
+    // === 'failed'`.
+    let capturedChangeSummary: ChangeSummary = {};
+    const completedSteps: PulumiPartialApplyStep[] = [];
     // The id `ElectronStoreService.recordPulumiLockAttempt` returns, kept in
     // scope so both the normal-completion path and the outer `finally`'s
     // force-close path can clear it — see the TSDoc's "Lock-recovery wiring"
@@ -1738,15 +1816,22 @@ export class PulumiService {
     let lockAttemptId: string | undefined;
     const logLines: string[] = [];
     // Same internal-controller pattern as preview() — see that method's
-    // TSDoc for the full rationale. `{ once: true }` is 7.1's review fix,
-    // applied here from the start (see this method's TSDoc, "Cancellation
-    // and abort-listener leak").
+    // TSDoc for the full rationale. Named (rather than inline) `onAbort` so
+    // the outer `finally` can unconditionally `removeEventListener` it on
+    // every exit path, not only once it fires — fix round 1: `{ once: true }`
+    // alone (round 0's fix) only detaches the listener once `signal` itself
+    // aborts; on the overwhelmingly common path (the caller's signal never
+    // aborts at all), the listener stayed attached for the signal's entire
+    // lifetime, so a caller reusing one long-lived `AbortSignal` across many
+    // `apply()` calls still accumulated one listener per call — the exact
+    // leak the brief asked to fix, which `{ once: true }` alone does not.
     const internalController = new AbortController();
+    const onAbort = (): void => internalController.abort();
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
       } else {
-        signal.addEventListener('abort', () => internalController.abort(), { once: true });
+        signal.addEventListener('abort', onAbort, { once: true });
       }
     }
     let operationPromise: Promise<UpResult> | undefined;
@@ -1829,6 +1914,42 @@ export class PulumiService {
       const initiator = PulumiService.resolveInitiator();
       await this.getRunLockService().createRun('apply', initiator, planRunId);
 
+      // Re-check the shared local-workspace guard now that this call has
+      // crossed the only genuinely async gap since the top-of-function
+      // check — mirrors `TerraformController.apply`'s identical
+      // post-`createRun` recheck ("a concurrent plan/init could have
+      // reserved the workspace during that gap; this re-check closes it").
+      // Fix round 1: this closes the apply-vs-`preview`/`destroy` race the
+      // top-of-function check alone can no longer close by itself now that
+      // it no longer also SETS the field — `preview`/`destroy` never touch
+      // `RunLockService` at all, so only this in-process flag can order them
+      // against an apply that has already won the durable lock. Apply-vs-
+      // apply is NEVER decided here — that race is already fully resolved by
+      // `createRun`'s own atomicity above; this check can only ever observe
+      // `'preview'`/`'destroy'` (never `'up'` from a sibling apply, since
+      // `RunService`'s lock is a single global slot — two `createRun` calls
+      // can never both succeed while either is still held).
+      if (this.operationInFlight) {
+        const inFlight = this.operationInFlight;
+        // Release the durable lock this call just won — nothing has been
+        // reserved from the operator's point of view yet (no run record, no
+        // active-run buffer, no `startedAt`), so releasing here is the
+        // correct undo of gate step 8, not a backstop for a later failure.
+        await this.getRunLockService().releaseRun(planRunId);
+        throw new Error(
+          `pulumi apply refused: ${inFlight} is already in flight against the shared workspace; wait for it ` +
+            'to finish before retrying. (The durable apply lock this call just acquired has been released.)',
+        );
+      }
+      // Only THIS invocation may ever clear `operationInFlight` back to
+      // `null` (see `ownsOperationInFlight`'s own doc comment) — set
+      // together, synchronously, with no `await` between them and the
+      // re-check above, so no concurrent `preview`/`destroy`/`apply` call
+      // can observe a window where the recheck passed but the field is not
+      // yet set.
+      this.operationInFlight = 'up';
+      ownsOperationInFlight = true;
+
       // Lock genuinely held from here on — this run owns planRunId. Nothing
       // above this line has reserved anything.
       runId = planRunId;
@@ -1861,9 +1982,10 @@ export class PulumiService {
       // `UpResult.summary.resourceChanges` is optional and its exact
       // population semantics from the CLI were not independently verified
       // this dispatch, unlike `PreviewResult.changeSummary`).
+      // `completedSteps`/`capturedChangeSummary` themselves are hoisted
+      // above the outer `try` (see there for why) — only `upError` is local
+      // to this inner try/catch.
       let upError: unknown;
-      const completedSteps: PulumiPartialApplyStep[] = [];
-      let capturedChangeSummary: ChangeSummary = {};
 
       try {
         const obj = await this.getRemoteFileStore().get(key);
@@ -2048,7 +2170,21 @@ export class PulumiService {
       const completedAt = new Date().toISOString();
       const exitCode = outcome.kind === 'aborted' ? null : outcome.kind === 'success' ? 0 : 1;
       const resultChangeSummary = outcome.kind === 'success' ? outcome.result.changeSummary : capturedChangeSummary;
-      const resultPartialApply = outcome.kind === 'failed' && outcome.partialApply ? true : undefined;
+      // Fix round 1: computed directly from `completedSteps`, independent of
+      // `outcome.kind === 'failed'` specifically — the original formula only
+      // ever consulted `outcome.partialApply` (itself only ever set on the
+      // `'failed'` variant), so an ABORTED apply (the operator pressing
+      // Cancel mid-`up()` — arguably the single most likely real-world way
+      // this system ends up partway through) silently lost the signal
+      // entirely. `outcome.kind === 'success'` is excluded deliberately, not
+      // an oversight: a fully successful apply that created/updated real
+      // resources also has `completedSteps.length > 0`, but that is
+      // completion, not partial-ness — `PulumiRunRecord.partialApply`'s own
+      // doc comment defines it only in terms of a failed/aborted engine
+      // invocation, and marking every ordinary successful apply as "partial"
+      // would defeat the whole distinction the spec's "re-plan, don't retry
+      // blindly" requirement exists to carry.
+      const resultPartialApply = outcome.kind !== 'success' && completedSteps.length > 0 ? true : undefined;
 
       try {
         this.writeRunRecord(
@@ -2103,6 +2239,16 @@ export class PulumiService {
       }
       throw outcome.error;
     } finally {
+      // Fix round 1: unconditionally detach the internal-controller abort
+      // listener — `{ once: true }` alone only removes it once `signal`
+      // itself fires; on the overwhelmingly common path (the caller's
+      // signal never aborts across a normal completion), it stayed attached
+      // for the signal's whole lifetime, so a caller reusing one long-lived
+      // `AbortSignal` across many `apply()` calls accumulated one listener
+      // per call. Safe/idempotent to call even when the listener already
+      // detached itself (a `{ once: true }` listener that already fired).
+      signal?.removeEventListener('abort', onAbort);
+
       // Covers the force-closed generator case — see preview()'s identical
       // block for the full rationale; mirrored here verbatim except for the
       // added lock-attempt-clearing decision below.
@@ -2130,15 +2276,87 @@ export class PulumiService {
         logger.warn('pulumi apply cancelled — generator force-closed while running', { runId });
         this.writeRunLog(runId, logLines);
         const completedAt = new Date().toISOString();
+        // Fix round 1: threads `capturedChangeSummary`/a `completedSteps`-derived
+        // `partialApply` through this fallback write too (both now hoisted
+        // above the outer `try` for exactly this reason) — a force-closed
+        // apply that had already applied a mutating resource step is just as
+        // much a partial apply as one that settled through the normal path
+        // below; the fallback write previously discarded both signals
+        // entirely. `planHash` (the parameter, not `record.planHash` — `record`
+        // is block-scoped to the gate above and unreachable here) is threaded
+        // too since it costs nothing and completes the record.
+        const forceCloseResultPartialApply = completedSteps.length > 0 ? true : undefined;
         try {
-          this.writeRunRecord(runId, 'apply', startedAt, completedAt, null, tfvarsVersionId, undefined, undefined, undefined, engineVersion);
+          this.writeRunRecord(
+            runId,
+            'apply',
+            startedAt,
+            completedAt,
+            null,
+            tfvarsVersionId,
+            planHash,
+            undefined,
+            capturedChangeSummary,
+            engineVersion,
+            forceCloseResultPartialApply,
+          );
         } catch {
           // Nothing meaningful to do with a persistence failure while the
           // generator is already tearing down for an unrelated reason.
         }
-        await this.persistRunRecord(runId, 'apply', startedAt, completedAt, null, tfvarsVersionId, undefined, undefined, undefined, engineVersion);
+        await this.persistRunRecord(
+          runId,
+          'apply',
+          startedAt,
+          completedAt,
+          null,
+          tfvarsVersionId,
+          planHash,
+          undefined,
+          capturedChangeSummary,
+          engineVersion,
+          forceCloseResultPartialApply,
+        );
       }
-      this.operationInFlight = null;
+
+      // Fix round 1: unconditional backstop release of the durable apply
+      // lock whenever this call reached gate step 8 (`runId !== undefined`),
+      // regardless of whether `persistRunRecord` above already released it
+      // (via `RunRecordService.persist`'s own `finally` — this call becomes
+      // a harmless no-op then, per `RunService.releaseRun`'s own idempotent,
+      // never-throws contract). Without this, a `writeRunRecord` failure on
+      // the NORMAL (non-force-closed) path — `runRecordWritten` is set
+      // `true` right before that call, so a throw there skips
+      // `persistRunRecord` on that path AND skips this block's own
+      // fallback-write branch above (gated on `!runRecordWritten`) — would
+      // leak the durable lock for the full `DEFAULT_LOCK_TTL_MS` (1 hour)
+      // with nothing in-app to clear it. `TerraformController.apply`'s own
+      // streaming-loop `finally` has an identical unconditional
+      // `RunService.releaseRun` backstop one layer up; `apply` is
+      // self-contained per this task's ruling, so it inherits that
+      // obligation itself rather than leaving it to a controller that
+      // doesn't exist yet.
+      if (runId !== undefined) {
+        try {
+          await this.getRunLockService().releaseRun(runId);
+        } catch (err) {
+          logger.warn('pulumi apply: failed to release the durable apply lock as a backstop', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Fix round 1: gated on `ownsOperationInFlight` rather than
+      // unconditional — see that variable's own doc comment for why an
+      // unconditional reset here would risk nulling out a concurrently
+      // running, unrelated `preview`/`destroy` call's own flag on a path
+      // where THIS `apply()` call's gate failed before ever touching the
+      // field itself (now possible since the top-of-function check no
+      // longer also sets it — see "Nothing is reserved before step 8").
+      if (ownsOperationInFlight) {
+        this.operationInFlight = null;
+      }
     }
   }
 
