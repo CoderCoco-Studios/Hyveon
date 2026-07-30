@@ -14,6 +14,7 @@ vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import {
   runWithEscalatingCancellation,
+  PulumiOperationNotStartedError,
   PulumiOperationAbortedError,
   PulumiOperationEscalatedError,
   PULUMI_CANCELLATION_ESCALATION_TIMEOUT_MS,
@@ -47,13 +48,13 @@ describe('runWithEscalatingCancellation — no signal supplied', () => {
 });
 
 describe('runWithEscalatingCancellation — already-aborted signal', () => {
-  it('should reject with PulumiOperationAbortedError and never invoke the operation', async () => {
+  it('should reject with PulumiOperationNotStartedError and never invoke the operation', async () => {
     const controller = new AbortController();
     controller.abort();
     const operation = vi.fn().mockResolvedValue('should never happen');
 
     await expect(runWithEscalatingCancellation(operation, controller.signal)).rejects.toBeInstanceOf(
-      PulumiOperationAbortedError,
+      PulumiOperationNotStartedError,
     );
     expect(operation).not.toHaveBeenCalled();
   });
@@ -84,13 +85,14 @@ describe('runWithEscalatingCancellation — signal triggers a graceful attempt t
     expect(capturedSignal).toBe(controller.signal);
   });
 
-  it('should propagate the operation own rejection (e.g. a CLI error after SIGINT) rather than escalating', async () => {
+  it('should wrap the operation own rejection (e.g. a CLI error after SIGINT) as PulumiOperationAbortedError, carrying the original as .cause', async () => {
     const controller = new AbortController();
     const onEscalate = vi.fn();
+    const originalError = new Error('interrupted by SIGINT');
     const operation = vi.fn().mockImplementation(
       (signal: AbortSignal) =>
         new Promise((_resolve, reject) => {
-          signal.addEventListener('abort', () => reject(new Error('interrupted by SIGINT')));
+          signal.addEventListener('abort', () => reject(originalError));
         }),
     );
 
@@ -99,12 +101,78 @@ describe('runWithEscalatingCancellation — signal triggers a graceful attempt t
     // rejects synchronously off the abort event, so asserting after would
     // let the outer promise settle with no handler attached yet, which
     // Node flags as an (eventually-handled, but noisy) unhandled rejection.
-    const assertion = expect(promise).rejects.toThrow('interrupted by SIGINT');
+    const assertion = expect(promise).rejects.toBeInstanceOf(PulumiOperationAbortedError);
     controller.abort();
     await vi.advanceTimersByTimeAsync(0);
 
     await assertion;
     expect(onEscalate).not.toHaveBeenCalled();
+    await promise.catch((err: PulumiOperationAbortedError) => {
+      expect(err.cause).toBe(originalError);
+      expect(err.message).toContain('interrupted by SIGINT');
+    });
+  });
+
+  it('should clear the escalation timer and never call onEscalate when the operation settles before the timeout (regression: clearTimeout branch)', async () => {
+    const controller = new AbortController();
+    const onEscalate = vi.fn();
+    let releaseOperation: (() => void) | undefined;
+    const operation = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseOperation = () => resolve('finished just in time');
+        }),
+    );
+
+    const promise = runWithEscalatingCancellation(operation, controller.signal, {
+      escalationTimeoutMs: 10_000,
+      onEscalate,
+    });
+    controller.abort();
+    // Settle well before the escalation timeout fires.
+    await vi.advanceTimersByTimeAsync(1_000);
+    releaseOperation?.();
+    await expect(promise).resolves.toBe('finished just in time');
+
+    // Advance PAST where the escalation timeout would have fired — since it
+    // must have been cleared on early settlement, onEscalate must still
+    // never be called and no PulumiOperationEscalatedError is thrown
+    // anywhere (an uncleared timer would otherwise fire into a settled
+    // promise, which the internal `settled` guard would silently no-op, but
+    // this proves the timer was actually cleared rather than merely guarded).
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onEscalate).not.toHaveBeenCalled();
+  });
+});
+
+describe('runWithEscalatingCancellation — genuine failure with no cancellation involved', () => {
+  it('should reject with the original error unchanged (not wrapped) when userSignal never aborts', async () => {
+    const controller = new AbortController();
+    const originalError = new Error('some unrelated CLI failure');
+    const operation = vi.fn().mockRejectedValue(originalError);
+
+    await expect(runWithEscalatingCancellation(operation, controller.signal)).rejects.toBe(originalError);
+  });
+});
+
+describe('runWithEscalatingCancellation — operation throws synchronously', () => {
+  it('should reject with the synchronous throw and still remove the abort listener', async () => {
+    const controller = new AbortController();
+    const removeEventListenerSpy = vi.spyOn(controller.signal, 'removeEventListener');
+    const syncError = new Error('operation misbehaved and threw synchronously');
+    const operation = vi.fn().mockImplementation(() => {
+      throw syncError;
+    });
+
+    // `operation` is invoked synchronously and immediately (before any abort
+    // event could possibly have fired yet), so a synchronous throw here can
+    // only ever be the "not aborted" shape — rejects unwrapped, per this
+    // function's own doc comment. The wrapped-as-`PulumiOperationAbortedError`
+    // shape is exercised by the promise-rejection tests above instead, since
+    // reaching it requires `operation` to reject *after* an abort event has
+    // already fired, which is only reachable via an async rejection.
+    await expect(runWithEscalatingCancellation(operation, controller.signal)).rejects.toBe(syncError);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });
 

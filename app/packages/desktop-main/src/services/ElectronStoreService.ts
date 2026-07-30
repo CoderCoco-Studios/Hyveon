@@ -404,10 +404,20 @@ export class ElectronStoreService {
    * `PulumiLockRecovery.classifyStackLockConflict` to decide whether a
    * conflicting backend lock is a provable orphan of this installation's own
    * prior run.
+   *
+   * Returns each record together with its `runId` (unlike a bare
+   * `PulumiLockOwnershipRecord`) so a caller that identifies which record(s)
+   * it actually relied on as evidence can clear exactly those via
+   * {@link clearPulumiLockAttempt} — `PulumiLockRecovery.classifyStackLockConflict`
+   * uses this both to prune expired records and to consume the record it
+   * reclaims against, so a single past reclaim can't stand as permanent,
+   * reusable justification for reclaiming an unrelated future lock.
    */
-  listPulumiLockAttempts(stackName: string): PulumiLockOwnershipRecord[] {
+  listPulumiLockAttempts(stackName: string): (PulumiLockOwnershipRecord & { runId: string })[] {
     const lockOwnership = this.get('pulumi')?.lockOwnership ?? {};
-    return Object.values(lockOwnership).filter((record) => record.stackName === stackName);
+    return Object.entries(lockOwnership)
+      .filter(([, record]) => record.stackName === stackName)
+      .map(([runId, record]) => ({ runId, ...record }));
   }
 
   /**

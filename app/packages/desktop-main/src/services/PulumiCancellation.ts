@@ -27,41 +27,54 @@ import { logger } from '../logger.js';
  * `false`, and there is no second, stronger signal the SDK will ever send on
  * its own. A wedged engine that ignores `SIGINT` (or is stuck in a
  * cloud-provider API call between signal checks) stays alive forever as far
- * as the SDK is concerned.
+ * as the SDK's own cancellation mechanism is concerned.
  *
- * ## No PID, no process handle — verified, not assumed
+ * ## No PID exposed via the public API — but an unofficial escape hatch exists
  *
- * The brief asked whether a stronger signal could be delivered by tracking
- * the child process's PID ourselves. It cannot, at least not through any
- * documented API: `exec()`'s `const proc = execa(...)` is a function-local
- * variable — `PulumiCommand.run()`'s public return type is `Promise<CommandResult>`
+ * `exec()`'s `const proc = execa(...)` is a function-local variable —
+ * `PulumiCommand.run()`'s public return type is `Promise<CommandResult>`
  * (`{ stdout, stderr, code }`), and grepping every `.js` file under
  * `automation/` for `.pid` returns zero matches. No `Stack`/`Workspace`
- * method anywhere in the Automation API surface exposes the spawned
- * process, its PID, or any other handle to it. So "forceful termination" at
- * this layer cannot mean "send SIGKILL to the exact process the SDK
- * spawned" — that process is never observable outside `cmd.js`.
+ * method anywhere in the *public* Automation API surface exposes the spawned
+ * process, its PID, or any other handle to it.
  *
- * Given that, what {@link runWithEscalatingCancellation} implements is a
- * **logical** escalation, not a literal SIGKILL: once the bounded escalation
- * window elapses without `operation` settling, this function stops waiting
- * on it and settles its own returned promise as forcefully terminated
- * (rejecting with {@link PulumiOperationEscalatedError}) — satisfying "the
- * app does not wait on it indefinitely" and "the run still settles as
- * aborted either way" without pretending to a kill mechanism the SDK does
- * not expose. The abandoned `operation` promise, if it ever settles in the
- * background, is still awaited internally (so it can never produce an
- * unhandled rejection) but its result is discarded. The optional
+ * That is the accurate claim — an earlier draft of this file overstated it
+ * as "not possible", which a review correctly flagged as handing Phase 7 a
+ * false constraint. The narrower truth: `PulumiCommand.prototype.run`
+ * (`cmd.js:140-156`) is the *single funnel* every `stack.preview/up/destroy`
+ * call reaches, and this app already constructs and holds the exact
+ * `PulumiCommand` instance passed into `LocalWorkspaceOptions.pulumiCommand`
+ * (`PulumiWorkspaceService.ts`). Since `run` is an own method on that
+ * instance's prototype, nothing stops this app from reassigning
+ * `pulumiCommand.run = customRun` on the specific instance before handing it
+ * to `LocalWorkspace` — a custom `run` could spawn via `execa` itself and
+ * retain the real, killable `proc` handle `cmd.js` never returns. This is
+ * therefore **technically possible**, just unofficial: `run` is marked
+ * `@internal` in the SDK's own source with no stability guarantee across
+ * versions, and a faithful override would have to reimplement `cmd.js`'s
+ * PATH-prepending, `--non-interactive` flag injection, and
+ * `createCommandError` classification to avoid silently regressing any of
+ * that behaviour. This task declines to build it — not because it is
+ * impossible, but because the duplication cost is real and there is no
+ * Phase 7 call site yet to verify the override against. Phase 7 should
+ * revisit this option explicitly once real `preview`/`up`/`destroy` calls
+ * exist, rather than being told the option doesn't exist at all.
+ *
+ * Given that, what {@link runWithEscalatingCancellation} implements today is
+ * a **logical** escalation, not a literal `SIGKILL`: once the bounded
+ * escalation window elapses without `operation` settling, this function
+ * stops waiting on it and settles its own returned promise as forcefully
+ * terminated (rejecting with {@link PulumiOperationEscalatedError}) —
+ * satisfying "the app does not wait on it indefinitely" and "the run still
+ * settles as aborted either way" without pretending to a kill mechanism this
+ * task did not build. The abandoned `operation` promise, if it ever settles
+ * in the background, is still consumed internally (so it can never produce
+ * an unhandled rejection) but its result is discarded. The optional
  * {@link EscalatingCancellationOptions.onEscalate} hook exists as the
- * extension point for whatever *does* become possible once Phase 7's real
- * call sites exist — e.g. an OS-level "find and kill the one `pulumi` child
- * process this app could possibly have spawned" mechanism, which this task
- * deliberately does not build: it would be untestable in any meaningful way
- * without a real caller to integrate against, and it is inherently
- * platform-specific (POSIX `pgrep -P`/`kill` vs. Windows
- * `taskkill`/WMI) in a way a primitives-only task without a real integration
- * point cannot responsibly commit to. See task-4.7-4.9-report.md for the
- * full discussion.
+ * extension point for whatever Phase 7 decides to add here — the unofficial
+ * `run` override above, an OS-level "find and kill the one `pulumi` child
+ * process this app could possibly have spawned" mechanism, or nothing at
+ * all. See task-4.7-4.9-report.md for the full discussion.
  *
  * ## A pre-aborted signal must never reach the SDK (verified gotcha)
  *
@@ -87,8 +100,39 @@ import { logger } from '../logger.js';
  * (that guard exists purely to skip an unnecessary spawn; here, skipping it
  * would let a genuinely undesired operation run uninterrupted). This is why
  * {@link runWithEscalatingCancellation} checks `userSignal?.aborted` first
- * and refuses to invoke `operation` at all in that case, mirroring
- * `TerraformService`'s precedent but for a strictly higher-stakes reason.
+ * and refuses to invoke `operation` at all in that case (rejecting with
+ * {@link PulumiOperationNotStartedError}), mirroring `TerraformService`'s
+ * precedent but for a strictly higher-stakes reason.
+ *
+ * ## Three distinct settlement shapes, so Phase 7 never has to read `signal.aborted` post-hoc
+ *
+ * Mirroring `TerraformService.spawnAndStream`'s own precedent (it latches a
+ * local `aborted` flag inside its `onAbort` handler, rather than reading
+ * `signal.aborted` after the fact, specifically so a signal that fires late
+ * can't misclassify an already-successful run — see that method's own
+ * TSDoc), this function latches the analogous state and produces one of
+ * three distinct outcomes rather than leaving the *common* case
+ * (cancellation worked, the CLI exited via `SIGINT`) indistinguishable from
+ * a genuine unrelated failure:
+ *
+ * 1. {@link PulumiOperationNotStartedError} — `userSignal` was already
+ *    aborted before this call; `operation` never ran at all.
+ * 2. {@link PulumiOperationAbortedError} — `userSignal` aborted *while*
+ *    `operation` was running, and `operation` subsequently rejected (the
+ *    expected shape once the SDK's `SIGINT` takes effect: `stack.up()`
+ *    rejects with a plain `CommandError`, indistinguishable by type alone
+ *    from a genuine failure). This wraps the original rejection as `.cause`
+ *    so Phase 7 can record the run as aborted while still retaining the
+ *    underlying detail for logs.
+ * 3. {@link PulumiOperationEscalatedError} — the bounded escalation window
+ *    elapsed with `operation` still pending; see the "logical escalation"
+ *    section above.
+ *
+ * If `operation` instead *resolves* after `userSignal` aborted (a real race:
+ * the CLI happened to finish successfully right as `SIGINT` was sent), this
+ * function resolves normally rather than fabricating an aborted outcome for
+ * a genuinely successful run — the same "don't report success as failure"
+ * principle `PulumiLeakedPromise.ts` applies to a different SDK quirk.
  */
 
 /**
@@ -115,13 +159,38 @@ export const PULUMI_CANCELLATION_ESCALATION_TIMEOUT_MS = 30_000;
 
 /**
  * Thrown by {@link runWithEscalatingCancellation} when `userSignal` is
- * already `aborted` at call time — see this file's top-level TSDoc for why
- * this must short-circuit before `operation` is ever invoked, rather than
- * invoking it and trusting the SDK's own signal handling to interrupt it.
+ * already `aborted` at call time, so `operation` is never invoked at all —
+ * see this file's top-level TSDoc's "pre-aborted signal" section for why
+ * this must short-circuit rather than invoking `operation` and trusting the
+ * SDK's own signal handling to interrupt it (it wouldn't).
+ *
+ * Distinct from {@link PulumiOperationAbortedError} (which requires
+ * `operation` to have actually started and then been interrupted) — a fix
+ * applied after review flagged that the original single "aborted" error
+ * class conflated "never started" with "started, then genuinely aborted",
+ * leaving no way to represent the latter at all.
  */
-export class PulumiOperationAbortedError extends Error {
+export class PulumiOperationNotStartedError extends Error {
   constructor() {
     super('Pulumi operation was not started: cancellation was already requested before it began.');
+    this.name = 'PulumiOperationNotStartedError';
+  }
+}
+
+/**
+ * Thrown by {@link runWithEscalatingCancellation} when `userSignal` aborted
+ * *while* `operation` was running and `operation` subsequently rejected —
+ * the expected shape once the SDK's `SIGINT` takes effect (`stack.up()`
+ * etc. reject with a plain `CommandError`, otherwise indistinguishable by
+ * type from a genuine failure). See this file's top-level TSDoc's "Three
+ * distinct settlement shapes" section.
+ */
+export class PulumiOperationAbortedError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(
+      'Pulumi operation was aborted: cancellation was requested and the underlying invocation ' +
+        `subsequently exited/rejected. Underlying error: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
     this.name = 'PulumiOperationAbortedError';
   }
 }
@@ -129,10 +198,10 @@ export class PulumiOperationAbortedError extends Error {
 /**
  * Thrown by {@link runWithEscalatingCancellation} when `operation` does not
  * settle within `escalationTimeoutMs` of `userSignal` aborting. See this
- * file's top-level TSDoc "No PID, no process handle" section for why this
- * represents this layer giving up waiting on the operation (a *logical*
- * forceful termination) rather than a literal `SIGKILL` of the underlying
- * engine process, which the SDK does not expose a way to perform.
+ * file's top-level TSDoc "No PID exposed via the public API" section for why
+ * this represents this layer giving up waiting on the operation (a
+ * *logical* forceful termination) rather than a literal `SIGKILL` of the
+ * underlying engine process.
  */
 export class PulumiOperationEscalatedError extends Error {
   constructor(public readonly escalationTimeoutMs: number) {
@@ -152,10 +221,8 @@ export interface EscalatingCancellationOptions {
    * Invoked synchronously, at most once, the instant the escalation timeout
    * elapses without `operation` having settled — before this function's own
    * returned promise rejects with {@link PulumiOperationEscalatedError}. See
-   * this file's top-level TSDoc for why this hook cannot itself deliver a
-   * literal `SIGKILL` through anything this module builds — it exists as the
-   * extension point for whatever process-level mechanism Phase 7 chooses to
-   * add once it has a real call site to integrate against.
+   * this file's top-level TSDoc for what process-level mechanism (if any)
+   * Phase 7 might plug in here — this module does not supply one itself.
    */
   onEscalate?: () => void;
 }
@@ -174,23 +241,33 @@ export interface EscalatingCancellationOptions {
  * Behaviour:
  * - If `userSignal` is already `aborted` when this is called, `operation` is
  *   **never invoked** and this rejects immediately with
- *   {@link PulumiOperationAbortedError} — see the file TSDoc's "pre-aborted
- *   signal" section for why.
+ *   {@link PulumiOperationNotStartedError}.
  * - If `userSignal` is `undefined`, `operation` runs with a signal that will
  *   never abort — no escalation timer is ever armed, since there is nothing
  *   for it to escalate past.
  * - Otherwise, `operation` runs normally until either:
- *   1. It settles (resolves or rejects) on its own — including via the
- *      SDK's own graceful `SIGINT` handling once `userSignal` aborts. This
- *      function's returned promise settles the same way, and the escalation
- *      timer (if armed) is cancelled.
- *   2. `userSignal` aborts and then `escalationTimeoutMs` elapses with
+ *   1. It **resolves** — this function resolves the same way, whether or
+ *      not `userSignal` ever aborted (see the file TSDoc's note on why a
+ *      late-arriving success is never reported as an aborted failure).
+ *   2. It **rejects** without `userSignal` ever having aborted — a genuine
+ *      failure; this function rejects with the same error, unchanged.
+ *   3. It **rejects** *after* `userSignal` aborted — this function rejects
+ *      with {@link PulumiOperationAbortedError} wrapping the original
+ *      rejection as `.cause`, so Phase 7 can record the run as aborted
+ *      without inspecting `signal.aborted` after the fact.
+ *   4. `userSignal` aborts and then `escalationTimeoutMs` elapses with
  *      `operation` still pending — `onEscalate` (if supplied) is invoked
  *      once, and this function's returned promise rejects with
  *      {@link PulumiOperationEscalatedError} **without waiting further** for
  *      `operation` to settle. `operation`'s eventual settlement (if any) is
  *      still consumed internally so it can never produce an unhandled
  *      rejection, but its result/error is discarded.
+ *
+ * If `operation` throws *synchronously* (rather than returning a rejected
+ * promise), that is treated the same as an immediate rejection — the abort
+ * listener is still removed and this function's promise still rejects
+ * (wrapped in {@link PulumiOperationAbortedError} if `userSignal` had
+ * already aborted by then).
  *
  * @param operation - The cancellable work to run, given a signal to forward
  *   into the underlying SDK call.
@@ -204,7 +281,7 @@ export function runWithEscalatingCancellation<T>(
   options: EscalatingCancellationOptions = {},
 ): Promise<T> {
   if (userSignal?.aborted) {
-    return Promise.reject(new PulumiOperationAbortedError());
+    return Promise.reject(new PulumiOperationNotStartedError());
   }
 
   if (!userSignal) {
@@ -215,13 +292,27 @@ export function runWithEscalatingCancellation<T>(
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
+    // Latched the instant the abort listener fires, rather than read from
+    // `userSignal.aborted` when `operation` later rejects — mirrors
+    // `TerraformService.spawnAndStream`'s own `aborted` latch (see this
+    // file's top-level TSDoc). Using the live `.aborted` getter instead would
+    // give the same answer here in practice (nothing unlatches it), but the
+    // explicit local flag keeps this function's classification logic
+    // independent of exactly when `userSignal` itself is inspected.
+    let abortRequested = false;
     let escalationTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const cleanup = (): void => {
+      if (escalationTimer) clearTimeout(escalationTimer);
+      userSignal.removeEventListener('abort', onAbort);
+    };
+
     const onAbort = (): void => {
+      abortRequested = true;
       escalationTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        userSignal.removeEventListener('abort', onAbort);
+        cleanup();
         logger.warn('Pulumi engine invocation did not exit within the escalation timeout — force-terminating', {
           escalationTimeoutMs,
         });
@@ -231,21 +322,32 @@ export function runWithEscalatingCancellation<T>(
     };
     userSignal.addEventListener('abort', onAbort);
 
-    operation(userSignal).then(
-      (value) => {
-        if (settled) return;
-        settled = true;
-        if (escalationTimer) clearTimeout(escalationTimer);
-        userSignal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      (err: unknown) => {
-        if (settled) return;
-        settled = true;
-        if (escalationTimer) clearTimeout(escalationTimer);
-        userSignal.removeEventListener('abort', onAbort);
-        reject(err);
-      },
-    );
+    const handleResolve = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const handleReject = (err: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(abortRequested ? new PulumiOperationAbortedError(err) : err);
+    };
+
+    // `operation` is expected to return a promise, but a caller/underlying
+    // SDK call could in principle throw synchronously before ever returning
+    // one — guard against that so the abort listener is still cleaned up and
+    // this function's own promise still settles, rather than leaving a
+    // dangling listener and a permanently-pending outer promise.
+    let operationPromise: Promise<T>;
+    try {
+      operationPromise = operation(userSignal);
+    } catch (err) {
+      handleReject(err);
+      return;
+    }
+    operationPromise.then(handleResolve, handleReject);
   });
 }
