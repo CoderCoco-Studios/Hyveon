@@ -92,11 +92,13 @@
  *    bundle file to exist on disk, matching this task's brief.
  *  - **Phase 7's `PulumiService`** (`desktop-main`, not yet built) must
  *    resolve a real directory before calling `defineAll`/`createInfraProgram`,
- *    following the same three-tier pattern `ConfigService` already
- *    establishes for `terraform.tfstate`/`terraform.tfvars`
- *    (`getTfStatePath`/`getTfvarsPath`): an env var override, then
- *    `app.isPackaged` → `path.join(process.resourcesPath, 'lambda')`, then a
- *    repo-relative dev fallback. The packaged branch is NOT satisfiable
+ *    following the same three-tier pattern `ConfigService.getTfStatePath()`
+ *    already establishes for `terraform.tfstate` (the configuration bucket's
+ *    `getConfigurationBucket()`, post-`migrate-iac-to-pulumi` Phase 6, is a
+ *    bucket *name* resolved from `ElectronStoreService`, not a filesystem
+ *    path, so it's no longer an applicable precedent here): an env var
+ *    override, then `app.isPackaged` → `path.join(process.resourcesPath, 'lambda')`,
+ *    then a repo-relative dev fallback. The packaged branch is NOT satisfiable
  *    today without an `electron-builder.yml` change this task does not make:
  *    `app/packages/lambda/*\/dist/**` is not currently in that file's
  *    `files:`/`extraResources:` list (only `out/**` and the pinned

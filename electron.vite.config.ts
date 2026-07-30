@@ -51,7 +51,7 @@ export default defineConfig({
         // task 1.3 spike, i.e. the exact "bundled SDK owns sockets" hazard the
         // externalization exists to avoid.
         //
-        // Two mechanisms now cover these three packages, and the overlap is
+        // Two mechanisms now cover these two packages, and the overlap is
         // deliberate:
         //  - `externalizeDepsPlugin()` externalizes every root package.json
         //    `dependencies` entry, adding both the bare name and a

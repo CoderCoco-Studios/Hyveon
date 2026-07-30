@@ -28,10 +28,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 import { OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
 
+// Shared mock instances behind both the bare `'fs'` specifier and the
+// `'node:fs'` specifier — Node treats these as distinct module ids, and
+// TerraformService.ts imports the latter, so mocking only `'fs'` would let a
+// reintroduced local-disk fallback via `node:fs` slip past this file's
+// "no disk fallback reachable" assertions unnoticed.
+const { mockExists, mockRead, mockWrite } = vi.hoisted(() => ({
+  mockExists: vi.fn(),
+  mockRead: vi.fn(),
+  mockWrite: vi.fn(),
+}));
+
 vi.mock('fs', () => ({
-  readFileSync: vi.fn(),
-  existsSync: vi.fn(),
-  writeFileSync: vi.fn(),
+  readFileSync: mockRead,
+  existsSync: mockExists,
+  writeFileSync: mockWrite,
+}));
+vi.mock('node:fs', () => ({
+  readFileSync: mockRead,
+  existsSync: mockExists,
+  writeFileSync: mockWrite,
 }));
 
 vi.mock('../logger.js', () => ({
@@ -43,14 +59,8 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { TfvarsService, GameServerEntryError, ConfigurationNotConfiguredError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
-
-/** Strongly-typed mock handles for the `fs` module — asserted as NEVER called anywhere in this file. */
-const mockExists = vi.mocked(existsSync);
-const mockRead = vi.mocked(readFileSync);
-const mockWrite = vi.mocked(writeFileSync);
 
 /**
  * A deployment config fixture with non-`gameServers` top-level fields and
