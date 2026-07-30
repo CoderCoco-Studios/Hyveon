@@ -53,8 +53,8 @@
 
 ## 6. Configuration store
 
-- [ ] 6.1 Replace `TfvarsService`'s HCL read path with JSON parsing against the shared config type
-- [ ] 6.2 Replace the write path with JSON serialization, deleting `hclSurgeon.ts`, `hclEmit.ts`, and their tests
+- [x] 6.1 Replace `TfvarsService`'s HCL read path with JSON parsing against the shared config type
+- [x] 6.2 Replace the write path with JSON serialization, deleting `hclSurgeon.ts`, `hclEmit.ts`, and their tests
 - [ ] 6.3 Delete local-file mode: remove the disk read path, the unguarded `writeFileSync`, and `ConfigService.getTfvarsPath()`, so the S3 bucket is the only configuration source
 - [ ] 6.4 Make an unconfigured bucket report incomplete setup and route to the wizard — assert in a test that no disk fallback is reachable
 - [ ] 6.5 Add a round-trip test proving a config containing every field, top-level and per-game, survives write-then-read deeply equal
