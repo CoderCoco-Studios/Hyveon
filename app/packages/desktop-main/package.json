@@ -21,7 +21,6 @@
     "@aws-sdk/client-sts": "^3.1095.0",
     "@aws-sdk/credential-providers": "^3.1095.0",
     "@aws-sdk/lib-dynamodb": "^3.1095.0",
-    "@cdktf/hcl2json": "^0.21.0",
     "@grpc/proto-loader": "^0.8.1",
     "@hyveon/cloud-aws": "*",
     "@hyveon/shared": "*",

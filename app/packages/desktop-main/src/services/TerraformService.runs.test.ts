@@ -96,33 +96,35 @@ function queueSuccessfulResolution(binaryPath = '/usr/local/bin/terraform', vers
 
 /**
  * `ConfigService` stub sufficient for `plan()`/`streamRunOutput()`/
- * `readRunRecord()`/`hasPlanArtifact()` tests: exposes `getTerraformDir`, `getRunsDir`,
- * `getTfvarsBucket`, and `getTfvarsPath` — the accessors those methods read.
+ * `readRunRecord()`/`hasPlanArtifact()` tests: exposes `getTerraformDir`,
+ * `getRunsDir`, and `getConfigurationBucket` — the accessors those methods
+ * read. `tfvarsBucket` defaults to a configured bucket (there is no
+ * local-file fallback any more) so the background `plan()` calls below can
+ * pull a configuration snapshot via {@link stubRemoteFileStore}'s default.
  */
 function stubConfigService(
   opts: {
     terraformDir?: string;
     runsDir?: string;
     tfvarsBucket?: string | null;
-    tfvarsPath?: string;
   } = {},
 ): ConfigService {
   return {
     getTerraformDir: () => opts.terraformDir ?? '/repo/terraform',
     getRunsDir: () => opts.runsDir ?? '/repo/runs',
-    getTfvarsBucket: () => opts.tfvarsBucket ?? null,
-    getTfvarsPath: () => opts.tfvarsPath ?? '/repo/terraform/terraform.tfvars',
+    getConfigurationBucket: () => (opts.tfvarsBucket === undefined ? 'hyveon-tfvars' : opts.tfvarsBucket),
   } as ConfigService;
 }
 
 /**
- * Minimal `RemoteFileStore` stub sufficient to satisfy `TerraformService`'s
- * constructor dependency for these tests, which all exercise local-file
- * tfvars mode.
+ * `RemoteFileStore` stub sufficient to satisfy `TerraformService`'s
+ * constructor dependency for these tests. `get()` defaults to resolving a
+ * fixture configuration object so the background `plan()` calls driven below
+ * can pull a snapshot and reach spawn.
  */
 function stubRemoteFileStore(): RemoteFileStore {
   return {
-    get: vi.fn(),
+    get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode('{}'), etag: 'etag-fixture' }),
     put: vi.fn(),
     listVersions: vi.fn(),
   } as Partial<RemoteFileStore> as RemoteFileStore;
@@ -225,7 +227,7 @@ beforeEach(() => {
 
 function buildService(): TerraformService {
   return new TerraformService(
-    stubConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+    stubConfigService({ runsDir: '/repo/runs' }),
     stubRemoteFileStore(),
     stubRunRecordService(),
   );
