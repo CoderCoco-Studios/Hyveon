@@ -13,6 +13,7 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
+import type { ModuleRef } from '@nestjs/core';
 import type { OpMap, OutputMap, Stack } from '@pulumi/pulumi/automation/index.js';
 import type { ChangeSummary } from '@hyveon/shared';
 
@@ -32,7 +33,7 @@ import {
   PulumiDestroyError,
   PulumiPartialApplyError,
   StalePlanError,
-  TerraformPlanHashError,
+  PulumiPlanHashError,
   PulumiRunPersistError,
   DestroyNotConfirmedError,
   RollbackTargetNotFoundError,
@@ -89,6 +90,29 @@ function makeStore(opts: {
   return store;
 }
 
+/**
+ * Stub `ModuleRef` — task 7.1's `preview()` resolves `RUN_RECORD_PERSISTER`/
+ * `REMOTE_FILE_STORE` lazily via `ModuleRef.get(token, { strict: false })`
+ * (see `PulumiService.ts`'s `getRunRecordPersister`/`getRemoteFileStore` and
+ * `pulumi-service.module.ts`'s doc comment for why this isn't a normal
+ * constructor-injected dependency). None of `getStackOutputs()`'s existing
+ * tests ever reach `preview()`, so `get` throwing is intentional — it proves
+ * a test that unexpectedly exercises the lazy-lookup path fails loudly
+ * instead of silently resolving `undefined`.
+ */
+function makeModuleRef(): ModuleRef {
+  return { get: vi.fn(() => { throw new Error('ModuleRef.get() was not expected to be called by this test'); }) } as unknown as ModuleRef;
+}
+
+/** Constructs a real `PulumiService` for tests, defaulting `moduleRef` (added by task 7.1's `preview()`) to a stub unless a test overrides it. */
+function makeService(
+  workspace: PulumiWorkspaceService,
+  store: ElectronStoreService,
+  moduleRef: ModuleRef = makeModuleRef(),
+): PulumiService {
+  return new PulumiService(workspace, store, moduleRef);
+}
+
 /** Every field {@link makeStore} needs set for `getStackOutputs()` to reach the Pulumi call. */
 const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secret', awsRegion: 'us-east-1' };
 
@@ -132,7 +156,7 @@ const FULL_OUTPUT_MAP: OutputMap = {
 describe('PulumiService.getStackOutputs', () => {
   it('should return null without calling PulumiWorkspaceService when no state bucket is bootstrapped', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
-    const service = new PulumiService(workspace, makeStore());
+    const service = makeService(workspace, makeStore());
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
@@ -140,7 +164,7 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should return null without calling PulumiWorkspaceService when no passphrase is stored (never deployed)', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
-    const service = new PulumiService(workspace, makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' }));
+    const service = makeService(workspace, makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' }));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
@@ -148,7 +172,7 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should return null without calling PulumiWorkspaceService when no aws region is stored', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
-    const service = new PulumiService(
+    const service = makeService(
       workspace,
       makeStore({ stateBucket: 'my-state-bucket', passphrase: 'enc-secret' }),
     );
@@ -159,7 +183,7 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should call getOrCreateStack with stackExists/backendReady true and the stored bucket/region once fully configured', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await service.getStackOutputs();
 
@@ -175,7 +199,7 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should project every StackOutputs field from the resolved OutputMap', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     const result = await service.getStackOutputs();
 
@@ -203,7 +227,7 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should fill per-field defaults for keys absent from the OutputMap', async () => {
     const workspace = makeWorkspace({ gameNames: out(['minecraft']) });
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     const result = await service.getStackOutputs();
 
@@ -220,14 +244,14 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should return null when the resolved OutputMap is empty (stack exists but nothing applied yet)', async () => {
     const workspace = makeWorkspace({});
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
 
   it('should return null (not throw) when getOrCreateStack throws PulumiBackendNotBootstrappedError', async () => {
     const workspace = makeWorkspace(new PulumiBackendNotBootstrappedError('my-state-bucket'));
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
@@ -246,14 +270,14 @@ describe('PulumiService.getStackOutputs', () => {
     const workspace = makeWorkspace(
       new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable'),
     );
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
 
   it('should return null (not throw) when getOrCreateStack throws any other error', async () => {
     const workspace = makeWorkspace(new Error('transient AWS failure'));
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
@@ -263,7 +287,7 @@ describe('PulumiService.getStackOutputs', () => {
       outputs: vi.fn().mockRejectedValue(new Error('S3 read failed')),
     } as unknown as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
@@ -271,7 +295,7 @@ describe('PulumiService.getStackOutputs', () => {
   it('should log a warning (not crash) when a Pulumi call fails', async () => {
     loggerMock.warn.mockClear();
     const workspace = makeWorkspace(new Error('transient AWS failure'));
-    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await service.getStackOutputs();
 
@@ -331,10 +355,10 @@ describe('PulumiService error classes', () => {
     expect(err.message).toContain('missing');
   });
 
-  it('should construct TerraformPlanHashError carrying runId/artifactPath/cause', () => {
+  it('should construct PulumiPlanHashError carrying runId/artifactPath/cause', () => {
     const cause = new Error('ENOENT');
-    const err = new TerraformPlanHashError('run-1', '/tmp/plan.json', cause);
-    expect(err.name).toBe('TerraformPlanHashError');
+    const err = new PulumiPlanHashError('run-1', '/tmp/plan.json', cause);
+    expect(err.name).toBe('PulumiPlanHashError');
     expect(err.runId).toBe('run-1');
     expect(err.artifactPath).toBe('/tmp/plan.json');
     expect(err.cause).toBe(cause);

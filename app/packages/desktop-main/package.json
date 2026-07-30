@@ -23,6 +23,7 @@
     "@aws-sdk/lib-dynamodb": "^3.1095.0",
     "@grpc/proto-loader": "^0.8.1",
     "@hyveon/cloud-aws": "*",
+    "@hyveon/infra": "*",
     "@hyveon/shared": "*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",

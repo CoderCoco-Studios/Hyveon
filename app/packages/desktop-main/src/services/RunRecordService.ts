@@ -159,12 +159,17 @@ export interface PersistRunRecordParams {
   /**
    * The structured resource-change summary this run's `preview`/`up`
    * reported, if the caller has one — see `ChangeSummary`'s doc comment
-   * (`@hyveon/shared/changeSummary.js`). Not yet supplied by any real caller
-   * (Phase 7's later `PulumiService.preview`/`.up` dispatches are what
-   * populate this); this field exists now purely so the type threads through
-   * to {@link RunRecord.changeSummary} without a later signature change.
+   * (`@hyveon/shared/changeSummary.js`). Populated by `PulumiService.preview`
+   * (task 7.1) and threaded through to {@link RunRecord.changeSummary}.
    */
   changeSummary?: ChangeSummary;
+  /**
+   * The Pulumi engine version stamped into this run's saved plan artifact,
+   * if the caller has one — see {@link RunRecord.engineVersion}'s doc
+   * comment. Populated by `PulumiService.preview` (task 7.1) and threaded
+   * through to {@link RunRecord.engineVersion}.
+   */
+  engineVersion?: string;
 }
 
 /**
@@ -287,6 +292,7 @@ export class RunRecordService {
           ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
           ...(params.rolledBackFrom !== undefined ? { rolledBackFrom: params.rolledBackFrom } : {}),
           ...(params.changeSummary !== undefined ? { changeSummary: params.changeSummary } : {}),
+          ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
           ...(logInline !== undefined ? { logInline } : {}),
           ...(logS3Key !== undefined ? { logS3Key } : {}),
         };
