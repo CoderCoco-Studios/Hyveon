@@ -195,9 +195,8 @@ export class GamesWriteService {
    * Shared success path for all three operations: invalidates both the
    * `TfvarsService` and `ConfigService` caches so the next read reflects the
    * write, emits the existing structured winston log line (action, game
-   * name, and whether the write went to the S3 tfvars backend or the local
-   * file — see `ConfigService.getTfvarsBucket()`), persists an
-   * `AuditService.record()` entry carrying `audit.before`/`audit.after`/
+   * name), persists an `AuditService.record()` entry carrying
+   * `audit.before`/`audit.after`/
    * `audit.versionId` under the mapped {@link AuditAction} (via
    * {@link AUDIT_ACTION_BY_WRITE_ACTION}), and builds the refreshed
    * `mergeGameLists()` list. `game` is omitted for `'delete'`, matching
@@ -214,11 +213,11 @@ export class GamesWriteService {
     this.tfvars.invalidateCache();
     this.config.invalidateCache();
 
-    logger.info('Game server write', {
-      action,
-      game: name,
-      mode: this.config.getTfvarsBucket() ? 's3' : 'local',
-    });
+    // A write only reaches this point once `TfvarsService.writeConfig()` has
+    // already succeeded, which requires a configured configuration bucket
+    // (`ConfigurationNotConfiguredError` otherwise) — so `mode` is always
+    // `'s3'` here; there is no local-file mode any more (Phase 6).
+    logger.info('Game server write', { action, game: name, mode: 's3' });
 
     await this.audit.record({
       action: AUDIT_ACTION_BY_WRITE_ACTION[action],

@@ -22,8 +22,9 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, writeFileSync, existsSync, cpSync, renameSync, rmSync } from 'fs';
-import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
+import { SafeStorageService } from './SafeStorageService.js';
 
 /** Strongly-typed mock handles for the `fs` module. */
 const mockExists = vi.mocked(existsSync);
@@ -32,6 +33,22 @@ const mockWrite = vi.mocked(writeFileSync);
 const mockCp = vi.mocked(cpSync);
 const mockRename = vi.mocked(renameSync);
 const mockRm = vi.mocked(rmSync);
+
+/**
+ * Builds a real `ElectronStoreService` (outside Electron, so it's backed by
+ * an in-memory `Map` rather than a real on-disk store — no mocking needed)
+ * with `bootstrap.configurationBucket` pre-seeded when `configurationBucket`
+ * is supplied, mirroring what the First-Run Wizard's bootstrap step would
+ * have persisted. Used to construct `ConfigService`, which reads this value
+ * via `getConfigurationBucket()`.
+ */
+function makeElectronStore(configurationBucket?: string): ElectronStoreService {
+  const store = new ElectronStoreService(new SafeStorageService());
+  if (configurationBucket !== undefined) {
+    store.set('bootstrap', { stateBucket: '', lockTable: '', configurationBucket });
+  }
+  return store;
+}
 
 /**
  * Test-only subclass that re-exposes `ConfigService`'s protected
@@ -65,7 +82,7 @@ describe('ConfigService', () => {
   let service: ConfigService;
 
   beforeEach(() => {
-    service = new ConfigService();
+    service = new ConfigService(makeElectronStore());
   });
 
   describe('getTfOutputs', () => {
@@ -342,14 +359,13 @@ describe('ConfigService', () => {
     let testableService: TestableConfigService;
 
     beforeEach(() => {
-      testableService = new TestableConfigService();
+      testableService = new TestableConfigService(makeElectronStore());
     });
 
     afterEach(() => {
       vi.restoreAllMocks();
       delete process.env['TF_STATE_PATH'];
       delete process.env['SERVER_CONFIG_PATH'];
-      delete process.env['TFVARS_PATH'];
       delete process.env['HYVEON_TFVARS_BUCKET'];
       delete process.env['TF_DIR'];
       delete process.env['RUNS_DIR_PATH'];
@@ -390,95 +406,28 @@ describe('ConfigService', () => {
       expect(path.isAbsolute(result)).toBe(true);
     });
 
-    it('should return the TFVARS_PATH env var value when set', () => {
-      process.env['TFVARS_PATH'] = '/custom/tfvars/terraform.tfvars';
-      expect(service.getTfvarsPath()).toBe('/custom/tfvars/terraform.tfvars');
-    });
-
-    it('should return packaged tfvars path when readIsPackaged returns true', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readResourcesPath').mockReturnValue('/fake/resources');
-      expect(testableService.getTfvarsPath()).toBe(
-        path.join('/fake/resources', 'terraform', 'terraform.tfvars'),
-      );
-    });
-
-    it('should return the repo-relative tfvars fallback when readIsPackaged returns false', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(false);
-      const result = testableService.getTfvarsPath();
-      expect(result).toMatch(/terraform[/\\]terraform\.tfvars$/);
-      expect(path.isAbsolute(result)).toBe(true);
-    });
-
-    it('should return the HYVEON_TFVARS_BUCKET env var value when set', () => {
+    it('should return the HYVEON_TFVARS_BUCKET env var value when set, even when a configuration bucket is also stored', () => {
       process.env['HYVEON_TFVARS_BUCKET'] = 'my-project-tfvars';
-      expect(service.getTfvarsBucket()).toBe('my-project-tfvars');
+      const configuredService = new ConfigService(makeElectronStore('stored-bucket'));
+      expect(configuredService.getConfigurationBucket()).toBe('my-project-tfvars');
     });
 
-    it('should return the marker file contents when HYVEON_TFVARS_BUCKET is unset', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('marker-bucket-name\n');
-      expect(service.getTfvarsBucket()).toBe('marker-bucket-name');
+    it('should return the configured bootstrap.configurationBucket from ElectronStoreService when HYVEON_TFVARS_BUCKET is unset', () => {
+      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'));
+      expect(configuredService.getConfigurationBucket()).toBe('operator-configured-bucket');
     });
 
-    it('should walk up from a nested cwd to find the marker file at an ancestor directory', () => {
-      const repoRoot = path.join(path.sep, 'repo');
-      const nestedCwd = path.join(repoRoot, 'app', 'packages', 'desktop-main');
-      const markerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
-
-      vi.spyOn(process, 'cwd').mockReturnValue(nestedCwd);
-      mockExists.mockImplementation((p) => p === markerPath);
-      mockRead.mockReturnValue('nested-bucket-name');
-
-      expect(service.getTfvarsBucket()).toBe('nested-bucket-name');
-      expect(mockRead).toHaveBeenCalledWith(markerPath, 'utf-8');
+    it('should return null when neither the env var nor a stored bootstrap.configurationBucket resolve', () => {
+      expect(service.getConfigurationBucket()).toBeNull();
     });
 
-    it('should fall back to the legacy .gsd/tfvars-bucket marker and warn when only it exists', () => {
-      const repoRoot = path.join(path.sep, 'repo');
-      const legacyMarkerPath = path.join(repoRoot, '.gsd', 'tfvars-bucket');
+    it('should not touch the filesystem when resolving the configuration bucket', () => {
+      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'));
+      configuredService.getConfigurationBucket();
+      service.getConfigurationBucket();
 
-      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
-      mockExists.mockImplementation((p) => p === legacyMarkerPath);
-      mockRead.mockReturnValue('legacy-bucket-name');
-
-      expect(service.getTfvarsBucket()).toBe('legacy-bucket-name');
-      expect(mockRead).toHaveBeenCalledWith(legacyMarkerPath, 'utf-8');
-      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-        expect.stringContaining('Using legacy .gsd/tfvars-bucket marker'),
-        expect.objectContaining({ path: legacyMarkerPath }),
-      );
-    });
-
-    it('should prefer the new .hyveon/tfvars-bucket marker over the legacy .gsd one when both exist', () => {
-      const repoRoot = path.join(path.sep, 'repo');
-      const newMarkerPath = path.join(repoRoot, '.hyveon', 'tfvars-bucket');
-
-      vi.spyOn(process, 'cwd').mockReturnValue(repoRoot);
-      mockExists.mockImplementation((p) => p === newMarkerPath || p === path.join(repoRoot, '.gsd', 'tfvars-bucket'));
-      mockRead.mockReturnValue('new-bucket-name');
-
-      expect(service.getTfvarsBucket()).toBe('new-bucket-name');
-      expect(mockRead).toHaveBeenCalledWith(newMarkerPath, 'utf-8');
-    });
-
-    it('should return null when neither the env var nor the marker file resolve', () => {
-      mockExists.mockReturnValue(false);
-      expect(service.getTfvarsBucket()).toBeNull();
-    });
-
-    it('should return null when the marker file is empty', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('   ');
-      expect(service.getTfvarsBucket()).toBeNull();
-    });
-
-    it('should return null and warn when the marker file cannot be read', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockImplementation(() => {
-        throw new Error('EACCES');
-      });
-      expect(service.getTfvarsBucket()).toBeNull();
+      expect(mockExists).not.toHaveBeenCalled();
+      expect(mockRead).not.toHaveBeenCalled();
     });
 
     it('should return the TF_DIR env var value when set', () => {

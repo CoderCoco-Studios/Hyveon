@@ -31,7 +31,9 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
   │     └── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
   ├── runRecordMockStore ────────────────────────── stateful pk=RUN / pk=LOCK item store
   │     └── aws-sdk-client-mock (DynamoDBDocumentClient prototype patched) ── installRunRecordDynamoMock()
-  └── terraformFixture ──────────────────────────── PATH-shim dir + TF_DIR/RUNS_DIR_PATH/TFVARS_PATH temp dirs
+  ├── remoteFileStoreMockStore ───────────────────── single versioned configuration-object store
+  │     └── aws-sdk-client-mock (S3Client prototype patched) ── installRemoteFileStoreMock()
+  └── terraformFixture ──────────────────────────── PATH-shim dir + TF_DIR/RUNS_DIR_PATH temp dirs, HYVEON_TFVARS_BUCKET env var
         └── fake-terraform.mjs ──────────────────── resolved as the `terraform` binary via the shim wrapper
 ```
 
@@ -42,9 +44,10 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
 | `app/packages/desktop-main/src/test-mocks/mock-store.ts` | In-process `MockStore` singleton with per-command FIFO queues. |
 | `app/packages/desktop-main/src/test-mocks/ecs-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `ECSClient`, wired to `MockStore`. |
 | `app/packages/desktop-main/src/test-mocks/run-record-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `DynamoDBDocumentClient`, backed by the stateful `runRecordMockStore` singleton (`pk = RUN` run records + the single `pk = LOCK` apply-lock item) — see [DynamoDB Run-Record Mock](#dynamodb-run-record-mock) below. |
+| `app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `S3Client`, backed by the stateful `remoteFileStoreMockStore` singleton (a single versioned configuration object, keyed by `CONFIGURATION_OBJECT_KEY`) — see [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock) below. |
 | `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `NestFactory.createApplicationContext(AppModule)`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Also exposes `get(Provider)` to resolve a provider (e.g. `TerraformService`) directly from the container. |
 | `app/packages/web/e2e/fixtures/server-mocks.ts` | `ServerMocks` class + extended `test` with `serverMocks` and `ipc` fixtures. |
-| `app/packages/web/e2e/fixtures/terraform-shim.ts` | Extended `test` (`terraformFixture` + an `ipc` override that waits on it) that prepends a `terraform` PATH shim and points `TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`/`FAKE_TERRAFORM_SCRIPT` at fresh per-spec temp dirs before the `ipc` harness is built — see [PATH-Shim Injection](#path-shim-injection) below. |
+| `app/packages/web/e2e/fixtures/terraform-shim.ts` | Extended `test` (`terraformFixture` + an `ipc` override that waits on it) that prepends a `terraform` PATH shim, points `TF_DIR`/`RUNS_DIR_PATH`/`FAKE_TERRAFORM_SCRIPT` at fresh per-spec temp dirs, and sets `HYVEON_TFVARS_BUCKET` (so `TerraformService.plan()` can pull a configuration snapshot through the S3 mock — there is no local-file fallback) before the `ipc` harness is built — see [PATH-Shim Injection](#path-shim-injection) below. |
 | `app/packages/web/e2e/fixtures/terraform-fixtures.ts` | Builder functions (`successfulPlanEntry`, `failedPlanEntry`, `successfulApplyEntry`, `successfulDestroyEntry`, `successfulOutputEntry`, `ansiPlanEntry`, `versionEntry`) and `writeFixture()` for scripting `fake-terraform.mjs` responses from orchestrator specs. |
 | `app/packages/web/playwright.integration.config.ts` | Playwright config: `testDir: e2e/integration-specs`, `workers: 1`, no `webServer`, no `projects`. |
 | `app/packages/web/e2e/fixtures/tfstate.fixture.json` | Synthetic Terraform state (`minecraft` + `valheim`, `us-east-1`, `test.example.com`, including `runs_table_name`), injected via `TF_STATE_PATH` when the `ipc` harness boots. |
@@ -161,10 +164,10 @@ test('should ...', async ({ ipc, terraformFixture }) => {
 });
 ```
 
-`terraformFixture` runs *before* `ipc` (the fixture's own `ipc` override depends on it purely for ordering) because `TerraformService` resolves its binary path — and reads the `TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`/`FAKE_TERRAFORM_SCRIPT` env seams — lazily on first use, but the shim must already be in place by the time anything in the built container could trigger that resolution. Per spec, `terraformFixture`:
+`terraformFixture` runs *before* `ipc` (the fixture's own `ipc` override depends on it purely for ordering) because `TerraformService` resolves its binary path — and reads the `TF_DIR`/`RUNS_DIR_PATH`/`HYVEON_TFVARS_BUCKET`/`FAKE_TERRAFORM_SCRIPT` env seams — lazily on first use, but the shim must already be in place by the time anything in the built container could trigger that resolution. Per spec, `terraformFixture`:
 
-1. Creates three temp dirs: a shim dir (holding an executable `terraform` wrapper that `exec`s `node app/test/fake-terraform.mjs "$@"`, plus the JSON fixture file and a placeholder `terraform.tfvars`), a `TF_DIR` composer dir (left empty — the fake binary ignores cwd contents), and a `RUNS_DIR_PATH` run-artifacts dir.
-2. Prepends the shim dir to `process.env.PATH` and sets `FAKE_TERRAFORM_SCRIPT`/`TF_DIR`/`RUNS_DIR_PATH`/`TFVARS_PATH`, snapshotting prior values first.
+1. Creates three temp dirs: a shim dir (holding an executable `terraform` wrapper that `exec`s `node app/test/fake-terraform.mjs "$@"`, plus the JSON fixture file), a `TF_DIR` composer dir (left empty — the fake binary ignores cwd contents), and a `RUNS_DIR_PATH` run-artifacts dir.
+2. Prepends the shim dir to `process.env.PATH` and sets `FAKE_TERRAFORM_SCRIPT`/`TF_DIR`/`RUNS_DIR_PATH`/`HYVEON_TFVARS_BUCKET`, snapshotting prior values first. `HYVEON_TFVARS_BUCKET` is set so `ConfigService.getConfigurationBucket()` resolves non-`null` — `TerraformService.plan()`'s `pullVarFile()` requires a configured bucket (there is no local-file fallback any more) to pull a configuration snapshot through the [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock) below; the pulled content itself is never applied for real (`fake-terraform.mjs` ignores it).
 3. On teardown, restores every snapshotted env var (deleting keys that were previously unset) and removes all three temp dirs.
 
 Safe under the tier's `workers: 1`, `fullyParallel: false` config — env mutation windows never overlap between specs.
@@ -179,6 +182,16 @@ Safe under the tier's `workers: 1`, `fullyParallel: false` config — env mutati
 - **Reset per harness** — `createIpcHarness()` calls `runRecordMockStore.reset()` before installing the mock, so no plan/apply/destroy record or apply lock leaks from one spec's `AppModule` context into the next.
 
 Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also intercepts `AuditService`'s DynamoDB traffic (harmless — audit items land in the same in-memory item list but are excluded from every `runId`-filtered query).
+
+## Configuration-Bucket S3 Mock
+
+`app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` installs `aws-sdk-client-mock` interceptors on the `S3Client` prototype (`installRemoteFileStoreMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`/`installRunRecordDynamoMock()`), backed by the exported `remoteFileStoreMockStore` singleton — the configuration-bucket counterpart of the ECS/run-record mocks above. There is no local-file configuration fallback (see the `migrate-iac-to-pulumi` change's Phase 6), so `TerraformService.plan()`'s `pullVarFile()` and `TfvarsService`'s read/write paths require a genuinely working `RemoteFileStore` to reach spawn/succeed in this tier.
+
+- **A single versioned object**, keyed by `CONFIGURATION_OBJECT_KEY` (`@hyveon/shared`, `'deployment-config.json'`) — `GetObjectCommand`/`PutObjectCommand`/`ListObjectVersionsCommand` are reproduced against an in-memory, newest-version-first history, mirroring `AwsRemoteFileStore`'s real command usage.
+- **Seeded with a placeholder `DeploymentConfig`** on install/reset, so any spec whose `TerraformService.plan()` call doesn't care about configuration *content* (the common case — `fake-terraform.mjs` never reads the pulled var-file) still gets a valid `get()` without individually stubbing anything.
+- **`remoteFileStoreMockStore.seed(config)`** — replaces the object's entire history with a fresh single version containing `config`, for specs (e.g. future `TfvarsService`/rollback specs) that need specific configuration content.
+- **Reset per harness** — `createIpcHarness()` calls `remoteFileStoreMockStore.reset()` before installing the mock, so no configuration content or version history leaks from one spec's `AppModule` context into the next.
+- **`terraform-shim.ts`'s `terraformFixture`** sets `HYVEON_TFVARS_BUCKET` (see [PATH-Shim Injection](#path-shim-injection) above) so `ConfigService.getConfigurationBucket()` resolves non-`null` — this mock is otherwise never reached, since `AwsRemoteFileStore` throws its own "bucket not configured" error before ever calling `S3Client.send()`. Installing the mock unconditionally in `createIpcHarness()` (rather than only for terraform specs) is inert for every other spec for the same reason.
 
 ## Design Constraints
 

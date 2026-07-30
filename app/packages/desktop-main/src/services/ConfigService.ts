@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 import { randomUUID } from 'crypto';
 import type { GameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
 
 /** Absolute path to the `dist/services/` directory at runtime. */
 const _dirname = dirname(fileURLToPath(import.meta.url));
@@ -158,6 +159,14 @@ export type ActiveCloud = 'aws';
  */
 @Injectable()
 export class ConfigService {
+  /**
+   * `electronStore` is the source of truth for the configured configuration
+   * bucket name (`bootstrap.configurationBucket`, written by the First-Run
+   * Wizard's bootstrap step — see {@link getConfigurationBucket}). Not used
+   * by any other accessor on this class today.
+   */
+  constructor(private readonly electronStore: ElectronStoreService) {}
+
   /**
    * Memoised tfstate projection. Tri-state: `undefined` means "not loaded yet",
    * `null` means "loaded, but no usable state" (absent/empty/placeholder), and
@@ -467,51 +476,33 @@ export class ConfigService {
   }
 
   /**
-   * Resolve the absolute path to the local fallback copy of
-   * `terraform.tfvars`. This is the file `TfvarsService` reads/writes when
-   * running in "local" mode — i.e. no S3 tfvars backend is configured (see
-   * {@link getTfvarsBucket}). See `docs/docs/guides/s3-tfvars.md` for the
-   * local-vs-S3 tradeoff this mirrors.
+   * Resolve the configured S3 configuration bucket name — the sole source of
+   * `TfvarsService`'s configuration JSON as of the `migrate-iac-to-pulumi`
+   * change's Phase 6 ("Configuration persisted as versioned JSON"). Returns
+   * `null` when no bucket is configured, which callers MUST treat as "setup
+   * incomplete" — there is no local-file fallback any more (see
+   * `TfvarsService.isConfigured()`).
    *
-   * Resolution order (identical in structure to {@link getTfStatePath}):
-   *  1. `TFVARS_PATH` env var — wins when set.
-   *  2. Electron packaged app (`app.isPackaged`) — `<resourcesPath>/terraform/terraform.tfvars`.
-   *  3. Dev/test fallback — repo root `terraform/terraform.tfvars`.
-   */
-  getTfvarsPath(): string {
-    const envOverride = process.env['TFVARS_PATH'];
-    if (envOverride) return envOverride;
-
-    if (this.readIsPackaged()) {
-      return join(this.readResourcesPath()!, 'terraform', 'terraform.tfvars');
-    }
-
-    // Dev fallback: repo root is one level above _APP_ROOT (app/)
-    return join(_APP_ROOT, '..', 'terraform', 'terraform.tfvars');
-  }
-
-  /**
-   * Resolve the S3 bucket name backing the optional versioned tfvars store
-   * described in `docs/docs/guides/s3-tfvars.md`. Returns `null` when no S3
-   * backend is configured, which callers treat as "local mode" — read/write
-   * {@link getTfvarsPath} directly instead.
-   *
-   * Resolution order (mirrors the `--bucket` fallback chain in
-   * `scripts/tfvars-sync.ts` and the `Makefile` targets it generates):
-   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set.
-   *  2. The nearest `.hyveon/tfvars-bucket` marker file, found by walking up
-   *     from `process.cwd()` toward the filesystem root — written by
-   *     `setup.sh`'s S3 bootstrap or `init-parent.ts bootstrap --s3-tfvars`.
-   *     Matches `findBucketMarker()` in `scripts/tfvars-sync.ts` so the CLI
-   *     and the app agree on which marker file wins regardless of the
-   *     directory the app happens to be launched from.
+   * Resolution order:
+   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set. A dev/CI convenience
+   *     override (mirrors `scripts/tfvars-sync.ts`'s own independent env-var
+   *     read for that CLI), not how the packaged app resolves the bucket in
+   *     normal operator use.
+   *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
+   *     operator-configured value, submitted by the First-Run Wizard's
+   *     bootstrap step (`WizardController.saveState`) and read back via
+   *     `WizardController.getState`. This is the real post-Phase-5 source of
+   *     truth, replacing the `.hyveon`/`.gsd` `tfvars-bucket` marker-file
+   *     walk-up this method used to perform — that marker file existed only
+   *     to support the CLI and the now-removed local-file mode; it never
+   *     reflected what the desktop app itself had configured.
    *  3. `null` — no backend configured.
    */
-  getTfvarsBucket(): string | null {
+  getConfigurationBucket(): string | null {
     const envOverride = this.readEnvTfvarsBucket();
     if (envOverride) return envOverride;
 
-    return this.findTfvarsBucketMarker(process.cwd()) ?? null;
+    return this.electronStore.get('bootstrap')?.configurationBucket ?? null;
   }
 
   /**
@@ -520,61 +511,6 @@ export class ConfigService {
    */
   readEnvTfvarsBucket(): string | undefined {
     return process.env['HYVEON_TFVARS_BUCKET'];
-  }
-
-  /**
-   * Walk up from `startDir` toward the filesystem root looking for a
-   * non-empty `.hyveon/tfvars-bucket` marker file, one directory at a time.
-   * Falls back to the pre-rename `.gsd/tfvars-bucket` path (with a one-time
-   * warning) at each directory when the new path isn't present or is empty,
-   * so an operator who bootstrapped an S3 tfvars backend before the
-   * `dev.gsd.desktop` → `dev.hyveon.desktop` rename and hasn't yet run
-   * `mv .gsd .hyveon` doesn't silently fall back to "local mode" while the S3
-   * bucket still exists. An empty or unreadable marker at a given directory
-   * doesn't stop the walk — it's treated the same as a missing one, and the
-   * search continues to the legacy path at that directory, then the parent.
-   * Mirrors `findBucketMarker()` in `scripts/tfvars-sync.ts` so both the CLI
-   * and the app resolve to the same marker file. Returns the marker's trimmed
-   * contents (the bucket name) once found, or `undefined` if the filesystem
-   * root is reached without a match.
-   */
-  private findTfvarsBucketMarker(startDir: string): string | undefined {
-    let dir = startDir;
-    while (true) {
-      const markerPath = join(dir, '.hyveon', 'tfvars-bucket');
-      const contents = this.readMarkerFile(markerPath);
-      if (contents) return contents;
-
-      const legacyMarkerPath = join(dir, '.gsd', 'tfvars-bucket');
-      const legacyContents = this.readMarkerFile(legacyMarkerPath);
-      if (legacyContents) {
-        logger.warn(`Using legacy .gsd/tfvars-bucket marker — run \`mv .gsd .hyveon\` in ${dir} to migrate`, {
-          path: legacyMarkerPath,
-        });
-        return legacyContents;
-      }
-
-      const parent = dirname(dir);
-      if (parent === dir) return undefined;
-      dir = parent;
-    }
-  }
-
-  /**
-   * Read and trim a tfvars-bucket marker file's contents. Returns `undefined`
-   * (rather than throwing or returning an empty string) when the file is
-   * missing, unreadable, or empty, so callers can treat all three the same
-   * way — as "no marker here, keep looking."
-   */
-  private readMarkerFile(markerPath: string): string | undefined {
-    if (!existsSync(markerPath)) return undefined;
-    try {
-      const contents = readFileSync(markerPath, 'utf-8').trim();
-      return contents.length > 0 ? contents : undefined;
-    } catch (err) {
-      logger.warn(`Could not read ${markerPath} marker file`, { err, path: markerPath });
-      return undefined;
-    }
   }
 
   /**

@@ -113,36 +113,37 @@ function queueSuccessfulResolution(binaryPath = '/usr/local/bin/terraform', vers
 
 /**
  * `ConfigService` stub for `plan()` tests: exposes `getTerraformDir`,
- * `getRunsDir`, `getTfvarsBucket`, and `getTfvarsPath` — the accessors
- * `plan()` reads.
+ * `getRunsDir`, and `getConfigurationBucket` — the accessors `plan()` reads.
+ * `tfvarsBucket` defaults to a configured bucket — there is no local-file
+ * fallback any more — so tests that don't care about tfvars content still
+ * reach spawn via {@link stubRemoteFileStore}'s default `get()`.
  */
 function stubPlanConfigService(
   opts: {
     terraformDir?: string;
     runsDir?: string;
     tfvarsBucket?: string | null;
-    tfvarsPath?: string;
   } = {},
 ): ConfigService {
   return {
     getTerraformDir: () => opts.terraformDir ?? '/repo/terraform',
     getRunsDir: () => opts.runsDir ?? '/repo/runs',
-    getTfvarsBucket: () => opts.tfvarsBucket ?? null,
-    getTfvarsPath: () => opts.tfvarsPath ?? '/repo/terraform/terraform.tfvars',
+    getConfigurationBucket: () => (opts.tfvarsBucket === undefined ? 'hyveon-tfvars' : opts.tfvarsBucket),
   } as ConfigService;
 }
 
 /**
- * Minimal `RemoteFileStore` stub sufficient to satisfy `TerraformService`'s
+ * `RemoteFileStore` stub sufficient to satisfy `TerraformService`'s
  * constructor dependency. `get`/`put`/`listVersions` are directly-controllable
- * mocks so S3-mode `plan()` tests can queue a tfvars object response.
+ * mocks; `get()` defaults to resolving a fixture configuration object so
+ * `plan()` tests that don't care about tfvars content still reach spawn.
  */
 function stubRemoteFileStore(): RemoteFileStore & {
   get: ReturnType<typeof vi.fn>;
   listVersions: ReturnType<typeof vi.fn>;
 } {
   const store: Partial<RemoteFileStore> = {
-    get: vi.fn(),
+    get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode('{}'), etag: 'etag-fixture' }),
     put: vi.fn(),
     listVersions: vi.fn(),
   };
@@ -259,29 +260,31 @@ beforeEach(() => {
 });
 
 describe('TerraformService.plan spawning and artifact persistence', () => {
-  it('should mint a runId, create its runs-dir, pull the local tfvars snapshot, and spawn terraform plan with -out/-var-file derived from them', async () => {
+  it('should mint a runId, create its runs-dir, pull the configuration snapshot from the RemoteFileStore, and spawn terraform plan with -out/-var-file derived from them', async () => {
     queueSuccessfulResolution('/usr/local/bin/terraform', '1.7.0');
     randomUUIDMock.mockReturnValue('run-123');
     const child = new FakeChildProcess();
     queueSpawn(child);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.get.mockResolvedValue({
+      body: new TextEncoder().encode('{}'),
+      etag: 'etag-1',
+    });
+
     const service = new TerraformService(
-      stubPlanConfigService({
-        terraformDir: '/repo/terraform',
-        runsDir: '/repo/runs',
-        tfvarsBucket: null,
-        tfvarsPath: '/repo/terraform/terraform.tfvars',
-      }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ terraformDir: '/repo/terraform', runsDir: '/repo/runs', tfvarsBucket: 'hyveon-tfvars' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
 
     await collectPlanChunks(service.plan(), () => child.close(0));
 
     expect(mkdirSyncMock).toHaveBeenCalledWith('/repo/runs/run-123', { recursive: true });
-    expect(copyFileSyncMock).toHaveBeenCalledWith(
-      '/repo/terraform/terraform.tfvars',
-      '/repo/runs/run-123/terraform.tfvars',
+    expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      '/repo/runs/run-123/deployment-config.json',
+      expect.any(Uint8Array),
     );
     expect(spawnMock).toHaveBeenCalledWith(
       '/usr/local/bin/terraform',
@@ -290,38 +293,10 @@ describe('TerraformService.plan spawning and artifact persistence', () => {
         '-input=false',
         '-no-color',
         '-out=/repo/runs/run-123/run-123.tfplan',
-        '-var-file=/repo/runs/run-123/terraform.tfvars',
+        '-var-file=/repo/runs/run-123/deployment-config.json',
       ],
       { cwd: '/repo/terraform' },
     );
-  });
-
-  it('should pull the tfvars snapshot from the RemoteFileStore instead of the local filesystem when a tfvars bucket is configured', async () => {
-    queueSuccessfulResolution();
-    randomUUIDMock.mockReturnValue('run-456');
-    const child = new FakeChildProcess();
-    queueSpawn(child);
-
-    const remoteFileStore = stubRemoteFileStore();
-    remoteFileStore.get.mockResolvedValue({
-      body: new TextEncoder().encode('game_servers = {}'),
-      etag: 'etag-1',
-    });
-
-    const service = new TerraformService(
-      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
-      remoteFileStore,
-      stubRunRecordService(),
-    );
-
-    await collectPlanChunks(service.plan(), () => child.close(0));
-
-    expect(remoteFileStore.get).toHaveBeenCalledWith('terraform.tfvars');
-    expect(writeFileSyncMock).toHaveBeenCalledWith(
-      '/repo/runs/run-456/terraform.tfvars',
-      expect.any(Uint8Array),
-    );
-    expect(copyFileSyncMock).not.toHaveBeenCalled();
   });
 
   it('should proceed to spawn when the supplied tfvarsVersionId matches the head version returned by listVersions', async () => {
@@ -336,20 +311,20 @@ describe('TerraformService.plan spawning and artifact persistence', () => {
       { versionId: 'v1', lastModified: new Date('2024-01-01') },
     ]);
     remoteFileStore.get.mockResolvedValue({
-      body: new TextEncoder().encode('game_servers = {}'),
+      body: new TextEncoder().encode('{}'),
       etag: 'etag-1',
     });
 
     const service = new TerraformService(
-      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
+      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
       remoteFileStore,
       stubRunRecordService(),
     );
 
     await collectPlanChunks(service.plan('v2'), () => child.close(0));
 
-    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('terraform.tfvars');
-    expect(remoteFileStore.get).toHaveBeenCalledWith('terraform.tfvars');
+    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('deployment-config.json');
+    expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 
@@ -363,25 +338,25 @@ describe('TerraformService.plan spawning and artifact persistence', () => {
     ]);
 
     const service = new TerraformService(
-      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
+      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
       remoteFileStore,
       stubRunRecordService(),
     );
 
     await expect(collectPlanChunks(service.plan('v1'))).rejects.toThrow(/stale/i);
-    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('terraform.tfvars');
+    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('deployment-config.json');
     expect(remoteFileStore.get).not.toHaveBeenCalled();
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('should reject and never call spawn when the S3 tfvars object is missing from the bucket', async () => {
+  it('should reject and never call spawn when the configuration object is missing from the bucket', async () => {
     queueSuccessfulResolution();
 
     const remoteFileStore = stubRemoteFileStore();
     remoteFileStore.get.mockResolvedValue(null);
 
     const service = new TerraformService(
-      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
+      stubPlanConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
       remoteFileStore,
       stubRunRecordService(),
     );
@@ -390,13 +365,16 @@ describe('TerraformService.plan spawning and artifact persistence', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('should reject and never call spawn when the local tfvars source does not exist', async () => {
+  it('should reject and never call spawn when no configuration bucket is configured', async () => {
     queueSuccessfulResolution();
-    existsSyncMock.mockReturnValue(false);
 
-    const service = new TerraformService(stubPlanConfigService({ tfvarsBucket: null }), stubRemoteFileStore(), stubRunRecordService());
+    const service = new TerraformService(
+      stubPlanConfigService({ tfvarsBucket: null }),
+      stubRemoteFileStore(),
+      stubRunRecordService(),
+    );
 
-    await expect(collectPlanChunks(service.plan())).rejects.toThrow(/tfvars file not found/i);
+    await expect(collectPlanChunks(service.plan())).rejects.toThrow(/no configuration bucket is configured/i);
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -454,7 +432,7 @@ describe('TerraformService.plan run log capture', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -480,7 +458,7 @@ describe('TerraformService.plan run log capture', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -508,7 +486,7 @@ describe('TerraformService.plan run log capture', () => {
 
     const controller = new AbortController();
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -544,7 +522,7 @@ describe('TerraformService.plan run log capture', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -579,9 +557,14 @@ describe('TerraformService.plan run record persistence', () => {
     const child = new FakeChildProcess();
     queueSpawn(child);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([
+      { versionId: 'tfvars-version-abc', lastModified: new Date('2024-01-01') },
+    ]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
 
@@ -610,9 +593,14 @@ describe('TerraformService.plan run record persistence', () => {
     const child = new FakeChildProcess();
     queueSpawn(child);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([
+      { versionId: 'tfvars-version-abc', lastModified: new Date('2024-01-01') },
+    ]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
 
@@ -636,7 +624,7 @@ describe('TerraformService.plan run record persistence', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -664,7 +652,7 @@ describe('TerraformService.plan run record persistence', () => {
 
     const controller = new AbortController();
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -709,7 +697,7 @@ describe('TerraformService.plan run record persistence', () => {
     });
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -753,7 +741,7 @@ describe('TerraformService.plan run record persistence', () => {
     });
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -804,9 +792,12 @@ describe('TerraformService.plan run record persistence', () => {
     const child = new FakeChildProcess();
     queueSpawn(child);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([{ versionId: 'v1', lastModified: new Date('2024-01-01') }]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
     const gen = service.plan('v1');
@@ -851,9 +842,14 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     queueSpawn(child);
     runRecordPersistMock.mockResolvedValue(undefined);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([
+      { versionId: 'tfvars-version-abc', lastModified: new Date('2024-01-01') },
+    ]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
 
@@ -891,9 +887,14 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     queueSpawn(child);
     runRecordPersistMock.mockResolvedValue(undefined);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([
+      { versionId: 'tfvars-version-abc', lastModified: new Date('2024-01-01') },
+    ]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
 
@@ -914,7 +915,7 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     runRecordPersistMock.mockResolvedValue(undefined);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -942,7 +943,7 @@ describe('TerraformService.plan RunRecordService persistence', () => {
 
     const controller = new AbortController();
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -976,7 +977,7 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     });
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -996,7 +997,7 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     runRecordPersistMock.mockRejectedValue(new Error('DynamoDB unavailable'));
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -1017,9 +1018,12 @@ describe('TerraformService.plan RunRecordService persistence', () => {
     queueSpawn(child);
     runRecordPersistMock.mockResolvedValue(undefined);
 
+    const remoteFileStore = stubRemoteFileStore();
+    remoteFileStore.listVersions.mockResolvedValue([{ versionId: 'v1', lastModified: new Date('2024-01-01') }]);
+
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
-      stubRemoteFileStore(),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
+      remoteFileStore,
       stubRunRecordService(),
     );
     const gen = service.plan('v1');
@@ -1067,7 +1071,7 @@ describe('TerraformService.plan summary parsing and return value', () => {
     expect(result).toEqual({
       runId: 'run-789',
       artifactPath: '/repo/runs/run-789/run-789.tfplan',
-      varFilePath: '/repo/runs/run-789/terraform.tfvars',
+      varFilePath: '/repo/runs/run-789/deployment-config.json',
       add: 3,
       change: 1,
       destroy: 2,
@@ -1249,7 +1253,7 @@ describe('TerraformService.plan pre-minted runId', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -1264,7 +1268,7 @@ describe('TerraformService.plan pre-minted runId', () => {
       '/usr/local/bin/terraform',
       expect.arrayContaining([
         '-out=/repo/runs/pre-minted-run-id/pre-minted-run-id.tfplan',
-        '-var-file=/repo/runs/pre-minted-run-id/terraform.tfvars',
+        '-var-file=/repo/runs/pre-minted-run-id/deployment-config.json',
       ]),
       { cwd: '/repo/terraform' },
     );
@@ -1278,7 +1282,7 @@ describe('TerraformService.plan pre-minted runId', () => {
     queueSpawn(child);
 
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -1291,7 +1295,7 @@ describe('TerraformService.plan pre-minted runId', () => {
 
   it('should throw a descriptive Error synchronously and never call spawn when preMintedRunId is malformed', async () => {
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
@@ -1307,7 +1311,7 @@ describe('TerraformService.plan pre-minted runId', () => {
 
   it('should reject a preMintedRunId containing a path separator', async () => {
     const service = new TerraformService(
-      stubPlanConfigService({ runsDir: '/repo/runs', tfvarsBucket: null }),
+      stubPlanConfigService({ runsDir: '/repo/runs' }),
       stubRemoteFileStore(),
       stubRunRecordService(),
     );
