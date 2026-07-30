@@ -336,9 +336,18 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   }
 
   /**
-   * Runs the three bootstrap IPC calls concurrently (state bucket, lock
-   * table, tfvars bucket), updating each resource's status as its call
-   * settles. A failure on one resource doesn't stop the others from running.
+   * Runs the bootstrap IPC calls concurrently (state bucket, tfvars bucket),
+   * updating each resource's status as its call settles. A failure on one
+   * resource doesn't stop the other from running.
+   *
+   * @remarks
+   * Deliberately does not call `wizard.bootstrap.lockTable` — the
+   * main-process handler for that channel was removed (task 5.1: the DIY
+   * Pulumi S3 backend locks via objects in the state bucket, not a DynamoDB
+   * table), so invoking it would only reject. `lockTable`'s row still
+   * renders in {@link BootstrapStep} (its removal from the UI entirely is
+   * task 5.5's job) but is never touched here, so it just sits at whatever
+   * status it last held rather than spinning on `'creating'` forever.
    */
   async function runBootstrap() {
     if (!window.hyveon) {
@@ -348,12 +357,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       return;
     }
     setBootstrapping(true);
-    setResourceStatuses({ stateBucket: 'creating', lockTable: 'creating', tfvarsBucket: 'creating' });
+    setResourceStatuses((current) => ({ ...current, stateBucket: 'creating', tfvarsBucket: 'creating' }));
     setResourceMessages({});
 
     const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
       ['stateBucket', () => window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
-      ['lockTable', () => window.hyveon!.wizard.bootstrapLockTable({ tableName: resourceNames.lockTable })],
       ['tfvarsBucket', () => window.hyveon!.wizard.bootstrapTfvarsBucket({ bucketName: resourceNames.tfvarsBucket })],
     ];
 
@@ -395,7 +403,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     }
   }
 
-  const bootstrapComplete = (['stateBucket', 'lockTable', 'tfvarsBucket'] as BootstrapResourceKey[]).every(
+  const bootstrapComplete = (['stateBucket', 'tfvarsBucket'] as BootstrapResourceKey[]).every(
     (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
   );
 
