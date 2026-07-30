@@ -5,8 +5,8 @@
  * see `program.ts`'s file doc) has a single import surface.
  */
 
-export { createInfraProgram } from './program.js';
-export type { InfraProgramOptions } from './program.js';
+export { createInfraProgram, buildStackOutputs } from './program.js';
+export type { InfraProgramOptions, InfraResources, StackOutputValues } from './program.js';
 export type { NetworkResources, DefineNetworkArgs } from './network.js';
 export { defineNetwork, cidrSubnet } from './network.js';
 export type { SecurityGroupResources, DefineSecurityGroupsArgs, GamePort } from './securityGroups.js';

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createInfraProgram, defineAll, type InfraProgramOptions } from './program.js';
+import { buildStackOutputs, createInfraProgram, defineAll, type InfraProgramOptions } from './program.js';
 import { buildTestDeploymentConfig } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf } from './testing/pulumiMocks.js';
 
@@ -89,17 +89,42 @@ describe('createInfraProgram', () => {
     expect(programFn.length).toBe(0);
   });
 
-  it('should resolve without throwing when invoked', async () => {
-    // Deliberately does not install mocks or inspect `resources`: this test
-    // only asserts on the closure's own returned promise, whose
-    // resolution/rejection is decided synchronously by the closure body
-    // (`defineAll` either throws while declaring resources or it doesn't) —
-    // it does not depend on when the mocked resource-registration promise
-    // chains settle, so it needs no completion barrier and installs no mocks
-    // for later tests to accidentally race against.
+  it('should resolve to the stack-outputs object when invoked', async () => {
+    // Deliberately does not inspect individual resources or await any
+    // returned Output field to its underlying value: `buildStackOutputs`
+    // (task 3.11) builds every field synchronously off `defineAll`'s
+    // resource handles (`.apply(...)` registers a callback but does not
+    // await it) — so, same as the closure's previous `void`-returning form,
+    // this test's own promise resolution does not depend on when the mocked
+    // resource-registration promise chains settle, and needs no completion
+    // barrier. `defineAll` and `buildStackOutputs` field derivation are
+    // covered field-by-field by the `buildStackOutputs` describe block below.
     installPulumiMocks();
     const programFn = createInfraProgram(buildTestDeploymentConfig(), TEST_INFRA_PROGRAM_OPTIONS);
-    await expect(programFn()).resolves.toBeUndefined();
+    const result = await programFn();
+    expect(result).toBeDefined();
+    expect(Object.keys(result as Record<string, unknown>).sort()).toEqual(
+      [
+        'awsRegion',
+        'ecsClusterName',
+        'ecsClusterArn',
+        'subnetIds',
+        'securityGroupId',
+        'fileManagerSecurityGroupId',
+        'efsFileSystemId',
+        'efsAccessPoints',
+        'domainName',
+        'gameNames',
+        'discordTableName',
+        'auditTableName',
+        'runsTableName',
+        'discordBotTokenSecretArn',
+        'discordPublicKeySecretArn',
+        'interactionsInvokeUrl',
+        'discordInteractionsUrl',
+        'appliedGameServers',
+      ].sort(),
+    );
   });
 });
 
@@ -330,5 +355,88 @@ describe('defineAll', () => {
         },
       },
     ]);
+  });
+});
+
+describe('buildStackOutputs', () => {
+  beforeEach(() => {
+    installPulumiMocks();
+  });
+
+  it('should populate every StackOutputs field from its documented source resource', async () => {
+    const config = buildTestDeploymentConfig({ projectName: 'hyveon', hostedZoneName: 'example.com', awsRegion: 'us-east-1' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    expect(outputs.awsRegion).toBe('us-east-1');
+    expect(await promiseOf(outputs.ecsClusterName)).toBe(await promiseOf(resources.ecs.cluster.name));
+    expect(await promiseOf(outputs.ecsClusterArn)).toBe(await promiseOf(resources.ecs.cluster.arn));
+    expect(await promiseOf(outputs.subnetIds)).toEqual(
+      await Promise.all(resources.network.publicSubnets.map((subnet) => promiseOf(subnet.id))),
+    );
+    expect(await promiseOf(outputs.securityGroupId)).toBe(await promiseOf(resources.securityGroups.gameServers.id));
+    expect(await promiseOf(outputs.fileManagerSecurityGroupId)).toBe(await promiseOf(resources.securityGroups.fileManager.id));
+    expect(await promiseOf(outputs.efsFileSystemId)).toBe(await promiseOf(resources.efs.fileSystem.id));
+
+    // `efsAccessPoints` is keyed by game, one entry per game's FIRST volume
+    // only — not every `(game, volume)` pair `efs.gameAccessPoints` holds.
+    const expectedAccessPoints: Record<string, string> = {};
+    for (const [game, gameConfig] of Object.entries(config.gameServers)) {
+      const key = `${game}-${gameConfig.volumes[0].name}`;
+      expectedAccessPoints[game] = await promiseOf(resources.efs.gameAccessPoints[key].id);
+    }
+    expect(await promiseOf(outputs.efsAccessPoints)).toEqual(expectedAccessPoints);
+
+    expect(outputs.domainName).toBe('example.com');
+    expect(outputs.gameNames).toEqual(Object.keys(config.gameServers).sort());
+    expect(await promiseOf(outputs.discordTableName)).toBe(await promiseOf(resources.dynamoDb.discordTable.name));
+    expect(await promiseOf(outputs.auditTableName)).toBe(await promiseOf(resources.dynamoDb.auditTable.name));
+    expect(await promiseOf(outputs.runsTableName)).toBe(await promiseOf(resources.dynamoDb.runsTable.name));
+    expect(await promiseOf(outputs.discordBotTokenSecretArn)).toBe(await promiseOf(resources.secrets.discordBotTokenSecret.arn));
+    expect(await promiseOf(outputs.discordPublicKeySecretArn)).toBe(await promiseOf(resources.secrets.discordPublicKeySecret.arn));
+
+    const expectedCustomDomainUrl = `https://${await promiseOf(resources.discordDomain.aliasRecord.name)}/`;
+    expect(await promiseOf(outputs.interactionsInvokeUrl)).toBe(expectedCustomDomainUrl);
+    expect(await promiseOf(outputs.discordInteractionsUrl)).toBe(expectedCustomDomainUrl);
+
+    expect(outputs.appliedGameServers).toEqual(config.gameServers);
+  });
+
+  it('should resolve interactionsInvokeUrl and discordInteractionsUrl to the discord custom domain, not the raw Lambda Function URL', async () => {
+    const config = buildTestDeploymentConfig({ hostedZoneName: 'example.com' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    const rawFunctionUrl = await promiseOf(resources.lambdas.interactionsFunctionUrl.functionUrl);
+    const invokeUrl = await promiseOf(outputs.interactionsInvokeUrl);
+    const interactionsUrl = await promiseOf(outputs.discordInteractionsUrl);
+
+    expect(invokeUrl).toBe('https://discord.example.com/');
+    expect(interactionsUrl).toBe('https://discord.example.com/');
+    expect(invokeUrl).not.toBe(rawFunctionUrl);
+    expect(interactionsUrl).not.toBe(rawFunctionUrl);
+  });
+
+  it('should resolve auditTableName and runsTableName to the resolved (project-prefixed) name, not the raw config override', async () => {
+    const config = buildTestDeploymentConfig({ projectName: 'hyveon', auditTableName: '', runsTableName: '' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    expect(await promiseOf(outputs.auditTableName)).toBe('hyveon-audit');
+    expect(await promiseOf(outputs.runsTableName)).toBe('hyveon-runs');
+  });
+
+  it('should throw when a game name in config.gameServers has no matching efs.gameAccessPoints entry', async () => {
+    const config = buildTestDeploymentConfig({
+      gameServers: { orphan: { image: 'x', cpu: 512, memory: 512, ports: [], volumes: [{ name: 'saves', container_path: '/data' }] } },
+    });
+    const resources = await runDefineAll(config);
+    // Simulate drift AFTER the resource graph has fully settled (never leave
+    // an unawaited mock registration in flight past the end of a test — see
+    // `pulumiMocks.ts`'s doc): `resources.efs.gameAccessPoints` is a plain
+    // `Record`, not a resource, so mutating it post-settlement is safe.
+    resources.efs.gameAccessPoints = {};
+
+    expect(() => buildStackOutputs(resources, config)).toThrow(/no efs\.gameAccessPoints entry for "orphan-saves"/);
   });
 });
