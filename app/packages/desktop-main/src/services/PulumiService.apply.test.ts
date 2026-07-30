@@ -178,7 +178,7 @@ function makeRunRecordPersister(
 }
 
 /** `RunLockService` stub — `createRun` resolves a fresh `RunLock` by default. */
-function makeRunLockService(): RunLockService & { createRun: ReturnType<typeof vi.fn> } {
+function makeRunLockService(): RunLockService & { createRun: ReturnType<typeof vi.fn>; releaseRun: ReturnType<typeof vi.fn> } {
   const lock: RunLock = {
     runId: PLAN_RUN_ID,
     kind: 'apply',
@@ -186,7 +186,7 @@ function makeRunLockService(): RunLockService & { createRun: ReturnType<typeof v
     acquiredAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   };
-  return { createRun: vi.fn().mockResolvedValue(lock) };
+  return { createRun: vi.fn().mockResolvedValue(lock), releaseRun: vi.fn().mockResolvedValue(undefined) };
 }
 
 /** `ConfigCacheInvalidator` stub. */
@@ -472,25 +472,6 @@ describe('PulumiService.apply spawning', () => {
     );
   });
 
-  it('should throw synchronously when apply() is called while another operation is already in flight', async () => {
-    const workspace = makeWorkspace(
-      () =>
-        new Promise<UpResult>(() => {
-          // Never resolves — keeps the first call "in flight" for this test.
-        }),
-    );
-    const service = makeService({ workspace });
-
-    const first = service.apply(PLAN_RUN_ID, PLAN_HASH);
-    void first.next();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const second = service.apply(PLAN_RUN_ID, PLAN_HASH);
-    await expect(second.next()).rejects.toThrow(/already.*running/i);
-  });
 });
 
 describe('PulumiService.apply streaming and structured changeSummary', () => {
@@ -836,7 +817,7 @@ describe('PulumiService.apply abort handling', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
-  it('should register the internal abort listener with { once: true } so a reused signal never accumulates more than one live listener', async () => {
+  it('should register the internal abort listener with { once: true }', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const service = makeService({ workspace });
     const controller = new AbortController();
@@ -845,6 +826,35 @@ describe('PulumiService.apply abort handling', () => {
     await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal));
 
     expect(addEventListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+  });
+
+  it('should actually remove the abort listener on normal completion, not merely register it with { once: true } — a reused signal never accumulates a live listener across calls', async () => {
+    // `{ once: true }` alone only detaches a listener once the signal FIRES —
+    // it does nothing for the overwhelmingly common case where the signal
+    // never aborts across a normal completion. This test proves the
+    // listener is gone afterward (removeEventListener called with the exact
+    // same handler addEventListener registered), not merely that the option
+    // was passed — the leak-in-round-0 regression this guards against.
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const service = makeService({ workspace });
+    const controller = new AbortController();
+    const addEventListenerSpy = vi.spyOn(controller.signal, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal));
+    const registeredHandler = addEventListenerSpy.mock.calls[0]![1];
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', registeredHandler);
+
+    // A second call on the SAME reused signal must not accumulate a second
+    // live listener either.
+    addEventListenerSpy.mockClear();
+    removeEventListenerSpy.mockClear();
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal));
+    expect(addEventListenerSpy).toHaveBeenCalledTimes(1);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', addEventListenerSpy.mock.calls[0]![1]);
+
+    // Never actually aborted, so nothing should have fired.
+    expect(controller.signal.aborted).toBe(false);
   });
 
   it('should end the generator cleanly and clear the lock-ownership record when the signal aborts mid-flight', async () => {
@@ -877,6 +887,44 @@ describe('PulumiService.apply abort handling', () => {
     expect(next.value).toBeUndefined();
 
     expect(runRecordPersister.persist).toHaveBeenCalledWith(expect.objectContaining({ exitCode: null }), expect.any(String));
+  });
+
+  it('should persist partialApply: true when the operator cancels mid-flight after at least one mutating resource step already completed', async () => {
+    // Fix round 1: the operator pressing Cancel partway through a real apply
+    // is arguably the single most likely real-world way this system ends up
+    // partway through — this is the case the original `outcome.kind ===
+    // 'failed'`-only formula silently dropped entirely.
+    let rejectUp!: (err: unknown) => void;
+    const upMock = vi.fn().mockImplementation((opts: UpOptions) => {
+      opts.onOutput?.('Updating...\n');
+      opts.onEvent?.(resOutputsEvent('create', 'urn:pulumi:production::hyveon::aws:s3/bucket:Bucket::a'));
+      return new Promise<UpResult>((_resolve, reject) => {
+        rejectUp = reject;
+      });
+    });
+    const getOrCreateStack = vi
+      .fn()
+      .mockResolvedValue({ up: upMock, cancel: vi.fn(), outputs: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+    const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace });
+    const controller = new AbortController();
+
+    const gen = service.apply(PLAN_RUN_ID, PLAN_HASH, controller.signal);
+    const first = await gen.next();
+    expect(first.done).toBe(false);
+    expect(upMock).toHaveBeenCalled();
+
+    controller.abort();
+    rejectUp(new Error('killed by SIGINT'));
+
+    const next = await gen.next();
+    expect(next.done).toBe(true);
+    expect(next.value).toBeUndefined();
+
+    const call = writeFileSyncMock.mock.calls.find((c) => String(c[0]).endsWith('run.json'));
+    expect(call).toBeDefined();
+    const record = JSON.parse(call![1] as string) as Record<string, unknown>;
+    expect(record).toMatchObject({ exitCode: null, partialApply: true });
   });
 
   it('should abort the in-flight stack.up() call and await its settlement before releasing the concurrency guard when the generator is force-closed', async () => {
@@ -950,5 +998,129 @@ describe('PulumiService.apply concurrency guard', () => {
     await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(PulumiUpError);
     shouldFail = false;
     await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).resolves.toBeDefined();
+  });
+
+  it('should throw when apply() is called while a PRIOR apply has already won the durable lock and is actively running the engine', async () => {
+    // Fix round 1: `operationInFlight` is no longer set at the very top of
+    // apply() (that was the forbidden early observation — see the next
+    // test), so this must drive the first call all the way past gate step 8
+    // and into stack.up() before the guard is genuinely armed.
+    let upCalls = 0;
+    const workspace = makeWorkspace(() => {
+      upCalls += 1;
+      return new Promise<UpResult>(() => {
+        // Never resolves — keeps the first call's engine invocation "in flight".
+      });
+    });
+    const service = makeService({ workspace });
+
+    const first = service.apply(PLAN_RUN_ID, PLAN_HASH);
+    void first.next();
+    for (let i = 0; i < 20 && upCalls === 0; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(upCalls).toBe(1);
+
+    const second = service.apply(PLAN_RUN_ID, PLAN_HASH);
+    await expect(second.next()).rejects.toThrow(/already.*running/i);
+  });
+
+  it('should let two concurrent apply() calls for the SAME plan race through the entire gate and resolve the race via the atomic createRun lock, not an early observation', async () => {
+    // This is the scenario the pre-fix-round-1 version of apply() could
+    // never actually exercise: `operationInFlight` used to be set at the
+    // very top of the method, so the second of two concurrent apply() calls
+    // was refused before ever reading a record — never reaching (let alone
+    // being ordered by) gate step 8's atomic compare-and-set. The
+    // `iac-plan-apply-page` spec's "Two simultaneous applies are ordered by
+    // the lock" scenario requires both calls to race all the way to
+    // `createRun` and be decided there, not by this field.
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runLockService = makeRunLockService();
+    const winningLock: RunLock = {
+      runId: PLAN_RUN_ID,
+      kind: 'apply',
+      initiator: TEST_USERNAME,
+      acquiredAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    let createRunCalls = 0;
+    runLockService.createRun.mockImplementation(async () => {
+      createRunCalls += 1;
+      if (createRunCalls === 1) return winningLock;
+      throw new RunLockHeldError(winningLock);
+    });
+    const service = makeService({ workspace, runLockService });
+
+    const [firstSettled, secondSettled] = await Promise.allSettled([
+      collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH)),
+      collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH)),
+    ]);
+
+    const settlements = [firstSettled, secondSettled];
+    const fulfilled = settlements.filter((r) => r.status === 'fulfilled');
+    const rejected = settlements.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(RunLockHeldError);
+    // BOTH calls genuinely reached the atomic gate step — this is the
+    // property that matters, not which one happened to win.
+    expect(createRunCalls).toBe(2);
+  });
+
+  it('should release the just-won durable lock and refuse when a concurrent preview() starts running against the shared workspace DURING the apply gate phase', async () => {
+    // Fix round 1's post-createRun re-check — closes the apply-vs-preview()
+    // local-workspace race reopened by no longer setting `operationInFlight`
+    // at the very top of apply(). Deliberately starts apply() FIRST (so its
+    // own top-of-function check passes while operationInFlight is still
+    // null) and only starts preview() while apply() is suspended mid-gate —
+    // this is what distinguishes the re-check from the (already covered)
+    // top-of-function check, which only guards against a conflict that
+    // existed BEFORE apply() was even called.
+    let resolveGetByRunId!: (record: RunRecord) => void;
+    const runRecordPersister = makeRunRecordPersister();
+    runRecordPersister.getByRunId.mockImplementation(
+      () => new Promise<RunRecord>((resolve) => { resolveGetByRunId = resolve; }),
+    );
+
+    let resolvePreview!: () => void;
+    const previewMock = vi.fn().mockImplementation(
+      (opts: { onOutput?: (out: string) => void }) =>
+        new Promise((resolve) => {
+          opts.onOutput?.('Previewing...\n');
+          resolvePreview = () => resolve({ stdout: '', stderr: '', changeSummary: {} });
+        }),
+    );
+    const upMock = vi.fn().mockImplementation(async () => ({ stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() }));
+    const getOrCreateStack = vi
+      .fn()
+      .mockResolvedValue({ preview: previewMock, up: upMock, cancel: vi.fn(), outputs: vi.fn(), info: vi.fn() } as Partial<Stack> as Stack);
+    const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
+    const runLockService = makeRunLockService();
+    const service = makeService({ workspace, runLockService, runRecordPersister });
+
+    // Start apply() — its synchronous prologue (the top-of-function check)
+    // runs and passes immediately (operationInFlight is still null), then it
+    // suspends on the controlled `getByRunId` promise.
+    const applyChunksPromise = collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    // NOW start preview() and drive it to its first yielded chunk, so it
+    // genuinely sets `operationInFlight = 'preview'` while apply() is
+    // suspended mid-gate.
+    const previewGen = service.preview();
+    const previewFirst = await previewGen.next();
+    expect(previewFirst.done).toBe(false);
+
+    // Let apply()'s gate proceed — it will reach gate step 8, win the
+    // durable lock, then find `operationInFlight` already set by the now-live preview().
+    resolveGetByRunId(makeApprovedPlanRecord());
+
+    await expect(applyChunksPromise).rejects.toThrow(/preview.*already in flight/i);
+
+    expect(runLockService.createRun).toHaveBeenCalledTimes(1);
+    expect(runLockService.releaseRun).toHaveBeenCalledWith(PLAN_RUN_ID);
+    expect(upMock).not.toHaveBeenCalled();
+
+    resolvePreview();
+    await previewGen.next();
   });
 });
