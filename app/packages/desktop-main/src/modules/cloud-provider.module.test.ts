@@ -47,12 +47,13 @@ function makeConfig(
   tfvarsBucket: string | null = 'test-tfvars-bucket',
   auditTableName = 'test-audit-table',
   runsTableName = 'test-runs-table',
+  awsRegion = 'us-east-1',
 ): ConfigService {
   const stub: Partial<ConfigService> = {
     getActiveCloud: () => activeCloud,
     getRegion: () => 'us-east-1',
     getConfigurationBucket: () => tfvarsBucket,
-    getStackOutputs: async () => ({ auditTableName, runsTableName } as StackOutputs),
+    getStackOutputs: async () => ({ auditTableName, runsTableName, awsRegion } as StackOutputs),
   };
   return stub as ConfigService;
 }
@@ -223,6 +224,19 @@ describe('resolveCloudBindings', () => {
       await expect(resolveAuditLogStoreConfig(config)).resolves.toEqual({ tableName: '', region: 'us-east-1' });
     });
 
+    it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
+      const config = makeConfig('aws', 'test-tfvars-bucket', 'my-audit-table', 'test-runs-table', 'eu-west-1');
+      await expect(resolveAuditLogStoreConfig(config)).resolves.toEqual({ tableName: 'my-audit-table', region: 'eu-west-1' });
+    });
+
+    it('should fall back to getRegion() for the audit log store region when nothing is deployed yet', async () => {
+      const config: ConfigService = {
+        ...makeConfig('aws'),
+        getStackOutputs: async () => null,
+      } as ConfigService;
+      await expect(resolveAuditLogStoreConfig(config)).resolves.toEqual({ tableName: '', region: 'us-east-1' });
+    });
+
     it('should produce an AwsRunRecordStore from the aws runRecordStore factory', () => {
       const config = makeConfig('aws');
       const bindings = resolveCloudBindings(config);
@@ -244,6 +258,15 @@ describe('resolveCloudBindings', () => {
         getStackOutputs: async () => null,
       } as ConfigService;
       await expect(resolveRunRecordStoreConfig(config)).resolves.toEqual({ tableName: '', bucket: '', region: 'us-east-1' });
+    });
+
+    it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
+      const config = makeConfig('aws', 'my-tfvars-bucket', 'test-audit-table', 'my-runs-table', 'ap-southeast-2');
+      await expect(resolveRunRecordStoreConfig(config)).resolves.toEqual({
+        tableName: 'my-runs-table',
+        bucket: 'my-tfvars-bucket',
+        region: 'ap-southeast-2',
+      });
     });
   });
 
