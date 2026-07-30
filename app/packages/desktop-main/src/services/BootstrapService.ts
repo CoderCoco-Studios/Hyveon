@@ -12,6 +12,7 @@ import {
 import { DynamoDBClient, CreateTableCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * How long `ensureLockTable` waits for a freshly-created lock table to reach
@@ -285,11 +286,10 @@ export class BootstrapService {
 
   /**
    * Builds an S3 client from the credentials/region chosen in the wizard's
-   * credentials step (`ElectronStoreService.aws`). A stored `profile` name
-   * is resolved as a pasted-credentials entry first (`creds.aws.<profile>`)
-   * and falls back to a real `~/.aws` CLI profile via `fromIni` — matching
-   * how the credentials step can populate `profile` from either path (see
-   * `AwsProfileService`/`WizardController.saveCredentials`). Extracted as a
+   * credentials step (`ElectronStoreService.aws`), via
+   * {@link resolveAwsCredentialSource} (a pasted-credentials entry wins over
+   * a real `~/.aws` CLI profile of the same name — see that function's doc
+   * comment for why there is no separate discriminator). Extracted as a
    * protected seam so tests can stub it without touching real credentials.
    */
   protected createS3Client(): S3Client {
@@ -310,17 +310,18 @@ export class BootstrapService {
     if (!aws?.region) {
       throw new BootstrapCredentialsNotConfiguredError();
     }
-    const { region, profile } = aws;
-    if (!profile) {
-      return { region };
+    const { region } = aws;
+    const source = resolveAwsCredentialSource(this.store);
+    switch (source.kind) {
+      case 'none':
+        return { region };
+      case 'pasted':
+        return {
+          region,
+          credentials: { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey },
+        };
+      case 'profile':
+        return { region, credentials: fromIni({ profile: source.profile }) };
     }
-    const pasted = this.store.getPastedCredentials(profile);
-    if (pasted) {
-      return {
-        region,
-        credentials: { accessKeyId: pasted.accessKeyId, secretAccessKey: pasted.secretAccessKey },
-      };
-    }
-    return { region, credentials: fromIni({ profile }) };
   }
 }

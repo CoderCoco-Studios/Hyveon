@@ -21,9 +21,10 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
 
-const { createOrSelectStackMock, mkdirSyncMock } = vi.hoisted(() => ({
+const { createOrSelectStackMock, mkdirSyncMock, loggerMock } = vi.hoisted(() => ({
   createOrSelectStackMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
+  loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@pulumi/pulumi/automation/index.js', () => ({
@@ -31,6 +32,12 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
 }));
 
 vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock }));
+
+// Real (non-mocked) elsewhere in this file — mocked only so the "credentials
+// are not logged" describe block below can inspect every call this service
+// makes to the shared logger, mirroring `PulumiEngineService.test.ts`'s
+// `loggerMock` pattern.
+vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import type { PulumiFn, Stack } from '@pulumi/pulumi/automation/index.js';
 import {
@@ -44,6 +51,7 @@ import {
 import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
 
 /** Minimal `PulumiCommand`-shaped object the mocked SDK is given. */
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
@@ -132,6 +140,10 @@ const WORK_DIR = join(WORKSPACE_ROOT, 'workspace', PULUMI_STACK_NAME);
 beforeEach(() => {
   createOrSelectStackMock.mockReset();
   mkdirSyncMock.mockReset();
+  loggerMock.debug.mockReset();
+  loggerMock.info.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
   createOrSelectStackMock.mockResolvedValue(FAKE_STACK);
 });
 
@@ -470,5 +482,91 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars extensio
 
     const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
     expect(opts.envVars['AWS_PROFILE']).toBe('');
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credential resolver (Task 4.5)', () => {
+  it('should pass a named-profile selection all the way through into the final envVars, including the exclusivity clear', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const { service } = makeService({ safeStorage, store });
+
+    // This is the literal "wire the resolver's output into credentialEnvVars"
+    // Task 4.5 asks for — resolveCredentialEnvVars is the real function a
+    // future caller (Phase 7) will use, not a hand-built test fixture.
+    await service.getOrCreateStack(baseInput({ credentialEnvVars: resolveCredentialEnvVars(store) }));
+
+    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    expect(opts.envVars['AWS_PROFILE']).toBe('personal');
+    expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('');
+    expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('');
+    expect(opts.envVars['AWS_SESSION_TOKEN']).toBe('');
+  });
+
+  it('should pass a pasted-keys selection all the way through into the final envVars, including the exclusivity clear', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
+    store.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    const { service } = makeService({ safeStorage, store });
+
+    await service.getOrCreateStack(baseInput({ credentialEnvVars: resolveCredentialEnvVars(store) }));
+
+    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('AKID123');
+    expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('SECRET456');
+    expect(opts.envVars['AWS_PROFILE']).toBe('');
+    expect(opts.envVars['AWS_DEFAULT_PROFILE']).toBe('');
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — credentials are not logged (spec-critical)', () => {
+  it('should never pass the resolved pasted-key values to any logger call', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
+    store.setPastedCredentials('hyveon-pasted', {
+      accessKeyId: 'AKID-SHOULD-NEVER-BE-LOGGED',
+      secretAccessKey: 'SECRET-SHOULD-NEVER-BE-LOGGED',
+    });
+    const { service } = makeService({ safeStorage, store });
+    const credentialEnvVars = resolveCredentialEnvVars(store);
+
+    await service.getOrCreateStack(baseInput({ credentialEnvVars }));
+
+    // This service does call logger.debug (for pulumiHome/workDir) — the
+    // assertion that matters is that *none* of those calls, across every
+    // logger method, ever carry the actual secret values anywhere in their
+    // arguments, not that logging never happens at all.
+    const allLoggerCalls = [
+      ...loggerMock.debug.mock.calls,
+      ...loggerMock.info.mock.calls,
+      ...loggerMock.warn.mock.calls,
+      ...loggerMock.error.mock.calls,
+    ];
+    expect(allLoggerCalls.length).toBeGreaterThan(0); // sanity: this path does log something
+    const serialized = JSON.stringify(allLoggerCalls);
+    expect(serialized).not.toContain('AKID-SHOULD-NEVER-BE-LOGGED');
+    expect(serialized).not.toContain('SECRET-SHOULD-NEVER-BE-LOGGED');
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding (Task 4.6)', () => {
+  it('should forward input.onPhase to PulumiEngineService.resolve unchanged', async () => {
+    const { service, engine } = makeService();
+    const onPhase = vi.fn();
+
+    await service.getOrCreateStack(baseInput({ onPhase }));
+
+    expect(engine.resolve).toHaveBeenCalledWith(onPhase);
+  });
+
+  it('should not require onPhase — omitting it must not throw or change behaviour', async () => {
+    const { service, engine } = makeService();
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(engine.resolve).toHaveBeenCalledWith(undefined);
   });
 });

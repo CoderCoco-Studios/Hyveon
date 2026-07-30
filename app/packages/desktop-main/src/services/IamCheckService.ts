@@ -4,6 +4,7 @@ import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * Maximum number of action names sent in a single `SimulatePrincipalPolicy`
@@ -157,17 +158,18 @@ export class IamCheckService {
         'Cannot run the IAM permission check: no region is configured. Complete the credentials step of the wizard first.',
       );
     }
-    const { region, profile } = aws;
-    if (!profile) {
-      return { region };
+    const { region } = aws;
+    const source = resolveAwsCredentialSource(this.store);
+    switch (source.kind) {
+      case 'none':
+        return { region };
+      case 'pasted':
+        return {
+          region,
+          credentials: { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey },
+        };
+      case 'profile':
+        return { region, credentials: fromIni({ profile: source.profile }) };
     }
-    const pasted = this.store.getPastedCredentials(profile);
-    if (pasted) {
-      return {
-        region,
-        credentials: { accessKeyId: pasted.accessKeyId, secretAccessKey: pasted.secretAccessKey },
-      };
-    }
-    return { region, credentials: fromIni({ profile }) };
   }
 }
