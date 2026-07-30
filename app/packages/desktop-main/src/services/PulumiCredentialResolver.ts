@@ -103,11 +103,15 @@ function clearedEnvVars(keys: readonly string[]): Record<string, string> {
  *
  * This function never calls `logger.*` — it has no side effects at all
  * beyond reading `store` — so no credential value it produces can reach the
- * application log by way of this code path. See
- * `PulumiCredentialResolver.test.ts`'s "should never call logger" test for a
- * mechanical proof of that claim, and `PulumiWorkspaceService.test.ts`'s
- * equivalent proof that `getOrCreateStack` itself never logs the resolved
- * `envVars` object either. Neither test can speak to Phase 7's future
+ * application log by way of this code path. This file's own test suite does
+ * not assert that directly (it would be a vacuous "the logger mock was never
+ * called" check with no logger import to spy on in the first place — see
+ * `PulumiCredentialResolver.test.ts`'s comment on why). The meaningful proof
+ * is `PulumiWorkspaceService.test.ts`'s "should never pass the resolved
+ * pasted-key values to any logger call" test, which exercises this
+ * function's real output flowing through `getOrCreateStack` and inspects
+ * every logger call the service makes while doing so. Neither test can speak
+ * to Phase 7's future
  * `PulumiService.preview`/`.up`, which will stream real CLI stdout/stderr —
  * that streamed output is that phase's own responsibility to scrub, not
  * something this task's code path touches.
@@ -129,6 +133,18 @@ export function resolveCredentialEnvVars(store: ElectronStoreService): Record<st
       return {
         AWS_ACCESS_KEY_ID: source.accessKeyId,
         AWS_SECRET_ACCESS_KEY: source.secretAccessKey,
+        // The paste flow has no session-token field of its own to set
+        // (`ElectronStoreService.getPastedCredentials` only ever returns
+        // `accessKeyId`/`secretAccessKey`) — but an ambient `AWS_SESSION_TOKEN`
+        // (e.g. from an `aws sso`/assume-role shell session the app was
+        // launched from) MUST still be cleared here, not merely left unset.
+        // Left uncleared, the final env would carry the wizard's long-term
+        // pasted keys alongside an inherited *temporary* session token for a
+        // different identity — AWS rejects that combination outright
+        // ("security token included in the request is invalid"), and the
+        // failure would be unexplainable to the operator. See
+        // `PulumiCredentialResolver.test.ts`'s pasted-path exclusivity test.
+        AWS_SESSION_TOKEN: '',
         ...clearedEnvVars(PROFILE_ENV_VARS),
       };
   }

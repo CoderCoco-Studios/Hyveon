@@ -87,6 +87,23 @@ describe('resolveCredentialEnvVars — ambient profile cannot override pasted ke
     expect(envVars['AWS_PROFILE']).toBe('');
     expect(envVars['AWS_DEFAULT_PROFILE']).toBe('');
   });
+
+  it('should also clear AWS_SESSION_TOKEN, since the paste flow never has one of its own to set', () => {
+    // Regression test (fix round 1): the paste flow only ever collects
+    // accessKeyId/secretAccessKey (ElectronStoreService.getPastedCredentials
+    // has no sessionToken field), so an ambient AWS_SESSION_TOKEN — e.g. from
+    // an `aws sso`/assume-role shell session the app was launched from — was
+    // previously left completely untouched on this branch: neither set nor
+    // cleared. That leaks a temporary session token alongside the wizard's
+    // long-term pasted keys, a combination AWS rejects outright ("security
+    // token included in the request is invalid").
+    const store = makeStore('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+
+    const envVars = resolveCredentialEnvVars(store);
+
+    expect(Object.hasOwn(envVars, 'AWS_SESSION_TOKEN')).toBe(true);
+    expect(envVars['AWS_SESSION_TOKEN']).toBe('');
+  });
 });
 
 describe('resolveCredentialEnvVars — no credential source configured', () => {
@@ -172,6 +189,26 @@ describe('resolveCredentialEnvVars — exclusivity reaches a spawned child proce
 
     expect(seen).toBe('');
     expect(seen).not.toBe('AMBIENT-AKID-FROM-SHELL');
+  });
+
+  it('should clear an ambient AWS_SESSION_TOKEN from what a spawned child actually sees when pasted keys are selected (fix round 1 regression)', async () => {
+    // The failure this guards against: an operator launches the app from a
+    // shell that still has a temporary `aws sso`/assume-role session
+    // exported (access key + secret + session token all ambient), then
+    // selects pasted keys in the wizard. Without this clear, the final child
+    // env would carry the wizard's long-term access key/secret alongside the
+    // ambient *temporary* session token for a different identity — a
+    // combination AWS's STS rejects outright.
+    const ambientEnv: NodeJS.ProcessEnv = { ...process.env, AWS_SESSION_TOKEN: 'ambient-sso-session-token' };
+    const store = makeStore('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    const resolved = resolveCredentialEnvVars(store);
+
+    const childEnv = { ...ambientEnv, ...resolved };
+
+    const seen = await readEnvVarInChild(childEnv, 'AWS_SESSION_TOKEN');
+
+    expect(seen).toBe('');
+    expect(seen).not.toBe('ambient-sso-session-token');
   });
 
   it('contrast: merely omitting the key (rather than explicitly clearing it) DOES let the ambient value leak through the identical merge', async () => {

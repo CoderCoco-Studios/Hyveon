@@ -33,10 +33,12 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
 
 vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock }));
 
-// Real (non-mocked) elsewhere in this file — mocked only so the "credentials
-// are not logged" describe block below can inspect every call this service
+// Mocked file-wide — this hoisted `vi.mock` replaces the module for every
+// test in this file, not only the "credentials are not logged" describe
+// block below. It exists so that block can inspect every call this service
 // makes to the shared logger, mirroring `PulumiEngineService.test.ts`'s
-// `loggerMock` pattern.
+// `loggerMock` pattern; tests elsewhere in this file are unaffected since
+// they never assert against `loggerMock`.
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import type { PulumiFn, Stack } from '@pulumi/pulumi/automation/index.js';
@@ -51,7 +53,7 @@ import {
 import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
+import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
 
 /** Minimal `PulumiCommand`-shaped object the mocked SDK is given. */
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
@@ -118,6 +120,14 @@ function makeAvailableSafeStorage(): SafeStorageService {
  * collaborators (non-Electron Map-fallback path — see file doc comment),
  * an "available" keychain by default, and a fixed, fake `userData` path so
  * cache paths are deterministic.
+ *
+ * When `opts.store` is not supplied, the fresh store is pre-seeded with a
+ * named-profile AWS selection (`DEFAULT_TEST_AWS_PROFILE`) so that
+ * `getOrCreateStack`'s unconditional internal credential resolution (fix
+ * round 1 — see `PulumiWorkspaceInput.credentialEnvVars`'s doc comment)
+ * succeeds by default for every test in this file that isn't specifically
+ * about credential resolution. Tests that need to control the credential
+ * source directly build and pass their own `store`.
  */
 function makeService(opts?: {
   engine?: PulumiEngineService;
@@ -126,11 +136,29 @@ function makeService(opts?: {
   userDataPath?: string | null;
 }) {
   const safeStorage = opts?.safeStorage ?? makeAvailableSafeStorage();
-  const store = opts?.store ?? new ElectronStoreService(safeStorage);
+  const store = opts?.store ?? makeStoreWithDefaultCredentials(safeStorage);
   const engine = opts?.engine ?? stubEngine();
   const service = new TestablePulumiWorkspaceService(engine, safeStorage, store);
   vi.spyOn(service, 'resolveUserDataPath').mockReturnValue(opts?.userDataPath ?? '/fake/userData');
   return { service, engine, safeStorage, store };
+}
+
+/**
+ * Name of the named-profile AWS selection {@link makeStoreWithDefaultCredentials}
+ * seeds — deliberately not a `creds.aws.<profile>` pasted entry, so it
+ * resolves as the plain `'profile'` credential-source kind.
+ */
+const DEFAULT_TEST_AWS_PROFILE = 'default-test-profile';
+
+/**
+ * Builds a fresh `ElectronStoreService` with a named-profile AWS credential
+ * source already selected, so `getOrCreateStack`'s unconditional credential
+ * resolution (see {@link makeService}'s doc comment) succeeds by default.
+ */
+function makeStoreWithDefaultCredentials(safeStorage: SafeStorageService): ElectronStoreService {
+  const store = new ElectronStoreService(safeStorage);
+  store.set('aws', { region: 'us-west-2', profile: DEFAULT_TEST_AWS_PROFILE });
+  return store;
 }
 
 const WORKSPACE_ROOT = '/fake/userData/pulumi-workspace';
@@ -446,7 +474,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars extension point (Task 4.5)', () => {
+describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override extension point (Task 4.5)', () => {
   it('should merge credentialEnvVars into the engine environment', async () => {
     const { service } = makeService();
 
@@ -518,6 +546,65 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
     expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('SECRET456');
     expect(opts.envVars['AWS_PROFILE']).toBe('');
     expect(opts.envVars['AWS_DEFAULT_PROFILE']).toBe('');
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is unconditional, not opt-in (fix round 1)', () => {
+  /**
+   * Regression tests for the gap the fix-round review found: prior to this
+   * round, `resolveCredentialEnvVars` had no production call site at all —
+   * every test (and every real future caller) had to remember to call it
+   * and pass the result through `input.credentialEnvVars`, so a caller that
+   * simply forgot would silently get a stack with no credential vars and no
+   * clears, exactly the "engine falls back to its own default chain" outcome
+   * spec.md:100 forbids. These tests never pass `credentialEnvVars` at
+   * all — proving `getOrCreateStack` resolves it itself from the store.
+   */
+  it('should resolve credentials from the store itself when credentialEnvVars is omitted entirely', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const { service } = makeService({ safeStorage, store });
+
+    // No credentialEnvVars anywhere in this input — the literal shape of a
+    // caller (e.g. a future Phase 7 PulumiService) that never learned about
+    // the extension point at all.
+    await service.getOrCreateStack(baseInput());
+
+    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    expect(opts.envVars['AWS_PROFILE']).toBe('personal');
+    expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('');
+    expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('');
+    expect(opts.envVars['AWS_SESSION_TOKEN']).toBe('');
+  });
+
+  it('should resolve pasted keys from the store itself when credentialEnvVars is omitted entirely', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
+    store.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    const { service } = makeService({ safeStorage, store });
+
+    await service.getOrCreateStack(baseInput());
+
+    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('AKID123');
+    expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('SECRET456');
+    expect(opts.envVars['AWS_PROFILE']).toBe('');
+    expect(opts.envVars['AWS_DEFAULT_PROFILE']).toBe('');
+    expect(opts.envVars['AWS_SESSION_TOKEN']).toBe('');
+  });
+
+  it('should throw PulumiCredentialsNotConfiguredError rather than silently running with no credential vars when nothing is selected and none are supplied', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage); // no aws.profile at all
+    const { service } = makeService({ safeStorage, store });
+
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiCredentialsNotConfiguredError);
+
+    // Refused before ever reaching the SDK — never falls through to the
+    // engine's own default AWS credential chain.
+    expect(createOrSelectStackMock).not.toHaveBeenCalled();
   });
 });
 
