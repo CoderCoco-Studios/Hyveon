@@ -109,10 +109,12 @@ export interface RunRecord {
   changeSummary?: ChangeSummary;
   /**
    * The Pulumi engine version stamped into this run's saved plan artifact
-   * (`plan.json`'s top-level `manifest.version`, e.g. `"v3.255.0"` — stored
-   * verbatim, WITH the `v` prefix the artifact itself carries, not
-   * normalized against `PulumiEngineService.getResolvedVersion()`'s
-   * un-prefixed shape). Set only by a `plan`-kind record produced by
+   * (`plan.json`'s top-level `manifest.version`, e.g. `"v3.255.0"`), with any
+   * leading `v` stripped before storage (`"3.255.0"`) so it's directly
+   * comparable — a bare string equality, no caller-side normalization needed
+   * — against `PulumiEngineService.getResolvedVersion()`'s own un-prefixed
+   * shape (`PulumiService.readEngineVersionFromPlanArtifact` does the
+   * stripping). Set only by a `plan`-kind record produced by
    * `PulumiService.preview` (task 7.1); absent on every `apply`/`destroy`
    * record and on any record predating this field. A future apply-time gate
    * (task 7.2) compares this against the currently-resolved engine version

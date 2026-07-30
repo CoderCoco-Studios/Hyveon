@@ -6,6 +6,7 @@ import { AwsModule } from './modules/aws.module.js';
 import { DiscordModule } from './modules/discord.module.js';
 import { TfvarsModule } from './modules/tfvars.module.js';
 import { TerraformModule } from './modules/terraform.module.js';
+import { RunRecordModule } from './modules/run-record.module.js';
 import { PulumiEngineModule } from './modules/pulumi-engine.module.js';
 import { PulumiWorkspaceModule } from './modules/pulumi-workspace.module.js';
 import { WizardModule } from './modules/wizard.module.js';
@@ -42,6 +43,23 @@ import { AuditService } from './services/AuditService.js';
  * into the container ahead of their controller costs nothing and exercises
  * the "Container builds without an engine" scenario for real, not just in
  * their own unit tests.
+ *
+ * `RunRecordModule` is imported directly (not left to arrive transitively
+ * via `TerraformModule`, which also imports it) specifically because
+ * `PulumiService.preview` (task 7.1) resolves `RUN_RECORD_PERSISTER` from it
+ * lazily at runtime via `ModuleRef.get(token, { strict: false })` — a lookup
+ * that only succeeds if the token is provided *somewhere* reachable from
+ * this root module, with no static `imports:` edge of its own to prove it
+ * (see `run-record.module.ts`'s doc comment for why that's a deliberate
+ * design, not an oversight). `TerraformModule` (and `TerraformService.ts`
+ * itself) is scheduled for deletion in a later dispatch of this same
+ * change (task 7.10); without this direct import, that deletion would
+ * silently drop `RunRecordModule` out of the graph too, and
+ * `PulumiService.preview`'s `ModuleRef` lookup would start throwing
+ * `UnknownElementException` at the moment an operator clicks "Preview" —
+ * not at boot, and not caught by any test that doesn't actually exercise
+ * `preview()` through the real DI container. This import makes
+ * `RunRecordModule`'s presence independent of `TerraformModule`'s survival.
  */
 @Module({
   imports: [
@@ -49,6 +67,7 @@ import { AuditService } from './services/AuditService.js';
     DiscordModule,
     TfvarsModule,
     TerraformModule,
+    RunRecordModule,
     PulumiEngineModule,
     PulumiWorkspaceModule,
     WizardModule,
