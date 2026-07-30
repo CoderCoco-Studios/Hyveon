@@ -19,6 +19,7 @@ import { defineDynamoDb, type DynamoDbResources } from './dynamodb.js';
 import { defineSecrets, type SecretsResources } from './secrets.js';
 import { defineRoute53, type Route53Resources } from './route53.js';
 import { defineDiscordTableItems, defineEfsSeederInvocations, type DiscordTableItemResources } from './escapes.js';
+import { defineDiscordDomain, type DiscordDomainResources } from './discordDomain.js';
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
@@ -77,6 +78,14 @@ export interface InfraProgramOptions {
 export interface InfraResources {
   /** The AWS provider every resource below is declared against. */
   provider: aws.Provider;
+  /**
+   * The us-east-1-pinned AWS provider — CloudFront requires its ACM
+   * certificate to live in us-east-1 regardless of `config.awsRegion`.
+   * Threaded ONLY into `discordDomain`'s certificate + certificate-validation
+   * resources — see `discordDomain.ts`'s file doc, "us-east-1 provider
+   * alias."
+   */
+  usEast1Provider: aws.Provider;
   /** Networking resources (task 3.1) — see {@link NetworkResources}. */
   network: NetworkResources;
   /**
@@ -110,6 +119,8 @@ export interface InfraResources {
   discordTableItems: DiscordTableItemResources;
   /** One `aws.lambda.Invocation` per game with `file_seeds` (task 3.10) — see `escapes.ts`'s `defineEfsSeederInvocations`. */
   efsSeederInvocations: Record<string, aws.lambda.Invocation>;
+  /** The Discord custom-domain resource set (task 3.x, a plan-gap dispatch) — see {@link DiscordDomainResources}. */
+  discordDomain: DiscordDomainResources;
 }
 
 /**
@@ -150,6 +161,16 @@ export interface InfraResources {
 export function defineAll(config: DeploymentConfig, options: InfraProgramOptions): InfraResources {
   const provider = new aws.Provider('aws', {
     region: config.awsRegion,
+    defaultTags: { tags: DEFAULT_TAGS },
+  });
+
+  // CloudFront's ACM certificate must live in us-east-1 regardless of
+  // `config.awsRegion` — mirrors `terraform/main.tf`'s aliased
+  // `provider "aws" { alias = "us_east_1" }` block. Threaded ONLY into
+  // `discordDomain`'s certificate + certificate-validation resources below;
+  // every other resource in this program uses the regional `provider` above.
+  const usEast1Provider = new aws.Provider('aws-us-east-1', {
+    region: 'us-east-1',
     defaultTags: { tags: DEFAULT_TAGS },
   });
 
@@ -267,6 +288,19 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     provider,
   });
 
+  // ── Discord custom domain (task 3.x, plan-gap dispatch) ────────────────────
+  // Needs `lambdas.interactionsFunctionUrl.functionUrl` (CloudFront's origin,
+  // just declared above) and `route53.zoneId` (task 3.9). No dependency on
+  // `iamPolicies` below, so this can — and does — run before it.
+  const discordDomain = defineDiscordDomain({
+    projectName: config.projectName,
+    hostedZoneName: config.hostedZoneName,
+    zoneId: route53.zoneId,
+    interactionsFunctionUrl: lambdas.interactionsFunctionUrl.functionUrl,
+    provider,
+    usEast1Provider,
+  });
+
   // ── IAM inline policies (task 3.5's other half) ────────────────────────────
   // Necessarily last among the "core" dispatches: `followupLambdaArn` does
   // not exist until `defineLambdas` (just above) has created the followup
@@ -297,6 +331,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
 
   return {
     provider,
+    usEast1Provider,
     network,
     securityGroups,
     iamRoles,
@@ -309,6 +344,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     iamPolicies,
     discordTableItems,
     efsSeederInvocations,
+    discordDomain,
   };
 }
 

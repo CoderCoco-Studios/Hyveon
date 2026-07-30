@@ -27,3 +27,5 @@ export type { Route53Resources, DefineRoute53Args } from './route53.js';
 export { defineRoute53 } from './route53.js';
 export type { DiscordTableItemResources, DefineDiscordTableItemsArgs, DefineEfsSeederInvocationsArgs } from './escapes.js';
 export { defineDiscordTableItems, defineEfsSeederInvocations, escapeResourceOptions } from './escapes.js';
+export type { DiscordDomainResources, DefineDiscordDomainArgs } from './discordDomain.js';
+export { defineDiscordDomain } from './discordDomain.js';

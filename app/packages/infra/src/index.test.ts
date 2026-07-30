@@ -13,4 +13,8 @@ describe('@hyveon/infra public entry point', () => {
     expect(typeof infra.dedupedDirectGamePorts).toBe('function');
     expect(typeof infra.hasHttpsGame).toBe('function');
   });
+
+  it('should export defineDiscordDomain as a function', () => {
+    expect(typeof infra.defineDiscordDomain).toBe('function');
+  });
 });

@@ -37,6 +37,18 @@ export interface RecordedResource {
   name: string;
   /** The resolved input properties passed to the resource constructor. */
   inputs: Record<string, unknown>;
+  /**
+   * Opaque identifier of the explicit `aws.Provider` instance this resource
+   * was declared against (`MockResourceArgs.provider` — the SDK's own
+   * "`<providerUrn>::<providerId>`" encoding), or `undefined` if none was
+   * passed. Two resources sharing this exact string were declared with the
+   * SAME provider instance; added specifically so a spec (e.g.
+   * `discordDomain.test.ts`) can assert two resources register with
+   * DIFFERENT provider instances (the us-east-1 pinning) without needing to
+   * decode the string's internal shape — an equality/inequality comparison
+   * between two recorded resources' `provider` values is enough.
+   */
+  provider: string | undefined;
 }
 
 /**
@@ -104,6 +116,59 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
 };
 
 /**
+ * Extra computed-only output fields to merge into a resource's mocked state,
+ * keyed by Pulumi resource type token — the `newResource` analogue of
+ * {@link CALL_MOCKS} for regular (non-data-source) resources. Every other
+ * `defineX` module in this package only ever reads a mocked resource's `id`
+ * downstream (always present — {@link installPulumiMocks} synthesizes it for
+ * every resource), so this table stayed empty until `discordDomain.ts` (task
+ * 3.x) needed to read `aws.acm.Certificate.domainValidationOptions` and
+ * `aws.cloudfront.Distribution.domainName`/`hostedZoneId` — none of which are
+ * INPUT properties, so the generic `state: mockArgs.inputs` echo below never
+ * populates them, and code that reads them (e.g.
+ * `certificate.domainValidationOptions[0].resourceRecordName`) would
+ * otherwise resolve to `undefined` under test. Extend this table — not the
+ * `newResource` handler in {@link installPulumiMocks} — the same way
+ * {@link CALL_MOCKS} is extended for a new data-source token.
+ */
+const RESOURCE_STATE_MOCKS: Record<string, (inputs: Record<string, unknown>) => Record<string, unknown>> = {
+  // `discordDomain.ts`'s `defineDiscordDomain` — a single-domain certificate
+  // (no `subjectAlternativeNames`), so exactly one validation option is
+  // enough to exercise `certificate.domainValidationOptions[0]`.
+  'aws:acm/certificate:Certificate': (inputs) => ({
+    domainValidationOptions: [
+      {
+        domainName: inputs.domainName,
+        resourceRecordName: `_acme-challenge.${inputs.domainName as string}.`,
+        resourceRecordType: 'CNAME',
+        resourceRecordValue: `_acme-challenge-target.${inputs.domainName as string}.acm-validations.aws.`,
+      },
+    ],
+  }),
+  // `discordDomain.ts`'s `defineDiscordDomain` — fixed values, since a real
+  // CloudFront distribution's `domainName` is AWS-assigned at create time and
+  // `hostedZoneId` is CloudFront's own well-known, fixed Route 53 zone ID
+  // (`Z2FDTNDATAQYW2`) shared by every distribution.
+  'aws:cloudfront/distribution:Distribution': () => ({
+    domainName: 'mock-distribution.cloudfront.net',
+    hostedZoneId: 'Z2FDTNDATAQYW2',
+  }),
+  // `discordDomain.ts`'s `defineDiscordDomain` — `fqdn` is AWS's
+  // fully-qualified form of `name` (a real Route 53 record's `fqdn` always
+  // ends with a trailing `.`); `certificateValidation`'s
+  // `validationRecordFqdns` input reads this field off the validation record.
+  'aws:route53/record:Record': (inputs) => ({
+    fqdn: typeof inputs.name === 'string' && inputs.name.endsWith('.') ? inputs.name : `${inputs.name as string}.`,
+  }),
+  // `lambdas.ts`'s `defineLambdas` (tasks 3.6/3.7) — `functionUrl` is
+  // AWS-assigned at create time, and `discordDomain.ts`'s `defineDiscordDomain`
+  // (task 3.x) reads it to derive the CloudFront origin domain.
+  'aws:lambda/functionUrl:FunctionUrl': () => ({
+    functionUrl: 'https://mock-function-url.lambda-url.us-east-1.on.aws/',
+  }),
+};
+
+/**
  * Installs `pulumi.runtime.setMocks` with a resource recorder and the shared
  * {@link CALL_MOCKS} data-source table, replacing whatever mocks (if any)
  * were previously installed. Pulumi's mock runtime is process-global, so
@@ -121,8 +186,9 @@ export function installPulumiMocks(): PulumiMockHandle {
   pulumi.runtime.setMocks(
     {
       newResource(mockArgs) {
-        resources.push({ type: mockArgs.type, name: mockArgs.name, inputs: mockArgs.inputs });
-        return { id: `${mockArgs.name}-id`, state: mockArgs.inputs };
+        resources.push({ type: mockArgs.type, name: mockArgs.name, inputs: mockArgs.inputs, provider: mockArgs.provider });
+        const extraState = RESOURCE_STATE_MOCKS[mockArgs.type]?.(mockArgs.inputs) ?? {};
+        return { id: `${mockArgs.name}-id`, state: { ...mockArgs.inputs, ...extraState } };
       },
       call(mockArgs) {
         calls.push({ token: mockArgs.token, inputs: mockArgs.inputs });

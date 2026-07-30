@@ -30,24 +30,27 @@
  * (`aws:route53/record:Record` never appears in the resources this module's
  * `defineRoute53` constructs).
  *
- * ## Explicitly out of scope: `terraform/aws/discord-domain.tf`
+ * ## `terraform/aws/discord-domain.tf` — ported separately, in `discordDomain.ts`
  *
  * That file's six resources (`aws_acm_certificate.discord`,
  * `aws_route53_record.discord_acm_validation` (`for_each`),
  * `aws_acm_certificate_validation.discord`, `aws_cloudfront_distribution.discord`,
  * `aws_route53_record.discord`, `aws_route53_record.discord_aaaa`) build a
  * CloudFront-fronted custom domain (`discord.<hosted_zone_name>`) for the
- * interactions Function URL. They are NOT ported by this task — this task's
- * brief scopes 3.9 to "hosted-zone lookup and the updater Lambda only," and
- * none of the six are part of task 3.10's imperative-escapes list either.
- * Unlike the per-game records this file's doc excludes on architectural
- * grounds, `discord-domain.tf`'s records are static (not Lambda-managed) and
- * have no invariant forbidding a Pulumi port — they are simply unassigned to
- * any task in `tasks.md`'s current list (3.1–3.12). See the
- * task-3.8-3.10 report's "Remaining unported HCL inventory" for this gap,
- * flagged for whoever picks up task 3.12's audit (or a new task, if the
- * `discordInteractionsUrl` stack output this leaves unresolvable is judged
- * to need one).
+ * interactions Function URL. This task (3.9) never ported them — its brief
+ * scoped it to "hosted-zone lookup and the updater Lambda only," and none of
+ * the six were part of task 3.10's imperative-escapes list either — so they
+ * sat unassigned to any task in `tasks.md`'s list through 3.8–3.10, flagged
+ * here for whoever picked up the gap. Task 3.x (a plan-gap dispatch, run
+ * before 3.11/3.12) ported all six into `discordDomain.ts`'s
+ * `defineDiscordDomain`, wired into `program.ts`'s `defineAll` as its own
+ * `discordDomain` resource area, NOT into this file — this file's own
+ * `defineRoute53` still declares no `aws.route53.Record` of any kind (see the
+ * INVARIANT section above and `route53.test.ts`'s negative assertion, both of
+ * which remain accurate: `discordDomain.ts`'s three records are declared by a
+ * different function entirely). See `discordDomain.ts`'s file doc for why
+ * those three records do NOT violate this file's "no DNS records" invariant
+ * despite living in the same `defineAll` resource graph.
  */
 
 import * as aws from '@pulumi/aws';

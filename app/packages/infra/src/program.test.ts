@@ -68,6 +68,14 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     ...(result.discordTableItems.discordBaseConfigItem ? [promiseOf(result.discordTableItems.discordBaseConfigItem.id)] : []),
     ...(result.discordTableItems.discordConfigSeedItem ? [promiseOf(result.discordTableItems.discordConfigSeedItem.id)] : []),
     ...Object.values(result.efsSeederInvocations).map((invocation) => promiseOf(invocation.id)),
+    // Awaiting the two alias records is sufficient to settle the whole
+    // `discordDomain` chain: both transitively depend (via
+    // `viewerCertificate.acmCertificateArn`/`aliases[0].name`) on
+    // `distribution`, which itself depends on `certificateValidation` and,
+    // through it, `certificate`/`certificateValidationRecord` — see
+    // `pulumiMocks.ts`'s `promiseOf` doc on transitive settlement.
+    promiseOf(result.discordDomain.aliasRecord.id),
+    promiseOf(result.discordDomain.aliasRecordAaaa.id),
   ]);
   return result;
 }
@@ -129,8 +137,18 @@ describe('defineAll', () => {
     expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(2);
     expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(2);
 
-    // Task 3.9: Route 53 is a pure data-source lookup — no resource of any kind, and specifically no DNS record.
-    expect(types).not.toContain('aws:route53/record:Record');
+    // Task 3.9's `route53.zone` lookup itself is a pure data-source — no
+    // resource. Task 3.x's `discordDomain` DOES declare Route 53 records (the
+    // ACM DNS-validation CNAME + the A/AAAA aliases to CloudFront) — static
+    // custom-domain infrastructure, not per-game records, so they do NOT
+    // violate the "DNS records are Lambda-managed" invariant (see
+    // `discordDomain.ts`'s file doc). Assert the FULL expected record set —
+    // by name, not just count — so a sneaky extra record (e.g. a per-game
+    // record slipping in) still fails this test.
+    const recordNames = mocks.resources.filter((resource) => resource.type === 'aws:route53/record:Record').map((resource) => resource.name);
+    expect(recordNames.sort()).toEqual(
+      ['hyveon-discord-acm-validation', 'hyveon-discord-alias-a', 'hyveon-discord-alias-aaaa'].sort(),
+    );
 
     // Tasks 3.6/3.7: the five Lambda functions — FIXTURE_GAME_SERVERS has no
     // file_seeds, so only the four non-per-game functions are declared here.
@@ -146,6 +164,11 @@ describe('defineAll', () => {
     // and FIXTURE_GAME_SERVERS declares no file_seeds.
     expect(types).not.toContain('aws:dynamodb/tableItem:TableItem');
     expect(types).not.toContain('aws:lambda/invocation:Invocation');
+
+    // Task 3.x: the Discord custom domain — one certificate, one validation, one distribution.
+    expect(types.filter((type) => type === 'aws:acm/certificate:Certificate')).toHaveLength(1);
+    expect(types.filter((type) => type === 'aws:acm/certificateValidation:CertificateValidation')).toHaveLength(1);
+    expect(types.filter((type) => type === 'aws:cloudfront/distribution:Distribution')).toHaveLength(1);
 
     const names = mocks.resources.map((resource) => resource.name);
     expect(names).toContain('hyveon-vpc');
@@ -163,6 +186,8 @@ describe('defineAll', () => {
     expect(names).toContain('hyveon-followup');
     expect(names).toContain('hyveon-watchdog');
     expect(names).toContain('hyveon-dns-updater');
+    expect(names).toContain('hyveon-discord-cert');
+    expect(names).toContain('hyveon-discord-cf');
   });
 
   it('should wire the interactions/followup/dns-updater Lambdas to the real discord table name, secret ARN, and hosted-zone id', async () => {
