@@ -63,12 +63,12 @@
 ## 7. Service replacement
 
 - [x] 7.1 Implement `PulumiService.preview` returning structured `changeSummary`, saving the update plan as a run artifact, reusing the existing chunk line-splitting for `onOutput`/`onError`
-- [ ] 7.2 Implement `PulumiService.up` constrained by the saved plan, distinguishing clean failure from partial apply in the run's terminal state
+- [x] 7.2 Implement `PulumiService.up` constrained by the saved plan, distinguishing clean failure from partial apply in the run's terminal state
 - [ ] 7.3 Implement `PulumiService.destroy` behind the existing confirmation-token gate; assert no untokened call site exists
 - [x] 7.4 Implement stack output reads replacing `ConfigService.getTfOutputs()`, degrading to "not deployed yet" for a never-deployed stack (`PulumiService.getStackOutputs()`, delegated to via `ConfigService.getStackOutputs()`; all ~14 real call sites migrated — see task-7.4-7.8-7.9-report.md)
 - [ ] 7.5 Port the plan-hash gate: hash over the saved plan artifact plus the config object's version id, with the staleness check independent of plan-file parseability, and refuse to apply a plan produced by a different engine version (`plan.json`'s `manifest.version`)
 - [ ] 7.6 Port `resolveRollbackTarget` / `confirmRollback` to the JSON config object, restoring historic content byte-for-byte, holding the shared lock across restore and plan-record persistence, with compensating semantics when plan creation fails
-- [ ] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
+- [x] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
 - [x] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable (`ChangeSummary`/`OpType` in new `@hyveon/shared/changeSummary.ts`; type plumbed through `RunRecordService`/`AwsRunRecordStore`, nothing calls it with a value yet — that's 7.1/7.2's job)
 - [x] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors (13 original classes found, not 12; 11 ported + `PulumiPartialApplyError` added, colocated in new `PulumiService.ts`; `PulumiUnrecognizedLockError` confirmed as the existing stale-lock class, not recreated — see task-7.4-7.8-7.9-report.md)
 - [ ] 7.10 Delete `TerraformService.ts` and its tests
