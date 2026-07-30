@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
+import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 
 /**
  * Guards the one dependency invariant in this repo that nothing else can catch.
@@ -87,5 +88,14 @@ describe('packaging manifest pins', () => {
       drift,
       'the root manifest is what electron-builder ships; @hyveon/infra is what the Pulumi program typechecks against — they must agree',
     ).toEqual([]);
+  });
+
+  it('should match the @hyveon/shared PULUMI_ENGINE_VERSION constant to the root @pulumi/pulumi pin', () => {
+    // PulumiEngineService.resolve() installs PULUMI_ENGINE_VERSION via
+    // `PulumiCommand.install({ version })`. If it drifts from the SDK pin the
+    // manifests above are already guarded to agree on, the app would
+    // typecheck against one Automation API version while provisioning and
+    // running a different engine binary at runtime.
+    expect(PULUMI_ENGINE_VERSION).toBe(root.dependencies?.['@pulumi/pulumi']);
   });
 });
