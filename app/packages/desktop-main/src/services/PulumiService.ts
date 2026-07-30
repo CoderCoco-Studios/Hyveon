@@ -219,10 +219,14 @@ export interface PulumiPreviewResult {
   planHash: string;
   /**
    * The engine version stamped into the saved plan artifact's own
-   * `manifest.version` field (e.g. `"v3.255.0"` — verbatim as read off
-   * disk, NOT normalized against `PulumiEngineService.getResolvedVersion()`'s
-   * un-prefixed `"3.255.0"` shape; see {@link PulumiService.preview}'s doc
-   * comment). Stored alongside, not folded into, {@link planHash}.
+   * `manifest.version` field, with any leading `v` stripped (e.g. the
+   * artifact's `"v3.255.0"` is stored as `"3.255.0"`) so it's directly
+   * comparable — via a bare string equality, no caller-side normalization
+   * needed — against `PulumiEngineService.getResolvedVersion()`'s own
+   * un-prefixed shape. See {@link PulumiService.readEngineVersionFromPlanArtifact}
+   * for exactly where the stripping happens. Stored alongside, not folded
+   * into, {@link planHash} — see {@link PulumiService.preview}'s doc comment,
+   * "Engine-version stamping", for why.
    */
   engineVersion: string;
 }
@@ -335,18 +339,56 @@ export class PulumiService {
    * exists. `strict: false` searches the whole container, not just this
    * service's own module scope — required, since `PulumiServiceModule`
    * deliberately does not import whatever module provides this token.
+   *
+   * Throws a clear, wrapped `Error` (naming the missing token and the module
+   * expected to provide it) rather than letting Nest's own
+   * `UnknownElementException` propagate unexplained — deliberately the SAME
+   * failure mode {@link getRemoteFileStore} uses for the identical situation,
+   * so a missing DI binding fails loudly and identically regardless of which
+   * token is missing. What a *caller* of this method does with that thrown
+   * error is a separate, independent choice made at each call site: `preview`'s
+   * `persistRunRecord` wraps this call in a try/catch that treats ANY
+   * failure of the run-history side-write (a missing token included) as
+   * best-effort and logs+swallows it, mirroring `TerraformService.persistRunRecord`'s
+   * pre-existing "never throws" contract for that specific write — that is
+   * `persistRunRecord`'s own deliberate policy about what "run-history
+   * persistence failed" means for an otherwise-successful preview, not a
+   * difference in what this method itself does on failure.
    */
   private getRunRecordPersister(): RunRecordPersister {
-    return this.moduleRef.get<RunRecordPersister>(RUN_RECORD_PERSISTER, { strict: false });
+    try {
+      return this.moduleRef.get<RunRecordPersister>(RUN_RECORD_PERSISTER, { strict: false });
+    } catch (err) {
+      throw new Error(
+        'PulumiService: RUN_RECORD_PERSISTER is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see run-record.module.ts), not a runtime condition: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
    * Lazily resolves the real `RemoteFileStore` implementation bound to
    * {@link REMOTE_FILE_STORE} by `cloud-provider.module.ts` — mirrors
-   * {@link getRunRecordPersister} exactly; see its doc comment.
+   * {@link getRunRecordPersister} exactly, including wrapping a missing
+   * binding in the same clear, loud `Error` shape; see that method's doc
+   * comment. Unlike {@link getRunRecordPersister}, nothing in {@link preview}
+   * currently catches a failure from this method — reading the deployment
+   * configuration is load-bearing for `preview()` (there is no meaningful
+   * "preview with no configuration" outcome), so a missing binding here is
+   * correctly a hard failure of the whole operation, not a best-effort
+   * side-write.
    */
   private getRemoteFileStore(): RemoteFileStore {
-    return this.moduleRef.get<RemoteFileStore>(REMOTE_FILE_STORE, { strict: false });
+    try {
+      return this.moduleRef.get<RemoteFileStore>(REMOTE_FILE_STORE, { strict: false });
+    } catch (err) {
+      throw new Error(
+        'PulumiService: REMOTE_FILE_STORE is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see cloud-provider.module.ts), not a runtime condition: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -591,22 +633,25 @@ export class PulumiService {
    * ## Engine-version stamping (decision this dispatch)
    *
    * The saved plan artifact's own `manifest.version` field (e.g.
-   * `"v3.255.0"`, WITH the `v` prefix — read verbatim, not normalized) is
-   * persisted as {@link PulumiPreviewResult.engineVersion}, a field
-   * *separate from* {@link planHash} rather than folded into it. Folding it
-   * into the hash would make a task-7.2 apply-time mismatch unable to tell
-   * "the plan or config changed" apart from "only the engine was upgraded"
-   * — the `iac-plan-apply-page` spec's "Engine upgraded between plan and
-   * apply" scenario requires an error that *names the version change*
-   * specifically, which needs the two failure causes distinguishable. A
-   * separate field lets task 7.2 check independently: hash mismatch →
-   * generic staleness error; hash match but `engineVersion` differs from
-   * `PulumiEngineService.getResolvedVersion()` → the specific "engine
-   * upgraded" error. Note the format mismatch this leaves for 7.2 to
-   * normalize: `getResolvedVersion()` returns an un-prefixed semver string
-   * (`"3.255.0"`, from `SemVer.toString()`), while this field is the plan
-   * artifact's verbatim `manifest.version` (`"v3.255.0"`) — a bare string
-   * comparison between the two will never match without stripping the `v`.
+   * `"v3.255.0"`, WITH a `v` prefix) is read by
+   * {@link readEngineVersionFromPlanArtifact}, which strips the prefix
+   * before returning — so {@link PulumiPreviewResult.engineVersion} is
+   * stored un-prefixed (`"3.255.0"`), directly comparable via a bare string
+   * equality against `PulumiEngineService.getResolvedVersion()`'s own
+   * un-prefixed shape (`SemVer.toString()` never includes one). Normalizing
+   * once here, at write time, means task 7.2's apply-time comparison is a
+   * plain `===` with no format trap to rediscover.
+   *
+   * `engineVersion` is persisted as a field *separate from* {@link planHash}
+   * rather than folded into it. Folding it into the hash would make a
+   * task-7.2 apply-time mismatch unable to tell "the plan or config changed"
+   * apart from "only the engine was upgraded" — the `iac-plan-apply-page`
+   * spec's "Engine upgraded between plan and apply" scenario requires an
+   * error that *names the version change* specifically, which needs the two
+   * failure causes distinguishable. A separate field lets task 7.2 check
+   * independently: hash mismatch → generic staleness error; hash match but
+   * `engineVersion` differs from `PulumiEngineService.getResolvedVersion()`
+   * → the specific "engine upgraded" error.
    *
    * ## Structured `changeSummary`, not scraped stdout
    *
@@ -641,9 +686,9 @@ export class PulumiService {
    *
    * The whole `stack.preview()` call (wrapped in the leaked-promise
    * recovery above) is wrapped again in {@link runWithEscalatingCancellation}
-   * (task 4.7), which forwards `signal` into `PreviewOptions.signal` and
+   * (task 4.7), which forwards a signal into `PreviewOptions.signal` and
    * escalates to a logical forced-termination if the operation doesn't
-   * settle within the bounded window after `signal` aborts — see that
+   * settle within the bounded window after that signal aborts — see that
    * function's own TSDoc for the three distinct settlement shapes
    * ({@link PulumiOperationNotStartedError}/{@link PulumiOperationAbortedError}/
    * {@link PulumiOperationEscalatedError}) this method treats as "aborted"
@@ -652,6 +697,21 @@ export class PulumiService {
    * supplied — `preview` has no backend lock to forcefully clear (see
    * above), so there is nothing task 4.7's extension point would do here;
    * task 7.2's `up` is the more likely place for one.
+   *
+   * The signal actually forwarded is an internal `AbortController` this
+   * method owns (mirroring `signal` when the caller supplies one — abort
+   * events are chained one-way, caller → internal), NOT `signal` directly.
+   * This exists so a **force-closed generator** (a consumer calling
+   * `break`/`.return()`/`.throw()` on the generator itself, independent of
+   * whether `signal` was ever provided or aborted) still has something to
+   * cancel: the outer `finally` below aborts this internal controller and
+   * AWAITS the resulting settlement before clearing {@link operationInFlight},
+   * so a torn-down consumer can never leave the CLI subprocess (and the
+   * shared workspace directory it's still writing to) running unsupervised
+   * while this instance reports itself free for a new operation — see the
+   * outer `finally`'s own comment for the full rationale and why this
+   * mirrors `TerraformService.plan()`'s inner `stream.return({ aborted: true })`
+   * call.
    *
    * ## Persistence
    *
@@ -683,9 +743,17 @@ export class PulumiService {
    * @param rolledBackFrom - The `runId` of the `apply` run this preview is
    *   re-planning after a rollback (task 7.6, not yet built) — passed
    *   through to the persisted run record unchanged.
-   * @throws A descriptive `Error` synchronously if another `preview`/`up`/
-   *   `destroy` is already in flight on this instance, or if
-   *   `preMintedRunId` doesn't match {@link RUN_ID_PATTERN}.
+   * @throws A descriptive `Error` if another `preview`/`up`/`destroy` is
+   *   already in flight on this instance, or if `preMintedRunId` doesn't
+   *   match {@link RUN_ID_PATTERN} — checked at the very top of the method
+   *   body, so the throw happens the instant the generator is first driven
+   *   (its first `.next()` call), before any `await`; note this is NOT the
+   *   same as "synchronously from the `preview(...)` call itself" — like any
+   *   async generator, calling `preview(...)` only constructs the generator
+   *   object and runs none of this method's body until iteration begins
+   *   (mirrors a pre-existing imprecision in `TerraformService.plan`'s own
+   *   equivalent doc, fixed here since this method's doc was being rewritten
+   *   anyway).
    * @throws A descriptive `Error` if no configuration bucket is configured,
    *   the configuration object doesn't exist, or `configVersionId` is stale
    *   (see above).
@@ -726,8 +794,55 @@ export class PulumiService {
     // once the operation has settled — mirrors TerraformService.plan()'s
     // `logLines`.
     const logLines: string[] = [];
+    // `internalController`/`operationPromise`/`operationSettled` are hoisted
+    // (not declared inside the try block) so the outer `finally` can abort
+    // AND await a still-running `stack.preview()` call if this generator is
+    // force-closed (consumer `break`/`.return()`/`.throw()`) while the
+    // operation is in flight — see the outer `finally`'s own comment for why
+    // this is required, not optional: `TerraformService.plan()`'s equivalent
+    // safety net is its inner `try/finally` around the drive loop, whose
+    // `finally` calls `stream.return({ aborted: true })` to force
+    // `spawnAndStream`'s OWN finally to run (kill the child, then await its
+    // `close` event) before this generator's own outer finally proceeds to
+    // clear `workspaceInFlight`. This generator has no inner sub-generator to
+    // delegate that to (the Automation API's `onOutput`/`onError` are plain
+    // callbacks, not a stream this code owns the lifecycle of) — the
+    // `internalController`/`operationPromise` pair below is the equivalent
+    // mechanism, built by hand.
+    //
+    // `internalController` is ALWAYS the signal actually forwarded to
+    // `stack.preview()` (via `runWithEscalatingCancellation`) — never the
+    // caller-supplied `signal` directly. When `signal` is supplied, this
+    // controller mirrors it (aborting the instant `signal` does); when the
+    // generator is force-closed, the outer `finally` aborts THIS controller
+    // directly, regardless of whether the caller ever supplied a `signal` at
+    // all — otherwise a caller that never passes `signal` would have no
+    // cancellation path at all on a force-close, leaving the CLI subprocess
+    // to run to completion ungoverned while `operationInFlight` is already
+    // cleared for a new call.
+    const internalController = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        internalController.abort();
+      } else {
+        signal.addEventListener('abort', () => internalController.abort());
+      }
+    }
+    // Set once `stack.preview()` has actually been invoked (via
+    // `runWithEscalatingCancellation`) — `undefined` for the whole method if
+    // an early guard (bucket not configured, stale config version, etc.)
+    // returns/throws before ever reaching that point, in which case the
+    // outer `finally` has nothing to abort/await.
+    let operationPromise: Promise<PreviewResult> | undefined;
+    // Flips to `true` once `operationPromise` has genuinely settled (success,
+    // failure, or the bounded escalation timeout `runWithEscalatingCancellation`
+    // itself enforces — see that function's own TSDoc for why awaiting
+    // `operationPromise` in the outer `finally` below is still a BOUNDED
+    // wait, not an indefinite one, even for a wedged engine). Doubles as the
+    // chunk-drain loop's own "operation is done" signal further down.
+    let operationSettled = false;
     try {
-      if (signal?.aborted) {
+      if (internalController.signal.aborted) {
         // Already aborted before we even started — end the generator
         // cleanly without touching Pulumi at all, mirroring plan()'s
         // identical pre-spawn guard.
@@ -777,7 +892,7 @@ export class PulumiService {
       const observedConfigVersionId = head.versionId;
       const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
 
-      if (signal?.aborted) {
+      if (internalController.signal.aborted) {
         // Aborted while reading the configuration — end cleanly before ever
         // touching Pulumi.
         return undefined;
@@ -806,7 +921,7 @@ export class PulumiService {
         stackExists,
       });
 
-      if (signal?.aborted) {
+      if (internalController.signal.aborted) {
         // Aborted while resolving the workspace/engine — end cleanly before
         // calling stack.preview().
         return undefined;
@@ -820,7 +935,6 @@ export class PulumiService {
       const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
       const queue: PulumiRunChunk[] = [];
       let wake: (() => void) | null = null;
-      let settled = false;
 
       const notify = (): void => {
         wake?.();
@@ -856,7 +970,7 @@ export class PulumiService {
       // pre-spawn awaits.
       startedAt = new Date().toISOString();
 
-      const operationPromise = runWithEscalatingCancellation(
+      operationPromise = runWithEscalatingCancellation(
         (innerSignal) =>
           runTreatingLeakedPromiseAsSuccess(
             () => stack.preview({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal }),
@@ -864,13 +978,15 @@ export class PulumiService {
             // for why nothing needs re-reading here.
             () => Promise.resolve<PreviewResult>({ stdout: '', stderr: '', changeSummary: capturedChangeSummary }),
           ),
-        signal,
+        internalController.signal,
       );
 
       // Mirrors spawnAndStream's `child.on('close', ...)` handler: flush any
       // trailing partial line from both buffers, then mark settled — done
       // from the SAME handler (attached to both the resolve and reject
       // paths) so the drain loop below needs no special-casing between them.
+      // Also the outer `finally`'s signal that a force-close has nothing
+      // left to await — see that block's comment.
       const onOperationSettled = (): void => {
         for (const stream of ['stdout', 'stderr'] as const) {
           if (buffers[stream].length > 0) {
@@ -878,13 +994,13 @@ export class PulumiService {
             buffers[stream] = '';
           }
         }
-        settled = true;
+        operationSettled = true;
         notify();
       };
       operationPromise.then(onOperationSettled, onOperationSettled);
 
       // Drain loop — identical shape to spawnAndStream's, driven by
-      // `settled` instead of `closed`.
+      // `operationSettled` instead of `closed`.
       while (true) {
         if (queue.length > 0) {
           const chunk = queue.shift()!;
@@ -893,7 +1009,7 @@ export class PulumiService {
           yield chunk;
           continue;
         }
-        if (settled) {
+        if (operationSettled) {
           break;
         }
         await new Promise<void>((resolveWait) => {
@@ -994,9 +1110,41 @@ export class PulumiService {
       }
       throw outcome.error;
     } finally {
-      // Covers the force-closed generator case — mirrors
-      // TerraformService.plan()'s outer finally exactly; see that method's
-      // comment for the full rationale.
+      // Covers the force-closed generator case (consumer `break`/`.return()`/
+      // `.throw()`): if `stack.preview()` was actually invoked and hasn't
+      // settled yet, this generator was torn down while the CLI subprocess
+      // was still genuinely running. Abort it — `internalController.abort()`
+      // fires the SAME signal already forwarded into `stack.preview({ signal })`,
+      // triggering the SDK's own `SIGINT` handling — and AWAIT the resulting
+      // settlement before doing anything else, most importantly before
+      // `this.operationInFlight = null` below. Without this await,
+      // `operationInFlight` would be cleared while the subprocess (and the
+      // shared `workDir`/`Pulumi.<stack>.yaml` it's still writing to) is
+      // still live, letting a new `preview()`/`up()`/`destroy()` call start
+      // immediately and race against it on that shared local state — exactly
+      // what `operationInFlight`'s own doc comment says this guard exists to
+      // prevent. Mirrors `TerraformService.plan()`'s inner
+      // `stream.return({ aborted: true })` call, which drives
+      // `spawnAndStream`'s own `finally` (kill the child, await its `close`
+      // event) before that generator's outer `finally` proceeds — this
+      // generator has no inner sub-generator to delegate to (the Automation
+      // API's `onOutput`/`onError` are plain callbacks, not a stream), so the
+      // `internalController`/`operationPromise` pair is the hand-built
+      // equivalent. The wait is still BOUNDED, not indefinite:
+      // `runWithEscalatingCancellation` (already wrapping `operationPromise`)
+      // gives up waiting on a genuinely wedged operation after its own
+      // escalation timeout and settles anyway — see that function's TSDoc.
+      if (operationPromise && !operationSettled) {
+        internalController.abort();
+        await operationPromise.catch(() => {
+          // Only here to observe settlement — the actual outcome (success,
+          // `PulumiOperationAbortedError`, `PulumiOperationEscalatedError`,
+          // or a genuine failure) is irrelevant to a generator that's
+          // already being torn down for an unrelated reason; the point is
+          // only that the underlying call has now genuinely finished.
+        });
+      }
+
       if (runId !== undefined) {
         this.endActiveRun(runId);
       }
@@ -1026,8 +1174,11 @@ export class PulumiService {
 
   /**
    * Reads and parses the persisted plan artifact's top-level `manifest.version`
-   * field (e.g. `"v3.255.0"`) — see {@link preview}'s TSDoc, "Engine-version
-   * stamping", for why this is stored verbatim rather than normalized.
+   * field (e.g. `"v3.255.0"`) and strips a leading `v`, if present, before
+   * returning — see {@link preview}'s TSDoc, "Engine-version stamping", for
+   * why normalizing here (once, at write time) rather than leaving the
+   * caller-facing format mismatch against `PulumiEngineService.getResolvedVersion()`'s
+   * own un-prefixed shape for task 7.2 to rediscover.
    */
   private readEngineVersionFromPlanArtifact(artifactPath: string): string {
     const parsed = JSON.parse(readFileSync(artifactPath, 'utf8')) as { manifest?: { version?: unknown } };
@@ -1035,7 +1186,7 @@ export class PulumiService {
     if (typeof version !== 'string' || version.length === 0) {
       throw new Error(`Pulumi plan artifact "${artifactPath}" has no readable "manifest.version" field.`);
     }
-    return version;
+    return version.replace(/^v/, '');
   }
 
   /**
