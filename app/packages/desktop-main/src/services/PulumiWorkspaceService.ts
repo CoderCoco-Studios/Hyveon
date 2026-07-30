@@ -15,6 +15,7 @@ import { logger } from '../logger.js';
 import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
 
 /**
  * Bare Pulumi project name — see {@link PULUMI_STACK_NAME}'s doc comment for
@@ -238,13 +239,27 @@ export interface PulumiWorkspaceInput {
    */
   stackExists: boolean;
   /**
-   * Extension point for Task 4.5 (credential `envVars` propagation — named
-   * profile via `AWS_PROFILE`, or decrypted pasted keys). Merged into the
-   * engine environment alongside the backend/passphrase vars this seam
-   * always sets. Empty/omitted today; 4.5 is the first real caller. 4.5's
-   * spec also requires *clearing* inherited credential variables belonging
-   * to the unselected source (e.g. `AWS_PROFILE` when pasted keys were
-   * chosen), not merely omitting them: `PulumiCommand.run()` (`cmd.js`)
+   * Override for the credential `envVars` this seam merges into the engine
+   * environment (named profile via `AWS_PROFILE`, or decrypted pasted keys),
+   * normally left **unset**.
+   *
+   * When omitted (the expected case for every real caller, including Phase
+   * 7's `PulumiService`), {@link getOrCreateStack} resolves this itself via
+   * {@link resolveCredentialEnvVars} against the injected
+   * {@link ElectronStoreService} — every operation gets a sanitized
+   * credential environment unconditionally, per the `pulumi-engine-runtime`
+   * delta spec's "Every operation SHALL start from a sanitized environment"
+   * (spec.md:102). This exists as an explicit field at all only so tests
+   * (and this file's own "credentialEnvVars extension point" describe block)
+   * can inject arbitrary env values directly without going through the
+   * store — a caller that supplies it is opting out of the automatic
+   * resolution and is responsible for its correctness (including the
+   * exclusivity clear below), which is why Phase 7 should leave it unset
+   * rather than resolve credentials itself and pass them through here.
+   *
+   * 4.5's spec also requires *clearing* inherited credential variables
+   * belonging to the unselected source (e.g. `AWS_PROFILE` when pasted keys
+   * were chosen), not merely omitting them: `PulumiCommand.run()` (`cmd.js`)
    * spawns via `execa` with the default `extendEnv` behaviour, so the child
    * process inherits the *entire* Electron process environment and this
    * seam's `envVars` only override individual keys on top of that — an
@@ -254,7 +269,8 @@ export interface PulumiWorkspaceInput {
    * supplying an explicit empty string for the variable to unset — the
    * override still applies key-by-key regardless of the value, it just
    * needs to actually be present in this map. This seam does not need its
-   * own separate clearing API for that.
+   * own separate clearing API for that. {@link resolveCredentialEnvVars}
+   * already implements this correctly for both paths.
    */
   credentialEnvVars?: Record<string, string>;
   /**
@@ -317,8 +333,14 @@ export class PulumiWorkspaceService {
    * {@link PULUMI_STACK_NAME}. Throws {@link PulumiBackendNotBootstrappedError}
    * if `input.backendReady` is `false` (checked before anything else), or
    * {@link PulumiPassphraseUnavailableError} if a usable passphrase cannot be
-   * obtained — both happen before any Pulumi invocation. The SDK call itself
-   * is also wrapped: a failure that looks like a missing bucket (see
+   * obtained — both happen before any Pulumi invocation. Also throws
+   * `PulumiCredentialsNotConfiguredError` (from `PulumiCredentialResolver.ts`,
+   * via {@link resolveCredentialEnvVars}) when `input.credentialEnvVars` is
+   * omitted and the store has no credential source selected at all — see
+   * {@link PulumiWorkspaceInput.credentialEnvVars}'s doc comment for why
+   * resolution happens here unconditionally rather than trusting every
+   * future caller to remember to pass it. The SDK call itself is also
+   * wrapped: a failure that looks like a missing bucket (see
    * {@link BUCKET_MISSING_PATTERN}) is re-classified into
    * {@link PulumiBackendNotBootstrappedError} as a backstop for when
    * `backendReady` was wrong, rather than surfacing raw Pulumi/gocloud
@@ -335,6 +357,16 @@ export class PulumiWorkspaceService {
     // reasonable order in which the passphrase can be an afterthought.
     const passphrase = this.resolvePassphrase(input.stackExists);
 
+    // Unconditional credential resolution (fix round 1): `input.credentialEnvVars`
+    // is normally unset, so this seam resolves the wizard's selected AWS
+    // credential source itself rather than trusting the caller to remember
+    // to pass it — see PulumiWorkspaceInput.credentialEnvVars's doc comment.
+    // Throws PulumiCredentialsNotConfiguredError if the store has no
+    // credential source selected at all, rather than silently proceeding
+    // with no credential vars (which would let the engine fall back to its
+    // own default AWS credential chain, exactly what spec.md:100 forbids).
+    const credentialEnvVars = input.credentialEnvVars ?? resolveCredentialEnvVars(this.store);
+
     const pulumiCommand = await this.engine.resolve(input.onPhase);
     const pulumiHome = this.ensureDir(this.getPulumiHomeDir());
     const workDir = this.ensureDir(this.getWorkDir());
@@ -348,11 +380,11 @@ export class PulumiWorkspaceService {
     const backendUrl = `s3://${input.stateBucket}?region=${encodeURIComponent(input.stateBucketRegion)}`;
 
     const envVars: LocalWorkspaceOptions['envVars'] = {
-      // Extension point for Task 4.5 first — see PulumiWorkspaceInput's
-      // `credentialEnvVars` doc comment — so a future credential source can
-      // never accidentally clobber the backend/passphrase vars this seam is
-      // responsible for below.
-      ...input.credentialEnvVars,
+      // Resolved credential vars first — see PulumiWorkspaceInput's
+      // `credentialEnvVars` doc comment — so a credential source (whether
+      // caller-supplied or resolved above) can never accidentally clobber
+      // the backend/passphrase vars this seam is responsible for below.
+      ...credentialEnvVars,
       PULUMI_BACKEND_URL: backendUrl,
       PULUMI_CONFIG_PASSPHRASE: passphrase,
       PULUMI_SKIP_UPDATE_CHECK: 'true',
