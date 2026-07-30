@@ -1,14 +1,15 @@
 /**
- * Tests for `TfvarsService` — the local-vs-S3 tfvars reader/parser.
+ * Tests for `TfvarsService` — the local-vs-S3 deployment-config reader/parser.
  *
- * `@cdktf/hcl2json` (the underlying HCL→JSON parser) is exercised for real
- * here rather than mocked, since it's the whole point of the service; only
- * the filesystem, the injected `RemoteFileStore`, and `ConfigService` are
- * stubbed.
+ * The config is plain JSON now (see the `migrate-iac-to-pulumi` change's
+ * Phase 6), so fixtures are inline `DeploymentConfig`-shaped objects
+ * `JSON.stringify`d — no fixture files needed, unlike the retired HCL
+ * fixtures this file used to load from `__fixtures__/*.tfvars` (there's no
+ * comment/heredoc complexity to fixture-test with JSON).
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { RemoteFileStore } from '@hyveon/shared';
+import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
@@ -33,41 +34,43 @@ import { logger } from '../logger.js';
 const mockExists = vi.mocked(existsSync);
 const mockRead = vi.mocked(readFileSync);
 
-// `vi.mock('fs', ...)` above replaces the module for every specifier that
-// resolves to it — including 'node:fs' — so a plain `import { readFileSync }
-// from 'node:fs'` would still return the mock. `vi.importActual` bypasses the
-// mock entirely and gives back the real module, which is what's needed to
-// load the `__fixtures__/*.tfvars` files verbatim from disk below instead of
-// duplicating their contents as inline template literals.
-const { readFileSync: readFixtureFile } = await vi.importActual<typeof import('fs')>('fs');
+/** A minimal, valid deployment config defining a single game server. */
+const FIXTURE_CONFIG: DeploymentConfig = {
+  projectName: 'hyveon',
+  awsRegion: 'us-east-1',
+  vpcCidr: '10.0.0.0/16',
+  hostedZoneName: 'example.com',
+  dnsTtl: 30,
+  watchdogIntervalMinutes: 15,
+  watchdogIdleChecks: 4,
+  watchdogMinPackets: 100,
+  baseAllowedGuilds: [],
+  baseAdminUserIds: [],
+  baseAdminRoleIds: [],
+  discordApplicationId: '',
+  auditTableName: '',
+  runsTableName: '',
+  gameServers: {
+    palworld: {
+      image: 'thijsvanloef/palworld-server-docker:latest',
+      cpu: 2048,
+      memory: 8192,
+      ports: [
+        { container: 8211, protocol: 'udp' },
+        { container: 27015, protocol: 'udp' },
+      ],
+      environment: [{ name: 'PLAYERS', value: '16' }],
+      volumes: [{ name: 'saves', container_path: '/palworld' }],
+      https: false,
+      connect_message: 'Connect to {host}:{port}',
+    },
+  },
+};
 
-/** A minimal, valid `terraform.tfvars` fixture defining a single game server. */
-const FIXTURE_TFVARS = `
-aws_region   = "us-east-1"
-project_name = "hyveon"
+/** `FIXTURE_CONFIG` serialized exactly as `TfvarsService` would write/read it. */
+const FIXTURE_JSON = JSON.stringify(FIXTURE_CONFIG, null, 2) + '\n';
 
-game_servers = {
-  palworld = {
-    image  = "thijsvanloef/palworld-server-docker:latest"
-    cpu    = 2048
-    memory = 8192
-    ports = [
-      { container = 8211,  protocol = "udp" },
-      { container = 27015, protocol = "udp" },
-    ]
-    environment = [
-      { name = "PLAYERS", value = "16" },
-    ]
-    volumes = [
-      { name = "saves", container_path = "/palworld" },
-    ]
-    https           = false
-    connect_message = "Connect to {host}:{port}"
-  }
-}
-`;
-
-/** Expected `GameServer[]` produced by parsing `FIXTURE_TFVARS`. */
+/** Expected `GameServer[]` produced by parsing {@link FIXTURE_JSON}. */
 const EXPECTED_GAME_SERVERS = [
   {
     name: 'palworld',
@@ -85,35 +88,32 @@ const EXPECTED_GAME_SERVERS = [
   },
 ];
 
-/** A `terraform.tfvars` fixture defining two entries in `game_servers`. */
-const FIXTURE_MULTIPLE_GAMES = `
-game_servers = {
-  palworld = {
-    image  = "thijsvanloef/palworld-server-docker:latest"
-    cpu    = 2048
-    memory = 8192
-    ports = [
-      { container = 8211, protocol = "udp" },
-    ]
-    volumes = [
-      { name = "saves", container_path = "/palworld" },
-    ]
-  }
-  valheim = {
-    image  = "lloesche/valheim-server"
-    cpu    = 1024
-    memory = 4096
-    ports = [
-      { container = 2456, protocol = "udp" },
-    ]
-    volumes = [
-      { name = "saves", container_path = "/config" },
-    ]
-  }
-}
-`;
+/** A deployment config defining two entries in `gameServers`. */
+const FIXTURE_MULTIPLE_GAMES_JSON = JSON.stringify(
+  {
+    ...FIXTURE_CONFIG,
+    gameServers: {
+      palworld: {
+        image: 'thijsvanloef/palworld-server-docker:latest',
+        cpu: 2048,
+        memory: 8192,
+        ports: [{ container: 8211, protocol: 'udp' }],
+        volumes: [{ name: 'saves', container_path: '/palworld' }],
+      },
+      valheim: {
+        image: 'lloesche/valheim-server',
+        cpu: 1024,
+        memory: 4096,
+        ports: [{ container: 2456, protocol: 'udp' }],
+        volumes: [{ name: 'saves', container_path: '/config' }],
+      },
+    },
+  },
+  null,
+  2,
+);
 
-/** Expected `GameServer[]` produced by parsing `FIXTURE_MULTIPLE_GAMES`. */
+/** Expected `GameServer[]` produced by parsing {@link FIXTURE_MULTIPLE_GAMES_JSON}. */
 const EXPECTED_MULTIPLE_GAME_SERVERS = [
   {
     name: 'palworld',
@@ -134,19 +134,37 @@ const EXPECTED_MULTIPLE_GAME_SERVERS = [
 ];
 
 /**
- * `terraform.tfvars` fixture defining two entries (`minecraft`, `terraria`)
- * with only the required `GameServer` fields (`image`, `cpu`, `memory`,
- * `ports`, `volumes`) — every optional field (`environment`, `https`,
- * `connect_message`, `file_seeds`) is omitted entirely. Read from disk via
- * the real `fs` (see `readFixtureFile` above) rather than duplicated inline,
- * so this exercises the actual `__fixtures__/optional-omitted.tfvars` file.
+ * Deployment config defining two entries (`minecraft`, `terraria`) with only
+ * the required `GameServer` fields (`image`, `cpu`, `memory`, `ports`,
+ * `volumes`) — every optional field (`environment`, `https`,
+ * `connect_message`, `file_seeds`) is omitted entirely, rather than written
+ * as an explicit `null`/`undefined`.
  */
-const FIXTURE_OMITTED_OPTIONALS = readFixtureFile(
-  new URL('./__fixtures__/optional-omitted.tfvars', import.meta.url),
-  'utf-8',
+const FIXTURE_OMITTED_OPTIONALS_JSON = JSON.stringify(
+  {
+    ...FIXTURE_CONFIG,
+    gameServers: {
+      minecraft: {
+        image: 'itzg/minecraft-server',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 25565, protocol: 'tcp' }],
+        volumes: [{ name: 'world', container_path: '/data' }],
+      },
+      terraria: {
+        image: 'ryshe/terraria',
+        cpu: 512,
+        memory: 1024,
+        ports: [{ container: 7777, protocol: 'tcp' }],
+        volumes: [{ name: 'world', container_path: '/config' }],
+      },
+    },
+  },
+  null,
+  2,
 );
 
-/** Expected `GameServer[]` produced by parsing `FIXTURE_OMITTED_OPTIONALS`. */
+/** Expected `GameServer[]` produced by parsing {@link FIXTURE_OMITTED_OPTIONALS_JSON}. */
 const EXPECTED_OMITTED_OPTIONALS_GAME_SERVERS = [
   {
     name: 'minecraft',
@@ -167,29 +185,58 @@ const EXPECTED_OMITTED_OPTIONALS_GAME_SERVERS = [
 ];
 
 /**
- * `terraform.tfvars` fixture exercising the harder HCL constructs
- * `TfvarsService` must tolerate: line comments (`#` and `//`), a block
- * comment, a heredoc `file_seeds` content string, multiple games, and (on
- * the `valheim` entry) Terraform expressions — arithmetic, a for-expression,
- * a ternary, and `format()` calls. Read from disk via the real `fs` (see
- * `readFixtureFile` above) rather than duplicated inline, so this exercises
- * the actual `__fixtures__/complex.tfvars` file.
+ * Deployment config exercising a lossless round trip of every JSON scalar
+ * type `GameServer` can carry: numeric `cpu`/`memory`/port `container`,
+ * boolean `https`, a `file_seeds` entry with embedded newlines (via
+ * `content`) and base64 binary content (via `content_base64`), and a
+ * `connect_message` containing the `{host}`/`{port}` placeholders — asserts
+ * `JSON.parse` hands every one of these back as the same typed value it was
+ * serialized from, per the governing spec's "lossless round-trip including
+ * booleans/numerics" requirement.
  */
-const FIXTURE_COMPLEX = readFixtureFile(new URL('./__fixtures__/complex.tfvars', import.meta.url), 'utf-8');
+const FIXTURE_RICH_ENTRY_JSON = JSON.stringify(
+  {
+    ...FIXTURE_CONFIG,
+    gameServers: {
+      palworld: {
+        image: 'thijsvanloef/palworld-server-docker:latest',
+        cpu: 2048,
+        memory: 8192,
+        ports: [
+          { container: 8211, protocol: 'udp' },
+          { container: 27015, protocol: 'udp' },
+        ],
+        environment: [
+          { name: 'PLAYERS', value: '16' },
+          { name: 'SERVER_NAME', value: 'My Palworld Server' },
+        ],
+        volumes: [
+          { name: 'saves', container_path: '/palworld' },
+          { name: 'mods', container_path: '/palworld/mods' },
+        ],
+        https: false,
+        connect_message: 'Connect to {host}:{port}',
+        file_seeds: [
+          {
+            path: '/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+            content:
+              '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(Difficulty=None,DayTimeSpeedRate=1.0,NightTimeSpeedRate=1.0)\n',
+          },
+          {
+            path: '/palworld/Pal/Content/Paks/MyMod.pak',
+            content_base64: 'UEsDBBQAAAAIAAAAIQAAAAAAAAAAAAAAAAAA',
+            mode: '0644',
+          },
+        ],
+      },
+    },
+  },
+  null,
+  2,
+);
 
-/**
- * Expected `GameServer[]` produced by parsing `FIXTURE_COMPLEX`.
- *
- * `@cdktf/hcl2json` does not evaluate Terraform expressions — it only
- * converts HCL syntax to JSON. So on the `valheim` entry, fields written as
- * expressions (`cpu = 1024 * 2`, `ports = [for p in ... ]`,
- * `https = length(...) > 0 ? true : false`, `connect_message = format(...)`)
- * come back as the literal, unevaluated `"${...}"` strings verified below —
- * not the numeric/boolean values a full Terraform evaluation would produce.
- * The `palworld` entry uses plain literals throughout, so it asserts
- * fully-typed values as usual.
- */
-const EXPECTED_COMPLEX_GAME_SERVERS = [
+/** Expected `GameServer[]` produced by parsing {@link FIXTURE_RICH_ENTRY_JSON}. */
+const EXPECTED_RICH_ENTRY_GAME_SERVERS = [
   {
     name: 'palworld',
     image: 'thijsvanloef/palworld-server-docker:latest',
@@ -221,18 +268,6 @@ const EXPECTED_COMPLEX_GAME_SERVERS = [
         mode: '0644',
       },
     ],
-  },
-  {
-    name: 'valheim',
-    image: 'lloesche/valheim-server',
-    // Unevaluated Terraform expressions — see the doc comment above.
-    cpu: '${1024 * 2}',
-    memory: '${4096 + 2048}',
-    ports: '${[for p in [2456, 2457, 2458] : { container = p, protocol = "udp" }]}',
-    environment: [{ name: 'SERVER_NAME', value: '${format("%s-valheim", "hyveon")}' }],
-    volumes: [{ name: 'saves', container_path: '/config' }],
-    https: '${length("valheim") > 0 ? true : false}',
-    connect_message: '${format("Connect via %s", "the Discord bot")}',
   },
 ];
 
@@ -274,7 +309,7 @@ function makeConfig(opts: {
 }): ConfigService {
   const stub: Partial<ConfigService> = {
     getTfvarsBucket: () => opts.bucket ?? null,
-    getTfvarsPath: () => opts.path ?? '/repo/terraform/terraform.tfvars',
+    getTfvarsPath: () => opts.path ?? '/repo/terraform/deployment-config.json',
     readEnvTfvarsCacheTtlMs: () => opts.ttlMs ?? 30000,
   };
   return stub as ConfigService;
@@ -289,9 +324,9 @@ describe('TfvarsService', () => {
   });
 
   describe('local mode', () => {
-    it('should parse a fixture tfvars file into a GameServer[] matching the terraform/variables.tf shape', async () => {
+    it('should parse a fixture config file into a GameServer[] matching the DeploymentConfig.gameServers shape', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       const result = await service.getGameServers();
@@ -302,19 +337,19 @@ describe('TfvarsService', () => {
 
     it('should read from ConfigService.getTfvarsPath()', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(
-        makeConfig({ bucket: null, path: '/custom/terraform.tfvars' }),
+        makeConfig({ bucket: null, path: '/custom/deployment-config.json' }),
         remoteFileStore,
       );
       await service.getGameServers();
 
-      expect(mockExists).toHaveBeenCalledWith('/custom/terraform.tfvars');
-      expect(mockRead).toHaveBeenCalledWith('/custom/terraform.tfvars', 'utf-8');
+      expect(mockExists).toHaveBeenCalledWith('/custom/deployment-config.json');
+      expect(mockRead).toHaveBeenCalledWith('/custom/deployment-config.json', 'utf-8');
     });
 
-    it('should return an empty array and log when the local tfvars file does not exist', async () => {
+    it('should return an empty array and log when the local config file does not exist', async () => {
       mockExists.mockReturnValue(false);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
@@ -323,9 +358,9 @@ describe('TfvarsService', () => {
       expect(logger.error).toHaveBeenCalled();
     });
 
-    it('should return an empty array and log when the tfvars file has no game_servers key', async () => {
+    it('should return an empty array and log when the config JSON has no gameServers key', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('aws_region = "us-east-1"\n');
+      mockRead.mockReturnValue(JSON.stringify({ awsRegion: 'us-east-1' }));
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
@@ -334,44 +369,44 @@ describe('TfvarsService', () => {
     });
   });
 
-  describe('getRawHcl', () => {
-    it('should return the raw HCL text without an etag in local mode', async () => {
+  describe('getRawConfig', () => {
+    it('should return the raw config text without an etag in local mode', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
-      const result = await service.getRawHcl();
+      const result = await service.getRawConfig();
 
-      expect(result.hcl).toBe(FIXTURE_TFVARS);
+      expect(result.config).toBe(FIXTURE_JSON);
       expect(result.etag).toBeUndefined();
     });
 
-    it('should return the raw HCL text plus the RemoteFileStore etag in s3 mode', async () => {
+    it('should return the raw config text plus the RemoteFileStore etag in s3 mode', async () => {
       remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_TFVARS),
+        body: new TextEncoder().encode(FIXTURE_JSON),
         etag: 'etag-1',
       });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
-      const result = await service.getRawHcl();
+      const result = await service.getRawConfig();
 
-      expect(result.hcl).toBe(FIXTURE_TFVARS);
+      expect(result.config).toBe(FIXTURE_JSON);
       expect(result.etag).toBe('etag-1');
     });
 
-    it('should reject when the tfvars source is unreadable, unlike getGameServers', async () => {
+    it('should reject when the config source is unreadable, unlike getGameServers', async () => {
       mockExists.mockReturnValue(false);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
-      await expect(service.getRawHcl()).rejects.toThrow(/not found/);
+      await expect(service.getRawConfig()).rejects.toThrow(/not found/);
     });
   });
 
   describe('s3 mode', () => {
-    it('should parse tfvars fetched from the stubbed RemoteFileStore into a GameServer[] matching the terraform/variables.tf shape', async () => {
+    it('should parse config fetched from the stubbed RemoteFileStore into a GameServer[] matching the DeploymentConfig.gameServers shape', async () => {
       remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_TFVARS),
+        body: new TextEncoder().encode(FIXTURE_JSON),
         etag: 'etag-1',
       });
 
@@ -382,22 +417,22 @@ describe('TfvarsService', () => {
       expect(mockRead).not.toHaveBeenCalled();
     });
 
-    it('should fetch the object keyed by the tfvars path basename', async () => {
+    it('should fetch the object keyed by the config path basename', async () => {
       remoteFileStore.get.mockResolvedValue({
-        body: new TextEncoder().encode(FIXTURE_TFVARS),
+        body: new TextEncoder().encode(FIXTURE_JSON),
         etag: 'etag-1',
       });
 
       const service = new TfvarsService(
-        makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/terraform.tfvars' }),
+        makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/deployment-config.json' }),
         remoteFileStore,
       );
       await service.getGameServers();
 
-      expect(remoteFileStore.get).toHaveBeenCalledWith('terraform.tfvars');
+      expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
     });
 
-    it('should return an empty array and log when the remote tfvars object does not exist', async () => {
+    it('should return an empty array and log when the remote config object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -408,9 +443,19 @@ describe('TfvarsService', () => {
   });
 
   describe('parse errors', () => {
-    it('should return an empty array and log when the tfvars text is malformed HCL', async () => {
+    it('should return an empty array and log when the config text is malformed JSON', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('this is not { valid hcl @@@');
+      mockRead.mockReturnValue('this is not { valid json @@@');
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+
+      await expect(service.getGameServers()).resolves.toEqual([]);
+      expect(logger.error).toHaveBeenCalled();
+    });
+
+    it('should return an empty array and log when the config JSON decodes to a non-object (e.g. an array)', async () => {
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue('[]');
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
@@ -420,7 +465,7 @@ describe('TfvarsService', () => {
 
     it('should negatively cache a failed parse, so the next call within the TTL does not retry the source', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('this is not { valid hcl @@@');
+      mockRead.mockReturnValue('this is not { valid json @@@');
 
       const service = new TestableTfvarsService(makeConfig({ bucket: null, ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
@@ -430,7 +475,7 @@ describe('TfvarsService', () => {
 
       // Fix the underlying source, but stay within the TTL — the negatively
       // cached failure should still be served, not a fresh (now-valid) read.
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
       service.nowMock.mockReturnValue(1_010_000); // 10s later, well within a 30s TTL
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(mockRead).toHaveBeenCalledTimes(1);
@@ -438,14 +483,14 @@ describe('TfvarsService', () => {
 
     it('should retry the source once the TTL has elapsed after a failed parse', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('this is not { valid hcl @@@');
+      mockRead.mockReturnValue('this is not { valid json @@@');
 
       const service = new TestableTfvarsService(makeConfig({ bucket: null, ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
 
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
       service.nowMock.mockReturnValue(1_000_000 + 30001); // just past the 30s TTL
       const result = await service.getGameServers();
 
@@ -454,9 +499,9 @@ describe('TfvarsService', () => {
   });
 
   describe('parsing breadth', () => {
-    it('should parse multiple game_servers entries into a GameServer[] with one element per entry', async () => {
+    it('should parse multiple gameServers entries into a GameServer[] with one element per entry', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_MULTIPLE_GAMES);
+      mockRead.mockReturnValue(FIXTURE_MULTIPLE_GAMES_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       const result = await service.getGameServers();
@@ -466,7 +511,7 @@ describe('TfvarsService', () => {
 
     it('should parse an entry with every optional field omitted, leaving them undefined rather than throwing', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_OMITTED_OPTIONALS);
+      mockRead.mockReturnValue(FIXTURE_OMITTED_OPTIONALS_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       const result = await service.getGameServers();
@@ -480,31 +525,36 @@ describe('TfvarsService', () => {
       }
     });
 
-    it('should parse the complex fixture covering comments, a heredoc, and both file_seeds variants, and leave the valheim entry\'s Terraform expressions as literal unevaluated strings', async () => {
+    it('should losslessly round-trip every scalar type (numbers, booleans, embedded newlines, base64 content) through JSON.parse', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_COMPLEX);
+      mockRead.mockReturnValue(FIXTURE_RICH_ENTRY_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       const result = await service.getGameServers();
 
-      expect(result).toEqual(EXPECTED_COMPLEX_GAME_SERVERS);
+      expect(result).toEqual(EXPECTED_RICH_ENTRY_GAME_SERVERS);
+      // Explicitly assert the values decoded to their real JS types, not
+      // stringified equivalents — `toEqual` alone wouldn't catch e.g. a
+      // numeric `cpu` surviving as the string `"2048"`.
+      expect(typeof result[0]!.cpu).toBe('number');
+      expect(typeof result[0]!.https).toBe('boolean');
     });
 
-    it('should return an empty array and log a warning when the tfvars file is completely empty', async () => {
+    it('should return an empty array and log an error when the config file is completely empty (not valid JSON)', async () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue('');
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
-      expect(logger.warn).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalled();
     });
   });
 
   describe('caching', () => {
     it('should be a cache miss on the first call, reading the source once', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       await service.getGameServers();
@@ -514,7 +564,7 @@ describe('TfvarsService', () => {
 
     it('should be a cache hit on a second call within the TTL, not re-reading the source', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TestableTfvarsService(makeConfig({ bucket: null, ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
@@ -529,7 +579,7 @@ describe('TfvarsService', () => {
 
     it('should re-read the source once the TTL has elapsed', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TestableTfvarsService(makeConfig({ bucket: null, ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
@@ -543,7 +593,7 @@ describe('TfvarsService', () => {
 
     it('should re-read the source immediately after invalidateCache', async () => {
       mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(FIXTURE_TFVARS);
+      mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null, ttlMs: 30000 }), remoteFileStore);
 
