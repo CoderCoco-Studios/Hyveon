@@ -1053,13 +1053,8 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
-/** Payload accepted by {@link HyveonWizardApi.bootstrapLockTable}. */
-export interface BootstrapLockTableInput {
-  tableName: string;
-}
-
-/** Payload accepted by {@link HyveonWizardApi.bootstrapTfvarsBucket}. */
-export interface BootstrapTfvarsBucketInput {
+/** Payload accepted by {@link HyveonWizardApi.bootstrapConfigurationBucket}. */
+export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
@@ -1097,7 +1092,17 @@ export interface SaveWizardProgressInput {
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
 export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 
-/** Result of a single bootstrap operation (e.g. {@link HyveonWizardApi.bootstrapStateBucket}). */
+/**
+ * Result of a single bootstrap operation (e.g. {@link HyveonWizardApi.bootstrapStateBucket}).
+ *
+ * @remarks
+ * There is no dedicated status/field for the public-access-block hardening
+ * every bucket-bootstrap operation also applies: PAB is applied
+ * unconditionally after the bucket itself is created/confirmed, so
+ * `status: 'created' | 'exists'` already implies PAB succeeded, and a PAB
+ * failure surfaces exactly like any other configuration failure on that
+ * bucket — `status: 'failed'` with `message` set to the underlying error.
+ */
 export interface BootstrapResult {
   status: BootstrapResourceStatus;
   /** Present when `status` is `'failed'` — an actionable message for the wizard to display. */
@@ -1124,23 +1129,20 @@ export interface HyveonWizardApi {
    */
   saveState: (input: SaveWizardStateInput) => Promise<WizardState>;
   /**
-   * Idempotently creates/ensures the Terraform S3 state bucket (versioning +
-   * default encryption) using the credentials/region chosen in the
-   * credentials step.
+   * Idempotently creates/ensures the state backend S3 bucket (versioning +
+   * default encryption + public-access-block, applied on both the
+   * fresh-create and already-exists paths) using the credentials/region
+   * chosen in the credentials step.
    */
   bootstrapStateBucket: (input: BootstrapStateBucketInput) => Promise<BootstrapResult>;
   /**
-   * Idempotently creates/ensures the Terraform state-lock DynamoDB table
-   * (`LockID` string hash key) using the credentials/region chosen in the
+   * Idempotently creates/ensures the versioned configuration S3 bucket
+   * (versioning + 90-day noncurrent-version-expiration lifecycle rule +
+   * public-access-block, applied on both the fresh-create and
+   * already-exists paths) using the credentials/region chosen in the
    * credentials step.
    */
-  bootstrapLockTable: (input: BootstrapLockTableInput) => Promise<BootstrapResult>;
-  /**
-   * Idempotently creates/ensures the versioned tfvars S3 bucket (versioning +
-   * 90-day noncurrent-version-expiration lifecycle rule) using the
-   * credentials/region chosen in the credentials step.
-   */
-  bootstrapTfvarsBucket: (input: BootstrapTfvarsBucketInput) => Promise<BootstrapResult>;
+  bootstrapConfigurationBucket: (input: BootstrapConfigurationBucketInput) => Promise<BootstrapResult>;
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
    * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +
@@ -1173,11 +1175,20 @@ export interface WizardAwsChoice {
  * `ElectronStoreService.bootstrap`. Needed so Settings' Reconfigure flow
  * (#211) can rehydrate a non-default name — resource names are
  * operator-editable — before running `terraform init`.
+ *
+ * @remarks
+ * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
+ * `ensureLockTable`/`wizard.bootstrap.lockTable`, and the bootstrap step
+ * renders no row for it) — it is kept here only because the still-live
+ * `terraform.init` call requires a non-empty `dynamodbTable` backend-config
+ * value, which Reconfigure rehydrates from this same field. Task 10.3
+ * (replacing the Terraform-init step) is where this field should finally
+ * be dropped.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
   lockTable: string;
-  tfvarsBucket: string;
+  configurationBucket: string;
 }
 
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */

@@ -106,11 +106,18 @@ export interface AppStoreSchema {
    * operator-editable, so without this the Settings "Reconfigure" flow
    * (#211) would have no way to rehydrate a non-default name and would run
    * `terraform init` against the wrong bucket/table.
+   *
+   * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
+   * `ensureLockTable`) — it is kept only because the still-live
+   * `terraform.init` call requires a non-empty `dynamodbTable` backend-config
+   * value, rehydrated from this same field on Reconfigure. Task 10.3
+   * (replacing the Terraform-init step) is where this field should finally
+   * be dropped.
    */
   bootstrap?: {
     stateBucket: string;
     lockTable: string;
-    tfvarsBucket: string;
+    configurationBucket: string;
   };
   /**
    * Pasted-credentials profiles from the wizard's credentials step, keyed by

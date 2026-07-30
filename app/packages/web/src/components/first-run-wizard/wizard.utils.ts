@@ -44,8 +44,22 @@ export function reconfigureSteps(): WizardStep[] {
   return WIZARD_STEPS.filter((step) => step !== 'prerequisites');
 }
 
-/** A backend bootstrap resource the wizard's bootstrap step creates. */
-export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'tfvarsBucket';
+/**
+ * A backend bootstrap resource name tracked by the wizard's bootstrap step.
+ *
+ * @remarks
+ * `lockTable` is **not** a resource the bootstrap step creates — nothing
+ * has bootstrapped a DynamoDB lock table since task 5.1 removed
+ * `BootstrapService.ensureLockTable`, and the bootstrap step renders no row
+ * for it (see `bootstrap-step.component.tsx`'s `VisibleBootstrapResource`).
+ * The key survives here only because `first-run-wizard.component.tsx`'s
+ * `backendConfig.dynamodbTable` still feeds it to the still-live
+ * `terraform.init` call, which requires a non-empty string — removing it
+ * outright would break that (still-tested) call. Task 10.3 (replacing the
+ * Terraform-init step with the Pulumi stack-initialization step) is where
+ * `dynamodbTable` — and this key — should finally disappear.
+ */
+export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'configurationBucket';
 
 /**
  * Client-side status for a single bootstrap resource row. Extends the
@@ -66,6 +80,6 @@ export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<Bo
   return {
     stateBucket: `${projectName}-tfstate`,
     lockTable: `${projectName}-tflock`,
-    tfvarsBucket: `${projectName}-tfvars`,
+    configurationBucket: `${projectName}-tfvars`,
   };
 }

@@ -66,7 +66,7 @@ describe('defaultBootstrapResourceNames', () => {
     expect(defaultBootstrapResourceNames()).toEqual({
       stateBucket: 'hyveon-tfstate',
       lockTable: 'hyveon-tflock',
-      tfvarsBucket: 'hyveon-tfvars',
+      configurationBucket: 'hyveon-tfvars',
     });
   });
 
@@ -74,7 +74,7 @@ describe('defaultBootstrapResourceNames', () => {
     expect(defaultBootstrapResourceNames('my-project')).toEqual({
       stateBucket: 'my-project-tfstate',
       lockTable: 'my-project-tflock',
-      tfvarsBucket: 'my-project-tfvars',
+      configurationBucket: 'my-project-tfvars',
     });
   });
 });

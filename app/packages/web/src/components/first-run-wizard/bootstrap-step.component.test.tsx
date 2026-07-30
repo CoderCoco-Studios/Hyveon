@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BootstrapStep } from './bootstrap-step.component.js';
 import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.utils.js';
@@ -8,13 +8,13 @@ import type { IamCheckResult } from '@hyveon/desktop-preload';
 const NAMES: Record<BootstrapResourceKey, string> = {
   stateBucket: 'hyveon-tfstate',
   lockTable: 'hyveon-tflock',
-  tfvarsBucket: 'hyveon-tfvars',
+  configurationBucket: 'hyveon-tfvars',
 };
 
 const PENDING: Record<BootstrapResourceKey, BootstrapResourceState> = {
   stateBucket: 'pending',
   lockTable: 'pending',
-  tfvarsBucket: 'pending',
+  configurationBucket: 'pending',
 };
 
 /** Renders `BootstrapStep` with sensible defaults, letting each test override just what it cares about. */
@@ -41,11 +41,16 @@ afterEach(() => {
 });
 
 describe('BootstrapStep', () => {
-  it('should render all three resource rows with their names', () => {
+  it('should render the two bootstrapped resource rows with their names', () => {
     renderStep();
     expect(screen.getByLabelText('Terraform state bucket name')).toHaveValue('hyveon-tfstate');
-    expect(screen.getByLabelText('Terraform lock table name')).toHaveValue('hyveon-tflock');
-    expect(screen.getByLabelText('Tfvars bucket name')).toHaveValue('hyveon-tfvars');
+    expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-tfvars');
+  });
+
+  it('should not render a row for the lock table — nothing bootstraps it anymore', () => {
+    renderStep();
+    expect(screen.queryByLabelText('Terraform lock table name')).not.toBeInTheDocument();
+    expect(screen.queryByText('Terraform lock table')).not.toBeInTheDocument();
   });
 
   it('should call onNameChange when a resource name field is edited', async () => {
@@ -72,6 +77,40 @@ describe('BootstrapStep', () => {
       messages: { stateBucket: 'Bucket name already taken' },
     });
     expect(screen.getByText('Bucket name already taken')).toBeInTheDocument();
+  });
+
+  it('should render the public-access-block outcome once a resource is created or already exists', () => {
+    renderStep({ statuses: { ...PENDING, stateBucket: 'created', configurationBucket: 'exists' } });
+
+    expect(screen.getAllByText('Public access blocked')).toHaveLength(2);
+  });
+
+  it('should not render the public-access-block outcome for a pending, creating, or failed resource', () => {
+    renderStep({
+      statuses: { ...PENDING, stateBucket: 'creating', configurationBucket: 'failed' },
+      messages: { configurationBucket: 'access denied' },
+    });
+
+    expect(screen.queryByText('Public access blocked')).not.toBeInTheDocument();
+  });
+
+  it('should report a failed resource without masking its sibling — one row shows failed, the other shows created independently', () => {
+    renderStep({
+      statuses: { ...PENDING, stateBucket: 'created', configurationBucket: 'failed' },
+      messages: { configurationBucket: 'access denied applying public-access-block' },
+    });
+
+    // The failing resource: failure badge + message, no success indication.
+    const configRow = screen.getByLabelText('Configuration bucket name').closest('div')!;
+    expect(within(configRow).getByText('Failed')).toBeInTheDocument();
+    expect(within(configRow).getByText('access denied applying public-access-block')).toBeInTheDocument();
+    expect(within(configRow).queryByText('Public access blocked')).not.toBeInTheDocument();
+
+    // The sibling resource: fully succeeded, unaffected by the other's failure.
+    const stateRow = screen.getByLabelText('Terraform state bucket name').closest('div')!;
+    expect(within(stateRow).getByText('Created')).toBeInTheDocument();
+    expect(within(stateRow).getByText('Public access blocked')).toBeInTheDocument();
+    expect(within(stateRow).queryByText('access denied applying public-access-block')).not.toBeInTheDocument();
   });
 
   it('should disable name fields and the bootstrap button while bootstrapping', () => {

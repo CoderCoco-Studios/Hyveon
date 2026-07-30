@@ -25,8 +25,7 @@ const hyveonMock = {
     listAwsProfiles: vi.fn(),
     saveCredentials: vi.fn(),
     bootstrapStateBucket: vi.fn(),
-    bootstrapLockTable: vi.fn(),
-    bootstrapTfvarsBucket: vi.fn(),
+    bootstrapConfigurationBucket: vi.fn(),
     simulateIamPermissions: vi.fn(),
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
@@ -67,8 +66,7 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
     hyveonMock.wizard.saveCredentials.mockReset();
     hyveonMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
-    hyveonMock.wizard.bootstrapLockTable.mockReset().mockResolvedValue({ status: 'exists' });
-    hyveonMock.wizard.bootstrapTfvarsBucket.mockReset().mockResolvedValue({ status: 'exists' });
+    hyveonMock.wizard.bootstrapConfigurationBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.simulateIamPermissions.mockReset();
     hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
@@ -172,7 +170,7 @@ describe('SettingsPage', () => {
         wizardCompleted: true,
         activeCloud: 'aws',
         aws: { profile: 'default', region: 'us-east-1' },
-        bootstrap: { stateBucket: 'renamed-tfstate', lockTable: 'renamed-tflock', tfvarsBucket: 'renamed-tfvars' },
+        bootstrap: { stateBucket: 'renamed-tfstate', lockTable: 'renamed-tflock', configurationBucket: 'renamed-tfvars' },
       });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
