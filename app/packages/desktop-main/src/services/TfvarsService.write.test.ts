@@ -38,7 +38,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { readFileSync, existsSync, writeFileSync } from 'fs';
-import { TfvarsService } from './TfvarsService.js';
+import { TfvarsService, GameServerEntryError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 
 /** Strongly-typed mock handles for the `fs` module. */
@@ -315,36 +315,99 @@ describe('TfvarsService write path', () => {
       expect(mockWrite).toHaveBeenCalledTimes(1);
     });
 
-    it('should reject adding a name that already exists in gameServers', async () => {
+    it('should reject adding a name that already exists in gameServers, with reason: \'duplicate-name\' pinned for GamesWriteService\'s coupling', async () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
-      await expect(service.addGameServer('palworld', NEW_ENTRY_CONFIG)).rejects.toThrow(/already exists/);
+      // `GamesWriteService.createGame()`'s catch block narrows on
+      // `err.reason === 'duplicate-name'` (not just the error's message) to
+      // decide whether to surface `{ code: 'validation', path: 'name' }` —
+      // pinning the literal `reason` value here, not just a message regex,
+      // is what actually guards that coupling against silent drift.
+      await expect(service.addGameServer('palworld', NEW_ENTRY_CONFIG)).rejects.toMatchObject({
+        reason: 'duplicate-name',
+      });
+      await expect(service.addGameServer('palworld', NEW_ENTRY_CONFIG)).rejects.toBeInstanceOf(GameServerEntryError);
       expect(mockWrite).not.toHaveBeenCalled();
     });
   });
 
   describe('updateGameServer / removeGameServer not-found', () => {
-    it('should reject updateGameServer when the name does not exist in gameServers', async () => {
+    it('should reject updateGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
-      await expect(service.updateGameServer('does-not-exist', UPDATED_ENTRY_CONFIG)).rejects.toThrow(/not found/);
+      await expect(service.updateGameServer('does-not-exist', UPDATED_ENTRY_CONFIG)).rejects.toMatchObject({
+        reason: 'not-found',
+      });
       expect(mockWrite).not.toHaveBeenCalled();
     });
 
-    it('should reject removeGameServer when the name does not exist in gameServers', async () => {
+    it('should reject removeGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
       mockExists.mockReturnValue(true);
       mockRead.mockReturnValue(FIXTURE_JSON);
 
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
 
-      await expect(service.removeGameServer('does-not-exist')).rejects.toThrow(/not found/);
+      await expect(service.removeGameServer('does-not-exist')).rejects.toMatchObject({ reason: 'not-found' });
       expect(mockWrite).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('create-only name validation (legacy names)', () => {
+    /**
+     * `assertValidGameName()` is only ever called from `insertGameServerEntry()`
+     * (the `addGameServer` path) — `updateGameServer`/`removeGameServer` never
+     * re-validate an existing key against the current DNS-safe pattern. This
+     * guarantee is what lets a legacy, pre-migration name that predates
+     * {@link GAME_NAME_PATTERN} (declared back when the source was HCL and the
+     * old `HCL_IDENTIFIER_PATTERN` allowed underscores) keep working
+     * indefinitely. These specs pin that guarantee with a test, so a future
+     * "let's validate consistently on every write" refactor can't silently
+     * break it.
+     */
+    const LEGACY_NAME = 'My_Server';
+    const FIXTURE_WITH_LEGACY_NAME: DeploymentConfig = {
+      ...FIXTURE_CONFIG,
+      gameServers: {
+        ...FIXTURE_CONFIG.gameServers,
+        [LEGACY_NAME]: {
+          image: 'example/legacy-server:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [{ container: 9000, protocol: 'tcp' }],
+          volumes: [{ name: 'data', container_path: '/data' }],
+        },
+      },
+    };
+
+    it('should let updateGameServer succeed on a legacy non-DNS-safe key (never re-validates an existing name)', async () => {
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+
+      await expect(service.updateGameServer(LEGACY_NAME, UPDATED_ENTRY_CONFIG)).resolves.toEqual({
+        etag: '',
+        versionId: undefined,
+      });
+      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      expect(written.gameServers[LEGACY_NAME]).toEqual(UPDATED_ENTRY_CONFIG);
+    });
+
+    it('should let removeGameServer succeed on a legacy non-DNS-safe key (never re-validates an existing name)', async () => {
+      mockExists.mockReturnValue(true);
+      mockRead.mockReturnValue(JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
+
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+
+      await expect(service.removeGameServer(LEGACY_NAME)).resolves.toEqual({ etag: '', versionId: undefined });
+      const written = JSON.parse(mockWrite.mock.calls[0]![1] as string) as DeploymentConfig;
+      expect(written.gameServers[LEGACY_NAME]).toBeUndefined();
     });
   });
 

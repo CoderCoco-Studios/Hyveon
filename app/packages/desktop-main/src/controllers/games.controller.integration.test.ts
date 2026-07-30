@@ -381,6 +381,36 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     expect(mockWrite).not.toHaveBeenCalled();
   });
 
+  it("should surface code 'validation' with a name-path issue and write nothing when creating a game with an already-declared name", async () => {
+    // `validateGameServer()`'s own port-collision check skips a sibling
+    // whose `name` matches the proposed entry (it's designed for the
+    // update-in-place self-exclusion case), so a same-name duplicate on
+    // create passes structural/business-rule validation cleanly — the
+    // actual duplicate-name rejection only happens inside
+    // `TfvarsService.insertGameServerEntry()`. This spec exercises the real
+    // `TfvarsService` + `GamesWriteService` pair (no mocks) to pin that the
+    // `GameServerEntryError('...', 'duplicate-name')` it throws is
+    // genuinely caught and translated by `GamesWriteService.createGame()`,
+    // not just asserted against a hand-constructed error in
+    // `GamesWriteService.test.ts`.
+    mockExists.mockReturnValue(true);
+    mockRead.mockReturnValue(CONFIG_JSON_DECLARING_ARK);
+
+    const config = makeConfig([]);
+    const tfvars = new TfvarsService(config, makeRemoteFileStore());
+    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
+    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+
+    const result = await controller.createGame({ name: 'ark', config: VALID_MINECRAFT_CONFIG });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'validation',
+      issues: [{ path: 'name', message: expect.stringContaining('already exists') }],
+    });
+    expect(mockWrite).not.toHaveBeenCalled();
+  });
+
   it("should surface code 'conflict' with the current version id when an S3-mode write hits a stale etag", async () => {
     const remoteFileStore = makeSpyableRemoteFileStore();
     remoteFileStore.get

@@ -15,6 +15,8 @@
 import {
   validateGameServer,
   checkConnectMessagePlaceholders,
+  GAME_NAME_PATTERN,
+  GAME_NAME_PATTERN_DESCRIPTION,
   type GameServerValidationIssue,
 } from '@hyveon/shared/gameServerValidator';
 import type { CreateGamePayload, GameServer } from '../../api.service.js';
@@ -25,11 +27,22 @@ export const WIZARD_STEPS = ['identity', 'resources', 'networking', 'storage', '
 /** One step of the add-game wizard. */
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
+/**
+ * Distinguishes the add wizard's create flow (where `name` is a brand-new,
+ * fully-validated proposal) from the edit form's flow (where `name` is an
+ * already-declared game's immutable key, rendered read-only — see
+ * `EditGameForm`'s `nameDisabled` prop). {@link checkName} uses this to skip
+ * name validation entirely in `'edit'` mode: re-running create-time
+ * validation against an unchanged, already-declared name would incorrectly
+ * reject legacy names that predate {@link GAME_NAME_PATTERN} (e.g. an
+ * HCL-era name containing an underscore) even though nothing about the name
+ * is being proposed to change. Every exported validation function here
+ * defaults to `'create'` so existing add-wizard call sites are unaffected.
+ */
+export type WizardMode = 'create' | 'edit';
+
 /** Placeholder name used to validate a draft before the operator has typed one, so the port-collision self-exclusion check never accidentally matches a real existing game. */
 const DRAFT_NAME_PLACEHOLDER = '__draft__';
-
-/** Bare HCL identifier pattern a `game_servers` map key must match (mirrors `HCL_IDENTIFIER_PATTERN` in `TfvarsService`) — letters, digits, underscores, and hyphens, not starting with a digit. */
-const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /** Draft form of a single `GameServerPort` row. `container` is `null` until the operator fills in the field, so an empty row can be told apart from a mistyped one. */
 export interface WizardDraftPort {
@@ -185,13 +198,23 @@ export function stepForIssuePath(path: string): WizardStep {
 
 /**
  * Validates `name` against the rules `TfvarsService.insertGameServerEntry()`
- * enforces server-side: non-empty, a valid bare HCL identifier, and not
- * already used by another declared game. This lives outside
- * {@link validateGameServer} because that function treats `name` purely as
- * the map key for self-exclusion in the port-collision check, not as a
- * field to validate in its own right.
+ * enforces server-side: non-empty, matches the shared
+ * {@link GAME_NAME_PATTERN} (DNS-label-safe, imported from
+ * `@hyveon/shared/gameServerValidator` so this can never drift from the
+ * server-side rule the way it once did), and not already used by another
+ * declared game. This lives outside {@link validateGameServer} because that
+ * function treats `name` purely as the map key for self-exclusion in the
+ * port-collision check, not as a field to validate in its own right.
+ *
+ * In `'edit'` {@link mode}, returns no issues at all — see {@link WizardMode}'s
+ * doc for why an already-declared game's immutable name must never be
+ * re-validated against create-time rules.
  */
-function checkName(name: string, existingGames: GameServer[]): GameServerValidationIssue[] {
+function checkName(name: string, existingGames: GameServer[], mode: WizardMode): GameServerValidationIssue[] {
+  if (mode === 'edit') {
+    return [];
+  }
+
   const trimmed = name.trim();
 
   if (trimmed.length === 0) {
@@ -200,11 +223,10 @@ function checkName(name: string, existingGames: GameServer[]): GameServerValidat
 
   const issues: GameServerValidationIssue[] = [];
 
-  if (!NAME_PATTERN.test(trimmed)) {
+  if (!GAME_NAME_PATTERN.test(trimmed)) {
     issues.push({
       path: 'name',
-      message:
-        'Name must start with a letter or underscore and contain only letters, numbers, underscores, and hyphens.',
+      message: `Name must be ${GAME_NAME_PATTERN_DESCRIPTION}.`,
     });
   }
 
@@ -266,9 +288,16 @@ function checkImage(image: string): GameServerValidationIssue[] {
  * that case `validateGameServer`'s own connect_message placeholder check
  * already ran, so appending our own call unconditionally on
  * `!result.success` would otherwise double up identical issues.
+ *
+ * @param mode - `'create'` (default) validates `name` in full; `'edit'`
+ *   skips name validation entirely — see {@link WizardMode}'s doc.
  */
-export function validateWizardDraft(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  const issues = [...checkName(draft.name, existingGames), ...checkImage(draft.image)];
+export function validateWizardDraft(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  const issues = [...checkName(draft.name, existingGames, mode), ...checkImage(draft.image)];
 
   const name = draft.name.trim().length > 0 ? draft.name.trim() : DRAFT_NAME_PLACEHOLDER;
   const result = validateGameServer(name, toProposedEntry(draft), existingGames);
@@ -311,44 +340,74 @@ function dedupeIssues(issues: GameServerValidationIssue[]): GameServerValidation
  * Validates the draft and filters the result down to issues belonging to
  * `step` (via {@link stepForIssuePath}), so a step component only sees — and
  * only blocks advancement on — errors in its own fields.
+ *
+ * @param mode - Forwarded to {@link validateWizardDraft} — `'create'`
+ *   (default) for the add wizard, `'edit'` for `EditGameForm`'s
+ *   `validateStep('review', ...)` call, whose `name` field is read-only.
  */
 export function validateStep(
   step: WizardStep,
   draft: WizardDraft,
   existingGames: GameServer[],
+  mode: WizardMode = 'create',
 ): GameServerValidationIssue[] {
   if (step === 'review') {
-    return validateWizardDraft(draft, existingGames);
+    return validateWizardDraft(draft, existingGames, mode);
   }
-  return validateWizardDraft(draft, existingGames).filter((issue) => stepForIssuePath(issue.path) === step);
+  return validateWizardDraft(draft, existingGames, mode).filter((issue) => stepForIssuePath(issue.path) === step);
 }
 
 /** Convenience wrapper: `true` when `step` has no outstanding validation issues, so the wizard can gate its "Next" button. */
-export function canAdvance(step: WizardStep, draft: WizardDraft, existingGames: GameServer[]): boolean {
-  return validateStep(step, draft, existingGames).length === 0;
+export function canAdvance(
+  step: WizardStep,
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): boolean {
+  return validateStep(step, draft, existingGames, mode).length === 0;
 }
 
 /** Validates the "Identity" step: `name`, `image`, `connect_message`. */
-export function validateIdentityStep(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  return validateStep('identity', draft, existingGames);
+export function validateIdentityStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('identity', draft, existingGames, mode);
 }
 
 /** Validates the "Resources" step: `cpu`/`memory`, including the Fargate cpu/memory pairing rule. */
-export function validateResourcesStep(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  return validateStep('resources', draft, existingGames);
+export function validateResourcesStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('resources', draft, existingGames, mode);
 }
 
 /** Validates the "Networking" step: `ports`, including collisions within the draft and against `existingGames`. */
-export function validateNetworkingStep(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  return validateStep('networking', draft, existingGames);
+export function validateNetworkingStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('networking', draft, existingGames, mode);
 }
 
 /** Validates the "Storage" step: `volumes` (including the at-least-one-volume rule) and `file_seeds`. */
-export function validateStorageStep(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  return validateStep('storage', draft, existingGames);
+export function validateStorageStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('storage', draft, existingGames, mode);
 }
 
 /** Validates the "Review" step: every issue across the whole draft, since review is the final gate before submit. */
-export function validateReviewStep(draft: WizardDraft, existingGames: GameServer[]): GameServerValidationIssue[] {
-  return validateStep('review', draft, existingGames);
+export function validateReviewStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('review', draft, existingGames, mode);
 }

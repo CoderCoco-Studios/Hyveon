@@ -75,10 +75,13 @@ export class GamesWriteService {
    *  - `GameServerEntryError` with `reason: 'invalid-name'` or `'duplicate-name'`
    *    (the proposed name is malformed, or already exists in `gameServers`) →
    *    `{ code: 'validation' }` with a single `path: 'name'` issue.
-   *  - `GameServerEntryError` with any other reason (e.g. `'structural'` —
-   *    the deployment config JSON itself is malformed or missing its
-   *    `gameServers` map) → the catch-all `{ code: 'error' }`, since it isn't
-   *    a name problem at all.
+   *  - `GameServerEntryError` with any other reason (`'structural'` — the
+   *    config document parsed but its `gameServers` map is missing/not an
+   *    object) → the catch-all `{ code: 'error' }`, since it isn't a name
+   *    problem at all. A malformed-JSON parse failure lands here too, but as
+   *    a plain `Error` (from `TfvarsService.parseConfigContents()`), never a
+   *    `GameServerEntryError` — it's mentioned here only because it produces
+   *    the same `{ code: 'error' }` outcome, not because it shares the type.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -117,11 +120,15 @@ export class GamesWriteService {
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
    *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
-   *    or the config JSON itself is malformed/missing its `gameServers` map)
-   *    → `{ code: 'not_found' }`, regardless of its specific `reason` — this
-   *    write path never throws an `'invalid-name'`/`'duplicate-name'` error
-   *    (the name is already known-good, being an existing key), so any
-   *    error here means "couldn't find/apply the update."
+   *    or the config document parsed but its `gameServers` map is missing/
+   *    not an object) → `{ code: 'not_found' }`, regardless of its specific
+   *    `reason` — this write path never throws an
+   *    `'invalid-name'`/`'duplicate-name'` error (the name is already
+   *    known-good, being an existing key), so any error here means
+   *    "couldn't find/apply the update." Note this does NOT cover malformed
+   *    JSON itself (a `JSON.parse` failure) — that's a plain `Error` from
+   *    `TfvarsService.parseConfigContents()`, not a `GameServerEntryError`,
+   *    and falls through to the generic `{ code: 'error' }` below instead.
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -158,9 +165,11 @@ export class GamesWriteService {
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
    *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
-   *    or the config JSON itself is malformed/missing its `gameServers` map)
-   *    → `{ code: 'not_found' }`, regardless of its specific `reason` — see
-   *    {@link updateGame}'s doc for why this catch is intentionally blanket.
+   *    or the config document parsed but its `gameServers` map is missing/
+   *    not an object) → `{ code: 'not_found' }`, regardless of its specific
+   *    `reason` — see {@link updateGame}'s doc for why this catch is
+   *    intentionally blanket, and for the malformed-JSON case this does
+   *    NOT cover (falls through to `{ code: 'error' }` instead).
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();

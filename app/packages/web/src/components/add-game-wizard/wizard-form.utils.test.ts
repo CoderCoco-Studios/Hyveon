@@ -106,6 +106,21 @@ describe('validateIdentityStep', () => {
     expect(issues.some((issue) => issue.path === 'name' && issue.message.includes('already exists'))).toBe(true);
   });
 
+  it("should NOT flag a legacy, non-DNS-safe name (e.g. containing an underscore) in 'edit' mode", () => {
+    // Regression test for the client/server validation-rule divergence: an
+    // already-declared game's name is immutable (edit forms render it
+    // read-only), so 'edit' mode must skip name validation entirely rather
+    // than re-running the create-time DNS-safe pattern against a legacy
+    // name that predates it.
+    const issues = validateIdentityStep(makeValidDraft({ name: 'My_Legacy_Server' }), [], 'edit');
+    expect(issues.some((issue) => issue.path === 'name')).toBe(false);
+  });
+
+  it("should still flag the same invalid name in the default 'create' mode", () => {
+    const issues = validateIdentityStep(makeValidDraft({ name: 'My_Legacy_Server' }), []);
+    expect(issues.some((issue) => issue.path === 'name')).toBe(true);
+  });
+
   it('should flag a blank image', () => {
     const issues = validateIdentityStep(makeValidDraft({ image: '' }), []);
     expect(issues.some((issue) => issue.path === 'image')).toBe(true);
