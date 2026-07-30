@@ -30,14 +30,16 @@ export interface PastedAwsCredentials {
  *
  * Secret fields (`aws.accessKeyId`, `aws.secretAccessKey`,
  * `creds.aws.<profileName>.accessKeyId`,
- * `creds.aws.<profileName>.secretAccessKey`) are stored encrypted via
- * {@link SafeStorageService} and must never be read or written directly —
- * always use {@link ElectronStoreService.getSecretAccessKeyId},
+ * `creds.aws.<profileName>.secretAccessKey`, `pulumi.passphrase`) are stored
+ * encrypted via {@link SafeStorageService} and must never be read or written
+ * directly — always use {@link ElectronStoreService.getSecretAccessKeyId},
  * {@link ElectronStoreService.setSecretAccessKeyId},
  * {@link ElectronStoreService.getSecretAccessKey},
  * {@link ElectronStoreService.setSecretAccessKey},
- * {@link ElectronStoreService.getPastedCredentials}, and
- * {@link ElectronStoreService.setPastedCredentials}.
+ * {@link ElectronStoreService.getPastedCredentials},
+ * {@link ElectronStoreService.setPastedCredentials},
+ * {@link ElectronStoreService.getPulumiPassphrase}, and
+ * {@link ElectronStoreService.setPulumiPassphrase}.
  */
 export interface AppStoreSchema {
   wizardCompleted: boolean;
@@ -79,6 +81,18 @@ export interface AppStoreSchema {
    */
   creds: {
     aws: Record<string, PastedAwsCredentials>;
+  };
+  /**
+   * Automation API secrets-passphrase storage (see `PulumiWorkspaceService`).
+   * The passphrase is generated once, the first time a Pulumi stack is
+   * created, and reused for the lifetime of that stack — a missing or
+   * undecryptable entry for a stack that already exists must never be
+   * silently replaced (a new passphrase cannot decrypt state encrypted with
+   * the old one).
+   */
+  pulumi?: {
+    /** Stored as an encrypted base64 blob — do not read this field directly. */
+    passphrase?: string;
   };
 }
 
@@ -243,6 +257,53 @@ export class ElectronStoreService {
       },
     });
     logger.debug(`ElectronStoreService: creds.aws.${profileName} written (encrypted)`);
+  }
+
+  /**
+   * Read `pulumi.passphrase`, decrypting the stored blob via
+   * {@link SafeStorageService}.
+   *
+   * @remarks
+   * Callers that need to distinguish "never stored" from "stored but
+   * undecryptable" (the `pulumi-engine-runtime` delta spec's "Missing
+   * passphrase for an existing stack fails loudly" scenario) must check
+   * presence via `get('pulumi')?.passphrase !== undefined` themselves
+   * *before* calling this — like {@link decrypt}, this method can itself
+   * throw (a corrupted/foreign ciphertext) rather than returning `undefined`.
+   * `PulumiWorkspaceService` owns that distinction; this accessor only mirrors
+   * {@link getSecretAccessKeyId}'s shape.
+   *
+   * @returns The decrypted passphrase, or `undefined` if never stored.
+   */
+  getPulumiPassphrase(): string | undefined {
+    const pulumi = this.get('pulumi');
+    if (pulumi?.passphrase === undefined) return undefined;
+    return this.safeStorage.decrypt(pulumi.passphrase);
+  }
+
+  /**
+   * Write `pulumi.passphrase`, encrypting the value via
+   * {@link SafeStorageService} before storage. Merges with the existing
+   * `pulumi` object so other fields are preserved.
+   *
+   * @remarks
+   * Callers must check {@link SafeStorageService.isAvailable} themselves
+   * before calling this for a *new* stack's passphrase — mirroring
+   * `AwsProfileService.savePastedCredentials`'s "fail loudly before any
+   * write" precedent, this method does not enforce that on its own (like
+   * {@link setSecretAccessKeyId}, it transparently degrades to plaintext
+   * storage outside Electron via {@link SafeStorageService.encrypt}, which is
+   * fine for AWS keys' test/CI convenience but would be a silent security
+   * regression for a passphrase if a caller relied on it instead of checking
+   * availability itself).
+   *
+   * @param value - Plaintext passphrase to encrypt and store.
+   */
+  setPulumiPassphrase(value: string): void {
+    const encrypted = this.safeStorage.encrypt(value);
+    const current = this.get('pulumi') ?? {};
+    this.set('pulumi', { ...current, passphrase: encrypted });
+    logger.debug('ElectronStoreService: pulumi.passphrase written (encrypted)');
   }
 
   /**
