@@ -34,12 +34,21 @@ import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
  * invoke it) is already async or an async generator — see
  * `AwsCloudProvider`'s constructor doc comment for why awaiting this from
  * inside those methods needs no NestJS async-factory-provider changes.
+ *
+ * `region` reads `outputs.awsRegion` — the deployed stack's own region —
+ * rather than `ConfigService.getRegion()`'s wizard-configured fallback,
+ * since `outputs` is already guaranteed non-null below by this point. This
+ * restores the pre-task-7.4 self-correcting behavior (the region ECS/EC2/
+ * CloudWatch clients actually need to target is wherever the stack was
+ * really provisioned, which can drift from the wizard's credentials-step
+ * region if `DeploymentConfig.awsRegion` was edited independently) for the
+ * highest-value client of this function.
  */
 export async function buildProviderConfig(config: ConfigService): Promise<AwsCloudProviderConfig | null> {
   const outputs = await config.getStackOutputs();
   if (!outputs) return null;
   return {
-    region: config.getRegion(),
+    region: outputs.awsRegion,
     ecsClusterName: outputs.ecsClusterName,
     subnetIds: outputs.subnetIds.join(','),
     securityGroupId: outputs.securityGroupId,

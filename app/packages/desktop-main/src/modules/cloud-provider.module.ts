@@ -66,9 +66,22 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
  * name comes from `ConfigService.getStackOutputs()`'s `auditTableName`
  * (falling back to `''` when nothing has been deployed yet, so
  * `AwsAuditLogStore` surfaces its own "table not configured" error rather
- * than this factory silently defaulting somewhere), and the region from
- * `getRegion()`. Exported as a standalone function — see
+ * than this factory silently defaulting somewhere), and the region from the
+ * SAME resolved `outputs.awsRegion` when a stack is deployed (falling back
+ * to `getRegion()`'s wizard-configured value only when nothing is deployed
+ * yet). Exported as a standalone function — see
  * {@link resolveTfvarsFileStoreConfig} for why.
+ *
+ * Region source, revisited: `ConfigService.getRegion()` reads the
+ * wizard-configured `aws.region` rather than the deployed stack's own
+ * `awsRegion` output (see that method's doc comment for why it can't
+ * synchronously read stack outputs). But this function is already async and
+ * already resolves `outputs` — so once a stack IS deployed, preferring
+ * `outputs.awsRegion` here restores the old self-correcting behavior
+ * (`DeploymentConfig.awsRegion`, operator-edited, is the value actually
+ * provisioned into; nothing enforces it staying in sync with the wizard's
+ * credentials-step region) for these DynamoDB clients specifically, at zero
+ * extra cost.
  *
  * Async since task 7.4 (`migrate-iac-to-pulumi`): `getStackOutputs()`
  * replaced the synchronous `getTfOutputs()` this used to read. This is NOT
@@ -83,7 +96,7 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
  */
 export async function resolveAuditLogStoreConfig(config: ConfigService): Promise<{ tableName: string; region: string }> {
   const outputs = await config.getStackOutputs();
-  return { tableName: outputs?.auditTableName ?? '', region: config.getRegion() };
+  return { tableName: outputs?.auditTableName ?? '', region: outputs?.awsRegion ?? config.getRegion() };
 }
 
 /**
@@ -93,12 +106,15 @@ export async function resolveAuditLogStoreConfig(config: ConfigService): Promise
  * from `ConfigService.getStackOutputs()`'s `runsTableName` (falling back to
  * `''` when nothing has been deployed yet), the bucket from
  * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
- * bucket is configured), and the region from `getRegion()` — so
- * `AwsRunRecordStore` surfaces its own "not configured" errors rather than
- * this factory silently defaulting somewhere. Exported as a standalone
- * function — see {@link resolveTfvarsFileStoreConfig} for why. Async for the
- * same reason, and with the same "not a DI-factory hazard" caveat, as
- * {@link resolveAuditLogStoreConfig} — see its doc comment.
+ * bucket is configured), and the region from the same resolved
+ * `outputs.awsRegion` when a stack is deployed (falling back to
+ * `getRegion()`'s wizard-configured value otherwise) — so `AwsRunRecordStore`
+ * surfaces its own "not configured" errors rather than this factory silently
+ * defaulting somewhere. Exported as a standalone function — see
+ * {@link resolveTfvarsFileStoreConfig} for why. Async for the same reason,
+ * and with the same "not a DI-factory hazard" and "prefer `outputs.awsRegion`
+ * once deployed" reasoning, as {@link resolveAuditLogStoreConfig} — see its
+ * doc comment.
  */
 export async function resolveRunRecordStoreConfig(
   config: ConfigService,
@@ -107,7 +123,7 @@ export async function resolveRunRecordStoreConfig(
   return {
     tableName: outputs?.runsTableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
-    region: config.getRegion(),
+    region: outputs?.awsRegion ?? config.getRegion(),
   };
 }
 

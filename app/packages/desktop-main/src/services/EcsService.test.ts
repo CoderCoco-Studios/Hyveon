@@ -17,7 +17,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { EcsService, createAwsCloudProvider } from './EcsService.js';
+import { EcsService, createAwsCloudProvider, buildProviderConfig } from './EcsService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { Ec2Service } from './Ec2Service.js';
 import type { StackOutputs } from '@hyveon/shared';
@@ -491,5 +491,19 @@ describe('EcsService', () => {
       expect(input.task).toBe('arn');
       expect(input.reason).toBe('because');
     });
+  });
+});
+
+describe('buildProviderConfig', () => {
+  it('should return null before anything has been deployed', async () => {
+    await expect(buildProviderConfig(makeConfig(null))).resolves.toBeNull();
+  });
+
+  it('should prefer the deployed stack outputs awsRegion over ConfigService.getRegion() once deployed', async () => {
+    const config = makeConfig({ ...DEFAULT_OUTPUTS, awsRegion: 'eu-central-1' });
+    // getRegion() stays 'us-east-1' (the makeConfig stub default) — proving
+    // the resolved config prefers the stack's own deployed region, not the
+    // wizard-configured fallback, once a stack actually exists.
+    await expect(buildProviderConfig(config)).resolves.toMatchObject({ region: 'eu-central-1' });
   });
 });

@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { OutputMap } from '@pulumi/pulumi/automation/index.js';
-import type { OpType, StackOutputs } from '@hyveon/shared';
+import type { OpType, RunKind, StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { PulumiBackendNotBootstrappedError, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
+import { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 
 /**
  * Phase 7 (`migrate-iac-to-pulumi`) service replacing `TerraformService.ts`.
@@ -49,6 +49,19 @@ import { PulumiBackendNotBootstrappedError, PulumiWorkspaceService } from './Pul
  * of, a method this class owns (existing or still to come) — there's no
  * independent consumer that would benefit from importing the errors without
  * the service, unlike e.g. `@hyveon/shared`'s error types.
+ *
+ * **Duplicate class names, temporarily:** the 6 classes ported under their
+ * original name (`StalePlanError`, `TerraformPlanHashError`,
+ * `DestroyNotConfirmedError`, `RollbackTargetNotFoundError`,
+ * `RollbackNotApplyRunError`, `RollbackVersionMissingError`) now exist as
+ * TWO distinct classes with the same name — one exported from
+ * `TerraformService.ts`, one from this file — until task 7.10 deletes the
+ * former. Nothing in the codebase imports both today, so this is currently
+ * latent, but an `instanceof` check written against the wrong module's
+ * import would silently never match (no compile error, just a check that's
+ * always `false`) — worth flagging explicitly for whoever writes 7.1-7.6's
+ * call sites: always import these from `PulumiService.ts`, never from
+ * `TerraformService.ts`, once both exist side by side.
  */
 @Injectable()
 export class PulumiService {
@@ -60,9 +73,19 @@ export class PulumiService {
   /**
    * Reads every value the app cares about off the deployed Pulumi stack,
    * replacing `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`.
-   * Returns `null` — NEVER throws — for a never-deployed stack, mirroring
-   * `getTfOutputs()`'s existing "not deployed yet" contract; see
-   * `StackOutputs`'s own doc comment.
+   * Returns `null` — NEVER throws, full stop — mirroring `getTfOutputs()`'s
+   * exact contract: that method had three separate catch-alls
+   * (`ConfigService.ts`'s old `getTfOutputs()`, pre-task-7.4) that swallowed
+   * every failure — a missing file, unparseable JSON, a thrown projection
+   * error — and returned `null`/logged rather than ever propagating. Every
+   * one of the ~14 call sites this dispatch migrated to `getStackOutputs()`
+   * was written against that never-throw contract (several inside `finally`
+   * blocks, or ahead of code that must not be skipped by an unhandled
+   * rejection — e.g. `RunService.releaseRun`'s lock release, or
+   * `AuditService.record`'s documented "never throws" promise), so this
+   * method restores it in full: see the catch-all around the Pulumi call
+   * below. See `StackOutputs`'s own doc comment for the "not deployed yet"
+   * framing this degrades to.
    *
    * ## Never deployed yet: three independent short-circuits, no Pulumi call
    *
@@ -92,14 +115,34 @@ export class PulumiService {
    *    only if the wizard's credentials step was never completed, which
    *    implies nothing was ever deployed either.
    *
-   * Only once all three hold does this call
+   * **These three checks are a proxy for "a stack might exist", not a
+   * proof.** A destroyed stack, or a passphrase persisted by a failed/
+   * abandoned create attempt (a future `preview`/`up` dispatch, 7.1/7.2,
+   * could plausibly leave one behind), both leave the store looking exactly
+   * like "existing stack" when the remote stack may not actually be there —
+   * this is a best-effort no-create guarantee, not a proven one. A hot
+   * caller (e.g. a short-interval dashboard poll) relying on this to never
+   * take the backend's write lock should not assume that guarantee is
+   * airtight; a genuinely create-proof read path (e.g. a `listStacks`-based
+   * select-only check) is a larger change than this dispatch's scope.
+   *
+   * Only once all three checks pass does this call
    * {@link PulumiWorkspaceService.getOrCreateStack} (with `stackExists: true`,
    * `backendReady: true`, and a no-op `program` — reading `stack.outputs()`
-   * never invokes the program; see below) and `stack.outputs()`. A
-   * {@link PulumiBackendNotBootstrappedError} thrown from that call (the
-   * bucket was deleted between the check above and this call) is also
-   * treated as "not deployed" rather than propagated, for the same
-   * graceful-degrade contract; every other error propagates unchanged.
+   * never invokes the program; see below) and `stack.outputs()`, inside a
+   * catch-all: ANY failure from either call — `PulumiBackendNotBootstrappedError`,
+   * `PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`,
+   * engine-resolution failures, or a `CommandError` from the underlying
+   * `pulumi stack output` invocation — is logged and degraded to `null`,
+   * exactly like `getTfOutputs()`'s old catch-alls. This is a deliberate,
+   * blunt restoration of the old contract rather than a nuanced per-error
+   * classification: callers cannot tell "genuinely not deployed" apart from
+   * "deployed, but this read failed" from the return value alone, which is
+   * an acceptable trade against the alternative (an unhandled rejection
+   * reaching code that assumed synchronous-style read semantics never
+   * throw). A future dispatch that wants callers to distinguish those cases
+   * should do so deliberately, call-site by call-site, not by loosening this
+   * method's contract back open.
    *
    * ## Why a no-op `program` is safe here
    *
@@ -147,10 +190,13 @@ export class PulumiService {
       });
       outputs = await stack.outputs();
     } catch (err) {
-      if (err instanceof PulumiBackendNotBootstrappedError) {
-        return null;
-      }
-      throw err;
+      // Restores `getTfOutputs()`'s never-throw contract in full — see this
+      // method's doc comment for why every kind of failure here (not just a
+      // missing backend) degrades to `null` rather than propagating.
+      logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
+        err,
+      });
+      return null;
     }
 
     if (Object.keys(outputs).length === 0) {
@@ -300,9 +346,12 @@ export class PulumiPartialApplyError extends Error {
  * Thrown by `TerraformService.apply`'s successor before spawning the update
  * when the caller supplied a config-object version id (the version the
  * saved plan was generated against) and the S3 configuration object's
- * current head version no longer matches it. Ported byte-for-byte from
- * `TerraformService.ts`'s `StalePlanError` — purely about the S3
- * config-object head version, entirely unaffected by the engine swap.
+ * current head version no longer matches it. Ported from `TerraformService.ts`'s
+ * `StalePlanError` with its message text re-termed for Pulumi/config-object
+ * nouns ("configuration object" for "tfvars object", "preview()" for
+ * "plan()") — the shape (`key`/`bucket`/`expectedVersionId`/`actualVersionId`)
+ * and the underlying check (S3 config-object head version) are unchanged,
+ * entirely unaffected by the engine swap.
  */
 export class StalePlanError extends Error {
   constructor(key: string, bucket: string, expectedVersionId: string, actualVersionId: string | undefined) {
@@ -390,10 +439,13 @@ export class PulumiRunPersistError extends Error {
 
 /**
  * Thrown by `TerraformService.destroy`'s successor when it's called without
- * a fresh, valid confirmation token. Ported byte-for-byte from
- * `TerraformService.ts`'s `DestroyNotConfirmedError` — the confirmation-token
- * gate itself (task 7.3's "behind the existing confirmation-token gate") is
- * unaffected by the engine swap; only the mint/consume call sites move.
+ * a fresh, valid confirmation token. Ported from `TerraformService.ts`'s
+ * `DestroyNotConfirmedError` with its message text re-termed for Pulumi
+ * nouns ("pulumi destroy" for "terraform destroy",
+ * "PulumiService.mintDestroyConfirmationToken()" for the `TerraformService`
+ * equivalent) — the confirmation-token gate itself (task 7.3's "behind the
+ * existing confirmation-token gate") is unaffected by the engine swap; only
+ * the mint/consume call sites move.
  */
 export class DestroyNotConfirmedError extends Error {
   constructor() {
@@ -426,7 +478,7 @@ export class RollbackTargetNotFoundError extends Error {
 export class RollbackNotApplyRunError extends Error {
   constructor(
     public readonly applyRunId: string,
-    public readonly kind: string,
+    public readonly kind: RunKind,
   ) {
     super(`Run "${applyRunId}" is a "${kind}" run, not an "apply" run — only apply runs can be rolled back.`);
     this.name = 'RollbackNotApplyRunError';
@@ -458,7 +510,9 @@ export class RollbackNoConfigVersionError extends Error {
 /**
  * Thrown by the rollback flow's successor (task 7.6) when the historic
  * configuration version a rollback would restore no longer exists. Ported
- * byte-for-byte from `TerraformService.ts`'s `RollbackVersionMissingError`.
+ * from `TerraformService.ts`'s `RollbackVersionMissingError` with its
+ * message text re-termed for config-object nouns ("configuration version"
+ * for "tfvars version") — the shape (`versionId`) is unchanged.
  */
 export class RollbackVersionMissingError extends Error {
   constructor(public readonly versionId: string) {

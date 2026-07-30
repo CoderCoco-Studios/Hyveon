@@ -1,7 +1,9 @@
 /**
  * Unit tests for `PulumiService` (tasks 7.4/7.8/7.9 of `migrate-iac-to-pulumi`):
  * the ported/reshaped error classes, and `getStackOutputs()`'s "never
- * deployed yet degrades to null, never throws" contract.
+ * deployed yet degrades to null, and — per the follow-up review that caught
+ * this — NEVER throws for ANY failure, restoring `getTfOutputs()`'s exact
+ * catch-all contract" behaviour.
  *
  * `PulumiWorkspaceService` is stubbed directly (not the underlying Pulumi
  * SDK) — `getStackOutputs()`'s own logic (the three pre-flight short-circuits
@@ -11,7 +13,18 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import type { OutputMap, Stack } from '@pulumi/pulumi/automation/index.js';
+import type { OpMap, OutputMap, Stack } from '@pulumi/pulumi/automation/index.js';
+import type { ChangeSummary } from '@hyveon/shared';
+
+// `vi.mock` factories are hoisted above every import/const in this module by
+// Vitest's transform, so `loggerMock` must be built via `vi.hoisted` rather
+// than a plain top-level `const` — mirrors `PulumiWorkspaceService.test.ts`'s
+// identical `loggerMock` hoisting pattern.
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock('../logger.js', () => ({ logger: loggerMock }));
+
 import {
   PulumiService,
   PulumiPreviewError,
@@ -30,6 +43,24 @@ import {
 import { PulumiBackendNotBootstrappedError, type PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
+
+/**
+ * Type-level-only conformance check between `@hyveon/shared`'s
+ * `ChangeSummary` (deliberately duplicated, not imported, from
+ * `@pulumi/pulumi/automation`'s own `OpMap` — see `changeSummary.ts`'s file
+ * doc for why) and the real SDK's `OpMap`. Both assignments must typecheck
+ * in both directions for the two types to have the exact same key set;
+ * asserting this here means a future `@pulumi/pulumi` upgrade that adds or
+ * removes an `OpType` member fails `app:typecheck` instead of silently
+ * producing a `ChangeSummary` that's missing (or has an extra) key — TS
+ * structural typing would otherwise let an object with EXTRA properties
+ * satisfy a narrower type silently, so a mismatch could only ever surface as
+ * a runtime data-loss bug without this check. Never executed — only ever
+ * typechecked; the `_`-prefix satisfies this repo's eslint "unused vars must
+ * match /^_/" allowance.
+ */
+const _changeSummaryMatchesOpMap: ChangeSummary = {} as OpMap;
+const _opMapMatchesChangeSummary: OpMap = {} as ChangeSummary;
 
 /** Builds a real `ElectronStoreService` (in-memory Map outside Electron) with the given fields pre-seeded. */
 function makeStore(opts: {
@@ -197,21 +228,47 @@ describe('PulumiService.getStackOutputs', () => {
     await expect(service.getStackOutputs()).resolves.toBeNull();
   });
 
-  it('should propagate any other error thrown by getOrCreateStack unchanged', async () => {
+  it('should return null (not throw) when getOrCreateStack throws PulumiPassphraseUnavailableError', async () => {
+    // Restores getTfOutputs()'s never-throw contract for every failure kind,
+    // not just PulumiBackendNotBootstrappedError — see the follow-up review
+    // that caught RunService/AuditService/RunRecordService assuming this
+    // method could never reject. PulumiPassphraseUnavailableError is a
+    // concrete, realistically-reachable example (e.g. the keychain becomes
+    // unavailable between the passphrase-presence check and the decrypt).
+    const workspace = makeWorkspace(new Error('keychain unavailable'));
+    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+
+    await expect(service.getStackOutputs()).resolves.toBeNull();
+  });
+
+  it('should return null (not throw) when getOrCreateStack throws any other error', async () => {
     const workspace = makeWorkspace(new Error('transient AWS failure'));
     const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
 
-    await expect(service.getStackOutputs()).rejects.toThrow('transient AWS failure');
+    await expect(service.getStackOutputs()).resolves.toBeNull();
   });
 
-  it('should propagate an error thrown by stack.outputs() itself unchanged', async () => {
+  it('should return null (not throw) when stack.outputs() itself rejects', async () => {
     const getOrCreateStack = vi.fn().mockResolvedValue({
       outputs: vi.fn().mockRejectedValue(new Error('S3 read failed')),
     } as unknown as Stack);
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
     const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
 
-    await expect(service.getStackOutputs()).rejects.toThrow('S3 read failed');
+    await expect(service.getStackOutputs()).resolves.toBeNull();
+  });
+
+  it('should log a warning (not crash) when a Pulumi call fails', async () => {
+    loggerMock.warn.mockClear();
+    const workspace = makeWorkspace(new Error('transient AWS failure'));
+    const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
+
+    await service.getStackOutputs();
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed to read stack outputs'),
+      expect.objectContaining({ err: expect.any(Error) }),
+    );
   });
 });
 

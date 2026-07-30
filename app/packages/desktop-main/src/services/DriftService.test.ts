@@ -207,10 +207,10 @@ describe('computeDrift', () => {
 
 describe('DriftService', () => {
   describe('getDrift', () => {
-    it('should invalidate the tfstate cache before reading state', async () => {
+    it('should NOT invalidate the stack-outputs cache — this method backs a 30-second dashboard poll, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
       await new DriftService(makeTfvars(), config).getDrift();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before reading state', async () => {
