@@ -65,6 +65,44 @@ export interface PulumiLockOwnershipRecord {
 }
 
 /**
+ * A single "the rollback restore succeeded but the follow-up plan did not"
+ * marker — task 7.6's compensating-semantics record. `PulumiService.confirmRollback`
+ * writes historic configuration bytes back as the configuration object's new
+ * head, then immediately runs a plan against that restored version; the
+ * governing `iac-rollback` spec requires that if the plan half fails
+ * (engine provisioning, network, or persistence), the restore is never left
+ * as the head with no plan describing it "silently" — it must be recorded
+ * and surfaced. This record IS that durable signal: written via
+ * {@link ElectronStoreService.recordOrphanedRollback} in the instant
+ * `confirmRollback` catches such a failure, so the orphan is still
+ * discoverable (e.g. by a future Phase 8/9 controller/UI) even across an app
+ * restart — an in-memory-only field (like `PulumiService`'s own
+ * `pendingDestroyConfirmation`) would lose this the moment the process
+ * exits, which is exactly the "no controller yet to display it" gap this
+ * dispatch needs to bridge without over-building one.
+ *
+ * Single-slot, like `PulumiService`'s `pendingDestroyConfirmation` — NOT a
+ * map keyed by `applyRunId` like {@link PulumiLockOwnershipRecord}'s
+ * `lockOwnership`. This orphan-producing failure path is rare by
+ * construction (it only fires once a restore has already succeeded and a
+ * plan attempt then fails for reasons the restore itself didn't hit), so a
+ * single most-recent slot is the minimum durable signal the spec requires;
+ * a later dispatch designing the actual operator-facing surface is
+ * better-positioned to decide whether multiple concurrent orphans need
+ * independent tracking than this backend-only dispatch is.
+ */
+export interface OrphanedRollbackRecord {
+  /** The `runId` of the `apply` run {@link PulumiService.confirmRollback} was rolling back. */
+  applyRunId: string;
+  /** The configuration-object version id that was successfully restored as the new head before the plan attempt failed. */
+  restoredVersionId: string;
+  /** ISO-8601 timestamp captured the instant the follow-up plan attempt was caught as failed. */
+  failedAt: string;
+  /** `Error.message` (or `String(err)` for a non-`Error` throw) of the plan-creation failure. */
+  failureMessage: string;
+}
+
+/**
  * Typed schema for the application's persistent electron-store.
  *
  * Secret fields (`aws.accessKeyId`, `aws.secretAccessKey`,
@@ -146,6 +184,12 @@ export interface AppStoreSchema {
      * `passphrase` above.
      */
     lockOwnership?: Record<string, PulumiLockOwnershipRecord>;
+    /**
+     * The most recent unresolved rollback orphan (task 7.6) — see
+     * {@link OrphanedRollbackRecord}'s doc comment. Not secret — stored in
+     * plaintext, unlike `passphrase` above.
+     */
+    orphanedRollback?: OrphanedRollbackRecord;
   };
 }
 
@@ -425,6 +469,48 @@ export class ElectronStoreService {
     return Object.entries(lockOwnership)
       .filter(([, record]) => record.stackName === stackName)
       .map(([runId, record]) => ({ runId, ...record }));
+  }
+
+  /**
+   * Records that `PulumiService.confirmRollback` (task 7.6) restored a
+   * historic configuration version as the head but could not complete the
+   * follow-up plan — see {@link OrphanedRollbackRecord}'s doc comment for
+   * why this durable marker exists. Overwrites any existing record
+   * (single-slot — see that interface's doc comment); call immediately after
+   * catching the plan-creation failure, before re-throwing
+   * `PulumiRollbackPlanFailedError` to the caller.
+   */
+  recordOrphanedRollback(record: OrphanedRollbackRecord): void {
+    const current = this.get('pulumi') ?? {};
+    this.set('pulumi', { ...current, orphanedRollback: record });
+  }
+
+  /**
+   * Reads the current orphaned-rollback marker, if any — see
+   * {@link recordOrphanedRollback}/{@link OrphanedRollbackRecord}. A future
+   * Phase 8/9 controller/UI is the intended reader; nothing in this
+   * dispatch's scope calls this yet.
+   *
+   * @returns The most recently recorded {@link OrphanedRollbackRecord}, or
+   *   `undefined` if none is outstanding.
+   */
+  getOrphanedRollback(): OrphanedRollbackRecord | undefined {
+    return this.get('pulumi')?.orphanedRollback;
+  }
+
+  /**
+   * Clears the orphaned-rollback marker — call once an operator has
+   * resolved it (e.g. a future Phase 8/9 controller action) or once a
+   * subsequent rollback attempt against the same or a different apply run
+   * supersedes it. A no-op if none is currently recorded. Nothing in this
+   * dispatch's scope calls this yet — see {@link getOrphanedRollback}'s doc
+   * comment.
+   */
+  clearOrphanedRollback(): void {
+    const current = this.get('pulumi') ?? {};
+    if (!current.orphanedRollback) return;
+    const { orphanedRollback: _orphanedRollback, ...rest } = current;
+    this.set('pulumi', rest);
   }
 
   /**
