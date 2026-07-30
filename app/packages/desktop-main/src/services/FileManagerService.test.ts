@@ -7,25 +7,34 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { FileManagerService } from './FileManagerService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
 import type { Ec2Service } from './Ec2Service.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 /**
- * A canonical set of Terraform outputs used by most tests. Individual tests
+ * A canonical set of stack outputs used by most tests. Individual tests
  * spread over this to tweak specific fields (e.g. clearing EFS access points).
  */
-const DEFAULT_OUTPUTS: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: 'game-cluster',
-  ecs_cluster_arn: 'arn:...',
-  subnet_ids: 'subnet-a,subnet-b',
-  security_group_id: 'sg-game',
-  file_manager_security_group_id: 'sg-files',
-  efs_file_system_id: 'fs-1',
-  efs_access_points: { minecraft: 'fsap-mc' },
-  domain_name: 'example.com',
-  game_names: ['minecraft'],
+const DEFAULT_OUTPUTS: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: 'game-cluster',
+  ecsClusterArn: 'arn:...',
+  subnetIds: ['subnet-a', 'subnet-b'],
+  securityGroupId: 'sg-game',
+  fileManagerSecurityGroupId: 'sg-files',
+  efsFileSystemId: 'fs-1',
+  efsAccessPoints: { minecraft: 'fsap-mc' },
+  domainName: 'example.com',
+  gameNames: ['minecraft'],
+  discordTableName: 'discord-table',
+  auditTableName: 'audit-table',
+  runsTableName: 'runs-table',
+  discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
+  discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 /**
@@ -47,9 +56,9 @@ type EcsStub = Pick<
  * Build a minimal ConfigService stub. Pass `null` to simulate "terraform
  * apply hasn't been run yet".
  */
-function makeConfig(outputs: TfOutputs | null = DEFAULT_OUTPUTS): ConfigService {
+function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigService {
   const stub: Partial<ConfigService> = {
-    getTfOutputs: () => outputs,
+    getStackOutputs: async () => outputs,
     getRegion: () => 'us-east-1',
   };
   return stub as ConfigService;
@@ -144,11 +153,11 @@ describe('FileManagerService', () => {
       const svc = new FileManagerService(makeConfig(null), ecs, makeEc2());
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
-      expect(result.message).toMatch(/terraform apply/i);
+      expect(result.message).toMatch(/not deployed/i);
     });
 
     it('should fail when the game has no EFS access point', async () => {
-      const outputs: TfOutputs = { ...DEFAULT_OUTPUTS, efs_access_points: {} };
+      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {} };
       const { service: ecs } = makeEcs();
       const svc = new FileManagerService(makeConfig(outputs), ecs, makeEc2());
       const result = await svc.start('minecraft');
@@ -157,12 +166,12 @@ describe('FileManagerService', () => {
     });
 
     it('should fail when file_manager_security_group_id is not set', async () => {
-      const outputs: TfOutputs = { ...DEFAULT_OUTPUTS, file_manager_security_group_id: '' };
+      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileManagerSecurityGroupId: '' };
       const { service: ecs } = makeEcs();
       const svc = new FileManagerService(makeConfig(outputs), ecs, makeEc2());
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
-      expect(result.message).toMatch(/file_manager_security_group_id/);
+      expect(result.message).toMatch(/fileManagerSecurityGroupId/);
     });
 
     it('should fail when the file manager is already running', async () => {

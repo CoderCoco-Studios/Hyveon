@@ -26,13 +26,13 @@ export class CostsController {
    */
   @MessagePattern('costs.estimate')
   async estimate() {
-    const outputs = this.config.getTfOutputs();
+    const outputs = await this.config.getStackOutputs();
     if (!outputs) {
       return { games: {}, totalPerHourIfAllOn: 0 };
     }
 
     const estimates: Record<string, ReturnType<CostService['estimateForSpec']>> = {};
-    for (const game of outputs.game_names) {
+    for (const game of outputs.gameNames) {
       const td = await this.ecs.getTaskDefinition(game);
       estimates[game] = this.costs.estimateForSpec(td?.cpu ?? 2048, td?.memory ?? 8192);
     }

@@ -39,8 +39,8 @@ export class GamesController {
     this.config.invalidateCache();
     this.tfvars.invalidateCache();
     const declared = await this.tfvars.getGameServers();
-    const outputs = this.config.getTfOutputs();
-    return { games: mergeGameLists(declared, outputs?.game_names ?? []) };
+    const outputs = await this.config.getStackOutputs();
+    return { games: mergeGameLists(declared, outputs?.gameNames ?? []) };
   }
 
   /**
@@ -55,9 +55,9 @@ export class GamesController {
   async listStatus() {
     this.config.invalidateCache();
     this.tfvars.invalidateCache();
-    const outputs = this.config.getTfOutputs();
+    const outputs = await this.config.getStackOutputs();
     if (!outputs) return [];
-    return Promise.all(outputs.game_names.map((g) => this.ecs.getStatus(g)));
+    return Promise.all(outputs.gameNames.map((g) => this.ecs.getStatus(g)));
   }
 
   /**

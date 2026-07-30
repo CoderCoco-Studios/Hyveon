@@ -4,11 +4,11 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import type { GameServer } from '@hyveon/shared';
+import type { GameServer, StackOutputs } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
 import type { TfvarsService } from './TfvarsService.js';
 import { ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { logger } from '../logger.js';
@@ -32,12 +32,12 @@ function buildConfig(overrides: Partial<Omit<GameServer, 'name'>> = {}): Omit<Ga
   return config;
 }
 
-/** Build a ConfigService stub with `invalidateCache` and `getTfOutputs` pre-wired. */
-function makeConfig(options: { outputs?: Partial<TfOutputs> | null } = {}): ConfigService {
-  const { outputs = { game_names: [] } } = options;
+/** Build a ConfigService stub with `invalidateCache` and `getStackOutputs` pre-wired. */
+function makeConfig(options: { outputs?: Partial<StackOutputs> | null } = {}): ConfigService {
+  const { outputs = { gameNames: [] } } = options;
   return {
     invalidateCache: vi.fn(),
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
   } as Partial<ConfigService> as ConfigService;
 }
 
@@ -73,7 +73,7 @@ describe('GamesWriteService', () => {
   describe('createGame', () => {
     it('should write the new entry and return the updated game plus the refreshed games list on success', async () => {
       const tfvars = makeTfvars();
-      const config = makeConfig({ outputs: { game_names: ['minecraft'] } });
+      const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
       const audit = makeAudit();
       const service = new GamesWriteService(config, tfvars, audit);
 
@@ -232,7 +232,7 @@ describe('GamesWriteService', () => {
   describe('updateGame', () => {
     it('should write the updated entry and return the updated game plus the refreshed games list on success', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const config = makeConfig({ outputs: { game_names: ['minecraft'] } });
+      const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
       const service = new GamesWriteService(config, tfvars, makeAudit());
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
 
@@ -334,7 +334,7 @@ describe('GamesWriteService', () => {
   describe('deleteGame', () => {
     it('should remove the entry and return the refreshed games list without a game field on success', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const config = makeConfig({ outputs: { game_names: [] } });
+      const config = makeConfig({ outputs: { gameNames: [] } });
       const service = new GamesWriteService(config, tfvars, makeAudit());
 
       const result = await service.deleteGame({ name: 'minecraft', expectedVersionId: 'v1' });

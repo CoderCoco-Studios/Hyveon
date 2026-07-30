@@ -12,6 +12,7 @@ export * from './gamesWrite.js';
 export * from './drift.js';
 export * from './audit.js';
 export * from './runs.js';
+export * from './changeSummary.js';
 export * from './cloud.js';
 export * from './sanitize.js';
 export * from './canRun.js';

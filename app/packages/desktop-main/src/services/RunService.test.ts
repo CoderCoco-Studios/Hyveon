@@ -15,28 +15,29 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { DEFAULT_LOCK_TTL_MS, RunService } from './RunService.js';
-import { ConfigService, type TfOutputs } from './ConfigService.js';
+import { ConfigService } from './ConfigService.js';
+import type { StackOutputs } from '@hyveon/shared';
 
-/** Minimal `TfOutputs` stub exposing just `runs_table_name`. */
-const TF: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: '',
-  ecs_cluster_arn: '',
-  subnet_ids: '',
-  security_group_id: '',
-  file_manager_security_group_id: '',
-  efs_file_system_id: '',
-  efs_access_points: {},
-  domain_name: '',
-  game_names: [],
-  discord_table_name: '',
-  audit_table_name: '',
-  runs_table_name: 'test-runs',
-  discord_bot_token_secret_arn: '',
-  discord_public_key_secret_arn: '',
-  interactions_invoke_url: null,
-  discord_interactions_url: null,
-  applied_game_servers: null,
+/** Minimal `StackOutputs` stub exposing just `runsTableName`. */
+const TF: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: '',
+  ecsClusterArn: '',
+  subnetIds: [],
+  securityGroupId: '',
+  fileManagerSecurityGroupId: '',
+  efsFileSystemId: '',
+  efsAccessPoints: {},
+  domainName: '',
+  gameNames: [],
+  discordTableName: '',
+  auditTableName: '',
+  runsTableName: 'test-runs',
+  discordBotTokenSecretArn: '',
+  discordPublicKeySecretArn: '',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 const acquireRunLockMock = vi.fn<RunRecordStore['acquireRunLock']>();
@@ -56,8 +57,8 @@ function makeStore(): RunRecordStore {
 }
 
 /** Builds a `RunService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
-function makeService(outputs: TfOutputs | null = TF, store: RunRecordStore = makeStore()): RunService {
-  const config = { getTfOutputs: () => outputs } as Partial<ConfigService> as ConfigService;
+function makeService(outputs: StackOutputs | null = TF, store: RunRecordStore = makeStore()): RunService {
+  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new RunService(config, store);
 }
 

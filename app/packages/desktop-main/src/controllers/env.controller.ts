@@ -13,14 +13,15 @@ export class EnvController {
   constructor(private readonly config: ConfigService) {}
 
   /**
-   * Returns environment context derived from Terraform outputs. The UI uses
-   * this to show the active region + environment label in the top bar.
+   * Returns environment context derived from the deployed stack's outputs.
+   * The UI uses this to show the active region + environment label in the
+   * top bar.
    */
   @MessagePattern('env.get')
-  getEnv(): { region: string; domain: string; environment: string } {
-    const outputs = this.config.getTfOutputs();
-    const region = outputs?.aws_region ?? 'local';
-    const domain = outputs?.domain_name ?? '';
+  async getEnv(): Promise<{ region: string; domain: string; environment: string }> {
+    const outputs = await this.config.getStackOutputs();
+    const region = outputs?.awsRegion ?? 'local';
+    const domain = outputs?.domainName ?? '';
 
     // Derive environment label from domain or fall back to 'local'
     // This is purely cosmetic for the UI — not a security gate
