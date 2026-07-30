@@ -33,7 +33,7 @@ import { OptimisticLockError, validateGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
-import { GameServerEntryError, TfvarsService } from './TfvarsService.js';
+import { ConfigurationNotConfiguredError, GameServerEntryError, TfvarsService } from './TfvarsService.js';
 import { mergeGameLists } from './mergeGameLists.js';
 
 /** The three write operations this service performs — used to tag the audit log entry. */
@@ -82,6 +82,10 @@ export class GamesWriteService {
    *    a plain `Error` (from `TfvarsService.parseConfigContents()`), never a
    *    `GameServerEntryError` — it's mentioned here only because it produces
    *    the same `{ code: 'error' }` outcome, not because it shares the type.
+   *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
+   *    → `{ code: 'setup_incomplete' }`, distinct from the generic
+   *    `{ code: 'error' }` so a caller can route the operator toward the
+   *    setup wizard instead of a generic failure message.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -100,6 +104,9 @@ export class GamesWriteService {
       }
       if (err instanceof GameServerEntryError && (err.reason === 'invalid-name' || err.reason === 'duplicate-name')) {
         return { ok: false, code: 'validation', issues: [{ path: 'name', message: err.message }] };
+      }
+      if (err instanceof ConfigurationNotConfiguredError) {
+        return this.setupIncompleteResult(err);
       }
       return this.errorResult(err);
     }
@@ -129,6 +136,10 @@ export class GamesWriteService {
    *    JSON itself (a `JSON.parse` failure) — that's a plain `Error` from
    *    `TfvarsService.parseConfigContents()`, not a `GameServerEntryError`,
    *    and falls through to the generic `{ code: 'error' }` below instead.
+   *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
+   *    → `{ code: 'setup_incomplete' }`, distinct from the generic
+   *    `{ code: 'error' }` so a caller can route the operator toward the
+   *    setup wizard instead of a generic failure message.
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -150,6 +161,9 @@ export class GamesWriteService {
       if (err instanceof GameServerEntryError) {
         return { ok: false, code: 'not_found', message: err.message };
       }
+      if (err instanceof ConfigurationNotConfiguredError) {
+        return this.setupIncompleteResult(err);
+      }
       return this.errorResult(err);
     }
 
@@ -170,6 +184,10 @@ export class GamesWriteService {
    *    `reason` — see {@link updateGame}'s doc for why this catch is
    *    intentionally blanket, and for the malformed-JSON case this does
    *    NOT cover (falls through to `{ code: 'error' }` instead).
+   *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
+   *    → `{ code: 'setup_incomplete' }`, distinct from the generic
+   *    `{ code: 'error' }` so a caller can route the operator toward the
+   *    setup wizard instead of a generic failure message.
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -184,6 +202,9 @@ export class GamesWriteService {
       }
       if (err instanceof GameServerEntryError) {
         return { ok: false, code: 'not_found', message: err.message };
+      }
+      if (err instanceof ConfigurationNotConfiguredError) {
+        return this.setupIncompleteResult(err);
       }
       return this.errorResult(err);
     }
@@ -246,11 +267,25 @@ export class GamesWriteService {
   }
 
   /**
+   * Builds a `GameWriteSetupIncomplete` from a caught
+   * `ConfigurationNotConfiguredError` — no configuration bucket is
+   * configured, so this write was never going to reach `RemoteFileStore` at
+   * all. Logged at `warn` (not `error`, mirroring `TfvarsService`'s own
+   * "expected pre-wizard-completion state" treatment of this error) so a
+   * routine "setup incomplete" attempt doesn't read as a genuine incident.
+   */
+  private setupIncompleteResult(err: ConfigurationNotConfiguredError): GameWriteResult {
+    logger.warn('Game server write rejected — no configuration bucket configured', { err: err.message });
+    return { ok: false, code: 'setup_incomplete', message: err.message };
+  }
+
+  /**
    * Builds the catch-all `GameWriteFailure` for any error that isn't a
-   * conflict/validation/not-found (e.g. filesystem I/O). Logs the original
-   * error server-side but returns a stable, generic message to the caller —
-   * the raw error can contain filesystem paths or other infra details that
-   * shouldn't be forwarded verbatim as an HTTP 500 body.
+   * conflict/validation/not-found/setup-incomplete (e.g. an unexpected S3
+   * error). Logs the original error server-side but returns a stable,
+   * generic message to the caller — the raw error can contain filesystem
+   * paths or other infra details that shouldn't be forwarded verbatim as an
+   * HTTP 500 body.
    */
   private errorResult(err: unknown): GameWriteResult {
     logger.error('Game server write failed', { err });

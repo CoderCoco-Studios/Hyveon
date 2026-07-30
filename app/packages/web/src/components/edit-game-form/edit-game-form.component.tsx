@@ -159,6 +159,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
           break;
         case 'conflict':
         case 'not_found':
+        case 'setup_incomplete':
         case 'error':
           setSubmitError(result.message);
           break;

@@ -195,6 +195,7 @@ export function AddGameWizard() {
         }
         case 'conflict':
         case 'not_found':
+        case 'setup_incomplete':
         case 'error':
           setSubmitError(result.message);
           setStepIndex(WIZARD_STEPS.length - 1);
