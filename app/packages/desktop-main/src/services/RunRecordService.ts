@@ -170,6 +170,13 @@ export interface PersistRunRecordParams {
    * through to {@link RunRecord.engineVersion}.
    */
   engineVersion?: string;
+  /**
+   * `true` only for a `kind: 'apply'` run that failed after at least one
+   * resource step had already been applied — see {@link RunRecord.partialApply}'s
+   * doc comment (`@hyveon/shared/runs.js`). Populated by `PulumiService.apply`
+   * (task 7.2) and threaded through to {@link RunRecord.partialApply}.
+   */
+  partialApply?: boolean;
 }
 
 /**
@@ -293,6 +300,7 @@ export class RunRecordService {
           ...(params.rolledBackFrom !== undefined ? { rolledBackFrom: params.rolledBackFrom } : {}),
           ...(params.changeSummary !== undefined ? { changeSummary: params.changeSummary } : {}),
           ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
+          ...(params.partialApply !== undefined ? { partialApply: params.partialApply } : {}),
           ...(logInline !== undefined ? { logInline } : {}),
           ...(logS3Key !== undefined ? { logS3Key } : {}),
         };

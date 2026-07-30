@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RunRecordService } from '../services/RunRecordService.js';
 import { RunService } from '../services/RunService.js';
-import { RUN_RECORD_PERSISTER } from '../services/PulumiService.js';
+import { RUN_LOCK_SERVICE, RUN_RECORD_PERSISTER } from '../services/PulumiService.js';
 import { ConfigModule } from './config.module.js';
 import { CloudProviderModule } from './cloud-provider.module.js';
 
@@ -24,9 +24,12 @@ import { CloudProviderModule } from './cloud-provider.module.js';
  * breaking the "only one lock in-process" invariant.
  *
  * Also binds `RUN_RECORD_PERSISTER` (`PulumiService.ts`'s narrow DI token
- * for the slice of `RunRecordService.persist`'s surface `preview()` depends
- * on — see that token's own doc comment) to the real `RunRecordService`
- * singleton via `useExisting`, and exports the token.
+ * for the slice of `RunRecordService.persist`/`.getByRunId`'s surface
+ * `preview()`/`apply()` depend on — see that token's own doc comment) to the
+ * real `RunRecordService` singleton via `useExisting`, and `RUN_LOCK_SERVICE`
+ * (task 7.2's narrow DI token for the slice of `RunService.createRun`
+ * `apply()`'s gate step 8 depends on — see that token's own doc comment) to
+ * the real `RunService` singleton, and exports both tokens.
  *
  * ## Why `PulumiServiceModule` does NOT import this module (a `ModuleRef`
  * lookup instead of a static edge)
@@ -80,7 +83,12 @@ import { CloudProviderModule } from './cloud-provider.module.js';
  */
 @Module({
   imports: [ConfigModule, CloudProviderModule],
-  providers: [RunService, RunRecordService, { provide: RUN_RECORD_PERSISTER, useExisting: RunRecordService }],
-  exports: [RunService, RunRecordService, RUN_RECORD_PERSISTER],
+  providers: [
+    RunService,
+    RunRecordService,
+    { provide: RUN_RECORD_PERSISTER, useExisting: RunRecordService },
+    { provide: RUN_LOCK_SERVICE, useExisting: RunService },
+  ],
+  exports: [RunService, RunRecordService, RUN_RECORD_PERSISTER, RUN_LOCK_SERVICE],
 })
 export class RunRecordModule {}
