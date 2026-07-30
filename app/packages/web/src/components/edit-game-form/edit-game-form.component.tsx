@@ -12,7 +12,12 @@
  *
  * - The `name` field is rendered read-only (`IdentityStep`'s `nameDisabled`
  *   prop): renaming a declared game is a delete+recreate, not an update, so
- *   it's out of scope for this form.
+ *   it's out of scope for this form. Correspondingly, live client-side
+ *   validation runs with `validateStep`'s `mode` argument set to `'edit'`
+ *   (see the call below), which skips `name` validation entirely (see
+ *   `WizardMode`'s doc in `wizard-form.utils.ts`), so an already-declared
+ *   legacy name that predates the current DNS-safe name pattern never blocks
+ *   saving an unrelated field.
  * - Submits via `api.updateGame` (`PATCH /api/games/:name` over IPC) instead
  *   of `api.createGame`, and the draft is validated against every *other*
  *   declared game (the entry being edited is excluded from the collision
@@ -110,7 +115,11 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
     setDraft((prev) => ({ ...prev, ...patch }));
   }
 
-  const liveIssues = validateStep('review', draft, existingGames);
+  // 'edit' mode: this form's `name` field is read-only (`IdentityStep`'s
+  // `nameDisabled` prop below), so re-running create-time name validation
+  // against the unchanged, already-declared name would incorrectly reject a
+  // legacy name that predates the current DNS-safe pattern.
+  const liveIssues = validateStep('review', draft, existingGames, 'edit');
   const issues = serverIssues ?? liveIssues;
   const saveDisabled = issues.length > 0 || submitting;
 
