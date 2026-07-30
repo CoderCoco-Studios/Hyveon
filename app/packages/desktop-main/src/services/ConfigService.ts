@@ -197,11 +197,54 @@ export class ConfigService {
    * during the first read coalesce onto the same request rather than each
    * kicking off their own — mirrors `DiscordConfigService.inflight`'s
    * coalescing pattern. A *rejected* promise is deliberately NOT cached (see
-   * {@link getStackOutputs}) — only `null` ("not deployed") and a real
-   * {@link StackOutputs} value are memoised; a genuine transient failure
-   * must be retryable on the next call, not wedged in forever.
+   * {@link getStackOutputs}) — only a settled `null` ("not deployed") or a
+   * real {@link StackOutputs} value are memoised.
+   *
+   * **Why a settled `null` still needs its own bounded TTL, not indefinite
+   * caching:** `PulumiService.getStackOutputs()` (task 7.4's post-review fix)
+   * degrades EVERY failure to a resolved `null` — a transient S3 blip, an
+   * expired credential, a keychain hiccup all look identical to "genuinely
+   * not deployed" from here. That's the right contract for callers (restores
+   * `getTfOutputs()`'s old never-throw guarantee), but it means a resolved
+   * `null` is no longer proof of "not deployed" the way it was for `tfCache`
+   * (which only ever cached `null` for an actually-missing/malformed file).
+   * Caching it indefinitely would let one transient blip during, e.g., the
+   * very first real deploy wedge the dashboard on "not deployed" forever —
+   * especially now that the hot poll paths (`GamesController.listGames`/
+   * `listStatus`, `DriftService.getDrift`) no longer call
+   * {@link invalidateCache} on every tick (see those methods' own doc
+   * comments for why that eager invalidation was removed). See
+   * {@link STACK_OUTPUTS_NULL_TTL_MS} and {@link getStackOutputs} for the
+   * TTL mechanics. A resolved {@link StackOutputs} value has no such
+   * problem — a successful read really did observe a deployed stack — so it
+   * stays cached with no TTL, cleared only by an explicit
+   * {@link invalidateCache} call (expected from a future `up()`-completion
+   * hook, per task 7.4's dispatch notes for whichever dispatch adds it).
    */
   private stackOutputsCache: Promise<StackOutputs | null> | undefined;
+
+  /** `true` when {@link stackOutputsCache} last settled to `null` — read by {@link getStackOutputs} to decide whether {@link STACK_OUTPUTS_NULL_TTL_MS} applies. */
+  private stackOutputsCacheIsNull = false;
+
+  /** `Date.now()` at the moment {@link stackOutputsCache} last settled to `null` — the TTL clock {@link getStackOutputs} checks against {@link STACK_OUTPUTS_NULL_TTL_MS}. Meaningless while {@link stackOutputsCacheIsNull} is `false`. */
+  private stackOutputsNullCachedAt = 0;
+
+  /**
+   * How long a resolved `null` from {@link getStackOutputs} stays cached
+   * before the next call re-checks, rather than serving the stale `null`
+   * indefinitely — see {@link stackOutputsCache}'s doc comment for why this
+   * exists. 20 seconds: short enough that a transient failure self-heals
+   * within roughly one dashboard status-poll cycle
+   * (`GAME_STATUS_INTERVAL_MS`, `@hyveon/web`), long enough that it doesn't
+   * reintroduce the "expensive round-trip on every poll tick" cost the
+   * removal of eager `invalidateCache()` calls on the hot paths was meant to
+   * avoid. Deliberately asymmetric with a genuine {@link StackOutputs}
+   * value, which has no TTL at all (see that field's doc comment) — a
+   * deployed stack doesn't need frequent re-verification, but a "not
+   * deployed" reading (which may just be "the last check happened to fail")
+   * should keep retrying.
+   */
+  private static readonly STACK_OUTPUTS_NULL_TTL_MS = 20_000;
 
   /**
    * Drop the cached tfstate parse and the cached {@link getStackOutputs}
@@ -212,6 +255,7 @@ export class ConfigService {
   invalidateCache(): void {
     this.tfCache = undefined;
     this.stackOutputsCache = undefined;
+    this.stackOutputsCacheIsNull = false;
   }
 
   /**
@@ -259,32 +303,57 @@ export class ConfigService {
    * `TerraformService.ts` is deleted.
    *
    * A memoised delegate to {@link PulumiService.getStackOutputs} — see that
-   * method's doc comment for the full "never deployed yet degrades to `null`,
-   * never throws (except for a genuine non-"not-bootstrapped" failure)"
-   * contract and how it's implemented. Exposed here (rather than requiring
-   * every one of `getTfOutputs()`'s ~14 call sites to take a new
-   * `PulumiService` constructor dependency) so this migration's diff at each
-   * call site is the minimal `getTfOutputs()` → `await getStackOutputs()`
-   * swap, mirroring how `ConfigService` already re-exposes
-   * `ElectronStoreService.get('bootstrap')?.configurationBucket` as
-   * {@link getConfigurationBucket} instead of making every configuration-bucket
-   * reader depend on `ElectronStoreService` directly.
+   * method's doc comment for the full "never deployed yet degrades to
+   * `null`, never throws, period" contract and how it's implemented. Exposed
+   * here (rather than requiring every one of `getTfOutputs()`'s ~14 call
+   * sites to take a new `PulumiService` constructor dependency) so this
+   * migration's diff at each call site is the minimal `getTfOutputs()` →
+   * `await getStackOutputs()` swap, mirroring how `ConfigService` already
+   * re-exposes `ElectronStoreService.get('bootstrap')?.configurationBucket`
+   * as {@link getConfigurationBucket} instead of making every
+   * configuration-bucket reader depend on `ElectronStoreService` directly.
    *
    * Cached via {@link stackOutputsCache} — see that field's doc comment for
    * why (mirrors {@link getTfOutputs}'s `tfCache`, plus in-flight
-   * coalescing). Cleared by {@link invalidateCache}, same as `tfCache`.
+   * coalescing) and for why a resolved `null` additionally expires after
+   * {@link STACK_OUTPUTS_NULL_TTL_MS} rather than staying cached forever.
+   * Cleared unconditionally (both the value and the null-TTL clock) by
+   * {@link invalidateCache}, same as `tfCache`.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
-    if (this.stackOutputsCache === undefined) {
-      const pending = this.pulumiService.getStackOutputs().catch((err: unknown) => {
-        // Don't let a transient failure wedge every subsequent call behind a
-        // cached rejection — only a settled `null`/`StackOutputs` value is
-        // worth memoising.
-        if (this.stackOutputsCache === pending) {
-          this.stackOutputsCache = undefined;
-        }
-        throw err;
-      });
+    const cacheIsStale =
+      this.stackOutputsCacheIsNull &&
+      Date.now() - this.stackOutputsNullCachedAt >= ConfigService.STACK_OUTPUTS_NULL_TTL_MS;
+
+    if (this.stackOutputsCache === undefined || cacheIsStale) {
+      // Clear the stale-null flag BEFORE kicking off the refetch (not just
+      // after it settles): otherwise a second concurrent call arriving while
+      // this refetch is still in flight would see `stackOutputsCacheIsNull`
+      // still `true` with its old (expired) timestamp, compute `cacheIsStale`
+      // as `true` again, and kick off a REDUNDANT second refetch instead of
+      // coalescing onto this one — defeating the whole point of caching the
+      // in-flight promise. The `.then()` below sets it back to the real
+      // value once this refetch actually settles.
+      this.stackOutputsCacheIsNull = false;
+      const pending = this.pulumiService.getStackOutputs().then(
+        (result) => {
+          this.stackOutputsCacheIsNull = result === null;
+          this.stackOutputsNullCachedAt = Date.now();
+          return result;
+        },
+        (err: unknown) => {
+          // Don't let a transient failure wedge every subsequent call behind
+          // a cached rejection — only a settled `null`/`StackOutputs` value
+          // is worth memoising. (In practice `PulumiService.getStackOutputs()`
+          // itself never rejects — see its own doc comment — so this branch
+          // is defensive: it still holds if a future change to that
+          // contract, or a bug, ever lets a rejection through here.)
+          if (this.stackOutputsCache === pending) {
+            this.stackOutputsCache = undefined;
+          }
+          throw err;
+        },
+      );
       this.stackOutputsCache = pending;
     }
     return this.stackOutputsCache;
