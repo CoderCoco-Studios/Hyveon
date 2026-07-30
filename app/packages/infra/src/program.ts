@@ -146,16 +146,32 @@ export function defineAll(config: DeploymentConfig): InfraResources {
     provider,
   });
 
-  // TODO(task 3.6): wire in `defineLambdas(...)` here, using
-  // `iamRoles.<x>LambdaRole.arn` for each function's `role`. Then wire
-  // `defineIamPolicies(...)` from `./iam.js` — the only order that satisfies
-  // every dependency (see `iam.ts`'s file doc for the full rationale,
-  // including why roles and policies are two separate functions, not one):
-  // it needs `iamRoles` (by reference) plus every deferred ARN:
-  // `efsFileSystemArn` (now available: `efs.fileSystem.arn`),
-  // `dynamodbDiscordTableArn` + `discordPublicKeySecretArn` (task 3.8),
-  // `followupLambdaArn` (the followup function's `.arn` from `defineLambdas`),
-  // and `hostedZoneId` (task 3.9).
+  // TODO(task 3.8/3.9): `defineLambdas` (`lambdas.ts`) and
+  // `defineEfsSeederIngress` (`securityGroups.ts`) are both fully
+  // implemented and tested (task 3.6/3.7) but NOT wired in here yet — same
+  // status `defineIamPolicies` was already left in after task 3.5. All three
+  // share the same blocker: each needs at least one deferred `pulumi.Input`
+  // this dispatch has no real resource to supply (`dynamodbDiscordTableName`/
+  // `dynamodbDiscordTableArn` + `discordPublicKeySecretArn`, task 3.8;
+  // `hostedZoneId`, task 3.9) — see `lambdas.ts`'s file doc, "Why
+  // `defineLambdas` is not wired into `defineAll` yet", for the full
+  // rationale. Once tasks 3.8 and 3.9 land, wire all four in this order —
+  // the only order that satisfies every dependency:
+  //
+  //   1. `defineLambdas(...)` — needs `iamRoles` (already in scope; use
+  //      `iamRoles.<x>LambdaRole.arn` for each function's `role`),
+  //      `efs`/`ecs` (already in scope), and the new deferred inputs from
+  //      3.8/3.9.
+  //   2. `defineEfsSeederIngress(...)` — call ONLY when
+  //      `lambdas.efsSeederSecurityGroup` is defined (i.e. at least one game
+  //      declares `file_seeds`); pass `securityGroups.efs.id` and
+  //      `lambdas.efsSeederSecurityGroup.id`.
+  //   3. `defineIamPolicies(...)` from `./iam.js` — needs `iamRoles` (by
+  //      reference) plus every deferred ARN: `efsFileSystemArn` (already
+  //      available: `efs.fileSystem.arn`), `dynamodbDiscordTableArn` +
+  //      `discordPublicKeySecretArn` (task 3.8), `followupLambdaArn` (now
+  //      real: `lambdas.followupFunction.arn`), and `hostedZoneId`
+  //      (task 3.9).
   return { provider, network, securityGroups, iamRoles, efs, ecs };
 }
 
