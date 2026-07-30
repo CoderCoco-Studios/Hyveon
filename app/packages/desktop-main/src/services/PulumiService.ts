@@ -146,6 +146,46 @@ export interface ConfigCacheInvalidator {
 }
 
 /**
+ * DI token for the narrow slice of `TfvarsService`'s public surface
+ * {@link PulumiService.confirmRollback} depends on (task 7.6) — the
+ * byte-for-byte restore write, unchanged since Phase 6 (see
+ * `TfvarsService.restoreRawTfvars`'s own doc comment). Bound to the real
+ * `TfvarsService` singleton via `useExisting` in `tfvars.module.ts`,
+ * resolved lazily by `PulumiService` via a `strict: false` `ModuleRef.get()`
+ * lookup — mirrors {@link RUN_RECORD_PERSISTER}/{@link REMOTE_FILE_STORE}
+ * exactly, and for the same reason: a value-level import of `TfvarsService`
+ * here would be a real circular `import` — confirmed this dispatch by
+ * reading `TfvarsService.ts`'s own imports, which include `ConfigService.ts`,
+ * which imports THIS file (`PulumiService.ts`) for its `getStackOutputs()`
+ * delegate (task 7.4). This is the exact same cycle shape
+ * {@link RUN_RECORD_PERSISTER}'s doc comment already found for
+ * `RunRecordService.ts` — deliberately not re-derived, just recognized as
+ * the same class of problem and given the same fix.
+ *
+ * This dispatch's brief floated referencing the `TfvarsService` class
+ * itself directly as the `ModuleRef` token (no new `Symbol`), reasoning that
+ * a class reference is a valid Nest DI token on its own. That's true in
+ * general, but doing so here would still require a VALUE import of
+ * `TfvarsService` in this file purely to have something to pass as the
+ * token/type argument — which is exactly the import this token exists to
+ * avoid. A dedicated `Symbol` token bound via `useExisting` (this file's
+ * own established pattern for every other lazily-resolved dependency) sidesteps
+ * that entirely: this file only ever needs the `TfvarsRestorer` *interface*
+ * (safe — no runtime import) and this plain `Symbol` (safe — no import of
+ * `TfvarsService.ts` at all).
+ */
+export const TFVARS_SERVICE = Symbol('TFVARS_SERVICE');
+
+/**
+ * The slice of `TfvarsService`'s public surface {@link PulumiService.confirmRollback}
+ * depends on — see {@link TFVARS_SERVICE}'s doc comment. Structurally
+ * identical to `TfvarsService.restoreRawTfvars`'s own signature.
+ */
+export interface TfvarsRestorer {
+  restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }>;
+}
+
+/**
  * Phase 7 (`migrate-iac-to-pulumi`) service replacing `TerraformService.ts`.
  *
  * Tasks 7.4/7.8/7.9 added the foundational pieces every later Phase-7
@@ -579,19 +619,30 @@ export type PulumiDestroyOutcome =
 @Injectable()
 export class PulumiService {
   /**
-   * Name of whichever operation (`preview`, or later `up`/`destroy`) is
-   * actively running against the shared Pulumi workspace directory, or
-   * `null` when none is. Mirrors `TerraformService.ts`'s `workspaceInFlight`
-   * guard: every operation reuses the SAME `workDir`/`Pulumi.<stack>.yaml`
-   * (`PulumiWorkspaceService.getWorkspaceRoot`'s doc comment: "one stable
-   * directory per stack, reused across operations"), so two concurrent
-   * operations against this one `PulumiService` instance would race on that
-   * shared local state — independent of whether the DIY backend's own lock
-   * is ever taken (see {@link preview}'s doc comment, "Does preview take the
-   * backend lock?", for why `preview` itself never takes that lock; this
-   * in-process guard exists regardless, for the local workspace files).
+   * Name of whichever operation (`preview`, `up`, `destroy`, or — task 7.6 —
+   * `rollback`) is actively running against the shared Pulumi workspace
+   * directory, or `null` when none is. Mirrors `TerraformService.ts`'s
+   * `workspaceInFlight` guard: every operation reuses the SAME
+   * `workDir`/`Pulumi.<stack>.yaml` (`PulumiWorkspaceService.getWorkspaceRoot`'s
+   * doc comment: "one stable directory per stack, reused across
+   * operations"), so two concurrent operations against this one
+   * `PulumiService` instance would race on that shared local state —
+   * independent of whether the DIY backend's own lock is ever taken (see
+   * {@link preview}'s doc comment, "Does preview take the backend lock?",
+   * for why `preview` itself never takes that lock; this in-process guard
+   * exists regardless, for the local workspace files).
+   *
+   * `'rollback'` (task 7.6, {@link confirmRollback}) is a DISTINCT state
+   * from `'preview'`, even though the operation it ultimately runs (via
+   * {@link previewCore}) is, underneath, an ordinary plan — see
+   * {@link confirmRollback}'s TSDoc, "Lock acquisition", for why a caller
+   * refused mid-rollback deserves a busy message naming `rollback`
+   * specifically rather than the generic `preview`. Exactly like `'up'`
+   * already does for `apply()` — the state name here is a short internal
+   * verb for diagnostics, not required to equal the public method's literal
+   * name.
    */
-  private operationInFlight: 'preview' | 'up' | 'destroy' | null = null;
+  private operationInFlight: 'preview' | 'up' | 'destroy' | 'rollback' | null = null;
 
   /**
    * Fan-out buffers for every currently in-flight `preview`/`up`/`destroy`
@@ -745,6 +796,29 @@ export class PulumiService {
       throw new Error(
         'PulumiService: CONFIG_CACHE_INVALIDATOR is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see config.module.ts), not a runtime condition: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Lazily resolves the real `TfvarsService` singleton (bound to
+   * {@link TFVARS_SERVICE} by `tfvars.module.ts`) — mirrors
+   * {@link getRemoteFileStore} exactly, including the same loud-failure
+   * shape on a missing binding. {@link confirmRollback} (task 7.6) is the
+   * only caller — the byte-for-byte restore write it makes through
+   * {@link TfvarsRestorer.restoreRawTfvars} is as load-bearing to a rollback
+   * as reading the configuration object is to {@link previewCore}, so a
+   * missing binding here is correctly a hard failure, not a best-effort
+   * side-write (unlike {@link getConfigCacheInvalidator}'s failure policy).
+   */
+  private getTfvarsService(): TfvarsRestorer {
+    try {
+      return this.moduleRef.get<TfvarsRestorer>(TFVARS_SERVICE, { strict: false });
+    } catch (err) {
+      throw new Error(
+        'PulumiService: TFVARS_SERVICE is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see tfvars.module.ts), not a runtime condition: ` +
           `${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -935,6 +1009,23 @@ export class PulumiService {
    * `beginActiveRun` registered before the pre-spawn awaits so an early
    * `streamRunOutput` subscriber never falls through to "unknown run") —
    * see `TerraformService.plan`'s own TSDoc for the shape this mirrors.
+   *
+   * ## This method is a thin lock-owning wrapper around {@link previewCore} (task 7.6)
+   *
+   * Everything this doc comment describes about the actual plan operation
+   * (streaming, hashing, persistence, cancellation, …) lives in
+   * {@link previewCore} — this method itself does exactly two things: refuse
+   * if {@link operationInFlight} is already set, then set it to `'preview'`
+   * for the duration of the delegated call. This split exists so
+   * {@link confirmRollback} (task 7.6) can run the SAME plan logic under a
+   * lock it already acquired itself (`'rollback'`, not `'preview'`) —
+   * without it, `confirmRollback` calling this method directly would either
+   * refuse itself (this method's own busy check seeing the lock
+   * `confirmRollback` is already holding) or, if this method's guard were
+   * bypassed some other way, leave two independent owners of
+   * {@link operationInFlight} racing to clear it. See {@link previewCore}'s
+   * own doc comment and {@link confirmRollback}'s "Lock acquisition" section
+   * for the full design.
    *
    * ## Does `preview` take the DIY backend lock? (investigated this dispatch)
    *
@@ -1140,6 +1231,45 @@ export class PulumiService {
       PulumiService.assertValidRunId(preMintedRunId);
     }
     this.operationInFlight = 'preview';
+    try {
+      return yield* this.previewCore(configVersionId, signal, preMintedRunId, rolledBackFrom);
+    } finally {
+      this.operationInFlight = null;
+    }
+  }
+
+  /**
+   * The actual `pulumi preview` operation {@link preview} runs — every
+   * behavior preview's own TSDoc documents (streaming, plan-hash
+   * computation, cancellation, persistence, the force-closed-generator
+   * safety net) lives here unchanged. Split out from {@link preview} by task
+   * 7.6 for exactly one reason: {@link confirmRollback} needs to run this
+   * SAME logic while it, not this method, owns {@link operationInFlight}
+   * (acquired as `'rollback'` before the historic configuration is
+   * restored, and held across the restore AND this call — see
+   * {@link confirmRollback}'s TSDoc). This method therefore does NOT touch
+   * {@link operationInFlight} at all — neither the busy check nor the
+   * set/clear — trusting whichever caller invoked it ({@link preview} or
+   * {@link confirmRollback}) to have already claimed it and to release it
+   * once this generator (and, for {@link confirmRollback}, whatever runs
+   * after it) has fully settled. Never call this method without
+   * {@link operationInFlight} already set by the caller — it has no guard of
+   * its own against two concurrent invocations racing the shared local
+   * workspace directory.
+   *
+   * `preMintedRunId` validation also moved to each caller's own top-of-
+   * function guard (mirroring `apply()`/`destroy()`'s identical pattern)
+   * rather than living here, so both {@link preview} and
+   * {@link confirmRollback} reject a malformed id before either one ever
+   * touches {@link operationInFlight} — this method trusts it's already
+   * valid by the time it's called.
+   */
+  private async *previewCore(
+    configVersionId?: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+    rolledBackFrom?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
     // Hoisted above the try block — mirrors TerraformService.plan()'s
     // identical hoist: a force-closed generator (consumer break/.return()/
     // .throw()) unwinds straight from `yield chunk` below, past the
@@ -1527,7 +1657,12 @@ export class PulumiService {
         }
         await this.persistRunRecord(runId, 'plan', startedAt, completedAt, null, configVersionId, undefined, rolledBackFrom);
       }
-      this.operationInFlight = null;
+      // NOTE: `operationInFlight` is deliberately NOT cleared here — this
+      // method never sets it either. See this method's own doc comment,
+      // "split out from preview() by task 7.6": the caller ({@link preview}
+      // or {@link confirmRollback}) owns the full set/clear lifecycle in its
+      // OWN `finally`, which only runs once this generator (including this
+      // very `finally` block) has fully completed.
     }
   }
 
@@ -3371,6 +3506,263 @@ export class PulumiService {
   }
 
   /**
+   * Resolves the configuration-object version that was live immediately
+   * before the given `apply` run — the target {@link confirmRollback} would
+   * restore. Read-only: performs no write. Ported faithfully from
+   * `TerraformService.ts`'s `resolveRollbackTarget` (renamed
+   * `RollbackNoTfvarsVersionError` → {@link RollbackNoConfigVersionError} per
+   * task 7.9's already-completed rename; algorithm otherwise unchanged).
+   * Safe to call twice for the same `applyRunId`: once to preview the
+   * rollback target for an operator's confirmation dialog, and again,
+   * immediately before the actual restore write, inside
+   * {@link confirmRollback} — so a version that expires in the window
+   * between the two calls is still caught before anything is written.
+   *
+   * Looks up `applyRunId` via {@link getRunRecordPersister}, validates it's
+   * an `apply` run with a recorded `tfvarsVersionId`, then walks the
+   * complete `listVersions` history for the configuration object: since
+   * {@link RemoteFileStore.listVersions} returns versions newest-first, the
+   * version "live before" the apply run is the entry immediately *after*
+   * the apply's own `tfvarsVersionId` in that array (one step further back
+   * in time).
+   *
+   * @param applyRunId - The `runId` of the `apply` run to resolve a rollback target for.
+   * @throws {@link RollbackTargetNotFoundError} when no run record exists for `applyRunId`.
+   * @throws {@link RollbackNotApplyRunError} when the record isn't an `apply` run.
+   * @throws {@link RollbackNoConfigVersionError} when the apply run has no recorded configuration version id.
+   * @throws {@link RollbackVersionMissingError} when no earlier configuration version exists in the version history.
+   */
+  async resolveRollbackTarget(applyRunId: string): Promise<{ versionId: string; lastModified: Date }> {
+    const record = await this.getRunRecordPersister().getByRunId(applyRunId);
+    if (!record) {
+      throw new RollbackTargetNotFoundError(applyRunId);
+    }
+    if (record.kind !== 'apply') {
+      throw new RollbackNotApplyRunError(applyRunId, record.kind);
+    }
+    if (!record.tfvarsVersionId) {
+      throw new RollbackNoConfigVersionError(applyRunId);
+    }
+
+    const key = CONFIGURATION_OBJECT_KEY;
+    const versions = await this.getRemoteFileStore().listVersions(key);
+    const index = versions.findIndex((v) => v.versionId === record.tfvarsVersionId);
+    const prior = index === -1 ? undefined : versions[index + 1];
+    if (!prior) {
+      throw new RollbackVersionMissingError(record.tfvarsVersionId);
+    }
+    return prior;
+  }
+
+  /**
+   * Confirms a rollback of `applyRunId`: re-resolves the rollback target
+   * (catching a late expiry before any write), restores its exact historic
+   * bytes as the configuration object's new head version, then runs a plan
+   * against that restored version — tagged `rolledBackFrom: applyRunId` —
+   * reusing {@link previewCore} directly rather than duplicating its logic.
+   * Replaces `TerraformService.ts`'s `confirmRollback`, which only did the
+   * restore write and left starting the follow-up plan to its caller (the
+   * controller) as a separate, unguarded step.
+   *
+   * ## The old `TerraformService` gap this closes
+   *
+   * `TerraformService.confirmRollback` wrote the restore and returned,
+   * trusting the caller to invoke `plan()` next. Nothing held any lock
+   * across those two calls — a `destroy()` (or a second, racing rollback)
+   * could interleave between them, and if the caller's follow-up `plan()`
+   * call simply never happened (a crashed controller, a dropped IPC
+   * response), the restored configuration was left as the head with no plan
+   * describing it, silently. The `iac-rollback` spec (this dispatch's
+   * governing spec) requires closing exactly this gap: "The restore and the
+   * plan's creation SHALL be performed as one guarded unit... so no other
+   * operation can interleave between the two." This method is that guarded
+   * unit — restore and plan-record persistence both happen inside a single
+   * `try`/`finally` that owns {@link operationInFlight} for its entire
+   * duration.
+   *
+   * ## Lock acquisition
+   *
+   * {@link operationInFlight} is set to `'rollback'` — a state DISTINCT from
+   * `'preview'` (see that field's own doc comment) — before
+   * {@link resolveRollbackTarget} is even re-invoked, i.e. before ANY work
+   * this method does, not merely before the restore write. This is stronger
+   * than the spec's literal "acquired before the restore is written"
+   * requirement, deliberately: holding the lock across the re-resolve too
+   * closes a race the spec's wording alone wouldn't — a concurrent
+   * `preview`/`up`/`destroy` starting between the re-resolve and the write
+   * could otherwise still change the configuration object's head in that
+   * window. The lock is released in this method's own `finally`, covering
+   * every exit path (a pre-write rejection, a post-write compensating
+   * failure, a clean success, or a force-closed generator) — mirroring
+   * `apply`/`destroy`'s established lock-releasing `finally` discipline.
+   *
+   * This method never calls `RunLockService.createRun()` — the DURABLE,
+   * cross-process lock `apply`/`destroy` take. Neither does the
+   * {@link previewCore} call this method delegates into (see `preview`'s own
+   * TSDoc, "Does preview take the DIY backend lock?": no, the underlying
+   * `stack.preview()` call never does). The "shared operation lock" the
+   * governing spec requires is this file's existing IN-PROCESS
+   * {@link operationInFlight} guard, not the durable one — consistent with
+   * every other plan-shaped operation in this class.
+   *
+   * ## Why `previewCore`, not `preview()`
+   *
+   * `preview()` itself checks and sets {@link operationInFlight} — calling
+   * it here would either throw immediately (seeing the `'rollback'` state
+   * this method already set) or, if that guard were somehow bypassed, race
+   * this method's own clear of the field in its `finally`. {@link previewCore}
+   * is `preview()`'s method body with that concern removed entirely (task
+   * 7.6's refactor — see its own TSDoc), letting this method reuse the
+   * identical streaming/hashing/persistence/cancellation logic while
+   * keeping sole ownership of the lock for the combined restore+plan unit.
+   *
+   * ## Compensating semantics (chosen: record-and-surface, not restore-
+   * previous-head)
+   *
+   * Once {@link TfvarsRestorer.restoreRawTfvars} has resolved successfully,
+   * anything that fails afterward — a missing `versionId` in its result, or
+   * {@link previewCore} itself throwing (engine provisioning, network, or
+   * local/cloud run-record persistence — the spec's own enumerated causes)
+   * — is caught by the inner `try`/`catch` below and handled by:
+   *
+   * 1. `ElectronStoreService.recordOrphanedRollback` — a durable marker
+   *    (survives an app restart) naming `applyRunId`, the now-orphaned
+   *    `restoredVersionId`, and the underlying failure, so a future Phase
+   *    8/9 controller/UI can discover and present it even if the operator
+   *    closed the app before seeing this call's own error.
+   * 2. Throwing {@link PulumiRollbackPlanFailedError} — surfacing the SAME
+   *    failure synchronously to whatever is driving this generator, so a
+   *    caller doesn't have to separately poll the store to learn the
+   *    rollback didn't fully complete.
+   *
+   * The alternative the spec permits — restoring the PREVIOUS head as a
+   * second corrective write — was considered and rejected: that write can
+   * ALSO fail (a transient S3/network issue is exactly the kind of failure
+   * already in play here), which would compound the problem into a state
+   * that's not just orphaned but has an unverified "undo" attempt layered on
+   * top, with no stronger guarantee than the record-and-surface approach
+   * already provides. Record-and-surface never risks a second failure: it
+   * only ever WRITES a plain-object marker to a local file
+   * ({@link ElectronStoreService}, already proven reliable elsewhere in this
+   * class — `recordPulumiLockAttempt`'s identical pattern is never wrapped
+   * in its own try/catch either) and throws, both of which are effectively
+   * infallible compared to a second remote write. "Surfaces it to the
+   * operator", for this backend-only dispatch (no controller/renderer
+   * wiring — Phase 8/9's job), concretely means exactly these two things:
+   * the durable store marker plus the thrown, richly-typed error. Nothing
+   * beyond that is built here — no polling mechanism, no IPC channel, no
+   * auto-retry — since this dispatch has no consumer for those yet and
+   * inventing one unprompted would be exactly the "over-build" the brief
+   * warned against.
+   *
+   * Failures BEFORE `restoreRawTfvars` resolves (a stale/missing rollback
+   * target, a missing historic version, or `restoreRawTfvars` itself
+   * throwing) are NOT treated as compensating-semantics cases — nothing was
+   * written in any of those cases, so the current head is untouched and the
+   * pre-existing typed errors ({@link RollbackTargetNotFoundError} etc.)
+   * propagate unwrapped, exactly like {@link resolveRollbackTarget}'s own
+   * contract.
+   *
+   * ## Return shape: a generator, mirroring `preview()`
+   *
+   * `confirmRollback`'s ultimate effect — "restore, then start a plan
+   * against the restored version" — produces a plan run that streams output
+   * exactly like an ordinary `preview()` call (log pane, chunks,
+   * `changeSummary`). Returning the same `AsyncGenerator` shape `preview()`
+   * itself returns (rather than a `Promise` that drives a preview to
+   * completion internally and discards the stream) lets a caller watch that
+   * queued plan's output directly, the same way it would for a plan started
+   * via `preview()` — there is no reason a rollback's plan should be a
+   * second-class, unobservable operation compared to an ordinary one, and
+   * `preview()`'s own pre-existing `rolledBackFrom` parameter (task 7.1,
+   * stubbed specifically for this dispatch) already assumed a
+   * generator-shaped caller.
+   *
+   * @param applyRunId - The `runId` of the `apply` run to roll back.
+   * @param signal - Optional cancellation signal, forwarded to
+   *   {@link previewCore} — see `preview()`'s own "Cancellation" doc section.
+   * @param preMintedRunId - Optional caller-minted `runId` for the resulting
+   *   plan run (mirrors `preview()`'s identically-named parameter) — must
+   *   match {@link RUN_ID_PATTERN}, validated here before this method
+   *   touches {@link operationInFlight}, mirroring `preview()`/`apply()`/
+   *   `destroy()`'s identical top-of-function pattern.
+   * @throws A descriptive `Error` if another `preview`/`up`/`destroy`/
+   *   rollback is already in flight on this instance, or if `preMintedRunId`
+   *   doesn't match {@link RUN_ID_PATTERN}.
+   * @throws Same as {@link resolveRollbackTarget} — thrown before any write.
+   * @throws {@link RollbackVersionMissingError} (reused) if the resolved
+   *   version's bytes can no longer be read — the write never happens in
+   *   that case either.
+   * @throws {@link PulumiRollbackPlanFailedError} if the restore succeeded
+   *   but the follow-up plan could not be completed — see "Compensating
+   *   semantics" above.
+   */
+  async *confirmRollback(
+    applyRunId: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+    if (this.operationInFlight) {
+      throw new Error(
+        `PulumiService.confirmRollback() cannot run while ${this.operationInFlight}() is already ` +
+          'running; wait for it to finish before calling confirmRollback() again.',
+      );
+    }
+    if (preMintedRunId !== undefined) {
+      PulumiService.assertValidRunId(preMintedRunId);
+    }
+    this.operationInFlight = 'rollback';
+    try {
+      // Re-resolved here (not trusting a caller-cached result from an
+      // earlier confirmation-dialog call to resolveRollbackTarget) so a
+      // version that expired in the window between the two calls is still
+      // caught before anything is written — see this method's TSDoc,
+      // "Lock acquisition", for why this happens AFTER the lock is already
+      // held rather than before.
+      const target = await this.resolveRollbackTarget(applyRunId);
+      const key = CONFIGURATION_OBJECT_KEY;
+      const historic = await this.getRemoteFileStore().getVersion(key, target.versionId);
+      if (!historic) {
+        throw new RollbackVersionMissingError(target.versionId);
+      }
+      const rawConfig = new TextDecoder().decode(historic.body);
+
+      // The restore write itself. Nothing above this line needs
+      // compensating semantics on failure — the head is still whatever it
+      // was before this call started. Everything below, once this resolves,
+      // is inside the compensating-semantics boundary — see this method's
+      // TSDoc, "Compensating semantics".
+      const restored = await this.getTfvarsService().restoreRawTfvars(rawConfig);
+
+      try {
+        if (!restored.versionId) {
+          throw new Error(
+            'PulumiService.confirmRollback: TfvarsService.restoreRawTfvars did not return a versionId — ' +
+              'is the configuration bucket versioned?',
+          );
+        }
+        // Delegates into preview()'s core body directly — see this method's
+        // TSDoc, "Why previewCore, not preview()". Passing `restored.versionId`
+        // as the expected configVersionId means previewCore's own staleness
+        // check doubles as this method's own guard against the head having
+        // somehow changed out from under the lock this method is holding.
+        return yield* this.previewCore(restored.versionId, signal, preMintedRunId, applyRunId);
+      } catch (err) {
+        const restoredVersionId = restored.versionId ?? target.versionId;
+        this.store.recordOrphanedRollback({
+          applyRunId,
+          restoredVersionId,
+          failedAt: new Date().toISOString(),
+          failureMessage: err instanceof Error ? err.message : String(err),
+        });
+        throw new PulumiRollbackPlanFailedError(applyRunId, restoredVersionId, err);
+      }
+    } finally {
+      this.operationInFlight = null;
+    }
+  }
+
+  /**
    * Throws {@link DestroyNotConfirmedError} unless `token` matches the most
    * recently minted, not-yet-expired, not-yet-consumed confirmation token AND
    * `currentStateBucket`/`currentStateBucketRegion` match the target the
@@ -4430,5 +4822,45 @@ export class RollbackVersionMissingError extends Error {
       `Historic configuration version "${versionId}" no longer exists — it may have expired. Nothing was written.`,
     );
     this.name = 'RollbackVersionMissingError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.confirmRollback} (task 7.6) when the
+ * historic configuration was successfully restored as the configuration
+ * object's new head, but the follow-up plan {@link PulumiService.previewCore}
+ * runs against it could not be completed — the `iac-rollback` spec's
+ * "MUST NOT leave the restored configuration as the head with no plan
+ * attached... silently" clause. No `TerraformService.ts` analogue exists:
+ * the old rollback flow never ran the follow-up plan itself (see
+ * `confirmRollback`'s TSDoc, "The old TerraformService gap this closes"),
+ * so this failure mode couldn't previously occur inside a single guarded
+ * unit at all.
+ *
+ * This is the "record-and-surface" half of the chosen compensating-
+ * semantics strategy (see `confirmRollback`'s TSDoc for why restore-the-
+ * previous-head was rejected): by the time this is thrown,
+ * `ElectronStoreService.recordOrphanedRollback` has already durably
+ * recorded {@link restoredVersionId} against {@link applyRunId} — this
+ * error is the SAME failure surfaced synchronously to whatever is driving
+ * `confirmRollback`'s generator, so a caller doesn't need to separately poll
+ * the store to learn the rollback didn't fully complete.
+ */
+export class PulumiRollbackPlanFailedError extends Error {
+  constructor(
+    public readonly applyRunId: string,
+    public readonly restoredVersionId: string,
+    public readonly cause: unknown,
+  ) {
+    super(
+      `Rollback of apply run "${applyRunId}" restored configuration version "${restoredVersionId}" as the new ` +
+        `head, but the follow-up plan could not be completed: ` +
+        `${cause instanceof Error ? cause.message : String(cause)}. The restored configuration is now the head ` +
+        'with no completed plan attached — this has been durably recorded via ' +
+        'ElectronStoreService.recordOrphanedRollback() (readable via getOrphanedRollback()) for a later ' +
+        'operator-facing surface to present. Retry the rollback, or restore a different version, to resolve it.',
+      { cause },
+    );
+    this.name = 'PulumiRollbackPlanFailedError';
   }
 }
