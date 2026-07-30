@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { EngineEvent, OutputMap, PreviewResult, UpResult } from '@pulumi/pulumi/automation/index.js';
+import type { DestroyResult, EngineEvent, OutputMap, PreviewResult, UpResult } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
 import { CONFIGURATION_OBJECT_KEY, isApprovalExpired } from '@hyveon/shared';
 import type {
@@ -247,6 +247,92 @@ const MUTATING_OP_TYPES: ReadonlySet<OpType> = new Set([
 ]);
 
 /**
+ * How long a token minted by {@link PulumiService.mintDestroyConfirmationToken}
+ * stays valid before {@link PulumiService.destroy} rejects it as stale, even
+ * if it was never consumed — mirrors `TerraformService.ts`'s
+ * `DESTROY_CONFIRMATION_TTL_MS` byte-for-byte (5 minutes). Task 7.3's brief
+ * asked whether this dispatch found a reason to change it: it did not —
+ * nothing about the engine swap changes how long the renderer's destroy-
+ * confirmation modal stays open, so the TTL that bracketed that window under
+ * Terraform brackets it identically under Pulumi.
+ */
+const DESTROY_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * The most recently minted destroy-confirmation token, its expiry, and the
+ * destroy TARGET it was bound to — set by
+ * {@link PulumiService.mintDestroyConfirmationToken} and consumed (single-use)
+ * by {@link PulumiService.assertFreshDestroyConfirmation} the moment a
+ * {@link PulumiService.destroy} call validates it.
+ *
+ * ## Target binding — the design question task 7.3's brief asked to be
+ * resolved, not assumed
+ *
+ * `TerraformService.ts`'s `pendingDestroyConfirmation` bound a token to
+ * nothing but "this service instance minted it" — there was no concept of a
+ * destroy *target* at all. The `iac-destroy-flow` spec's rewritten
+ * requirement demands real binding: "A minted token records the workspace and
+ * stack it was issued for, and the destroy service MUST reject a token whose
+ * recorded target does not match the stack about to be destroyed."
+ *
+ * This app operates exactly ONE bare stack name
+ * ({@link PULUMI_STACK_NAME} — `'production'`, a constant, never
+ * `org/project/stack`), so "a token minted for a different stack" cannot mean
+ * what it means in a genuinely multi-stack system — there is no second stack
+ * name it could ever diverge to. Binding on `stackName` alone would therefore
+ * be real but permanently vacuous: the comparison can never fail in this
+ * app's lifetime.
+ *
+ * What CAN genuinely change between minting a token (when the renderer opens
+ * its destroy-confirmation modal) and consuming it (when the operator
+ * confirms): the self-managed backend's **state bucket / region** the destroy
+ * would run against. `PulumiWorkspaceService.getOrCreateStack`'s
+ * `stateBucket`/`stateBucketRegion` inputs come straight from
+ * `ElectronStoreService`'s `bootstrap.stateBucket`/`aws.region` — both
+ * writable by the First-Run Wizard's "Reconfigure" flow at any time,
+ * including while a destroy-confirmation modal is sitting open. An operator
+ * who opens that modal against one backend, then (in another window, or after
+ * a Reconfigure completes in the same session) points the app at a
+ * *different* S3 state bucket before clicking confirm, would otherwise have
+ * their original token silently authorize destroying whatever stack now
+ * happens to live in the NEW bucket — exactly the "assurance a destroy gate
+ * exists to provide" the spec's prose warns a token binds nothing without.
+ * `stateBucket`/`stateBucketRegion` together are this app's actual
+ * `PulumiWorkspaceInput`-shaped "target" — the pair that, combined with the
+ * (always-constant) stack name, fully determines which real Pulumi stack
+ * `stack.destroy()` will run against.
+ *
+ * `stackName` is still recorded and compared (`PULUMI_STACK_NAME`,
+ * unconditionally) even though it can never mismatch today — cheap to check,
+ * literally what the spec's prose names ("the workspace **and stack** it was
+ * issued for"), and future-proof for free: if this app ever grows a second
+ * stack, the binding mechanism already accounts for it without a schema
+ * change, only a population change.
+ *
+ * `null` when no token has been minted, or once the most recently minted one
+ * has been consumed or superseded by a newer {@link PulumiService.mintDestroyConfirmationToken}
+ * call (minting always supersedes — mirrors `TerraformService.ts`'s identical
+ * "only the most recently minted token is ever accepted" rule).
+ */
+interface PulumiPendingDestroyConfirmation {
+  /** The single-use token the renderer must supply back to {@link PulumiService.destroy}. */
+  token: string;
+  /** `Date.now() + DESTROY_CONFIRMATION_TTL_MS`, captured at mint time. */
+  expiresAt: number;
+  /**
+   * The self-managed backend's configured state bucket at mint time
+   * (`ElectronStoreService`'s `bootstrap.stateBucket`), or `undefined` if
+   * unconfigured at that moment — see this interface's doc comment, "Target
+   * binding".
+   */
+  stateBucket: string | undefined;
+  /** The state bucket's configured AWS region at mint time (`aws.region`) — see this interface's doc comment. */
+  stateBucketRegion: string | undefined;
+  /** {@link PULUMI_STACK_NAME} at mint time — always the same constant today; see this interface's doc comment for why it's still recorded. */
+  stackName: string;
+}
+
+/**
  * A single line of streamed stdout/stderr output from a Pulumi Automation
  * API operation, tagged with the stream it came from. Mirrors
  * `TerraformService.ts`'s `TerraformRunChunk` exactly — same shape, same
@@ -446,6 +532,41 @@ export type PulumiApplyOutcome =
   | { kind: 'failed'; error: Error; partialApply: boolean };
 
 /**
+ * Outcome of a successful {@link PulumiService.destroy} run, resolved via the
+ * async generator's return value once `stack.destroy()` settles and the run
+ * wasn't aborted. Deliberately as narrow as {@link PulumiUpResult}: no
+ * `outputs` (there is nothing meaningful to report post-destroy — see
+ * {@link PulumiService.destroy}'s TSDoc, "Leaked-promise `recoverResult`",
+ * for why `stack.outputs()` is never even re-read on that path either).
+ */
+export interface PulumiDestroyResult {
+  /** The `runId` of this destroy run — always equal to the durable-lock `runId` the gate reserved (see {@link PulumiService.destroy}'s "Gate structure" doc section). */
+  runId: string;
+  /**
+   * The structured resource-change summary this run's `stack.destroy()`
+   * reported (every entry a deletion), captured via `onEvent`'s
+   * `summaryEvent` — see {@link PulumiService.destroy}'s TSDoc, "`changeSummary`",
+   * for why this is handled like {@link PulumiUpResult.changeSummary}, not
+   * {@link PulumiPreviewResult.changeSummary}.
+   */
+  changeSummary: ChangeSummary;
+}
+
+/**
+ * Describes what {@link PulumiService.destroy} was about to return/throw the
+ * moment its operation settled — captured before the run record is persisted
+ * so a persistence failure (see {@link PulumiRunPersistError}) doesn't
+ * discard the real outcome. Mirrors {@link PulumiPreviewOutcome}'s plain
+ * three-way shape, NOT {@link PulumiApplyOutcome}'s `partialApply`-carrying
+ * one — see {@link PulumiService.destroy}'s TSDoc, "No partial-destroy
+ * concept", for why no fourth signal exists here.
+ */
+export type PulumiDestroyOutcome =
+  | { kind: 'success'; result: PulumiDestroyResult }
+  | { kind: 'aborted' }
+  | { kind: 'failed'; error: PulumiDestroyError | PulumiUnrecognizedLockError };
+
+/**
  * Phase 7 (`migrate-iac-to-pulumi`) service replacing `TerraformService.ts`
  * — see this file's top-level doc comment (above) for the full picture:
  * the ported error classes, {@link getStackOutputs}, and (task 7.1)
@@ -474,6 +595,15 @@ export class PulumiService {
    * see {@link PulumiActiveRunBuffer}'s doc comment for the full contract.
    */
   private readonly activeRuns = new Map<string, PulumiActiveRunBuffer>();
+
+  /**
+   * The most recently minted destroy-confirmation token, its expiry, and its
+   * bound target — see {@link PulumiPendingDestroyConfirmation}'s doc comment
+   * for the full contract, including task 7.3's target-binding design
+   * decision. Mirrors `TerraformService.ts`'s `pendingDestroyConfirmation`
+   * field exactly, extended with the target fields that field never carried.
+   */
+  private pendingDestroyConfirmation: PulumiPendingDestroyConfirmation | null = null;
 
   /**
    * `workspace`/`store` are the same two dependencies this class has taken
@@ -2456,6 +2586,809 @@ export class PulumiService {
   }
 
   /**
+   * Mints a fresh, single-use confirmation token for a subsequent
+   * {@link destroy} call, valid for {@link DESTROY_CONFIRMATION_TTL_MS},
+   * bound to the CURRENT destroy target — see
+   * {@link PulumiPendingDestroyConfirmation}'s doc comment for the full
+   * target-binding design (task 7.3's headline design question). Intended to
+   * be called the moment the renderer shows its destroy-confirmation modal,
+   * so the token's lifetime brackets the window the operator actually has
+   * that modal open — mirrors `TerraformService.mintDestroyConfirmationToken`'s
+   * identical intent.
+   *
+   * Minting a new token immediately supersedes any previously minted (and not
+   * yet consumed) token — only the most recently minted token is ever
+   * accepted by {@link destroy}. A token is consumed (and can never be
+   * reused) the moment a `destroy()` call validates it, whether or not that
+   * run ultimately succeeds — a second destroy attempt requires minting a new
+   * token.
+   */
+  mintDestroyConfirmationToken(): string {
+    this.pendingDestroyConfirmation = {
+      token: randomUUID(),
+      expiresAt: Date.now() + DESTROY_CONFIRMATION_TTL_MS,
+      stateBucket: this.store.get('bootstrap')?.stateBucket,
+      stateBucketRegion: this.store.get('aws')?.region,
+      stackName: PULUMI_STACK_NAME,
+    };
+    return this.pendingDestroyConfirmation.token;
+  }
+
+  /**
+   * Runs `pulumi destroy` against the deployed stack, yielding a
+   * {@link PulumiRunChunk} per line of stdout/stderr as the operation
+   * produces it, and resolving to a {@link PulumiDestroyResult} once it
+   * settles — `TerraformService.destroy`'s successor (task 7.3), gated
+   * behind the SAME confirmation-token mechanism, now genuinely target-bound
+   * (see {@link PulumiPendingDestroyConfirmation}'s doc comment).
+   *
+   * ## No plan-hash gate — the token IS the gate
+   *
+   * Unlike {@link apply}, `destroy` has no preceding `preview()` plan to
+   * validate against: there is no saved artifact, no `planHash`, no approval
+   * lineage. design.md is explicit about the consequence: "destroy cannot be
+   * plan-constrained... the destroy path therefore relies ENTIRELY on the
+   * confirmation-token gate... for its safety, with no plan artifact behind
+   * it — the token gate is load-bearing in a way the apply path's is not."
+   * Every design decision below treats the token check as THE safety-critical
+   * step of this method, not one of several redundant checks.
+   *
+   * ## Gate structure (task 7.3's own analysis: simpler than `apply`'s, and
+   * ordered differently, not just shorter)
+   *
+   * `apply`'s 8-step gate exists because two independent things must be true
+   * before `stack.up()` runs: the plan is still valid (steps 1-7, all
+   * idempotent reads — safe to repeat on a retry, so they're free to run
+   * BEFORE the one non-idempotent step) AND no other run is allowed to start
+   * (step 8, the atomic reservation, placed last). `destroy` has no analogue
+   * to steps 1-7 at all — there is no plan to re-validate. What it has
+   * instead is the confirmation token, which is NOT an idempotent read: it
+   * is a single-use credential, and the `orchestrator-integration-coverage`
+   * spec's "Concurrent submissions cannot share one token" scenario is
+   * explicit that the LOSER of a same-token race must observe
+   * `DestroyNotConfirmedError` specifically — not `RunLockHeldError`, not a
+   * generic "busy" refusal. That requirement is only satisfiable if token
+   * consumption is decided BEFORE any `await` in this method, using nothing
+   * but JS's own single-threaded run-to-completion semantics — a durable,
+   * cross-process lock (`RunLockService`, an actual DynamoDB round trip) is
+   * fundamentally the wrong primitive to arbitrate that specific race,
+   * because it cannot be reached synchronously. This is why this method's
+   * gate is ordered token-first, the OPPOSITE of where a "single-use
+   * credential shouldn't be spent needlessly" instinct might place it (and
+   * the opposite of where an earlier draft of this method placed it, before
+   * this exact scenario was worked through against the spec):
+   *
+   * 1. {@link operationInFlight} busy check (top, cheap, no reservation,
+   *    still synchronous) — mirrors `apply`'s identical top-of-function
+   *    check: refuses immediately if `preview`/`up`/an already-running
+   *    `destroy` (from an EARLIER, already-committed call) is using the
+   *    shared local workspace, before the token is ever even read.
+   * 2. **THE authoritative safety gate, consumed here — synchronously, with
+   *    nothing async above it**: {@link assertFreshDestroyConfirmation}.
+   *    Two calls sharing the same token, driven "concurrently" (their
+   *    `.next()` calls issued back-to-back before either has awaited
+   *    anything), are strictly ordered by JS itself — whichever call's
+   *    `.next()` executes first runs this whole gate step, including the
+   *    token's synchronous clear, to completion before the other call's
+   *    `.next()` begins at all. The loser observes the token already
+   *    consumed and throws {@link DestroyNotConfirmedError} — exactly the
+   *    spec's required outcome, decided without ever touching
+   *    `RunLockService`. Nothing has been reserved anywhere by the time this
+   *    step could throw (no lock, no `operationInFlight`, no active-run
+   *    buffer), so a rejection here is a clean, zero-side-effect unwind.
+   * 3. Pure, idempotent read checks — state bucket/region configured, a
+   *    stack has actually been created (passphrase on record). These run
+   *    AFTER the token (a call that was always going to fail these has
+   *    already spent its token by this point — an accepted, deliberate
+   *    trade-off; see below) but still BEFORE the durable-lock reservation,
+   *    mirroring `apply`'s own config-existence checks (gate step 6)
+   *    preceding its reservation (step 8).
+   * 4. **THEN, and only then**: `RunLockService.createRun()` (called with
+   *    `'destroy'`, the resolved initiator, and this run's `runId`) — task
+   *    7.7's SAME atomic compare-and-set `apply`'s gate step 8 uses,
+   *    reserving this app's single durable run slot for `runId`. A losing
+   *    race rejects with `RunLockHeldError`, propagated unwrapped, exactly
+   *    like `apply`. Deliberately last among the reservations: by the time
+   *    this runs, the token has already proven THIS call is the one the
+   *    operator actually confirmed, so it's the only call worth reserving
+   *    the durable lock for in the first place.
+   * 5. The SAME post-`createRun` {@link operationInFlight} TOCTOU re-check
+   *    `apply` performs (closing the gap a concurrent `preview`/already-
+   *    winning `up` could have opened during that `await`) — on a loss, the
+   *    just-acquired durable lock is released and the call refused, mirroring
+   *    `apply`'s identical branch byte-for-byte.
+   * 6. **Commit**: `operationInFlight = 'destroy'`, `beginActiveRun(runId)`,
+   *    `startedAt` captured. Nothing above this line has reserved anything
+   *    that survives a refusal EXCEPT the token itself (step 2 — spec-
+   *    mandated to be spent regardless of what happens afterward; there is
+   *    no "un-consume") — every other branch that throws before this point
+   *    either reserved nothing at all, or explicitly released what it
+   *    reserved (the durable lock) before throwing.
+   *
+   * **Accepted trade-off, stated explicitly**: because the token is consumed
+   * before steps 3-5, a destroy submitted while genuinely unconfigured, or
+   * while a different process holds the durable lock, spends its token even
+   * though it was always going to be refused — the operator must re-open the
+   * confirmation modal and mint a fresh one to retry. This regresses one
+   * property the pre-migration split had (`TerraformController.destroy`
+   * acquired `RunService`'s lock BEFORE ever calling `TerraformService.destroy`,
+   * whose own token check ran only once the generator itself started, so a
+   * `RunLockHeldError`-style refusal never burned a token there). Both
+   * realistic instances of this — "genuinely unconfigured" and "a DIFFERENT
+   * process holds the lock" — are rare in this single-desktop-app context
+   * (you cannot reach a destroy-confirmation modal without a deployed stack,
+   * and this app never runs two instances against the same stack under
+   * normal operation); step 1's {@link operationInFlight} check still fully
+   * protects the actually-common case (a second click, or a second IPC
+   * submission, while THIS process's own destroy/apply/preview is already
+   * running) without spending anything. The alternative — checking the token
+   * last, as an earlier draft of this method did — was rejected because it
+   * cannot satisfy the spec's concurrent-shared-token scenario at all (see
+   * step 2 above): that trade-off is not available to choose.
+   *
+   * `operationInFlight` is, exactly like `apply`, only ever SET once —
+   * immediately after commit (step 6) — never at the top-of-function check
+   * (step 1), for the identical fix-round-1 reason `apply`'s TSDoc documents:
+   * setting it early would be the forbidden "preceding workspace-is-free
+   * observation" that prevents two genuinely-concurrent calls from both
+   * reaching the atomic reservation at all.
+   *
+   * ## Does `stack.destroy()` take the DIY backend lock? (verified this
+   * dispatch, mirroring `apply`'s own investigation)
+   *
+   * **Yes.** `pkg/backend/diy/backend.go`'s `diyBackend.Destroy` (fetched
+   * from the `pulumi/pulumi` GitHub repo, `master` branch, during this
+   * dispatch's investigation):
+   *
+   * ```go
+   * func (b *diyBackend) Destroy(...) (sdkDisplay.ResourceChanges, error) {
+   *     if op.Opts.PreviewOnly { ... }  // this method never sets PreviewOnly
+   *     err := b.Lock(ctx, stack.Ref())
+   *     if err != nil { return nil, err }
+   *     defer b.Unlock(ctx, stack.Ref())
+   *     return backend.PreviewThenPromptThenExecute(ctx, apitype.DestroyUpdate, stack, op, b.apply, nil, nil)
+   * }
+   * ```
+   *
+   * — identical shape to `diyBackend.Update` (`apply`'s own path): `Lock`
+   * before, deferred `Unlock` after. This method never sets
+   * `DestroyOptions.previewOnly`, so it always takes the real (non-preview)
+   * path shown above. Confirms the SAME lock-recording +
+   * `ConcurrentUpdateError` classification + auto-reclaim-of-provable-own-
+   * orphan mechanism `apply` established (task 7.2, reviewed and hardened
+   * over two rounds) applies here unchanged — wired below via the identical
+   * `ElectronStoreService.recordPulumiLockAttempt`/`clearPulumiLockAttempt`/
+   * `PulumiLockRecovery.classifyStackLockConflict` calls `apply` uses, not a
+   * rederived variant.
+   *
+   * ## No-op inline program (decision this dispatch)
+   *
+   * Unlike `preview`/`apply`, this method passes a trivial
+   * `async () => ({})` program to {@link PulumiWorkspaceService.getOrCreateStack}
+   * — the SAME no-op {@link getStackOutputs} already established is safe for
+   * an operation that doesn't need the program's actual resource graph.
+   * Verified against `stack.js`'s own `destroy()` implementation: the CLI
+   * args it builds only ever include `--run-program=<bool>` when
+   * `DestroyOptions.runProgram` is explicitly set
+   * (`if (opts.runProgram !== undefined)`); this method never sets it, so the
+   * CLI's own default applies — a plain `pulumi destroy` does NOT run the
+   * program, it deletes whatever the existing state checkpoint says exists,
+   * using each resource's own provider. The inline program's role in an
+   * Automation API call is to stand up the gRPC language-server handshake
+   * `LocalWorkspace.createOrSelectStack` requires — not to redescribe the
+   * resources being destroyed. Using a no-op program also means this method
+   * never needs to read the deployment configuration object from S3 at all:
+   * `destroy` can tear down a stack even if the current configuration object
+   * is missing, malformed, or describing a different game-server layout than
+   * what's actually deployed — an operationally important property (you must
+   * be able to destroy broken infrastructure) this method would otherwise
+   * accidentally lose by depending on `createInfraProgram(deploymentConfig, ...)`
+   * succeeding first.
+   *
+   * ## `changeSummary` (task 7.3's own investigation of `DestroyResult`'s shape)
+   *
+   * `DestroyResult` (`stack.d.ts`) is `{ stdout, stderr, summary: UpdateSummary }`
+   * — structurally identical to `UpResult`'s shape (`apply`'s own result),
+   * NOT `PreviewResult`'s flatter `{ stdout, stderr, changeSummary }`.
+   * `UpdateSummary.resourceChanges` is optional and, per `apply`'s own TSDoc,
+   * its exact population semantics from the CLI were never independently
+   * verified. This method therefore handles it exactly like `apply` does —
+   * NOT `preview` — capturing `capturedChangeSummary` from `onEvent`'s
+   * `summaryEvent` and using that captured value directly for the returned
+   * result on every path, never reading `DestroyResult.summary.resourceChanges`.
+   * This also means the leaked-promise-recovery path and the normal-
+   * completion path can never disagree about where `changeSummary` came
+   * from, for the identical reason `apply`'s TSDoc gives.
+   *
+   * ## No partial-destroy concept (investigated, per the brief's explicit
+   * instruction not to invent one unprompted)
+   *
+   * `DestroyResult` carries no partial/complete distinction beyond the
+   * generic `summary.result` (`UpdateResult`) — nothing analogous to
+   * `apply`'s `resOutputsEvent`-derived `completedSteps` tracking exists here,
+   * because the brief's own instruction was explicit: don't build a parallel
+   * mechanism unless evidence in `DestroyResult`'s actual shape calls for it.
+   * It doesn't — {@link PulumiDestroyOutcome} is a plain three-way
+   * success/aborted/failed union, with no `partialApply`-style fourth signal,
+   * mirroring {@link PulumiPreviewOutcome}'s shape rather than
+   * {@link PulumiApplyOutcome}'s.
+   *
+   * ## Leaked-promise `recoverResult`
+   *
+   * Mirrors `apply`'s real (re-reading) implementation, not `preview`'s
+   * "nothing to re-read" one: `stack.info()` is re-read (a fresh, independent,
+   * read-only call) purely as a sanity-check WARN log if its `result` isn't
+   * `'succeeded'` — it does not gate or override the recovery, trusting
+   * `isLeakedPromiseError`'s proven-sufficient classification per
+   * `PulumiLeakedPromise.ts`'s "provably sufficient" section. Unlike `apply`,
+   * `stack.outputs()` is NOT re-read — {@link PulumiDestroyResult} carries no
+   * outputs (there is nothing meaningful to report post-destroy), and a
+   * destroyed stack's outputs read would itself be racing the very teardown
+   * this recovery path exists to confirm succeeded.
+   *
+   * ## Cancellation, chunk streaming, force-close safety net
+   *
+   * All THREE mirror `apply`'s now-hardened shapes byte-for-byte: the named
+   * `onAbort` handler with unconditional `removeEventListener` in the outer
+   * `finally` (fix round 1's leak fix — copied already-fixed, not
+   * rediscovered), the `internalController`/`operationPromise`/
+   * `operationSettled` triple for a force-closed generator's bounded
+   * abort-and-await, and the identical queue/wake/notify chunk-streaming
+   * consumer loop. See {@link apply}'s TSDoc for the full rationale of each;
+   * nothing about the engine swap or the simpler gate changes any of it.
+   *
+   * ## Cache invalidation
+   *
+   * On a successful destroy — and ONLY then — {@link getConfigCacheInvalidator}'s
+   * `invalidateCache()` is called, best-effort, mirroring `apply`'s identical
+   * carried-forward requirement (task 7.4's review): a destroyed stack's
+   * `getStackOutputs()` must stop reporting stale "deployed" data immediately,
+   * not after the next unrelated cache expiry.
+   *
+   * ## Persistence
+   *
+   * `kind: 'destroy'`, same `writeRunLog`/`endActiveRun`/`writeRunRecord`/
+   * `persistRunRecord` sequence `preview`/`apply` use. No `tfvarsVersionId`,
+   * `planHash`, or `engineVersion` is recorded — mirrors
+   * `TerraformService.destroy`'s identical `undefined` for all three (there
+   * is no configuration version or plan artifact this run ran against — see
+   * "No-op inline program" above for why this method never even reads the
+   * configuration object). `persistRunRecord`'s own `RunRecordService.persist`
+   * releases the durable lock step 3 acquired, in its own `finally` — no
+   * separate `RunLockService.releaseRun` call is made on that path, mirroring
+   * `apply`'s identical reliance; the outer `finally`'s `lockReleased`-gated
+   * backstop below exists for the one path that skips it (`writeRunRecord`
+   * itself throwing), for the identical reason `apply`'s TSDoc documents.
+   *
+   * @param confirmationToken - The token returned by a prior
+   *   {@link mintDestroyConfirmationToken} call. See "Gate structure" above
+   *   for exactly when this is validated relative to the durable lock.
+   * @param signal - Optional cancellation signal — see "Cancellation, chunk
+   *   streaming, force-close safety net" above.
+   * @param preMintedRunId - Optional caller-minted `runId` (mirrors
+   *   `TerraformService.destroy`'s identically-named parameter) — must match
+   *   {@link RUN_ID_PATTERN}.
+   * @throws A descriptive `Error` if another `preview`/`up`/`destroy` is
+   *   already in flight on this instance, if `preMintedRunId` doesn't match
+   *   {@link RUN_ID_PATTERN}, if the state bucket/region aren't configured, or
+   *   if no stack has ever been created (no passphrase on record).
+   * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if the durable
+   *   lock reservation loses its atomic race.
+   * @throws {@link DestroyNotConfirmedError} if `confirmationToken` is
+   *   missing, unknown, expired, already consumed, or bound to a different
+   *   target (see {@link PulumiPendingDestroyConfirmation}'s doc comment,
+   *   "Target binding").
+   * @throws {@link PulumiUnrecognizedLockError} if `stack.destroy()` hits a
+   *   backend lock conflict that cannot be proven this installation's own
+   *   orphan.
+   * @throws {@link PulumiDestroyError} if `stack.destroy()` fails (not
+   *   aborted, not a leaked-promise-recovered success).
+   * @throws {@link PulumiRunPersistError} if the operation settled but the
+   *   run record couldn't be persisted afterward.
+   */
+  async *destroy(
+    confirmationToken: string,
+    signal?: AbortSignal,
+    preMintedRunId?: string,
+  ): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
+    if (this.operationInFlight) {
+      throw new Error(
+        `PulumiService.destroy() cannot run while ${this.operationInFlight}() is already ` +
+          'running; wait for it to finish before calling destroy() again.',
+      );
+    }
+    if (preMintedRunId !== undefined) {
+      PulumiService.assertValidRunId(preMintedRunId);
+    }
+
+    // Hoisted for the same reason as preview()/apply()'s equivalents — a
+    // force-closed generator unwinds straight to the outer finally, which
+    // needs to see these.
+    let runId: string | undefined;
+    let startedAt: string | undefined;
+    let runRecordWritten = false;
+    // `true` only once THIS invocation has itself set operationInFlight
+    // (post-commit, see "Gate structure" above) — mirrors apply()'s
+    // identically-named, identically-reasoned flag.
+    let ownsOperationInFlight = false;
+    // `true` once a call that genuinely attempted to release the durable lock
+    // has completed — mirrors apply()'s identically-named flag and its exact
+    // rationale (avoid a redundant RunService.releaseRun round-trip on the
+    // overwhelmingly common already-released-via-persistRunRecord path).
+    let lockReleased = false;
+    let capturedChangeSummary: ChangeSummary = {};
+    // The id ElectronStoreService.recordPulumiLockAttempt returns — mirrors
+    // apply()'s identically-named field and its exact clear/leave-behind
+    // rules (see "Does stack.destroy() take the DIY backend lock?" above).
+    let lockAttemptId: string | undefined;
+    const logLines: string[] = [];
+
+    // Same internal-controller pattern as preview()/apply() — see apply()'s
+    // TSDoc for the full rationale, including fix round 1's named-`onAbort`-
+    // with-unconditional-removal fix, copied already-fixed here.
+    const internalController = new AbortController();
+    const onAbort = (): void => internalController.abort();
+    if (signal) {
+      if (signal.aborted) {
+        internalController.abort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+    let operationPromise: Promise<DestroyResult> | undefined;
+    let operationSettled = false;
+
+    try {
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate step 2: THE authoritative safety gate, checked FIRST among
+      // the substantive gate steps — fully synchronous, no `await` anywhere
+      // above this point in the method, so token consumption is atomic for
+      // two calls racing on the SAME token: JS's own run-to-completion
+      // semantics mean whichever call's `.next()` runs first executes this
+      // whole line (and the synchronous clear inside
+      // assertFreshDestroyConfirmation) to completion before the other
+      // call's `.next()` is even invoked. See this method's TSDoc, "Gate
+      // structure", for the full ordering rationale and why this differs
+      // from apply()'s "reservation last" shape. ---
+      const stateBucket = this.store.get('bootstrap')?.stateBucket;
+      const stateBucketRegion = this.store.get('aws')?.region;
+      this.assertFreshDestroyConfirmation(confirmationToken, stateBucket, stateBucketRegion);
+
+      // --- Gate step 3: pure, idempotent read checks — ordered before the
+      // durable-lock reservation, mirroring apply()'s gate-steps-before-
+      // createRun discipline (see this method's TSDoc, "Gate structure"). ---
+      if (!stateBucket || !stateBucketRegion) {
+        throw new Error(
+          'Cannot run pulumi destroy: the state bucket / AWS region has not been configured yet. ' +
+            'Complete the bootstrap step before destroying.',
+        );
+      }
+      const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+      if (!stackExists) {
+        throw new Error(
+          'Cannot run pulumi destroy: no Pulumi stack has ever been created for this installation ' +
+            '(no secrets passphrase on record) — nothing to destroy.',
+        );
+      }
+
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate step 4: THE atomic, authoritative durable-lock reservation
+      // (mirrors apply()'s gate step 8 exactly) ---
+      const initiator = PulumiService.resolveInitiator();
+      const reservedRunId = preMintedRunId ?? randomUUID();
+      await this.getRunLockService().createRun('destroy', initiator, reservedRunId);
+
+      if (internalController.signal.aborted) {
+        // Aborted while acquiring the durable lock — nothing else was ever
+        // reserved (operationInFlight untouched, no active-run buffer), so
+        // releasing the lock is the entire undo.
+        try {
+          await this.getRunLockService().releaseRun(reservedRunId);
+        } catch (err) {
+          logger.warn('pulumi destroy: failed to release the durable lock after an early abort', {
+            reservedRunId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return undefined;
+      }
+
+      // --- Gate step 5: the SAME post-createRun operationInFlight TOCTOU
+      // re-check apply() performs — see this method's TSDoc, "Gate structure". ---
+      if (this.operationInFlight) {
+        const inFlight = this.operationInFlight;
+        try {
+          await this.getRunLockService().releaseRun(reservedRunId);
+        } catch (err) {
+          logger.warn(
+            'pulumi destroy: failed to release the durable lock after the local-workspace re-check refused',
+            {
+              reservedRunId,
+              inFlight,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+        }
+        throw new Error(
+          `pulumi destroy refused: ${inFlight} is already in flight against the shared workspace; wait for it ` +
+            'to finish before retrying. (The durable lock this call just acquired has been released.)',
+        );
+      }
+
+      // --- Gate step 6: commit. Nothing above this line has left anything
+      // reserved that survives a refusal (see "Gate structure" above): the
+      // token is the only non-idempotent thing consumed before this point,
+      // and it is spec-mandated to be spent regardless of what happens
+      // afterward — there is no "un-consume" for a refusal that follows it. ---
+      this.operationInFlight = 'destroy';
+      ownsOperationInFlight = true;
+      runId = reservedRunId;
+      this.beginActiveRun(runId);
+      startedAt = new Date().toISOString();
+
+      let destroyError: unknown;
+      try {
+        const stack = await this.workspace.getOrCreateStack({
+          // See this method's TSDoc, "No-op inline program", for why destroy
+          // never reads the deployment configuration object at all.
+          program: async () => ({}),
+          stateBucket,
+          stateBucketRegion,
+          backendReady: true,
+          stackExists: true,
+        });
+
+        // --- Chunk-streaming setup — identical algorithm to preview()/apply() ---
+        const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
+        const queue: PulumiRunChunk[] = [];
+        let wake: (() => void) | null = null;
+        const notify = (): void => {
+          wake?.();
+          wake = null;
+        };
+        const push = (chunk: PulumiRunChunk): void => {
+          queue.push(chunk);
+          notify();
+        };
+        const handleData = (stream: 'stdout' | 'stderr', data: string): void => {
+          buffers[stream] += data;
+          const lines = buffers[stream].split(/\r?\n/);
+          buffers[stream] = lines.pop() ?? '';
+          for (const line of lines) {
+            push({ stream, line });
+          }
+        };
+        const onOutput = (out: string): void => handleData('stdout', out);
+        const onError = (err: string): void => handleData('stderr', err);
+        const onEvent = (event: EngineEvent): void => {
+          if (event.summaryEvent) {
+            // See this method's TSDoc, "changeSummary", for why this is
+            // handled like apply(), not preview().
+            capturedChangeSummary = event.summaryEvent.resourceChanges;
+          }
+        };
+
+        // Lock-recovery wiring — the identical mechanism apply() established
+        // (task 7.2), reused verbatim; see this method's TSDoc, "Does
+        // stack.destroy() take the DIY backend lock?".
+        lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
+
+        const attemptDestroy = async (innerSignal: AbortSignal): Promise<DestroyResult> => {
+          try {
+            return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
+          } catch (err) {
+            if (!isStackLockConflict(err)) {
+              throw err;
+            }
+            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
+            if (classification.kind === 'reclaimable-own-orphan') {
+              logger.warn(
+                'pulumi destroy: backend lock is a provable orphan of this installation\'s own prior run — ' +
+                  'clearing it via stack.cancel() and retrying the destroy once',
+                { runId, locks: classification.locks },
+              );
+              await stack.cancel();
+              return await stack.destroy({ onOutput, onError, onEvent, signal: innerSignal });
+            }
+            throw new PulumiUnrecognizedLockError(
+              PULUMI_STACK_NAME,
+              classification.kind === 'requires-confirmation' ? classification.locks : [],
+            );
+          }
+        };
+
+        const recoverResult = async (): Promise<DestroyResult> => {
+          const summary = await stack.info();
+          if (summary && summary.result !== 'succeeded') {
+            logger.warn(
+              'pulumi destroy leaked-promise recovery: stack.info() does not report "succeeded" — trusting the ' +
+                'SDK-verified leak-check proof anyway (see PulumiLeakedPromise.ts, "provably sufficient")',
+              { runId, result: summary.result },
+            );
+          }
+          return {
+            stdout: '',
+            stderr: '',
+            summary: summary ?? {
+              kind: 'destroy',
+              startTime: new Date(),
+              endTime: new Date(),
+              message: '',
+              environment: {},
+              config: {},
+              result: 'succeeded',
+              version: 0,
+            },
+          };
+        };
+
+        operationPromise = runWithEscalatingCancellation(
+          (innerSignal) => runTreatingLeakedPromiseAsSuccess(() => attemptDestroy(innerSignal), recoverResult),
+          internalController.signal,
+        );
+
+        const onOperationSettled = (): void => {
+          for (const stream of ['stdout', 'stderr'] as const) {
+            if (buffers[stream].length > 0) {
+              push({ stream, line: buffers[stream] });
+              buffers[stream] = '';
+            }
+          }
+          operationSettled = true;
+          notify();
+        };
+        operationPromise.then(onOperationSettled, onOperationSettled);
+
+        while (true) {
+          if (queue.length > 0) {
+            const chunk = queue.shift()!;
+            logLines.push(chunk.line);
+            this.recordRunChunk(runId, chunk);
+            yield chunk;
+            continue;
+          }
+          if (operationSettled) {
+            break;
+          }
+          await new Promise<void>((resolveWait) => {
+            wake = resolveWait;
+          });
+        }
+
+        await operationPromise;
+      } catch (err) {
+        destroyError = err;
+      }
+
+      // Clear the lock-ownership record on every settlement EXCEPT a forceful
+      // escalation — mirrors apply()'s identical rationale ("Force-close
+      // safety net").
+      if (lockAttemptId !== undefined && !(destroyError instanceof PulumiOperationEscalatedError)) {
+        this.store.clearPulumiLockAttempt(lockAttemptId);
+        lockAttemptId = undefined;
+      }
+
+      const wasAborted =
+        destroyError instanceof PulumiOperationNotStartedError ||
+        destroyError instanceof PulumiOperationAbortedError ||
+        destroyError instanceof PulumiOperationEscalatedError;
+
+      const outcome: PulumiDestroyOutcome = wasAborted
+        ? { kind: 'aborted' }
+        : destroyError
+          ? {
+              kind: 'failed',
+              error:
+                destroyError instanceof PulumiUnrecognizedLockError
+                  ? destroyError
+                  : new PulumiDestroyError(destroyError),
+            }
+          : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
+
+      runRecordWritten = true;
+      this.writeRunLog(runId, logLines);
+      this.endActiveRun(runId);
+
+      const completedAt = new Date().toISOString();
+      const exitCode = outcome.kind === 'aborted' ? null : outcome.kind === 'success' ? 0 : 1;
+      const resultChangeSummary = outcome.kind === 'success' ? outcome.result.changeSummary : capturedChangeSummary;
+
+      try {
+        this.writeRunRecord(
+          runId,
+          'destroy',
+          startedAt,
+          completedAt,
+          exitCode,
+          undefined,
+          undefined,
+          undefined,
+          resultChangeSummary,
+        );
+      } catch (err) {
+        throw new PulumiRunPersistError(runId, PulumiService.toDestroyOperationOutcome(outcome), err);
+      }
+      await this.persistRunRecord(
+        runId,
+        'destroy',
+        startedAt,
+        completedAt,
+        exitCode,
+        undefined,
+        undefined,
+        undefined,
+        resultChangeSummary,
+      );
+      // See lockReleased's own doc comment — persistRunRecord's own
+      // RunRecordService.persist has now attempted the release too.
+      lockReleased = true;
+
+      if (outcome.kind === 'success') {
+        // Cache invalidation — hard requirement carried forward from task
+        // 7.4's review (see this method's TSDoc, "Cache invalidation").
+        try {
+          this.getConfigCacheInvalidator().invalidateCache();
+        } catch (err) {
+          logger.warn('pulumi destroy: failed to invalidate the stack-outputs cache after a successful destroy', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (outcome.kind === 'aborted') {
+        return undefined;
+      }
+      if (outcome.kind === 'success') {
+        return outcome.result;
+      }
+      throw outcome.error;
+    } finally {
+      // Fix round 1's leak fix, copied already-fixed — see apply()'s TSDoc.
+      signal?.removeEventListener('abort', onAbort);
+
+      // Covers the force-closed generator case — see apply()'s identical
+      // block for the full rationale; mirrored here verbatim except for the
+      // Pulumi-operation-specific types.
+      if (operationPromise && !operationSettled) {
+        internalController.abort();
+        let forceCloseSettlement: unknown;
+        await operationPromise.then(
+          () => {
+            forceCloseSettlement = undefined;
+          },
+          (err: unknown) => {
+            forceCloseSettlement = err;
+          },
+        );
+        if (lockAttemptId !== undefined && !(forceCloseSettlement instanceof PulumiOperationEscalatedError)) {
+          this.store.clearPulumiLockAttempt(lockAttemptId);
+          lockAttemptId = undefined;
+        }
+      }
+
+      if (runId !== undefined) {
+        this.endActiveRun(runId);
+      }
+      if (runId !== undefined && startedAt !== undefined && !runRecordWritten) {
+        logger.warn('pulumi destroy cancelled — generator force-closed while running', { runId });
+        this.writeRunLog(runId, logLines);
+        const completedAt = new Date().toISOString();
+        try {
+          this.writeRunRecord(
+            runId,
+            'destroy',
+            startedAt,
+            completedAt,
+            null,
+            undefined,
+            undefined,
+            undefined,
+            capturedChangeSummary,
+          );
+        } catch {
+          // Nothing meaningful to do with a persistence failure while the
+          // generator is already tearing down for an unrelated reason.
+        }
+        await this.persistRunRecord(
+          runId,
+          'destroy',
+          startedAt,
+          completedAt,
+          null,
+          undefined,
+          undefined,
+          undefined,
+          capturedChangeSummary,
+        );
+        // See lockReleased's own doc comment — this fallback's own
+        // persistRunRecord call has now attempted the release too.
+        lockReleased = true;
+      }
+
+      // Reset the LOCAL in-process mutex BEFORE the (rare, best-effort)
+      // durable-lock backstop below — mirrors apply()'s identical fix round
+      // 2 hardening and rationale.
+      if (ownsOperationInFlight) {
+        this.operationInFlight = null;
+      }
+
+      // Fix round 2's backstop, mirrored verbatim — skipped entirely once
+      // lockReleased is already true (the overwhelmingly common case); see
+      // apply()'s TSDoc for the full rationale of why this exists at all
+      // (the one path that skips persistRunRecord entirely: writeRunRecord
+      // itself throwing).
+      if (runId !== undefined && !lockReleased) {
+        try {
+          await this.getRunLockService().releaseRun(runId);
+        } catch (err) {
+          logger.warn('pulumi destroy: failed to release the durable lock as a backstop', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Throws {@link DestroyNotConfirmedError} unless `token` matches the most
+   * recently minted, not-yet-expired, not-yet-consumed confirmation token AND
+   * `currentStateBucket`/`currentStateBucketRegion` match the target the
+   * token was minted against — see {@link PulumiPendingDestroyConfirmation}'s
+   * doc comment for the full target-binding design. On success, consumes the
+   * token (clears {@link pendingDestroyConfirmation}) so it can never be
+   * replayed against a second `destroy()` call. Mirrors
+   * `TerraformService.assertFreshDestroyConfirmation`'s token/expiry checks
+   * exactly, extended with the target-binding comparison that method never
+   * had.
+   *
+   * Fully synchronous — no `await` anywhere in this method — which is what
+   * makes token consumption atomic: two "concurrent" calls (in the
+   * single-threaded JS sense — interleaved via Promise scheduling, never
+   * truly parallel) that both reach this method are strictly ordered by
+   * JS's own run-to-completion semantics, exactly like
+   * `RunService.createRun`'s in-memory compare-and-set. Whichever call's
+   * synchronous body runs first observes {@link pendingDestroyConfirmation}
+   * as still set and clears it; the second, whenever it runs, observes it
+   * already `null` (or already superseded by a newer mint) and throws. This
+   * property is unchanged from `TerraformService.ts`'s original — task 7.3's
+   * brief explicitly called out not to regress it while adding target
+   * binding around it, and adding two more equality comparisons before the
+   * same single synchronous clear does not introduce any `await`.
+   *
+   * Does NOT clear {@link pendingDestroyConfirmation} on failure (wrong
+   * token, expired, wrong target) — mirrors `TerraformService.ts`'s identical
+   * behavior: a genuinely correct, still-valid token remains usable by a
+   * subsequent call even if an earlier call supplied a wrong one first (e.g.
+   * a stale IPC retry racing a fresh one).
+   */
+  private assertFreshDestroyConfirmation(
+    token: string,
+    currentStateBucket: string | undefined,
+    currentStateBucketRegion: string | undefined,
+  ): void {
+    const pending = this.pendingDestroyConfirmation;
+    if (
+      !pending ||
+      pending.token !== token ||
+      Date.now() > pending.expiresAt ||
+      pending.stateBucket !== currentStateBucket ||
+      pending.stateBucketRegion !== currentStateBucketRegion ||
+      pending.stackName !== PULUMI_STACK_NAME
+    ) {
+      throw new DestroyNotConfirmedError();
+    }
+    this.pendingDestroyConfirmation = null;
+  }
+
+  /**
    * Resolves the OS-level identity recorded as {@link RunLock.initiator} for
    * an apply — duplicates `TerraformController.resolveApprover()`'s
    * identical `os.userInfo().username` lookup rather than depending on a
@@ -2476,6 +3409,23 @@ export class PulumiService {
    * outcome type.
    */
   private static toApplyOperationOutcome(outcome: PulumiApplyOutcome): PulumiOperationOutcome {
+    switch (outcome.kind) {
+      case 'success':
+        return { kind: 'success' };
+      case 'aborted':
+        return { kind: 'aborted' };
+      case 'failed':
+        return { kind: 'failed', error: outcome.error };
+    }
+  }
+
+  /**
+   * Reduces a {@link PulumiDestroyOutcome} to the minimal
+   * {@link PulumiOperationOutcome} shape {@link PulumiRunPersistError}
+   * carries — mirrors {@link toOperationOutcome}/{@link toApplyOperationOutcome}
+   * exactly, for `destroy`'s own outcome type.
+   */
+  private static toDestroyOperationOutcome(outcome: PulumiDestroyOutcome): PulumiOperationOutcome {
     switch (outcome.kind) {
       case 'success':
         return { kind: 'success' };
