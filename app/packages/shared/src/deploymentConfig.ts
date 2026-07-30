@@ -9,9 +9,9 @@
  *    {@link GameServerConfig} — the existing shared game-server shape (see
  *    `./tfvars.js`) already dictates `snake_case` field names
  *    (`container_path`, `connect_message`, `content_base64`) and is deeply
- *    embedded across `gameServerValidator.ts`, `hclEmit.ts`/`hclSurgeon.ts`,
- *    and the Games UI, so this model reuses it as-is rather than forking a
- *    parallel `camelCase` copy.
+ *    embedded across `gameServerValidator.ts`, `TfvarsService.ts`'s JSON
+ *    read/write paths, and the Games UI, so this model reuses it as-is
+ *    rather than forking a parallel `camelCase` copy.
  *  - The model is plain data — every field is JSON-serializable (`string`,
  *    `number`, `boolean`, array, or plain object; no `Date`, `Map`, `Set`, or
  *    class instance) — because Phase 6 of the migration persists it verbatim

@@ -5,9 +5,9 @@
  * Each operation follows the same shape:
  *  1. Validate the proposed entry via `validateGameServer()` (skipped for
  *     `deleteGame`, which has no config to validate), using the current
- *     declared `game_servers` list (`TfvarsService.getGameServers()`) as the
+ *     declared `gameServers` list (`TfvarsService.getGameServers()`) as the
  *     sibling set for the cross-game port-collision check.
- *  2. Delegate the actual HCL mutation to `TfvarsService.addGameServer()` /
+ *  2. Delegate the actual config mutation to `TfvarsService.addGameServer()` /
  *     `updateGameServer()` / `removeGameServer()`, forwarding
  *     `expectedVersionId` so the S3-mode conditional-put guard is honoured.
  *  3. Translate the handful of error shapes those calls can throw into the
@@ -33,8 +33,7 @@ import { OptimisticLockError, validateGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
-import { TfvarsService } from './TfvarsService.js';
-import { HclSurgeonError } from './hclSurgeon.js';
+import { GameServerEntryError, TfvarsService } from './TfvarsService.js';
 import { mergeGameLists } from './mergeGameLists.js';
 
 /** The three write operations this service performs — used to tag the audit log entry. */
@@ -48,9 +47,9 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
 };
 
 /**
- * Validates and writes `game_servers` create/update/delete requests — see
+ * Validates and writes `gameServers` create/update/delete requests — see
  * the file-level doc comment above for the full flow. A thin orchestration
- * layer over `TfvarsService` (the actual HCL mutation) and
+ * layer over `TfvarsService` (the actual config mutation) and
  * `validateGameServer` (the shared structural/business-rule validator);
  * holds no state of its own.
  */
@@ -63,7 +62,7 @@ export class GamesWriteService {
   ) {}
 
   /**
-   * Adds a brand-new `game_servers` entry. Validates `payload.config` via
+   * Adds a brand-new `gameServers` entry. Validates `payload.config` via
    * `validateGameServer()` against every currently-declared game (so a port
    * collision against an existing game is caught), then delegates to
    * `TfvarsService.addGameServer()`.
@@ -73,12 +72,13 @@ export class GamesWriteService {
    *    with the full issue list.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
-   *  - `HclSurgeonError` with `reason: 'invalid-name'` or `'duplicate-name'`
-   *    (the proposed name is malformed, or already exists in `game_servers`) →
+   *  - `GameServerEntryError` with `reason: 'invalid-name'` or `'duplicate-name'`
+   *    (the proposed name is malformed, or already exists in `gameServers`) →
    *    `{ code: 'validation' }` with a single `path: 'name'` issue.
-   *  - `HclSurgeonError` with `reason: 'structural'` (e.g. the `game_servers`
-   *    map itself can't be located in the source HCL) → the catch-all
-   *    `{ code: 'error' }`, since it isn't a name problem at all.
+   *  - `GameServerEntryError` with any other reason (e.g. `'structural'` —
+   *    the deployment config JSON itself is malformed or missing its
+   *    `gameServers` map) → the catch-all `{ code: 'error' }`, since it isn't
+   *    a name problem at all.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -95,7 +95,7 @@ export class GamesWriteService {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
-      if (err instanceof HclSurgeonError && (err.reason === 'invalid-name' || err.reason === 'duplicate-name')) {
+      if (err instanceof GameServerEntryError && (err.reason === 'invalid-name' || err.reason === 'duplicate-name')) {
         return { ok: false, code: 'validation', issues: [{ path: 'name', message: err.message }] };
       }
       return this.errorResult(err);
@@ -105,7 +105,7 @@ export class GamesWriteService {
   }
 
   /**
-   * Replaces an existing `game_servers` entry's value in place. Validates
+   * Replaces an existing `gameServers` entry's value in place. Validates
    * `payload.config` via `validateGameServer()` against every declared game
    * (the entry being edited is skipped for self-collisions by
    * `validateGameServer()` itself), then delegates to
@@ -116,8 +116,12 @@ export class GamesWriteService {
    *    with the full issue list.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
-   *  - `HclSurgeonError` (`payload.name` doesn't exist in `game_servers`) →
-   *    `{ code: 'not_found' }`.
+   *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
+   *    or the config JSON itself is malformed/missing its `gameServers` map)
+   *    → `{ code: 'not_found' }`, regardless of its specific `reason` — this
+   *    write path never throws an `'invalid-name'`/`'duplicate-name'` error
+   *    (the name is already known-good, being an existing key), so any
+   *    error here means "couldn't find/apply the update."
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -136,7 +140,7 @@ export class GamesWriteService {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
-      if (err instanceof HclSurgeonError) {
+      if (err instanceof GameServerEntryError) {
         return { ok: false, code: 'not_found', message: err.message };
       }
       return this.errorResult(err);
@@ -146,15 +150,17 @@ export class GamesWriteService {
   }
 
   /**
-   * Removes a `game_servers` entry. Skips `validateGameServer()` entirely —
+   * Removes a `gameServers` entry. Skips `validateGameServer()` entirely —
    * there's no proposed config to validate — and delegates straight to
    * `TfvarsService.removeGameServer()`.
    *
    * Failure mapping:
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
-   *  - `HclSurgeonError` (`payload.name` doesn't exist in `game_servers`) →
-   *    `{ code: 'not_found' }`.
+   *  - `GameServerEntryError` (`payload.name` doesn't exist in `gameServers`,
+   *    or the config JSON itself is malformed/missing its `gameServers` map)
+   *    → `{ code: 'not_found' }`, regardless of its specific `reason` — see
+   *    {@link updateGame}'s doc for why this catch is intentionally blanket.
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
     const siblings = await this.tfvars.getGameServers();
@@ -167,7 +173,7 @@ export class GamesWriteService {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
       }
-      if (err instanceof HclSurgeonError) {
+      if (err instanceof GameServerEntryError) {
         return { ok: false, code: 'not_found', message: err.message };
       }
       return this.errorResult(err);

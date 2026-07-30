@@ -10,7 +10,7 @@ import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
 import type { ConfigService, TfOutputs } from './ConfigService.js';
 import type { TfvarsService } from './TfvarsService.js';
-import { HclSurgeonError } from './hclSurgeon.js';
+import { GameServerEntryError } from './TfvarsService.js';
 import { logger } from '../logger.js';
 
 /** Minimal, valid `GameServer` fixture matching the Fargate cpu/memory pairing table. */
@@ -161,8 +161,8 @@ describe('GamesWriteService', () => {
       tfvars.addGameServer = vi
         .fn()
         .mockRejectedValue(
-          new HclSurgeonError(
-            'Entry "ark" already exists in "game_servers" — use updateGameServer() instead.',
+          new GameServerEntryError(
+            'Entry "ark" already exists in "gameServers" — use updateGameServer() instead.',
             'duplicate-name',
           ),
         );
@@ -198,9 +198,9 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a catch-all error result (not a name-validation issue) without recording an audit entry when addGameServer() throws a structural HclSurgeonError', async () => {
+    it('should return a catch-all error result (not a name-validation issue) without recording an audit entry when addGameServer() throws a structural GameServerEntryError', async () => {
       const tfvars = makeTfvars();
-      const structuralError = new HclSurgeonError('"game_servers" map not found in tfvars source.');
+      const structuralError = new GameServerEntryError('"gameServers" map not found in the deployment config JSON.', 'structural');
       tfvars.addGameServer = vi.fn().mockRejectedValue(structuralError);
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
@@ -290,9 +290,9 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a not_found result without recording an audit entry when the target game does not exist in game_servers', async () => {
+    it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      tfvars.updateGameServer = vi.fn().mockRejectedValue(new HclSurgeonError('Entry "ark" not found in "game_servers".'));
+      tfvars.updateGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
 
@@ -366,9 +366,9 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a not_found result without recording an audit entry when the target game does not exist in game_servers', async () => {
+    it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
       const tfvars = makeTfvars([]);
-      tfvars.removeGameServer = vi.fn().mockRejectedValue(new HclSurgeonError('Entry "ark" not found in "game_servers".'));
+      tfvars.removeGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
 
