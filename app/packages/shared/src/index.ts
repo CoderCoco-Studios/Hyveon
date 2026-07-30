@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './errors.js';
 export * from './terraformVersion.js';
+export * from './pulumiVersion.js';
 export * from './iamPolicy.js';
 export * from './wizardSteps.js';
 export * from './tfvars.js';

@@ -31,8 +31,8 @@
 
 ## 4. Engine runtime
 
-- [ ] 4.1 Add the pinned engine version constant to `@hyveon/shared`
-- [ ] 4.2 Implement `PulumiEngineService`: memoized resolution, install into `<userData>`, non-throwing constructor, typed provisioning errors, no partial-install reuse
+- [x] 4.1 Add the pinned engine version constant to `@hyveon/shared`
+- [x] 4.2 Implement `PulumiEngineService`: memoized resolution, install into `<userData>`, non-throwing constructor, typed provisioning errors, no partial-install reuse
 - [ ] 4.3 Implement the workspace seam: `pulumiCommand`, `pulumiHome`, one stable reused `workDir` per stack under `userData` (relocating the tmpdir leak is not fixing it — reuse, do not create per operation), `PULUMI_BACKEND_URL`, bare stack name
 - [ ] 4.4 Generate a passphrase, store it via `SafeStorageService`, and supply it on every invocation — it must exist before the first stack is created (a missing passphrase is a hard exit-1 under `--non-interactive`, not a prompt), and a missing passphrase for an existing stack must fail loudly rather than generate a replacement
 - [ ] 4.5 Propagate wizard-selected credentials into `envVars` — named profile via `AWS_PROFILE`, pasted keys decrypted in the main process — and add a test asserting no key material reaches streamed output or logs
