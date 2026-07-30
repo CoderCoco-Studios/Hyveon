@@ -105,15 +105,22 @@ export function defineAll(config: DeploymentConfig): InfraResources {
     provider,
   });
 
-  // TODO(task 3.6/3.8/3.9): wire in `defineIam` (`./iam.js`) once the EFS
-  // filesystem (task 3.2), the DynamoDB `discord` table + Secrets Manager
-  // secret (task 3.8), the `followup` Lambda function (task 3.6), and the
-  // Route 53 hosted-zone lookup (task 3.9) exist to supply
-  // `DefineIamArgs`'s deferred ARN parameters (`efsFileSystemArn`,
-  // `dynamodbDiscordTableArn`, `discordPublicKeySecretArn`,
-  // `followupLambdaArn`, `hostedZoneId`) — see `iam.ts`'s file doc for why
-  // `defineIam` is fully implemented and unit-tested but not yet callable
-  // from here.
+  // TODO(task 3.6): wire in `./iam.js` in this order — the only order that
+  // satisfies every dependency (see `iam.ts`'s file doc for the full
+  // rationale, including why roles and policies are two separate functions,
+  // not one):
+  //   1. `defineIamRoles(...)` — needs nothing from any later task (every
+  //      role's trust policy is a static literal); could be called here
+  //      today, but is left for task 3.6 to wire in alongside the rest of
+  //      this list rather than split across two commits.
+  //   2. `defineLambdas(...)` (task 3.6) — creates the Lambda functions
+  //      using each role's `.arn` from step 1 (e.g.
+  //      `followupLambdaRole.arn` for the followup function's `role`).
+  //   3. `defineIamPolicies(...)` — needs the roles from step 1 (by
+  //      reference) plus every deferred ARN: `efsFileSystemArn` (task 3.2),
+  //      `dynamodbDiscordTableArn` + `discordPublicKeySecretArn` (task 3.8),
+  //      `followupLambdaArn` (the followup function's `.arn` from step 2),
+  //      and `hostedZoneId` (task 3.9).
   return { provider, network, securityGroups };
 }
 
