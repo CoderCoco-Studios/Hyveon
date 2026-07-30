@@ -329,4 +329,62 @@ describe('BootstrapService', () => {
       );
     });
   });
+
+  describe('cross-resource failure isolation', () => {
+    it('should report the configuration bucket as failed and the state bucket as created independently, when only the configuration bucket\'s public-access-block call fails', async () => {
+      s3Mock.on(CreateBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      // Default: PAB succeeds for any bucket...
+      s3Mock.on(PutPublicAccessBlockCommand).resolves({});
+      // ...except the configuration bucket, whose PAB call is rejected.
+      s3Mock
+        .on(PutPublicAccessBlockCommand, { Bucket: 'my-config-bucket' })
+        .rejects(new Error('access denied applying public-access-block'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      // Run both operations concurrently, mirroring how the renderer invokes
+      // them (see `first-run-wizard.component.tsx`'s `runBootstrap`) — this
+      // proves the two calls share no mutable state that could let one
+      // resource's failure leak into or suppress the other's result.
+      const [stateResult, configResult] = await Promise.all([
+        service.ensureStateBucket('my-state-bucket'),
+        service.ensureConfigurationBucket('my-config-bucket'),
+      ]);
+
+      expect(stateResult).toEqual({ status: 'created' });
+      expect(configResult).toEqual({
+        status: 'failed',
+        message: 'access denied applying public-access-block',
+      });
+      // The state bucket's own configuration calls all completed — the
+      // sibling's failure didn't short-circuit or skip them.
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand, { Bucket: 'my-state-bucket' })).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutBucketEncryptionCommand, { Bucket: 'my-state-bucket' })).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutPublicAccessBlockCommand, { Bucket: 'my-state-bucket' })).toHaveLength(1);
+    });
+
+    it('should report the state bucket as failed and the configuration bucket as created independently, when only the state bucket cannot be created', async () => {
+      s3Mock.on(CreateBucketCommand).resolves({});
+      s3Mock
+        .on(CreateBucketCommand, { Bucket: 'my-state-bucket' })
+        .rejects(awsError('BucketAlreadyExists'));
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutPublicAccessBlockCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const [stateResult, configResult] = await Promise.all([
+        service.ensureStateBucket('my-state-bucket'),
+        service.ensureConfigurationBucket('my-config-bucket'),
+      ]);
+
+      expect(stateResult.status).toBe('failed');
+      expect(stateResult.message).toMatch(/already taken by another AWS account/i);
+      expect(configResult).toEqual({ status: 'created' });
+      expect(s3Mock.commandCalls(PutBucketVersioningCommand, { Bucket: 'my-config-bucket' })).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutPublicAccessBlockCommand, { Bucket: 'my-config-bucket' })).toHaveLength(1);
+    });
+  });
 });

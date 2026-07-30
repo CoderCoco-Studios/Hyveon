@@ -16,8 +16,8 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
-/** Payload accepted by {@link WizardController.bootstrapTfvarsBucket}. */
-export interface BootstrapTfvarsBucketInput {
+/** Payload accepted by {@link WizardController.bootstrapConfigurationBucket}. */
+export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
@@ -45,11 +45,21 @@ export interface WizardAwsChoice {
  * Reconfigure flow (#211) needs these on record to run `terraform init`
  * against the resources that actually exist rather than
  * `defaultBootstrapResourceNames()`.
+ *
+ * @remarks
+ * `lockTable` no longer names a resource this controller's bootstrap
+ * handlers create (task 5.1 removed `ensureLockTable`/`wizard.bootstrap.lockTable`
+ * entirely) — it is kept here only because the still-live `terraform.init`
+ * IPC call requires a `dynamodbTable` backend-config value, and Settings'
+ * Reconfigure flow rehydrates that value from this same field (see
+ * `first-run-wizard.component.tsx`'s `backendConfig.dynamodbTable`). Task
+ * 10.3 (replacing the Terraform-init step with the Pulumi
+ * stack-initialization step) is where this field should finally be dropped.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
   lockTable: string;
-  tfvarsBucket: string;
+  configurationBucket: string;
 }
 
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
@@ -200,17 +210,20 @@ export class WizardController {
   /**
    * Idempotently creates/ensures the versioned configuration S3 bucket
    * (versioning + 90-day noncurrent-version-expiration lifecycle rule +
-   * public-access-block). See `BootstrapService.ensureConfigurationBucket`
+   * public-access-block, applied on both the fresh-create and
+   * already-exists paths). See `BootstrapService.ensureConfigurationBucket`
    * for the full idempotency mapping.
    *
    * @remarks
-   * The handler name, payload type, and IPC channel (`wizard.bootstrap.tfvarsBucket`)
-   * still say "tfvars" — renaming the controller surface, preload mirror, and
-   * wizard-step renderer to "configuration bucket" is task 5.5's scope, not
-   * this one. Only the `BootstrapService` delegate call is renamed here.
+   * A public-access-block failure surfaces the same way any other
+   * configuration failure on this bucket does — the bucket's own
+   * `status: 'failed'` plus the underlying SDK error's message — rather than
+   * a separate status field, matching `BootstrapService.ensurePublicAccessBlock`'s
+   * documented error-handling convention (no dedicated error type for PAB,
+   * consistent with versioning/lifecycle).
    */
-  @MessagePattern('wizard.bootstrap.tfvarsBucket')
-  bootstrapTfvarsBucket(@Payload() body: BootstrapTfvarsBucketInput): Promise<BootstrapResult> {
+  @MessagePattern('wizard.bootstrap.configurationBucket')
+  bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
