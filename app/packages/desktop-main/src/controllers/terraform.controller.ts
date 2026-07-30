@@ -1,33 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
-import { join } from 'node:path';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { RunLockHeldError, isApprovalExpired } from '@hyveon/shared';
+import { RunLockHeldError } from '@hyveon/shared';
+import type { StackOutputs } from '@hyveon/shared';
 import {
-  TerraformService,
-  TerraformInitError,
-  TerraformPlanError,
-  TerraformApplyError,
-  TerraformDestroyError,
-  type TerraformInitConfig,
-  type TerraformRunChunk,
-  type TerraformPlanResult,
-  type TerraformApplyResult,
-  type TerraformDestroyResult,
-} from '../services/TerraformService.js';
-import { ConfigService, type TfOutputs } from '../services/ConfigService.js';
+  PulumiService,
+  type PulumiRunChunk,
+  type PulumiPreviewResult,
+  type PulumiUpResult,
+  type PulumiDestroyResult,
+} from '../services/PulumiService.js';
+import { ConfigService } from '../services/ConfigService.js';
 import { AuditService } from '../services/AuditService.js';
 import { RunRecordService } from '../services/RunRecordService.js';
-import { RunService } from '../services/RunService.js';
 import { logger } from '../logger.js';
-
-/** Fixed side-channel `TerraformController.init` pushes streamed output on. */
-const CHUNK_CHANNEL = 'terraform.init.chunk';
-
-/** Fixed side-channel `TerraformController.init` sends its terminal message on. */
-const END_CHANNEL = 'terraform.init.end';
 
 /** Fixed side-channel `TerraformController.plan` pushes streamed output on. */
 const PLAN_CHUNK_CHANNEL = 'terraform.plan.chunk';
@@ -48,39 +36,45 @@ const DESTROY_CHUNK_CHANNEL = 'terraform.destroy.chunk';
 const DESTROY_END_CHANNEL = 'terraform.destroy.end';
 
 /**
- * Message payload sent, in order, on {@link CHUNK_CHANNEL} for every chunk
- * `TerraformService.init` yields. `streamId` ties the chunk back to the
- * `init()` call that produced it (see {@link TerraformInitAck.streamId}) so
- * the renderer — and a second, rejected concurrent call — can never mix up
- * output from two overlapping runs.
+ * Fixed side-channel {@link TerraformController.confirmRollback} pushes
+ * streamed rollback-plan output on. Added by task 7.10 (`migrate-iac-to-pulumi`):
+ * `PulumiService.confirmRollback` (task 7.6) is an `AsyncGenerator` that
+ * streams a real plan run internally (the restore-then-plan "one guarded
+ * unit" design — see that method's own TSDoc), unlike the pre-migration
+ * `TerraformService.confirmRollback`, which only ever did the restore write
+ * and resolved a single value. Nothing subscribes to this channel yet — the
+ * renderer's `RollbackAction` component (Phase 8/9's job to update) still
+ * only awaits `confirmRollback`'s resolved ack (see that method's own TSDoc,
+ * "Streaming vs. the renderer's existing one-shot contract") — but the
+ * plumbing exists now so a long-running restore+plan isn't a total black box
+ * for a future caller that wants to watch it live, mirroring
+ * {@link PLAN_CHUNK_CHANNEL}'s shape exactly.
  */
-interface TerraformInitChunkMessage {
-  streamId: string;
-  chunk: TerraformRunChunk;
-}
+const ROLLBACK_CONFIRM_CHUNK_CHANNEL = 'terraform.rollback.confirm.chunk';
 
 /**
- * Message payload sent once on {@link END_CHANNEL} when a `terraform.init`
- * run finishes. `streamId` identifies which `init()` call this terminates
- * (see {@link TerraformInitAck.streamId}) so a rejected/second concurrent
- * call can't broadcast an end event that the first caller mistakes for its
- * own. `exitCode` is `0` on success. On failure it carries whatever exit
- * code the spawned process reported (or `null` when the run failed
- * before/without an exit code, e.g. the binary couldn't be resolved or a
- * second `init` was already in flight), plus a stringified `error`.
+ * Backend configuration values the first-run wizard used to pass to
+ * `terraform init -backend-config=...` for the S3 remote-state backend.
+ * Defined locally (moved out of the now-deleted `TerraformService.ts` by
+ * task 7.10) purely to keep {@link TerraformController.init}'s payload type
+ * — and therefore the `terraform.init` IPC contract's shape — unchanged
+ * while the method body itself becomes an inert rejection (see {@link init}'s
+ * own TSDoc for why the channel is kept wired but no longer does anything).
  */
-interface TerraformInitEndMessage {
-  streamId: string;
-  exitCode: number | null;
-  error?: string;
+interface TerraformInitConfig {
+  bucket: string;
+  region: string;
+  dynamodbTable: string;
 }
 
 /**
  * Immediate acknowledgement `init()` resolves with. `started: true` means the
  * streaming loop was kicked off in the background (chunk/end messages will
  * follow on the side channels, tagged with `streamId`). `started: false`
- * means `config` failed validation and no `TerraformService.init` run was
- * attempted — `error` describes why and `streamId` is omitted.
+ * means `config` failed validation, OR — since task 7.10 — that `config`
+ * passed validation but `init()` is a no-op under the Pulumi engine (see
+ * {@link TerraformController.init}'s own TSDoc); either way no run was
+ * attempted and `streamId` is omitted.
  */
 interface TerraformInitAck {
   started: boolean;
@@ -89,9 +83,10 @@ interface TerraformInitAck {
 }
 
 /**
- * Payload accepted by {@link TerraformController.output}. `force` is
- * optional and defaults to `false`, mirroring `TerraformService.output`'s
- * own default parameter.
+ * Payload accepted by {@link TerraformController.output}. `force` is kept
+ * for backward payload compatibility with the preload/renderer contract —
+ * see {@link TerraformController.output}'s own TSDoc for why it's now
+ * ignored rather than removed.
  */
 interface TerraformOutputPayload {
   force?: boolean;
@@ -99,11 +94,12 @@ interface TerraformOutputPayload {
 
 /**
  * Payload accepted by {@link TerraformController.plan}. `tfvarsVersionId`,
- * when the configured tfvars source is S3-backed, is forwarded verbatim to
- * `TerraformService.plan`'s pre-spawn staleness check against the current
- * head version of the tfvars object. `rolledBackFrom`, when supplied by the
- * rollback flow (#112), is stamped onto the resulting plan's `RunRecord` so
- * history can tag it as a rollback of that `runId`.
+ * when the configured configuration source is S3-backed, is forwarded
+ * verbatim to `PulumiService.preview`'s pre-spawn staleness check against
+ * the current head version of the configuration object. `rolledBackFrom`,
+ * when supplied by the rollback flow (#112), is stamped onto the resulting
+ * plan's `PulumiRunRecord` so history can tag it as a rollback of that
+ * `runId`.
  */
 interface TerraformPlanPayload {
   tfvarsVersionId?: string;
@@ -112,29 +108,31 @@ interface TerraformPlanPayload {
 
 /**
  * Message payload sent, in order, on {@link PLAN_CHUNK_CHANNEL} for every
- * chunk `TerraformService.plan` yields. `runId` ties the chunk back to the
+ * chunk `PulumiService.preview` yields. `runId` ties the chunk back to the
  * `plan()` call that produced it — the same id already handed back in
  * {@link TerraformPlanAck.runId} — so the renderer (and a second, rejected
  * concurrent call) can never mix up output from two overlapping runs.
  */
 interface TerraformPlanChunkMessage {
   runId: string;
-  chunk: TerraformRunChunk;
+  chunk: PulumiRunChunk;
 }
 
 /**
  * Message payload sent once on {@link PLAN_END_CHANNEL} when a
- * `terraform.plan` run finishes. `exitCode` is `0` on success. On failure it
- * carries whatever exit code the spawned process reported (or `null` when
- * the run failed before/without an exit code), plus a stringified `error`.
- * `result` is present only on a successful run — the resource-change counts
- * and artifact paths `TerraformService.plan` resolved.
+ * `terraform.plan` run finishes. `exitCode` is `0` on success, or `null` on
+ * failure — the Pulumi Automation API has no real process exit code to
+ * report (unlike the spawned `terraform` CLI this channel originally
+ * bridged), so `null` uniformly represents "this run did not succeed" here,
+ * rather than trying to recover a synthetic non-zero number. `result` is
+ * present only on a successful run — the structured `changeSummary` and
+ * artifact/hash/engine-version fields `PulumiService.preview` resolved.
  */
 interface TerraformPlanEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
-  result?: TerraformPlanResult;
+  result?: PulumiPreviewResult;
 }
 
 /**
@@ -142,25 +140,24 @@ interface TerraformPlanEndMessage {
  * `runId` was pre-minted and the streaming loop was kicked off in the
  * background (chunk/end messages will follow on the side channels, tagged
  * with that same `runId`). `started: false` means the submission was
- * rejected before any `TerraformService.plan` run was attempted and no
+ * rejected before any `PulumiService.preview` run was attempted and no
  * `runId` is present — `error` is a human-readable description of why, and
- * `conflict` additionally names the already-running subcommand
- * (`init`/`plan`/`apply`/`destroy`) when the rejection was specifically
+ * `conflict` additionally names the already-running operation
+ * (`preview`/`up`/`destroy`/`rollback`) when the rejection was specifically
  * because the shared workspace was busy (see
- * `TerraformService.getWorkspaceInFlight()`).
+ * `PulumiService.getOperationInFlight()`).
  */
 interface TerraformPlanAck {
   started: boolean;
   runId?: string;
   error?: string;
-  conflict?: 'init' | 'plan' | 'apply' | 'destroy';
+  conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
 }
 
 /**
  * Payload accepted by {@link TerraformController.approve}. `planRunId`
- * identifies the successful `plan` run to approve. Unlike the previous shape
- * of this payload, there is no client-supplied approver identity — the
- * approver is always resolved server-side (see
+ * identifies the successful `plan` run to approve. There is no client-supplied
+ * approver identity — the approver is always resolved server-side (see
  * {@link TerraformController.resolveApprover}) so an IPC caller can never
  * spoof who approved a run.
  *
@@ -199,12 +196,12 @@ interface TerraformRollbackPayload {
 
 /**
  * Result `resolveRollback()` resolves with. `resolved: true` means
- * `TerraformService.resolveRollbackTarget` found a prior tfvars version to
- * restore — `versionId`/`lastModified` identify it, for the confirmation
+ * `PulumiService.resolveRollbackTarget` found a prior configuration version
+ * to restore — `versionId`/`lastModified` identify it, for the confirmation
  * dialog to display before anything is written. `resolved: false` means the
  * payload failed validation or resolution was rejected (no matching apply
- * run, not an apply run, no recorded tfvarsVersionId, or no earlier version
- * exists) — `error` is always a human-readable description of why.
+ * run, not an apply run, no recorded configuration version id, or no earlier
+ * version exists) — `error` is always a human-readable description of why.
  */
 interface TerraformRollbackResolveAck {
   resolved: boolean;
@@ -215,11 +212,16 @@ interface TerraformRollbackResolveAck {
 
 /**
  * Result `confirmRollback()` resolves with. `confirmed: true` means the
- * historic tfvars content was restored as a new head version —
- * `versionId` is the new version's id, ready to pass to `terraform.plan`'s
- * `tfvarsVersionId` (alongside `rolledBackFrom: applyRunId`) to complete the
- * rollback. `confirmed: false` means no write was attempted — `error` is
- * always a human-readable description of why.
+ * historic configuration content was restored as a new head version AND the
+ * follow-up plan `PulumiService.confirmRollback` runs against it internally
+ * completed successfully — `versionId` is the restored version's id, ready
+ * to pass to `terraform.plan`'s `tfvarsVersionId` (alongside
+ * `rolledBackFrom: applyRunId`) for a renderer that still drives the
+ * pre-migration two-call flow (see {@link TerraformController.confirmRollback}'s
+ * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
+ * `confirmed: false` means no write was attempted, or a write was attempted
+ * and the restore-then-plan unit failed partway through — `error` is always
+ * a human-readable description of why.
  */
 interface TerraformRollbackConfirmAck {
   confirmed: boolean;
@@ -228,13 +230,24 @@ interface TerraformRollbackConfirmAck {
 }
 
 /**
+ * Message payload sent, in order, on {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL}
+ * for every chunk the plan run inside `PulumiService.confirmRollback` yields.
+ * `applyRunId` ties the chunk back to the `confirmRollback()` call that
+ * produced it, mirroring {@link TerraformPlanChunkMessage}.
+ */
+interface TerraformRollbackConfirmChunkMessage {
+  applyRunId: string;
+  chunk: PulumiRunChunk;
+}
+
+/**
  * Payload accepted by {@link TerraformController.apply}. `planRunId`
- * identifies the approved `plan` run to apply — its own `runId` is reused as
- * the apply run's `runId` too, so the plan and the apply that consumes it
- * share one run history entry lineage (see {@link apply}'s TSDoc). `planHash`
- * is the caller's expected plan hash, compared against the plan run's stored
- * `planHash` so a forged or drifted hash can never slip an unreviewed
- * `.tfplan` artifact through to `terraform apply`.
+ * identifies the approved `plan` run to apply — also reused, unchanged, as
+ * the apply run's own `runId` (see `PulumiService.apply`'s TSDoc, "run id").
+ * `planHash` is the caller's expected plan hash, checked against the plan
+ * run's stored `planHash` by `PulumiService.apply`'s own self-contained gate
+ * (task 7.2) — this controller no longer re-derives or pre-checks any of
+ * that itself; see {@link apply}'s own TSDoc.
  *
  * Mirrors `TerraformApplyPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
@@ -247,34 +260,33 @@ interface TerraformApplyPayload {
 
 /**
  * Message payload sent, in order, on {@link APPLY_CHUNK_CHANNEL} for every
- * chunk `TerraformService.apply` yields. `runId` ties the chunk back to the
+ * chunk `PulumiService.apply` yields. `runId` ties the chunk back to the
  * `apply()` call that produced it — the same id already handed back in the
  * ack `TerraformController.apply` resolves — mirrors
  * {@link TerraformPlanChunkMessage}.
  */
 interface TerraformApplyChunkMessage {
   runId: string;
-  chunk: TerraformRunChunk;
+  chunk: PulumiRunChunk;
 }
 
 /**
  * Message payload sent once on {@link APPLY_END_CHANNEL} when a
- * `terraform.apply` run finishes. `exitCode` is `0` on success. On failure it
- * carries whatever exit code the spawned process reported (or `null` when
- * the run failed before/without an exit code — e.g. a stale-tfvars rejection
- * that never spawned `terraform`), plus a stringified `error`. `result` is
- * present only on a successful run.
+ * `terraform.apply` run finishes. `exitCode` is `0` on success, or `null` on
+ * failure — see {@link TerraformPlanEndMessage}'s doc comment for why there
+ * is no real numeric exit code to report under the Pulumi Automation API.
+ * `result` is present only on a successful run.
  */
 interface TerraformApplyEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
-  result?: TerraformApplyResult;
+  result?: PulumiUpResult;
 }
 
 /**
  * Result {@link TerraformController.mintDestroyToken} resolves with —
- * delegates directly to `TerraformService.mintDestroyConfirmationToken()`,
+ * delegates directly to `PulumiService.mintDestroyConfirmationToken()`,
  * which the operator must then supply back on {@link TerraformController.destroy}'s
  * payload within its short expiry window (see that method's TSDoc).
  */
@@ -286,8 +298,8 @@ interface TerraformDestroyMintAck {
  * Payload accepted by {@link TerraformController.destroy}. `confirmationToken`
  * must be the most recently minted, unexpired, not-yet-consumed value
  * returned by {@link TerraformController.mintDestroyToken} — enforced
- * server-side by `TerraformService.destroy`'s own
- * `assertFreshDestroyConfirmation` gate (see {@link DestroyNotConfirmedError}).
+ * server-side by `PulumiService.destroy`'s own token gate (see
+ * `DestroyNotConfirmedError`).
  *
  * Mirrors `TerraformDestroyPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
@@ -299,89 +311,97 @@ interface TerraformDestroyPayload {
 
 /**
  * Message payload sent, in order, on {@link DESTROY_CHUNK_CHANNEL} for every
- * chunk `TerraformService.destroy` yields. `runId` ties the chunk back to the
+ * chunk `PulumiService.destroy` yields. `runId` ties the chunk back to the
  * `destroy()` call that produced it — the same id already handed back in the
  * ack `TerraformController.destroy` resolves — mirrors
  * {@link TerraformApplyChunkMessage}.
  */
 interface TerraformDestroyChunkMessage {
   runId: string;
-  chunk: TerraformRunChunk;
+  chunk: PulumiRunChunk;
 }
 
 /**
  * Message payload sent once on {@link DESTROY_END_CHANNEL} when a
- * `terraform.destroy` run finishes. `exitCode` is `0` on success. On failure
- * it carries whatever exit code the spawned process reported (or `null` when
- * the run failed before/without an exit code — e.g. an unconfirmed-token
- * rejection that never spawned `terraform`), plus a stringified `error`.
+ * `terraform.destroy` run finishes. `exitCode` is `0` on success, or `null`
+ * on failure — see {@link TerraformPlanEndMessage}'s doc comment for why.
  * `result` is present only on a successful run.
  */
 interface TerraformDestroyEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
-  result?: TerraformDestroyResult;
+  result?: PulumiDestroyResult;
 }
 
 /**
  * IPC-only Terraform controller. Handles Electron main-process messages via
  * `@MessagePattern` — no HTTP routes are registered here.
  *
- * Bridges {@link TerraformService.init}'s async-generator output onto the
- * fixed `terraform.init.chunk` / `terraform.init.end` side channels so the
- * renderer's first-run wizard can render `terraform init` output live.
- * {@link plan} mirrors the same bridging shape for `terraform plan`, plus a
- * pre-flight `TerraformService.getWorkspaceInFlight()` conflict check and a
+ * Task 7.10 (`migrate-iac-to-pulumi`) repointed every orchestration call site
+ * in this file from the deleted `TerraformService` onto `PulumiService`
+ * (Phase 7's Automation-API-backed replacement). The channel names, payload
+ * shapes, and streaming/side-channel bridging pattern below are all
+ * unchanged from before that repoint (Phase 8's job, not this one, per the
+ * `migrate-iac-to-pulumi` change's own scoping) — what changed is which
+ * service backs each handler, and (where the new service's methods are
+ * self-contained gates rather than thin CLI wrappers — {@link apply},
+ * {@link destroy}) how much pre-flight bookkeeping this controller still
+ * needs to do itself. See each method's own TSDoc for the specifics.
+ *
+ * {@link plan} bridges `PulumiService.preview`'s async-generator output onto
+ * the fixed `terraform.plan.chunk` / `terraform.plan.end` side channels, plus
+ * a pre-flight `PulumiService.getOperationInFlight()` conflict check and a
  * persisted `AuditService.record()` entry for every accepted submission.
  * {@link approve} needs no such bridging — it resolves a single value, so
  * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` wires it
  * automatically — and delegates the actual write to
  * `RunRecordService.approveRun` (see issue #109). {@link apply} mirrors
- * {@link plan}'s streaming/bridging shape once more, gated behind the
- * plan-hash + approval + apply-lock checks described in its own TSDoc (issue
- * #109). {@link destroy} mirrors {@link apply}'s streaming/bridging/lock
- * shape a third time, gated behind a short-lived confirmation token minted by
- * {@link mintDestroyToken} (issue #307) instead of a plan/approval lineage —
- * `mintDestroyToken` itself needs no bridging, same as {@link approve}.
+ * {@link plan}'s streaming/bridging shape, but — since `PulumiService.apply`'s
+ * 8-step gate (task 7.2) is entirely self-contained — this controller no
+ * longer performs any of the plan-hash/approval/lock pre-checks it used to;
+ * it awaits the gate's own outcome (the generator's first `.next()`) before
+ * acking, and only then starts forwarding chunks. {@link destroy} mirrors
+ * {@link apply}'s shape a third time, gated behind a short-lived confirmation
+ * token minted by {@link mintDestroyToken} (issue #307) instead of a
+ * plan/approval lineage — `mintDestroyToken` itself needs no bridging, same
+ * as {@link approve}.
  */
 @Controller()
 export class TerraformController implements OnModuleInit {
   /**
-   * `audit`/`runRecord`/`runService`/`config` are typed optional (`?`) purely
-   * so existing test call sites that construct
-   * `new TerraformController(terraform)` directly (bypassing Nest's DI
-   * container) keep compiling without also stubbing them — every real
-   * bootstrap through `AppModule` still resolves concrete
-   * `AuditService`/`RunRecordService`/`RunService`/`ConfigService` instances
-   * regardless of this TS-level optionality. `runService` guards the single
-   * durable apply lock {@link apply} acquires before ever spawning
-   * `terraform apply` (issue #106); `config` resolves the expected `.tfplan`
-   * artifact path for a given `planRunId` via `ConfigService.getRunsDir()`.
+   * `audit`/`runRecord`/`config` are typed optional (`?`) purely so existing
+   * test call sites that construct `new TerraformController(pulumi)` directly
+   * (bypassing Nest's DI container) keep compiling without also stubbing
+   * them — every real bootstrap through `AppModule` still resolves concrete
+   * `AuditService`/`RunRecordService`/`ConfigService` instances regardless of
+   * this TS-level optionality. `runRecord` backs {@link approve}'s
+   * `RunRecordService.approveRun` write (unrelated to `PulumiService.apply`'s
+   * own internal plan-record lookup, which no longer goes through this
+   * controller at all — task 7.10). `config` backs {@link output}'s preferred
+   * `ConfigService.getStackOutputs()` delegate (falling back to
+   * `PulumiService.getStackOutputs()` directly when unavailable — see that
+   * method's own TSDoc).
+   *
+   * Unlike the pre-migration version of this controller, there is no
+   * `RunService` dependency here any more: `PulumiService.apply`/`.destroy`'s
+   * self-contained gates (task 7.2/7.3) acquire and release the durable apply
+   * lock entirely internally now, so this controller has nothing left to do
+   * with `RunService` directly.
    */
   constructor(
-    private readonly terraform: TerraformService,
+    private readonly pulumi: PulumiService,
     private readonly audit?: AuditService,
     private readonly runRecord?: RunRecordService,
-    private readonly runService?: RunService,
     private readonly config?: ConfigService,
   ) {}
 
   /**
-   * Per-call `AbortController`s keyed by the `streamId` minted in
-   * {@link init}. Lets a future `terraform.init.cancel` channel reach the
-   * right in-flight run, and lets the `WebContents` `'destroyed'` listener in
-   * {@link init} abort immediately without racing the chunk loop's own
-   * `isDestroyed()` check.
-   */
-  private readonly activeInits = new Map<string, AbortController>();
-
-  /**
    * Per-call `AbortController`s keyed by the `runId` minted in {@link plan}.
-   * Mirrors {@link activeInits} — lets a future `terraform.plan.cancel`
-   * channel reach the right in-flight run, and lets the `WebContents`
-   * `'destroyed'` listener in {@link plan} abort immediately without racing
-   * the chunk loop's own `isDestroyed()` check.
+   * Lets a future `terraform.plan.cancel` channel reach the right in-flight
+   * run, and lets the `WebContents` `'destroyed'` listener in {@link plan}
+   * abort immediately without racing the chunk loop's own `isDestroyed()`
+   * check.
    */
   private readonly activePlans = new Map<string, AbortController>();
 
@@ -405,19 +425,25 @@ export class TerraformController implements OnModuleInit {
   private readonly activeDestroys = new Map<string, AbortController>();
 
   /**
-   * Registers an `ipcMain.handle` bridge for the `terraform.init` channel
-   * after the Nest module initialises, so that
-   * `ipcRenderer.invoke('terraform.init', config)` in the preload actually
+   * Registers an `ipcMain.handle` bridge for the `terraform.plan` channel
+   * (and `terraform.apply`/`terraform.destroy`) after the Nest module
+   * initialises, so that `ipcRenderer.invoke(...)` in the preload actually
    * resolves.
    *
-   * `@MessagePattern('terraform.init')` only wires the transport's internal
-   * dispatcher — it does **not** call `ipcMain.handle`, so `ipcRenderer.invoke`
-   * would otherwise hang. This hook bridges the gap, mirroring
+   * `@MessagePattern(...)` only wires the transport's internal dispatcher —
+   * it does **not** call `ipcMain.handle`, so `ipcRenderer.invoke` would
+   * otherwise hang. This hook bridges the gap, mirroring
    * `LogsController.onModuleInit`'s handling of `logs.stream` — see
-   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which excludes
-   * `terraform.init` from the generic bridge for the same reason: the handler
+   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which excludes these
+   * three channels from the generic bridge for the same reason: each handler
    * pushes follow-up chunk/end messages over side channels for the duration
    * of a long-running run rather than resolving a single value.
+   *
+   * `terraform.init` is deliberately NOT registered here (unlike before task
+   * 7.10) — {@link init} no longer streams anything (see its own TSDoc), so
+   * it's resolved by the generic `ipcMain.handle` bridge like any other
+   * single-value channel; only `terraform.plan`/`terraform.apply`/
+   * `terraform.destroy` still need this manual registration.
    *
    * Only runs inside a real Electron main process. In plain-Node runtimes
    * (integration test server, Docker, CI) `process.versions.electron` is
@@ -433,13 +459,6 @@ export class TerraformController implements OnModuleInit {
     const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
     // Remove any existing handler first so hot-reload re-registration does
     // not throw "IPC channel already registered".
-    ipcMain.removeHandler('terraform.init');
-    ipcMain.handle('terraform.init', (evt, config: TerraformInitConfig) =>
-      this.init(config, { evt: evt as IpcMainInvokeEvent }),
-    );
-    // `terraform.plan` streams chunk/end messages the same way `terraform.init`
-    // does — see `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which
-    // excludes it from the generic bridge for the same reason.
     ipcMain.removeHandler('terraform.plan');
     ipcMain.handle('terraform.plan', (evt, payload: TerraformPlanPayload) =>
       this.plan(payload, { evt: evt as IpcMainInvokeEvent }),
@@ -465,147 +484,106 @@ export class TerraformController implements OnModuleInit {
   }
 
   /**
-   * Kicks off `terraform init` against `config` and streams its output back
-   * to the renderer.
+   * `terraform.init` under the Pulumi engine — a deliberate, documented
+   * no-op rejection, not a real operation (task 7.10 decision).
    *
-   * Validates `config` first: `bucket`, `region`, and `dynamodbTable` must
-   * all be non-empty strings. If validation fails, no `TerraformService.init`
-   * run is attempted and the method resolves immediately with
-   * `{ started: false, error }` — no chunk/end messages are sent.
+   * Pulumi has no analogue to `terraform init`: `PulumiEngineService`
+   * auto-installs/resolves the Pulumi engine binary on first use, and
+   * `PulumiWorkspaceService` constructs the Automation API workspace/backend
+   * on demand — neither requires a separate, explicit initialization step an
+   * operator triggers from the wizard. Rather than deleting this channel
+   * (which would break `ipcRenderer.invoke('terraform.init', ...)` for
+   * whatever caller still reaches it — the first-run wizard's init-dependent
+   * prerequisite step is real, already-shipped code that Phase 8/9 haven't
+   * repointed yet) or silently reporting success (which would let the wizard
+   * believe a real initialization happened and advance past a step that did
+   * nothing), this method now always resolves `{ started: false, error }` —
+   * for VALID `config` exactly as much as for invalid `config` — naming the
+   * Pulumi engine as the reason no `terraform init` ran. This is an accepted
+   * interim state, not this dispatch's job to design a real fix for: the
+   * wizard's init-dependent prerequisite flow is "effectively broken"
+   * mid-migration and Phase 10 owns replacing it properly (see the
+   * `migrate-iac-to-pulumi` change's own notes). `config` validation is kept
+   * unchanged ahead of the rejection so a malformed payload is still
+   * diagnosed with its own specific message, exactly as it was before.
    *
-   * Otherwise a per-call `streamId` (`randomUUID()`) is minted and returned
-   * in the ack, and the streaming loop is fired and forgotten (mirroring
-   * `LogsController.streamLogs`'s `void (async () => { ... })()` pattern);
-   * the method resolves immediately with `{ started: true, streamId }`, well
-   * before the `terraform init` run itself settles. Every chunk/end message
-   * is tagged with that same `streamId` so the renderer — and a second,
-   * rejected concurrent call — can always tell which run a message belongs
-   * to and never cross-terminate another caller's stream. Each chunk
-   * `TerraformService.init` yields is forwarded, in order, to the renderer
-   * via `sender.send` on {@link CHUNK_CHANNEL} as
-   * `{ streamId, chunk }`. Once the run settles a single terminal message is
-   * sent on {@link END_CHANNEL}: `{ streamId, exitCode: 0 }` on success, or
-   * `{ streamId, exitCode, error }` on failure — `exitCode` comes from
-   * {@link TerraformInitError} when the spawned process exited non-zero, and
-   * is `null` for any other failure (binary not found, a second `init`
-   * already in flight, a spawn error, etc).
-   *
-   * Creates its own `AbortController` per invocation (the same reasoning as
-   * `LogsController.streamLogs`: `ElectronIPCTransport` passes `{ evt }` as
-   * the execution context, so there's no `signal` injected by the transport),
-   * registers it in {@link activeInits} keyed by `streamId` so a future
-   * cancel channel can reach it, and passes its `signal` through to
-   * `TerraformService.init`. A `'destroyed'` listener on the `WebContents`
-   * aborts the controller the instant the window/webview goes away, rather
-   * than relying solely on the chunk loop's own `isDestroyed()` check (which
-   * only re-evaluates between chunks and never fires at all once
-   * `TerraformService.init` stops yielding).
-   *
-   * Reachable via the Electron IPC transport (`terraform.init`).
+   * Reachable via the Electron IPC transport (`terraform.init`), resolved by
+   * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` — this
+   * channel no longer self-bridges (see {@link onModuleInit}'s own TSDoc)
+   * since nothing is ever streamed any more.
    */
   @MessagePattern('terraform.init')
-  async init(
-    @Payload() config: TerraformInitConfig,
-    ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformInitAck> {
+  async init(@Payload() config: TerraformInitConfig): Promise<TerraformInitAck> {
     const validationError = TerraformController.validateConfig(config);
     if (validationError) {
       logger.error('terraform init rejected: invalid config', { error: validationError });
       return { started: false, error: validationError };
     }
 
-    const sender: WebContents = ctx.evt.sender;
-    const streamId = randomUUID();
-    const ac = new AbortController();
-    this.activeInits.set(streamId, ac);
-
-    const onDestroyed = () => ac.abort();
-    sender.once('destroyed', onDestroyed);
-    const cleanup = () => {
-      this.activeInits.delete(streamId);
-      sender.removeListener('destroyed', onDestroyed);
+    logger.warn('terraform init rejected: no-op under the Pulumi engine', {});
+    return {
+      started: false,
+      error:
+        'terraform.init is not applicable when using the Pulumi engine — Pulumi resolves and ' +
+        'installs its own engine automatically and has no separate init step. (Interim state ' +
+        'pending Phase 10 of the migrate-iac-to-pulumi change, which replaces the wizard\'s ' +
+        'init-dependent prerequisite step.)',
     };
-
-    // Fire-and-forget the streaming loop. Chunks are pushed back to the
-    // renderer directly via WebContents.send rather than through the normal
-    // invoke reply mechanism, which only supports a single return value.
-    void (async () => {
-      try {
-        for await (const chunk of this.terraform.init(config, ac.signal)) {
-          if (sender.isDestroyed()) { ac.abort(); return; }
-          const chunkMessage: TerraformInitChunkMessage = { streamId, chunk };
-          sender.send(CHUNK_CHANNEL, chunkMessage);
-        }
-        if (!sender.isDestroyed()) {
-          const message: TerraformInitEndMessage = { streamId, exitCode: 0 };
-          sender.send(END_CHANNEL, message);
-        }
-      } catch (err) {
-        logger.error('terraform init error', { err });
-        if (!sender.isDestroyed()) {
-          const exitCode = err instanceof TerraformInitError ? err.exitCode : null;
-          const message: TerraformInitEndMessage = { streamId, exitCode, error: String(err) };
-          sender.send(END_CHANNEL, message);
-        }
-      } finally {
-        cleanup();
-      }
-    })();
-
-    return { started: true, streamId };
   }
 
   /**
-   * Kicks off `terraform plan` and streams its output back to the renderer —
-   * mirrors {@link init}'s streaming shape, but pre-mints a `runId` (rather
-   * than a `streamId`) since `TerraformService.plan` already needs one to
-   * name its `.tfplan` artifact directory.
+   * Kicks off a Pulumi preview (`terraform plan`'s successor) and streams its
+   * output back to the renderer — pre-mints a `runId` since
+   * `PulumiService.preview` already needs one to name its saved plan
+   * artifact directory.
    *
-   * Checks `TerraformService.getWorkspaceInFlight()` first: if `init`,
-   * `plan`, `apply`, or `destroy` is already running against the shared
-   * workspace, no run is attempted — the method resolves immediately with
-   * `{ started: false, error, conflict: <in-flight op> }` naming whichever
-   * subcommand is in flight. No chunk/end messages are sent and no audit
-   * entry is recorded for a rejected submission.
+   * Checks `PulumiService.getOperationInFlight()` first: if a `preview`,
+   * `up`, `destroy`, or `rollback` operation is already running against the
+   * shared workspace, no run is attempted — the method resolves immediately
+   * with `{ started: false, error, conflict: <in-flight op> }` naming
+   * whichever operation is in flight. No chunk/end messages are sent and no
+   * audit entry is recorded for a rejected submission.
    *
    * Otherwise a `runId` (`randomUUID()`) is minted up front and handed to
-   * `TerraformService.plan` as `preMintedRunId`, and the generator's first
+   * `PulumiService.preview` as `preMintedRunId`, and the generator's first
    * step is driven synchronously (before anything is awaited) to reserve the
-   * shared workspace — see the inline comment at the call site for why this
-   * ordering matters. Only once that reservation has happened is an audit
-   * entry (`action: 'plan'`) recorded via `AuditService.record()` for the
-   * now-accepted submission, and the streaming loop fired and forgotten
-   * (mirroring {@link init}'s `void (async () => { ... })()` pattern); the
-   * method resolves immediately with `{ started: true, runId }`, well before
-   * the `terraform plan` run itself settles. Every chunk/end message is
-   * tagged with that same `runId` so the renderer — and a second, rejected
-   * concurrent call — can always tell which run a message belongs to. Each
-   * chunk `TerraformService.plan` yields is forwarded, in order, to the
-   * renderer via `sender.send` on {@link PLAN_CHUNK_CHANNEL} as
-   * `{ runId, chunk }`. Once the run settles a single terminal message is
-   * sent on {@link PLAN_END_CHANNEL}: `{ runId, exitCode: 0, result }` on
-   * success, or `{ runId, exitCode, error }` on failure — `exitCode` comes
-   * from {@link TerraformPlanError} when the spawned process exited
-   * non-zero, and is `null` for any other failure (binary not found, a
-   * stale-tfvars staleness rejection, a run-record persistence failure,
-   * etc).
+   * shared workspace — `PulumiService.preview`'s own `operationInFlight`
+   * check-and-set runs synchronously, before its own first `await`, exactly
+   * like `TerraformService.plan`'s equivalent guard did before task 7.10's
+   * repoint — so driving `.next()` here, with no `await` between the
+   * `getOperationInFlight()` check above and this call, closes the same
+   * TOCTOU gap that guard existed to close. The `.catch()` below exists
+   * solely to mark `firstStep` as "handled" so Node doesn't log an
+   * unhandledRejection warning while it sits unawaited during the
+   * `audit.record()` call further down — the real handling of whatever it
+   * settles to happens in the streaming loop below, the same way every later
+   * `.next()` result already is.
    *
-   * Unlike {@link init} (which uses `for await...of` because it discards the
-   * generator's return value), `plan()` drives `TerraformService.plan`'s
-   * async generator manually via repeated `.next()` calls so the terminal
-   * `TerraformPlanResult` (the generator's return value once it's `done`)
+   * Only once that reservation has happened is an audit entry
+   * (`action: 'plan'`) recorded via `AuditService.record()` for the
+   * now-accepted submission, and the streaming loop fired and forgotten
+   * (`void (async () => { ... })()`); the method resolves immediately with
+   * `{ started: true, runId }`, well before the preview run itself settles.
+   * Every chunk/end message is tagged with that same `runId`. Each chunk
+   * `PulumiService.preview` yields is forwarded, in order, via `sender.send`
+   * on {@link PLAN_CHUNK_CHANNEL} as `{ runId, chunk }`. Once the run settles
+   * a single terminal message is sent on {@link PLAN_END_CHANNEL}:
+   * `{ runId, exitCode: 0, result }` on success, or
+   * `{ runId, exitCode: null, error }` on failure.
+   *
+   * Drives `PulumiService.preview`'s async generator manually via repeated
+   * `.next()` calls (rather than `for await...of`) so the terminal
+   * `PulumiPreviewResult` (the generator's return value once it's `done`)
    * can be attached to the end message's `result` field. If the `WebContents`
    * is destroyed mid-stream, the generator is explicitly finalized via
-   * `stream.return()` — the manual-drive equivalent of what `for await...of`
-   * does automatically on an early `return` out of its loop body — so
-   * `TerraformService.plan`'s own force-closed-generator cleanup (persisting
-   * a cancelled run record) still runs.
+   * `stream.return()` so `PulumiService.preview`'s own force-closed-generator
+   * cleanup (persisting a cancelled run record) still runs.
    *
-   * Creates its own `AbortController` per invocation (the same reasoning as
-   * {@link init}), registers it in {@link activePlans} keyed by `runId` so a
-   * future cancel channel can reach it, and passes its `signal` through to
-   * `TerraformService.plan`. A `'destroyed'` listener on the `WebContents`
-   * aborts the controller the instant the window/webview goes away.
+   * Creates its own `AbortController` per invocation, registers it in
+   * {@link activePlans} keyed by `runId` so a future cancel channel can reach
+   * it, and passes its `signal` through to `PulumiService.preview`. A
+   * `'destroyed'` listener on the `WebContents` aborts the controller the
+   * instant the window/webview goes away.
    *
    * Reachable via the Electron IPC transport (`terraform.plan`).
    */
@@ -614,7 +592,7 @@ export class TerraformController implements OnModuleInit {
     @Payload() payload: TerraformPlanPayload = {},
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<TerraformPlanAck> {
-    const inFlight = this.terraform.getWorkspaceInFlight();
+    const inFlight = this.pulumi.getOperationInFlight();
     if (inFlight) {
       const error =
         `terraform plan refused: ${inFlight} is already in flight; wait for it to finish ` +
@@ -627,29 +605,7 @@ export class TerraformController implements OnModuleInit {
     const runId = randomUUID();
     const ac = new AbortController();
 
-    // Reserve the shared workspace *synchronously* — no `await` runs between
-    // the `getWorkspaceInFlight()` check above and this `stream.next()` call,
-    // which is the only thing that actually flips
-    // `TerraformService`'s internal `workspaceInFlight` lock (its
-    // check-and-set runs synchronously, before its own first `await`). That
-    // closes the TOCTOU gap a previous version of this method left open by
-    // only driving the generator from inside the fire-and-forget block below,
-    // *after* awaiting `audit.record()`: two calls arriving back-to-back could
-    // both pass the check above while the first was still awaiting its audit
-    // write, so both would resolve `started: true` and both would get an
-    // audit entry, even though the second necessarily fails deep inside
-    // `TerraformService.plan()`. Because JS is single-threaded and there's no
-    // `await` between the check and this reservation, at most one concurrent
-    // `plan()` invocation can ever win it — a second invocation's own
-    // `getWorkspaceInFlight()` check above is now guaranteed to observe the
-    // reservation and bail out with a conflict ack before ever awaiting audit
-    // or creating a generator of its own. The `.catch()` below exists solely
-    // to mark `firstStep` as "handled" so Node doesn't log an
-    // unhandledRejection warning while it sits unawaited during the
-    // `audit.record()` call further down — the real handling of whatever it
-    // settles to happens in the streaming loop below, the same way every
-    // later `.next()` result already is.
-    const stream = this.terraform.plan(payload.tfvarsVersionId, ac.signal, runId, payload.rolledBackFrom);
+    const stream = this.pulumi.preview(payload.tfvarsVersionId, ac.signal, runId, payload.rolledBackFrom);
     const firstStep = stream.next();
     firstStep.catch(() => { /* handled in the streaming loop below */ });
 
@@ -701,8 +657,7 @@ export class TerraformController implements OnModuleInit {
       } catch (err) {
         logger.error('terraform plan error', { err });
         if (!sender.isDestroyed()) {
-          const exitCode = err instanceof TerraformPlanError ? err.exitCode : null;
-          const message: TerraformPlanEndMessage = { runId, exitCode, error: String(err) };
+          const message: TerraformPlanEndMessage = { runId, exitCode: null, error: String(err) };
           sender.send(PLAN_END_CHANNEL, message);
         }
       } finally {
@@ -714,117 +669,63 @@ export class TerraformController implements OnModuleInit {
   }
 
   /**
-   * Kicks off `terraform apply <planFile>` for the approved plan run
-   * `payload.planRunId` and streams its output back to the renderer —
-   * mirrors {@link plan}'s streaming shape, but gated behind a chain of
-   * pre-spawn checks that must *all* pass before `terraform` is ever spawned
-   * (issue #109):
+   * Applies the approved plan run `payload.planRunId` and streams its output
+   * back to the renderer — mirrors {@link plan}'s streaming shape, but the
+   * gate structure underneath it is fundamentally different since task 7.10:
+   * `PulumiService.apply`'s 8-step gate (task 7.2) is entirely
+   * self-contained — plan-record lookup, approval/expiry checks, plan-hash
+   * verification (both the stored-hash comparison and the on-disk artifact
+   * re-hash), engine-version check, and the durable apply-lock reservation
+   * (`RunLockService.createRun`, task 7.7's atomic compare-and-set) all
+   * happen INSIDE `PulumiService.apply` itself, not split across this
+   * controller and the service the way `TerraformController.apply` and
+   * `TerraformService.apply` used to split it.
    *
-   * 1. `payload` validation — `planRunId` and `planHash` must both be
-   *    non-empty strings.
-   * 2. A plan {@link RunRecord} for `payload.planRunId` must exist
-   *    (`RunRecordService.getByRunId`) and be a `kind: 'plan'` record.
-   * 3. That record must be approved (`approvedBy`/`approvedAt` both set —
-   *    see {@link TerraformController.approve}) and the approval must not
-   *    have expired (`isApprovalExpired(record.approvedAt)`, a fixed 15
-   *    minute window — see `APPROVAL_WINDOW_MS` in `@hyveon/shared/runs.ts`).
-   * 4. `payload.planHash` must match the plan record's own stored
-   *    `planHash` exactly — this is what stops a forged or stale hash from
-   *    ever reaching `terraform apply`: the tfvars/plan an admin reviewed
-   *    and approved is exactly what gets applied. That alone only proves the
-   *    two in-memory values agree with each other, so this step also
-   *    re-reads the actual `.tfplan` bytes at
-   *    `<runsDir>/<planRunId>/<planRunId>.tfplan` and recomputes their
-   *    SHA-256 digest via `TerraformService.computePlanHash` — a fresh
-   *    artifact-level hash that must *also* match `payload.planHash`. A
-   *    swapped/tampered `.tfplan` file on disk (with `record.planHash` left
-   *    untouched) fails this second check even though the two stored hashes
-   *    still agree, and never reaches `terraform apply`.
-   * 5. The shared Terraform workspace must be free
-   *    (`TerraformService.getWorkspaceInFlight()`), mirroring {@link plan}'s
-   *    own conflict check.
-   * 6. The durable apply lock (`RunService.createRun`, issue #106) must be
-   *    acquirable — if another non-terminal run already holds it, the call
-   *    is rejected with a {@link RunLockHeldError}-derived message and
-   *    `conflict: 'apply'` and no lock is acquired by this call (so there is
-   *    nothing for it to release).
-   * 7. Immediately after step 6's `await` settles, the workspace check from
-   *    step 5 is repeated (`TerraformService.getWorkspaceInFlight()` again).
-   *    Step 6 is itself an `await`, so a concurrent `plan`/`init` could have
-   *    reserved the workspace during that gap; this re-check closes it. If
-   *    the workspace is now busy, the apply lock acquired in step 6 is
-   *    released (`RunService.releaseRun`) and the call is rejected with
-   *    `conflict` set to the new in-flight run — mirroring step 5's ack
-   *    shape — before anything externally visible (the audit entry, the
-   *    streaming loop) has happened.
+   * This means this controller must NOT reintroduce any of that gate's
+   * checks itself (per this dispatch's own scoping ruling — the gate is the
+   * single, authoritative place those checks live now) — it only needs to
+   * know that the gate is entirely synchronous-relative-to-yielding: every
+   * one of `PulumiService.apply`'s 8 steps runs to completion before the
+   * generator's first `yield` (the first real chunk of `stack.up()`'s
+   * output) ever happens. So the first `.next()` call on the returned
+   * generator either REJECTS (any gate-step failure — most importantly
+   * `RunLockHeldError`, propagated unwrapped by gate step 8's losing race,
+   * mapped below to `conflict: 'up'`) or RESOLVES with the operation
+   * genuinely under way. This method exploits that: it `await`s the first
+   * `.next()` call BEFORE acking, so `{ started: true, runId }` is only ever
+   * returned once the gate has actually passed — a stronger, more accurate
+   * guarantee than the pre-migration controller's ack ever gave (that
+   * version's ack could resolve `started: true` before some pre-spawn
+   * failures were even known, deferring them to the end channel instead).
    *
-   * Any failure in 1–7 resolves immediately with `{ started: false, error }`
-   * (plus `conflict` for 5–7) — `TerraformService.apply` is never called, so
-   * no `terraform apply` process is ever spawned, and no run record is
-   * written for the rejected attempt.
+   * Validates `payload` first (`planRunId`/`planHash` both non-empty
+   * strings) — the only validation this controller still performs itself;
+   * everything else is the gate's job. A gate failure resolves
+   * `{ started: false, error }` (plus `conflict: 'up'` specifically for a
+   * lost `RunLockHeldError` race) without ever touching {@link activeApplies}
+   * or recording an audit entry.
    *
-   * Once the lock is acquired, `TerraformService.apply` is invoked with the
-   * plan's own `runId` (`payload.planRunId` — so the applied plan and its
-   * apply run record share the same `<runsDir>/<runId>/` lineage, per
-   * `TerraformService.apply`'s own TSDoc), the plan record's stored
-   * `tfvarsVersionId` (so `TerraformService.apply`'s own pre-spawn
-   * stale-tfvars guard re-checks it against the current S3 head version),
-   * and the expected plan artifact path
-   * (`<runsDir>/<planRunId>/<planRunId>.tfplan`, matching exactly what
-   * `TerraformService.plan` persisted and what `TerraformService.apply`
-   * itself independently re-validates before spawning).
+   * Once the gate has passed, {@link activeApplies} is populated, a
+   * `'destroyed'` listener is armed on the `WebContents`, a best-effort audit
+   * entry (`action: 'apply'`) is recorded, and the (now partially-drained)
+   * generator is driven to completion in a fire-and-forget streaming loop —
+   * mirrors {@link plan}'s loop shape exactly, starting from the
+   * already-resolved first step rather than an unawaited one. Each
+   * subsequent chunk is forwarded via `sender.send` on
+   * {@link APPLY_CHUNK_CHANNEL} as `{ runId, chunk }`; once the run settles a
+   * single terminal message is sent on {@link APPLY_END_CHANNEL}:
+   * `{ runId, exitCode: 0, result }` on success, or
+   * `{ runId, exitCode: null, error }` on failure — see
+   * {@link TerraformPlanEndMessage}'s doc comment for why `exitCode` is a
+   * plain `0`/`null` pair now rather than a recovered process exit code.
    *
-   * Once the lock is acquired and step 7's post-lock workspace re-check has
-   * passed, the generator's first step is driven *synchronously* — the same
-   * synchronous-first-`.next()` workspace reservation (before anything is
-   * `await`ed) that {@link plan} uses, for the same TOCTOU reason described
-   * at that call site: `TerraformService`'s `workspaceInFlight` check-and-set
-   * runs synchronously, before its own first `await`, so driving `.next()`
-   * here — rather than only from inside the fire-and-forget block below —
-   * closes the gap a second concurrent call could otherwise race through
-   * between this re-check and the reservation itself. The un-awaited
-   * first-step promise is given a no-op `.catch()` purely so Node doesn't log an
-   * unhandledRejection warning while it sits unawaited; the real handling of
-   * whatever it settles to happens in the streaming loop below, the same way
-   * every later `.next()` result already is. This means a pre-spawn failure
-   * inside `TerraformService.apply` itself (most notably a
-   * {@link StalePlanError} when the tfvars drifted since the plan was
-   * generated, but also e.g. a workspace-conflict race or a missing plan
-   * artifact) is *not* observed before this method resolves its ack — it
-   * surfaces as a normal `{ runId, exitCode: null, error }` message on
-   * {@link APPLY_END_CHANNEL} once the streaming loop's `await firstStep`
-   * rejects, mirroring how any other pre-spawn failure is reported. The
-   * streaming loop's own `finally` block (see below) unconditionally
-   * releases the just-acquired apply lock on this path too, since
-   * `TerraformService.apply` never reaches its own lock-releasing
-   * `persistRunRecord` call for a run that never spawned.
-   *
-   * Only once that reservation has happened is a best-effort audit entry
-   * (`action: 'apply'`) recorded via `AuditService.record()` for the
-   * now-accepted submission — mirroring {@link plan}'s own audit-entry call —
-   * and the streaming loop fired and forgotten immediately afterward; the
-   * method resolves `{ started: true, runId }`
-   * (`runId` again being `payload.planRunId`) well before the
-   * `terraform apply` run itself settles. Each chunk
-   * `TerraformService.apply` yields is forwarded, in order, to the renderer
-   * via `sender.send` on {@link APPLY_CHUNK_CHANNEL} as
-   * `{ runId, chunk }`; once the run settles a single terminal message is
-   * sent on {@link APPLY_END_CHANNEL}: `{ runId, exitCode: 0, result }` on
-   * success, or `{ runId, exitCode, error }` on failure (`exitCode` from
-   * {@link TerraformApplyError} when the spawned process exited non-zero,
-   * `null` for any other failure).
-   *
-   * Regardless of how the streaming loop ends — success,
-   * {@link TerraformApplyError}, an unrelated exception, or the `WebContents`
-   * being destroyed mid-run (which aborts the run via `ac.signal` and
-   * finalizes the generator via `stream.return()`, mirroring {@link plan}) —
-   * its `finally` block unconditionally calls `RunService.releaseRun(runId)`
-   * once more. This is deliberately redundant with the release
-   * `TerraformService.apply`'s own `persistRunRecord` already performs
-   * internally on every path that reaches it (`RunService.releaseRun` is
-   * idempotent — see its own TSDoc) — the guarantee this method provides is
-   * that the lock is released on *every* exit path this method can take,
-   * not just the ones `TerraformService.apply` itself accounts for.
+   * Unlike the pre-migration version of this method, there is no
+   * `RunService.createRun`/`releaseRun` call anywhere in this controller any
+   * more, and no redundant "release the lock in this controller's own
+   * `finally` too" safety net — `PulumiService.apply`'s own gate acquires the
+   * durable lock and its own persistence path (`RunRecordService.persist`'s
+   * `finally`) releases it on every settlement path, including a
+   * force-closed generator (see that method's TSDoc for the full guarantee).
    *
    * Creates its own `AbortController` per invocation and registers it in
    * {@link activeApplies} keyed by `runId`, the same reasoning as
@@ -843,134 +744,23 @@ export class TerraformController implements OnModuleInit {
       return { started: false, error: validationError };
     }
 
-    if (!this.runRecord) {
-      const error = 'terraform.apply requires a configured RunRecordService';
-      logger.error('terraform apply rejected: no RunRecordService available', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-    if (!this.runService) {
-      const error = 'terraform.apply requires a configured RunService';
-      logger.error('terraform apply rejected: no RunService available', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-    if (!this.config) {
-      const error = 'terraform.apply requires a configured ConfigService';
-      logger.error('terraform apply rejected: no ConfigService available', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-
-    const record = await this.runRecord.getByRunId(payload.planRunId);
-    if (!record) {
-      const error = `No plan run found for planRunId "${payload.planRunId}"`;
-      logger.error('terraform apply rejected: no plan run found', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-    if (record.kind !== 'plan') {
-      const error = `Run "${payload.planRunId}" is a "${record.kind}" run, not a "plan" run, and cannot be applied`;
-      logger.error('terraform apply rejected: run is not a plan run', { planRunId: payload.planRunId, kind: record.kind });
-      return { started: false, error };
-    }
-    if (!record.approvedBy || !record.approvedAt) {
-      const error = `Plan run "${payload.planRunId}" has not been approved`;
-      logger.error('terraform apply rejected: plan run not approved', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-    if (isApprovalExpired(record.approvedAt)) {
-      const error = `Approval for plan run "${payload.planRunId}" has expired; re-approve before applying`;
-      logger.error('terraform apply rejected: approval expired', { planRunId: payload.planRunId, approvedAt: record.approvedAt });
-      return { started: false, error };
-    }
-    if (!record.planHash || record.planHash !== payload.planHash) {
-      const error = `Plan hash mismatch for run "${payload.planRunId}": the supplied planHash does not match the approved plan`;
-      logger.error('terraform apply rejected: plan hash mismatch', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-
-    const planFile = join(this.config.getRunsDir(), payload.planRunId, `${payload.planRunId}.tfplan`);
-    let artifactHash: string;
-    try {
-      artifactHash = this.terraform.computePlanHash(planFile);
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      logger.error('terraform apply rejected: failed to re-hash on-disk plan artifact', {
-        planRunId: payload.planRunId,
-        error,
-      });
-      return { started: false, error: `Failed to verify plan artifact for run "${payload.planRunId}": ${error}` };
-    }
-    if (artifactHash !== payload.planHash) {
-      const error =
-        `Plan artifact hash mismatch for run "${payload.planRunId}": the on-disk .tfplan artifact does not ` +
-        'match the approved plan hash';
-      logger.error('terraform apply rejected: plan artifact hash mismatch', { planRunId: payload.planRunId });
-      return { started: false, error };
-    }
-
-    const inFlight = this.terraform.getWorkspaceInFlight();
-    if (inFlight) {
-      const error =
-        `terraform apply refused: ${inFlight} is already in flight; wait for it to finish ` +
-        'before submitting another apply';
-      logger.error('terraform apply rejected: workspace busy', { inFlight });
-      return { started: false, error, conflict: inFlight };
-    }
-
-    const initiator = TerraformController.resolveApprover();
-    try {
-      await this.runService.createRun('apply', initiator, payload.planRunId);
-    } catch (err) {
-      if (err instanceof RunLockHeldError) {
-        logger.error('terraform apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
-        return { started: false, error: err.message, conflict: 'apply' };
-      }
-      const error = err instanceof Error ? err.message : String(err);
-      logger.error('terraform apply rejected: failed to acquire apply lock', { planRunId: payload.planRunId, error });
-      return { started: false, error };
-    }
-
-    // `createRun` above is the first `await` since the `getWorkspaceInFlight()`
-    // check at the top of this method, so a concurrent `plan`/`init` could
-    // have reserved the shared workspace during that gap. Re-check here,
-    // synchronously before anything externally visible happens, and release
-    // the just-acquired apply lock if the workspace is now busy — otherwise
-    // this call would ack `{ started: true }`, record a spurious 'apply'
-    // audit entry, and only then fail on the end channel once the streaming
-    // loop's `await firstStep` rejects.
-    const inFlightAfterLock = this.terraform.getWorkspaceInFlight();
-    if (inFlightAfterLock) {
-      await this.runService.releaseRun(payload.planRunId);
-      const error =
-        `terraform apply refused: ${inFlightAfterLock} is already in flight; wait for it to finish ` +
-        'before submitting another apply';
-      logger.error('terraform apply rejected: workspace busy after acquiring apply lock', {
-        inFlight: inFlightAfterLock,
-        planRunId: payload.planRunId,
-      });
-      return { started: false, error, conflict: inFlightAfterLock };
-    }
-
     const runId = payload.planRunId;
     const sender: WebContents = ctx.evt.sender;
     const ac = new AbortController();
+    const stream = this.pulumi.apply(runId, payload.planHash, ac.signal);
 
-    // Reserve the shared workspace *synchronously* — mirrors plan()'s own
-    // synchronous-first-`.next()` reservation (see the inline comment on
-    // that call site for why the ordering matters): no `await` runs between
-    // the `getWorkspaceInFlight()` re-check immediately above and this
-    // `stream.next()` call, which is the only thing that actually flips
-    // `TerraformService`'s internal `workspaceInFlight` lock. The `.catch()`
-    // below exists solely to mark `firstStep` as "handled" so Node doesn't
-    // log an unhandledRejection warning while it sits unawaited; the real
-    // handling of whatever it settles to happens in the streaming loop
-    // below, the same way every later `.next()` result already is. A
-    // pre-spawn failure (e.g. a StalePlanError from TerraformService.apply's
-    // own re-check, an invalid runId/planFile, or a workspace-conflict race)
-    // therefore surfaces as a normal end-message error on
-    // `terraform.apply.end` once the streaming loop awaits `firstStep`,
-    // rather than as a synchronous ack rejection.
-    const stream = this.terraform.apply(runId, record.tfvarsVersionId, planFile, ac.signal);
-    const firstStep = stream.next();
-    firstStep.catch(() => { /* handled in the streaming loop below */ });
+    let first: Awaited<ReturnType<typeof stream.next>>;
+    try {
+      first = await stream.next();
+    } catch (err) {
+      if (err instanceof RunLockHeldError) {
+        logger.error('terraform apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
+        return { started: false, error: err.message, conflict: 'up' };
+      }
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error('terraform apply rejected', { planRunId: payload.planRunId, error });
+      return { started: false, error };
+    }
 
     this.activeApplies.set(runId, ac);
 
@@ -985,22 +775,19 @@ export class TerraformController implements OnModuleInit {
     // and swallowed internally), so awaiting it here cannot block or fail
     // this now-accepted submission's ack. `game`/`before`/`after` are the
     // fixed values the `game_servers`-shaped audit schema takes for a
-    // workspace-wide `apply` action that isn't scoped to a single game. By
-    // this point the workspace reservation above has already succeeded, so
-    // this audit entry is only ever recorded for a submission that really
-    // did start a run — mirrors plan()'s own audit-entry call.
-    await this.audit?.record({
-      action: 'apply',
-      game: '',
-      before: null,
-      after: null,
-      ...(record.tfvarsVersionId !== undefined ? { versionId: record.tfvarsVersionId } : {}),
-    });
+    // workspace-wide `apply` action that isn't scoped to a single game. No
+    // `versionId` is attached — unlike before task 7.10, this controller no
+    // longer looks up the plan record itself (that's the gate's job now), so
+    // it has nothing extra worth a second redundant `getByRunId` call purely
+    // for audit metadata.
+    await this.audit?.record({ action: 'apply', game: '', before: null, after: null });
 
-    // Fire-and-forget the streaming loop, mirroring plan()'s shape.
+    // Fire-and-forget the streaming loop, mirroring plan()'s shape — starts
+    // from the already-resolved `first` step instead of an unawaited one,
+    // since this method awaited the gate above before acking.
     void (async () => {
       try {
-        let next = await firstStep;
+        let next = first;
         while (!next.done) {
           if (sender.isDestroyed()) {
             ac.abort();
@@ -1018,18 +805,11 @@ export class TerraformController implements OnModuleInit {
       } catch (err) {
         logger.error('terraform apply error', { err });
         if (!sender.isDestroyed()) {
-          const exitCode = err instanceof TerraformApplyError ? err.exitCode : null;
-          const message: TerraformApplyEndMessage = { runId, exitCode, error: String(err) };
+          const message: TerraformApplyEndMessage = { runId, exitCode: null, error: String(err) };
           sender.send(APPLY_END_CHANNEL, message);
         }
       } finally {
         cleanup();
-        // Redundant with (but a safety net alongside) the release
-        // TerraformService.apply's own persistRunRecord already performs
-        // internally on every path that reaches it — releaseRun is
-        // idempotent, so this unconditionally guarantees the lock is
-        // released on every exit path this method can take.
-        await this.runService?.releaseRun(runId);
       }
     })();
 
@@ -1038,7 +818,7 @@ export class TerraformController implements OnModuleInit {
 
   /**
    * Mints a fresh, short-lived destroy-confirmation token by delegating to
-   * `TerraformService.mintDestroyConfirmationToken()` — the operator's
+   * `PulumiService.mintDestroyConfirmationToken()` — the operator's
    * type-to-confirm dialog calls this the moment the confirmation phrase is
    * accepted, then submits the returned token straight through to
    * {@link destroy}'s payload before it expires. Minting a new token
@@ -1054,72 +834,51 @@ export class TerraformController implements OnModuleInit {
    */
   @MessagePattern('terraform.destroy.mintToken')
   mintDestroyToken(): TerraformDestroyMintAck {
-    return { token: this.terraform.mintDestroyConfirmationToken() };
+    return { token: this.pulumi.mintDestroyConfirmationToken() };
   }
 
   /**
-   * Kicks off `terraform destroy -auto-approve` and streams its output back
-   * to the renderer — mirrors {@link apply}'s streaming/lock/audit shape
-   * almost exactly, but gated behind `payload.confirmationToken` (minted via
-   * {@link mintDestroyToken}) instead of a plan/approval lineage, since a
-   * destroy has no preceding plan to inherit a `runId`, `tfvarsVersionId`, or
-   * artifact path from.
+   * Destroys the deployed stack and streams its output back to the renderer
+   * — mirrors {@link apply}'s streaming/gate-awaiting shape, gated behind
+   * `payload.confirmationToken` (minted via {@link mintDestroyToken}) instead
+   * of a plan/approval lineage, since a destroy has no preceding plan to
+   * inherit a `runId` from.
    *
-   * Validates `payload.confirmationToken` is present, then requires
-   * `runService` to be configured (mirrors {@link apply}'s dependency guard;
-   * `runRecord`/`config` aren't needed here since destroy has no plan-record
-   * lookup or `.tfplan` artifact to verify).
+   * Like {@link apply}, `PulumiService.destroy`'s gate (task 7.3) is entirely
+   * self-contained: the `operationInFlight` busy check, config-presence
+   * checks, the single-use confirmation-token consumption (synchronous, so a
+   * same-token race is decided cleanly without ever touching
+   * `RunLockService` — see that method's own TSDoc, "Gate structure"), and
+   * the durable apply-lock reservation all happen before the generator's
+   * first `yield`. This method awaits that first `.next()` call before
+   * acking, exactly like {@link apply} — a gate failure (most notably
+   * `DestroyNotConfirmedError` for a missing/stale/already-consumed token,
+   * or `RunLockHeldError` for a lost lock race, mapped to `conflict: 'destroy'`)
+   * resolves `{ started: false, error }` without ever touching
+   * {@link activeDestroys} or recording an audit entry, and — critically —
+   * without burning a token that a genuinely concurrent, unrelated rejection
+   * (e.g. `RunLockHeldError`) shouldn't have consumed; `PulumiService.destroy`'s
+   * own gate ordering (token consumed only once the cheap, synchronous
+   * config-presence checks have already passed) protects that, not this
+   * controller.
    *
-   * Checks `TerraformService.getWorkspaceInFlight()` first: if `init`,
-   * `plan`, `apply`, or `destroy` is already running against the shared
-   * workspace, no run is attempted — resolves immediately with
-   * `{ started: false, error, conflict: <in-flight op> }`. No chunk/end
-   * messages are sent, no audit entry is recorded, and — critically — the
-   * confirmation token minted for this attempt is **not** consumed (the
-   * token gate inside `TerraformService.destroy` only ever runs once the
-   * generator actually starts), so a busy rejection never burns an otherwise
-   * valid token.
+   * Validates only `payload.confirmationToken` is present — everything else
+   * is the gate's job, mirroring {@link apply}'s pared-down validation. Once
+   * the gate has passed, `runId` is minted fresh (`randomUUID()`, matching
+   * `PulumiService.destroy`'s `preMintedRunId` parameter — a destroy has no
+   * inherited id to reuse), {@link activeDestroys} is populated, a
+   * `'destroyed'` listener is armed, a best-effort audit entry
+   * (`action: 'destroy'`) is recorded, and the streaming loop is driven to
+   * completion from the already-resolved first step — mirrors {@link apply}'s
+   * loop shape exactly. Each chunk is forwarded via `sender.send` on
+   * {@link DESTROY_CHUNK_CHANNEL} as `{ runId, chunk }`; once the run settles
+   * a single terminal message is sent on {@link DESTROY_END_CHANNEL}, mirroring
+   * {@link TerraformApplyEndMessage}'s `exitCode` convention.
    *
-   * Otherwise a `runId` is pre-minted (`randomUUID()`) and the apply lock is
-   * acquired via `RunService.createRun('destroy', initiator, runId)` —
-   * mirrors {@link apply}'s `RunLockHeldError` handling (`conflict: 'destroy'`)
-   * and its post-lock `getWorkspaceInFlight()` TOCTOU re-check (releasing the
-   * just-acquired lock and refusing if a concurrent `init`/`plan`/`apply`
-   * call won the shared workspace during that gap).
-   *
-   * Once past both checks, the generator's first step is driven
-   * *synchronously* — the same synchronous-first-`.next()` workspace
-   * reservation {@link apply}/{@link plan} use, for the identical TOCTOU
-   * reason: `TerraformService`'s `workspaceInFlight` check-and-set runs
-   * synchronously, before its own first `await`. This is also the exact
-   * point `TerraformService.destroy`'s own `assertFreshDestroyConfirmation`
-   * check runs (synchronously, before any `await` inside it), so an
-   * unconfirmed/stale/already-consumed token surfaces as a normal
-   * `{ runId, exitCode: null, error }` message on {@link DESTROY_END_CHANNEL}
-   * once the streaming loop's `await firstStep` rejects with
-   * {@link DestroyNotConfirmedError} — mirrors how a `StalePlanError`
-   * surfaces from {@link apply}.
-   *
-   * Only once the reservation has happened is a best-effort audit entry
-   * (`action: 'destroy'`) recorded via `AuditService.record()` — mirrors
-   * {@link apply}'s own audit-entry call — and the streaming loop fired and
-   * forgotten immediately afterward; the method resolves
-   * `{ started: true, runId }` well before the `terraform destroy` run
-   * itself settles. Each chunk `TerraformService.destroy` yields is
-   * forwarded, in order, via `sender.send` on {@link DESTROY_CHUNK_CHANNEL}
-   * as `{ runId, chunk }`; once the run settles a single terminal message is
-   * sent on {@link DESTROY_END_CHANNEL}: `{ runId, exitCode: 0, result }` on
-   * success, or `{ runId, exitCode, error }` on failure (`exitCode` from
-   * {@link TerraformDestroyError} when the spawned process exited non-zero,
-   * `null` for any other failure).
-   *
-   * Regardless of how the streaming loop ends, its `finally` block
-   * unconditionally calls `RunService.releaseRun(runId)` once more —
-   * deliberately redundant with the release `TerraformService.destroy`'s own
-   * `persistRunRecord` already performs internally on every path that
-   * reaches it (idempotent), guaranteeing the lock is released on every exit
-   * path this method can take, not just the ones `TerraformService.destroy`
-   * itself accounts for — mirrors {@link apply}.
+   * Unlike the pre-migration version of this method, there is no
+   * `RunService.createRun`/`releaseRun` call anywhere in this controller any
+   * more — `PulumiService.destroy`'s own gate and persistence path own that
+   * entirely, mirroring {@link apply}.
    *
    * Creates its own `AbortController` per invocation and registers it in
    * {@link activeDestroys} keyed by `runId`, the same reasoning as
@@ -1138,64 +897,23 @@ export class TerraformController implements OnModuleInit {
       return { started: false, error: validationError };
     }
 
-    if (!this.runService) {
-      const error = 'terraform.destroy requires a configured RunService';
-      logger.error('terraform destroy rejected: no RunService available', {});
-      return { started: false, error };
-    }
-
-    const inFlight = this.terraform.getWorkspaceInFlight();
-    if (inFlight) {
-      const error =
-        `terraform destroy refused: ${inFlight} is already in flight; wait for it to finish ` +
-        'before submitting another destroy';
-      logger.error('terraform destroy rejected: workspace busy', { inFlight });
-      return { started: false, error, conflict: inFlight };
-    }
-
     const runId = randomUUID();
-    const initiator = TerraformController.resolveApprover();
+    const sender: WebContents = ctx.evt.sender;
+    const ac = new AbortController();
+    const stream = this.pulumi.destroy(payload.confirmationToken, ac.signal, runId);
+
+    let first: Awaited<ReturnType<typeof stream.next>>;
     try {
-      await this.runService.createRun('destroy', initiator, runId);
+      first = await stream.next();
     } catch (err) {
       if (err instanceof RunLockHeldError) {
         logger.error('terraform destroy rejected: apply lock already held', { runId, lock: err.lock });
         return { started: false, error: err.message, conflict: 'destroy' };
       }
       const error = err instanceof Error ? err.message : String(err);
-      logger.error('terraform destroy rejected: failed to acquire apply lock', { runId, error });
+      logger.error('terraform destroy rejected', { runId, error });
       return { started: false, error };
     }
-
-    // `createRun` above is the first `await` since the `getWorkspaceInFlight()`
-    // check at the top of this method — mirrors apply()'s identical TOCTOU
-    // re-check and rationale.
-    const inFlightAfterLock = this.terraform.getWorkspaceInFlight();
-    if (inFlightAfterLock) {
-      await this.runService.releaseRun(runId);
-      const error =
-        `terraform destroy refused: ${inFlightAfterLock} is already in flight; wait for it to finish ` +
-        'before submitting another destroy';
-      logger.error('terraform destroy rejected: workspace busy after acquiring apply lock', {
-        inFlight: inFlightAfterLock,
-        runId,
-      });
-      return { started: false, error, conflict: inFlightAfterLock };
-    }
-
-    const sender: WebContents = ctx.evt.sender;
-    const ac = new AbortController();
-
-    // Reserve the shared workspace *synchronously* — mirrors apply()'s own
-    // synchronous-first-`.next()` reservation; see that call site's comment
-    // for why the ordering matters. This is also the exact point
-    // TerraformService.destroy's own assertFreshDestroyConfirmation check
-    // runs, so an unconfirmed/stale token surfaces as a normal end-message
-    // error once the streaming loop awaits `firstStep`, not a synchronous ack
-    // rejection.
-    const stream = this.terraform.destroy(payload.confirmationToken, ac.signal, runId);
-    const firstStep = stream.next();
-    firstStep.catch(() => { /* handled in the streaming loop below */ });
 
     this.activeDestroys.set(runId, ac);
 
@@ -1213,7 +931,7 @@ export class TerraformController implements OnModuleInit {
     // Fire-and-forget the streaming loop, mirroring apply()'s shape.
     void (async () => {
       try {
-        let next = await firstStep;
+        let next = first;
         while (!next.done) {
           if (sender.isDestroyed()) {
             ac.abort();
@@ -1231,18 +949,11 @@ export class TerraformController implements OnModuleInit {
       } catch (err) {
         logger.error('terraform destroy error', { err });
         if (!sender.isDestroyed()) {
-          const exitCode = err instanceof TerraformDestroyError ? err.exitCode : null;
-          const message: TerraformDestroyEndMessage = { runId, exitCode, error: String(err) };
+          const message: TerraformDestroyEndMessage = { runId, exitCode: null, error: String(err) };
           sender.send(DESTROY_END_CHANNEL, message);
         }
       } finally {
         cleanup();
-        // Redundant with (but a safety net alongside) the release
-        // TerraformService.destroy's own persistRunRecord already performs
-        // internally on every path that reaches it — releaseRun is
-        // idempotent, so this unconditionally guarantees the lock is
-        // released on every exit path this method can take.
-        await this.runService?.releaseRun(runId);
       }
     })();
 
@@ -1250,32 +961,74 @@ export class TerraformController implements OnModuleInit {
   }
 
   /**
-   * Returns the current Terraform outputs by delegating to
-   * `TerraformService.output`. Unlike {@link init}, this channel needs no
-   * manual bridging — it resolves a single value rather than streaming
-   * progress, so the generic `ipcMain.handle` bridge in
+   * Returns the current stack outputs. Unlike {@link plan}, this channel
+   * needs no manual bridging — it resolves a single value rather than
+   * streaming progress, so the generic `ipcMain.handle` bridge in
    * `../ipc-main-bridge.ts` wires `ipcRenderer.invoke('terraform.output', ...)`
-   * to this handler automatically (it isn't listed in
-   * `SELF_BRIDGED_PATTERNS`).
+   * to this handler automatically.
    *
-   * `payload.force` defaults to `false` when the payload is omitted or
-   * `force` isn't set, matching `TerraformService.output`'s own default —
-   * pass `force: true` to bypass its in-memory cache and re-spawn
-   * `terraform output -json` regardless of how recently the last call
-   * resolved. Any error `TerraformService.output` throws (e.g.
-   * `TerraformNotFoundError`, a non-zero `terraform output` exit) propagates
-   * to the caller unchanged, causing `ipcRenderer.invoke` to reject.
+   * ## Return shape change (task 7.10 decision)
+   *
+   * Before task 7.10, this delegated to `TerraformService.output()`, which
+   * ran `terraform output -json` and projected the result through
+   * `projectTfOutputs` into the local, Terraform-tfstate-shaped `TfOutputs`
+   * type. That entire code path depended on a local `terraform.tfstate` file
+   * existing — there is no Pulumi analogue (a Pulumi-orchestrated stack's
+   * state lives in the DIY S3 backend, never as a local file this app reads
+   * directly), so preserving `TfOutputs`'s exact shape here is not possible
+   * without inventing a synthetic mapping with no real backing data. This
+   * method now returns `StackOutputs` (`@hyveon/shared`) instead — the type
+   * `ConfigService.getStackOutputs()`/`PulumiService.getStackOutputs()`
+   * already established as the canonical "what a deployed stack looks like"
+   * shape and every OTHER controller in this codebase already returns to the
+   * renderer (`GamesController`, `DiscordController`, `CostsController`,
+   * `EnvController`, etc. — task 6.x's migration). Verified this is safe:
+   * nothing in `@hyveon/web`'s production code reads `terraform.output`'s
+   * result today (only a screenshot-demo fixture resolves it to `null`), and
+   * the preload/renderer contract is otherwise untouched (Phase 8's job) —
+   * see the `migrate-iac-to-pulumi` change's task 7.10 report for the full
+   * investigation.
+   *
+   * ## `force` (task 7.10 decision: kept in the payload, ignored)
+   *
+   * `payload.force` used to bypass `TerraformService.output()`'s own 60s
+   * in-memory cache and force a fresh `terraform output -json` spawn — most
+   * usefully right after an `apply`/`destroy` completed, where the caller
+   * knows the outputs may have changed. That specific need is now handled
+   * automatically: `PulumiService.apply`/`.destroy` both call
+   * `ConfigService.invalidateCache()` on a successful settlement (task 7.4's
+   * carried-forward cache-invalidation requirement — see those methods' own
+   * TSDoc, "Cache invalidation"), so the next `getStackOutputs()` call after
+   * a real change already misses its cache with no caller-supplied bypass
+   * needed. `force` is kept in {@link TerraformOutputPayload} rather than
+   * removed — a payload-shape change is Phase 8's job, not this dispatch's
+   * (per the `migrate-iac-to-pulumi` change's own scoping), and keeping an
+   * already-optional field that's now a no-op is strictly safer than
+   * dropping it out from under a caller that still sends it — but is
+   * otherwise unused here.
+   *
+   * Prefers `ConfigService.getStackOutputs()` (`this.config`, already wired
+   * into this controller for other reasons) over calling
+   * `PulumiService.getStackOutputs()` directly, since `ConfigService`'s own
+   * delegate adds its own request-coalescing cache on top (see that method's
+   * TSDoc) — falls back to `PulumiService.getStackOutputs()` directly only
+   * in the test-construction path where `config` isn't supplied (see the
+   * constructor's own doc comment).
    *
    * Reachable via the Electron IPC transport (`terraform.output`).
    */
   @MessagePattern('terraform.output')
-  async output(@Payload() payload: TerraformOutputPayload = {}): Promise<TfOutputs | null> {
-    return this.terraform.output(payload?.force ?? false);
+  async output(@Payload() payload: TerraformOutputPayload = {}): Promise<StackOutputs | null> {
+    void payload;
+    return this.config ? this.config.getStackOutputs() : this.pulumi.getStackOutputs();
   }
 
   /**
    * Approves a successful `plan` run for a later apply, delegating the
-   * actual write to `RunRecordService.approveRun` (see issue #109).
+   * actual write to `RunRecordService.approveRun` (see issue #109). Entirely
+   * unaffected by task 7.10's repoint — this method never called
+   * `TerraformService` before and doesn't call `PulumiService` now; it only
+   * ever touched `RunRecordService`/`AuditService`.
    *
    * Validates `payload` first: `planRunId` must be a non-empty string. If
    * validation fails, neither `RunRecordService.approveRun` nor
@@ -1285,8 +1038,8 @@ export class TerraformController implements OnModuleInit {
    * The approver identity is never taken from the client — it's resolved
    * server-side via {@link resolveApprover} (the local OS username), so an
    * IPC caller can't spoof who approved a run. `RunRecordService.approveRun`
-   * is then awaited directly (unlike {@link init}/{@link plan}, there is no
-   * streaming output to bridge — this resolves a single value):
+   * is then awaited directly (unlike {@link plan}, there is no streaming
+   * output to bridge — this resolves a single value):
    *
    * - On success, a best-effort `AuditService.record()` entry (action
    *   `'approve'`) is recorded — mirroring {@link plan}'s audit shape, this
@@ -1295,18 +1048,12 @@ export class TerraformController implements OnModuleInit {
    *   `RunRecordService.approveRun` stamped onto the persisted `RunRecord`.
    * - On failure (the run-history table isn't configured, no record exists
    *   for `planRunId`, the record isn't a `plan` run, or the record's status
-   *   isn't `success`), the thrown error's `message` — one of
-   *   `RunRecordTableNotConfiguredError` / `RunRecordNotFoundError` /
-   *   `RunRecordNotPlanError` / `RunRecordNotSuccessfulError`, each already
-   *   descriptive — is surfaced as `{ approved: false, error }`. Nothing is
-   *   written in this case: `RunRecordService.approveRun` only calls
-   *   `store.putRecord` after all of its validation has passed, and no audit
-   *   entry is recorded for a rejected approval.
+   *   isn't `success`), the thrown error's `message` is surfaced as
+   *   `{ approved: false, error }`. Nothing is written in this case.
    *
    * Reachable via the Electron IPC transport (`terraform.approve`), bridged
    * automatically by the generic `ipcMain.handle` bridge in
-   * `../ipc-main-bridge.ts` since (unlike `terraform.init`/`terraform.plan`)
-   * it resolves a single value rather than streaming progress.
+   * `../ipc-main-bridge.ts`.
    */
   @MessagePattern('terraform.approve')
   async approve(@Payload() payload: TerraformApprovePayload): Promise<TerraformApproveAck> {
@@ -1345,9 +1092,11 @@ export class TerraformController implements OnModuleInit {
   }
 
   /**
-   * Previews the rollback flow's (#112) target tfvars version for
+   * Previews the rollback flow's (#112) target configuration version for
    * `payload.applyRunId`, without writing anything — delegates to
-   * `TerraformService.resolveRollbackTarget`. Called when the operator clicks
+   * `PulumiService.resolveRollbackTarget`, an identical signature and return
+   * shape to the pre-migration `TerraformService.resolveRollbackTarget` this
+   * replaces (trivial swap, task 7.10). Called when the operator clicks
    * "Rollback" on an apply row in history, so the confirmation dialog can
    * name the version it would restore before the operator commits to it.
    *
@@ -1364,7 +1113,7 @@ export class TerraformController implements OnModuleInit {
     }
 
     try {
-      const target = await this.terraform.resolveRollbackTarget(payload.applyRunId);
+      const target = await this.pulumi.resolveRollbackTarget(payload.applyRunId);
       return { resolved: true, versionId: target.versionId, lastModified: target.lastModified.toISOString() };
     } catch (err) {
       logger.error('terraform rollback resolve error', { err, applyRunId: payload.applyRunId });
@@ -1374,30 +1123,125 @@ export class TerraformController implements OnModuleInit {
   }
 
   /**
-   * Confirms the rollback flow (#112) for `payload.applyRunId`: restores the
-   * previewed historic tfvars version as a new head version — delegates to
-   * `TerraformService.confirmRollback`, which re-resolves the target so an
-   * expiry between preview and confirm is still caught before anything is
-   * written. The renderer follows a successful ack with an ordinary
-   * `terraform.plan` call passing the returned `versionId` as
-   * `tfvarsVersionId` and `payload.applyRunId` as `rolledBackFrom`, so the
-   * rollback plan streams and gates through the exact same channel every
-   * other plan does.
+   * Confirms the rollback flow (#112) for `payload.applyRunId` — the one
+   * genuinely shape-breaking repoint in task 7.10.
+   *
+   * ## Streaming vs. the renderer's existing one-shot contract
+   *
+   * Pre-migration, `TerraformService.confirmRollback` was a plain
+   * `Promise`-returning method that only did the historic-configuration
+   * restore write and returned `{ versionId }`; the renderer's own
+   * `RollbackAction` component then made a SEPARATE, ordinary `terraform.plan`
+   * call passing that `versionId` (see `@hyveon/web`'s `terraform.page.tsx`,
+   * `RollbackNavState`) to actually queue a plan against the restored
+   * version. `PulumiService.confirmRollback` (task 7.6) closes exactly the
+   * gap that two-call split left open (see that method's own TSDoc, "The old
+   * `TerraformService` gap this closes") by fusing the restore AND the
+   * follow-up plan into one guarded unit, held under the SAME
+   * `operationInFlight` lock for its entire duration — so it's now an
+   * `AsyncGenerator` that streams a real plan run internally, exactly like
+   * {@link plan} does, not a one-shot `Promise`.
+   *
+   * This method reconciles that with the renderer's still-unchanged (Phase
+   * 8/9's job, not this dispatch's) expectation that `terraform.rollback.confirm`
+   * resolves a single `TerraformRollbackConfirmAck` and that a SEPARATE
+   * `terraform.plan` call is still what actually queues the plan the
+   * operator watches: it drives `PulumiService.confirmRollback`'s generator
+   * to completion INTERNALLY (via a manual `.next()` loop, mirroring
+   * {@link plan}'s manual-drive shape so `PulumiPreviewResult` — the
+   * generator's return value — is reachable), forwarding every intermediate
+   * chunk on the new {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL} purely as a
+   * forward-compatible bonus (no current subscriber), and only resolves this
+   * method's own `Promise` once the WHOLE restore+plan unit has settled.
+   *
+   * **Known, accepted consequence, not silently swallowed**: because the
+   * renderer's `RollbackAction`/`TerraformPage` still submit a follow-up
+   * `terraform.plan` call after a successful `confirmRollback` ack (exactly
+   * as they did before), and `PulumiService.confirmRollback` now ALSO runs a
+   * real plan internally as part of the restore, a successful rollback
+   * produces TWO `PulumiRunRecord`s tagged `rolledBackFrom: applyRunId` — the
+   * one this method's internal generator just completed (whose `runId`
+   * isn't surfaced to the renderer at all today) and the one the renderer's
+   * own subsequent `terraform.plan` call starts (which IS what the operator
+   * actually sees and can approve/apply). This is wasteful (a redundant
+   * `pulumi preview` invocation and an orphaned, browsable-but-unreferenced
+   * run-history entry) but not incorrect from the renderer's point of view —
+   * every existing rollback flow still completes successfully end-to-end.
+   * Closing this duplication requires updating the renderer to consume
+   * `confirmRollback`'s already-completed plan directly instead of
+   * re-submitting one — explicitly Phase 8/9's job (this dispatch's
+   * constraints forbid touching the renderer), not solved here.
+   *
+   * The restored configuration version id the renderer needs
+   * (`TerraformRollbackConfirmAck.versionId`) is NOT a field of
+   * `PulumiPreviewResult` (which describes the plan artifact, not the
+   * configuration version it ran against) — it's recovered via
+   * `PulumiService.readRunRecord(result.runId)` (task 7.10's own new
+   * accessor) once the generator settles, reading back the
+   * `PulumiRunRecord.tfvarsVersionId` that `PulumiService`'s internal
+   * `previewCore` call persisted for this exact run (guaranteed present:
+   * `previewCore` always records the configuration version id it actually
+   * observed for a successful plan before returning).
    *
    * Reachable via the Electron IPC transport (`terraform.rollback.confirm`),
    * bridged automatically by the generic `ipcMain.handle` bridge since it
-   * resolves a single value rather than streaming progress.
+   * still resolves a single value.
    */
   @MessagePattern('terraform.rollback.confirm')
-  async confirmRollback(@Payload() payload: TerraformRollbackPayload): Promise<TerraformRollbackConfirmAck> {
+  async confirmRollback(
+    @Payload() payload: TerraformRollbackPayload,
+    ctx: { evt: IpcMainInvokeEvent },
+  ): Promise<TerraformRollbackConfirmAck> {
     const validationError = TerraformController.validateRollbackPayload(payload);
     if (validationError) {
       logger.error('terraform rollback confirm rejected: invalid payload', { error: validationError });
       return { confirmed: false, error: validationError };
     }
 
+    const sender: WebContents = ctx.evt.sender;
+    const ac = new AbortController();
+    const onDestroyed = () => ac.abort();
+    sender.once('destroyed', onDestroyed);
+
     try {
-      const result = await this.terraform.confirmRollback(payload.applyRunId);
+      const stream = this.pulumi.confirmRollback(payload.applyRunId, ac.signal);
+      let next = await stream.next();
+      while (!next.done) {
+        if (!sender.isDestroyed()) {
+          const chunkMessage: TerraformRollbackConfirmChunkMessage = {
+            applyRunId: payload.applyRunId,
+            chunk: next.value,
+          };
+          sender.send(ROLLBACK_CONFIRM_CHUNK_CHANNEL, chunkMessage);
+        }
+        next = await stream.next();
+      }
+
+      const result = next.value;
+      if (!result) {
+        // The generator settled without a result and without throwing —
+        // only reachable if `signal` aborted mid-run. The only abort source
+        // wired here is the WebContents-destroyed listener above, at which
+        // point nothing is listening for this ack anyway — return a
+        // well-formed "not confirmed" ack defensively rather than treating
+        // an `undefined` result as success.
+        return { confirmed: false, error: 'Rollback confirmation was aborted before it could complete.' };
+      }
+
+      const record = this.pulumi.readRunRecord(result.runId);
+      const versionId = record?.tfvarsVersionId;
+      if (!versionId) {
+        // Should not happen — previewCore always writes tfvarsVersionId for
+        // a successful plan run before returning (see this method's own
+        // TSDoc). Defensive fallback so a genuinely unexpected gap surfaces
+        // as a clear ack error rather than a "confirmed" ack the renderer
+        // can't actually act on (it has nowhere to plan against next).
+        logger.error('terraform rollback confirm: missing persisted tfvarsVersionId after a successful rollback plan', {
+          applyRunId: payload.applyRunId,
+          runId: result.runId,
+        });
+        return { confirmed: false, error: 'Rollback plan completed but its restored version id could not be recovered.' };
+      }
 
       // Best-effort: AuditService.record() never throws (failures are
       // logged and swallowed internally), mirroring the audit entry
@@ -1410,14 +1254,16 @@ export class TerraformController implements OnModuleInit {
         game: '',
         before: null,
         after: null,
-        versionId: result.versionId,
+        versionId,
       });
 
-      return { confirmed: true, versionId: result.versionId };
+      return { confirmed: true, versionId };
     } catch (err) {
       logger.error('terraform rollback confirm error', { err, applyRunId: payload.applyRunId });
       const error = err instanceof Error ? err.message : String(err);
       return { confirmed: false, error };
+    } finally {
+      sender.removeListener('destroyed', onDestroyed);
     }
   }
 

@@ -5,10 +5,10 @@ import { Module } from '@nestjs/common';
 import { AwsModule } from './modules/aws.module.js';
 import { DiscordModule } from './modules/discord.module.js';
 import { TfvarsModule } from './modules/tfvars.module.js';
-import { TerraformModule } from './modules/terraform.module.js';
 import { RunRecordModule } from './modules/run-record.module.js';
 import { PulumiEngineModule } from './modules/pulumi-engine.module.js';
 import { PulumiWorkspaceModule } from './modules/pulumi-workspace.module.js';
+import { PulumiServiceModule } from './modules/pulumi-service.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { GamesController } from './controllers/games.controller.js';
@@ -31,45 +31,47 @@ import { AuditService } from './services/AuditService.js';
 
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
- * `TfvarsModule`, `TerraformModule`, `PulumiEngineModule`,
- * `PulumiWorkspaceModule`, `WizardModule`, `ElectronStoreModule`) to the IPC
- * controllers.
+ * `TfvarsModule`, `RunRecordModule`, `PulumiEngineModule`,
+ * `PulumiWorkspaceModule`, `PulumiServiceModule`, `WizardModule`,
+ * `ElectronStoreModule`) to the IPC controllers.
  *
- * `PulumiEngineModule`/`PulumiWorkspaceModule` have no controller yet — the
- * IPC bridge that surfaces them to the renderer (Settings' resolved-version
- * display, the wizard's engine-provisioning step) is Phase 8-10's job.
- * They're imported here regardless, mirroring `TerraformModule`: both
- * services' construction is synchronous and never throws, so wiring them
- * into the container ahead of their controller costs nothing and exercises
- * the "Container builds without an engine" scenario for real, not just in
- * their own unit tests.
+ * Task 7.10 (`migrate-iac-to-pulumi`) deleted `TerraformModule`/
+ * `TerraformService.ts` and repointed `TerraformController`/
+ * `TerraformRunsController` onto `PulumiService` — `PulumiServiceModule`
+ * replaces `TerraformModule` in this list as the module those two
+ * controllers now depend on directly for their orchestration calls.
+ *
+ * `PulumiEngineModule`/`PulumiWorkspaceModule` have no controller of their
+ * own yet — the IPC bridge that surfaces them to the renderer (Settings'
+ * resolved-version display, the wizard's engine-provisioning step) is Phase
+ * 8-10's job. They're imported here regardless: both services' construction
+ * is synchronous and never throws, so wiring them into the container ahead
+ * of their controller costs nothing and exercises the "Container builds
+ * without an engine" scenario for real, not just in their own unit tests.
  *
  * `RunRecordModule` is imported directly (not left to arrive transitively
- * via `TerraformModule`, which also imports it) specifically because
- * `PulumiService.preview` (task 7.1) resolves `RUN_RECORD_PERSISTER` from it
- * lazily at runtime via `ModuleRef.get(token, { strict: false })` — a lookup
- * that only succeeds if the token is provided *somewhere* reachable from
- * this root module, with no static `imports:` edge of its own to prove it
- * (see `run-record.module.ts`'s doc comment for why that's a deliberate
- * design, not an oversight). `TerraformModule` (and `TerraformService.ts`
- * itself) is scheduled for deletion in a later dispatch of this same
- * change (task 7.10); without this direct import, that deletion would
- * silently drop `RunRecordModule` out of the graph too, and
- * `PulumiService.preview`'s `ModuleRef` lookup would start throwing
- * `UnknownElementException` at the moment an operator clicks "Preview" —
- * not at boot, and not caught by any test that doesn't actually exercise
- * `preview()` through the real DI container. This import makes
- * `RunRecordModule`'s presence independent of `TerraformModule`'s survival.
+ * via some other module that also imports it) specifically because
+ * `PulumiService.preview`/`.apply`/`.destroy` resolve `RUN_RECORD_PERSISTER`/
+ * `RUN_LOCK_SERVICE` from it lazily at runtime via
+ * `ModuleRef.get(token, { strict: false })` — a lookup that only succeeds if
+ * the token is provided *somewhere* reachable from this root module, with no
+ * static `imports:` edge of its own to prove it (see `run-record.module.ts`'s
+ * doc comment for why that's a deliberate design, not an oversight). This
+ * import makes `RunRecordModule`'s presence independent of any other
+ * module's own `imports:` list — the exact property that mattered when
+ * `TerraformModule` (which also imported `RunRecordModule`) was deleted by
+ * task 7.10: this direct import meant that deletion didn't silently drop
+ * `RunRecordModule` out of the graph too.
  */
 @Module({
   imports: [
     AwsModule,
     DiscordModule,
     TfvarsModule,
-    TerraformModule,
     RunRecordModule,
     PulumiEngineModule,
     PulumiWorkspaceModule,
+    PulumiServiceModule,
     WizardModule,
     ElectronStoreModule,
   ],

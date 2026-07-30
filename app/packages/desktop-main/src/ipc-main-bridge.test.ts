@@ -134,18 +134,34 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('logs.get', expect.any(Function));
   });
 
-  it('should skip "terraform.init" entirely, leaving it to bridge itself', async () => {
-    expect(SELF_BRIDGED_PATTERNS.has('terraform.init')).toBe(true);
+  it('should skip "terraform.plan" entirely, leaving it to bridge itself', async () => {
+    expect(SELF_BRIDGED_PATTERNS.has('terraform.plan')).toBe(true);
 
-    const { transport } = makeTransport(['terraform.init', 'games.list']);
+    const { transport } = makeTransport(['terraform.plan', 'games.list']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.init');
-    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.init', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.plan');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.plan', expect.any(Function));
     // The sibling pattern on the same map is still bridged normally.
     expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
+  it('should bridge "terraform.init" generically, since it no longer streams under the Pulumi engine', async () => {
+    // Task 7.10 (migrate-iac-to-pulumi): TerraformController.init became an
+    // inert single-value rejection once TerraformService (and the real
+    // `terraform init` it used to stream) was deleted — it no longer
+    // self-bridges, so it must NOT be in SELF_BRIDGED_PATTERNS and must be
+    // wired by the generic bridge like any other channel.
+    expect(SELF_BRIDGED_PATTERNS.has('terraform.init')).toBe(false);
+
+    const { transport } = makeTransport(['terraform.init']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.init');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.init', expect.any(Function));
   });
 
   it('should be a no-op when the transport has no registered handlers', async () => {

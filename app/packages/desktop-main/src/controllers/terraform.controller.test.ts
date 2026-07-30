@@ -1,23 +1,16 @@
 import 'reflect-metadata';
 import * as os from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TerraformController } from './terraform.controller.js';
-import {
-  TerraformInitError,
-  TerraformPlanError,
-  TerraformApplyError,
-  TerraformDestroyError,
-  DestroyNotConfirmedError,
-  RollbackVersionMissingError,
-  type TerraformInitConfig,
-  type TerraformRunChunk,
-  type TerraformPlanResult,
-  type TerraformApplyResult,
-  type TerraformDestroyResult,
-} from '../services/TerraformService.js';
-import type { TfOutputs, ConfigService } from '../services/ConfigService.js';
-import type { TerraformService } from '../services/TerraformService.js';
+import type {
+  PulumiService,
+  PulumiRunChunk,
+  PulumiPreviewResult,
+  PulumiUpResult,
+  PulumiDestroyResult,
+  PulumiRunRecord,
+} from '../services/PulumiService.js';
+import type { ConfigService } from '../services/ConfigService.js';
 import type { AuditService, RecordAuditEntryParams } from '../services/AuditService.js';
 import {
   RunRecordNotFoundError,
@@ -26,8 +19,7 @@ import {
   RunRecordTableNotConfiguredError,
   type RunRecordService,
 } from '../services/RunRecordService.js';
-import type { RunService } from '../services/RunService.js';
-import { RunLockHeldError, APPROVAL_WINDOW_MS, type RunRecord, type RunLock } from '@hyveon/shared';
+import { RunLockHeldError, type RunLock, type StackOutputs } from '@hyveon/shared';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
@@ -70,91 +62,86 @@ vi.mock('node:os', async () => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** A minimal backend config payload shared across test cases. */
-const CONFIG: TerraformInitConfig = {
+/** A minimal backend config payload shared across the `init` test cases. */
+const CONFIG = {
   bucket: 'hyveon-tf-state',
   region: 'us-east-1',
   dynamodbTable: 'hyveon-tf-locks',
 };
 
+/** A `PulumiPreviewResult` fixture, overridable per-test. Mirrors the old file's `TerraformPlanResult` builder. */
+function buildPreviewResult(overrides: Partial<PulumiPreviewResult> = {}): PulumiPreviewResult {
+  return {
+    runId: 'plan-run-1',
+    artifactPath: '/runs/plan-run-1/plan-run-1.tfplan',
+    changeSummary: { create: 1 },
+    planHash: 'plan-hash-abc',
+    engineVersion: '3.255.0',
+    ...overrides,
+  };
+}
+
+/** A `PulumiUpResult` fixture, overridable per-test. Mirrors the old file's `TerraformApplyResult` builder. */
+function buildUpResult(overrides: Partial<PulumiUpResult> = {}): PulumiUpResult {
+  return {
+    runId: 'plan-run-1',
+    changeSummary: { create: 1 },
+    ...overrides,
+  };
+}
+
+/** A `PulumiDestroyResult` fixture, overridable per-test. Mirrors the old file's `TerraformDestroyResult` builder. */
+function buildDestroyResult(overrides: Partial<PulumiDestroyResult> = {}): PulumiDestroyResult {
+  return {
+    runId: 'destroy-run-1',
+    changeSummary: { delete: 3 },
+    ...overrides,
+  };
+}
+
+/** A `PulumiRunRecord` fixture, overridable per-test — used by `confirmRollback`'s `readRunRecord` recovery step. */
+function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunRecord {
+  return {
+    runId: 'rollback-plan-run-1',
+    kind: 'plan',
+    startedAt: '2026-07-21T00:00:00.000Z',
+    completedAt: '2026-07-21T00:00:05.000Z',
+    exitCode: 0,
+    tfvarsVersionId: 'tfvars-v-new-head',
+    ...overrides,
+  };
+}
+
 /**
- * Build a TerraformService stub whose `init` yields nothing by default,
- * whose `output` resolves `null` by default, whose `plan`/`apply` yield
- * nothing and return `undefined` by default, whose `getWorkspaceInFlight`
- * reports `null` (no in-flight run) by default, and whose
- * `computePlanHash` resolves `'plan-hash-abc'` by default — matching the
- * fixed `planHash` {@link makeApprovedPlanRecord} and `APPLY_PAYLOAD` both
- * use, so an accepted `apply()` submission's on-disk artifact
- * re-verification passes unmodified unless a test explicitly overrides it
- * to simulate a forged/tampered `.tfplan` artifact.
+ * Build a `PulumiService` stub as a plain object of `vi.fn()`s (mirroring
+ * `terraform-runs.controller.test.ts`'s `makePulumi` and this file's own
+ * pre-migration `makeTerraform` pattern — never a real `PulumiService`
+ * instance, whose constructor deps are far heavier than a controller unit
+ * test needs).
+ *
+ * Defaults: `getOperationInFlight` reports `null` (workspace free);
+ * `preview`/`apply`/`destroy`/`confirmRollback` are empty async generators
+ * that yield nothing and return `undefined`; `mintDestroyConfirmationToken`
+ * returns a fixed token; `resolveRollbackTarget` resolves a fixed prior
+ * version; `readRunRecord` returns `null` (no persisted record) unless a
+ * test overrides it; `getStackOutputs` resolves `null`.
  */
-function makeTerraform(): TerraformService {
-  const stub: Partial<TerraformService> = {
-    init: vi.fn().mockImplementation(async function* () { /* empty */ }),
-    output: vi.fn().mockResolvedValue(null),
-    plan: vi.fn().mockImplementation(async function* () { /* empty */ }),
+function makePulumi(): PulumiService {
+  const stub = {
+    getOperationInFlight: vi.fn().mockReturnValue(null),
+    preview: vi.fn().mockImplementation(async function* () { /* empty */ }),
     apply: vi.fn().mockImplementation(async function* () { /* empty */ }),
     destroy: vi.fn().mockImplementation(async function* () { /* empty */ }),
-    getWorkspaceInFlight: vi.fn().mockReturnValue(null),
-    computePlanHash: vi.fn().mockReturnValue('plan-hash-abc'),
+    confirmRollback: vi.fn().mockImplementation(async function* () { /* empty */ }),
     mintDestroyConfirmationToken: vi.fn().mockReturnValue('token-abc'),
     resolveRollbackTarget: vi.fn().mockResolvedValue({
       versionId: 'tfvars-v-prior',
       lastModified: new Date('2026-07-20T00:00:00.000Z'),
     }),
-    confirmRollback: vi.fn().mockResolvedValue({ versionId: 'tfvars-v-new-head' }),
+    readRunRecord: vi.fn().mockReturnValue(null),
+    getStackOutputs: vi.fn().mockResolvedValue(null),
   };
-  return stub as TerraformService;
-}
-
-/**
- * Build a fake `TerraformService` that mimics the real
- * `workspaceInFlight`-locking behaviour `TerraformService.plan()` implements:
- * `plan()`'s synchronous prefix (before its first `await`) throws when a run
- * is already in flight, and otherwise reserves the lock synchronously before
- * yielding a single chunk (after one microtask tick, standing in for the real
- * `await this.getBinaryPath()` gap) and releasing the lock once the generator
- * settles. Used to exercise the TOCTOU fix in `TerraformController.plan()`:
- * only a real synchronous check-and-set can prove two concurrent invocations
- * can't both win the reservation.
- */
-function makeRacyTerraform(): TerraformService {
-  let workspaceInFlight: 'init' | 'plan' | 'apply' | 'destroy' | null = null;
-  const stub: Partial<TerraformService> = {
-    init: vi.fn().mockImplementation(async function* () { /* empty */ }),
-    output: vi.fn().mockResolvedValue(null),
-    getWorkspaceInFlight: vi.fn(() => workspaceInFlight),
-    plan: vi.fn().mockImplementation(async function* (
-      _tfvarsVersionId?: string,
-      _signal?: AbortSignal,
-      preMintedRunId?: string,
-    ): AsyncGenerator<TerraformRunChunk, TerraformPlanResult | undefined> {
-      if (workspaceInFlight) {
-        throw new Error(
-          `TerraformService.plan() cannot run while ${workspaceInFlight}() is already running; ` +
-            'wait for it to finish before calling plan() again.',
-        );
-      }
-      workspaceInFlight = 'plan';
-      try {
-        // Stand-in for the real await this.getBinaryPath() gap between the
-        // synchronous reservation above and the first yielded chunk.
-        await Promise.resolve();
-        yield { stream: 'stdout', line: 'Refreshing Terraform state...' };
-        return {
-          runId: preMintedRunId ?? 'unknown',
-          artifactPath: '/tmp/plan.tfplan',
-          varFilePath: '/tmp/terraform.tfvars',
-          add: 1,
-          change: 0,
-          destroy: 0,
-        };
-      } finally {
-        workspaceInFlight = null;
-      }
-    }),
-  };
-  return stub as TerraformService;
+  return stub as unknown as PulumiService;
 }
 
 /** Build an AuditService stub whose `record` resolves immediately by default and captures every call. */
@@ -167,91 +154,30 @@ function makeAudit(): { audit: AuditService; record: ReturnType<typeof vi.fn> } 
 /**
  * Build a `RunRecordService` stub whose `approveRun` resolves with the
  * approved record (`approvedBy`/`approvedAt` matching whatever it was called
- * with) by default, and whose `getByRunId` resolves `undefined` by default
- * (no matching plan run — the "no run found" rejection path in
- * `TerraformController.apply`). Tests can override either implementation to
- * simulate any of `RunRecordService`'s documented failure modes.
+ * with) by default. Tests override the implementation to simulate any of
+ * `RunRecordService.approveRun`'s documented failure modes.
  */
-function makeRunRecord(): {
-  runRecord: RunRecordService;
-  approveRun: ReturnType<typeof vi.fn>;
-  getByRunId: ReturnType<typeof vi.fn>;
-} {
-  const approveRun = vi.fn().mockImplementation(async (runId: string, approvedBy: string) => {
-    const record: RunRecord = {
-      sk: `2026-07-21T00:00:00.000Z#${runId}`,
-      runId,
-      kind: 'plan',
-      status: 'success',
-      startedAt: '2026-07-21T00:00:00.000Z',
-      completedAt: '2026-07-21T00:00:05.000Z',
-      exitCode: 0,
-      approvedBy,
-      approvedAt: '2026-07-21T00:05:00.000Z',
-    };
-    return record;
-  });
-  const getByRunId = vi.fn().mockResolvedValue(undefined);
-  const stub: Partial<RunRecordService> = { approveRun, getByRunId };
-  return { runRecord: stub as RunRecordService, approveRun, getByRunId };
-}
-
-/**
- * Builds an approved, successful `plan` {@link RunRecord} ready to be applied
- * — `planHash` fixed at `'plan-hash-abc'` (matching {@link APPLY_PAYLOAD}'s
- * own `planHash`) and `approvedAt` set to "now" (well within
- * {@link APPROVAL_WINDOW_MS}), so `TerraformController.apply` accepts it
- * unmodified. Tests override individual fields (e.g. `approvedBy: undefined`,
- * a stale `approvedAt`, or a mismatched `planHash`) to exercise `apply`'s
- * rejection paths.
- */
-function makeApprovedPlanRecord(overrides: Partial<RunRecord> = {}): RunRecord {
-  return {
-    sk: `2026-07-21T00:00:00.000Z#plan-run-1`,
-    runId: 'plan-run-1',
+function makeRunRecord(): { runRecord: RunRecordService; approveRun: ReturnType<typeof vi.fn> } {
+  const approveRun = vi.fn().mockImplementation(async (runId: string, approvedBy: string) => ({
+    sk: `2026-07-21T00:00:00.000Z#${runId}`,
+    runId,
     kind: 'plan',
     status: 'success',
     startedAt: '2026-07-21T00:00:00.000Z',
     completedAt: '2026-07-21T00:00:05.000Z',
     exitCode: 0,
-    planHash: 'plan-hash-abc',
-    tfvarsVersionId: 'tfvars-v1',
-    approvedBy: 'test-operator',
-    approvedAt: new Date().toISOString(),
-    ...overrides,
-  };
+    approvedBy,
+    approvedAt: '2026-07-21T00:05:00.000Z',
+  }));
+  const stub: Partial<RunRecordService> = { approveRun };
+  return { runRecord: stub as RunRecordService, approveRun };
 }
 
-/** The `terraform.apply` payload matching {@link makeApprovedPlanRecord}'s default fixture. */
-const APPLY_PAYLOAD = { planRunId: 'plan-run-1', planHash: 'plan-hash-abc' };
-
-/**
- * Build a `RunService` stub whose `createRun` resolves a freshly "acquired"
- * {@link RunLock} by default (mirroring the real service's fallback to a
- * freshly minted id when no `runId` is supplied) and whose `releaseRun`
- * resolves immediately. Tests override `createRun`'s implementation (e.g. to
- * reject with {@link RunLockHeldError}) to simulate the durable apply lock
- * already being held by another run.
- */
-function makeRunService(): { runService: RunService; createRun: ReturnType<typeof vi.fn>; releaseRun: ReturnType<typeof vi.fn> } {
-  const createRun = vi.fn().mockImplementation(
-    async (kind: 'plan' | 'apply' | 'destroy', initiator: string, runId?: string): Promise<RunLock> => ({
-      runId: runId ?? 'minted-run-id',
-      kind,
-      initiator,
-      acquiredAt: '2026-07-21T00:00:00.000Z',
-      expiresAt: '2026-07-21T01:00:00.000Z',
-    }),
-  );
-  const releaseRun = vi.fn().mockResolvedValue(undefined);
-  const stub: Partial<RunService> = { createRun, releaseRun };
-  return { runService: stub as RunService, createRun, releaseRun };
-}
-
-/** Build a `ConfigService` stub whose `getRunsDir` resolves a fixed directory by default. */
-function makeConfig(runsDir = '/runs'): ConfigService {
-  const stub: Partial<ConfigService> = { getRunsDir: vi.fn().mockReturnValue(runsDir) };
-  return stub as ConfigService;
+/** Build a `ConfigService` stub whose `getStackOutputs` resolves `outputs` (defaults to `null`) — {@link output}'s preferred delegate. */
+function makeConfig(outputs: StackOutputs | null = null): { config: ConfigService; getStackOutputs: ReturnType<typeof vi.fn> } {
+  const getStackOutputs = vi.fn().mockResolvedValue(outputs);
+  const stub: Partial<ConfigService> = { getStackOutputs };
+  return { config: stub as ConfigService, getStackOutputs };
 }
 
 /**
@@ -263,10 +189,10 @@ function makeCtx(isDestroyed = false) {
   const sender = {
     send: vi.fn(),
     isDestroyed: vi.fn().mockReturnValue(isDestroyed),
-    // `TerraformController.init` registers a `'destroyed'` listener (and
-    // removes it once the run settles) so it can abort immediately when the
-    // WebContents goes away instead of only checking `isDestroyed()` between
-    // chunks.
+    // `plan()`/`apply()`/`destroy()`/`confirmRollback()` register a
+    // `'destroyed'` listener (and remove it once the run settles) so they can
+    // abort immediately when the WebContents goes away instead of only
+    // checking `isDestroyed()` between chunks.
     once: vi.fn(),
     removeListener: vi.fn(),
   };
@@ -335,10 +261,20 @@ describe('TerraformController', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.destroy);
       expect(pattern).toEqual(['terraform.destroy']);
     });
+
+    it('should register resolveRollback on the "terraform.rollback.resolve" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.resolveRollback);
+      expect(pattern).toEqual(['terraform.rollback.resolve']);
+    });
+
+    it('should register confirmRollback on the "terraform.rollback.confirm" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.confirmRollback);
+      expect(pattern).toEqual(['terraform.rollback.confirm']);
+    });
   });
 
   // -------------------------------------------------------------------------
-  // onModuleInit — ipcMain.handle bridge for terraform.init
+  // onModuleInit — ipcMain.handle bridge for terraform.plan/apply/destroy
   // -------------------------------------------------------------------------
 
   describe('onModuleInit', () => {
@@ -362,183 +298,100 @@ describe('TerraformController', () => {
       // `process.versions.electron`; importing electron there would throw, so
       // the bridge must be skipped without touching ipcMain at all.
       setElectron(undefined);
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).not.toHaveBeenCalled();
       expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
     });
 
-    it('should register ipcMain.handle for "terraform.init" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
-      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.init', expect.any(Function));
+    it('should NOT register a manual "terraform.init" handler — the generic bridge handles it now', async () => {
+      // Unlike before task 7.10, init() no longer streams anything, so it's
+      // resolved by the generic ipcMain.handle bridge rather than manually
+      // registered here.
+      await new TerraformController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.init', expect.any(Function));
     });
 
-    it('should remove any existing "terraform.init" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+    it('should register ipcMain.handle for "terraform.plan" so ipcRenderer.invoke can resolve', async () => {
+      await new TerraformController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.plan', expect.any(Function));
+    });
+
+    it('should remove any existing "terraform.plan" handler before registering so hot-reload re-bootstrap does not throw', async () => {
       // A second bootstrap (hot-reload / dev restart) would otherwise hit
-      // "Attempted to register a second handler for 'terraform.init'".
+      // "Attempted to register a second handler for 'terraform.plan'".
       // Clearing the handler first keeps re-registration idempotent.
-      await new TerraformController(makeTerraform()).onModuleInit();
-      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.init');
+      await new TerraformController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.plan');
       expect(mockIpcMainRemoveHandler.mock.invocationCallOrder[0]).toBeLessThan(
         mockIpcMainHandle.mock.invocationCallOrder[0],
       );
     });
 
     it('should register ipcMain.handle for "terraform.apply" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.apply', expect.any(Function));
     });
 
     it('should remove any existing "terraform.apply" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.apply');
     });
 
     it('should register ipcMain.handle for "terraform.destroy" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.destroy', expect.any(Function));
     });
 
     it('should remove any existing "terraform.destroy" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.destroy');
     });
 
     it('should not manually register "terraform.destroy.mintToken" — the generic bridge handles it', async () => {
-      await new TerraformController(makeTerraform()).onModuleInit();
+      await new TerraformController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.destroy.mintToken', expect.any(Function));
     });
   });
 
   // -------------------------------------------------------------------------
-  // init
+  // init — always a no-op rejection under the Pulumi engine (task 7.10)
   // -------------------------------------------------------------------------
 
   describe('init', () => {
-    it('should return { started: true } immediately without waiting for the run to settle', async () => {
-      // TerraformService.init never yields/returns on its own here, so if
-      // init() awaited the whole loop synchronously this call would hang.
-      const terraform = makeTerraform();
-      // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to prove init() doesn't await it
-      vi.mocked(terraform.init).mockImplementation(async function* () {
-        await new Promise<void>(() => { /* never resolves */ });
-      });
-      const { ctx } = makeCtx();
+    it('should return { started: false, error } for a VALID config — a deliberate no-op rejection, not a real run', async () => {
+      const pulumi = makePulumi();
 
-      const result = await new TerraformController(terraform).init(CONFIG, ctx);
-
-      expect(result).toEqual({ started: true, streamId: expect.any(String) });
-    });
-
-    it('should send each yielded chunk to the renderer via sender.send, in order', async () => {
-      const chunks: TerraformRunChunk[] = [
-        { stream: 'stdout', line: 'Initializing the backend...' },
-        { stream: 'stdout', line: 'Initializing provider plugins...' },
-        { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
-      ];
-      async function* yieldChunks() {
-        for (const chunk of chunks) yield chunk;
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.init).mockImplementation(yieldChunks);
-      const { ctx, sender } = makeCtx();
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.init.chunk');
-      // Every chunk payload is tagged with the same per-call streamId so the
-      // renderer (and a rejected concurrent call) can tell which run it
-      // belongs to.
-      const streamIds = new Set(chunkCalls.map(([, payload]) => (payload as { streamId: string }).streamId));
-      expect(streamIds.size).toBe(1);
-      expect(chunkCalls.map(([, payload]) => (payload as { chunk: TerraformRunChunk }).chunk)).toEqual(chunks);
-    });
-
-    it('should forward the config payload and an AbortSignal to TerraformService.init', async () => {
-      const terraform = makeTerraform();
-      const { ctx } = makeCtx();
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      expect(terraform.init).toHaveBeenCalledWith(CONFIG, expect.any(AbortSignal));
-    });
-
-    it('should send an end message with exitCode 0 and no error when the run succeeds', async () => {
-      async function* empty() { /* no chunks, generator returns normally */ }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.init).mockImplementation(empty);
-      const { ctx, sender } = makeCtx();
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      expect(sender.send).toHaveBeenCalledWith('terraform.init.end', { streamId: expect.any(String), exitCode: 0 });
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.init.end');
-      expect(endCall?.[1]).not.toHaveProperty('error');
-    });
-
-    it('should send an end message with the process exit code and a stringified error on TerraformInitError', async () => {
-      async function* failsWithExitCode(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stderr', line: 'Error configuring backend "s3"' };
-        throw new TerraformInitError(1);
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.init).mockImplementation(failsWithExitCode);
-      const { ctx, sender } = makeCtx();
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.init.end');
-      expect(endCall?.[1]).toMatchObject({ exitCode: 1 });
-      expect(String(endCall?.[1]?.error)).toContain('terraform init exited with code 1');
-    });
-
-    it('should send an end message with a null exitCode for a non-process failure (e.g. binary not found)', async () => {
-      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a pre-spawn failure
-      async function* failsWithoutExitCode(): AsyncGenerator<TerraformRunChunk> {
-        throw new Error('terraform binary not found on PATH');
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.init).mockImplementation(failsWithoutExitCode);
-      const { ctx, sender } = makeCtx();
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.init.end');
-      expect(endCall?.[1]).toMatchObject({ exitCode: null });
-      expect(String(endCall?.[1]?.error)).toContain('terraform binary not found on PATH');
-    });
-
-    it('should not send further chunks or an end message once the WebContents is destroyed', async () => {
-      async function* twoLines(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stdout', line: 'first' };
-        yield { stream: 'stdout', line: 'second' };
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.init).mockImplementation(twoLines);
-      // Simulate WebContents already destroyed before the loop runs.
-      const { ctx, sender } = makeCtx(true);
-
-      await new TerraformController(terraform).init(CONFIG, ctx);
-      await flushPromises();
-
-      expect(sender.send).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } and never call TerraformService.init when the payload fails validation', async () => {
-      const terraform = makeTerraform();
-      const { ctx, sender } = makeCtx();
-      const invalidConfig = { bucket: '', region: 'us-east-1', dynamodbTable: 'hyveon-tf-locks' };
-
-      const result = await new TerraformController(terraform).init(invalidConfig, ctx);
-      await flushPromises();
+      const result = await new TerraformController(pulumi).init(CONFIG);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.init).not.toHaveBeenCalled();
+      expect(result.error).toContain('Pulumi engine');
+      expect(result.streamId).toBeUndefined();
+    });
+
+    it('should return { started: false, error } for an INVALID config, with its own distinct validation message', async () => {
+      const pulumi = makePulumi();
+      const invalidConfig = { bucket: '', region: 'us-east-1', dynamodbTable: 'hyveon-tf-locks' };
+
+      const result = await new TerraformController(pulumi).init(invalidConfig);
+
+      expect(result.started).toBe(false);
+      expect(typeof result.error).toBe('string');
+      // The two rejection reasons must be distinguishable — validation vs.
+      // the Pulumi-engine no-op message are different strings.
+      expect(result.error).not.toContain('Pulumi engine');
+    });
+
+    it('should never touch PulumiService or the WebContents sender for either a valid or an invalid config', async () => {
+      const pulumi = makePulumi();
+      const { sender } = makeCtx();
+
+      await new TerraformController(pulumi).init(CONFIG);
+      await new TerraformController(pulumi).init({ bucket: '', region: '', dynamodbTable: '' });
+
+      expect(pulumi.preview).not.toHaveBeenCalled();
+      expect(pulumi.apply).not.toHaveBeenCalled();
+      expect(pulumi.destroy).not.toHaveBeenCalled();
       expect(sender.send).not.toHaveBeenCalled();
     });
   });
@@ -549,35 +402,37 @@ describe('TerraformController', () => {
 
   describe('plan', () => {
     it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
-      // TerraformService.plan never yields/returns on its own here, so if
+      // PulumiService.preview never yields/returns on its own here, so if
       // plan() awaited the whole loop synchronously this call would hang.
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to prove plan() doesn't await it
-      vi.mocked(terraform.plan).mockImplementation(async function* () {
+      vi.mocked(pulumi.preview).mockImplementation(async function* (): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
         await new Promise<void>(() => { /* never resolves */ });
+        return undefined;
       });
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan({}, ctx);
+      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
 
       expect(result).toEqual({ started: true, runId: expect.any(String) });
     });
 
     it('should send each yielded chunk to the renderer via sender.send, in order, tagged with runId', async () => {
-      const chunks: TerraformRunChunk[] = [
-        { stream: 'stdout', line: 'Refreshing Terraform state...' },
-        { stream: 'stdout', line: 'Plan: 1 to add, 0 to change, 0 to destroy.' },
+      const chunks: PulumiRunChunk[] = [
+        { stream: 'stdout', line: 'Previewing update...' },
+        { stream: 'stdout', line: '+ 1 to create' },
       ];
-      async function* yieldChunks() {
+      async function* yieldChunks(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
         for (const chunk of chunks) yield chunk;
+        return undefined;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(yieldChunks);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.preview).mockImplementation(yieldChunks);
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan({}, ctx);
+      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.plan.chunk');
@@ -586,103 +441,78 @@ describe('TerraformController', () => {
       // which run it belongs to.
       const runIds = new Set(chunkCalls.map(([, payload]) => (payload as { runId: string }).runId));
       expect(runIds).toEqual(new Set([result.runId]));
-      expect(chunkCalls.map(([, payload]) => (payload as { chunk: TerraformRunChunk }).chunk)).toEqual(chunks);
+      expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
-    it('should forward tfvarsVersionId, an AbortSignal, and the pre-minted runId to TerraformService.plan', async () => {
-      const terraform = makeTerraform();
+    it('should forward tfvarsVersionId, an AbortSignal, and the pre-minted runId to PulumiService.preview', async () => {
+      const pulumi = makePulumi();
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan({ tfvarsVersionId: 'v123' }, ctx);
+      const result = await new TerraformController(pulumi, audit).plan({ tfvarsVersionId: 'v123' }, ctx);
       await flushPromises();
 
-      expect(terraform.plan).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, undefined);
+      expect(pulumi.preview).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, undefined);
     });
 
-    it('should forward rolledBackFrom to TerraformService.plan when present on the payload', async () => {
-      const terraform = makeTerraform();
+    it('should forward rolledBackFrom to PulumiService.preview when present on the payload', async () => {
+      const pulumi = makePulumi();
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan(
+      const result = await new TerraformController(pulumi, audit).plan(
         { tfvarsVersionId: 'v123', rolledBackFrom: 'apply-run-1' },
         ctx,
       );
       await flushPromises();
 
-      expect(terraform.plan).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, 'apply-run-1');
+      expect(pulumi.preview).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, 'apply-run-1');
     });
 
     it('should send an end message with exitCode 0, the resolved result, and no error when the run succeeds', async () => {
-      const planResult: TerraformPlanResult = {
-        runId: 'ignored-because-controller-mints-its-own',
-        artifactPath: '/tmp/plan.tfplan',
-        varFilePath: '/tmp/terraform.tfvars',
-        add: 1,
-        change: 0,
-        destroy: 0,
-      };
-      async function* succeeds(): AsyncGenerator<TerraformRunChunk, TerraformPlanResult> {
-        yield { stream: 'stdout', line: 'Plan: 1 to add, 0 to change, 0 to destroy.' };
-        return planResult;
+      const previewResult = buildPreviewResult();
+      async function* succeeds(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        yield { stream: 'stdout', line: '+ 1 to create' };
+        return previewResult;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(succeeds);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.preview).mockImplementation(succeeds);
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan({}, ctx);
+      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith('terraform.plan.end', {
         runId: result.runId,
         exitCode: 0,
-        result: planResult,
+        result: previewResult,
       });
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
 
-    it('should send an end message with the process exit code and a stringified error on TerraformPlanError', async () => {
-      async function* failsWithExitCode(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stderr', line: 'Error: Invalid count argument' };
-        throw new TerraformPlanError(1);
+    it('should send an end message with exitCode null and a stringified error when PulumiService.preview throws mid-stream', async () => {
+      async function* fails(): AsyncGenerator<PulumiRunChunk> {
+        yield { stream: 'stderr', line: 'error: preflight checks failed' };
+        throw new Error('preview failed: engine version mismatch');
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(failsWithExitCode);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.preview).mockImplementation(fails);
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(terraform, audit).plan({}, ctx);
-      await flushPromises();
-
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
-      expect(endCall?.[1]).toMatchObject({ exitCode: 1 });
-      expect(String(endCall?.[1]?.error)).toContain('terraform plan exited with code 1');
-    });
-
-    it('should send an end message with a null exitCode for a non-process failure (e.g. binary not found)', async () => {
-      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a pre-spawn failure
-      async function* failsWithoutExitCode(): AsyncGenerator<TerraformRunChunk> {
-        throw new Error('terraform binary not found on PATH');
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(failsWithoutExitCode);
-      const { audit } = makeAudit();
-      const { ctx, sender } = makeCtx();
-
-      await new TerraformController(terraform, audit).plan({}, ctx);
+      await new TerraformController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
       expect(endCall?.[1]).toMatchObject({ exitCode: null });
-      expect(String(endCall?.[1]?.error)).toContain('terraform binary not found on PATH');
+      expect(String(endCall?.[1]?.error)).toContain('preview failed: engine version mismatch');
     });
 
     it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
-      async function* twoLines(): AsyncGenerator<TerraformRunChunk, TerraformPlanResult | undefined> {
+      async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
         try {
           yield { stream: 'stdout', line: 'first' };
           yield { stream: 'stdout', line: 'second' };
@@ -691,105 +521,50 @@ describe('TerraformController', () => {
           returnCalled = true;
         }
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(twoLines);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.preview).mockImplementation(twoLines);
       const { audit } = makeAudit();
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      await new TerraformController(terraform, audit).plan({}, ctx);
+      await new TerraformController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
       expect(returnCalled).toBe(true);
     });
 
-    it('should return a conflict ack naming the in-flight op and never call TerraformService.plan or record an audit entry when the workspace is busy', async () => {
-      const terraform = makeTerraform();
-      vi.mocked(terraform.getWorkspaceInFlight).mockReturnValue('apply');
+    it('should return a conflict ack naming the in-flight op and never call PulumiService.preview or record an audit entry when the workspace is busy', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.getOperationInFlight).mockReturnValue('up');
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(terraform, audit).plan({}, ctx);
+      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'apply' });
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
       expect(result.runId).toBeUndefined();
-      expect(terraform.plan).not.toHaveBeenCalled();
+      expect(pulumi.preview).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
       expect(sender.send).not.toHaveBeenCalled();
     });
 
     it('should record an audit entry with action "plan" for an accepted submission', async () => {
-      async function* succeeds(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stdout', line: 'Plan: 0 to add, 0 to change, 0 to destroy.' };
+      async function* succeeds(): AsyncGenerator<PulumiRunChunk> {
+        yield { stream: 'stdout', line: 'Previewing update...' };
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.plan).mockImplementation(succeeds);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.preview).mockImplementation(succeeds);
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(terraform, audit).plan({ tfvarsVersionId: 'v42' }, ctx);
+      await new TerraformController(pulumi, audit).plan({ tfvarsVersionId: 'v42' }, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0][0] as RecordAuditEntryParams;
       expect(recordedEntry).toMatchObject({ action: 'plan', versionId: 'v42' });
-    });
-
-    it('should never reject with started: true for a second submission while a plan/init/apply/destroy is already in flight, even when audit.record() is slow (TOCTOU regression)', async () => {
-      // Regression test for the race where the workspace reservation only
-      // happened deep inside the fire-and-forget block, after awaiting
-      // audit.record() — two back-to-back submissions could both observe the
-      // workspace as free and both resolve started: true before the second
-      // one's run failed deep inside TerraformService.plan(). Using a slow,
-      // controllable audit.record() here maximises the window a buggy
-      // implementation would race in.
-      const terraform = makeRacyTerraform();
-      let resolveAudit: (() => void) | undefined;
-      const record = vi.fn().mockImplementation(
-        () =>
-          new Promise<void>((resolve) => {
-            resolveAudit = resolve;
-          }),
-      );
-      const auditStub: Partial<AuditService> = { record };
-      const audit = auditStub as AuditService;
-      const { ctx: ctxA, sender: senderA } = makeCtx();
-      const { ctx: ctxB, sender: senderB } = makeCtx();
-      const controller = new TerraformController(terraform, audit);
-
-      // Fire the first submission; it will suspend on the still-pending
-      // audit.record() promise before this awaits anything further.
-      const resultAPromise = controller.plan({}, ctxA);
-      // Give the first call's synchronous prefix (through the reservation
-      // and the audit.record() call) a chance to run before firing the
-      // second submission.
-      await Promise.resolve();
-      const resultB = await controller.plan({}, ctxB);
-
-      // The second submission must be rejected as a conflict — it must NOT
-      // see started: true while the first is still in flight.
-      expect(resultB.started).toBe(false);
-      expect(resultB.conflict).toBe('plan');
-      expect(resultB.runId).toBeUndefined();
-
-      // Only the first (accepted) submission should have triggered an audit
-      // write so far — the second was rejected before ever calling
-      // audit.record().
-      expect(record).toHaveBeenCalledTimes(1);
-
-      // Let the first submission's audit.record() resolve and its streaming
-      // loop finish.
-      resolveAudit?.();
-      const resultA = await resultAPromise;
-      await flushPromises();
-
-      expect(resultA.started).toBe(true);
-      expect(resultA.runId).toEqual(expect.any(String));
-      expect(senderB.send).not.toHaveBeenCalled();
-      const endCallA = senderA.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
-      expect(endCallA?.[1]).toMatchObject({ exitCode: 0 });
     });
   });
 
@@ -798,187 +573,69 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('apply', () => {
-    /**
-     * Wires up a `TerraformController` with every dependency `apply()` needs
-     * (`terraform`, `audit`, `runRecord`, `runService`, `config`), returning
-     * both the controller and the individual stubs/spies so each test can
-     * override just the piece it's exercising.
-     */
-    function makeApplyController(terraform: TerraformService = makeTerraform()) {
-      const { audit, record } = makeAudit();
-      const { runRecord, getByRunId } = makeRunRecord();
-      const { runService, createRun, releaseRun } = makeRunService();
-      const config = makeConfig('/runs');
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord());
-      const controller = new TerraformController(terraform, audit, runRecord, runService, config);
-      return { controller, terraform, getByRunId, createRun, releaseRun, config, record };
-    }
+    const APPLY_PAYLOAD = { planRunId: 'plan-run-1', planHash: 'plan-hash-abc' };
 
-    it('should reject with { started: false, error } and never call TerraformService.apply when planRunId is missing', async () => {
-      const { controller, terraform, createRun, record } = makeApplyController();
+    it('should reject with { started: false, error } and never call PulumiService.apply when planRunId is missing', async () => {
+      const pulumi = makePulumi();
+      const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.apply({ planRunId: '', planHash: 'plan-hash-abc' }, ctx);
+      const result = await new TerraformController(pulumi, audit).apply({ planRunId: '', planHash: 'plan-hash-abc' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
+      expect(pulumi.apply).not.toHaveBeenCalled();
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should reject with { started: false, error } and never call TerraformService.apply when planHash is missing', async () => {
-      const { controller, terraform, record } = makeApplyController();
+    it('should reject with { started: false, error } and never call PulumiService.apply when planHash is missing', async () => {
+      const pulumi = makePulumi();
+      const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await controller.apply({ planRunId: 'plan-run-1', planHash: '' }, ctx);
+      const result = await new TerraformController(pulumi, audit).apply({ planRunId: 'plan-run-1', planHash: '' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
+      expect(pulumi.apply).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should reject with { started: false, error } when no plan run exists for planRunId, without ever calling TerraformService.apply', async () => {
-      const { controller, terraform, getByRunId, record } = makeApplyController();
-      getByRunId.mockResolvedValue(undefined);
-      const { ctx } = makeCtx();
+    // -----------------------------------------------------------------------
+    // New coverage (task 7.10): the controller now awaits the gate's first
+    // .next() call before acking. PulumiService.apply's 8-step gate (plan
+    // lookup, approval/expiry, plan-hash verification, engine-version check,
+    // durable lock acquisition) is entirely self-contained inside the
+    // service now — this controller has nothing left to re-verify, so these
+    // tests exercise the awaiting-first-.next() contract itself rather than
+    // re-deriving the gate's own step-by-step behavior (already covered by
+    // PulumiService's own test suite).
+    // -----------------------------------------------------------------------
 
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
+    it('should reject with { started: false, error } (no conflict) and never touch activeApplies or record an audit entry when the gate\'s first .next() rejects with a generic error', async () => {
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate any non-lock gate failure (e.g. StalePlanError, expired approval, tampered artifact)
+      async function* rejectsBeforeYield(): AsyncGenerator<PulumiRunChunk> {
+        throw new Error('plan hash mismatch: the on-disk artifact no longer matches the approved plan');
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(rejectsBeforeYield);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
       expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
+      expect(result.conflict).toBeUndefined();
+      expect(String(result.error)).toContain('plan hash mismatch');
+      // A rejected gate never reaches the point where activeApplies is
+      // populated or the streaming loop starts — no chunk/end messages, no
+      // audit entry.
+      expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should reject with { started: false, error } when the run record is not a "plan" run, without ever calling TerraformService.apply', async () => {
-      const { controller, terraform, getByRunId, record } = makeApplyController();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord({ kind: 'apply' }));
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } when the plan run has not been approved (missing approval), without ever calling TerraformService.apply', async () => {
-      const { controller, terraform, getByRunId, createRun, record } = makeApplyController();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord({ approvedBy: undefined, approvedAt: undefined }));
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } when the approval has expired, without ever calling TerraformService.apply', async () => {
-      const { controller, terraform, getByRunId, createRun, record } = makeApplyController();
-      const staleApprovedAt = new Date(Date.now() - (APPROVAL_WINDOW_MS + 60_000)).toISOString();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord({ approvedAt: staleApprovedAt }));
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } when the supplied planHash does not match the approved plan record (mismatched/forged hash), without ever calling TerraformService.apply', async () => {
-      const { controller, terraform, getByRunId, createRun, record } = makeApplyController();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord({ planHash: 'plan-hash-abc' }));
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply({ planRunId: 'plan-run-1', planHash: 'forged-hash' }, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } and never call TerraformService.apply or RunService.createRun when the on-disk plan artifact re-hashes to a different value (forged/tampered artifact), even though payload.planHash and record.planHash still agree', async () => {
-      // Simulates a swapped/tampered .tfplan file on disk: the stored
-      // RunRecord.planHash and payload.planHash both still say
-      // 'plan-hash-abc' (makeApprovedPlanRecord()'s default), but a fresh
-      // SHA-256 digest of the actual file content no longer matches — this
-      // is exactly the artifact-level re-verification issue #109 requires,
-      // on top of comparing the two in-memory hash values to each other.
-      const terraform = makeTerraform();
-      vi.mocked(terraform.computePlanHash).mockReturnValue('tampered-artifact-hash');
-      const { controller, createRun, record } = makeApplyController(terraform);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(terraform.computePlanHash).toHaveBeenCalledWith(
-        join('/runs', 'plan-run-1', 'plan-run-1.tfplan'),
-      );
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error } and never call TerraformService.apply when re-hashing the on-disk plan artifact throws (e.g. the file is missing)', async () => {
-      const terraform = makeTerraform();
-      vi.mocked(terraform.computePlanHash).mockImplementation(() => {
-        throw new Error('ENOENT: no such file or directory');
-      });
-      const { controller, createRun, record } = makeApplyController(terraform);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error, conflict } and never call TerraformService.apply or RunService.createRun when the shared workspace is busy', async () => {
-      const { controller, terraform, createRun, record } = makeApplyController();
-      vi.mocked(terraform.getWorkspaceInFlight).mockReturnValue('plan');
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'plan' });
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should release the just-acquired apply lock and reject with { started: false, error, conflict } when the workspace becomes busy between the pre-lock check and RunService.createRun (TOCTOU regression)', async () => {
-      const { controller, terraform, createRun, releaseRun, record } = makeApplyController();
-      vi.mocked(terraform.getWorkspaceInFlight).mockReturnValueOnce(null).mockReturnValueOnce('plan');
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'plan' });
-      expect(createRun).toHaveBeenCalledWith('apply', 'test-operator', 'plan-run-1');
-      expect(releaseRun).toHaveBeenCalledWith('plan-run-1');
-      expect(terraform.apply).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error, conflict: "apply" } and never call TerraformService.apply when the durable apply lock is already held (RunLockHeldError)', async () => {
-      const { controller, terraform, createRun, releaseRun, record } = makeApplyController();
+    it('should reject with { started: false, error, conflict: "up" } and never touch activeApplies or record an audit entry when the gate\'s first .next() rejects with RunLockHeldError', async () => {
       const heldLock: RunLock = {
         runId: 'other-run',
         kind: 'apply',
@@ -986,161 +643,162 @@ describe('TerraformController', () => {
         acquiredAt: '2026-07-21T00:00:00.000Z',
         expiresAt: '2026-07-21T01:00:00.000Z',
       };
-      createRun.mockRejectedValue(new RunLockHeldError(heldLock));
-      const { ctx } = makeCtx();
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a lost durable-lock race
+      async function* rejectsWithLock(): AsyncGenerator<PulumiRunChunk> {
+        throw new RunLockHeldError(heldLock);
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(rejectsWithLock);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
 
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'apply' });
-      expect(terraform.apply).not.toHaveBeenCalled();
-      // No lock was ever acquired by this call, so there is nothing to release.
-      expect(releaseRun).not.toHaveBeenCalled();
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
+      expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should acquire the apply lock with the plan record\'s runId as initiator, and call TerraformService.apply with the plan\'s runId, its stored tfvarsVersionId, and the expected plan file path', async () => {
-      const { controller, terraform, createRun, config } = makeApplyController();
+    it('should call PulumiService.apply with planRunId, planHash, and an AbortSignal', async () => {
+      const pulumi = makePulumi();
+      const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
-      expect(createRun).toHaveBeenCalledWith('apply', 'test-operator', 'plan-run-1');
-      expect(terraform.apply).toHaveBeenCalledWith(
-        'plan-run-1',
-        'tfvars-v1',
-        join(config.getRunsDir(), 'plan-run-1', 'plan-run-1.tfplan'),
-        expect.any(AbortSignal),
-      );
+      expect(pulumi.apply).toHaveBeenCalledWith('plan-run-1', 'plan-hash-abc', expect.any(AbortSignal));
+    });
+
+    it('should only ack { started: true, runId } once the gate\'s first .next() has resolved — not before', async () => {
+      let gateResolved = false;
+      let resolveGate: (() => void) | undefined;
+      // eslint-disable-next-line require-yield -- generator intentionally never yields, to prove apply() awaits the gate's first .next() before acking
+      async function* waitsOnGate(): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
+        await new Promise<void>((resolve) => {
+          resolveGate = resolve;
+        });
+        gateResolved = true;
+        return buildUpResult();
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(waitsOnGate);
+      const { audit } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const applyPromise = new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      // Give the call's synchronous prefix a chance to run and reach the
+      // still-pending gate.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(gateResolved).toBe(false);
+
+      resolveGate?.();
+      const result = await applyPromise;
+
+      expect(gateResolved).toBe(true);
+      expect(result).toEqual({ started: true, runId: 'plan-run-1' });
     });
 
     it('should record an audit entry with action "apply" for an accepted apply submission', async () => {
-      const { controller, record } = makeApplyController();
+      const pulumi = makePulumi();
+      const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
-      expect(recordedEntry).toMatchObject({ action: 'apply', versionId: 'tfvars-v1' });
+      expect(recordedEntry).toMatchObject({ action: 'apply' });
     });
 
-    it('should resolve { started: true, runId } immediately, then deliver a normal end-message error and release the just-acquired lock, when TerraformService.apply rejects before spawning (e.g. a stale-tfvars guard)', async () => {
-      // Mirrors plan()'s own synchronous-first-.next() workspace reservation
-      // shape: the reservation happens synchronously before the ack
-      // resolves, so a pre-spawn failure inside TerraformService.apply
-      // itself (e.g. a StalePlanError) is *not* observed before the ack —
-      // it surfaces later as a normal terraform.apply.end error once the
-      // fire-and-forget streaming loop awaits its already-in-flight first
-      // step, exactly like any other TerraformService.apply failure.
-      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a pre-spawn (e.g. StalePlanError) failure
-      async function* rejectsBeforeSpawn(): AsyncGenerator<TerraformRunChunk> {
-        throw new Error('tfvars object is stale for this plan');
+    it('should return { started: true, runId } equal to planRunId once the gate\'s first .next() resolves, then continue streaming', async () => {
+      const chunks: PulumiRunChunk[] = [{ stream: 'stdout', line: 'aws:ecs:Cluster hyveon: creating' }];
+      async function* succeeds(): AsyncGenerator<PulumiRunChunk, PulumiUpResult> {
+        for (const chunk of chunks) yield chunk;
+        return buildUpResult();
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.apply).mockImplementation(rejectsBeforeSpawn);
-      const { controller, releaseRun } = makeApplyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(succeeds);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result).toEqual({ started: true, runId: 'plan-run-1' });
-
+      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
-      expect(sender.send).not.toHaveBeenCalledWith('terraform.apply.chunk', expect.anything());
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.apply.end');
-      expect(endCall?.[1]).toMatchObject({ runId: 'plan-run-1', exitCode: null });
-      expect(String(endCall?.[1]?.error)).toContain('tfvars object is stale for this plan');
-      expect(releaseRun).toHaveBeenCalledWith('plan-run-1');
-    });
-
-    it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
-      // TerraformService.apply never yields/returns on its own here, so if
-      // apply() awaited the whole loop (or even just its first step)
-      // synchronously this call would hang.
-      const terraform = makeTerraform();
-      // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to prove apply() doesn't await it
-      vi.mocked(terraform.apply).mockImplementation(async function* () {
-        await new Promise<void>(() => { /* never resolves */ });
-      });
-      const { controller } = makeApplyController(terraform);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
       expect(result).toEqual({ started: true, runId: 'plan-run-1' });
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.apply.chunk');
+      expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
     it('should send each yielded chunk to the renderer via sender.send, in order, tagged with the plan\'s runId', async () => {
-      const chunks: TerraformRunChunk[] = [
-        { stream: 'stdout', line: 'terraform_appliance.game: Creating...' },
-        { stream: 'stdout', line: 'Apply complete! Resources: 1 added, 0 changed, 0 destroyed.' },
+      const chunks: PulumiRunChunk[] = [
+        { stream: 'stdout', line: 'aws:ecs:Cluster hyveon: creating' },
+        { stream: 'stdout', line: 'Update succeeded in 4s' },
       ];
-      async function* yieldChunks() {
+      async function* yieldChunks(): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
         for (const chunk of chunks) yield chunk;
+        return undefined;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.apply).mockImplementation(yieldChunks);
-      const { controller } = makeApplyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(yieldChunks);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.apply.chunk');
       const runIds = new Set(chunkCalls.map(([, payload]) => (payload as { runId: string }).runId));
       expect(runIds).toEqual(new Set(['plan-run-1']));
-      expect(chunkCalls.map(([, payload]) => (payload as { chunk: TerraformRunChunk }).chunk)).toEqual(chunks);
+      expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
-    it('should send an end message with exitCode 0, the resolved result, and no error, and release the apply lock, when the run succeeds', async () => {
-      const applyResult: TerraformApplyResult = { runId: 'plan-run-1', added: 1, changed: 0, destroyed: 0 };
-      async function* succeeds(): AsyncGenerator<TerraformRunChunk, TerraformApplyResult> {
-        yield { stream: 'stdout', line: 'Apply complete! Resources: 1 added, 0 changed, 0 destroyed.' };
-        return applyResult;
+    it('should send an end message with exitCode 0, the resolved result, and no error when the run succeeds', async () => {
+      const upResult = buildUpResult();
+      async function* succeeds(): AsyncGenerator<PulumiRunChunk, PulumiUpResult> {
+        yield { stream: 'stdout', line: 'Update succeeded in 4s' };
+        return upResult;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.apply).mockImplementation(succeeds);
-      const { controller, releaseRun } = makeApplyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(succeeds);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(sender.send).toHaveBeenCalledWith('terraform.apply.end', {
         runId: 'plan-run-1',
         exitCode: 0,
-        result: applyResult,
+        result: upResult,
       });
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.apply.end');
       expect(endCall?.[1]).not.toHaveProperty('error');
-      expect(releaseRun).toHaveBeenCalledWith('plan-run-1');
     });
 
-    it('should send an end message with the process exit code and a stringified error, and still release the apply lock, on TerraformApplyError', async () => {
-      async function* failsWithExitCode(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stderr', line: 'Error: creation failed' };
-        throw new TerraformApplyError(1);
+    it('should send an end message with exitCode null and a stringified error when PulumiService.apply throws mid-stream (after the gate already passed)', async () => {
+      async function* failsMidStream(): AsyncGenerator<PulumiRunChunk> {
+        yield { stream: 'stderr', line: 'error: resource creation failed' };
+        throw new Error('stack.up() failed: resource creation error');
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.apply).mockImplementation(failsWithExitCode);
-      const { controller, releaseRun } = makeApplyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(failsMidStream);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.apply.end');
-      expect(endCall?.[1]).toMatchObject({ exitCode: 1 });
-      expect(String(endCall?.[1]?.error)).toContain('terraform apply exited with code 1');
-      expect(releaseRun).toHaveBeenCalledWith('plan-run-1');
+      expect(endCall?.[1]).toMatchObject({ exitCode: null });
+      expect(String(endCall?.[1]?.error)).toContain('stack.up() failed: resource creation error');
     });
 
-    it('should not send further chunks or an end message, should finalize the generator via stream.return, and should still release the apply lock, once the WebContents is destroyed', async () => {
+    it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
-      async function* twoLines(): AsyncGenerator<TerraformRunChunk, TerraformApplyResult | undefined> {
+      async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
         try {
           yield { stream: 'stdout', line: 'first' };
           yield { stream: 'stdout', line: 'second' };
@@ -1149,61 +807,17 @@ describe('TerraformController', () => {
           returnCalled = true;
         }
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.apply).mockImplementation(twoLines);
-      const { controller, releaseRun } = makeApplyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.apply).mockImplementation(twoLines);
+      const { audit } = makeAudit();
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      await controller.apply(APPLY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
       expect(returnCalled).toBe(true);
-      expect(releaseRun).toHaveBeenCalledWith('plan-run-1');
-    });
-
-    it('should return { started: false, error } when no RunRecordService is available', async () => {
-      const terraform = makeTerraform();
-      const controller = new TerraformController(terraform);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-    });
-
-    it('should return { started: false, error } when no RunService is available', async () => {
-      const terraform = makeTerraform();
-      const { audit } = makeAudit();
-      const { runRecord, getByRunId } = makeRunRecord();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord());
-      const controller = new TerraformController(terraform, audit, runRecord);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
-    });
-
-    it('should return { started: false, error } when no ConfigService is available', async () => {
-      const terraform = makeTerraform();
-      const { audit } = makeAudit();
-      const { runRecord, getByRunId } = makeRunRecord();
-      getByRunId.mockResolvedValue(makeApprovedPlanRecord());
-      const { runService } = makeRunService();
-      const controller = new TerraformController(terraform, audit, runRecord, runService);
-      const { ctx } = makeCtx();
-
-      const result = await controller.apply(APPLY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.apply).not.toHaveBeenCalled();
     });
   });
 
@@ -1212,13 +826,13 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('mintDestroyToken', () => {
-    it('should return the token minted by TerraformService.mintDestroyConfirmationToken', () => {
-      const terraform = makeTerraform();
-      const controller = new TerraformController(terraform);
+    it('should return the token minted by PulumiService.mintDestroyConfirmationToken', () => {
+      const pulumi = makePulumi();
+      const controller = new TerraformController(pulumi);
 
       const result = controller.mintDestroyToken();
 
-      expect(terraform.mintDestroyConfirmationToken).toHaveBeenCalledTimes(1);
+      expect(pulumi.mintDestroyConfirmationToken).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ token: 'token-abc' });
     });
   });
@@ -1228,65 +842,50 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('destroy', () => {
-    /** The `terraform.destroy` payload matching {@link makeTerraform}'s default `mintDestroyConfirmationToken` stub. */
+    /** The `terraform.destroy` payload matching {@link makePulumi}'s default `mintDestroyConfirmationToken` stub. */
     const DESTROY_PAYLOAD = { confirmationToken: 'token-abc' };
 
-    /**
-     * Wires up a `TerraformController` with every dependency `destroy()`
-     * needs (`terraform`, `audit`, `runService`) — unlike {@link makeApplyController}
-     * there's no `runRecord`/`config`, since destroy has no plan lineage or
-     * `.tfplan` artifact to look up.
-     */
-    function makeDestroyController(terraform: TerraformService = makeTerraform()) {
+    it('should reject with { started: false, error } and never call PulumiService.destroy when confirmationToken is missing', async () => {
+      const pulumi = makePulumi();
       const { audit, record } = makeAudit();
-      const { runService, createRun, releaseRun } = makeRunService();
-      const controller = new TerraformController(terraform, audit, undefined, runService);
-      return { controller, terraform, createRun, releaseRun, record };
-    }
-
-    it('should reject with { started: false, error } and never call TerraformService.destroy when confirmationToken is missing', async () => {
-      const { controller, terraform, createRun, record } = makeDestroyController();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy({ confirmationToken: '' }, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy({ confirmationToken: '' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.destroy).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
+      expect(pulumi.destroy).not.toHaveBeenCalled();
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should reject with { started: false, error, conflict } and never call TerraformService.destroy or RunService.createRun when the shared workspace is busy', async () => {
-      const { controller, terraform, createRun, record } = makeDestroyController();
-      vi.mocked(terraform.getWorkspaceInFlight).mockReturnValue('apply');
-      const { ctx } = makeCtx();
+    // -----------------------------------------------------------------------
+    // New coverage (task 7.10): mirrors apply()'s awaiting-first-.next()
+    // tests — PulumiService.destroy's own gate (busy check, config-presence
+    // checks, single-use token consumption, durable lock acquisition) is
+    // entirely self-contained now.
+    // -----------------------------------------------------------------------
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+    it('should reject with { started: false, error } (no conflict) and never touch activeDestroys or record an audit entry when the gate\'s first .next() rejects with a generic error (e.g. DestroyNotConfirmedError)', async () => {
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate an unconfirmed/stale/consumed token
+      async function* rejectsBeforeYield(): AsyncGenerator<PulumiRunChunk> {
+        throw new Error('DestroyNotConfirmedError: no matching confirmation token');
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(rejectsBeforeYield);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
 
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'apply' });
-      expect(terraform.destroy).not.toHaveBeenCalled();
-      expect(createRun).not.toHaveBeenCalled();
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+
+      expect(result.started).toBe(false);
+      expect(result.conflict).toBeUndefined();
+      expect(String(result.error)).toContain('DestroyNotConfirmedError');
+      expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should release the just-acquired apply lock and reject with { started: false, error, conflict } when the workspace becomes busy between the pre-lock check and RunService.createRun (TOCTOU regression)', async () => {
-      const { controller, terraform, createRun, releaseRun, record } = makeDestroyController();
-      vi.mocked(terraform.getWorkspaceInFlight).mockReturnValueOnce(null).mockReturnValueOnce('plan');
-      const { ctx } = makeCtx();
-
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
-
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'plan' });
-      expect(createRun).toHaveBeenCalledWith('destroy', 'test-operator', expect.any(String));
-      expect(releaseRun).toHaveBeenCalledWith(createRun.mock.calls[0]?.[2]);
-      expect(terraform.destroy).not.toHaveBeenCalled();
-      expect(record).not.toHaveBeenCalled();
-    });
-
-    it('should reject with { started: false, error, conflict: "destroy" } and never call TerraformService.destroy when the durable apply lock is already held (RunLockHeldError)', async () => {
-      const { controller, terraform, createRun, releaseRun, record } = makeDestroyController();
+    it('should reject with { started: false, error, conflict: "destroy" } and never touch activeDestroys or record an audit entry when the gate\'s first .next() rejects with RunLockHeldError', async () => {
       const heldLock: RunLock = {
         runId: 'other-run',
         kind: 'destroy',
@@ -1294,36 +893,40 @@ describe('TerraformController', () => {
         acquiredAt: '2026-07-21T00:00:00.000Z',
         expiresAt: '2026-07-21T01:00:00.000Z',
       };
-      createRun.mockRejectedValue(new RunLockHeldError(heldLock));
-      const { ctx } = makeCtx();
+      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a lost durable-lock race
+      async function* rejectsWithLock(): AsyncGenerator<PulumiRunChunk> {
+        throw new RunLockHeldError(heldLock);
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(rejectsWithLock);
+      const { audit, record } = makeAudit();
+      const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'destroy' });
-      expect(terraform.destroy).not.toHaveBeenCalled();
-      // No lock was ever acquired by this call, so there is nothing to release.
-      expect(releaseRun).not.toHaveBeenCalled();
+      expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should acquire the apply lock with a pre-minted runId as initiator, and call TerraformService.destroy with the confirmationToken, an AbortSignal, and that same runId', async () => {
-      const { controller, terraform, createRun } = makeDestroyController();
+    it('should mint a fresh runId and call PulumiService.destroy with the confirmationToken, an AbortSignal, and that same runId', async () => {
+      const pulumi = makePulumi();
+      const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      await controller.destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
-      const runId = createRun.mock.calls[0]?.[2] as string;
-      expect(typeof runId).toBe('string');
-      expect(createRun).toHaveBeenCalledWith('destroy', 'test-operator', runId);
-      expect(terraform.destroy).toHaveBeenCalledWith('token-abc', expect.any(AbortSignal), runId);
+      expect(typeof result.runId).toBe('string');
+      expect(pulumi.destroy).toHaveBeenCalledWith('token-abc', expect.any(AbortSignal), result.runId);
     });
 
     it('should record an audit entry with action "destroy" for an accepted destroy submission', async () => {
-      const { controller, record } = makeDestroyController();
+      const pulumi = makePulumi();
+      const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await controller.destroy(DESTROY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
@@ -1331,116 +934,70 @@ describe('TerraformController', () => {
       expect(recordedEntry).toMatchObject({ action: 'destroy' });
     });
 
-    it('should resolve { started: true, runId } immediately, then deliver a normal end-message error and release the just-acquired lock, when TerraformService.destroy rejects before spawning (e.g. DestroyNotConfirmedError)', async () => {
-      // Mirrors apply()'s own synchronous-first-.next() workspace reservation
-      // shape: the reservation happens synchronously before the ack
-      // resolves, so a pre-spawn failure inside TerraformService.destroy
-      // itself (most notably DestroyNotConfirmedError, since the token gate
-      // runs synchronously on the generator's first .next()) is *not*
-      // observed before the ack — it surfaces later as a normal
-      // terraform.destroy.end error once the fire-and-forget streaming loop
-      // awaits its already-in-flight first step.
-      // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate an unconfirmed-token rejection
-      async function* rejectsBeforeSpawn(): AsyncGenerator<TerraformRunChunk> {
-        throw new DestroyNotConfirmedError();
-      }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(rejectsBeforeSpawn);
-      const { controller, releaseRun } = makeDestroyController(terraform);
-      const { ctx, sender } = makeCtx();
-
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(true);
-      expect(typeof result.runId).toBe('string');
-
-      await flushPromises();
-
-      expect(sender.send).not.toHaveBeenCalledWith('terraform.destroy.chunk', expect.anything());
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.end');
-      expect(endCall?.[1]).toMatchObject({ runId: result.runId, exitCode: null });
-      expect(String(endCall?.[1]?.error)).toContain('DestroyNotConfirmedError');
-      expect(releaseRun).toHaveBeenCalledWith(result.runId);
-    });
-
-    it('should return { started: true, runId } immediately without waiting for the run to settle', async () => {
-      const terraform = makeTerraform();
-      // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to prove destroy() doesn't await it
-      vi.mocked(terraform.destroy).mockImplementation(async function* () {
-        await new Promise<void>(() => { /* never resolves */ });
-      });
-      const { controller } = makeDestroyController(terraform);
-      const { ctx } = makeCtx();
-
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(true);
-      expect(typeof result.runId).toBe('string');
-    });
-
-    it('should send each yielded chunk to the renderer via sender.send, in order, tagged with the pre-minted runId', async () => {
-      const chunks: TerraformRunChunk[] = [
-        { stream: 'stdout', line: 'aws_instance.game: Destroying...' },
-        { stream: 'stdout', line: 'Destroy complete! Resources: 1 destroyed.' },
+    it('should return { started: true, runId } once the gate\'s first .next() resolves, then continue streaming, tagged with that runId', async () => {
+      const chunks: PulumiRunChunk[] = [
+        { stream: 'stdout', line: 'aws:ecs:Cluster hyveon: deleting' },
+        { stream: 'stdout', line: 'Destroy succeeded in 6s' },
       ];
-      async function* yieldChunks() {
+      async function* yieldChunks(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
         for (const chunk of chunks) yield chunk;
+        return undefined;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(yieldChunks);
-      const { controller } = makeDestroyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(yieldChunks);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
+      expect(result.started).toBe(true);
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.destroy.chunk');
       const runIds = new Set(chunkCalls.map(([, payload]) => (payload as { runId: string }).runId));
       expect(runIds).toEqual(new Set([result.runId]));
-      expect(chunkCalls.map(([, payload]) => (payload as { chunk: TerraformRunChunk }).chunk)).toEqual(chunks);
+      expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
-    it('should send an end message with exitCode 0, the resolved result, and no error, and release the apply lock, when the run succeeds', async () => {
-      async function* succeeds(): AsyncGenerator<TerraformRunChunk, TerraformDestroyResult> {
-        yield { stream: 'stdout', line: 'Destroy complete! Resources: 3 destroyed.' };
-        return { runId: 'ignored-because-controller-mints-its-own', destroyed: 3 };
+    it('should send an end message with exitCode 0, the resolved result, and no error when the run succeeds', async () => {
+      const destroyResult = buildDestroyResult();
+      async function* succeeds(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult> {
+        yield { stream: 'stdout', line: 'Destroy succeeded in 6s' };
+        return destroyResult;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(succeeds);
-      const { controller, releaseRun } = makeDestroyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(succeeds);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.end');
-      expect(endCall?.[1]).toMatchObject({ runId: result.runId, exitCode: 0 });
+      expect(endCall?.[1]).toEqual({ runId: result.runId, exitCode: 0, result: destroyResult });
       expect(endCall?.[1]).not.toHaveProperty('error');
-      expect(releaseRun).toHaveBeenCalledWith(result.runId);
     });
 
-    it('should send an end message with the process exit code and a stringified error, and still release the apply lock, on TerraformDestroyError', async () => {
-      async function* failsWithExitCode(): AsyncGenerator<TerraformRunChunk> {
-        yield { stream: 'stderr', line: 'Error: destroy failed' };
-        throw new TerraformDestroyError(1);
+    it('should send an end message with exitCode null and a stringified error when PulumiService.destroy throws mid-stream (after the gate already passed)', async () => {
+      async function* failsMidStream(): AsyncGenerator<PulumiRunChunk> {
+        yield { stream: 'stderr', line: 'error: dependency violation' };
+        throw new Error('stack.destroy() failed: dependency violation');
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(failsWithExitCode);
-      const { controller, releaseRun } = makeDestroyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(failsMidStream);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.end');
-      expect(endCall?.[1]).toMatchObject({ exitCode: 1 });
-      expect(String(endCall?.[1]?.error)).toContain('terraform destroy exited with code 1');
-      expect(releaseRun).toHaveBeenCalledWith(result.runId);
+      expect(endCall?.[1]).toMatchObject({ exitCode: null });
+      expect(String(endCall?.[1]?.error)).toContain('stack.destroy() failed: dependency violation');
     });
 
-    it('should not send further chunks or an end message, should finalize the generator via stream.return, and should still release the apply lock, once the WebContents is destroyed', async () => {
+    it('should not send further chunks or an end message, and should finalize the generator via stream.return, once the WebContents is destroyed', async () => {
       let returnCalled = false;
-      async function* twoLines(): AsyncGenerator<TerraformRunChunk, TerraformDestroyResult | undefined> {
+      async function* twoLines(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
         try {
           yield { stream: 'stdout', line: 'first' };
           yield { stream: 'stdout', line: 'second' };
@@ -1449,52 +1006,38 @@ describe('TerraformController', () => {
           returnCalled = true;
         }
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(twoLines);
-      const { controller, releaseRun } = makeDestroyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(twoLines);
+      const { audit } = makeAudit();
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
       expect(returnCalled).toBe(true);
-      expect(releaseRun).toHaveBeenCalledWith(result.runId);
-    });
-
-    it('should return { started: false, error } when no RunService is available', async () => {
-      const terraform = makeTerraform();
-      const { audit } = makeAudit();
-      const controller = new TerraformController(terraform, audit);
-      const { ctx } = makeCtx();
-
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
-
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(terraform.destroy).not.toHaveBeenCalled();
     });
 
     it('should surface a run visible via terraform.runs.get by tagging every message with the same runId returned in the ack', async () => {
-      // Sanity check that the pre-minted runId used for the lock, the
-      // TerraformService.destroy() call, and every chunk/end message are all
-      // identical — this is what lets the renderer (and terraform.runs.get,
-      // backed by the same runId) find the run afterward.
-      const chunks: TerraformRunChunk[] = [{ stream: 'stdout', line: 'aws_instance.game: Destroying...' }];
-      async function* yieldChunks() {
+      // Sanity check that the pre-minted runId used for the PulumiService.destroy()
+      // call and every chunk/end message are all identical — this is what
+      // lets the renderer (and terraform.runs.get, backed by the same runId)
+      // find the run afterward.
+      const chunks: PulumiRunChunk[] = [{ stream: 'stdout', line: 'aws:ecs:Cluster hyveon: deleting' }];
+      async function* yieldChunks(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
         for (const chunk of chunks) yield chunk;
+        return undefined;
       }
-      const terraform = makeTerraform();
-      vi.mocked(terraform.destroy).mockImplementation(yieldChunks);
-      const { controller, createRun } = makeDestroyController(terraform);
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.destroy).mockImplementation(yieldChunks);
+      const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await controller.destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
-      const lockRunId = createRun.mock.calls[0]?.[2];
-      const [, terraformSignal, terraformRunId] = vi.mocked(terraform.destroy).mock.calls[0] as [
+      const [destroyToken, destroySignal, destroyRunId] = vi.mocked(pulumi.destroy).mock.calls[0] as [
         string,
         AbortSignal,
         string,
@@ -1503,10 +1046,10 @@ describe('TerraformController', () => {
         runId: string;
       }).runId;
 
-      expect(result.runId).toBe(lockRunId);
-      expect(terraformRunId).toBe(lockRunId);
-      expect(chunkRunId).toBe(lockRunId);
-      expect(terraformSignal).toBeInstanceOf(AbortSignal);
+      expect(destroyToken).toBe('token-abc');
+      expect(destroyRunId).toBe(result.runId);
+      expect(chunkRunId).toBe(result.runId);
+      expect(destroySignal).toBeInstanceOf(AbortSignal);
     });
   });
 
@@ -1515,50 +1058,75 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('output', () => {
-    /** A minimal resolved outputs payload shared across the "output" cases. */
-    const OUTPUTS = {
-      ecs_cluster_name: 'hyveon-cluster',
-    } as Partial<TfOutputs> as TfOutputs;
+    /** A minimal `StackOutputs` fixture shared across the "output" cases. */
+    const OUTPUTS: StackOutputs = {
+      awsRegion: 'us-east-1',
+      ecsClusterName: 'hyveon-cluster',
+      ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/hyveon-cluster',
+      subnetIds: ['subnet-1'],
+      securityGroupId: 'sg-1',
+      fileManagerSecurityGroupId: 'sg-2',
+      efsFileSystemId: 'fs-1',
+      efsAccessPoints: {},
+      domainName: 'example.com',
+      gameNames: ['minecraft'],
+      discordTableName: 'discord-table',
+      auditTableName: 'audit-table',
+      runsTableName: 'runs-table',
+      discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot',
+      discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:pubkey',
+      interactionsInvokeUrl: null,
+      discordInteractionsUrl: null,
+      appliedGameServers: null,
+    };
 
-    it('should resolve with whatever TerraformService.output resolves with', async () => {
-      const terraform = makeTerraform();
-      vi.mocked(terraform.output).mockResolvedValue(OUTPUTS);
+    it('should resolve with whatever ConfigService.getStackOutputs resolves with, when a ConfigService is wired', async () => {
+      const pulumi = makePulumi();
+      const { config } = makeConfig(OUTPUTS);
 
-      const result = await new TerraformController(terraform).output({});
+      const result = await new TerraformController(pulumi, undefined, undefined, config).output({});
 
       expect(result).toBe(OUTPUTS);
     });
 
-    it('should pass force: true through to TerraformService.output when the payload sets it', async () => {
-      const terraform = makeTerraform();
+    it('should fall back to PulumiService.getStackOutputs directly when no ConfigService is wired', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.getStackOutputs).mockResolvedValue(OUTPUTS);
 
-      await new TerraformController(terraform).output({ force: true });
+      const result = await new TerraformController(pulumi).output({});
 
-      expect(terraform.output).toHaveBeenCalledWith(true);
+      expect(result).toBe(OUTPUTS);
+      expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(1);
     });
 
-    it('should default force to false when the payload omits it', async () => {
-      const terraform = makeTerraform();
+    it('should resolve null when the stack has never been deployed', async () => {
+      const pulumi = makePulumi();
+      const { config } = makeConfig(null);
 
-      await new TerraformController(terraform).output({});
+      const result = await new TerraformController(pulumi, undefined, undefined, config).output({});
 
-      expect(terraform.output).toHaveBeenCalledWith(false);
+      expect(result).toBeNull();
     });
 
-    it('should default force to false when no payload is provided at all', async () => {
-      const terraform = makeTerraform();
+    it('should ignore payload.force — no cache-bypass behavior exists any more', async () => {
+      const pulumi = makePulumi();
+      const { config, getStackOutputs } = makeConfig(OUTPUTS);
 
-      await new TerraformController(terraform).output(undefined);
+      await new TerraformController(pulumi, undefined, undefined, config).output({ force: true });
 
-      expect(terraform.output).toHaveBeenCalledWith(false);
+      // force is accepted (kept for payload compatibility) but never
+      // forwarded anywhere — ConfigService.getStackOutputs takes no
+      // arguments under the Pulumi engine.
+      expect(getStackOutputs).toHaveBeenCalledWith();
     });
 
-    it('should propagate whatever error TerraformService.output rejects with', async () => {
-      const terraform = makeTerraform();
-      const error = new Error('terraform output -json exited with code 1');
-      vi.mocked(terraform.output).mockRejectedValue(error);
+    it('should default the payload to {} when no payload is provided at all', async () => {
+      const pulumi = makePulumi();
+      const { config } = makeConfig(OUTPUTS);
 
-      await expect(new TerraformController(terraform).output({})).rejects.toThrow(error);
+      const result = await new TerraformController(pulumi, undefined, undefined, config).output(undefined);
+
+      expect(result).toBe(OUTPUTS);
     });
   });
 
@@ -1568,11 +1136,11 @@ describe('TerraformController', () => {
 
   describe('approve', () => {
     it('should write approvedBy/approvedAt to the run record, using the OS-resolved username, and return them on a successful plan run', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1592,11 +1160,11 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } and never call RunRecordService.approveRun or AuditService.record when planRunId is missing', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: '',
       });
 
@@ -1607,13 +1175,13 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } when the run-history table is not configured, without writing anything or recording an audit entry', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
       const error = new RunRecordTableNotConfiguredError('run-123');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1622,13 +1190,13 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } when no run record exists for planRunId, without writing anything or recording an audit entry', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
       const error = new RunRecordNotFoundError('run-123');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1637,13 +1205,13 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } when the run record is not a plan run, without writing anything or recording an audit entry', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
       const error = new RunRecordNotPlanError('run-123', 'apply');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1652,13 +1220,13 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } when the plan run did not succeed, without writing anything or recording an audit entry', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
       const error = new RunRecordNotSuccessfulError('run-123', 'failed');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(terraform, audit, runRecord).approve({
+      const result = await new TerraformController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1667,9 +1235,9 @@ describe('TerraformController', () => {
     });
 
     it('should return { approved: false, error } when no RunRecordService is available', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
 
-      const result = await new TerraformController(terraform).approve({
+      const result = await new TerraformController(pulumi).approve({
         planRunId: 'run-123',
       });
 
@@ -1678,15 +1246,19 @@ describe('TerraformController', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // resolveRollback
+  // -------------------------------------------------------------------------
+
   describe('resolveRollback', () => {
     it('should return resolved: true with the target versionId and lastModified on success', async () => {
-      const terraform = makeTerraform();
+      const pulumi = makePulumi();
 
-      const result = await new TerraformController(terraform).resolveRollback({
+      const result = await new TerraformController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
       });
 
-      expect(terraform.resolveRollbackTarget).toHaveBeenCalledWith('apply-run-1');
+      expect(pulumi.resolveRollbackTarget).toHaveBeenCalledWith('apply-run-1');
       expect(result).toEqual({
         resolved: true,
         versionId: 'tfvars-v-prior',
@@ -1694,24 +1266,24 @@ describe('TerraformController', () => {
       });
     });
 
-    it('should return { resolved: false, error } and never call TerraformService.resolveRollbackTarget when applyRunId is missing', async () => {
-      const terraform = makeTerraform();
+    it('should return { resolved: false, error } and never call PulumiService.resolveRollbackTarget when applyRunId is missing', async () => {
+      const pulumi = makePulumi();
 
-      const result = await new TerraformController(terraform).resolveRollback({
+      const result = await new TerraformController(pulumi).resolveRollback({
         applyRunId: '',
       });
 
       expect(result.resolved).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.resolveRollbackTarget).not.toHaveBeenCalled();
+      expect(pulumi.resolveRollbackTarget).not.toHaveBeenCalled();
     });
 
     it('should return { resolved: false, error } with the thrown error message when resolution fails', async () => {
-      const terraform = makeTerraform();
-      const error = new RollbackVersionMissingError('tfvars-v-expired');
-      vi.mocked(terraform.resolveRollbackTarget).mockRejectedValue(error);
+      const pulumi = makePulumi();
+      const error = new Error('RollbackVersionMissingError: version tfvars-v-expired no longer exists');
+      vi.mocked(pulumi.resolveRollbackTarget).mockRejectedValue(error);
 
-      const result = await new TerraformController(terraform).resolveRollback({
+      const result = await new TerraformController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
       });
 
@@ -1719,64 +1291,193 @@ describe('TerraformController', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // confirmRollback — the one structurally new streaming shape (task 7.10)
+  // -------------------------------------------------------------------------
+
   describe('confirmRollback', () => {
-    it('should return confirmed: true with the new head versionId on success', async () => {
-      const terraform = makeTerraform();
+    it('should return { confirmed: false, error } and never call PulumiService.confirmRollback when applyRunId is missing', async () => {
+      const pulumi = makePulumi();
+      const { ctx } = makeCtx();
 
-      const result = await new TerraformController(terraform).confirmRollback({
-        applyRunId: 'apply-run-1',
-      });
+      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: '' }, ctx);
 
-      expect(terraform.confirmRollback).toHaveBeenCalledWith('apply-run-1');
+      expect(result.confirmed).toBe(false);
+      expect(typeof result.error).toBe('string');
+      expect(pulumi.confirmRollback).not.toHaveBeenCalled();
+    });
+
+    it('should drive the generator to completion, forwarding every intermediate chunk on terraform.rollback.confirm.chunk tagged with applyRunId', async () => {
+      const chunks: PulumiRunChunk[] = [
+        { stream: 'stdout', line: 'Previewing update (rollback)...' },
+        { stream: 'stdout', line: '+ 1 to create' },
+      ];
+      async function* yieldsThenSettles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        for (const chunk of chunks) yield chunk;
+        return buildPreviewResult({ runId: 'rollback-plan-run-1' });
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(yieldsThenSettles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
+      const { ctx, sender } = makeCtx();
+
+      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
       expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-new-head' });
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.rollback.confirm.chunk');
+      expect(chunkCalls).toEqual([
+        ['terraform.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
+        ['terraform.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[1] }],
+      ]);
+    });
+
+    it('should call PulumiService.readRunRecord with the settled result\'s runId to recover the restored version id', async () => {
+      // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
+      async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        return buildPreviewResult({ runId: 'rollback-plan-run-42' });
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(
+        buildRunRecord({ runId: 'rollback-plan-run-42', tfvarsVersionId: 'tfvars-v-recovered' }),
+      );
+      const { ctx } = makeCtx();
+
+      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
+      expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-recovered' });
+    });
+
+    it('should only resolve the ack once the whole restore+plan generator has settled — not before', async () => {
+      let settled = false;
+      let resolveGenerator: (() => void) | undefined;
+      async function* waitsThenSettles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        yield { stream: 'stdout', line: 'restoring historic configuration...' };
+        await new Promise<void>((resolve) => {
+          resolveGenerator = resolve;
+        });
+        settled = true;
+        return buildPreviewResult();
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(waitsThenSettles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
+      const { ctx } = makeCtx();
+
+      const ackPromise = new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      resolveGenerator?.();
+      const result = await ackPromise;
+
+      expect(settled).toBe(true);
+      expect(result.confirmed).toBe(true);
     });
 
     it('should record an audit entry with action "rollback" and the new head versionId on success', async () => {
-      const terraform = makeTerraform();
+      // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
+      async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        return buildPreviewResult();
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
 
-      await new TerraformController(terraform, audit).confirmRollback({
-        applyRunId: 'apply-run-1',
-      });
+      await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
       expect(recordedEntry).toMatchObject({ action: 'rollback', versionId: 'tfvars-v-new-head' });
     });
 
-    it('should return { confirmed: false, error } and never call TerraformService.confirmRollback when applyRunId is missing', async () => {
-      const terraform = makeTerraform();
-
-      const result = await new TerraformController(terraform).confirmRollback({
-        applyRunId: '',
+    it('should return { confirmed: false, error } with the thrown error message and write nothing when the restore-then-plan unit fails', async () => {
+      const pulumi = makePulumi();
+      const error = new Error('PulumiRollbackPlanFailedError: restore succeeded but the follow-up plan failed');
+      vi.mocked(pulumi.confirmRollback).mockImplementation(() => {
+        throw error;
       });
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(result).toEqual({ confirmed: false, error: error.message });
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('should return a well-formed { confirmed: false, error } ack — not a crash — when the generator settles with an undefined result (aborted mid-run)', async () => {
+      // Only reachable if `signal` aborted mid-run before the generator
+      // returned a real PulumiPreviewResult — defensive branch, not the
+      // normal "aborted via thrown error" path.
+      // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
+      async function* settlesWithUndefined(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
+        return undefined;
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(settlesWithUndefined);
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
-      expect(terraform.confirmRollback).not.toHaveBeenCalled();
+      expect(pulumi.readRunRecord).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
     });
 
-    it('should return { confirmed: false, error } with the thrown error message and write nothing when confirmation fails', async () => {
-      const terraform = makeTerraform();
-      const error = new RollbackVersionMissingError('tfvars-v-expired');
-      vi.mocked(terraform.confirmRollback).mockRejectedValue(error);
+    it('should return { confirmed: false, error } — not a "confirmed: true" ack with no versionId — when readRunRecord finds no record for the settled runId', async () => {
+      // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
+      async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        return buildPreviewResult({ runId: 'rollback-plan-run-1' });
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(null);
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
 
-      const result = await new TerraformController(terraform).confirmRollback({
-        applyRunId: 'apply-run-1',
-      });
+      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
-      expect(result).toEqual({ confirmed: false, error: error.message });
+      expect(result.confirmed).toBe(false);
+      expect(typeof result.error).toBe('string');
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('should return { confirmed: false, error } — the defensive branch — when the recovered record has no tfvarsVersionId', async () => {
+      // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
+      async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
+        return buildPreviewResult({ runId: 'rollback-plan-run-1' });
+      }
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord({ tfvarsVersionId: undefined }));
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+
+      expect(result.confirmed).toBe(false);
+      expect(typeof result.error).toBe('string');
+      expect(record).not.toHaveBeenCalled();
     });
 
     it('should not record an audit entry when confirmation fails', async () => {
-      const terraform = makeTerraform();
-      const { audit, record } = makeAudit();
-      const error = new RollbackVersionMissingError('tfvars-v-expired');
-      vi.mocked(terraform.confirmRollback).mockRejectedValue(error);
-
-      await new TerraformController(terraform, audit).confirmRollback({
-        applyRunId: 'apply-run-1',
+      const pulumi = makePulumi();
+      const error = new Error('RollbackVersionMissingError: version tfvars-v-expired no longer exists');
+      vi.mocked(pulumi.confirmRollback).mockImplementation(() => {
+        throw error;
       });
+      const { audit, record } = makeAudit();
+      const { ctx } = makeCtx();
+
+      await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(record).not.toHaveBeenCalled();
     });
