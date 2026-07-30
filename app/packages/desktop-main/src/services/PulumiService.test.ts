@@ -47,6 +47,7 @@ import {
   type PulumiWorkspaceService,
 } from './PulumiWorkspaceService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
 /**
@@ -104,13 +105,28 @@ function makeModuleRef(): ModuleRef {
   return { get: vi.fn(() => { throw new Error('ModuleRef.get() was not expected to be called by this test'); }) } as unknown as ModuleRef;
 }
 
-/** Constructs a real `PulumiService` for tests, defaulting `moduleRef` (added by task 7.1's `preview()`) to a stub unless a test overrides it. */
+/**
+ * Stub `PulumiEngineService` — task 7.2's `apply()` gate depends on
+ * `resolve()`/`getResolvedVersion()`. None of `getStackOutputs()`'s existing
+ * tests ever reach `apply()`, so both methods throwing is intentional — it
+ * proves a test that unexpectedly exercises the engine-version gate fails
+ * loudly instead of silently resolving `undefined`.
+ */
+function makeEngine(): PulumiEngineService {
+  return {
+    resolve: vi.fn(() => { throw new Error('PulumiEngineService.resolve() was not expected to be called by this test'); }),
+    getResolvedVersion: vi.fn(() => { throw new Error('PulumiEngineService.getResolvedVersion() was not expected to be called by this test'); }),
+  } as unknown as PulumiEngineService;
+}
+
+/** Constructs a real `PulumiService` for tests, defaulting `moduleRef`/`engine` (added by tasks 7.1/7.2) to stubs unless a test overrides them. */
 function makeService(
   workspace: PulumiWorkspaceService,
   store: ElectronStoreService,
   moduleRef: ModuleRef = makeModuleRef(),
+  engine: PulumiEngineService = makeEngine(),
 ): PulumiService {
-  return new PulumiService(workspace, store, moduleRef);
+  return new PulumiService(workspace, store, moduleRef, engine);
 }
 
 /** Every field {@link makeStore} needs set for `getStackOutputs()` to reach the Pulumi call. */

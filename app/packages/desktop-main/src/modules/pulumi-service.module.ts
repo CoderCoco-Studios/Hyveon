@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PulumiService } from '../services/PulumiService.js';
+import { PulumiEngineModule } from './pulumi-engine.module.js';
 import { PulumiWorkspaceModule } from './pulumi-workspace.module.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 
@@ -20,6 +21,13 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * (the thin delegate every existing `getTfOutputs()` call site now calls)
  * can inject `PulumiService`.
  *
+ * Also imports `PulumiEngineModule` directly (task 7.2, `PulumiService.apply`'s
+ * `PulumiEngineService` constructor dependency, needed for the gate's
+ * engine-version check). This is an ordinary, non-cyclic `imports:` edge —
+ * `PulumiEngineModule` has no dependencies of its own (see its own doc
+ * comment) — unlike `RunRecordModule`/`ConfigModule` below, which genuinely
+ * would close a cycle if imported statically.
+ *
  * **Deliberately does NOT import `RunRecordModule`/`CloudProviderModule`**,
  * even though `PulumiService.preview()` (task 7.1) depends on
  * `RunRecordService`/`REMOTE_FILE_STORE`, both provided by those modules.
@@ -35,7 +43,7 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * any module wiring at all, so this file needed no change to support it.
  */
 @Module({
-  imports: [PulumiWorkspaceModule, ElectronStoreModule],
+  imports: [PulumiWorkspaceModule, PulumiEngineModule, ElectronStoreModule],
   providers: [PulumiService],
   exports: [PulumiService],
 })

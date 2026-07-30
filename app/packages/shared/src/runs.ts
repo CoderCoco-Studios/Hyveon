@@ -123,6 +123,18 @@ export interface RunRecord {
    * scenario.
    */
   engineVersion?: string;
+  /**
+   * `true` only on a `kind: 'apply'` record whose engine invocation failed
+   * AFTER at least one resource step had already been applied — a
+   * plan-constrained `PulumiService.apply` (task 7.2, `migrate-iac-to-pulumi`)
+   * is not all-or-nothing, so a divergence detected partway through leaves
+   * earlier changes applied. Deliberately additive rather than a fourth
+   * {@link RunStatus} value: `RunStatus` is the hash key of the
+   * `status-index` DynamoDB GSI, so widening its value set is a bigger,
+   * infra-affecting change a run-terminal-state distinction alone doesn't
+   * justify. Absent (never `false`) on every non-partial record.
+   */
+  partialApply?: boolean;
 }
 
 /**

@@ -1,19 +1,29 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { EngineEvent, OutputMap, PreviewResult } from '@pulumi/pulumi/automation/index.js';
+import type { EngineEvent, OutputMap, PreviewResult, UpResult } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
-import { CONFIGURATION_OBJECT_KEY } from '@hyveon/shared';
-import type { ChangeSummary, DeploymentConfig, OpType, RemoteFileStore, RunKind, StackOutputs } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, isApprovalExpired } from '@hyveon/shared';
+import type {
+  ChangeSummary,
+  DeploymentConfig,
+  OpType,
+  RemoteFileStore,
+  RunKind,
+  RunLock,
+  RunRecord,
+  StackOutputs,
+} from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
+import { PulumiEngineService } from './PulumiEngineService.js';
+import { PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import {
   PulumiOperationAbortedError,
   PulumiOperationEscalatedError,
@@ -21,6 +31,7 @@ import {
   runWithEscalatingCancellation,
 } from './PulumiCancellation.js';
 import { runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
+import { classifyStackLockConflict, isStackLockConflict, PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
 import type { PersistRunRecordParams } from './RunRecordService.js';
 
 /** Absolute path to the `dist/services/` directory at runtime — mirrors `ConfigService.ts`'s identically-named constant. */
@@ -63,16 +74,69 @@ export const RUN_RECORD_PERSISTER = Symbol('RUN_RECORD_PERSISTER');
 
 /**
  * The slice of `RunRecordService`'s public surface {@link PulumiService.preview}
- * (and, later, `.up`/`.destroy`) depends on — persisting a finished run to
- * the cloud-agnostic run-history store (DynamoDB for AWS) alongside the
- * captured log transcript. Structurally identical to `RunRecordService.persist`'s
- * own signature; kept as a separate interface (rather than importing
- * `RunRecordService` as a type and referencing it directly) purely so
- * nothing in this file ever needs `RunRecordService` as a value — see
- * {@link RUN_RECORD_PERSISTER}'s doc comment.
+ * and (task 7.2) {@link PulumiService.apply} depend on — persisting a
+ * finished run to the cloud-agnostic run-history store (DynamoDB for AWS)
+ * alongside the captured log transcript, plus (task 7.2's addition)
+ * `getByRunId`, which {@link PulumiService.apply}'s gate uses to look up the
+ * plan record it's applying (gate step 1). Structurally identical to
+ * `RunRecordService.persist`/`.getByRunId`'s own signatures; kept as a
+ * separate interface (rather than importing `RunRecordService` as a type and
+ * referencing it directly) purely so nothing in this file ever needs
+ * `RunRecordService` as a value — see {@link RUN_RECORD_PERSISTER}'s doc
+ * comment.
  */
 export interface RunRecordPersister {
   persist(params: PersistRunRecordParams, logFilePath: string | null): Promise<void>;
+  getByRunId(runId: string): Promise<RunRecord | undefined>;
+}
+
+/**
+ * DI token for the narrow slice of `RunService`'s public surface
+ * {@link PulumiService.apply} depends on — acquiring the durable apply lock
+ * (gate step 8's atomic compare-and-set, task 7.7) via `createRun`. Bound to
+ * the real `RunService` singleton via `useExisting` in `run-record.module.ts`,
+ * resolved lazily by `PulumiService` via a `strict: false` `ModuleRef.get()`
+ * lookup — mirrors {@link RUN_RECORD_PERSISTER} exactly, including the
+ * reason (a value-level import of `RunService` here would create the same
+ * kind of circular `import` `RUN_RECORD_PERSISTER`'s doc comment describes:
+ * `RunService.ts` imports `ConfigService.ts`, which imports this very file
+ * for its `getStackOutputs()` delegate).
+ */
+export const RUN_LOCK_SERVICE = Symbol('RUN_LOCK_SERVICE');
+
+/**
+ * The slice of `RunService`'s public surface {@link PulumiService.apply}
+ * depends on — see {@link RUN_LOCK_SERVICE}'s doc comment. Structurally
+ * identical to `RunService.createRun`'s own signature.
+ */
+export interface RunLockService {
+  createRun(kind: RunKind, initiator: string, runId?: string): Promise<RunLock>;
+}
+
+/**
+ * DI token for the narrow slice of `ConfigService`'s public surface
+ * {@link PulumiService.apply} depends on — invalidating the memoised
+ * `getStackOutputs()`/tfstate cache on a successful apply (requirement
+ * carried forward from task 7.4's review: nothing in production currently
+ * calls this after a deploy, so without it the dashboard would show "not
+ * deployed" indefinitely after the first real apply). Bound to the real
+ * `ConfigService` singleton via `useExisting` in `config.module.ts`,
+ * resolved lazily by `PulumiService` via a `strict: false` `ModuleRef.get()`
+ * lookup — mirrors {@link RUN_RECORD_PERSISTER} exactly: a value-level
+ * import of `ConfigService` here would be the exact circular `import`
+ * `PulumiService.getConfigurationBucket`'s doc comment already explains
+ * `PulumiService` can never take (`ConfigService.getStackOutputs()` already
+ * depends on `PulumiService`).
+ */
+export const CONFIG_CACHE_INVALIDATOR = Symbol('CONFIG_CACHE_INVALIDATOR');
+
+/**
+ * The slice of `ConfigService`'s public surface {@link PulumiService.apply}
+ * depends on — see {@link CONFIG_CACHE_INVALIDATOR}'s doc comment.
+ * Structurally identical to `ConfigService.invalidateCache`'s own signature.
+ */
+export interface ConfigCacheInvalidator {
+  invalidateCache(): void;
 }
 
 /**
@@ -149,6 +213,32 @@ export interface RunRecordPersister {
  * still joined directly into filesystem paths under {@link PulumiService.getRunsDir}.
  */
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * `OpType`s that represent a genuine applied resource mutation — used by
+ * {@link PulumiService.apply} to detect a partial apply from `onEvent`'s
+ * `resOutputsEvent` stream (see that method's TSDoc, "Partial-apply
+ * detection"). Excludes `'same'` (the resource already matched its desired
+ * state — no mutation happened), `'read'`/`'read-replacement'`/`'refresh'`
+ * (state reads, not mutations), and the `'discard'`/`'discard-replaced'`/
+ * `'remove-pending-replace'` plan-only bookkeeping ops (per
+ * `@pulumi/pulumi/automation/stack.d.ts`'s `OpType` doc comments, these
+ * describe plan-time bookkeeping, not something a real `stack.up()` ever
+ * reports as completed). Includes `'import'`/`'import-replacement'` — an
+ * import genuinely brings a resource under management, a real mutation of
+ * the stack's desired state even though no cloud API call recreates the
+ * resource itself.
+ */
+const MUTATING_OP_TYPES: ReadonlySet<OpType> = new Set([
+  'create',
+  'update',
+  'delete',
+  'replace',
+  'create-replacement',
+  'delete-replaced',
+  'import',
+  'import-replacement',
+]);
 
 /**
  * A single line of streamed stdout/stderr output from a Pulumi Automation
@@ -275,7 +365,58 @@ export interface PulumiRunRecord {
   changeSummary?: ChangeSummary;
   /** The engine version stamped into the saved plan artifact — see {@link PulumiPreviewResult.engineVersion}. */
   engineVersion?: string;
+  /**
+   * `true` only on a `kind: 'apply'` record whose `stack.up()` call failed
+   * AFTER at least one resource step had already been applied — task 7.2's
+   * "distinguish clean failure from partial apply" requirement. Deliberately
+   * an ADDITIVE field alongside `exitCode` (which stays a nonzero `1` for
+   * both a clean and a partial failure) rather than a fourth `RunStatus`
+   * value: `RunStatus` is also the hash key of the `status-index` DynamoDB
+   * GSI (`terraform/aws/runs_store.tf`), so widening its value set is an
+   * infra-affecting change this dispatch declines to take on without
+   * explicit justification — an additive boolean lets the UI/later logic
+   * check "is this a partial apply" without touching the GSI's key schema at
+   * all. Absent (never `false`) on every non-partial record, mirroring this
+   * file's established "absence means N/A, not false" convention for
+   * `changeSummary`/`engineVersion` above.
+   */
+  partialApply?: boolean;
 }
+
+/**
+ * Outcome of a successful {@link PulumiService.apply} run, resolved via the
+ * async generator's return value once `stack.up()` settles and the run
+ * wasn't aborted. Deliberately narrower than {@link PulumiPreviewResult}: no
+ * `artifactPath`/`planHash`/`engineVersion` — those describe the *plan* this
+ * apply was constrained by (already on the plan's own {@link PulumiRunRecord},
+ * looked up via `planRunId`), not a fresh artifact this run itself produces.
+ */
+export interface PulumiUpResult {
+  /** The `runId` of this apply run — always equal to the `planRunId` the gate validated (see {@link PulumiService.apply}'s "run id" doc section). */
+  runId: string;
+  /**
+   * The structured resource-change summary this run's `stack.up()` reported,
+   * captured via `onEvent`'s `summaryEvent` — see {@link ChangeSummary}'s
+   * doc comment for the "`{}` means summary missed, not no changes" sharp
+   * edge every reader must respect.
+   */
+  changeSummary: ChangeSummary;
+}
+
+/**
+ * Describes what {@link PulumiService.apply} was about to return/throw the
+ * moment its operation settled — captured before the run record is
+ * persisted so a persistence failure (see {@link PulumiRunPersistError})
+ * doesn't discard the real outcome. Mirrors {@link PulumiPreviewOutcome},
+ * plus `partialApply` on the `'failed'` variant (task 7.2's clean-failure-
+ * vs-partial-apply distinction — see {@link PulumiRunRecord.partialApply}'s
+ * doc comment for why this is a sibling flag rather than a fourth outcome
+ * kind).
+ */
+export type PulumiApplyOutcome =
+  | { kind: 'success'; result: PulumiUpResult }
+  | { kind: 'aborted' }
+  | { kind: 'failed'; error: Error; partialApply: boolean };
 
 /**
  * Phase 7 (`migrate-iac-to-pulumi`) service replacing `TerraformService.ts`
@@ -309,14 +450,25 @@ export class PulumiService {
 
   /**
    * `workspace`/`store` are the same two dependencies this class has taken
-   * since task 7.4. `moduleRef` is `preview`'s (task 7.1) route to
-   * `RUN_RECORD_PERSISTER` (the DynamoDB run-history write path) and
-   * `REMOTE_FILE_STORE` (the cloud-agnostic config-object store) — see
-   * {@link getRunRecordPersister}/{@link getRemoteFileStore} for why these
-   * are resolved lazily via `ModuleRef.get(token, { strict: false })` at
-   * call time rather than taken as ordinary constructor-injected
-   * dependencies: `pulumi-service.module.ts`'s own doc comment has the full
-   * story (a `forwardRef()`-guarded static import cycle was tried first and
+   * since task 7.4. `engine` (task 7.2's addition) is `apply`'s route to
+   * `PulumiEngineService.getResolvedVersion()` for the gate's engine-version
+   * check (step 7) — an ordinary constructor dependency, not a lazy
+   * `ModuleRef` lookup, because `PulumiEngineModule` has no dependencies of
+   * its own and importing it into `pulumi-service.module.ts` creates no
+   * cycle (unlike `RunRecordModule`/`ConfigModule`, both reachable from
+   * `PulumiServiceModule`'s own importers — see below). `moduleRef` is
+   * `preview`'s (task 7.1) route to `RUN_RECORD_PERSISTER` (the DynamoDB
+   * run-history write path) and `REMOTE_FILE_STORE` (the cloud-agnostic
+   * config-object store), and (task 7.2's addition) `apply`'s route to
+   * `RUN_LOCK_SERVICE` (the durable apply lock, gate step 8) and
+   * `CONFIG_CACHE_INVALIDATOR` (the post-apply cache invalidation, task
+   * 7.4's carried-forward requirement) — see {@link getRunRecordPersister}/
+   * {@link getRemoteFileStore}/{@link getRunLockService}/
+   * {@link getConfigCacheInvalidator} for why these four are resolved
+   * lazily via `ModuleRef.get(token, { strict: false })` at call time rather
+   * than taken as ordinary constructor-injected dependencies:
+   * `pulumi-service.module.ts`'s own doc comment has the full story (a
+   * `forwardRef()`-guarded static import cycle was tried first and
    * empirically deadlocks this project's native-ESM module graph at boot).
    * `ModuleRef` itself is a core Nest primitive with no relation to any
    * module in that cycle, so injecting it creates no new edge at all.
@@ -325,6 +477,7 @@ export class PulumiService {
     private readonly workspace: PulumiWorkspaceService,
     private readonly store: ElectronStoreService,
     private readonly moduleRef: ModuleRef,
+    private readonly engine: PulumiEngineService,
   ) {}
 
   /**
@@ -386,6 +539,51 @@ export class PulumiService {
       throw new Error(
         'PulumiService: REMOTE_FILE_STORE is not registered anywhere in the application\'s DI ' +
           `container — this is a wiring bug (see cloud-provider.module.ts), not a runtime condition: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Lazily resolves the real `RunService` singleton (bound to
+   * {@link RUN_LOCK_SERVICE} by `run-record.module.ts`) — mirrors
+   * {@link getRunRecordPersister} exactly, including the same loud-failure
+   * shape on a missing binding. {@link apply}'s gate step 8 (task 7.7's
+   * atomic compare-and-set) is the only caller — nothing wraps this in a
+   * try/catch the way `persistRunRecord` wraps {@link getRunRecordPersister},
+   * since a missing binding here is a wiring bug, not a condition `apply`
+   * should degrade past.
+   */
+  private getRunLockService(): RunLockService {
+    try {
+      return this.moduleRef.get<RunLockService>(RUN_LOCK_SERVICE, { strict: false });
+    } catch (err) {
+      throw new Error(
+        'PulumiService: RUN_LOCK_SERVICE is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see run-record.module.ts), not a runtime condition: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Lazily resolves the real `ConfigService` singleton (bound to
+   * {@link CONFIG_CACHE_INVALIDATOR} by `config.module.ts`) — mirrors
+   * {@link getRunRecordPersister} exactly. {@link apply} calls this only
+   * on a successful apply, to invalidate the memoised `getStackOutputs()`
+   * cache (task 7.4's carried-forward review requirement) — a failure to
+   * resolve this token is logged and swallowed at that call site (mirroring
+   * `persistRunRecord`'s "never let a side-effect write mask an otherwise-
+   * successful apply" policy), not propagated raw the way
+   * {@link getRemoteFileStore}'s failures are.
+   */
+  private getConfigCacheInvalidator(): ConfigCacheInvalidator {
+    try {
+      return this.moduleRef.get<ConfigCacheInvalidator>(CONFIG_CACHE_INVALIDATOR, { strict: false });
+    } catch (err) {
+      throw new Error(
+        'PulumiService: CONFIG_CACHE_INVALIDATOR is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see config.module.ts), not a runtime condition: ` +
           `${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -1173,6 +1371,809 @@ export class PulumiService {
   }
 
   /**
+   * Runs `pulumi up` constrained by a previously approved, unexpired plan —
+   * `TerraformService.apply`'s successor (task 7.2), replacing the old
+   * `TerraformController.apply`'s controller-side gate with a
+   * **self-contained** gate this method owns end-to-end (this dispatch's
+   * controller ruling: `TerraformController` split the gate across itself
+   * and `TerraformService`; `PulumiService.apply` does not — there is no
+   * `PulumiController` yet, and this method needs none).
+   *
+   * ## The 8-step gate, in the exact order the `iac-plan-apply-page` spec
+   * requires ("The gate MUST verify, in order: ...")
+   *
+   * 1. `RunRecordPersister.getByRunId(planRunId)` — a record exists at all.
+   *    Throws {@link PulumiPlanRunNotFoundError} otherwise.
+   * 2. `record.kind === 'plan'`. Throws {@link PulumiPlanRunWrongKindError}
+   *    otherwise.
+   * 3. `record.approvedBy && record.approvedAt` are both set. Throws
+   *    {@link PulumiPlanNotApprovedError} otherwise.
+   * 4. `!isApprovalExpired(record.approvedAt)` (the fixed 15-minute
+   *    `APPROVAL_WINDOW_MS` window, `@hyveon/shared/runs.js`). Throws
+   *    {@link PulumiApprovalExpiredError} otherwise.
+   * 5. `record.planHash === planHash` — the caller-supplied hash matches the
+   *    record's own stored hash. Throws {@link PulumiPlanHashMismatchError}
+   *    otherwise (a forged or stale hash can never reach `stack.up()`).
+   * 6. Re-verifies the record's hash against reality, in two parts, NEITHER
+   *    of which ever parses the on-disk plan artifact as JSON — satisfying
+   *    the spec's "the configuration check MUST NOT depend on the plan file
+   *    being parseable":
+   *    - 6a. The configuration object's CURRENT head version id
+   *      (`RemoteFileStore.listVersions`) is compared directly against
+   *      `record.tfvarsVersionId` (the version the plan actually ran
+   *      against). A mismatch means the configuration has been written
+   *      again since the plan was reviewed — throws {@link StalePlanError}
+   *      (reused, not reinvented: this is exactly the condition that class
+   *      already exists to describe, byte-for-byte the same shape
+   *      `TerraformService.pullVarFile`'s pre-existing staleness check
+   *      used).
+   *    - 6b. The on-disk plan artifact is re-hashed
+   *      (`computePlanHash(artifactPath, currentConfigVersionId)` — raw
+   *      bytes only, never `JSON.parse`d) and compared against
+   *      `record.planHash`. Since 6a already proved the config version is
+   *      unchanged, a mismatch here can only mean the artifact's *bytes*
+   *      differ from what was hashed at plan time — i.e. the file was
+   *      swapped or tampered with since review. Throws
+   *      {@link PulumiPlanArtifactStaleError} — a NEW class (7.9's 13 didn't
+   *      anticipate this specific byte-tamper case; `StalePlanError`'s shape
+   *      is about S3 config-object versions, not artifact bytes, so it does
+   *      not fit here) — also thrown, wrapping the read/hash failure as
+   *      `cause`, if the artifact can't be read/hashed at all.
+   * 7. The plan's stamped `record.engineVersion` (already normalized,
+   *    no `v` prefix, by `preview()`/`readEngineVersionFromPlanArtifact`)
+   *    is compared against `PulumiEngineService.getResolvedVersion()` —
+   *    `this.engine.resolve()` is awaited first to guarantee that accessor
+   *    is populated even on a fresh app session where no prior
+   *    `preview()`/`up()` call has resolved the engine yet (its own
+   *    memoization makes this a no-op, not a re-provision, once already
+   *    resolved — e.g. by an earlier `preview()` in the same process).
+   *    A mismatch throws {@link PulumiEngineVersionMismatchError}, naming
+   *    both versions, satisfying the spec's "an error that names the
+   *    version change".
+   * 8. **THEN, AND ONLY THEN**: `RunLockService.createRun('apply', initiator, planRunId)`
+   *    — task 7.7's atomic compare-and-set, the FINAL and
+   *    AUTHORITATIVE step. Steps 1-7 above are pure reads (no
+   *    `getWorkspaceInFlight()`-style "is it free" pre-check is performed
+   *    anywhere in this method, deliberately — that is exactly the
+   *    anti-pattern task 7.7 exists to eliminate); two concurrent `apply()`
+   *    calls for the same plan race through steps 1-7 harmlessly and only
+   *    ONE of them wins this step's atomic reservation
+   *    (`RunService.createRun`'s in-memory check-then-set is synchronous,
+   *    before its own first `await`; its DynamoDB layer is a genuine
+   *    conditional `PutItem` — both confirmed already atomic, not
+   *    reinvented here). The loser's `createRun` call rejects with
+   *    `RunLockHeldError` (`@hyveon/shared`), which this method does not
+   *    catch or reclassify — it propagates raw, carrying the winning lock's
+   *    detail, for a future controller to map onto an ack shaped like
+   *    `{ started: false, conflict: 'apply' }`, the same way
+   *    `TerraformController.apply` did.
+   *
+   * `initiator` is resolved internally via {@link resolveInitiator}
+   * (`os.userInfo().username`, duplicating `TerraformController.resolveApprover()`'s
+   * identical lookup) rather than taken as a parameter — this method is
+   * self-contained per the ruling above, and there is no controller yet to
+   * resolve it instead.
+   *
+   * `runId` is always `planRunId` itself (never a fresh `randomUUID()`) —
+   * mirrors `TerraformController.apply`'s established precedent ("the
+   * applied plan and its apply run record share the same
+   * `<runsDir>/<runId>/` lineage"): the plan's own `runId` is reused so the
+   * plan artifact, the plan's `run.json`, and the apply's `run.json` all
+   * live under one `<runsDir>/<planRunId>/` directory, and so `RunLockService.createRun`'s
+   * `runId` parameter *is* the atomic reservation key both task 7.7's gate
+   * and the plan/apply lineage need to agree on.
+   *
+   * ## Nothing is reserved before step 8 — verified, not just asserted
+   *
+   * `this.beginActiveRun(runId)` (the active-run streaming buffer) and
+   * `this.store.recordPulumiLockAttempt(...)` (the DIY-lock ownership
+   * record, see below) are BOTH called only after step 8's `createRun` has
+   * already resolved successfully — reading this method top-to-bottom
+   * confirms no side effect precedes the atomic reservation, satisfying task
+   * 7.7's "nothing before this point may reserve anything".
+   *
+   * ## Does `up()` take the DIY backend lock? (confirmed this dispatch)
+   *
+   * **Yes.** {@link preview}'s own TSDoc ("Does `preview` take the DIY
+   * backend lock?") already verified `diyBackend.Preview` calls `b.apply`
+   * directly, with no `Lock`/`Unlock` anywhere in that path. The SAME Go
+   * source (`pkg/backend/diy/backend.go`) shows `diyBackend.Update` — the
+   * path `stack.up()` reaches — wraps its call in
+   * `err := b.Lock(ctx, stack.Ref()); defer b.Unlock(ctx, stack.Ref())`
+   * before proceeding. This confirms `up` genuinely takes and releases the
+   * DIY backend lock around the whole update, and is why (unlike `preview`)
+   * this method wires the lock-recovery primitives below.
+   *
+   * ## Lock-recovery wiring (Phase 4 primitives, wired for real for the
+   * first time by this dispatch)
+   *
+   * Immediately before calling `stack.up()` (never earlier — see "Nothing
+   * is reserved before step 8" above), this method records a lock-ownership
+   * attempt via `ElectronStoreService.recordPulumiLockAttempt(PULUMI_STACK_NAME)`,
+   * keeping the returned attempt id in scope. On every settlement of the
+   * wrapped `stack.up()` call EXCEPT {@link PulumiOperationEscalatedError},
+   * the attempt is cleared via `clearPulumiLockAttempt` — a normal CLI exit
+   * (success, a genuine failure, or a cancellation the CLI itself
+   * acknowledged via `SIGINT`) releases its own DIY lock via the backend's
+   * own `Unlock()`, so the record is no longer needed as reclaim evidence
+   * (mirrors `recordPulumiLockAttempt`'s own doc comment: "Never call
+   * [`clearPulumiLockAttempt`] when the operation was forcefully
+   * terminated"). An {@link PulumiOperationEscalatedError} settlement is
+   * exactly that forceful-termination case — see "Force-close safety net"
+   * below for why the record is deliberately left behind on that path.
+   *
+   * If `stack.up()` itself rejects with a lock conflict
+   * (`isStackLockConflict` — `instanceof ConcurrentUpdateError`, or the
+   * DIY-backend message pattern as a backstop), the rejection is classified
+   * via `PulumiLockRecovery.classifyStackLockConflict`:
+   * - `'reclaimable-own-orphan'` — every lock present is provably this
+   *   installation's own dead orphan (identity + liveness + time-consistency,
+   *   per that function's own TSDoc). Per `PulumiLockRecovery.ts`'s own doc
+   *   comment ("Phase 7's caller acts on that classification directly —
+   *   calling `stack.cancel()` and retrying — without ever constructing or
+   *   throwing an error for it"), this method clears the lock via
+   *   `stack.cancel()` and retries `stack.up()` exactly once with the same
+   *   options/signal. No operator confirmation is involved — the spec's
+   *   "The app MAY reclaim it without prompting" — and this is the FIRST
+   *   real exercise of that classification anywhere in the codebase.
+   * - `'requires-confirmation'` (anything not provably an own orphan,
+   *   including "no locks could even be parsed") — throws
+   *   {@link PulumiUnrecognizedLockError} (holder + age already carried on
+   *   `locks`, per spec), and this method does NOT clear anything — clearing
+   *   an unrecognized lock needs explicit operator confirmation, a later
+   *   phase's UI concern.
+   *
+   * ## Force-close safety net for a wedged engine (investigated this
+   * dispatch — the residual gap 7.1's review flagged, now higher-stakes
+   * since `up()` holds the real backend lock)
+   *
+   * `preview()`'s outer `finally` — mirrored here — aborts and awaits its
+   * internal operation on a force-closed generator, but that `finally` can
+   * only run once the generator's CURRENT suspension point resolves. If the
+   * generator is parked mid-drain-loop on its own internal
+   * `await new Promise((resolveWait) => { wake = resolveWait })` (not a
+   * `yield`) waiting for `stack.up()` to settle, and `stack.up()` is
+   * genuinely wedged (ignores `SIGINT`, or is stuck between signal checks in
+   * a cloud-provider API call) — `runWithEscalatingCancellation`'s own
+   * escalation timer NEVER ARMS, because arming it requires `internalController.abort()`
+   * to have already fired, and the only thing that calls that (absent a
+   * caller-supplied `signal` that itself aborts) is this method's own outer
+   * `finally`. That `finally` cannot run until the pending internal `await`
+   * resolves; that `await` cannot resolve until the escalation timer fires;
+   * the escalation timer cannot arm until `finally` calls `abort()`. This is
+   * a genuine circular dependency — a wedged engine with no caller-supplied
+   * `signal` can leave this generator (and its outer `finally`) suspended
+   * indefinitely, with the DIY backend lock still held by the CLI
+   * subprocess. Fully closing this gap (an unconditional watchdog
+   * independent of `.return()` ever being called, or the "unofficial `run`
+   * override" `PulumiCancellation.ts`'s TSDoc floats for a real killable
+   * process handle) is a larger change than this dispatch takes on — this
+   * section documents the finding per the brief's investigation charge,
+   * rather than silently leaving it unstated.
+   *
+   * **The lock-ownership record recorded above IS a sufficient backstop for
+   * this exact gap.** `ElectronStoreService.recordPulumiLockAttempt` is a
+   * synchronous, already-completed write to `electron-store` made BEFORE
+   * `stack.up()` is ever invoked — entirely unaffected by any later hang
+   * inside that call. Whether this run's own generator ever gets a chance
+   * to run its `finally` again or not, the record survives (in
+   * `userData`'s persisted store, on disk) for
+   * `PULUMI_LOCK_OWNERSHIP_RECORD_MAX_AGE_MS` (2 hours) as evidence: once
+   * the wedged CLI process eventually exits — by any means: the OS finally
+   * delivers `SIGINT`, the operator kills it manually, the app or machine
+   * restarts — its PID becomes provably dead, and the NEXT `preview`/`up`/
+   * `destroy` attempt against this stack that hits the same DIY lock
+   * conflict will have `classifyStackLockConflict` find this run's record,
+   * confirm identity (same username/hostname) + liveness (PID now dead) +
+   * time-consistency (`startedAt` at or before the stale lock's
+   * `lockedAt`), and classify it `'reclaimable-own-orphan'` — reclaiming and
+   * proceeding automatically, exactly the same path a fresh `up()` call
+   * exercises above. **Yes: the recorded evidence is sufficient for a LATER
+   * operation to recognize and reclaim the orphan even when THIS run cannot
+   * clean up after itself.**
+   *
+   * ## Partial-apply detection (this task's headline requirement)
+   *
+   * `UpResult` itself carries no "was this partial" signal (confirmed
+   * against `@pulumi/pulumi/automation/stack.d.ts`'s
+   * `{ stdout, stderr, outputs, summary }` shape — `summary.resourceChanges`,
+   * when present, is a final tally, not a partial/complete distinction) — this must be
+   * inferred from the `onEvent` stream, as the brief's own research
+   * anticipated. `onEvent`'s `resOutputsEvent` fires once per resource
+   * "finished being provisioned" (confirmed against `events.d.ts` — distinct
+   * from `resourcePreEvent`, which fires BEFORE a resource is touched and
+   * would over-count in-flight-but-not-yet-complete steps as "applied").
+   * Every `resOutputsEvent` whose `metadata.op` is in {@link MUTATING_OP_TYPES}
+   * (excludes `'same'`/read/refresh/discard-family no-ops) is accumulated
+   * into `completedSteps` as it streams. If `stack.up()` ultimately fails
+   * (not aborted, not a leaked-promise-recovered success) and
+   * `completedSteps.length > 0`, the failure is wrapped in
+   * {@link PulumiPartialApplyError} (carrying `completedSteps`) instead of
+   * {@link PulumiUpError} — a clean failure (nothing mutated yet) still gets
+   * {@link PulumiUpError}. `PulumiUnrecognizedLockError` is a distinct third
+   * shape (the update never even started against the backend — see above)
+   * and is thrown as-is, never wrapped in either.
+   *
+   * ## Terminal-state representation (decision this dispatch)
+   *
+   * `RunRecord.status`/`PulumiRunRecord.exitCode` stay a closed
+   * success/failed/aborted (0/1/null) triple — a partial apply is still
+   * `exitCode: 1` ("failed"), per the additive `partialApply: true` boolean
+   * field (see {@link PulumiRunRecord.partialApply}'s doc comment for why an
+   * additive field was chosen over a fourth `RunStatus` value: `RunStatus`
+   * is the `status-index` DynamoDB GSI's hash key, and widening a GSI key's
+   * value set is a materially bigger, infra-affecting change than this
+   * dispatch's scope justifies without explicit sign-off). The UI/later
+   * logic is expected to check `status === 'failed' && partialApply` to
+   * distinguish "re-plan, some changes already landed" from a clean
+   * "re-plan, nothing changed yet" failure, per the spec's "the UI MUST
+   * direct the operator to re-plan rather than retry blindly after a
+   * partial failure".
+   *
+   * ## Leaked-promise `recoverResult` (a REAL implementation this time —
+   * `preview`'s investigation found nothing needed re-reading; `up` does)
+   *
+   * If `stack.up()` rejects with the SDK's leaked-promise message
+   * (`isLeakedPromiseError`), `PulumiLeakedPromise.ts`'s own TSDoc proves
+   * this can only happen after the actual update already succeeded — the
+   * update landed in the backend, but the synthetic `UpResult` the SDK would
+   * have returned is unrecoverable from the rejected promise itself.
+   * `recoverResult` re-reads `stack.outputs()` and `stack.info()` — fresh,
+   * independent, read-only calls, per that file's own guidance — to
+   * reconstruct a well-typed `UpResult`. `stack.info()`'s `result` field
+   * (`UpdateResult`) is checked and a mismatch from `'succeeded'` is logged
+   * as a sanity-check WARN, but does not override the recovery — trusting
+   * `isLeakedPromiseError`'s proven-sufficient classification, not a second
+   * heuristic, per that file's "provably sufficient" section. What does NOT
+   * need re-reading: `changeSummary` — the `capturedChangeSummary` this
+   * method's own `onEvent` closure already captured (the same mechanism
+   * `preview()` uses) survives the leak untouched, since it lives in this
+   * method's own local state, not inside the SDK's rejected promise.
+   *
+   * ## Cache invalidation (hard requirement carried forward from task 7.4's
+   * review)
+   *
+   * On a successful apply — and ONLY then; a failed/aborted/partial apply
+   * did not durably change what a fresh `getStackOutputs()` read would
+   * report — `ConfigCacheInvalidator.invalidateCache()` (the real
+   * `ConfigService.invalidateCache()`, resolved lazily via
+   * {@link getConfigCacheInvalidator}) is called. Best-effort: a failure to
+   * resolve or call it is logged and swallowed, mirroring
+   * `persistRunRecord`'s "never let a side-effect write mask an otherwise-
+   * successful apply" policy — without task 7.4's review flagging this,
+   * nothing in production would ever call it after a deploy, leaving the
+   * dashboard showing "not deployed" indefinitely after the first real
+   * apply.
+   *
+   * ## Cancellation and abort-listener leak (carry-forward fix from 7.1's
+   * review)
+   *
+   * Mirrors {@link preview}'s `internalController`/`operationPromise`
+   * cancellation shape exactly (see that method's TSDoc for the full
+   * rationale), with 7.1's review fix applied here from the start rather
+   * than copied-then-fixed: the `signal.addEventListener('abort', ...)`
+   * call below passes `{ once: true }`, so a caller that reuses the same
+   * `AbortSignal` across repeated calls (or whose signal fires more than
+   * once for any reason) never accumulates more than one live listener per
+   * `apply()` invocation — 7.1's review found the original `preview()` omit
+   * this, leaking one listener per call. The escalation timer arming on
+   * every force-close (even with no caller-supplied `signal`) is kept
+   * exactly as 7.1's fix left it — that behaviour was already correct.
+   *
+   * ## Persistence
+   *
+   * Once gate step 8 succeeds, every settlement (success, failure, partial
+   * failure, or abort) goes through the same
+   * `writeRunLog`/`endActiveRun`/`writeRunRecord`/`persistRunRecord`
+   * sequence {@link preview} uses — `kind: 'apply'`, `tfvarsVersionId`/
+   * `planHash`/`engineVersion` passed through from the validated plan
+   * record (not re-derived), plus the new `partialApply` indicator. As
+   * documented on {@link persistRunRecord}, `RunRecordService.persist`'s own
+   * `finally` releases the durable apply lock gate step 8 acquired — no
+   * separate `RunLockService.releaseRun` call is made by this method itself,
+   * on any path, mirroring `TerraformService.apply`'s identical reliance on
+   * that release happening one layer down. A gate failure (steps 1-7) never
+   * reaches this point at all — `runId` is only ever assigned after step 8
+   * succeeds, so a rejected gate call writes no run record and holds no
+   * lock to release, exactly like the plan-hash gate's pre-migration
+   * controller-side rejection wrote nothing either.
+   *
+   * @param planRunId - The `runId` of the approved `plan` run to apply — also
+   *   reused, unchanged, as this apply run's own `runId` (see "run id"
+   *   above).
+   * @param planHash - The plan hash the caller expects this plan run to
+   *   still carry (gate step 5) — normally the same value the originating
+   *   `preview()` call returned.
+   * @param signal - Optional cancellation signal — see "Cancellation" above.
+   * @throws {@link PulumiPlanRunNotFoundError}, {@link PulumiPlanRunWrongKindError},
+   *   {@link PulumiPlanNotApprovedError}, {@link PulumiApprovalExpiredError},
+   *   {@link PulumiPlanHashMismatchError}, {@link StalePlanError}, or
+   *   {@link PulumiPlanArtifactStaleError} if the corresponding gate step
+   *   (1-6) fails.
+   * @throws {@link PulumiEngineVersionMismatchError} if gate step 7 fails.
+   * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if gate step 8
+   *   loses the atomic race for the apply lock.
+   * @throws {@link PulumiUnrecognizedLockError} if `stack.up()` hits a
+   *   backend lock conflict that cannot be proven this installation's own
+   *   orphan.
+   * @throws {@link PulumiPartialApplyError} if `stack.up()` fails after at
+   *   least one resource step already applied.
+   * @throws {@link PulumiUpError} if `stack.up()` fails cleanly (no resource
+   *   step applied).
+   * @throws {@link PulumiRunPersistError} if the operation settled but the
+   *   run record couldn't be persisted afterward.
+   */
+  async *apply(
+    planRunId: string,
+    planHash: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<PulumiRunChunk, PulumiUpResult | undefined> {
+    if (this.operationInFlight) {
+      throw new Error(
+        `PulumiService.apply() cannot run while ${this.operationInFlight}() is already ` +
+          'running; wait for it to finish before calling apply() again.',
+      );
+    }
+    PulumiService.assertValidRunId(planRunId);
+    this.operationInFlight = 'up';
+    // Hoisted above the try block — mirrors preview()'s identical hoist and
+    // rationale: a force-closed generator unwinds straight to the outer
+    // `finally`, which needs to see these regardless of how far the gate/
+    // operation got.
+    let runId: string | undefined;
+    let startedAt: string | undefined;
+    let runRecordWritten = false;
+    // The gate-validated tfvarsVersionId/engineVersion, hoisted the instant
+    // the plan record is fetched (well before the lock is acquired) so the
+    // outer `finally`'s force-closed fallback can still thread them through
+    // its own best-effort run-record write — mirrors why `runId`/`startedAt`
+    // are hoisted, just for record-persistence completeness rather than
+    // control flow.
+    let tfvarsVersionId: string | undefined;
+    let engineVersion: string | undefined;
+    // The id `ElectronStoreService.recordPulumiLockAttempt` returns, kept in
+    // scope so both the normal-completion path and the outer `finally`'s
+    // force-close path can clear it — see the TSDoc's "Lock-recovery wiring"
+    // section for exactly when each does and does not clear it.
+    let lockAttemptId: string | undefined;
+    const logLines: string[] = [];
+    // Same internal-controller pattern as preview() — see that method's
+    // TSDoc for the full rationale. `{ once: true }` is 7.1's review fix,
+    // applied here from the start (see this method's TSDoc, "Cancellation
+    // and abort-listener leak").
+    const internalController = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        internalController.abort();
+      } else {
+        signal.addEventListener('abort', () => internalController.abort(), { once: true });
+      }
+    }
+    let operationPromise: Promise<UpResult> | undefined;
+    let operationSettled = false;
+    try {
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate steps 1-5: pure record comparisons, no I/O beyond the lookup itself ---
+      const record = await this.getRunRecordPersister().getByRunId(planRunId);
+      if (!record) {
+        throw new PulumiPlanRunNotFoundError(planRunId);
+      }
+      if (record.kind !== 'plan') {
+        throw new PulumiPlanRunWrongKindError(planRunId, record.kind);
+      }
+      if (!record.approvedBy || !record.approvedAt) {
+        throw new PulumiPlanNotApprovedError(planRunId);
+      }
+      if (isApprovalExpired(record.approvedAt)) {
+        throw new PulumiApprovalExpiredError(planRunId, record.approvedAt);
+      }
+      if (!record.planHash || record.planHash !== planHash) {
+        throw new PulumiPlanHashMismatchError(planRunId, record.planHash, planHash);
+      }
+      tfvarsVersionId = record.tfvarsVersionId;
+      engineVersion = record.engineVersion;
+
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate step 6: re-verify against reality — see TSDoc for the 6a/6b split ---
+      const bucket = this.getConfigurationBucket();
+      if (!bucket) {
+        throw new Error(
+          'Cannot apply pulumi plan: no configuration bucket is configured. Finish the setup wizard before applying.',
+        );
+      }
+      const key = CONFIGURATION_OBJECT_KEY;
+      const versions = await this.getRemoteFileStore().listVersions(key);
+      const currentConfigVersionId = versions[0]?.versionId;
+
+      if (tfvarsVersionId !== undefined && currentConfigVersionId !== tfvarsVersionId) {
+        throw new StalePlanError(key, bucket, tfvarsVersionId, currentConfigVersionId);
+      }
+
+      const artifactPath = join(this.getRunsDir(), planRunId, `${planRunId}.plan.json`);
+      let recomputedHash: string;
+      try {
+        recomputedHash = this.computePlanHash(artifactPath, currentConfigVersionId ?? '');
+      } catch (err) {
+        throw new PulumiPlanArtifactStaleError(planRunId, artifactPath, err);
+      }
+      if (recomputedHash !== record.planHash) {
+        throw new PulumiPlanArtifactStaleError(planRunId, artifactPath);
+      }
+
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate step 7: engine version ---
+      await this.engine.resolve();
+      const currentEngineVersion = this.engine.getResolvedVersion();
+      if (!currentEngineVersion || engineVersion !== currentEngineVersion) {
+        throw new PulumiEngineVersionMismatchError(planRunId, engineVersion, currentEngineVersion ?? undefined);
+      }
+
+      if (internalController.signal.aborted) {
+        return undefined;
+      }
+
+      // --- Gate step 8: THE atomic, authoritative reservation (task 7.7) ---
+      // No "is the workspace free" pre-check precedes this call — see this
+      // method's TSDoc for why that would reintroduce exactly the
+      // TOCTOU race task 7.7 exists to eliminate. A losing race rejects with
+      // RunLockHeldError, propagated unwrapped.
+      const initiator = PulumiService.resolveInitiator();
+      await this.getRunLockService().createRun('apply', initiator, planRunId);
+
+      // Lock genuinely held from here on — this run owns planRunId. Nothing
+      // above this line has reserved anything.
+      runId = planRunId;
+      this.beginActiveRun(runId);
+      // Captured here (immediately after the lock is acquired), NOT right
+      // before `stack.up()` the way `preview()` captures its own
+      // `startedAt` right before `stack.preview()` — unlike `preview()`,
+      // ANY failure from this point on (config read, workspace construction,
+      // or the update itself) must still produce a persisted run record to
+      // release the just-acquired lock (see the comment below), so
+      // `startedAt` must already be set before any of that fallible work
+      // begins, not only once `stack.up()` is actually about to be called.
+      startedAt = new Date().toISOString();
+
+      // Everything from here through `operationPromise` settling is wrapped
+      // in one try/catch so ANY failure after the lock is acquired —
+      // reading the configuration, constructing the workspace, or the
+      // update itself — still flows through the SAME persistence path
+      // below (which is what actually releases the just-acquired lock, via
+      // RunRecordService.persist's own finally). Letting a config-read
+      // failure propagate raw here would leak the lock for the full
+      // DEFAULT_LOCK_TTL_MS TTL instead of releasing it immediately.
+      // Unlike `preview()`, the resolved `UpResult` itself is never read —
+      // `capturedChangeSummary` (this method's own `onEvent` capture, below)
+      // is used directly for the returned result on every path, INCLUDING
+      // the normal-completion path, so the leaked-promise-recovery path and
+      // the normal path can never disagree about where `changeSummary` came
+      // from (mirrors `preview()`'s design intent — see that method's TSDoc
+      // "Structured changeSummary" — applied slightly differently here since
+      // `UpResult.summary.resourceChanges` is optional and its exact
+      // population semantics from the CLI were not independently verified
+      // this dispatch, unlike `PreviewResult.changeSummary`).
+      let upError: unknown;
+      const completedSteps: PulumiPartialApplyStep[] = [];
+      let capturedChangeSummary: ChangeSummary = {};
+
+      try {
+        const obj = await this.getRemoteFileStore().get(key);
+        if (!obj) {
+          throw new Error(`Configuration object "${key}" not found in S3 bucket "${bucket}".`);
+        }
+        const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
+
+        const stateBucket = this.store.get('bootstrap')?.stateBucket;
+        const stateBucketRegion = this.store.get('aws')?.region;
+        if (!stateBucket || !stateBucketRegion) {
+          throw new Error(
+            'Cannot run pulumi apply: the state bucket / AWS region has not been configured yet. ' +
+              'Complete the bootstrap step before applying.',
+          );
+        }
+        // Mirrors preview()'s identical "an existing stack" proxy.
+        const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+
+        const stack = await this.workspace.getOrCreateStack({
+          program: createInfraProgram(deploymentConfig, { lambdaBundlesDir: this.getLambdaBundlesDir() }),
+          stateBucket,
+          stateBucketRegion,
+          backendReady: true,
+          stackExists,
+        });
+
+        // --- Chunk-streaming setup — identical algorithm to preview() (see that method's TSDoc) ---
+        const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
+        const queue: PulumiRunChunk[] = [];
+        let wake: (() => void) | null = null;
+        const notify = (): void => {
+          wake?.();
+          wake = null;
+        };
+        const push = (chunk: PulumiRunChunk): void => {
+          queue.push(chunk);
+          notify();
+        };
+        const handleData = (stream: 'stdout' | 'stderr', data: string): void => {
+          buffers[stream] += data;
+          const lines = buffers[stream].split(/\r?\n/);
+          buffers[stream] = lines.pop() ?? '';
+          for (const line of lines) {
+            push({ stream, line });
+          }
+        };
+        const onOutput = (out: string): void => handleData('stdout', out);
+        const onError = (err: string): void => handleData('stderr', err);
+        const onEvent = (event: EngineEvent): void => {
+          if (event.summaryEvent) {
+            capturedChangeSummary = event.summaryEvent.resourceChanges;
+          }
+          if (event.resOutputsEvent && MUTATING_OP_TYPES.has(event.resOutputsEvent.metadata.op)) {
+            const { urn, type, op } = event.resOutputsEvent.metadata;
+            completedSteps.push({ urn, type, op });
+          }
+        };
+
+        // Lock-recovery wiring (task 4.8's primitives, wired for real for
+        // the first time) — recorded immediately before the call that can
+        // actually take the DIY backend lock, never earlier. See TSDoc
+        // "Lock-recovery wiring" / "Force-close safety net" sections.
+        lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
+
+        const attemptUp = async (innerSignal: AbortSignal): Promise<UpResult> => {
+          try {
+            return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
+          } catch (err) {
+            if (!isStackLockConflict(err)) {
+              throw err;
+            }
+            const classification = classifyStackLockConflict(err, this.store, PULUMI_STACK_NAME);
+            if (classification.kind === 'reclaimable-own-orphan') {
+              logger.warn(
+                'pulumi apply: backend lock is a provable orphan of this installation\'s own prior run — ' +
+                  'clearing it via stack.cancel() and retrying the update once',
+                { planRunId, runId, locks: classification.locks },
+              );
+              await stack.cancel();
+              return await stack.up({ plan: artifactPath, onOutput, onError, onEvent, signal: innerSignal });
+            }
+            throw new PulumiUnrecognizedLockError(
+              PULUMI_STACK_NAME,
+              classification.kind === 'requires-confirmation' ? classification.locks : [],
+            );
+          }
+        };
+
+        const recoverResult = async (): Promise<UpResult> => {
+          const [outputs, summary] = await Promise.all([stack.outputs(), stack.info()]);
+          if (summary && summary.result !== 'succeeded') {
+            logger.warn(
+              'pulumi apply leaked-promise recovery: stack.info() does not report "succeeded" — trusting the ' +
+                'SDK-verified leak-check proof anyway (see PulumiLeakedPromise.ts, "provably sufficient")',
+              { planRunId, runId, result: summary.result },
+            );
+          }
+          return {
+            stdout: '',
+            stderr: '',
+            outputs,
+            summary: summary ?? {
+              kind: 'update',
+              startTime: new Date(),
+              endTime: new Date(),
+              message: '',
+              environment: {},
+              config: {},
+              result: 'succeeded',
+              version: 0,
+            },
+          };
+        };
+
+        operationPromise = runWithEscalatingCancellation(
+          (innerSignal) => runTreatingLeakedPromiseAsSuccess(() => attemptUp(innerSignal), recoverResult),
+          internalController.signal,
+        );
+
+        const onOperationSettled = (): void => {
+          for (const stream of ['stdout', 'stderr'] as const) {
+            if (buffers[stream].length > 0) {
+              push({ stream, line: buffers[stream] });
+              buffers[stream] = '';
+            }
+          }
+          operationSettled = true;
+          notify();
+        };
+        operationPromise.then(onOperationSettled, onOperationSettled);
+
+        while (true) {
+          if (queue.length > 0) {
+            const chunk = queue.shift()!;
+            logLines.push(chunk.line);
+            this.recordRunChunk(runId, chunk);
+            yield chunk;
+            continue;
+          }
+          if (operationSettled) {
+            break;
+          }
+          await new Promise<void>((resolveWait) => {
+            wake = resolveWait;
+          });
+        }
+
+        await operationPromise;
+      } catch (err) {
+        upError = err;
+      }
+
+      // Clear the lock-ownership record on every settlement EXCEPT a
+      // forceful escalation — see TSDoc "Force-close safety net" for why an
+      // escalated (possibly still-running) operation must leave its record
+      // behind as reclaim evidence for a later run.
+      if (lockAttemptId !== undefined && !(upError instanceof PulumiOperationEscalatedError)) {
+        this.store.clearPulumiLockAttempt(lockAttemptId);
+        lockAttemptId = undefined;
+      }
+
+      const wasAborted =
+        upError instanceof PulumiOperationNotStartedError ||
+        upError instanceof PulumiOperationAbortedError ||
+        upError instanceof PulumiOperationEscalatedError;
+
+      const outcome: PulumiApplyOutcome = wasAborted
+        ? { kind: 'aborted' }
+        : upError
+          ? upError instanceof PulumiUnrecognizedLockError
+            ? { kind: 'failed', error: upError, partialApply: false }
+            : completedSteps.length > 0
+              ? { kind: 'failed', error: new PulumiPartialApplyError(completedSteps, upError), partialApply: true }
+              : { kind: 'failed', error: new PulumiUpError(upError), partialApply: false }
+          : { kind: 'success', result: { runId, changeSummary: capturedChangeSummary } };
+
+      runRecordWritten = true;
+      this.writeRunLog(runId, logLines);
+      this.endActiveRun(runId);
+
+      const completedAt = new Date().toISOString();
+      const exitCode = outcome.kind === 'aborted' ? null : outcome.kind === 'success' ? 0 : 1;
+      const resultChangeSummary = outcome.kind === 'success' ? outcome.result.changeSummary : capturedChangeSummary;
+      const resultPartialApply = outcome.kind === 'failed' && outcome.partialApply ? true : undefined;
+
+      try {
+        this.writeRunRecord(
+          runId,
+          'apply',
+          startedAt,
+          completedAt,
+          exitCode,
+          tfvarsVersionId,
+          record.planHash,
+          undefined,
+          resultChangeSummary,
+          engineVersion,
+          resultPartialApply,
+        );
+      } catch (err) {
+        throw new PulumiRunPersistError(runId, PulumiService.toApplyOperationOutcome(outcome), err);
+      }
+      await this.persistRunRecord(
+        runId,
+        'apply',
+        startedAt,
+        completedAt,
+        exitCode,
+        tfvarsVersionId,
+        record.planHash,
+        undefined,
+        resultChangeSummary,
+        engineVersion,
+        resultPartialApply,
+      );
+
+      if (outcome.kind === 'success') {
+        // Cache invalidation — hard requirement carried forward from task
+        // 7.4's review (see TSDoc). Best-effort: never let this mask an
+        // otherwise-successful apply.
+        try {
+          this.getConfigCacheInvalidator().invalidateCache();
+        } catch (err) {
+          logger.warn('pulumi apply: failed to invalidate the stack-outputs cache after a successful apply', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (outcome.kind === 'aborted') {
+        return undefined;
+      }
+      if (outcome.kind === 'success') {
+        return outcome.result;
+      }
+      throw outcome.error;
+    } finally {
+      // Covers the force-closed generator case — see preview()'s identical
+      // block for the full rationale; mirrored here verbatim except for the
+      // added lock-attempt-clearing decision below.
+      if (operationPromise && !operationSettled) {
+        internalController.abort();
+        let forceCloseSettlement: unknown;
+        await operationPromise.then(
+          () => {
+            forceCloseSettlement = undefined;
+          },
+          (err: unknown) => {
+            forceCloseSettlement = err;
+          },
+        );
+        if (lockAttemptId !== undefined && !(forceCloseSettlement instanceof PulumiOperationEscalatedError)) {
+          this.store.clearPulumiLockAttempt(lockAttemptId);
+          lockAttemptId = undefined;
+        }
+      }
+
+      if (runId !== undefined) {
+        this.endActiveRun(runId);
+      }
+      if (runId !== undefined && startedAt !== undefined && !runRecordWritten) {
+        logger.warn('pulumi apply cancelled — generator force-closed while running', { runId });
+        this.writeRunLog(runId, logLines);
+        const completedAt = new Date().toISOString();
+        try {
+          this.writeRunRecord(runId, 'apply', startedAt, completedAt, null, tfvarsVersionId, undefined, undefined, undefined, engineVersion);
+        } catch {
+          // Nothing meaningful to do with a persistence failure while the
+          // generator is already tearing down for an unrelated reason.
+        }
+        await this.persistRunRecord(runId, 'apply', startedAt, completedAt, null, tfvarsVersionId, undefined, undefined, undefined, engineVersion);
+      }
+      this.operationInFlight = null;
+    }
+  }
+
+  /**
+   * Resolves the OS-level identity recorded as {@link RunLock.initiator} for
+   * an apply — duplicates `TerraformController.resolveApprover()`'s
+   * identical `os.userInfo().username` lookup rather than depending on a
+   * controller (none exists yet for Pulumi operations, and {@link apply} is
+   * self-contained per this task's ruling — see {@link getConfigurationBucket}'s
+   * doc comment for the established precedent of duplicating a small
+   * OS-level accessor rather than adding a dependency this class has no
+   * other reason for).
+   */
+  private static resolveInitiator(): string {
+    return userInfo().username;
+  }
+
+  /**
+   * Reduces a {@link PulumiApplyOutcome} to the minimal
+   * {@link PulumiOperationOutcome} shape {@link PulumiRunPersistError}
+   * carries — mirrors {@link toOperationOutcome} exactly, for `apply`'s own
+   * outcome type.
+   */
+  private static toApplyOperationOutcome(outcome: PulumiApplyOutcome): PulumiOperationOutcome {
+    switch (outcome.kind) {
+      case 'success':
+        return { kind: 'success' };
+      case 'aborted':
+        return { kind: 'aborted' };
+      case 'failed':
+        return { kind: 'failed', error: outcome.error };
+    }
+  }
+
+  /**
    * Reads and parses the persisted plan artifact's top-level `manifest.version`
    * field (e.g. `"v3.255.0"`) and strips a leading `v`, if present, before
    * returning — see {@link preview}'s TSDoc, "Engine-version stamping", for
@@ -1430,8 +2431,9 @@ export class PulumiService {
   /**
    * Writes a {@link PulumiRunRecord} to `<runsDir>/<runId>/run.json` once a
    * `preview`/`up`/`destroy` run has settled. Mirrors
-   * `TerraformService.writeRunRecord` exactly, plus the new `changeSummary`/
-   * `engineVersion` parameters (task 7.1).
+   * `TerraformService.writeRunRecord` exactly, plus the `changeSummary`/
+   * `engineVersion` parameters (task 7.1) and `partialApply` (task 7.2 —
+   * see {@link PulumiRunRecord.partialApply}'s doc comment).
    *
    * @throws A descriptive `Error` (wrapping the underlying filesystem error
    *   as `cause`) if `mkdirSync`/`writeFileSync` fails.
@@ -1447,6 +2449,7 @@ export class PulumiService {
     rolledBackFrom: string | undefined = undefined,
     changeSummary: ChangeSummary | undefined = undefined,
     engineVersion: string | undefined = undefined,
+    partialApply: boolean | undefined = undefined,
   ): void {
     PulumiService.assertValidRunId(runId);
     const runDir = join(this.getRunsDir(), runId);
@@ -1461,6 +2464,7 @@ export class PulumiService {
       rolledBackFrom,
       changeSummary,
       engineVersion,
+      partialApply,
     };
     try {
       mkdirSync(runDir, { recursive: true });
@@ -1480,7 +2484,11 @@ export class PulumiService {
    * {@link RunRecordPersister} (the real `RunRecordService` singleton,
    * resolved lazily via {@link getRunRecordPersister}). Mirrors
    * `TerraformService.persistRunRecord` exactly, including its "best-effort,
-   * never throws, logged and swallowed on failure" contract.
+   * never throws, logged and swallowed on failure" contract. As a side
+   * effect (via `RunRecordService.persist`'s own `finally`), this also
+   * releases the durable apply lock {@link apply}'s gate step 8 acquired for
+   * `runId` — see that method's TSDoc for why no separate release call is
+   * needed here.
    */
   private async persistRunRecord(
     runId: string,
@@ -1493,10 +2501,23 @@ export class PulumiService {
     rolledBackFrom: string | undefined = undefined,
     changeSummary: ChangeSummary | undefined = undefined,
     engineVersion: string | undefined = undefined,
+    partialApply: boolean | undefined = undefined,
   ): Promise<void> {
     try {
       await this.getRunRecordPersister().persist(
-        { runId, kind, startedAt, completedAt, exitCode, tfvarsVersionId, planHash, rolledBackFrom, changeSummary, engineVersion },
+        {
+          runId,
+          kind,
+          startedAt,
+          completedAt,
+          exitCode,
+          tfvarsVersionId,
+          planHash,
+          rolledBackFrom,
+          changeSummary,
+          engineVersion,
+          partialApply,
+        },
         this.getRunLogPath(runId),
       );
     } catch (err) {
@@ -1669,7 +2690,7 @@ export class PulumiPreviewError extends Error {
 }
 
 /**
- * Thrown by `TerraformService.apply`'s successor (task 7.2, `PulumiService.up`)
+ * Thrown by `TerraformService.apply`'s successor (task 7.2, `PulumiService.apply`)
  * when the Automation API's `stack.up()` call throws and the failure is a
  * clean (non-partial) failure. Ports `TerraformApplyError`'s role, reshaped
  * the same way as {@link PulumiPreviewError} — see its doc comment for why
@@ -1717,7 +2738,7 @@ export interface PulumiPartialApplyStep {
 }
 
 /**
- * Thrown by task 7.2's `PulumiService.up` when `stack.up()` fails AFTER at
+ * Thrown by task 7.2's `PulumiService.apply` when `stack.up()` fails AFTER at
  * least one resource step has already been applied — i.e. the stack is now
  * in a state between its old and new desired states, distinct from a clean
  * failure ({@link PulumiUpError}) where nothing was touched before the
@@ -1769,6 +2790,151 @@ export class StalePlanError extends Error {
         `${actualVersionId ? `"${actualVersionId}"` : 'missing'}. Re-run preview() before applying.`,
     );
     this.name = 'StalePlanError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 1) when no run record
+ * exists at all for the supplied `planRunId`. New this dispatch (task
+ * 7.2) — none of the 13 error classes task 7.9 ported/reshaped cover this
+ * case; `RunRecordService`'s own `RunRecordNotFoundError` exists but is
+ * scoped to `approveRun`'s call site, not `apply`'s gate, so a distinct
+ * class is added here following this file's `Pulumi*Error` house style.
+ */
+export class PulumiPlanRunNotFoundError extends Error {
+  constructor(public readonly planRunId: string) {
+    super(`No plan run found for planRunId "${planRunId}" — cannot apply.`);
+    this.name = 'PulumiPlanRunNotFoundError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 2) when the run record
+ * found for `planRunId` is not a `'plan'`-kind record. New this dispatch —
+ * see {@link PulumiPlanRunNotFoundError}'s doc comment for why a new class
+ * rather than reusing `RunRecordService`'s `RunRecordNotPlanError`.
+ */
+export class PulumiPlanRunWrongKindError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly kind: RunKind,
+  ) {
+    super(`Run "${planRunId}" is a "${kind}" run, not a "plan" run, and cannot be applied.`);
+    this.name = 'PulumiPlanRunWrongKindError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 3) when the plan run's
+ * `approvedBy`/`approvedAt` are not both set. New this dispatch — mirrors
+ * the pre-migration `TerraformController.apply`'s equivalent (previously an
+ * un-typed string, never a class), now given a proper typed error since
+ * `apply` is self-contained and has no controller to compose the message at
+ * the call site instead.
+ */
+export class PulumiPlanNotApprovedError extends Error {
+  constructor(public readonly planRunId: string) {
+    super(`Plan run "${planRunId}" has not been approved — approve it before applying.`);
+    this.name = 'PulumiPlanNotApprovedError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 4) when the plan run's
+ * approval is no longer within `APPROVAL_WINDOW_MS`
+ * (`@hyveon/shared/runs.js`, `isApprovalExpired`) of `approvedAt`. New this
+ * dispatch — see {@link PulumiPlanNotApprovedError}'s doc comment for why a
+ * typed class now exists where the pre-migration controller used a bare
+ * string.
+ */
+export class PulumiApprovalExpiredError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly approvedAt: string,
+  ) {
+    super(`Approval for plan run "${planRunId}" (approved at ${approvedAt}) has expired; re-approve before applying.`);
+    this.name = 'PulumiApprovalExpiredError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 5) when the
+ * caller-supplied `planHash` does not match the plan record's own stored
+ * `planHash` — stops a forged or stale hash from ever reaching `stack.up()`.
+ * New this dispatch — see {@link PulumiPlanNotApprovedError}'s doc comment
+ * for why a typed class now exists where the pre-migration controller used
+ * a bare string.
+ */
+export class PulumiPlanHashMismatchError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly recordPlanHash: string | undefined,
+    public readonly suppliedPlanHash: string,
+  ) {
+    super(`Plan hash mismatch for run "${planRunId}": the supplied planHash does not match the approved plan's stored hash.`);
+    this.name = 'PulumiPlanHashMismatchError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 6b) when the on-disk
+ * plan artifact, re-hashed against the current configuration-object version
+ * (`PulumiService.computePlanHash`), no longer matches the plan record's
+ * stored `planHash` — even though gate step 6a already confirmed the
+ * configuration-object version itself has NOT moved (that condition throws
+ * {@link StalePlanError} instead, reusing that existing class). Since the
+ * config version is provably unchanged by the time this check runs, a
+ * mismatch here can only mean the artifact's own bytes differ from what was
+ * hashed at plan time — the file was swapped or modified on disk since the
+ * plan was reviewed. Also thrown, wrapping the underlying failure as
+ * `cause`, if the artifact can't even be read/hashed. New this dispatch:
+ * none of task 7.9's 13 ported/reshaped classes fit this byte-level
+ * tamper-detection case — {@link StalePlanError}'s shape
+ * (`key`/`bucket`/`expectedVersionId`/`actualVersionId`) describes an S3
+ * config-object version mismatch, not an artifact-bytes mismatch, so
+ * reusing it here would misdescribe the failure.
+ */
+export class PulumiPlanArtifactStaleError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly artifactPath: string,
+    public readonly cause?: unknown,
+  ) {
+    super(
+      cause !== undefined
+        ? `Failed to re-verify plan artifact "${artifactPath}" for run "${planRunId}" before apply: ` +
+            `${cause instanceof Error ? cause.message : String(cause)}`
+        : `Plan artifact "${artifactPath}" for run "${planRunId}" no longer matches its approved hash — it may ` +
+            'have been modified since the plan was reviewed. Re-run preview() before applying.',
+    );
+    this.name = 'PulumiPlanArtifactStaleError';
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply}'s gate (step 7) when the plan
+ * record's stamped `engineVersion` no longer matches
+ * `PulumiEngineService.getResolvedVersion()` — the `iac-plan-apply-page`
+ * spec's "Engine upgraded between plan and apply" scenario requires an
+ * error that *names the version change*, which is why both versions are
+ * carried and included in the message. New this dispatch: none of task
+ * 7.9's 13 classes anticipated an engine-version comparison (task 7.1, the
+ * dispatch immediately before 7.9's "13 classes" survey, hadn't yet added
+ * `engineVersion` stamping when 7.9 ran its triage), so a new class is
+ * added here following this file's `Pulumi*Error` house style.
+ */
+export class PulumiEngineVersionMismatchError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly planEngineVersion: string | undefined,
+    public readonly currentEngineVersion: string | undefined,
+  ) {
+    super(
+      `Plan run "${planRunId}" was produced by Pulumi engine version "${planEngineVersion ?? 'unknown'}", but the ` +
+        `currently resolved engine is "${currentEngineVersion ?? 'unknown'}" — an engine upgrade between plan and ` +
+        'apply invalidates the plan. Re-run preview() before applying.',
+    );
+    this.name = 'PulumiEngineVersionMismatchError';
   }
 }
 

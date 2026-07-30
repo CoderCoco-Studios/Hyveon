@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '../services/ConfigService.js';
+import { CONFIG_CACHE_INVALIDATOR } from '../services/PulumiService.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 import { PulumiServiceModule } from './pulumi-service.module.js';
 
@@ -34,10 +35,25 @@ import { PulumiServiceModule } from './pulumi-service.module.js';
  * application container, not a static `imports:` edge — so this module
  * never needs to be part of any cycle at all. See `run-record.module.ts`'s
  * doc comment for the full story.
+ *
+ * **Same reasoning, task 7.2's addition:** `PulumiService.apply` needs to
+ * call `ConfigService.invalidateCache()` on a successful apply (task 7.4's
+ * carried-forward review requirement), but cannot take `ConfigService` as a
+ * constructor dependency for the same reason `getStackOutputs()`'s own
+ * delegate can't be reversed — doing so would recreate this exact cycle in
+ * the other direction. This module instead binds `CONFIG_CACHE_INVALIDATOR`
+ * (`PulumiService.ts`'s narrow DI token for just `invalidateCache()`) to the
+ * real `ConfigService` singleton via `useExisting` and exports it, so
+ * `PulumiService.apply` can resolve it lazily via
+ * `ModuleRef.get(CONFIG_CACHE_INVALIDATOR, { strict: false })` — this file
+ * importing a `Symbol` value from `PulumiService.ts` creates no new edge:
+ * `PulumiService.ts` itself imports nothing from this module or from
+ * `ConfigService.ts` (see `PulumiService.getConfigurationBucket`'s doc
+ * comment).
  */
 @Module({
   imports: [ElectronStoreModule, PulumiServiceModule],
-  providers: [ConfigService],
-  exports: [ConfigService],
+  providers: [ConfigService, { provide: CONFIG_CACHE_INVALIDATOR, useExisting: ConfigService }],
+  exports: [ConfigService, CONFIG_CACHE_INVALIDATOR],
 })
 export class ConfigModule {}
