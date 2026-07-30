@@ -40,7 +40,11 @@ import {
   RollbackNoConfigVersionError,
   RollbackVersionMissingError,
 } from './PulumiService.js';
-import { PulumiBackendNotBootstrappedError, type PulumiWorkspaceService } from './PulumiWorkspaceService.js';
+import {
+  PulumiBackendNotBootstrappedError,
+  PulumiPassphraseUnavailableError,
+  type PulumiWorkspaceService,
+} from './PulumiWorkspaceService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
@@ -234,8 +238,14 @@ describe('PulumiService.getStackOutputs', () => {
     // that caught RunService/AuditService/RunRecordService assuming this
     // method could never reject. PulumiPassphraseUnavailableError is a
     // concrete, realistically-reachable example (e.g. the keychain becomes
-    // unavailable between the passphrase-presence check and the decrypt).
-    const workspace = makeWorkspace(new Error('keychain unavailable'));
+    // unavailable between the passphrase-presence check and the decrypt) —
+    // constructing the real class here (not a generic Error) so this test
+    // actually exercises that specific, documented failure mode rather than
+    // duplicating the generic "any other error" case below under a
+    // type-specific-sounding name.
+    const workspace = makeWorkspace(
+      new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable'),
+    );
     const service = new PulumiService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
