@@ -99,7 +99,7 @@
 - [x] 10.2 Remove `prerequisites` from the wizard step list and drop the Reconfigure special-casing that excluded it
 - [x] 10.3 Replace the Terraform-init step with the stack-initialization step, reporting the three provisioning phases and setting the secrets provider at creation
 - [x] 10.4 Replace the Settings Terraform-version row with the resolved engine version plus the pinned version, including a not-yet-provisioned state
-- [ ] 10.5 Remove `MINIMUM_TERRAFORM_VERSION` and the version-parsing helpers
+- [x] 10.5 Remove `MINIMUM_TERRAFORM_VERSION` and the version-parsing helpers (version-parsing helpers — isVersionAtLeast/readTerraformVersion — were already deleted alongside PrerequisiteService in task 10.1; this task's remaining scope was just the constant itself: deleted terraformVersion.ts, its @hyveon/shared barrel export, and the cross-reference doc comments in pulumiVersion.ts; verified zero remaining references repo-wide before deleting)
 
 ## 11. Test surface
 
