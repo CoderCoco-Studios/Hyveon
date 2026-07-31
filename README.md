@@ -17,11 +17,12 @@ only cost money — while someone is playing.
   per game.
 - **Route 53** — a Lambda auto-UPSERTs `{game}.yourdomain.com` on task start
   and DELETEs it on stop.
-- **Optional ALB + ACM** — for any game marked `https = true`, traffic goes
-  through a load balancer with TLS termination.
+- **In-task Caddy sidecar** — for any game marked `https = true`, TLS
+  terminates in-task via Let's Encrypt automatic HTTPS. No load balancer.
 - **Watchdog Lambda** — automatically shuts down idle servers based on
   `NetworkPacketsIn`.
-- **Terraform** — provisions every AWS resource.
+- **Pulumi** (Automation API, TypeScript) — provisions every AWS resource,
+  driven entirely from inside the packaged app. No host-installed CLI.
 - **Nest.js + React management app** — local dashboard to start/stop servers,
   edit config, monitor costs, stream logs, and manage Discord credentials.
 - **Serverless Discord bot** — two Node.js Lambdas + DynamoDB + Secrets
@@ -40,12 +41,12 @@ organised around three roles. Pick the one that matches what you need to do.
 | [**Setup guide**](https://codercoco.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
 | [**User guide**](https://codercoco.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
 | [**Maintainer guide**](https://codercoco.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
-| [**Private parent + submodule guide**](https://codercoco.github.io/Hyveon/guides/submodule/) | Wrapping this repo in a private repo that holds `terraform.tfvars` and tfstate. Includes an interactive scaffolder ([`scripts/init-parent.ts`](./scripts/init-parent.ts)) that generates a self-contained wrapper Makefile and tfvars. |
+| [**Private parent + submodule guide**](https://codercoco.github.io/Hyveon/guides/submodule/) | Wrapping this repo in a private repo for anything else secret. Includes an interactive scaffolder ([`scripts/init-parent.ts`](./scripts/init-parent.ts)) that generates a self-contained wrapper Makefile. |
 
 Component deep-dives:
 
 - [**Architecture**](https://codercoco.github.io/Hyveon/architecture/) — full diagram + `/server-start` sequence.
-- [**Terraform**](https://codercoco.github.io/Hyveon/components/terraform/) — every `.tf` file, variables, outputs, gotchas.
+- [**Infra program**](https://codercoco.github.io/Hyveon/components/infra/) — the Pulumi Automation API program: every file, resource, and AWS service touched.
 - [**Management app**](https://codercoco.github.io/Hyveon/components/management-app/) — Nest.js API, React dashboard, `@hyveon/shared`.
 - [**Lambdas**](https://codercoco.github.io/Hyveon/components/lambdas/) — interactions, followup, update-dns, watchdog.
 
@@ -55,17 +56,14 @@ Component deep-dives:
 # 1. Install dependencies
 npm install
 
-# 2. Launch the Electron app in dev mode and follow the in-app setup wizard
-#    (AWS credentials, S3/DynamoDB bootstrap, terraform init) — long-running,
-#    keep it in this terminal and run the rest below in a new one
+# 2. Launch the Electron app and follow the in-app setup wizard (AWS
+#    credentials, S3 bucket bootstrap, Pulumi stack init) — long-running,
+#    keep it in this terminal
 npm run app:dev
 
-# 3. Configure your servers
-$EDITOR terraform/terraform.tfvars        # game_servers, hosted_zone_name, ...
-
-# 4. Deploy infra
-npm run app:build:lambdas
-cd terraform && terraform apply
+# 3. In the app: Games → Add game, then Infrastructure → Run plan →
+#    Approve plan → Apply. No CLI step — the wizard and the Infrastructure
+#    page do everything above.
 ```
 
 See the [setup guide](https://codercoco.github.io/Hyveon/setup/)
@@ -74,30 +72,33 @@ troubleshooting.
 
 ## Configuration at a glance
 
-Edit `terraform/terraform.tfvars`. The `game_servers` map is the single
-source of truth — task definitions, EFS access points, DNS, watchdog config,
-and Discord command autocomplete all derive from it.
+Add and edit games from the app's **Games** page. Every write updates a
+single versioned JSON configuration object (`deployment-config.json`, in
+your S3 configuration bucket) — task definitions, EFS access points, DNS,
+watchdog config, and Discord command autocomplete all derive from it. There
+is no configuration file to hand-edit.
 
-```hcl
-aws_region       = "us-east-1"
-project_name     = "hyveon"
-hosted_zone_name = "yourdomain.com"   # must exist in Route 53
-
-game_servers = {
-  palworld = {
-    image  = "thijsvanloef/palworld-server-docker:latest"
-    cpu    = 2048
-    memory = 8192
-    ports = [
-      { container = 8211,  protocol = "udp" },
-      { container = 27015, protocol = "udp" },
-    ]
-    environment = [
-      { name = "PLAYERS",     value = "8" },
-      { name = "SERVER_NAME", value = "My Palworld Server" },
-    ]
-    efs_path = "/palworld"
-    https    = false
+```json
+{
+  "awsRegion": "us-east-1",
+  "projectName": "hyveon",
+  "hostedZoneName": "yourdomain.com",
+  "gameServers": {
+    "palworld": {
+      "image": "thijsvanloef/palworld-server-docker:latest",
+      "cpu": 2048,
+      "memory": 8192,
+      "ports": [
+        { "container": 8211, "protocol": "udp" },
+        { "container": 27015, "protocol": "udp" }
+      ],
+      "environment": [
+        { "name": "PLAYERS", "value": "8" },
+        { "name": "SERVER_NAME", "value": "My Palworld Server" }
+      ],
+      "volumes": [{ "name": "saves", "container_path": "/palworld" }],
+      "https": false
+    }
   }
 }
 ```
@@ -109,18 +110,21 @@ pennies/month. Playing 4 hours/day, 5 days/week ≈ **$10–12/month**, vs.
 ## Repository structure
 
 ```text
-Hyveon/
-├── app/                       # Nest.js + React monorepo (npm workspaces)
+Hyveon/                        # npm-workspaces root — one `npm install` installs everything below
+├── app/                       # Electron desktop app (Nest.js + React)
 │   └── packages/
-│       ├── shared/            # @hyveon/shared
-│       ├── desktop-main/      # @hyveon/desktop-main (Nest.js API)
-│       ├── web/               # @hyveon/web   (React + Vite)
+│       ├── shared/             # @hyveon/shared
+│       ├── cloud-aws/          # @hyveon/cloud-aws — AWS implementations of the cloud-agnostic contracts
+│       ├── desktop-main/       # @hyveon/desktop-main (Nest.js IPC microservice)
+│       ├── desktop-preload/    # @hyveon/desktop-preload — contextBridge preload script
+│       ├── infra/              # @hyveon/infra — Pulumi Automation API program (all AWS resources)
+│       ├── web/                # @hyveon/web   (React + Vite)
 │       └── lambda/
 │           ├── interactions/  # Discord Function URL entry point
 │           ├── followup/      # Async ECS work + Discord PATCH
-│           ├── update-dns/    # Route 53 + ALB on task state change
-│           └── watchdog/      # Idle detection + auto-stop
-├── terraform/                 # All AWS infra (VPC, ECS, EFS, 4 Lambdas, DDB…)
+│           ├── update-dns/    # Route 53 on task state change
+│           ├── watchdog/      # Idle detection + auto-stop
+│           └── efs-seeder/    # Conditional, per game with file_seeds
 ├── docs/                      # Documentation site (published via GH Pages)
 ├── scripts/                   # Helper scripts (init-parent.ts scaffolder)
 ├── CLAUDE.md                  # Project instructions + invariants
@@ -131,14 +135,12 @@ Hyveon/
 ## Tearing it down
 
 Stop every server from the dashboard first (so the update-dns Lambda cleans
-its records), then:
+its records), then use the **Destroy infrastructure** panel on the
+[Infrastructure](https://codercoco.github.io/Hyveon/app/iac/#destroy) page —
+type `destroy infrastructure` to confirm.
 
-```bash
-cd terraform && terraform destroy
-```
-
-The two Discord Secrets Manager secrets use `recovery_window_in_days = 0`,
-so they are deleted immediately and a later `apply` is clean.
+The two Discord Secrets Manager secrets use a zero-day recovery window, so
+they are deleted immediately and a later apply is clean.
 
 ## License
 

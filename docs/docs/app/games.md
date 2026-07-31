@@ -17,7 +17,7 @@ Adding a game does not create a task definition. Removing one does not delete
 anything — the deployed task definition, EFS access point and security-group
 rules stay live. Editing CPU or ports does not touch the running server.
 
-Every one of those changes is inert until you go to [Terraform](/app/terraform)
+Every one of those changes is inert until you go to [Infrastructure](/app/iac)
 and run plan → approve → apply.
 :::
 
@@ -177,7 +177,7 @@ message rendered against the offending field.
 
 The wizard has no controls for `https` or `environment`. A game created here
 gets neither. Add them by editing `terraform.tfvars` directly — see the
-[Terraform variables reference](/components/terraform).
+[Infra program reference](/components/infra).
 
 ## The game detail screen
 

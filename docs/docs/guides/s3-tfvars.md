@@ -53,7 +53,7 @@ no `tfvars-sync` commands. It still needs the `{project_name}-tfvars` bucket
 to exist once, though: the root module's `data "aws_s3_bucket" "tfvars"`
 (`terraform/main.tf`) reads it unconditionally on every `terraform
 plan`/`apply`, regardless of `HYVEON_TFVARS_BACKEND`. See
-[Bootstrap the tfvars bucket](/setup#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
+[Bootstrap the tfvars bucket](/setup#2-clone-install-and-launch-the-wizard)
 in the setup guide for the one-time step.
 
 ## Bootstrapping the S3 backend
@@ -68,7 +68,7 @@ A few ways to bootstrap it, in order of convenience:
 
 1. **The desktop app's setup wizard** — bootstraps this bucket for you as
    part of its bootstrap step (alongside the state bucket and lock table —
-   see the [setup guide](/setup#3-clone-install-and-bootstrap-aws-resources)),
+   see the [setup guide](/setup#2-clone-install-and-launch-the-wizard)),
    directly via the AWS SDK.
 
 2. **`init-parent.ts bootstrap --s3-tfvars`** — when scaffolding a fresh
@@ -99,7 +99,7 @@ the root module's `data "aws_s3_bucket" "tfvars"` resolves correctly, and
 versioning is enabled on it — `scripts/tfvars-sync.ts` checks this on every
 run and throws `BucketNotVersionedError` if it isn't.
 
-See [Bootstrap the tfvars bucket](/setup#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
+See [Bootstrap the tfvars bucket](/setup#2-clone-install-and-launch-the-wizard)
 in the setup guide for the full walkthrough, including IAM permissions.
 
 ## Day-to-day: the `tfvars-sync` CLI

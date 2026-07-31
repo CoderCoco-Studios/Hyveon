@@ -12,10 +12,10 @@ working in an area rather than relying on a summary here.
 | What a capability must do (requirements, scenarios) | `openspec/specs/<capability>/spec.md` |
 | Work already proposed or in flight | `openspec/changes/<change>/` (`proposal.md`, `design.md`, `tasks.md`) |
 | Big picture + invariants | `docs/docs/architecture.md` |
-| Terraform files, variables, outputs, gotchas | `docs/docs/components/terraform.md` |
-| The five Lambdas and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
+| The Pulumi infra program's files, resources, and state backend | `docs/docs/components/infra.md` |
+| The five Lambda packages (four always-on, one conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
 | Nest modules, IPC channels, services, renderer layout | `docs/docs/components/management-app.md` |
-| The operator UI, page by page (dashboard, games, terraform, discord, logs, settings, costs, audit, first-run wizard) | `docs/docs/app/` |
+| The operator UI, page by page (dashboard, games, infrastructure, discord, logs, settings, costs, audit, first-run wizard) | `docs/docs/app/` |
 | Installing / distributing the packaged app | `docs/docs/install.md` |
 | Test harnesses, mock seams, fixtures, and the jsdom component/routed-page conventions | `docs/docs/components/integration-tests.md` |
 | Writing or updating anything under `docs/docs/**` | the `write-docs` skill (`.claude/skills/write-docs/`), which drafts through `docs-writer` and reviews through the three `docs-*` evaluator agents |
@@ -31,36 +31,41 @@ through a change, not straight into `openspec/specs/`.
 
 ## Commands
 
-Single **npm-workspaces** tree rooted at the repo root. Workspaces: `@hyveon/shared`,
-`@hyveon/cloud-aws`, `@hyveon/desktop-main`, `@hyveon/desktop-preload`, `@hyveon/web`,
-five Lambda packages under `app/packages/lambda/*`, and `@hyveon/scripts`.
+Single **npm-workspaces** tree rooted at the repo root. Workspaces: `app`,
+`@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/desktop-main`,
+`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, five Lambda packages
+under `app/packages/lambda/*`, and `@hyveon/scripts`.
 
 ```bash
-npm install                    # install every workspace (run from repo root)
+npm install                     # install every workspace (run from repo root)
 
-npm run desktop:dev            # Electron dev mode: renderer HMR, auto-restart main+preload
-npm run app:build              # compile shared → cloud-aws → desktop-main → preload → web
-npm run desktop:build          # electron-vite build → out/main, out/preload, out/renderer
-npm run app:start              # launch the built app (requires desktop:build first)
-npm run desktop:package        # electron-builder installers → release/ (Win NSIS, macOS DMG, Linux AppImage)
+npm run desktop:dev             # Electron dev mode: renderer HMR, auto-restart main+preload
+npm run app:build                # compile shared → cloud-aws → desktop-main → preload → web
+npm run desktop:build           # electron-vite build → out/main, out/preload, out/renderer
+npm run app:start                # launch the built app (requires desktop:build first)
+npm run desktop:package         # electron-builder installers → release/ (Win NSIS, macOS DMG, Linux AppImage)
 
-npm run app:build:lambdas      # bundle all five Lambdas (REQUIRED before `terraform apply`)
-npm run icons:generate         # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
-npm run scripts:init-parent    # parent-repo scaffolder
-npm run scripts:tfvars-sync    # sync tfvars to/from the S3 tfvars bucket
+npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
+npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
+npm run scripts:init-parent      # parent-repo scaffolder
+npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see guides/s3-tfvars)
 
-npm run app:lint               # eslint (flat config at app/eslint.config.js)
+npm run app:lint                 # eslint (flat config at app/eslint.config.js)
 npm run app:lint:fix
-npm run app:typecheck          # full cross-workspace tsc pass
-npm run app:test               # vitest, all workspaces
+npm run app:typecheck            # full cross-workspace tsc pass, including @hyveon/infra
+npm run app:test                 # vitest, all workspaces
 npm run app:test:watch
 npm run app:test:coverage
-npm run app:test:e2e           # Playwright tier 1 (chromium + electron projects)
-npm run app:test:integration   # Playwright tier 2 (in-process Nest DI container)
-
-cd terraform && terraform init && terraform plan && terraform apply
-tflint                         # run `tflint --init` once first; config in terraform/.tflint.hcl
+npm run app:test:e2e             # Playwright tier 1 (chromium + electron projects)
+npm run app:test:integration     # Playwright tier 2 (in-process Nest DI container)
 ```
+
+There is no `terraform`/`tflint` command — the `terraform/` tree was deleted
+by the `migrate-iac-to-pulumi` change. AWS is provisioned by
+`app/packages/infra`, a Pulumi Automation API program driven entirely from
+inside the packaged app (`PulumiService`); there is no CLI step, and no
+host-installed `pulumi` binary either — the app provisions its own pinned
+engine. See [Infra program](docs/docs/components/infra.md).
 
 All AWS resources are tagged `Project=hyveon`; activate the `Project` tag in AWS
 Billing → Cost allocation tags for Cost Explorer breakdowns.
@@ -73,10 +78,14 @@ these are easy to violate while making an otherwise reasonable change.
 - **No persistent ECS Service.** Tasks are started on demand via `RunTask`/`StopTask`
   against `{game}-server` task definitions. A long-running Service destroys the
   core cost model.
-- **`terraform/aws/variables.tf:game_servers` is the single source of truth.** Adding a
-  game means editing `terraform.tfvars` only — every resource fans out via `for_each`.
-- **DNS records are Lambda-managed, never Terraform-managed.** `@hyveon/lambda-update-dns`
-  UPSERTs on `RUNNING` and DELETEs on `STOPPED`; Terraform-owned records would fight it.
+- **`DeploymentConfig.gameServers` is the single source of truth.** It's persisted as
+  the JSON object `deployment-config.json` in the operator's S3 configuration bucket
+  (`TfvarsService`). Adding a game means adding one map entry — every per-game resource
+  in `app/packages/infra` fans out from that one object.
+- **DNS records are Lambda-managed, never infra-program-managed.** `@hyveon/lambda-update-dns`
+  UPSERTs on `RUNNING` and DELETEs on `STOPPED`; a Pulumi-owned per-game record would fight it.
+  (The infra program's `route53.ts` declares zero resources for this reason — only a
+  hosted-zone lookup.)
 - **TLS terminates in-task via a Caddy sidecar.** There is no ALB, target group, or ACM
   certificate anywhere in the stack (`openspec/specs/in-task-tls-termination`).
 - **Watchdog state lives in ECS task tags**, not DynamoDB or SSM.
@@ -134,7 +143,7 @@ without having run the relevant command and seen it pass:
 1. `npm run app:lint` — clean.
 2. `npm run app:typecheck` — clean.
 3. `npm run app:test` — full unit suite green.
-4. `npm run app:test:integration` when controllers, services, or Terraform orchestration changed.
+4. `npm run app:test:integration` when controllers, services, or the Pulumi orchestration changed.
 5. `npm run app:test:e2e` when the renderer, preload bridge, or IPC surface changed.
 
 Then confirm documentation is current **in the same PR**:
@@ -146,12 +155,17 @@ Then confirm documentation is current **in the same PR**:
   evaluator agents, which is more reliable than hand-picking pages from memory.
 - **OpenSpec** — if required behaviour changed, the change's delta specs must be synced
   (`/opsx:sync`) or the change archived (`/opsx:archive`) so `openspec/specs/` matches reality.
-- **Terraform variables** — adding or removing one means touching all five in the same commit:
-  1. `terraform/variables.tf` **and** `terraform/aws/variables.tf` (except `tags`, root-only).
-  2. `terraform/main.tf` — pass it through the `module "cloud"` block.
-  3. `terraform/terraform.tfvars.example` — commented example entry.
-  4. `docs/docs/components/terraform.md` — Variables table row.
-  5. `docs/docs/setup.md` — any affected setup step.
+- **Deployment-config fields** — there is no five-file checklist any more; the old one
+  (`terraform/variables.tf` + `terraform/aws/variables.tf` + `terraform/main.tf`'s
+  `module "cloud"` passthrough + `terraform.tfvars.example` + the components doc) existed
+  because Terraform variables had to be declared twice and threaded through a module
+  boundary by hand. A TypeScript type has no such duplication. Adding a field to
+  `DeploymentConfig`/`GameServerConfig` (`@hyveon/shared`) means:
+  1. The type itself, in `@hyveon/shared`.
+  2. Wherever `app/packages/infra` needs to consume it (the relevant `defineX()` function).
+  3. The add/edit-game wizard in `@hyveon/web`, if it's operator-editable.
+  4. `docs/docs/components/infra.md` — the file/resource table, if the field changes what
+     gets provisioned.
 
 ## Git & PR workflow
 
