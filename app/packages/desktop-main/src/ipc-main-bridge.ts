@@ -35,7 +35,7 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  * - `iac.runs.logs`: bridged manually by `IacRunsController`
  *   because the handler streams a run's live/replayed output over a side
  *   channel derived from a `streamId` it mints itself, the same
- *   self-bridging pattern `iac.plan`/`iac.runs.logs` use — see
+ *   self-bridging pattern `iac.plan`/`logs.stream` use — see
  *   `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
  * - `iac.stack.initialize`: bridged manually by `IacController` (task
  *   10.3, replacing the deleted `iac.init` channel) for the same reason as

@@ -94,16 +94,26 @@ interface StackInitializePhaseMessage {
 
 /**
  * Message payload sent once on {@link STACK_INIT_END_CHANNEL} when an
- * `iac.stack.initialize` run finishes. `error`/`failedPhase` are present
- * only on a failed run — `failedPhase` is populated whenever the underlying
- * rejection was a `PulumiStackInitializationError`, naming exactly which of
- * the three phases failed (see that error class's own TSDoc); left
- * `undefined` for any other, unexpected failure shape.
+ * `iac.stack.initialize` run finishes. `error` is present only on a failed
+ * run.
+ *
+ * Deliberately carries no separate structured `failedPhase` field (fix
+ * round 1: an earlier version of this message did, but it never actually
+ * reached the renderer — see {@link IacController.initializeStack}'s own
+ * TSDoc, "Why no structured `failedPhase` field", for why that gap turned
+ * out to be the right call to keep rather than fix by plumbing it through).
+ * `error` already names the failed phase in prose — see
+ * `PulumiStackInitializationError`'s own message format
+ * (`PulumiService.ts`) — which is sufficient for the operator-facing error
+ * text, and the renderer independently derives the same phase attribution
+ * from the {@link STACK_INIT_CHUNK_CHANNEL} event stream itself (the phase
+ * whose `'start'` never got a matching successful `'end'`), which is both
+ * reliable (plain data, unlike a thrown error's custom properties) and
+ * already correct.
  */
 interface StackInitializeEndMessage {
   streamId: string;
   error?: string;
-  failedPhase?: PulumiProvisioningPhase;
 }
 
 /**
@@ -568,7 +578,6 @@ export class IacController implements OnModuleInit {
    * the old (pre-7.10) `iac.init` channel's identical streaming shape, not
    * the never-streaming rejection stub `iac.init` became afterward.
    *
-
    * `iac.rollback.confirm` was added to this set in task 7.10 fix
    * round 1: {@link confirmRollback}'s own `ctx: { evt }` second parameter
    * has no `@Payload()`/etc. decorator, exactly like `plan`/`apply`/`destroy`
@@ -667,11 +676,40 @@ export class IacController implements OnModuleInit {
    * fire-and-forget block (mirrors {@link plan}'s streaming loop, but there
    * is no per-chunk drive loop to write since `onPhase` already pushes each
    * event as it happens) — a single terminal message is sent on
-   * {@link STACK_INIT_END_CHANNEL} once it settles:
-   * `{ streamId }` on success, or `{ streamId, error, failedPhase }` on
-   * failure — `failedPhase` is populated whenever the rejection is a
-   * `PulumiStackInitializationError`, naming exactly which of the three
-   * phases failed (see that error class's own TSDoc).
+   * {@link STACK_INIT_END_CHANNEL} once it settles: `{ streamId }` on
+   * success, or `{ streamId, error }` on failure. `error` is always a
+   * human-readable message — for a `PulumiStackInitializationError`
+   * specifically, that message already names the failed phase in prose
+   * (see that error class's own TSDoc/message format in `PulumiService.ts`).
+   *
+   * ## Why no structured `failedPhase` field
+   *
+   * An earlier version of this message also carried a structured
+   * `failedPhase?: PulumiProvisioningPhase` field (`err.phase` for a
+   * `PulumiStackInitializationError`) so the renderer could show a
+   * specific, per-phase failure indicator without parsing prose. Removed in
+   * fix round 1 after a code reviewer traced it end to end and found it
+   * never actually reached the renderer: `failedPhase` crosses fine over
+   * THIS channel (a plain `sender.send(...)` IPC message — structured data
+   * clones reliably, same as every other chunk/end payload on this class),
+   * but the renderer only ever learns about a stream's failure via the
+   * preload-internal generator's `throw`, which crosses the
+   * **contextBridge** as a REJECTED promise — and Electron's contextBridge
+   * uses the same structured-clone algorithm Node's own `structuredClone()`
+   * implements, which (empirically verified this fix round, via a plain
+   * `structuredClone()` of a custom `Error` subclass with an extra own
+   * property) preserves only `name`/`message`/`stack` for an `Error`, not
+   * custom own properties like `.phase` — `preload.ts`'s `onEnd` handler
+   * was therefore always going to receive `failedPhase` correctly but have
+   * no reliable way to smuggle it across the LATER contextBridge hop to the
+   * renderer's `for await` catch block. Rather than build a workaround
+   * (e.g. encoding it into the thrown message string and parsing it back
+   * out), this field was removed: the renderer already derives the same
+   * phase attribution independently and reliably from the
+   * {@link STACK_INIT_CHUNK_CHANNEL} event stream itself (plain data,
+   * proven to cross correctly, unlike a thrown error's custom properties)
+   * — see `StackInitializationStep`'s own `lastStartedPhase` tracking in
+   * `@hyveon/web`.
    *
    * Reachable via the Electron IPC transport (`iac.stack.initialize`) — this
    * channel self-bridges (see {@link onModuleInit}'s own TSDoc and
@@ -713,12 +751,19 @@ export class IacController implements OnModuleInit {
         }
       })
       .catch((err: unknown) => {
-        logger.error('stack initialization error', { err });
+        // Logged server-side with the structured `phase` field intact
+        // (never crosses the contextBridge, so no cloning concern applies
+        // here — see this method's own TSDoc, "Why no structured
+        // `failedPhase` field", for why the *renderer-facing* message below
+        // deliberately doesn't try to carry the same field).
+        logger.error('stack initialization error', {
+          err,
+          failedPhase: err instanceof PulumiStackInitializationError ? err.phase : undefined,
+        });
         if (!sender.isDestroyed()) {
           const message: StackInitializeEndMessage = {
             streamId,
             error: err instanceof Error ? err.message : String(err),
-            failedPhase: err instanceof PulumiStackInitializationError ? err.phase : undefined,
           };
           sender.send(STACK_INIT_END_CHANNEL, message);
         }

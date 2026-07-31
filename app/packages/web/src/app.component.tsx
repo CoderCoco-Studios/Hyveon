@@ -64,7 +64,7 @@ function useWizardCompleted(): boolean | null {
  * Gates the whole app behind the first-run wizard: while
  * `wizardCompleted` is `false`, renders only {@link FirstRunWizard} (no
  * routing, no polling providers — there's nothing to poll before AWS is
- * bootstrapped). The wizard's terraform-init step calls `onComplete` once
+ * bootstrapped). The wizard's stack-init step calls `onComplete` once
  * `wizard.complete` succeeds, which flips this component straight to the
  * routed dashboard shell below without waiting on another `wizard.state.get`
  * round-trip. Once complete, renders the routed dashboard shell:
