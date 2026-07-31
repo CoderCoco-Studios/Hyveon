@@ -121,7 +121,7 @@
 - [ ] 12.9 Update `CLAUDE.md`: commands, architecture, the `game_servers` source-of-truth section, and the Terraform-variable checklist
 - [ ] 12.10 Assert in docs and tests that no operator-facing instruction requires running any command other than launching the app
 - [ ] 12.11 Confirm `npm run app:lint`, `npm run app:test`, `npm run app:test:e2e`, and `npm run app:test:integration` all pass
-- [ ] 12.12 Per the `operator-documentation` delta spec: update `docs/docs/guides/maintainer.md` (Lambda count, repo map including `app/packages/infra`, no Route-53-Terraform-managed invariant claim, `app/packages/infra` resource table, full CI workflow list) and `docs/docs/components/management-app.md` (Game CRUD writes the JSON configuration store, not `terraform.tfvars`)
+- [ ] 12.12 Per the `operator-documentation` delta spec: update `docs/docs/guides/maintainer.md` (Lambda count, repo map including `app/packages/infra`, no Route-53-Terraform-managed invariant claim, `app/packages/infra` resource table, full CI workflow list) and `docs/docs/components/management-app.md` (Game CRUD writes the JSON configuration store, not `terraform.tfvars`) — also update the still-`/terraform`-referencing route mentions in `docs/docs/app/terraform.md` and `docs/docs/app/index.md` (task 9.8's route rename to `/iac` shipped without a docs update; found during 9.8's code review)
 - [ ] 12.13 Add a brief historical note to `docs/docs/architecture.md` on why the project moved from Terraform to Pulumi (multi-cloud optionality, no operator-installed binary, no HCL round-trip) — the rationale narrative, not a capability spec
 
 ## 13. Follow-up coordination
