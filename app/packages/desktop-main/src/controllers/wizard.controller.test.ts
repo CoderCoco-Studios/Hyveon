@@ -48,6 +48,7 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
   return {
     ensureStateBucket: vi.fn().mockResolvedValue(result),
     ensureConfigurationBucket: vi.fn().mockResolvedValue(result),
+    ensureRunsTable: vi.fn().mockResolvedValue(result),
   } as Partial<BootstrapService> as BootstrapService;
 }
 
@@ -120,6 +121,11 @@ describe('WizardController', () => {
     it('should register bootstrapConfigurationBucket on the "wizard.bootstrap.configurationBucket" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapConfigurationBucket);
       expect(pattern).toEqual(['wizard.bootstrap.configurationBucket']);
+    });
+
+    it('should register bootstrapRunsTable on the "wizard.bootstrap.runsTable" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapRunsTable);
+      expect(pattern).toEqual(['wizard.bootstrap.runsTable']);
     });
 
     it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
@@ -352,6 +358,25 @@ describe('WizardController', () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
       const result = await makeController({ bootstrap }).bootstrapConfigurationBucket({ bucketName: 'my-config-bucket' });
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+  });
+
+  describe('bootstrapRunsTable', () => {
+    it('should delegate to BootstrapService.ensureRunsTable with the default project-prefixed table name', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      const result = await makeController({ bootstrap }).bootstrapRunsTable();
+
+      expect(bootstrap.ensureRunsTable).toHaveBeenCalledWith('hyveon-runs');
+      expect(result).toEqual({ status: 'created' });
+    });
+
+    it('should propagate a failed result unchanged rather than throwing', async () => {
+      const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
+
+      const result = await makeController({ bootstrap }).bootstrapRunsTable();
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });

@@ -1,5 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import { DEPLOYMENT_CONFIG_DEFAULTS, resolveRunsTableName } from '@hyveon/shared';
 import {
   AwsProfileService,
   type AwsProfileSummary,
@@ -216,6 +217,26 @@ export class WizardController {
   @MessagePattern('wizard.bootstrap.configurationBucket')
   bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
+  }
+
+  /**
+   * Idempotently creates/ensures the run-history DynamoDB table (see
+   * `BootstrapService.ensureRunsTable`'s own doc for the full
+   * bootstrap-deadlock rationale). Unlike {@link bootstrapStateBucket}/
+   * {@link bootstrapConfigurationBucket}, this takes no payload: the table's
+   * name is NOT operator-editable at this point in the wizard — it's
+   * computed from `@hyveon/shared`'s `DEPLOYMENT_CONFIG_DEFAULTS.projectName`
+   * (the default `DeploymentConfig.projectName` every fresh install starts
+   * with, since no `DeploymentConfig` — and therefore no
+   * operator-configured `runsTableName` override — exists yet this early in
+   * the wizard; that only gets configured later, from the Games/Settings
+   * pages). Uses `resolveRunsTableName` so this can never drift from the
+   * identical resolution `@hyveon/infra`'s stack-output computation and
+   * `RunRecordService`'s pre-apply fallback apply.
+   */
+  @MessagePattern('wizard.bootstrap.runsTable')
+  bootstrapRunsTable(): Promise<BootstrapResult> {
+    return this.bootstrap.ensureRunsTable(resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
   }
 
   /**
