@@ -99,6 +99,7 @@ import type {
   HyveonStreamHandle,
   HyveonTestApi,
   LogChunk,
+  PulumiEngineVersionResult,
   TerraformApplyPayload,
   TerraformApproveAck,
   TerraformDestroyMintAck,
@@ -772,6 +773,7 @@ const api: HyveonApi = {
       get: () => invoke<DeploymentSettingsGetResult>('iac.settings.get'),
       update: (payload: UpdateDeploymentSettingsPayload) =>
         invoke<DeploymentSettingsWriteResult>('iac.settings.update', payload),
+      engineVersion: () => invoke<PulumiEngineVersionResult>('iac.settings.engineVersion'),
     },
   },
 };

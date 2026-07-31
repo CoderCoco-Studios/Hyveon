@@ -1,10 +1,43 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
 import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
 import { WatchdogPanel } from '../components/watchdog-panel.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.component.js';
 import { Button } from '../components/ui/button.component.js';
+
+/**
+ * Client-side state for the Cloud Setup section's Pulumi engine version row
+ * (task 10.4, `migrate-iac-to-pulumi`) — tracks the `iac.settings.engineVersion`
+ * IPC round trip separately from its result so a genuine fetch failure (IPC
+ * unavailable, an unexpected main-process error) renders distinct copy from
+ * `resolvedVersion: null`, which is a real, expected "not yet provisioned"
+ * state (a fresh install that hasn't run the engine yet), not a failure.
+ *
+ *  - `'loading'`: the initial state, before the IPC call has settled.
+ *  - `{ status: 'ready', resolvedVersion }`: the call resolved —
+ *    `resolvedVersion` is `null` when the engine hasn't been provisioned yet.
+ *  - `'error'`: the call itself rejected (or `window.hyveon.iac.settings` is
+ *    unavailable) — best-effort, mirrors the removed `checkPrereqs()` row's
+ *    own "just fall back" catch handling.
+ */
+type EngineVersionState = 'loading' | { status: 'ready'; resolvedVersion: string | null } | 'error';
+
+/**
+ * Renders {@link EngineVersionState} as the Cloud Setup row's detail line,
+ * always suffixed with the pinned/target version (`PULUMI_ENGINE_VERSION`)
+ * regardless of state — see task 10.4's brief, "always shown, regardless of
+ * whether the resolved version is present".
+ */
+function engineVersionLabel(state: EngineVersionState): string {
+  const pinned = `pinned to v${PULUMI_ENGINE_VERSION}`;
+  if (state === 'loading') return `Checking engine version… · ${pinned}`;
+  if (state === 'error') return `Unable to determine engine version · ${pinned}`;
+  return state.resolvedVersion === null
+    ? `Not yet provisioned · ${pinned}`
+    : `Pulumi engine v${state.resolvedVersion} · ${pinned}`;
+}
 
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
@@ -21,6 +54,19 @@ import { Button } from '../components/ui/button.component.js';
  */
 export function SettingsPage() {
   const [reconfiguring, setReconfiguring] = useState(false);
+  const [engineVersion, setEngineVersion] = useState<EngineVersionState>('loading');
+
+  useEffect(() => {
+    // `settings` may be absent (`window.hyveon.iac.settings` unavailable) —
+    // routed through the same rejected-promise path as a real IPC failure so
+    // every `setEngineVersion` call below happens inside a promise callback,
+    // never synchronously in the effect body (react-hooks/set-state-in-effect).
+    const settings = window.hyveon?.iac?.settings;
+    const read = settings ? settings.engineVersion() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    read
+      .then((result) => setEngineVersion({ status: 'ready', resolvedVersion: result.resolvedVersion }))
+      .catch(() => setEngineVersion('error'));
+  }, []);
 
   if (reconfiguring) {
     return (
@@ -50,15 +96,17 @@ export function SettingsPage() {
         `window.hyveon.wizard.checkPrereqs()` was removed in task 10.1/10.2
         of `migrate-iac-to-pulumi` — that channel probed for a host
         `terraform`/`aws` CLI, which no longer exists now the Pulumi engine
-        is app-managed. Task 10.4 replaces this with a row reporting the
-        resolved Pulumi engine version instead; until then this is a
-        deliberately thinner interim state, not a redesign.
+        is app-managed. Task 10.4 replaces it with a row reporting the
+        resolved Pulumi engine version (`iac.settings.engineVersion`) plus
+        the pinned/target version (`PULUMI_ENGINE_VERSION`) — see
+        `engineVersionLabel` above for the exact copy per state.
       */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Cloud Setup</h3>
         <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
           <div>
-            <p className="text-sm font-medium">Terraform</p>
+            <p className="text-sm font-medium">Pulumi Engine</p>
+            <p className="text-sm text-muted-foreground">{engineVersionLabel(engineVersion)}</p>
           </div>
           <Button type="button" variant="outline" onClick={() => setReconfiguring(true)}>
             Reconfigure
