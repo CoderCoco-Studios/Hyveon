@@ -44,28 +44,54 @@ export interface DeploymentSettingsValidationIssue {
  *
  * Rules (deliberately not exhaustive — see task 9.7's brief, "prevent
  * obviously malformed input from reaching the backend", not a full schema
- * validator):
- *  - `hostedZoneName`, `projectName`, `awsRegion`: non-empty when present.
- *    `hostedZoneName` has no Terraform default and is required in every
- *    real deployment (see its own TSDoc on {@link DeploymentConfig});
- *    `projectName`/`awsRegion` do have defaults but an empty value is never
- *    a usable one (resource naming / region selection).
- *  - `vpcCidr`: when present, must look like an IPv4 CIDR block (four
- *    dot-separated 0-255 octets, then `/` and a 0-32 prefix length).
+ * validator — but every rule below REJECTS a wrong-typed value rather than
+ * silently passing it through; see "Type safety" below):
+ *  - `hostedZoneName`, `projectName`, `awsRegion`: must be a string when
+ *    present, and non-empty. `hostedZoneName` has no Terraform default and
+ *    is required in every real deployment (see its own TSDoc on
+ *    {@link DeploymentConfig}); `projectName`/`awsRegion` do have defaults
+ *    but an empty value is never a usable one (resource naming / region
+ *    selection).
+ *  - `vpcCidr`: must be a string when present, and look like an IPv4 CIDR
+ *    block (four dot-separated 0-255 octets, then `/` and a 0-32 prefix
+ *    length).
  *  - `dnsTtl`, `watchdogIntervalMinutes`, `watchdogIdleChecks`,
  *    `watchdogMinPackets`: when present, must be positive integers
  *    (`watchdogMinPackets` and `dnsTtl` could arguably be zero-or-more, but
  *    a `0` threshold/TTL describes no meaningful tuning value in practice,
  *    so this validator holds every numeric field to the same "\> 0, whole
  *    number" rule for a single easy-to-explain contract).
- *  - `baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds`: when
- *    present, every entry must look like a Discord snowflake (17-20 digit
- *    numeric string) — mirrors `discord.page.tsx`'s own `SNOWFLAKE_RE`.
- *  - `auditTableName`, `runsTableName`, `discordApplicationId`: never
- *    validated — empty string is a legitimate value for all three (see
+ *  - `baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds`: must be an
+ *    array when present, and every entry must look like a Discord
+ *    snowflake (17-20 digit numeric string) — mirrors `discord.page.tsx`'s
+ *    own `SNOWFLAKE_RE`.
+ *  - `auditTableName`, `runsTableName`, `discordApplicationId`: must be a
+ *    string when present, but emptiness is never checked — empty string is
+ *    a legitimate value for all three (see
  *    {@link DeploymentConfig.auditTableName}'s "empty-string-means-
  *    computed-default" doc comment; `discordApplicationId` is optional
  *    until configured via the Discord Credentials tab).
+ *
+ * ## Type safety
+ *
+ * This function is the server-side gate against a caller that bypasses the
+ * renderer entirely (a modified client, a hand-crafted IPC payload) — that's
+ * the whole reason it exists independent of the client-side copy running the
+ * exact same code. A gate that only checks a field's *content* when it
+ * happens to already be the right JS type — e.g. flagging a blank string but
+ * silently accepting a number, an object, or `null` for the same field — is
+ * not actually independent of the client in the type-safety sense: it would
+ * let `{ hostedZoneName: 42 }` or `{ baseAdminUserIds: "everyone" }` reach
+ * `TfvarsService.updateTopLevelSettings()` and get written into
+ * `deployment-config.json` verbatim, corrupting every downstream consumer
+ * that assumes the declared `TopLevelDeploymentSettings` types (e.g.
+ * `infra/src/escapes.ts`'s `baseAllowedGuilds.length` — a string also has a
+ * `.length`, so a wrong-typed value there produces a garbage `BASE#discord`
+ * row instead of failing loudly here). Every check below therefore validates
+ * a present field's TYPE first and rejects immediately if it's wrong,
+ * mirroring {@link checkPositiveInteger}'s `typeof value !== 'number'` guard
+ * — never a "if it happens to be a string, check its content" pattern that
+ * silently no-ops on anything else.
  *
  * @param patch - The proposed partial update.
  * @returns Every issue found; empty when `patch` is structurally valid.
@@ -75,12 +101,19 @@ export function validateDeploymentSettingsPatch(
 ): DeploymentSettingsValidationIssue[] {
   const issues: DeploymentSettingsValidationIssue[] = [];
 
-  checkNonEmptyString(patch, 'hostedZoneName', issues);
-  checkNonEmptyString(patch, 'projectName', issues);
-  checkNonEmptyString(patch, 'awsRegion', issues);
+  checkStringField(patch, 'hostedZoneName', issues, { requireNonEmpty: true });
+  checkStringField(patch, 'projectName', issues, { requireNonEmpty: true });
+  checkStringField(patch, 'awsRegion', issues, { requireNonEmpty: true });
+  checkStringField(patch, 'discordApplicationId', issues, { requireNonEmpty: false });
+  checkStringField(patch, 'auditTableName', issues, { requireNonEmpty: false });
+  checkStringField(patch, 'runsTableName', issues, { requireNonEmpty: false });
 
-  if (patch.vpcCidr !== undefined && !CIDR_PATTERN.test(patch.vpcCidr.trim())) {
-    issues.push({ path: 'vpcCidr', message: 'Must be a valid IPv4 CIDR block, e.g. "10.0.0.0/16".' });
+  if (patch.vpcCidr !== undefined) {
+    if (typeof patch.vpcCidr !== 'string') {
+      issues.push({ path: 'vpcCidr', message: 'Must be a string.' });
+    } else if (!CIDR_PATTERN.test(patch.vpcCidr.trim())) {
+      issues.push({ path: 'vpcCidr', message: 'Must be a valid IPv4 CIDR block, e.g. "10.0.0.0/16".' });
+    }
   }
 
   checkPositiveInteger(patch, 'dnsTtl', issues);
@@ -108,14 +141,29 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const CIDR_PATTERN =
   /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}\/(3[0-2]|[12]?\d)$/;
 
-/** Pushes an issue for `field` when present on `patch` and blank/whitespace-only. */
-function checkNonEmptyString<K extends keyof TopLevelDeploymentSettings>(
+/**
+ * Pushes an issue for `field` when present on `patch` and either not a
+ * string at all, or (when `opts.requireNonEmpty`) blank/whitespace-only.
+ * Type-checks even the three "never validated for emptiness" fields
+ * (`discordApplicationId`/`auditTableName`/`runsTableName`,
+ * `requireNonEmpty: false`) — a wrong JS type is rejected regardless of
+ * whether emptiness itself is enforced. See
+ * {@link validateDeploymentSettingsPatch}'s "Type safety" doc for why a
+ * present-but-wrong-typed value is never silently skipped.
+ */
+function checkStringField<K extends keyof TopLevelDeploymentSettings>(
   patch: Partial<TopLevelDeploymentSettings>,
   field: K,
   issues: DeploymentSettingsValidationIssue[],
+  opts: { requireNonEmpty: boolean },
 ): void {
   const value = patch[field];
-  if (value !== undefined && typeof value === 'string' && value.trim().length === 0) {
+  if (value === undefined) return;
+  if (typeof value !== 'string') {
+    issues.push({ path: field, message: 'Must be a string.' });
+    return;
+  }
+  if (opts.requireNonEmpty && value.trim().length === 0) {
     issues.push({ path: field, message: 'Must not be empty.' });
   }
 }
@@ -133,14 +181,24 @@ function checkPositiveInteger<K extends keyof TopLevelDeploymentSettings>(
   }
 }
 
-/** Pushes one issue per non-snowflake-shaped entry in `field` when present on `patch`, positioned by array index (e.g. `baseAllowedGuilds[1]`). */
+/**
+ * Pushes an issue for `field` when present on `patch` and not an array at
+ * all, otherwise one issue per non-snowflake-shaped entry, positioned by
+ * array index (e.g. `baseAllowedGuilds[1]`). A non-array value (a string, a
+ * number, an object) is rejected outright rather than silently skipped —
+ * see {@link validateDeploymentSettingsPatch}'s "Type safety" doc.
+ */
 function checkSnowflakeArray<K extends keyof TopLevelDeploymentSettings>(
   patch: Partial<TopLevelDeploymentSettings>,
   field: K,
   issues: DeploymentSettingsValidationIssue[],
 ): void {
   const value = patch[field];
-  if (value === undefined || !Array.isArray(value)) return;
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    issues.push({ path: field, message: 'Must be an array of Discord snowflake IDs.' });
+    return;
+  }
   value.forEach((entry, index) => {
     if (typeof entry !== 'string' || !SNOWFLAKE_PATTERN.test(entry.trim())) {
       issues.push({ path: `${field}[${index}]`, message: 'Must be a 17-20 digit Discord snowflake ID.' });

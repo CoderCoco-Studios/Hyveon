@@ -26,7 +26,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
-import { OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
 
 // Shared mock instances behind both the bare `'fs'` specifier and the
 // `'node:fs'` specifier — Node treats these as distinct module ids, and
@@ -602,6 +602,73 @@ describe('TfvarsService write path', () => {
       const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
       await expect(service.getTopLevelSettings()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
       expect(remoteFileStore.get).not.toHaveBeenCalled();
+    });
+
+    describe('defaulting a document missing fields (review round 1, finding I2)', () => {
+      /**
+       * A stored document that predates the three base-allowlist array
+       * fields and the numeric watchdog/dnsTtl fields entirely — simulates a
+       * `deployment-config.json` written by an older app version, before
+       * those fields existed. `JSON.stringify` naturally omits `undefined`
+       * properties, so building this fixture as a plain object with those
+       * keys never set (rather than explicitly `undefined`) reproduces
+       * exactly what an old on-disk document looks like.
+       */
+      const CONFIG_MISSING_FIELDS = {
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        vpcCidr: '10.0.0.0/16',
+        hostedZoneName: 'example.com',
+        discordApplicationId: '',
+        auditTableName: '',
+        runsTableName: '',
+        gameServers: {},
+      };
+      const CONFIG_MISSING_FIELDS_JSON = JSON.stringify(CONFIG_MISSING_FIELDS);
+
+      it('should default the three base-allowlist arrays to [] rather than returning them as undefined', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.baseAllowedGuilds).toEqual([]);
+        expect(settings.baseAdminUserIds).toEqual([]);
+        expect(settings.baseAdminRoleIds).toEqual([]);
+      });
+
+      it('should default the missing numeric fields to their Terraform defaults rather than returning them as undefined', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.dnsTtl).toBe(DEPLOYMENT_CONFIG_DEFAULTS.dnsTtl);
+        expect(settings.watchdogIntervalMinutes).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes);
+        expect(settings.watchdogIdleChecks).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks);
+        expect(settings.watchdogMinPackets).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets);
+      });
+
+      it('should give each call a fresh array reference for the three base-allowlist fields (never a shared mutable default)', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const first = await service.getTopLevelSettings();
+        const second = await service.getTopLevelSettings();
+
+        expect(first.settings.baseAllowedGuilds).not.toBe(second.settings.baseAllowedGuilds);
+      });
+
+      it('should leave an already-complete document\'s values untouched (defaulting is a no-op, not a silent overwrite)', async () => {
+        stubCurrentConfig(remoteFileStore);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.baseAllowedGuilds).toEqual(FIXTURE_CONFIG.baseAllowedGuilds);
+        expect(settings.dnsTtl).toBe(FIXTURE_CONFIG.dnsTtl);
+        expect(settings.awsRegion).toBe(FIXTURE_CONFIG.awsRegion);
+      });
     });
 
     it('should merge a patch onto the current top-level fields, leaving every gameServers entry intact', async () => {
