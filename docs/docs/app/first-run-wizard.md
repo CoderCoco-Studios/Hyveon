@@ -88,8 +88,8 @@ back to plaintext:
 - **Paste mode**: **Save credentials** must have succeeded *and* the region
   must be non-empty.
 
-The region is mandatory in both modes because the Terraform S3 backend has no
-region default to fall back on.
+The region is mandatory in both modes because Pulumi's self-managed S3 backend
+has no region default to fall back on.
 
 ## Step 3 — Bootstrap AWS resources
 

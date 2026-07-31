@@ -31,9 +31,20 @@ import type {
 import { logger } from '../logger.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { PulumiEngineService } from './PulumiEngineService.js';
+import {
+  PulumiEngineService,
+  PulumiEngineNetworkError,
+  PulumiEngineIntegrityError,
+  PulumiEngineCacheWriteError,
+} from './PulumiEngineService.js';
 import type { PulumiPhaseCallback, PulumiProvisioningPhase } from './PulumiEngineService.js';
-import { PULUMI_PROJECT_NAME, PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
+import {
+  PULUMI_PROJECT_NAME,
+  PULUMI_STACK_NAME,
+  PulumiWorkspaceService,
+  PulumiPassphraseUnavailableError,
+} from './PulumiWorkspaceService.js';
+import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
 import {
   PulumiOperationAbortedError,
   PulumiOperationEscalatedError,
@@ -732,17 +743,64 @@ export class PulumiService {
    * type it feeds (`iac.controller.ts`, mirrored in
    * `@hyveon/desktop-preload/src/hyveon-api.ts`), and `iac.page.tsx`'s own
    * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
-   * other reason to touch. `initializeStack` still refuses to start while
-   * {@link operationInFlight} is set (see its own TSDoc, "Workspace mutual
-   * exclusion") — this flag only adds the missing other half: refusing a
-   * second concurrent `initializeStack` call, and (deliberately, see the
-   * same TSDoc section) NOT making `preview`/`apply`/`destroy`/`confirmRollback`
-   * refuse while THIS is set. That asymmetry is an accepted, documented scope
-   * cut for this task, not an oversight — see this class's `initializeStack`
-   * TSDoc for the full reasoning and the backend-lock backstop that still
-   * applies if the gap is ever actually hit.
+   * other reason to touch.
+   *
+   * `initializeStack` refuses to start while {@link operationInFlight} is
+   * set (see its own TSDoc, "Workspace mutual exclusion"), and — fix round
+   * 1, closing a gap a code reviewer traced to a concrete, reachable race
+   * — `preview`/`apply`/`destroy`/`confirmRollback` now each refuse to
+   * start while THIS flag is set too, via {@link assertStackInitNotInFlight}.
+   * The reachable sequence: Settings → Reconfigure → advance to the
+   * stack-init step (starts `initializeStack` in the background) → click
+   * Cancel. The step's cleanup calls the returned stream handle's
+   * `cancel()`, which — per `HyveonStreamHandle`'s own contract — only
+   * stops the RENDERER from consuming further progress; `initializeStack`
+   * itself keeps running to completion regardless (its own TSDoc already
+   * said so). Before this fix, an operator who then navigated to `/iac`
+   * and clicked "Run plan" would sail straight through `preview()`'s own
+   * `operationInFlight` check (still `null` — `initializeStack` never
+   * touches it) while `stack.refresh()` was still running against the
+   * SAME reused local `workDir`/`Pulumi.<stack>.yaml`/`PULUMI_HOME` plugin
+   * cache — and `preview()` never takes the durable S3 backend lock either
+   * (task 7.1's own investigation), so nothing protected that local-workspace
+   * race at all. This is now symmetric in the direction that matters
+   * (every other operation refuses to start while stack-init is running);
+   * the REMAINING asymmetry — `initializeStack` itself only guards against
+   * a second concurrent `initializeStack` call via this same flag, not a
+   * fifth `operationInFlight` value the other four could also be checked
+   * against — is unchanged from before and still the deliberate, documented
+   * scope cut described above (the union-widening cost, not the safety
+   * gap, is what's being avoided).
    */
   private stackInitInFlight = false;
+
+  /**
+   * Throws a plain `Error` if {@link stackInitInFlight} is set — the shared
+   * guard {@link preview}/{@link apply}/{@link destroy}/{@link confirmRollback}
+   * each call, right alongside their existing {@link operationInFlight}
+   * check, to close the race {@link stackInitInFlight}'s own doc comment
+   * describes. Deliberately a plain `Error`, not
+   * {@link PulumiOperationInFlightError} — that class's `inFlight` field is
+   * typed to the pre-existing four-value union, and widening it to a fifth
+   * `'stack-init'` value is exactly the ripple {@link stackInitInFlight}'s
+   * doc comment explains this guard avoids. A caller submitting through
+   * `IacController` still sees a clear rejection message; it just doesn't
+   * get the specific busy-banner `conflict` treatment
+   * `PulumiOperationInFlightError` triggers there.
+   *
+   * @param methodName - The calling method's own name, purely for the
+   *   thrown message's wording (mirrors `preview`/`confirmRollback`'s
+   *   existing inline `operationInFlight` guards, which each hand-write
+   *   their own method name into an identically-shaped message).
+   */
+  private assertStackInitNotInFlight(methodName: 'preview' | 'apply' | 'destroy' | 'confirmRollback'): void {
+    if (this.stackInitInFlight) {
+      throw new Error(
+        `PulumiService.${methodName}() cannot run while initializeStack() is already running; wait for ` +
+          `it to finish before calling ${methodName}() again.`,
+      );
+    }
+  }
 
   /**
    * Lazily resolves the real `RunRecordService` singleton (bound to
@@ -1128,21 +1186,31 @@ export class PulumiService {
    *
    * Rethrows every failure as {@link PulumiStackInitializationError}, tagging
    * exactly which of the three phases failed:
-   *  - `'engine'` for anything that fails before `getOrCreateStack`'s own
-   *    internal `PulumiEngineService.resolve` call has reported its
-   *    `'engine'`/`'end'` event — covers a missing state bucket/region,
-   *    {@link PulumiWorkspaceService}'s `PulumiBackendNotBootstrappedError`
-   *    and `PulumiPassphraseUnavailableError` alike, since none of those has
-   *    its own phase slot in the 3-phase model this task inherited from
-   *    Phase 4.
-   *  - `'operation'` if `getOrCreateStack` fails AFTER 'engine' already
-   *    settled cleanly — i.e. the underlying `LocalWorkspace.createOrSelectStack`
+   *  - `'engine'` for anything {@link classifyGetOrCreateStackFailure}
+   *    identifies as happening at or before `engine.resolve()` settles —
+   *    covers a missing state bucket/region (checked directly by this
+   *    method, before `getOrCreateStack` is ever called), a genuine engine
+   *    provisioning failure (`PulumiEngineNetworkError`/
+   *    `PulumiEngineIntegrityError`/`PulumiEngineCacheWriteError`), and
+   *    anything thrown strictly before `engine.resolve()` runs
+   *    (`PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`)
+   *    — none of the pre-engine cases has its own phase slot in the
+   *    3-phase model this task inherited from Phase 4, so they bucket into
+   *    'engine' as the closest fit.
+   *  - `'operation'` if `getOrCreateStack` fails AFTER `engine.resolve()`
+   *    already succeeded — i.e. the underlying `LocalWorkspace.createOrSelectStack`
    *    (`stack init`/`stack select`) call itself failed for some other
    *    reason (a bad backend URL, a stale bucket) — since that call's whole
    *    purpose IS creating/selecting the stack, which is what the
    *    'operation' phase represents in this method's UI framing, even
    *    though the failure surfaces from inside the same `getOrCreateStack`
-   *    call that also resolves the engine.
+   *    call that also resolves the engine. See
+   *    {@link classifyGetOrCreateStackFailure}'s own TSDoc for exactly how
+   *    this is determined — deliberately by the thrown error's own type,
+   *    NOT by whether `onPhase` already reported `('engine', 'end')` (fixed
+   *    in review — `PulumiEngineService.resolve` fires `'end'` on both its
+   *    success and failure paths, so that signal alone can't tell them
+   *    apart).
    *  - `'plugins'` / `'operation'` for a failure inside the respective step
    *    directly.
    *
@@ -1201,19 +1269,6 @@ export class PulumiService {
       // backend round-trip.
       const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
 
-      // Tracks whether `getOrCreateStack`'s own internal `engine.resolve()`
-      // call already reported `('engine', 'end')` — the signal this method
-      // uses to tell "getOrCreateStack failed before engine resolution ever
-      // ran" (backendReady/passphrase failures, both checked before
-      // `engine.resolve` is called) apart from "getOrCreateStack failed
-      // AFTER engine resolution succeeded" (a `createOrSelectStack` failure)
-      // — see "Error attribution" above.
-      let engineSettled = false;
-      const trackedOnPhase: PulumiPhaseCallback = (phase, status) => {
-        if (phase === 'engine' && status === 'end') engineSettled = true;
-        onPhase?.(phase, status);
-      };
-
       let stack: Stack;
       try {
         stack = await this.workspace.getOrCreateStack({
@@ -1222,10 +1277,10 @@ export class PulumiService {
           stateBucketRegion,
           backendReady: true,
           stackExists,
-          onPhase: trackedOnPhase,
+          onPhase,
         });
       } catch (err) {
-        throw new PulumiStackInitializationError(engineSettled ? 'operation' : 'engine', err);
+        throw new PulumiStackInitializationError(PulumiService.classifyGetOrCreateStackFailure(err), err);
       }
 
       onPhase?.('plugins', 'start');
@@ -1238,11 +1293,31 @@ export class PulumiService {
       }
 
       onPhase?.('operation', 'start');
+      // Lock-recovery bookkeeping (task 4.8's primitives) — recorded
+      // immediately before the call that can actually take the DIY
+      // backend lock, mirroring `apply()`/`destroy()`'s identical
+      // "recorded immediately before, cleared on every normal settlement"
+      // pattern (see either method's own "Lock-recovery wiring" TSDoc
+      // section). `stack.refresh()`, unlike `stack.preview()` (which
+      // `preview()`'s own TSDoc documents never takes this lock at all),
+      // does take it — so a force-quit mid-refresh needs the same
+      // ownership record `apply`/`destroy` leave behind, or a later
+      // `PulumiUnrecognizedLockError` can never be proven this
+      // installation's own orphan. Deliberately does NOT also wire the
+      // full retry-on-reclaimable-orphan / `PulumiUnrecognizedLockError`
+      // classification `apply`/`destroy` build around their own
+      // lock-taking call (fix round 1 — added for the accountability
+      // record only, not the full recovery apparatus): against a
+      // brand-new, zero-resource stack, the wizard's own Retry button is
+      // already a strictly simpler, always-available recovery path than
+      // reproducing that machinery here would add.
+      const lockAttemptId = this.store.recordPulumiLockAttempt(PULUMI_STACK_NAME);
       try {
         await stack.refresh();
       } catch (err) {
         throw new PulumiStackInitializationError('operation', err);
       } finally {
+        this.store.clearPulumiLockAttempt(lockAttemptId);
         onPhase?.('operation', 'end');
       }
     } finally {
@@ -1285,6 +1360,53 @@ export class PulumiService {
     const _require = createRequire(import.meta.url);
     const { version } = _require('@pulumi/aws/package.json') as { version: string };
     return version;
+  }
+
+  /**
+   * Classifies a failure thrown by `getOrCreateStack` inside
+   * {@link initializeStack} as either the `'engine'` or `'operation'` phase
+   * — see that method's own TSDoc, "Error attribution", for the two cases
+   * this distinguishes.
+   *
+   * Deliberately does NOT infer this from the `onPhase` callback's own
+   * `('engine', 'end')` event (a fix-round-1 correction — the original
+   * implementation did, and a code reviewer caught the resulting bug):
+   * `PulumiEngineService.resolve` fires `('engine', 'end')` on BOTH its
+   * success and rejection paths (see that method's own TSDoc, "reporting
+   * is per-call... whether it settles by resolving... or by rejecting"),
+   * so "engine reported `'end'`" is not the same as "engine resolution
+   * succeeded" — treating it as such mis-tagged a genuine engine-download
+   * failure as `'operation'`, directly contradicting the phase checklist
+   * the renderer shows alongside the error (which correctly marks 'engine'
+   * as the one that failed, since it derives its own attribution from
+   * which phase's `'start'` never got a matching successful `'end'`).
+   *
+   * Classifies by the THROWN ERROR'S OWN TYPE instead, which is
+   * unambiguous regardless of event timing — verified against
+   * `PulumiWorkspaceService.getOrCreateStack`'s actual control flow
+   * (`PulumiWorkspaceService.ts`): every failure that can occur before
+   * `engine.resolve()` settles is one of exactly five typed errors —
+   * {@link PulumiPassphraseUnavailableError} and
+   * `PulumiCredentialsNotConfiguredError` (both resolved/thrown
+   * synchronously-ish BEFORE `engine.resolve()` is ever called), or one of
+   * `PulumiEngineNetworkError`/`PulumiEngineIntegrityError`/
+   * `PulumiEngineCacheWriteError` (thrown BY `engine.resolve()` itself,
+   * propagated unwrapped — `getOrCreateStack` does not try/catch that
+   * call). Anything else can only have come from the LATER
+   * `LocalWorkspace.createOrSelectStack` call (a bad backend URL, a stale
+   * bucket, or that call's own `PulumiBackendNotBootstrappedError`
+   * backstop-reclassification) — i.e. `engine.resolve()` already succeeded
+   * by the time the failure happened, so it's an `'operation'` failure in
+   * this method's 3-phase UI framing.
+   */
+  private static classifyGetOrCreateStackFailure(err: unknown): 'engine' | 'operation' {
+    const isPreEngineOrEngineFailure =
+      err instanceof PulumiPassphraseUnavailableError ||
+      err instanceof PulumiCredentialsNotConfiguredError ||
+      err instanceof PulumiEngineNetworkError ||
+      err instanceof PulumiEngineIntegrityError ||
+      err instanceof PulumiEngineCacheWriteError;
+    return isPreEngineOrEngineFailure ? 'engine' : 'operation';
   }
 
   /**
@@ -1516,6 +1638,7 @@ export class PulumiService {
           'running; wait for it to finish before calling preview() again.',
       );
     }
+    this.assertStackInitNotInFlight('preview');
     if (preMintedRunId !== undefined) {
       PulumiService.assertValidRunId(preMintedRunId);
     }
@@ -2371,6 +2494,7 @@ export class PulumiService {
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
+    this.assertStackInitNotInFlight('apply');
     PulumiService.assertValidRunId(planRunId);
     // Hoisted above the try block — mirrors preview()'s identical hoist and
     // rationale: a force-closed generator unwinds straight to the outer
@@ -3343,6 +3467,7 @@ export class PulumiService {
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
+    this.assertStackInitNotInFlight('destroy');
     if (preMintedRunId !== undefined) {
       PulumiService.assertValidRunId(preMintedRunId);
     }
@@ -4095,6 +4220,7 @@ export class PulumiService {
           'running; wait for it to finish before calling confirmRollback() again.',
       );
     }
+    this.assertStackInitNotInFlight('confirmRollback');
     if (preMintedRunId !== undefined) {
       PulumiService.assertValidRunId(preMintedRunId);
     }

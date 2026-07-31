@@ -244,6 +244,37 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('PulumiService.destroy concurrency guard', () => {
+  it('should throw synchronously when destroy() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+    // Regression test for a code-reviewer-traced race: initializeStack()
+    // does not set `operationInFlight` (see PulumiService.ts's own
+    // `stackInitInFlight` doc comment for why it's a separate flag), so
+    // destroy() must check `stackInitInFlight` itself or it would sail
+    // straight through its own top-of-function check while
+    // initializeStack() is still running against the same shared local
+    // workspace.
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace: hangingWorkspace });
+
+    const initPromise = service.initializeStack();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No token was even minted — this proves the stackInitInFlight check
+    // fires before the (later) token-confirmation gate, not just before
+    // some other unrelated failure.
+    await expect(collectDestroyChunks(service.destroy('guessed-token'))).rejects.toThrow(
+      /initializeStack.*already running/i,
+    );
+
+    void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
+  });
+});
+
 describe('PulumiService.destroy confirmation gate', () => {
   it('should reject with DestroyNotConfirmedError and never call getOrCreateStack or createRun when no token has ever been minted', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());

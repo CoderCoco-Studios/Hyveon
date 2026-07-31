@@ -23,6 +23,7 @@ import {
   type RunRecordService,
 } from '../services/RunRecordService.js';
 import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
+import { logger } from '../logger.js';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
@@ -516,7 +517,14 @@ describe('IacController', () => {
       expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', { streamId: result.streamId });
     });
 
-    it('should send an end message with the error and failedPhase when PulumiService.initializeStack throws a PulumiStackInitializationError', async () => {
+    it('should send an end message with only streamId and error (no structured failedPhase field) when PulumiService.initializeStack throws a PulumiStackInitializationError', async () => {
+      // Fix round 1: `failedPhase` was removed from the renderer-facing end
+      // message entirely — it never reliably crossed the contextBridge (see
+      // `IacController.initializeStack`'s own TSDoc, "Why no structured
+      // failedPhase field"). The phase is still named in `error`'s prose
+      // (via `PulumiStackInitializationError`'s own message format) and
+      // still logged server-side with the structured field intact (see the
+      // logger.error assertion below).
       const pulumi = makePulumi();
       vi.mocked(pulumi.initializeStack).mockRejectedValue(
         new PulumiStackInitializationError('plugins', new Error('network unreachable')),
@@ -529,11 +537,14 @@ describe('IacController', () => {
       expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', {
         streamId: result.streamId,
         error: expect.stringContaining('plugins'),
-        failedPhase: 'plugins',
       });
+      expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+        'stack initialization error',
+        expect.objectContaining({ failedPhase: 'plugins' }),
+      );
     });
 
-    it('should send an end message with an error but no failedPhase for a non-PulumiStackInitializationError failure', async () => {
+    it('should send an end message with only streamId and error for a non-PulumiStackInitializationError failure, logging failedPhase: undefined server-side', async () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.initializeStack).mockRejectedValue(new Error('unexpected'));
       const { ctx, sender } = makeCtx();
@@ -544,8 +555,11 @@ describe('IacController', () => {
       expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', {
         streamId: result.streamId,
         error: 'unexpected',
-        failedPhase: undefined,
       });
+      expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+        'stack initialization error',
+        expect.objectContaining({ failedPhase: undefined }),
+      );
     });
 
     it('should return a conflict ack naming the in-flight op and never call PulumiService.initializeStack when the workspace is busy', async () => {
