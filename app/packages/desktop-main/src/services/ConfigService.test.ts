@@ -50,7 +50,7 @@ const mockWrite = vi.mocked(writeFileSync);
 function makeElectronStore(configurationBucket?: string): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (configurationBucket !== undefined) {
-    store.set('bootstrap', { stateBucket: '', lockTable: '', configurationBucket });
+    store.set('bootstrap', { stateBucket: '', configurationBucket });
   }
   return store;
 }

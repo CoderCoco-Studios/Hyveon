@@ -6,7 +6,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { DestroyResult, EngineEvent, OutputMap, PreviewResult, UpResult } from '@pulumi/pulumi/automation/index.js';
+import type {
+  DestroyResult,
+  EngineEvent,
+  OutputMap,
+  PreviewResult,
+  PulumiFn,
+  Stack,
+  UpResult,
+} from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
 import { CONFIGURATION_OBJECT_KEY, diffDeploymentConfig, isApprovalExpired } from '@hyveon/shared';
 import type {
@@ -24,6 +32,7 @@ import { logger } from '../logger.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiEngineService } from './PulumiEngineService.js';
+import type { PulumiPhaseCallback, PulumiProvisioningPhase } from './PulumiEngineService.js';
 import { PULUMI_PROJECT_NAME, PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import {
   PulumiOperationAbortedError,
@@ -714,6 +723,28 @@ export class PulumiService {
   }
 
   /**
+   * Dedicated reentrancy guard for {@link initializeStack} — deliberately
+   * NOT folded into {@link operationInFlight} itself. Widening that field's
+   * (and {@link PulumiOperationInFlightError.inFlight}'s) declared union to a
+   * fifth `'stack-init'` value would ripple into every place that already
+   * types itself against the current four-value union verbatim —
+   * `IacController`'s `conflict` mapping and the `TerraformPlanAck.conflict`
+   * type it feeds (`iac.controller.ts`, mirrored in
+   * `@hyveon/desktop-preload/src/hyveon-api.ts`), and `iac.page.tsx`'s own
+   * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
+   * other reason to touch. `initializeStack` still refuses to start while
+   * {@link operationInFlight} is set (see its own TSDoc, "Workspace mutual
+   * exclusion") — this flag only adds the missing other half: refusing a
+   * second concurrent `initializeStack` call, and (deliberately, see the
+   * same TSDoc section) NOT making `preview`/`apply`/`destroy`/`confirmRollback`
+   * refuse while THIS is set. That asymmetry is an accepted, documented scope
+   * cut for this task, not an oversight — see this class's `initializeStack`
+   * TSDoc for the full reasoning and the backend-lock backstop that still
+   * applies if the gap is ever actually hit.
+   */
+  private stackInitInFlight = false;
+
+  /**
    * Lazily resolves the real `RunRecordService` singleton (bound to
    * {@link RUN_RECORD_PERSISTER} by `run-record.module.ts`) from anywhere in
    * the application's provider container — see the constructor's doc
@@ -1017,6 +1048,243 @@ export class PulumiService {
       discordInteractionsUrl: get('discordInteractionsUrl', null),
       appliedGameServers: get('appliedGameServers', null),
     };
+  }
+
+  /**
+   * Task 10.3's real replacement for the deleted `terraform init` wizard
+   * step (`IacController.init` was a permanent, documented-dead rejection
+   * stub since task 7.10 — see that method's own TSDoc for the full
+   * history). Initializes — or, on a retry, re-verifies — the one Pulumi
+   * stack this app manages end to end: resolves the engine, constructs (or
+   * selects) the Automation API workspace/stack against the operator's S3
+   * backend via {@link PulumiWorkspaceService.getOrCreateStack} (generating
+   * a fresh secrets passphrase the first time, per that method's existing
+   * `stackExists` contract), explicitly installs the pinned `@pulumi/aws`
+   * provider plugin, then runs a real (if inert) `pulumi refresh` against
+   * the brand-new, zero-resource stack to prove the whole round trip —
+   * engine, backend, credentials, and plugin — actually works.
+   *
+   * ## Why this exists, and why its `program` is inert
+   *
+   * The wizard's final step needs something to run and report live progress
+   * on before "Finish setup" can enable — this is that something. Unlike
+   * every other stack-touching method on this class (`preview`/`apply`/
+   * `destroy`), this one runs before any `DeploymentConfig` has ever been
+   * written to the configuration bucket — the wizard's bootstrap step only
+   * provisions the S3 buckets themselves; game servers are configured later,
+   * from the dashboard. So `program` here is {@link noOpProgram}, an inert,
+   * zero-resource {@link PulumiFn}, never `createInfraProgram(deploymentConfig, ...)`.
+   * That has a real consequence for the 'plugins' phase below.
+   *
+   * ## The three phases, and why 'plugins' needs an explicit step here
+   *
+   * `PulumiEngineService.resolve`'s own TSDoc ("What 4.6 could not complete
+   * now") expected a future caller to report `'plugins'`/`'operation'` by
+   * approximating them around an *implicit* provider-plugin download that
+   * happens lazily the first time a real resource is registered during
+   * `preview()`/`up()`/`destroy()`. That approximation cannot work here:
+   * {@link noOpProgram} registers zero resources, so nothing would ever
+   * implicitly trigger an `aws` provider plugin download — `stack.refresh()`
+   * against an empty program and empty state genuinely never touches the
+   * `aws` plugin at all. So 'plugins' here is a real, explicit
+   * `workspace.installPlugin(...)` call (the equivalent of running
+   * `pulumi plugin install resource aws <version>` directly) rather than
+   * an approximation — a stronger, more literal signal than `preview`/`apply`/
+   * `destroy` get, not a weaker one. The exact version installed is read
+   * from `@pulumi/aws`'s own installed `package.json` (see
+   * {@link resolveAwsProviderVersion}) so it
+   * can never drift from the version `createInfraProgram`'s real resource
+   * declarations would themselves request once a real deployment config
+   * exists (both `@hyveon/infra` and this package pin the identical
+   * `@pulumi/aws` version today — confirmed by reading both `package.json`s
+   * — and `@pulumi/aws`'s own `resourceOptsDefaults()` resolves every real
+   * resource's provider version from that same installed `package.json`).
+   *
+   * 'engine' is reported by {@link PulumiWorkspaceService.getOrCreateStack}
+   * itself (threaded through to `PulumiEngineService.resolve`, task 4.6) —
+   * this method does not fire it directly, only forwards `onPhase` into that
+   * call. 'operation' wraps the `stack.refresh()` call: with zero resources
+   * in state, this is trivially a no-op change-wise (and, per design.md's
+   * DIY-S3-backend spike, `LocalWorkspace.createOrSelectStack`'s own stack-init
+   * path already durably writes the stack's empty checkpoint to the backend
+   * as part of the 'engine' step above — this call is not literally the
+   * moment the stack first becomes durable) — but it still exercises the
+   * full engine-execution path end to end (spawns the CLI, connects the
+   * in-process language runtime, reads/writes against the real S3 backend)
+   * — the closest thing to "prove this stack actually works" available
+   * before any real infrastructure is configured, which is what the
+   * renderer's UI frames this phase as ("stack creation" / "verifying
+   * stack").
+   *
+   * `onPhase` receives a `'start'`/`'end'` pair for every phase this method
+   * actually reaches, in order. `'end'` fires whether that phase succeeded
+   * or failed — mirrors `PulumiPhaseStatus`'s own documented meaning
+   * ("beginning or has settled, success or failure alike"). A phase never
+   * reached (because an earlier one failed) never fires at all — a caller
+   * can treat "no `'start'` ever received" as "still pending" for that
+   * phase.
+   *
+   * ## Error attribution
+   *
+   * Rethrows every failure as {@link PulumiStackInitializationError}, tagging
+   * exactly which of the three phases failed:
+   *  - `'engine'` for anything that fails before `getOrCreateStack`'s own
+   *    internal `PulumiEngineService.resolve` call has reported its
+   *    `'engine'`/`'end'` event — covers a missing state bucket/region,
+   *    {@link PulumiWorkspaceService}'s `PulumiBackendNotBootstrappedError`
+   *    and `PulumiPassphraseUnavailableError` alike, since none of those has
+   *    its own phase slot in the 3-phase model this task inherited from
+   *    Phase 4.
+   *  - `'operation'` if `getOrCreateStack` fails AFTER 'engine' already
+   *    settled cleanly — i.e. the underlying `LocalWorkspace.createOrSelectStack`
+   *    (`stack init`/`stack select`) call itself failed for some other
+   *    reason (a bad backend URL, a stale bucket) — since that call's whole
+   *    purpose IS creating/selecting the stack, which is what the
+   *    'operation' phase represents in this method's UI framing, even
+   *    though the failure surfaces from inside the same `getOrCreateStack`
+   *    call that also resolves the engine.
+   *  - `'plugins'` / `'operation'` for a failure inside the respective step
+   *    directly.
+   *
+   * ## Workspace mutual exclusion
+   *
+   * Refuses to start while {@link operationInFlight} is set, exactly like
+   * `preview`/`apply`/`destroy`/`confirmRollback` — this method touches the
+   * same shared local `workDir`/`Pulumi.<stack>.yaml` they do (via
+   * `getOrCreateStack`), so two operations racing that shared state would be
+   * just as unsafe here as anywhere else on this class. See
+   * {@link stackInitInFlight}'s own doc comment for why THIS method's own
+   * busy state is a separate flag rather than a fifth {@link operationInFlight}
+   * value, and for the accepted, documented scope cut that follows from that
+   * choice (preview/apply/destroy do not refuse while `initializeStack` is
+   * running) — the DIY S3 backend's own distributed lock (surfaced elsewhere
+   * on this class as `PulumiUnrecognizedLockError`) is the backstop for that
+   * gap if it is ever actually hit, not a substitute for closing it properly
+   * should a real need for symmetric protection show up later.
+   *
+   * @param onPhase - Optional progress callback; see above for exactly which
+   *   events it receives and when.
+   * @throws {@link PulumiOperationInFlightError} if `preview`/`apply`/
+   *   `destroy`/`confirmRollback` is already running.
+   * @throws `Error` if this method is already running (reentrancy guard).
+   * @throws `Error` if the state bucket / AWS region has not been configured
+   *   yet (wrapped as {@link PulumiStackInitializationError} with
+   *   `phase: 'engine'`).
+   * @throws {@link PulumiStackInitializationError} for every other failure —
+   *   see "Error attribution" above.
+   */
+  async initializeStack(onPhase?: PulumiPhaseCallback): Promise<void> {
+    if (this.operationInFlight) {
+      throw new PulumiOperationInFlightError(this.operationInFlight);
+    }
+    if (this.stackInitInFlight) {
+      throw new Error(
+        'PulumiService.initializeStack() is already running; wait for it to finish before calling it again.',
+      );
+    }
+    this.stackInitInFlight = true;
+    try {
+      const stateBucket = this.store.get('bootstrap')?.stateBucket;
+      const stateBucketRegion = this.store.get('aws')?.region;
+      if (!stateBucket || !stateBucketRegion) {
+        throw new PulumiStackInitializationError(
+          'engine',
+          new Error(
+            'Cannot initialize the Pulumi stack: the state bucket / AWS region has not been ' +
+              'configured yet. Complete the bootstrap step before continuing.',
+          ),
+        );
+      }
+      // Mirrors `preview()`/`apply()`'s own identical proxy for "an existing
+      // stack" — see this class's other `stackExists` computations for why a
+      // stored passphrase is the best signal available without an extra
+      // backend round-trip.
+      const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+
+      // Tracks whether `getOrCreateStack`'s own internal `engine.resolve()`
+      // call already reported `('engine', 'end')` — the signal this method
+      // uses to tell "getOrCreateStack failed before engine resolution ever
+      // ran" (backendReady/passphrase failures, both checked before
+      // `engine.resolve` is called) apart from "getOrCreateStack failed
+      // AFTER engine resolution succeeded" (a `createOrSelectStack` failure)
+      // — see "Error attribution" above.
+      let engineSettled = false;
+      const trackedOnPhase: PulumiPhaseCallback = (phase, status) => {
+        if (phase === 'engine' && status === 'end') engineSettled = true;
+        onPhase?.(phase, status);
+      };
+
+      let stack: Stack;
+      try {
+        stack = await this.workspace.getOrCreateStack({
+          program: PulumiService.noOpProgram,
+          stateBucket,
+          stateBucketRegion,
+          backendReady: true,
+          stackExists,
+          onPhase: trackedOnPhase,
+        });
+      } catch (err) {
+        throw new PulumiStackInitializationError(engineSettled ? 'operation' : 'engine', err);
+      }
+
+      onPhase?.('plugins', 'start');
+      try {
+        await stack.workspace.installPlugin('aws', PulumiService.resolveAwsProviderVersion(), 'resource');
+      } catch (err) {
+        throw new PulumiStackInitializationError('plugins', err);
+      } finally {
+        onPhase?.('plugins', 'end');
+      }
+
+      onPhase?.('operation', 'start');
+      try {
+        await stack.refresh();
+      } catch (err) {
+        throw new PulumiStackInitializationError('operation', err);
+      } finally {
+        onPhase?.('operation', 'end');
+      }
+    } finally {
+      this.stackInitInFlight = false;
+    }
+  }
+
+  /**
+   * Inert, zero-resource {@link PulumiFn} {@link initializeStack} passes to
+   * `getOrCreateStack` — see that method's own TSDoc ("Why this exists, and
+   * why its `program` is inert") for why a real
+   * `createInfraProgram(deploymentConfig, ...)` program cannot be built yet
+   * at the point in the first-run wizard this method runs. Registers zero
+   * resources and returns no outputs; never actually invoked by anything
+   * `initializeStack` calls (`getOrCreateStack`'s stack-init/stack-select
+   * path never runs the program, and neither does `workspace.installPlugin`)
+   * — `stack.refresh()` is the one call in this
+   * method that WOULD invoke it, and does, but against an empty checkpoint
+   * evaluating this program is a no-op.
+   */
+  private static readonly noOpProgram: PulumiFn = async () => {};
+
+  /**
+   * Resolves the exact `@pulumi/aws` provider version {@link initializeStack}
+   * explicitly installs for its 'plugins' phase — read directly from
+   * `@pulumi/aws`'s own installed `package.json` (via `createRequire`,
+   * mirroring `PulumiWorkspaceService.resolveUserDataPath`'s identical
+   * externalized-CJS-import pattern — `@pulumi/aws` is externalized in
+   * `electron.vite.config.ts` exactly like `@pulumi/pulumi`, so it is always
+   * loaded from `node_modules` at runtime, never bundled) rather than a
+   * hand-maintained literal, so a future `@pulumi/aws` version bump in
+   * `package.json` can never drift out of sync with what this install
+   * targets. This is the SAME version `createInfraProgram`'s real resource
+   * declarations resolve via `@pulumi/aws`'s own `resourceOptsDefaults()`
+   * (`utilities.js`), so the plugin this explicitly installs is the plugin a
+   * genuine `preview()`/`up()` against a populated `DeploymentConfig` would
+   * themselves lazily request anyway.
+   */
+  private static resolveAwsProviderVersion(): string {
+    const _require = createRequire(import.meta.url);
+    const { version } = _require('@pulumi/aws/package.json') as { version: string };
+    return version;
   }
 
   /**
@@ -4711,6 +4979,29 @@ export class PulumiOperationInFlightError extends Error {
         'it to finish before submitting another.',
     );
     this.name = 'PulumiOperationInFlightError';
+  }
+}
+
+/**
+ * Thrown by `PulumiService.initializeStack` (task 10.3) for every failure —
+ * tags exactly which of the three provisioning phases (`'engine'` /
+ * `'plugins'` / `'operation'`) it happened during, so a caller (the
+ * `iac.stack.initialize` IPC channel, then the wizard's stack-initialization
+ * step) can show a specific, actionable error against the right step of its
+ * 3-phase progress UI instead of a generic failure. See
+ * {@link PulumiService.initializeStack}'s own TSDoc ("Error attribution") for
+ * exactly how each underlying failure gets mapped to a phase.
+ */
+export class PulumiStackInitializationError extends Error {
+  constructor(
+    public readonly phase: PulumiProvisioningPhase,
+    public readonly cause: unknown,
+  ) {
+    super(
+      `Pulumi stack initialization failed during the "${phase}" phase: ` +
+        `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'PulumiStackInitializationError';
   }
 }
 

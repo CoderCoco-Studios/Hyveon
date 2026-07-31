@@ -145,16 +145,17 @@ export interface AppStoreSchema {
    * (#211) would have no way to rehydrate a non-default name and would run
    * `terraform init` against the wrong bucket/table.
    *
-   * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
-   * `ensureLockTable`) — it is kept only because the still-live
-   * `terraform.init` call requires a non-empty `dynamodbTable` backend-config
-   * value, rehydrated from this same field on Reconfigure. Task 10.3
-   * (replacing the Terraform-init step) is where this field should finally
-   * be dropped.
+   * `lockTable` named this shape until task 10.3: it never described a
+   * bootstrapped resource (task 5.1 removed `ensureLockTable`) and was kept
+   * only because the now-deleted `terraform.init` call required a non-empty
+   * `dynamodbTable` backend-config value, rehydrated from that field on
+   * Reconfigure. Task 10.3 replaced the Terraform-init step with
+   * `PulumiService.initializeStack`, which needs no lock-table name at all
+   * (the DIY S3 backend locks via objects in the state bucket, not a
+   * DynamoDB table) — so the field is gone.
    */
   bootstrap?: {
     stateBucket: string;
-    lockTable: string;
     configurationBucket: string;
   };
   /**

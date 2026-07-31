@@ -55,7 +55,7 @@ const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secr
 function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?: string } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
-    store.set('bootstrap', { stateBucket: opts.stateBucket, lockTable: '', configurationBucket: '' });
+    store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
   if (opts.passphrase !== undefined) {
     store.set('pulumi', { passphrase: opts.passphrase });
