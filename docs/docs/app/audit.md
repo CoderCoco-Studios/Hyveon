@@ -29,7 +29,7 @@ Two kinds of thing are recorded: **game configuration writes**, and
 
 Note that the Terraform entries are written when a run **starts**, not when it
 succeeds. An `apply` entry means an apply was launched; check
-[run history](/app/terraform#run-history) for whether it worked.
+[run history](/app/iac#run-history) for whether it worked.
 
 The four Terraform actions and `rollback` have no associated game, so their
 Game cell is empty and both diff panes read `null`.
@@ -65,7 +65,7 @@ will not distinguish people.
 
 This is the S3 object version ID of `terraform.tfvars` produced by the write.
 It ties an audit entry to an exact file state, and it is what the
-[rollback](/app/terraform#rollback) feature resolves against.
+[rollback](/app/iac#rollback) feature resolves against.
 
 It requires the S3 tfvars backend with versioning enabled — see
 [S3 tfvars storage](/guides/s3-tfvars). **If you keep `terraform.tfvars` on the

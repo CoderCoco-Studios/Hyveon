@@ -375,7 +375,7 @@ the repo's `CLAUDE.md` for the general case:
 
 - `CLAUDE.md`'s `Project=<value>` reference in the cost-allocation comment.
 - `terraform/terraform.tfvars.example`'s `project_name` example value.
-- `docs/docs/components/terraform.md`'s variables table, if the default
+- `docs/docs/components/infra.md`'s variables table, if the default
   changed.
 - `docs/docs/setup.md`, anywhere it references the IAM ARN prefixes or
   default `project_name` value (e.g. the `hyveon-*` IAM resource patterns,
