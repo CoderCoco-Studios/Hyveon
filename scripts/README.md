@@ -20,8 +20,12 @@ Electron app, via the AWS SDK and the Pulumi Automation API (see the
 also had a `migrate --to-s3`/`--to-local` subcommand and a `--s3-tfvars`
 bootstrap flag for switching a parent repo between a local `terraform.tfvars`
 file and a maintainer-synced S3 copy of it; both were removed (task 12.3/
-12.4) once their backing `terraform/bootstrap` provisioning module was
-deleted — that S3 bucket was never the same store the app itself reads.
+12.4). That S3 bucket (`${project_name}-tfvars` by default) is still very
+much alive — it's the SAME bucket the app's own first-run wizard provisions
+as its configuration bucket — but the *object key* those targets synced,
+`terraform.tfvars`, has no consumers left now that the Terraform tree is
+gone: the app exclusively reads/writes a different key,
+`deployment-config.json`, as JSON. There was nothing left worth syncing.
 
 ### Usage
 
@@ -48,9 +52,12 @@ token (one that isn't `bootstrap` or a `--` flag) exits `1` with
 ### Flags
 
 - `--force` — overwrite existing files instead of skipping them.
-- `--yes` — skips confirmation prompts where present. Prompts specific to
-  parent-repo details (path, submodule path, project name, AWS region,
-  hosted zone, Discord credentials) still run interactively regardless.
+- `--yes` — accepted but currently inert. Its only prior effect was
+  pre-answering the "bootstrap an S3-backed tfvars store?" prompt, removed
+  along with the rest of the tfvars-sync backend (task 12.3/12.4). Kept for
+  forward-compatibility; every remaining prompt (parent repo path, submodule
+  path, project name, AWS region, hosted zone, Discord credentials) always
+  runs interactively.
 
 An unrecognized subcommand or an unrecognized flag prints a usage error to
 stderr and exits `1`.
@@ -78,15 +85,18 @@ is safe to re-run; without `--force` it leaves existing files alone.
 ## `tfvars-sync.ts`
 
 Standalone CLI for syncing a local `terraform.tfvars`-style file with a
-versioned S3 bucket: pulls, pushes, diffs, and reports status. Note that this
-is a separate, legacy bucket/format from the app's own deployment
-configuration — the app persists its configuration as JSON, exclusively in
-its own app-provisioned S3 bucket (see `TfvarsService` in `desktop-main`),
-with no local-file fallback. The `terraform/bootstrap` module that used to
-provision this CLI's bucket automatically (via `init-parent.ts`'s generated
-Makefile) was deleted along with the rest of `terraform/` — provision the
-bucket by hand if you still want to use this tool for a legacy/manual
-`terraform.tfvars` copy.
+versioned S3 bucket: pulls, pushes, diffs, and reports status. Note that the
+*bucket* it talks to is typically the SAME bucket the app itself uses as its
+configuration bucket (same default name, `${project_name}-tfvars`, and both
+this CLI and the app's `ConfigService.getConfigurationBucket()` read the same
+`HYVEON_TFVARS_BUCKET` override) — but the *object key* is different and has
+no consumers anymore. This CLI reads/writes the key `terraform.tfvars` (HCL
+text); the app exclusively reads/writes a different key,
+`deployment-config.json`, as JSON, via `RemoteFileStore` (see `TfvarsService`
+in `desktop-main`), with no local-file fallback. Nothing reads the
+`terraform.tfvars` key anymore now that the Terraform tree is gone — this
+tool is only useful now for a legacy/manual copy of that dead key, not for
+touching the app's real configuration.
 
 ### Usage
 

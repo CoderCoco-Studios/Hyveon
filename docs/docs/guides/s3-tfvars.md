@@ -9,14 +9,18 @@ sidebar_position: 5
 The `tfvars-pull`/`tfvars-push`/`tfvars-diff` Makefile targets, the
 `migrate --to-s3`/`--to-local` CLI subcommand, and the `--s3-tfvars`
 bootstrap flag described below no longer exist (`migrate-iac-to-pulumi`
-change, tasks 12.1/12.3/12.4). The S3 bucket this page describes was never
-the same store the app itself reads — the app's deployment configuration
-lives in its own, app-provisioned S3 bucket as JSON, managed entirely
-through the app's first-run wizard and Settings page, with no
-operator-editable file involved. `scripts/tfvars-sync.ts` itself still
-exists as a standalone CLI if you want to inspect a legacy bucket by hand,
-but nothing wires it into the generated Makefile anymore. This page is a
-removal/rewrite candidate, not yet scheduled under a tracked task — treat
+change, tasks 12.1/12.3/12.4). The S3 *bucket* this page describes is
+typically the SAME bucket the app's own first-run wizard provisions as its
+configuration bucket (same default name, `${project_name}-tfvars`) — it's
+alive and well. What's dead is the *object key*: this page's tooling
+reads/writes the key `terraform.tfvars` (HCL text), while the app
+exclusively reads/writes a different key, `deployment-config.json`, as JSON,
+managed entirely through the app's first-run wizard and Settings page with
+no operator-editable file involved. Nothing reads the `terraform.tfvars` key
+anymore now that the Terraform tree is gone. `scripts/tfvars-sync.ts` itself
+still exists as a standalone CLI if you want to read/write that dead key by
+hand, but nothing wires it into the generated Makefile anymore. This page is
+a removal/rewrite candidate, not yet scheduled under a tracked task — treat
 everything below as historical context only.
 :::
 
