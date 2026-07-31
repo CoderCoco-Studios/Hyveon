@@ -217,7 +217,7 @@ test.describe('iac page', () => {
 
     await iac.runPlanButton().click();
 
-    await expect(iac.alerts().filter({ hasText: 'terraform apply' })).toBeVisible();
+    await expect(iac.alerts().filter({ hasText: 'an apply run is already in progress' })).toBeVisible();
   });
 
   test('should approve the plan, then apply and reach the success banner', async () => {
@@ -278,7 +278,7 @@ test.describe('iac page', () => {
     await iac.applyButton().click();
 
     await expect(iac.partialApplyBanner()).toBeVisible();
-    await expect(iac.alerts().filter({ hasText: 'terraform apply failed' })).toHaveCount(0);
+    await expect(iac.alerts().filter({ hasText: 'Apply failed' })).toHaveCount(0);
   });
 
   test('should render a StaleLockBanner with holder info when a plan submission reports a stale lock', async () => {

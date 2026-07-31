@@ -28,7 +28,9 @@ and plausibility is precisely what makes it hard to spot on a read-through.
    "always", "only"), a count ("the five Lambdas").
 3. Verify each one against the source of truth, not against another doc:
    - code and tests under `app/packages/**`
-   - `terraform/**` for resources, variables, defaults
+   - `app/packages/infra/**` (the Pulumi program) for resources, config fields,
+     defaults, and `docs/docs/components/infra.md` for the file/resource table
+     it documents
    - `package.json` scripts for any documented command
    - `openspec/specs/**` for required behaviour
    Prefer a test or the actual declaration over a comment.

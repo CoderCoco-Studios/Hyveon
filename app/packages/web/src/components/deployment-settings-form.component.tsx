@@ -95,8 +95,8 @@ function draftFromSettings(settings: TopLevelDeploymentSettings): SettingsDraft 
     projectName: settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName,
     awsRegion: settings.awsRegion ?? DEPLOYMENT_CONFIG_DEFAULTS.awsRegion,
     vpcCidr: settings.vpcCidr ?? DEPLOYMENT_CONFIG_DEFAULTS.vpcCidr,
-    // hostedZoneName has no Terraform default (required in every real
-    // deployment) — an absent value falls back to '', which the form's own
+    // hostedZoneName has no default in DEPLOYMENT_CONFIG_DEFAULTS (required in
+    // every real deployment) — an absent value falls back to '', which the form's own
     // "must not be empty" validation then correctly flags rather than this
     // function inventing a fake placeholder domain.
     hostedZoneName: settings.hostedZoneName ?? '',
@@ -475,7 +475,7 @@ export function DeploymentSettingsForm() {
       <div className="space-y-1">
         <h4 className="text-sm font-medium">Discord admin allowlists</h4>
         <p className="text-xs text-[var(--color-muted-foreground)]">
-          Permanent, Terraform/Pulumi-applied floor written to the <code>BASE#discord</code> row
+          Permanent, Pulumi-applied floor written to the <code>BASE#discord</code> row
           on every deploy — the operator can only add to or remove from what they themselves
           added here, not the app-managed allowlist under the Discord page.
         </p>

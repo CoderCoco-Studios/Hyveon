@@ -78,7 +78,7 @@ describe('DashboardPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'No games deployed' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open setup guide/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /terraform\.tfvars/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Add a game/i })).toHaveAttribute('href', '/games');
   });
 
   it('should narrow the visible cards by the search filter without removing the indicator', async () => {

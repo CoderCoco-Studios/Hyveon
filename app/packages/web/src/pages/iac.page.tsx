@@ -58,7 +58,7 @@ function isApprovalExpired(approvedAt: string, now: number): boolean {
  * Exact phrase an operator must type into the destroy confirmation dialog
  * before the destructive button enables (issue #307) — the UI's
  * defense-in-depth layer; the token minted on confirm is what the backend
- * actually trusts (see `TerraformService.assertFreshDestroyConfirmation`).
+ * actually trusts (see `PulumiService.assertFreshDestroyConfirmation`).
  */
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
@@ -185,14 +185,16 @@ const CONFLICT_LABELS: Record<Conflict, string> = {
   rollback: 'rollback',
 };
 
-/** Lock banner shown when a plan/apply submission was rejected because the shared Terraform workspace is busy. */
+/** Lock banner shown when a plan/apply submission was rejected because the shared Pulumi workspace is busy. */
 function BusyBanner({ conflict }: { conflict: Conflict }) {
+  const label = CONFLICT_LABELS[conflict];
+  const article = /^[aeiou]/i.test(label) ? 'an' : 'a';
   return (
     <div
       role="alert"
       className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
     >
-      Workspace busy — a <code className="font-[var(--font-mono)]">terraform {CONFLICT_LABELS[conflict]}</code> run
+      Workspace busy — {article} <code className="font-[var(--font-mono)]">{label}</code> run
       is already in progress. Try again once it finishes.
     </div>
   );
@@ -489,13 +491,13 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
 }
 
 /**
- * Terraform plan/apply route (`/iac`) — lets an operator trigger
- * `terraform plan`, watch its live ANSI output, review the resource-change
- * summary, approve the plan, and run the plan-hash-gated `terraform apply`,
- * all over the `hyveon.iac.*` IPC surface (renamed from `hyveon.terraform.*`
- * by tasks 8.3/8.5; originally shipped by epic #138). Surfaces
- * BUSY (shared-workspace conflict) and non-conflict submission errors inline
- * rather than failing silently.
+ * Infrastructure plan/apply route (`/iac`) — lets an operator trigger a
+ * Pulumi plan (preview), watch its live ANSI output, review the
+ * resource-change summary, approve the plan, and run the plan-hash-gated
+ * apply, all over the `hyveon.iac.*` IPC surface (renamed from
+ * `hyveon.terraform.*` by tasks 8.3/8.5; originally shipped by epic #138).
+ * Surfaces BUSY (shared-workspace conflict) and non-conflict submission
+ * errors inline rather than failing silently.
  */
 export function IacPage() {
   const location = useLocation();
@@ -623,7 +625,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setPlanConflict(ack.conflict);
           if (ack.staleLock) setPlanStaleLock(ack.staleLock);
-          setPlanSubmitError(ack.error ?? 'terraform plan could not be started.');
+          setPlanSubmitError(ack.error ?? 'Plan could not be started.');
         }
       } catch (err) {
         setPlanSubmitError(err instanceof Error ? err.message : String(err));
@@ -680,7 +682,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setApplyConflict(ack.conflict);
           if (ack.staleLock) setApplyStaleLock(ack.staleLock);
-          setApplySubmitError(ack.error ?? 'terraform apply could not be started.');
+          setApplySubmitError(ack.error ?? 'Apply could not be started.');
         }
       } catch (err) {
         setApplySubmitError(err instanceof Error ? err.message : String(err));
@@ -710,7 +712,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setDestroyConflict(ack.conflict);
           if (ack.staleLock) setDestroyStaleLock(ack.staleLock);
-          setDestroySubmitError(ack.error ?? 'terraform destroy could not be started.');
+          setDestroySubmitError(ack.error ?? 'Destroy could not be started.');
         }
       } catch (err) {
         setDestroySubmitError(err instanceof Error ? err.message : String(err));
@@ -734,11 +736,11 @@ export function IacPage() {
   }, []);
 
   useEffect(() => {
-    if (applyStatus === 'success') toast.success('terraform apply complete');
+    if (applyStatus === 'success') toast.success('Apply complete');
   }, [applyStatus]);
 
   useEffect(() => {
-    if (destroyStatus === 'success') toast.success('terraform destroy complete');
+    if (destroyStatus === 'success') toast.success('Destroy complete');
   }, [destroyStatus]);
 
   const awaitingApproval = planStatus === 'awaiting_approval';
@@ -760,7 +762,7 @@ export function IacPage() {
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Terraform</h2>
+          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Infrastructure</h2>
           <p className="text-sm text-[var(--color-muted-foreground)]">
             Plan, review, and apply infrastructure changes directly from the app.
           </p>
@@ -827,7 +829,7 @@ export function IacPage() {
 
           {planFailed && (
             <ErrorBanner
-              message={`terraform plan ${planStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+              message={`Plan ${planStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
             />
           )}
 
@@ -904,7 +906,7 @@ export function IacPage() {
                 <PartialApplyBanner onStartOver={startOver} />
               ) : (applyStatus === 'failed' || applyStatus === 'aborted') ? (
                 <ErrorBanner
-                  message={`terraform apply ${applyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+                  message={`Apply ${applyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
                 />
               ) : null}
 
@@ -947,8 +949,8 @@ export function IacPage() {
           <h3 className="text-lg font-semibold text-[var(--color-foreground)]">Destroy infrastructure</h3>
         </div>
         <p className="text-sm text-[var(--color-muted-foreground)]">
-          Runs <code className="font-[var(--font-mono)]">terraform destroy</code>, tearing down every resource this
-          app manages. This cannot be undone from here — game servers, storage, and networking are all removed.
+          Runs a Pulumi destroy, tearing down every resource this app manages. This cannot be undone from
+          here — game servers, storage, and networking are all removed.
         </p>
 
         {!destroyRunId && (
@@ -986,7 +988,7 @@ export function IacPage() {
           onOpenChange={setDestroyConfirmOpen}
           title="Destroy all managed infrastructure?"
           description={
-            `This runs terraform destroy and tears down every resource this app manages — game servers, ` +
+            `This runs a Pulumi destroy and tears down every resource this app manages — game servers, ` +
             `storage, and networking. It cannot be undone from here. Type "${DESTROY_CONFIRM_PHRASE}" to confirm.`
           }
           onConfirm={submitDestroy}
@@ -1007,7 +1009,7 @@ export function IacPage() {
 
             {destroyStatus === 'failed' || destroyStatus === 'aborted' ? (
               <ErrorBanner
-                message={`terraform destroy ${destroyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+                message={`Destroy ${destroyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
               />
             ) : null}
 

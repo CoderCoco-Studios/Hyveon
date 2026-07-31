@@ -24,8 +24,8 @@ test.describe('ConfigService — scripted stack outputs', () => {
     ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
 
     const body = await ipc.dispatch(GamesController, 'listGames');
-    // No terraform.tfvars is present in the test environment, so every game
-    // in the merged list is deployed-only (declared: false, deployed: true).
+    // No configuration object is present in the test environment, so every
+    // game in the merged list is deployed-only (declared: false, deployed: true).
     expect(body.games.map((g) => g.name).sort()).toEqual(['minecraft', 'valheim']);
     body.games.forEach((g) => {
       expect(g.declared).toBe(false);

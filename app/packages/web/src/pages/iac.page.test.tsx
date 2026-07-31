@@ -193,7 +193,7 @@ describe('IacPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
 
     const alerts = await screen.findAllByRole('alert');
-    expect(alerts.some((el) => el.textContent?.includes('terraform apply'))).toBe(true);
+    expect(alerts.some((el) => el.textContent?.includes('an apply run is already in progress'))).toBe(true);
   });
 
   describe('stale-lock recovery (task 9.4)', () => {
@@ -397,7 +397,7 @@ describe('IacPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
 
       const alerts = await screen.findAllByRole('alert');
-      expect(alerts.some((el) => el.textContent?.includes('terraform apply'))).toBe(true);
+      expect(alerts.some((el) => el.textContent?.includes('an apply run is already in progress'))).toBe(true);
       expect(screen.queryByRole('heading', { name: 'Destroy run' })).not.toBeInTheDocument();
     });
 
@@ -541,7 +541,7 @@ describe('IacPage', () => {
       const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
       await userEvent.click(applyBtn);
 
-      expect(await screen.findByText(/terraform apply failed — see the log above/)).toBeInTheDocument();
+      expect(await screen.findByText(/Apply failed — see the log above/)).toBeInTheDocument();
       expect(screen.queryByText(/Apply stopped partway through\./)).not.toBeInTheDocument();
     });
   });
