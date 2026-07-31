@@ -7,13 +7,11 @@ import type { IamCheckResult } from '@hyveon/desktop-preload';
 
 const NAMES: Record<BootstrapResourceKey, string> = {
   stateBucket: 'hyveon-tfstate',
-  lockTable: 'hyveon-tflock',
   configurationBucket: 'hyveon-tfvars',
 };
 
 const PENDING: Record<BootstrapResourceKey, BootstrapResourceState> = {
   stateBucket: 'pending',
-  lockTable: 'pending',
   configurationBucket: 'pending',
 };
 
@@ -45,12 +43,6 @@ describe('BootstrapStep', () => {
     renderStep();
     expect(screen.getByLabelText('Terraform state bucket name')).toHaveValue('hyveon-tfstate');
     expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-tfvars');
-  });
-
-  it('should not render a row for the lock table — nothing bootstraps it anymore', () => {
-    renderStep();
-    expect(screen.queryByLabelText('Terraform lock table name')).not.toBeInTheDocument();
-    expect(screen.queryByText('Terraform lock table')).not.toBeInTheDocument();
   });
 
   it('should call onNameChange when a resource name field is edited', async () => {

@@ -5,7 +5,6 @@ describe('defaultBootstrapResourceNames', () => {
   it('should derive resource names from the default project name when none is given', () => {
     expect(defaultBootstrapResourceNames()).toEqual({
       stateBucket: 'hyveon-tfstate',
-      lockTable: 'hyveon-tflock',
       configurationBucket: 'hyveon-tfvars',
     });
   });
@@ -13,7 +12,6 @@ describe('defaultBootstrapResourceNames', () => {
   it('should derive resource names from a custom project name', () => {
     expect(defaultBootstrapResourceNames('my-project')).toEqual({
       stateBucket: 'my-project-tfstate',
-      lockTable: 'my-project-tflock',
       configurationBucket: 'my-project-tfvars',
     });
   });
