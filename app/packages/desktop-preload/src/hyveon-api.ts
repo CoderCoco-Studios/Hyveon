@@ -119,7 +119,7 @@ export type LogChunk = string;
 
 /**
  * ContextBridge-safe async-iterable handle for a streaming IPC channel
- * (`logs.stream`, `iac.init`, `iac.runs.streamLogs`).
+ * (`logs.stream`, `iac.stack.initialize`, `iac.runs.streamLogs`).
  *
  * Electron's `contextBridge` structured-clones every value that crosses the
  * isolated-world boundary. A raw `AsyncGenerator` is not structured-cloneable
@@ -633,21 +633,29 @@ export interface TerraformRunChunk {
 }
 
 /**
- * Backend configuration values passed to `terraform init -backend-config=...`
- * for the S3 remote state backend bootstrapped by the First-Run Wizard.
- *
- * Mirrors the local `TerraformInitConfig` interface in
- * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file is the
- * source of truth; keep this copy in sync with it. Kept alive as a
- * transitional stub: the Pulumi engine has no `init` step, so
- * `iac.controller.ts`'s `init` handler is now a permanent rejection; its
- * only call site (`terraform-init-step.component.tsx`) is slated for full
- * replacement by task 10.3.
+ * One of the three coarse provisioning phases `PulumiService.initializeStack`
+ * reports progress for. Mirrors `PulumiProvisioningPhase` in
+ * `@hyveon/desktop-main/src/services/PulumiEngineService.ts` — that file is
+ * the source of truth; keep this copy in sync with it.
  */
-export interface TerraformInitConfig {
-  bucket: string;
-  region: string;
-  dynamodbTable: string;
+export type StackInitPhase = 'engine' | 'plugins' | 'operation';
+
+/**
+ * Whether a {@link StackInitPhase} is beginning or has settled (success or
+ * failure alike). Mirrors `PulumiPhaseStatus` in
+ * `@hyveon/desktop-main/src/services/PulumiEngineService.ts` — that file is
+ * the source of truth; keep this copy in sync with it.
+ */
+export type StackInitPhaseStatus = 'start' | 'end';
+
+/**
+ * One phase-transition event streamed by the `iac.stack.initialize` IPC
+ * channel — the element type of {@link HyveonIacStackApi.initialize}'s
+ * returned {@link HyveonStreamHandle}.
+ */
+export interface StackInitPhaseEvent {
+  phase: StackInitPhase;
+  status: StackInitPhaseStatus;
 }
 
 /**
@@ -1272,8 +1280,8 @@ export interface IamCheckResult {
   message?: string;
 }
 
-/** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/web`'s `wizard.utils.ts`. */
-export type WizardStepName = 'pick-cloud' | 'credentials' | 'bootstrap' | 'terraform-init';
+/** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
+export type WizardStepName = 'pick-cloud' | 'credentials' | 'bootstrap' | 'stack-init';
 
 /** Resumable wizard progress persisted to `userData/wizard-state.json`. */
 export interface WizardProgress {
@@ -1368,20 +1376,20 @@ export interface WizardAwsChoice {
  * The bootstrap step's last-submitted resource names, as persisted to
  * `ElectronStoreService.bootstrap`. Needed so Settings' Reconfigure flow
  * (#211) can rehydrate a non-default name — resource names are
- * operator-editable — before running `terraform init`.
+ * operator-editable.
  *
  * @remarks
- * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
- * `ensureLockTable`/`wizard.bootstrap.lockTable`, and the bootstrap step
- * renders no row for it) — it is kept here only because the still-live
- * `iac.init` call requires a non-empty `dynamodbTable` backend-config
- * value, which Reconfigure rehydrates from this same field. Task 10.3
- * (replacing the Terraform-init step) is where this field should finally
- * be dropped.
+ * `lockTable` named this shape until task 10.3: it never described a
+ * bootstrapped resource (task 5.1 removed `ensureLockTable`/
+ * `wizard.bootstrap.lockTable`, and the bootstrap step renders no row for
+ * it) and was kept only because the now-deleted `iac.init` call required a
+ * non-empty `dynamodbTable` backend-config value, rehydrated from that field
+ * on Reconfigure. Task 10.3 replaced the Terraform-init step with
+ * `iac.stack.initialize`, which needs no lock-table name at all — so the
+ * field is gone.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
-  lockTable: string;
   configurationBucket: string;
 }
 
@@ -1493,42 +1501,58 @@ export interface HyveonIacRunsApi {
 }
 
 /**
- * Iac orchestration: streams `terraform init` output live as the
- * process runs, and submits plan/apply/destroy/rollback operations against
- * the Pulumi-backed engine.
+ * Stack-initialization IPC surface (task 10.3, `migrate-iac-to-pulumi`) — the
+ * first-run wizard's real replacement for the deleted `iac.init` channel
+ * (itself a permanent no-op rejection since task 7.10; Pulumi has no
+ * `terraform init` analogue).
+ */
+export interface HyveonIacStackApi {
+  /**
+   * Initializes (or, on a retry, re-verifies) the one Pulumi stack this app
+   * manages, by invoking the `iac.stack.initialize` IPC channel and
+   * returning its live progress as a {@link HyveonStreamHandle} of
+   * {@link StackInitPhaseEvent}. Consume it with
+   * `for await (const event of iac.stack.initialize())`.
+   *
+   * Takes no arguments — unlike the old `iac.init(config)` call this
+   * replaces, `PulumiService.initializeStack` resolves the state bucket/AWS
+   * region it needs internally from stored wizard state, the same way every
+   * other `PulumiService` method does (see `PulumiService.initializeStack`'s
+   * own TSDoc).
+   *
+   * Yields a `{ phase, status }` event for every `'start'`/`'end'` pair the
+   * main process reports, in order: `'engine'`, then `'plugins'`, then
+   * `'operation'` — a phase never reached (because an earlier one failed)
+   * never yields at all. The iteration completes normally once
+   * initialization finishes successfully, and throws once the underlying run
+   * fails — using the failed phase's own error message where the main
+   * process could attribute the failure to a specific phase, or a generic
+   * message otherwise.
+   *
+   * Internally this wraps the fixed `iac.stack.initialize.chunk` /
+   * `iac.stack.initialize.end` side-channel IPC messages
+   * `IacController.initializeStack` sends in a preload-internal async
+   * generator, tagged with the `streamId` minted for this call — mirrors
+   * `iac.runs.streamLogs`'s shape (the same one the original, pre-7.10
+   * `iac.init` channel used) exactly.
+   *
+   * Call the returned handle's `cancel()` to stop consuming progress early —
+   * mirroring every other streaming method's cancellation semantics, this
+   * does not stop `PulumiService.initializeStack` itself, which keeps
+   * running to completion in the background; only this caller's consumption
+   * stops.
+   */
+  initialize: () => HyveonStreamHandle<StackInitPhaseEvent>;
+}
+
+/**
+ * Iac orchestration: initializes the Pulumi stack the first-run wizard's
+ * final step needs, and submits plan/apply/destroy/rollback operations
+ * against the Pulumi-backed engine.
  */
 export interface HyveonIacApi {
-  /**
-   * Runs `terraform init` against `config` (backend bucket/region/DynamoDB
-   * lock table) and returns its output as a {@link HyveonStreamHandle} of
-   * {@link TerraformRunChunk}. Consume it with
-   * `for await (const chunk of iac.init(config))`.
-   *
-   * **Transitional stub (tasks 8.3/8.5):** the Pulumi engine has no `init`
-   * step, so `iac.controller.ts`'s `init` handler is now a permanent
-   * rejection — this call always resolves a stream whose end message
-   * carries an error, never a successful run. The channel and this method
-   * are kept wired (mechanically renamed from `terraform.init`, not deleted
-   * or special-cased) purely so `TerraformInitConfig`'s payload shape stays
-   * unchanged for its only call site,
-   * `terraform-init-step.component.tsx` — which task 10.3 will replace
-   * entirely, at which point this method should finally be removed.
-   *
-   * Internally this wraps the fixed `iac.init.chunk` / `iac.init.end`
-   * side-channel IPC messages `IacController.init` sends in a
-   * preload-internal async generator — unlike `logs.stream`, there is no
-   * per-call `streamId` because only one run is ever allowed in flight at a
-   * time.
-   *
-   * Call the returned handle's `cancel()` to stop consuming the run's
-   * output early, mirroring `logs.stream`'s cancellation semantics.
-   *
-   * The iteration completes normally once the run finishes successfully, and
-   * throws (using the `iac.init.end` payload's `error` field) if the
-   * run failed — including if the initial `config` failed validation and no
-   * run was ever attempted.
-   */
-  init: (config: TerraformInitConfig) => HyveonStreamHandle<TerraformRunChunk>;
+  /** Stack initialization (task 10.3): the wizard's real `terraform init` replacement. */
+  stack: HyveonIacStackApi;
   /**
    * Submits a plan (`pulumi preview`) run by invoking the `iac.plan` IPC
    * channel and resolves its immediate {@link TerraformPlanAck}.
