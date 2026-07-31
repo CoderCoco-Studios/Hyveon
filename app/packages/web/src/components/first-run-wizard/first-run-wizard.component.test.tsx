@@ -17,7 +17,9 @@ const hyveonMock = {
     complete: vi.fn(),
   },
   iac: {
-    init: vi.fn(),
+    stack: {
+      initialize: vi.fn(),
+    },
   },
 };
 vi.stubGlobal('hyveon', hyveonMock);
@@ -47,7 +49,7 @@ beforeEach(() => {
   hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
   hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
   hyveonMock.wizard.complete.mockReset();
-  hyveonMock.iac.init.mockReset();
+  hyveonMock.iac.stack.initialize.mockReset();
 });
 
 /** Renders the wizard, which starts directly on the pick-cloud step (the first step now that prerequisites was removed). */
@@ -74,13 +76,13 @@ async function advanceToBootstrap(): Promise<void> {
   await screen.findByLabelText('Terraform state bucket name');
 }
 
-/** Advances the wizard all the way to the terraform-init step, with both bootstrap resources succeeding. */
-async function advanceToTerraformInit(): Promise<void> {
+/** Advances the wizard all the way to the stack-init step, with both bootstrap resources succeeding. */
+async function advanceToStackInit(): Promise<void> {
   hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
-  hyveonMock.iac.init.mockImplementation(
+  hyveonMock.iac.stack.initialize.mockImplementation(
     toStreamHandleMock(async function* () {
-      // No chunks needed by default — individual tests override this.
+      // No phase events needed by default — individual tests override this.
     }),
   );
   await advanceToBootstrap();
@@ -389,23 +391,28 @@ describe('FirstRunWizard', () => {
 
       await waitFor(() =>
         expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
-          bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', configurationBucket: 'hyveon-tfvars' },
+          bootstrap: { stateBucket: 'hyveon-tfstate', configurationBucket: 'hyveon-tfvars' },
         }),
       );
     });
   });
 
-  describe('terraform-init step', () => {
-    it('should hide the shared Next button once on the terraform-init step', async () => {
-      await advanceToTerraformInit();
+  describe('stack-init step', () => {
+    it('should hide the shared Next button once on the stack-init step', async () => {
+      await advanceToStackInit();
 
       expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
     });
 
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
-      hyveonMock.iac.init.mockImplementation(
+      hyveonMock.iac.stack.initialize.mockImplementation(
         toStreamHandleMock(async function* () {
-          yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
+          yield { phase: 'engine', status: 'start' };
+          yield { phase: 'engine', status: 'end' };
+          yield { phase: 'plugins', status: 'start' };
+          yield { phase: 'plugins', status: 'end' };
+          yield { phase: 'operation', status: 'start' };
+          yield { phase: 'operation', status: 'end' };
         }),
       );
       hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
@@ -463,14 +470,14 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/choose the cloud provider/i)).toBeInTheDocument();
     });
 
-    it('should clamp a recorded terraform-init step down to bootstrap, rather than auto-running terraform init on mount', async () => {
-      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'terraform-init' });
+    it('should clamp a recorded stack-init step down to bootstrap, rather than auto-initializing the stack on mount', async () => {
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'stack-init' });
 
       render(<FirstRunWizard />);
 
       expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
-      expect(hyveonMock.iac.init).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.stack.initialize).not.toHaveBeenCalled();
     });
 
     it('should not save progress before the resume check has settled, so a fast render never clobbers a resumed step', async () => {

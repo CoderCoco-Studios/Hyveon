@@ -31,7 +31,9 @@ const hyveonMock = {
     complete: vi.fn(),
   },
   iac: {
-    init: vi.fn(),
+    stack: {
+      initialize: vi.fn(),
+    },
     settings: {
       get: vi.fn(),
       update: vi.fn(),
@@ -85,9 +87,9 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
     hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
-    hyveonMock.iac.init.mockReset().mockImplementation(
+    hyveonMock.iac.stack.initialize.mockReset().mockImplementation(
       toStreamHandleMock(async function* () {
-        // No chunks needed by default — the Reconfigure tests below just need it to succeed.
+        // No phase events needed by default — the Reconfigure tests below just need it to succeed.
       }),
     );
     hyveonMock.iac.settings.get
@@ -160,7 +162,7 @@ describe('SettingsPage', () => {
       await userEvent.type(regionInput, 'eu-west-1');
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
-      // bootstrap: leave collapsed, advance to terraform-init and finish.
+      // bootstrap: leave collapsed, advance to stack-init and finish.
       await screen.findByText(/bootstrap aws resources is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
@@ -177,12 +179,12 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1);
     });
 
-    it('should commit only the edited step, and rehydrate stored bootstrap resource names into terraform init, when the bootstrap step is left collapsed', async () => {
+    it('should commit only the edited step, and initialize the stack with no renderer-supplied config, when the bootstrap step is left collapsed', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
         activeCloud: 'aws',
         aws: { profile: 'default', region: 'us-east-1' },
-        bootstrap: { stateBucket: 'renamed-tfstate', lockTable: 'renamed-tflock', configurationBucket: 'renamed-tfvars' },
+        bootstrap: { stateBucket: 'renamed-tfstate', configurationBucket: 'renamed-tfvars' },
       });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
@@ -198,13 +200,11 @@ describe('SettingsPage', () => {
 
       await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
-      // No second (AbortSignal) argument — cancellation now goes through the
-      // returned HyveonStreamHandle's `cancel()` instead.
-      expect(hyveonMock.iac.init).toHaveBeenCalledWith({
-        bucket: 'renamed-tfstate',
-        region: 'us-east-1',
-        dynamodbTable: 'renamed-tflock',
-      });
+      // `PulumiService.initializeStack` resolves the state bucket/region it
+      // needs internally from already-persisted wizard state — unlike the
+      // deleted `terraform init` call this replaces, the renderer passes it
+      // no config at all.
+      expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith();
     });
 
     it('should not clobber stored config on Finish when the prefill itself fails and nothing was edited', async () => {
