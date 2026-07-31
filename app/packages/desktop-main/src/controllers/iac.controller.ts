@@ -14,6 +14,7 @@ import {
   type PulumiUpResult,
   type PulumiDestroyResult,
 } from '../services/PulumiService.js';
+import { PulumiUnrecognizedLockError } from '../services/PulumiLockRecovery.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { AuditService } from '../services/AuditService.js';
 import { RunRecordService } from '../services/RunRecordService.js';
@@ -138,6 +139,57 @@ interface TerraformPlanEndMessage {
 }
 
 /**
+ * Holder/age evidence for one lock entry parsed off a Pulumi backend lock
+ * conflict — the IPC-safe mirror of `PulumiStackLockInfo`
+ * (`../services/PulumiLockRecovery.js`). `lockedAt` is serialized to an ISO
+ * string rather than carried as a `Date`: a raw `Date` does not survive
+ * Electron's IPC structured-clone/contextBridge boundary reliably, so
+ * {@link serializeStaleLock} converts it explicitly at the point this leaves
+ * the main process.
+ */
+interface StaleLockHolder {
+  lockUrl: string;
+  username: string;
+  hostname: string;
+  pid: number;
+  lockedAt: string;
+}
+
+/**
+ * Attached to an ack or end message when the underlying `PulumiService` call
+ * threw `PulumiUnrecognizedLockError` — the backend lock conflict could not
+ * be proven to be this installation's own orphaned run, so the operator must
+ * confirm before it's cleared. This dispatch (tasks 8.3/8.5) only wires the
+ * READ side through — carrying the same holder/age evidence the error itself
+ * carries so a future caller has real data to render instead of only
+ * `error`'s prose. Task 9.4 ("stale-lock recovery UI with explicit
+ * confirmation") is the one that designs the confirmation flow and any
+ * "clear the lock" write path; no such channel exists yet.
+ */
+interface StaleLockInfo {
+  stackName: string;
+  locks: StaleLockHolder[];
+}
+
+/**
+ * Serializes a caught {@link PulumiUnrecognizedLockError} into
+ * {@link StaleLockInfo} — see that type's doc comment for why `lockedAt`
+ * becomes a string here.
+ */
+function serializeStaleLock(err: PulumiUnrecognizedLockError): StaleLockInfo {
+  return {
+    stackName: err.stackName,
+    locks: err.locks.map((lock) => ({
+      lockUrl: lock.lockUrl,
+      username: lock.username,
+      hostname: lock.hostname,
+      pid: lock.pid,
+      lockedAt: lock.lockedAt.toISOString(),
+    })),
+  };
+}
+
+/**
  * Immediate acknowledgement `plan()` resolves with. `started: true` means a
  * `runId` was pre-minted and the streaming loop was kicked off in the
  * background (chunk/end messages will follow on the side channels, tagged
@@ -147,13 +199,17 @@ interface TerraformPlanEndMessage {
  * `conflict` additionally names the already-running operation
  * (`preview`/`up`/`destroy`/`rollback`) when the rejection was specifically
  * because the shared workspace was busy (see
- * `PulumiService.getOperationInFlight()`).
+ * `PulumiService.getOperationInFlight()`). `staleLock` is present instead of
+ * `conflict` when the rejection was `PulumiUnrecognizedLockError` (an
+ * `apply`/`destroy` gate-step failure whose lock conflict couldn't be proven
+ * to be this installation's own orphaned run) — see {@link StaleLockInfo}.
  */
 interface TerraformPlanAck {
   started: boolean;
   runId?: string;
   error?: string;
   conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
+  staleLock?: StaleLockInfo;
 }
 
 /**
@@ -283,13 +339,18 @@ interface TerraformApplyChunkMessage {
  * `iac.apply` run finishes. `exitCode` is `0` on success, or `null` on
  * failure — see {@link TerraformPlanEndMessage}'s doc comment for why there
  * is no real numeric exit code to report under the Pulumi Automation API.
- * `result` is present only on a successful run.
+ * `result` is present only on a successful run. `staleLock` is present when
+ * the failure was `PulumiUnrecognizedLockError` — see {@link StaleLockInfo}.
+ * Unlike {@link TerraformPlanAck}, `PulumiUnrecognizedLockError` can surface
+ * here (rather than on the immediate ack) because `stack.up()`'s lock
+ * conflict is only discovered once the operation has already been streaming.
  */
 interface TerraformApplyEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
   result?: PulumiUpResult;
+  staleLock?: StaleLockInfo;
 }
 
 /**
@@ -333,11 +394,15 @@ interface TerraformDestroyChunkMessage {
  * Message payload sent once on {@link DESTROY_END_CHANNEL} when a
  * `iac.destroy` run finishes. `exitCode` is `0` on success, or `null`
  * on failure — see {@link TerraformPlanEndMessage}'s doc comment for why.
- * `result` is present only on a successful run.
+ * `result` is present only on a successful run. `staleLock` is present when
+ * the failure was `PulumiUnrecognizedLockError` — see
+ * {@link TerraformApplyEndMessage}'s identical field for why this surfaces
+ * here rather than on the immediate ack.
  */
 interface TerraformDestroyEndMessage {
   runId: string;
   exitCode: number | null;
+  staleLock?: StaleLockInfo;
   error?: string;
   result?: PulumiDestroyResult;
 }
@@ -805,6 +870,19 @@ export class IacController implements OnModuleInit {
         logger.error('terraform apply rejected: workspace busy', { planRunId: payload.planRunId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
+      if (err instanceof PulumiUnrecognizedLockError) {
+        // stack.up() can hit an unrecognized backend lock conflict before
+        // ever yielding a chunk (the gate steps above this catch never
+        // throw this error — it's raised inside attemptUp() itself, only
+        // once operationSettled) — see the streaming loop's identical catch
+        // below for the more common case where it surfaces after streaming
+        // has already begun.
+        logger.error('terraform apply rejected: unrecognized stale stack lock', {
+          planRunId: payload.planRunId,
+          stackName: err.stackName,
+        });
+        return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
+      }
       const error = err instanceof Error ? err.message : String(err);
       logger.error('terraform apply rejected', { planRunId: payload.planRunId, error });
       return { started: false, error };
@@ -853,7 +931,12 @@ export class IacController implements OnModuleInit {
       } catch (err) {
         logger.error('terraform apply error', { err });
         if (!sender.isDestroyed()) {
-          const message: TerraformApplyEndMessage = { runId, exitCode: null, error: String(err) };
+          const message: TerraformApplyEndMessage = {
+            runId,
+            exitCode: null,
+            error: String(err),
+            staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined,
+          };
           sender.send(APPLY_END_CHANNEL, message);
         }
       } finally {
@@ -968,6 +1051,16 @@ export class IacController implements OnModuleInit {
         logger.error('terraform destroy rejected: workspace busy', { runId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
+      if (err instanceof PulumiUnrecognizedLockError) {
+        // Mirrors apply()'s identical branch — see that catch block's
+        // comment for why this can surface here, before any streaming ever
+        // started, rather than only on the end-of-stream catch below.
+        logger.error('terraform destroy rejected: unrecognized stale stack lock', {
+          runId,
+          stackName: err.stackName,
+        });
+        return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
+      }
       const error = err instanceof Error ? err.message : String(err);
       logger.error('terraform destroy rejected', { runId, error });
       return { started: false, error };
@@ -1007,7 +1100,12 @@ export class IacController implements OnModuleInit {
       } catch (err) {
         logger.error('terraform destroy error', { err });
         if (!sender.isDestroyed()) {
-          const message: TerraformDestroyEndMessage = { runId, exitCode: null, error: String(err) };
+          const message: TerraformDestroyEndMessage = {
+            runId,
+            exitCode: null,
+            error: String(err),
+            staleLock: err instanceof PulumiUnrecognizedLockError ? serializeStaleLock(err) : undefined,
+          };
           sender.send(DESTROY_END_CHANNEL, message);
         }
       } finally {
