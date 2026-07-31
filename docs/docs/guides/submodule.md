@@ -15,6 +15,19 @@ If you're just kicking the tyres, the plain
 [setup guide](/setup) is fine. Come back to this
 page when you're ready to commit your config to source control.
 
+:::caution This page describes the pre-Pulumi-migration workflow and is being rewritten
+Most of what follows — `make plan`/`make apply`, the S3 tfvars-sync targets
+(`tfvars-pull`/`tfvars-push`/`tfvars-diff`), `init-parent.ts migrate --to-s3`/
+`--to-local`, and `--s3-tfvars` — no longer exists. The Terraform tree was
+deleted and the app now bootstraps its own AWS backend and deploys the stack
+itself, via its first-run wizard and its Plan/Apply page, with no Makefile
+step required. The generated Makefile now only offers `make setup` (submodule
+init, `npm install`, Lambda build), `make update` (bump the submodule), and
+`make dev`. This page is scheduled for a full rewrite; until then, treat
+anything below mentioning `plan`, `apply`, `migrate`, or tfvars sync as
+historical context, not working instructions.
+:::
+
 ## Why this layout
 
 `terraform.tfvars` (with your hosted zone, and optionally Discord
