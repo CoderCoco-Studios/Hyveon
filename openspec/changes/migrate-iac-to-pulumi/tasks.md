@@ -89,7 +89,7 @@
 - [x] 9.3 Surface partial-apply failures with re-plan guidance rather than a plain retry (commit 7fedf22 — PartialApplyBanner gated on applyRecord?.partialApply, independent of applyStatus, embeds the Start over action)
 - [ ] 9.4 Add the stale-lock recovery UI with explicit confirmation
 - [x] 9.5 Update the run-history table and read-only detail view to render the structured summary when present and omit it cleanly when absent
-- [ ] 9.6 Update the rollback confirmation to identify the target config version and summarize how it differs from current
+- [x] 9.6 Update the rollback confirmation to identify the target config version and summarize how it differs from current (commits 7a8e11a, 1ac93c7, 4dcf718 — diffDeploymentConfig in @hyveon/shared, PulumiService.computeRollbackDiff wired into IacController.resolveRollback, RollbackAction renders the summary with graceful degradation)
 - [ ] 9.7 Add a deployment-settings section to Settings for the top-level configuration, so no setting requires editing a file — validated before write, sharing the game-form validation patterns
 - [ ] 9.8 Rename the `/terraform` route to `/iac` (router config, nav link, routed page component/directory) and update every Playwright page object and e2e mock that references it
 
