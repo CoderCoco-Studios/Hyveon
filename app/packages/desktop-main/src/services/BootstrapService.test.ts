@@ -5,9 +5,11 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
   PutBucketLifecycleConfigurationCommand,
+  PutObjectCommand,
   PutPublicAccessBlockCommand,
 } from '@aws-sdk/client-s3';
 import {
@@ -18,6 +20,7 @@ import {
   ResourceNotFoundException,
   ResourceInUseException,
 } from '@aws-sdk/client-dynamodb';
+import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
 import { BootstrapService, BootstrapCredentialsNotConfiguredError } from './BootstrapService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
@@ -337,6 +340,66 @@ describe('BootstrapService', () => {
       const service = new BootstrapService(makeStore(undefined));
 
       await expect(service.ensureConfigurationBucket('my-config-bucket')).rejects.toThrow(
+        BootstrapCredentialsNotConfiguredError,
+      );
+    });
+  });
+
+  /**
+   * Tests for the fresh-install-bricking fix: `ensureDeploymentConfig` seeds
+   * the initial `deployment-config.json` document — before this existed,
+   * nothing anywhere ever created that object, so a fresh install was
+   * completely unusable the moment the wizard finished (every
+   * `TfvarsService` write path reads the document before writing, and that
+   * read threw when the object didn't exist). See this method's own doc
+   * comment for the full rationale, and `TfvarsService.freshInstall.test.ts`
+   * for the genuine end-to-end proof that a seeded document really does let
+   * `updateTopLevelSettings`/`addGameServer` succeed afterward.
+   */
+  describe('ensureDeploymentConfig', () => {
+    it('should seed a minimal valid deployment-config document when none exists yet', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('NotFound'));
+      s3Mock.on(PutObjectCommand).resolves({ ETag: '"etag-1"' });
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'created' });
+      expect(s3Mock.commandCalls(HeadObjectCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-config-bucket',
+        Key: CONFIGURATION_OBJECT_KEY,
+      });
+      const putCall = s3Mock.commandCalls(PutObjectCommand)[0]!.args[0].input;
+      expect(putCall.Bucket).toBe('my-config-bucket');
+      expect(putCall.Key).toBe(CONFIGURATION_OBJECT_KEY);
+      const written = JSON.parse(new TextDecoder().decode(putCall.Body as Uint8Array));
+      expect(written).toEqual(withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} }));
+    });
+
+    it('should report exists (not an error) and skip PutObject when HeadObject confirms the document already exists', async () => {
+      s3Mock.on(HeadObjectCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('should report failure with the error message when PutObject fails after HeadObject confirms the object is absent', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('NotFound'));
+      s3Mock.on(PutObjectCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+      const service = new BootstrapService(makeStore(undefined));
+
+      await expect(service.ensureDeploymentConfig('my-config-bucket')).rejects.toThrow(
         BootstrapCredentialsNotConfiguredError,
       );
     });

@@ -1269,6 +1269,11 @@ export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link HyveonWizardApi.bootstrapDeploymentConfig}. */
+export interface BootstrapDeploymentConfigInput {
+  bucketName: string;
+}
+
 /** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
@@ -1352,6 +1357,16 @@ export interface HyveonWizardApi {
    * credentials step.
    */
   bootstrapConfigurationBucket: (input: BootstrapConfigurationBucketInput) => Promise<BootstrapResult>;
+  /**
+   * Idempotently seeds the initial `deployment-config.json` document in the
+   * just-created/confirmed configuration bucket, fixing a Critical bootstrap
+   * gap: nothing else ever created that first object, so before this call
+   * existed every Settings save, every Games-page add, and every Pulumi
+   * preview failed outright on a fresh install (`fetchRawConfig` throws when
+   * the object doesn't exist, and every write path calls it first). Takes
+   * the same `bucketName` just passed to {@link bootstrapConfigurationBucket}.
+   */
+  bootstrapDeploymentConfig: (input: BootstrapDeploymentConfigInput) => Promise<BootstrapResult>;
   /**
    * Idempotently creates/ensures the run-history DynamoDB table (`pk`/`sk`
    * keys, `status-index` GSI, point-in-time recovery), fixing a Critical

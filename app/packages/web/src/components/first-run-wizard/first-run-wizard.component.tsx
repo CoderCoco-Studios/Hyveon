@@ -112,6 +112,17 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // — it runs alongside the two bucket calls, not as a blocking prerequisite.
   const [runsTableStatus, setRunsTableStatus] = useState<BootstrapResourceState>('pending');
   const [runsTableMessage, setRunsTableMessage] = useState<string | undefined>(undefined);
+  // The initial `deployment-config.json` seed (the fresh-install-bricking
+  // fix): also tracked separately from `resourceNames`/`resourceStatuses`,
+  // mirroring `runsTableStatus` above — it has no editable name field of its
+  // own (it's seeded into whatever `resourceNames.configurationBucket`
+  // names). Unlike the run-history table, it can only run AFTER the
+  // configuration bucket itself has been created/confirmed — see
+  // `runBootstrap`'s configuration-bucket branch below, which chains this
+  // call rather than firing it in the same top-level `Promise.all` entry as
+  // the run-history table.
+  const [deploymentConfigStatus, setDeploymentConfigStatus] = useState<BootstrapResourceState>('pending');
+  const [deploymentConfigMessage, setDeploymentConfigMessage] = useState<string | undefined>(undefined);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [iamCheck, setIamCheck] = useState<IamCheckResult | null>(null);
   const [iamChecking, setIamChecking] = useState(false);
@@ -332,6 +343,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * `Promise.all`, but is tracked via {@link runsTableStatus}/
    * {@link runsTableMessage} rather than {@link resourceStatuses} — see
    * those states' own doc comments for why it isn't a {@link BootstrapResourceKey}.
+   *
+   * The initial `deployment-config.json` seed (`wizard.bootstrap.deploymentConfig`,
+   * the fresh-install-bricking fix) is NOT run alongside the run-history
+   * table as an independent `Promise.all` entry — it must be seeded into the
+   * configuration bucket, so it only fires once
+   * {@link bootstrapConfigurationBucket} itself reports `created`/`exists`,
+   * chained onto the same async branch that call runs in below. A
+   * configuration-bucket failure (or the bridge being unavailable) reports
+   * the seed as `failed` too, with a message explaining why, rather than
+   * leaving it stuck at `pending` forever.
    */
   async function runBootstrap() {
     if (!window.hyveon) {
@@ -343,6 +364,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       });
       setRunsTableStatus('failed');
       setRunsTableMessage(bridgeUnavailable);
+      setDeploymentConfigStatus('failed');
+      setDeploymentConfigMessage(bridgeUnavailable);
       return;
     }
     setBootstrapping(true);
@@ -350,43 +373,74 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     setResourceMessages({});
     setRunsTableStatus('creating');
     setRunsTableMessage(undefined);
+    setDeploymentConfigStatus('creating');
+    setDeploymentConfigMessage(undefined);
 
-    const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
-      ['stateBucket', () => window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
-      [
-        'configurationBucket',
-        () =>
-          window.hyveon!.wizard.bootstrapConfigurationBucket({ bucketName: resourceNames.configurationBucket }),
-      ],
-    ];
+    const stateBucketCall = (async () => {
+      try {
+        const result = await window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket });
+        setResourceStatuses((current) => ({ ...current, stateBucket: result.status as BootstrapResourceState }));
+        if (result.message) {
+          setResourceMessages((current) => ({ ...current, stateBucket: result.message }));
+        }
+      } catch (err) {
+        setResourceStatuses((current) => ({ ...current, stateBucket: 'failed' }));
+        setResourceMessages((current) => ({
+          ...current,
+          stateBucket: err instanceof Error ? err.message : 'Failed to bootstrap stateBucket.',
+        }));
+      }
+    })();
 
-    await Promise.all([
-      ...calls.map(async ([resource, call]) => {
-        try {
-          const result = await call();
-          setResourceStatuses((current) => ({ ...current, [resource]: result.status as BootstrapResourceState }));
-          if (result.message) {
-            setResourceMessages((current) => ({ ...current, [resource]: result.message }));
-          }
-        } catch (err) {
-          setResourceStatuses((current) => ({ ...current, [resource]: 'failed' }));
-          setResourceMessages((current) => ({
-            ...current,
-            [resource]: err instanceof Error ? err.message : `Failed to bootstrap ${resource}.`,
-          }));
+    const configurationBucketCall = (async () => {
+      try {
+        const result = await window.hyveon!.wizard.bootstrapConfigurationBucket({
+          bucketName: resourceNames.configurationBucket,
+        });
+        setResourceStatuses((current) => ({ ...current, configurationBucket: result.status as BootstrapResourceState }));
+        if (result.message) {
+          setResourceMessages((current) => ({ ...current, configurationBucket: result.message }));
         }
-      }),
-      (async () => {
-        try {
-          const result = await window.hyveon!.wizard.bootstrapRunsTable();
-          setRunsTableStatus(result.status as BootstrapResourceState);
-          setRunsTableMessage(result.message);
-        } catch (err) {
-          setRunsTableStatus('failed');
-          setRunsTableMessage(err instanceof Error ? err.message : 'Failed to bootstrap the run-history table.');
+        if (result.status !== 'created' && result.status !== 'exists') {
+          setDeploymentConfigStatus('failed');
+          setDeploymentConfigMessage('The configuration bucket must be created before its initial configuration can be seeded.');
+          return;
         }
-      })(),
-    ]);
+        try {
+          const seedResult = await window.hyveon!.wizard.bootstrapDeploymentConfig({
+            bucketName: resourceNames.configurationBucket,
+          });
+          setDeploymentConfigStatus(seedResult.status as BootstrapResourceState);
+          setDeploymentConfigMessage(seedResult.message);
+        } catch (err) {
+          setDeploymentConfigStatus('failed');
+          setDeploymentConfigMessage(
+            err instanceof Error ? err.message : 'Failed to seed the initial deployment configuration.',
+          );
+        }
+      } catch (err) {
+        setResourceStatuses((current) => ({ ...current, configurationBucket: 'failed' }));
+        setResourceMessages((current) => ({
+          ...current,
+          configurationBucket: err instanceof Error ? err.message : 'Failed to bootstrap configurationBucket.',
+        }));
+        setDeploymentConfigStatus('failed');
+        setDeploymentConfigMessage('The configuration bucket failed to bootstrap, so its initial configuration was not seeded.');
+      }
+    })();
+
+    const runsTableCall = (async () => {
+      try {
+        const result = await window.hyveon!.wizard.bootstrapRunsTable();
+        setRunsTableStatus(result.status as BootstrapResourceState);
+        setRunsTableMessage(result.message);
+      } catch (err) {
+        setRunsTableStatus('failed');
+        setRunsTableMessage(err instanceof Error ? err.message : 'Failed to bootstrap the run-history table.');
+      }
+    })();
+
+    await Promise.all([stateBucketCall, configurationBucketCall, runsTableCall]);
     setBootstrapping(false);
   }
 
@@ -605,6 +659,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               bootstrapping={bootstrapping}
               runsTableStatus={runsTableStatus}
               runsTableMessage={runsTableMessage}
+              deploymentConfigStatus={deploymentConfigStatus}
+              deploymentConfigMessage={deploymentConfigMessage}
               iamCheck={iamCheck}
               iamChecking={iamChecking}
               iamError={iamError}
