@@ -20,9 +20,9 @@ vi.mock('react-router-dom', async (importOriginal) => {
   return { ...actual, useNavigate: () => navigateMock };
 });
 
-/** Stub for `window.hyveon.terraform.runs.list` and the rollback flow's two IPC channels. */
+/** Stub for `window.hyveon.iac.runs.list` and the rollback flow's two IPC channels. */
 const hyveonMock = {
-  terraform: {
+  iac: {
     runs: {
       list: vi.fn(),
     },
@@ -55,14 +55,14 @@ describe('TerraformHistoryPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-    hyveonMock.terraform.runs.list.mockReset();
-    hyveonMock.terraform.rollback.resolve.mockReset();
-    hyveonMock.terraform.rollback.confirm.mockReset();
+    hyveonMock.iac.runs.list.mockReset();
+    hyveonMock.iac.rollback.resolve.mockReset();
+    hyveonMock.iac.rollback.confirm.mockReset();
     navigateMock.mockClear();
   });
 
   it('should render recent runs newest-first with kind, status, and timestamps', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord()] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
     renderPage(<TerraformHistoryPage />);
 
     expect(await screen.findByText('apply')).toBeInTheDocument();
@@ -71,58 +71,58 @@ describe('TerraformHistoryPage', () => {
   });
 
   it('should show the empty state when no runs match the current filters', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [] });
     renderPage(<TerraformHistoryPage />);
 
     expect(await screen.findByText(/No runs match the current filters\./)).toBeInTheDocument();
   });
 
   it('should fetch the next, older page and append it when Load more is clicked', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValueOnce({
+    hyveonMock.iac.runs.list.mockResolvedValueOnce({
       records: [makeRecord({ runId: 'run-1', sk: 'sk-1' })],
       nextBefore: 'sk-1',
     });
     renderPage(<TerraformHistoryPage />);
     await screen.findByText('apply');
 
-    hyveonMock.terraform.runs.list.mockResolvedValueOnce({
+    hyveonMock.iac.runs.list.mockResolvedValueOnce({
       records: [makeRecord({ runId: 'run-2', sk: 'sk-2', kind: 'plan' })],
     });
     await userEvent.click(screen.getByRole('button', { name: /Load more/ }));
 
     expect(await screen.findByText('plan')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.list).toHaveBeenLastCalledWith({ limit: 25, before: 'sk-1', status: undefined });
+    expect(hyveonMock.iac.runs.list).toHaveBeenLastCalledWith({ limit: 25, before: 'sk-1', status: undefined });
   });
 
   it('should re-fetch with the selected status filter', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord({ status: 'failed' })] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ status: 'failed' })] });
     renderPage(<TerraformHistoryPage />);
     await screen.findByText('apply');
 
     await userEvent.selectOptions(screen.getByLabelText('Status'), 'failed');
 
     await waitFor(() =>
-      expect(hyveonMock.terraform.runs.list).toHaveBeenLastCalledWith({ limit: 25, status: 'failed' }),
+      expect(hyveonMock.iac.runs.list).toHaveBeenLastCalledWith({ limit: 25, status: 'failed' }),
     );
   });
 
   it('should apply the kind filter client-side without an extra fetch', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ runId: 'run-apply', kind: 'apply' }), makeRecord({ runId: 'run-plan', sk: 'sk-2', kind: 'plan' })],
     });
     renderPage(<TerraformHistoryPage />);
     await screen.findByText('apply');
-    const callCountBefore = hyveonMock.terraform.runs.list.mock.calls.length;
+    const callCountBefore = hyveonMock.iac.runs.list.mock.calls.length;
 
     await userEvent.selectOptions(screen.getByLabelText('Kind'), 'plan');
 
     expect(screen.queryByText('apply')).not.toBeInTheDocument();
     expect(screen.getByText('plan')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.list.mock.calls.length).toBe(callCountBefore);
+    expect(hyveonMock.iac.runs.list.mock.calls.length).toBe(callCountBefore);
   });
 
   it('should link each row to its run-detail route', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord({ runId: 'run-42' })] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ runId: 'run-42' })] });
     renderPage(<TerraformHistoryPage />);
 
     const link = await screen.findByRole('link', { name: 'apply' });
@@ -130,7 +130,7 @@ describe('TerraformHistoryPage', () => {
   });
 
   it('should show approvedBy when present, else an em dash', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ runId: 'run-1', approvedBy: 'alice' }), makeRecord({ runId: 'run-2', sk: 'sk-2', kind: 'plan' })],
     });
     renderPage(<TerraformHistoryPage />);
@@ -143,7 +143,7 @@ describe('TerraformHistoryPage', () => {
 
   describe('rollback action (#112)', () => {
     it('should show a Rollback button only for apply rows that recorded a tfvarsVersionId', async () => {
-      hyveonMock.terraform.runs.list.mockResolvedValue({
+      hyveonMock.iac.runs.list.mockResolvedValue({
         records: [
           makeRecord({ runId: 'apply-with-version', kind: 'apply', tfvarsVersionId: 'v-1' }),
           makeRecord({ runId: 'apply-without-version', sk: 'sk-2', kind: 'apply' }),
@@ -158,10 +158,10 @@ describe('TerraformHistoryPage', () => {
     });
 
     it('should resolve the rollback target and open a confirmation dialog naming it on click', async () => {
-      hyveonMock.terraform.runs.list.mockResolvedValue({
+      hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
       });
-      hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+      hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: true,
         versionId: 'v-prior',
         lastModified: '2026-07-18T00:00:00.000Z',
@@ -170,17 +170,17 @@ describe('TerraformHistoryPage', () => {
 
       await userEvent.click(await screen.findByRole('button', { name: 'Rollback' }));
 
-      expect(hyveonMock.terraform.rollback.resolve).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
+      expect(hyveonMock.iac.rollback.resolve).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
       const dialog = await screen.findByRole('alertdialog');
       expect(within(dialog).getByText(/v-prior/)).toBeInTheDocument();
-      expect(hyveonMock.terraform.rollback.confirm).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.rollback.confirm).not.toHaveBeenCalled();
     });
 
     it('should surface a resolve failure inline without opening a confirmation dialog', async () => {
-      hyveonMock.terraform.runs.list.mockResolvedValue({
+      hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
       });
-      hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+      hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: false,
         error: 'Historic tfvars version "v-1" no longer exists — it may have expired. Nothing was written.',
       });
@@ -193,22 +193,22 @@ describe('TerraformHistoryPage', () => {
     });
 
     it('should confirm the rollback and navigate to /terraform with the new versionId and rolledBackFrom', async () => {
-      hyveonMock.terraform.runs.list.mockResolvedValue({
+      hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
       });
-      hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+      hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: true,
         versionId: 'v-prior',
         lastModified: '2026-07-18T00:00:00.000Z',
       });
-      hyveonMock.terraform.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
+      hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
       renderPage(<TerraformHistoryPage />);
 
       await userEvent.click(await screen.findByRole('button', { name: 'Rollback' }));
       await screen.findByRole('alertdialog');
       await userEvent.click(screen.getByRole('button', { name: 'Roll back' }));
 
-      expect(hyveonMock.terraform.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
+      expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
       await waitFor(() =>
         expect(navigateMock).toHaveBeenCalledWith('/terraform', {
           state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' },
@@ -217,7 +217,7 @@ describe('TerraformHistoryPage', () => {
     });
 
     it('should render a rollback badge on a row whose record carries rolledBackFrom', async () => {
-      hyveonMock.terraform.runs.list.mockResolvedValue({
+      hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ runId: 'plan-2', kind: 'plan', rolledBackFrom: 'apply-1' })],
       });
       renderPage(<TerraformHistoryPage />);

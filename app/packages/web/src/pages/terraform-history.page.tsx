@@ -30,7 +30,7 @@ function formatTimestamp(iso: string): string {
 /**
  * Terraform run-history route (`/terraform/history`) — a newest-first table
  * of persisted `terraform` plan/apply/destroy runs backed by
- * `hyveon.terraform.runs.list` (issue #111). Supports `kind`/`status` filters
+ * `hyveon.iac.runs.list` (issue #111). Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
  * read-only run-detail view at `/terraform/history/:runId`.
  *
@@ -79,7 +79,7 @@ export function TerraformHistoryPage() {
   useEffect(() => {
     if (!window.hyveon) return;
     const seq = ++requestSeqRef.current;
-    window.hyveon.terraform.runs
+    window.hyveon.iac.runs
       .list({ limit: PAGE_SIZE, status: statusFilter === 'all' ? undefined : statusFilter })
       .then((fetched) => {
         if (requestSeqRef.current !== seq) return;
@@ -107,7 +107,7 @@ export function TerraformHistoryPage() {
     if (!nextBefore || !window.hyveon) return;
     const seq = ++requestSeqRef.current;
     setLoadingMore(true);
-    window.hyveon.terraform.runs
+    window.hyveon.iac.runs
       .list({ limit: PAGE_SIZE, before: nextBefore, status: statusFilter === 'all' ? undefined : statusFilter })
       .then((fetched) => {
         if (requestSeqRef.current !== seq) return;
