@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/badge.component.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
 import { RollbackAction, type RollbackResult } from '../components/rollback-action.component.js';
+import { ChangeSummaryStatus } from './iac.page.js';
 
 /** Number of run records fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
@@ -32,7 +33,12 @@ function formatTimestamp(iso: string): string {
  * of persisted `terraform` plan/apply/destroy runs backed by
  * `hyveon.iac.runs.list` (issue #111). Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
- * read-only run-detail view at `/terraform/history/:runId`.
+ * read-only run-detail view at `/terraform/history/:runId`. The "Changes"
+ * column reuses `ChangeSummaryStatus` from the live Plan/Apply page (task
+ * 9.5) so a row's resource-change summary renders with the same
+ * unavailable/no-op/badges three-way distinction, and a row whose record
+ * carries `partialApply: true` gets a read-only "partial" badge next to its
+ * status.
  *
  * Per the design doc, `status` filtering is server-side (the `status-index`
  * GSI), while `kind` filtering is applied client-side to the fetched page —
@@ -216,6 +222,7 @@ export function TerraformHistoryPage() {
                   <TableRow>
                     <TableHead>Kind</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Changes</TableHead>
                     <TableHead>Started</TableHead>
                     <TableHead>Completed</TableHead>
                     <TableHead>Approver</TableHead>
@@ -241,7 +248,20 @@ export function TerraformHistoryPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <RunStatusBadge status={record.status} />
+                        <div className="flex items-center gap-2">
+                          <RunStatusBadge status={record.status} />
+                          {record.partialApply === true && (
+                            <Badge
+                              variant="warning"
+                              title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
+                            >
+                              partial
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <ChangeSummaryStatus summary={record.changeSummary} />
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.startedAt)}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.completedAt)}</TableCell>
