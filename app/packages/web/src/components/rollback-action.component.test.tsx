@@ -3,9 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RollbackAction } from './rollback-action.component.js';
 
-/** Stub for `window.hyveon.terraform.rollback` — the only channel this component invokes. */
+/** Stub for `window.hyveon.iac.rollback` — the only channel this component invokes. */
 const hyveonMock = {
-  terraform: {
+  iac: {
     rollback: {
       resolve: vi.fn(),
       confirm: vi.fn(),
@@ -16,12 +16,12 @@ vi.stubGlobal('hyveon', hyveonMock);
 
 describe('RollbackAction', () => {
   beforeEach(() => {
-    hyveonMock.terraform.rollback.resolve.mockReset();
-    hyveonMock.terraform.rollback.confirm.mockReset();
+    hyveonMock.iac.rollback.resolve.mockReset();
+    hyveonMock.iac.rollback.confirm.mockReset();
   });
 
   it('should not call confirm until the operator confirms the dialog', async () => {
-    hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,
       versionId: 'v-prior',
       lastModified: '2026-07-18T00:00:00.000Z',
@@ -32,17 +32,17 @@ describe('RollbackAction', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
 
     await screen.findByRole('alertdialog');
-    expect(hyveonMock.terraform.rollback.confirm).not.toHaveBeenCalled();
+    expect(hyveonMock.iac.rollback.confirm).not.toHaveBeenCalled();
     expect(onRolledBack).not.toHaveBeenCalled();
   });
 
   it('should close the dialog and call onRolledBack with the new versionId once confirm succeeds', async () => {
-    hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,
       versionId: 'v-prior',
       lastModified: '2026-07-18T00:00:00.000Z',
     });
-    hyveonMock.terraform.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({ confirmed: true, versionId: 'v-new-head' });
     const onRolledBack = vi.fn();
     render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
 
@@ -57,12 +57,12 @@ describe('RollbackAction', () => {
   });
 
   it('should surface a confirm failure inline and never call onRolledBack', async () => {
-    hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: true,
       versionId: 'v-prior',
       lastModified: '2026-07-18T00:00:00.000Z',
     });
-    hyveonMock.terraform.rollback.confirm.mockResolvedValue({
+    hyveonMock.iac.rollback.confirm.mockResolvedValue({
       confirmed: false,
       error: 'Historic tfvars version "v-prior" no longer exists — it may have expired. Nothing was written.',
     });
@@ -78,7 +78,7 @@ describe('RollbackAction', () => {
   });
 
   it('should surface a resolve failure inline without opening the dialog', async () => {
-    hyveonMock.terraform.rollback.resolve.mockResolvedValue({
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
       resolved: false,
       error: 'No run record found for apply run "apply-1" — cannot roll it back.',
     });

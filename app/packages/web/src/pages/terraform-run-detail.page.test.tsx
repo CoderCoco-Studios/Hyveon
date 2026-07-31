@@ -8,9 +8,9 @@ const apiMock = vi.hoisted(() => ({
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
-/** Stub for the `window.hyveon.terraform.runs` channels this page invokes. */
+/** Stub for the `window.hyveon.iac.runs` channels this page invokes. */
 const hyveonMock = {
-  terraform: {
+  iac: {
     runs: {
       list: vi.fn(),
       streamLogs: vi.fn(),
@@ -62,10 +62,10 @@ describe('TerraformRunDetailPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-    hyveonMock.terraform.runs.list.mockReset();
-    hyveonMock.terraform.runs.streamLogs.mockReset();
-    hyveonMock.terraform.runs.logUrl.mockReset();
-    hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
+    hyveonMock.iac.runs.list.mockReset();
+    hyveonMock.iac.runs.streamLogs.mockReset();
+    hyveonMock.iac.runs.logUrl.mockReset();
+    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
       /* no local artifacts by default — subclasses override per test */
     });
     fetchMock.mockReset();
@@ -77,14 +77,14 @@ describe('TerraformRunDetailPage', () => {
   });
 
   it('should show a not-found message when no record matches the runId', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [] });
     renderDetailPage('run-missing');
 
     expect(await screen.findByText(/No run history record was found for "run-missing"\./)).toBeInTheDocument();
   });
 
   it('should render the record status, kind, and approver once resolved', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ approvedBy: 'alice', approvedAt: '2026-07-17T00:02:00.000Z' })],
     });
     renderDetailPage('run-1');
@@ -96,51 +96,51 @@ describe('TerraformRunDetailPage', () => {
   });
 
   it('should replay the log via streamLogs when local run artifacts exist', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord()] });
-    hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
       yield { stream: 'stdout', line: 'replayed line' };
     });
     renderDetailPage('run-1');
 
     expect(await screen.findByText('replayed line')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.logUrl).not.toHaveBeenCalled();
+    expect(hyveonMock.iac.runs.logUrl).not.toHaveBeenCalled();
   });
 
   it('should fall back to the inline log when streamLogs yields nothing', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logInline: 'inline log text' })],
     });
     renderDetailPage('run-1');
 
     expect(await screen.findByText('inline log text')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.logUrl).not.toHaveBeenCalled();
+    expect(hyveonMock.iac.runs.logUrl).not.toHaveBeenCalled();
   });
 
   it('should fall back to streamLogs throwing, then a presigned URL fetch when logS3Key is set', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
     });
     // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
-    hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
+    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
       throw new Error('no run found for runId "run-1"');
     });
-    hyveonMock.terraform.runs.logUrl.mockResolvedValue('https://example.com/signed-log');
+    hyveonMock.iac.runs.logUrl.mockResolvedValue('https://example.com/signed-log');
     renderDetailPage('run-1');
 
     expect(await screen.findByText('offloaded log text')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.logUrl).toHaveBeenCalledWith('runs/run-1.log');
+    expect(hyveonMock.iac.runs.logUrl).toHaveBeenCalledWith('runs/run-1.log');
     expect(fetchMock).toHaveBeenCalledWith('https://example.com/signed-log');
   });
 
   it('should treat a non-ok presigned URL fetch as no log available rather than rendering the error body', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ logS3Key: 'runs/run-1.log' })],
     });
     // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate missing local run artifacts
-    hyveonMock.terraform.runs.streamLogs.mockImplementation(async function* () {
+    hyveonMock.iac.runs.streamLogs.mockImplementation(async function* () {
       throw new Error('no run found for runId "run-1"');
     });
-    hyveonMock.terraform.runs.logUrl.mockResolvedValue('https://example.com/expired-log');
+    hyveonMock.iac.runs.logUrl.mockResolvedValue('https://example.com/expired-log');
     fetchMock.mockResolvedValue({
       ok: false,
       status: 403,
@@ -149,12 +149,12 @@ describe('TerraformRunDetailPage', () => {
     renderDetailPage('run-1');
 
     expect(await screen.findByText('This run has no replayable, inline, or offloaded log.')).toBeInTheDocument();
-    expect(hyveonMock.terraform.runs.logUrl).toHaveBeenCalledWith('runs/run-1.log');
+    expect(hyveonMock.iac.runs.logUrl).toHaveBeenCalledWith('runs/run-1.log');
     expect(screen.queryByText('<Error>AccessDenied</Error>')).not.toBeInTheDocument();
   });
 
   it('should not render any approve/apply controls for a terminal run', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
     renderDetailPage('run-1');
 
     await screen.findByText('log');
@@ -163,7 +163,7 @@ describe('TerraformRunDetailPage', () => {
   });
 
   it('should link to the rolled-back apply run when the record carries rolledBackFrom', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({
+    hyveonMock.iac.runs.list.mockResolvedValue({
       records: [makeRecord({ kind: 'plan', logInline: 'log', rolledBackFrom: 'apply-1' })],
     });
     renderDetailPage('run-1');
@@ -173,7 +173,7 @@ describe('TerraformRunDetailPage', () => {
   });
 
   it('should not render a rollback tag when the record has no rolledBackFrom', async () => {
-    hyveonMock.terraform.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+    hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
     renderDetailPage('run-1');
 
     await screen.findByText('log');

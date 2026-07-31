@@ -19,7 +19,7 @@ import { ConfirmDialog } from '../components/confirm-dialog.component.js';
  * with, from a confirmed rollback in `/terraform/history` — see
  * `RollbackAction`. `tfvarsVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent
- * straight through to `hyveon.terraform.plan` so the resulting plan's persisted
+ * straight through to `hyveon.iac.plan` so the resulting plan's persisted
  * record carries the same tag.
  */
 interface RollbackNavState {
@@ -40,7 +40,7 @@ function isRollbackNavState(state: unknown): state is RollbackNavState {
 /**
  * Mirrors `APPROVAL_WINDOW_MS` in `@hyveon/shared/runs.ts` — that constant is
  * the source of truth for how long the backend honors an approval before
- * `terraform.apply` rejects it. Duplicated here (rather than importing
+ * `iac.apply` rejects it. Duplicated here (rather than importing
  * `@hyveon/shared` into the renderer bundle) purely to drive the staleness
  * countdown; the backend's own check is what's actually authoritative.
  */
@@ -101,7 +101,7 @@ function parseDestroySummary(chunks: TerraformRunChunk[]): number | null {
   return null;
 }
 
-/** Live state of a single streamed `terraform` run, backed by `hyveon.terraform.runs.streamLogs`. */
+/** Live state of a single streamed `terraform` run, backed by `hyveon.iac.runs.streamLogs`. */
 interface RunLogState {
   chunks: TerraformRunChunk[];
   /** True once the stream's `for await` loop has completed — the run reached a terminal status (or the run was never attached). */
@@ -118,7 +118,7 @@ interface RunLogState {
 }
 
 /**
- * Attaches to `hyveon.terraform.runs.streamLogs(runId)` for the lifetime of
+ * Attaches to `hyveon.iac.runs.streamLogs(runId)` for the lifetime of
  * `runId`, accumulating chunks in order. Mirrors `LogsPage`'s
  * `for await` + stream-handle-in-a-ref streaming idiom. Re-attaches
  * automatically if `runId` changes; tears the previous subscription down
@@ -148,7 +148,7 @@ function useTerraformRunLog(runId: string | null): RunLogState {
 
     if (!runId || !window.hyveon) return;
 
-    const handle = window.hyveon.terraform.runs.streamLogs(runId);
+    const handle = window.hyveon.iac.runs.streamLogs(runId);
     streamRef.current = handle;
     let cancelled = false;
 
@@ -192,7 +192,7 @@ function useTerraformRunLog(runId: string | null): RunLogState {
     return () => {
       cancelled = true;
       // Optional chaining guards against a test double that stubbed
-      // `terraform.runs.streamLogs` without configuring a return value
+      // `iac.runs.streamLogs` without configuring a return value
       // (`undefined`) — the real bridge always returns a handle.
       handle?.cancel();
     };
@@ -201,8 +201,28 @@ function useTerraformRunLog(runId: string | null): RunLogState {
   return { chunks, ended, error };
 }
 
-/** Subcommand name a BUSY rejection reports as already holding the shared workspace. */
-type Conflict = 'init' | 'plan' | 'apply' | 'destroy';
+/**
+ * Operation name a BUSY rejection reports as already holding the shared
+ * workspace — the raw values `IacController`'s gates emit
+ * (`PulumiOperationInFlightError.inFlight`/`RunLockHeldError`), which are the
+ * Pulumi Automation API's own operation names (`preview`/`up`) rather than
+ * the pre-migration `terraform` CLI subcommand names this type used to carry.
+ * See {@link CONFLICT_LABELS} for the operator-facing label each maps to.
+ */
+type Conflict = 'preview' | 'up' | 'destroy' | 'rollback';
+
+/**
+ * Operator-facing label for each {@link Conflict} value — maps the raw
+ * Pulumi operation name to the term this page's own buttons use ("plan"/
+ * "apply"), so the busy banner reads naturally instead of surfacing
+ * `preview`/`up` verbatim.
+ */
+const CONFLICT_LABELS: Record<Conflict, string> = {
+  preview: 'plan',
+  up: 'apply',
+  destroy: 'destroy',
+  rollback: 'rollback',
+};
 
 /** Lock banner shown when a plan/apply submission was rejected because the shared Terraform workspace is busy. */
 function BusyBanner({ conflict }: { conflict: Conflict }) {
@@ -211,8 +231,8 @@ function BusyBanner({ conflict }: { conflict: Conflict }) {
       role="alert"
       className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
     >
-      Workspace busy — a <code className="font-[var(--font-mono)]">terraform {conflict}</code> run is already in
-      progress. Try again once it finishes.
+      Workspace busy — a <code className="font-[var(--font-mono)]">terraform {CONFLICT_LABELS[conflict]}</code> run
+      is already in progress. Try again once it finishes.
     </div>
   );
 }
@@ -244,7 +264,8 @@ function ChangeSummaryBadges({ summary }: { summary: ChangeSummary }) {
  * Terraform plan/apply route (`/terraform`) — lets an operator trigger
  * `terraform plan`, watch its live ANSI output, review the resource-change
  * summary, approve the plan, and run the plan-hash-gated `terraform apply`,
- * all over the `hyveon.terraform.*` IPC surface shipped by epic #138. Surfaces
+ * all over the `hyveon.iac.*` IPC surface (renamed from `hyveon.terraform.*`
+ * by tasks 8.3/8.5; originally shipped by epic #138). Surfaces
  * BUSY (shared-workspace conflict) and non-conflict submission errors inline
  * rather than failing silently.
  */
@@ -303,7 +324,7 @@ export function TerraformPage() {
     if (!planRunId || !planLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.hyveon!.terraform.runs.get(planRunId);
+      const result = await window.hyveon!.iac.runs.get(planRunId);
       if (cancelled) return;
       if (result.found) {
         setPlanStatus(result.status);
@@ -321,7 +342,7 @@ export function TerraformPage() {
     if (!applyRunId || !applyLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.hyveon!.terraform.runs.get(applyRunId);
+      const result = await window.hyveon!.iac.runs.get(applyRunId);
       if (cancelled) return;
       if (result.found) setApplyStatus(result.status);
     })();
@@ -334,7 +355,7 @@ export function TerraformPage() {
     if (!destroyRunId || !destroyLog.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.hyveon!.terraform.runs.get(destroyRunId);
+      const result = await window.hyveon!.iac.runs.get(destroyRunId);
       if (cancelled) return;
       if (result.found) setDestroyStatus(result.status);
     })();
@@ -353,7 +374,7 @@ export function TerraformPage() {
     setPlanSubmitError(null);
     void (async () => {
       try {
-        const ack = await window.hyveon!.terraform.plan(payload);
+        const ack = await window.hyveon!.iac.plan(payload);
         if (ack.started && ack.runId) {
           setPlanRunId(ack.runId);
           setPlanStatus(null);
@@ -391,7 +412,7 @@ export function TerraformPage() {
     setApproveError(null);
     void (async () => {
       try {
-        const ack = await window.hyveon!.terraform.approve({ planRunId });
+        const ack = await window.hyveon!.iac.approve({ planRunId });
         if (ack.approved && ack.approvedBy && ack.approvedAt) {
           setApproval({ approvedBy: ack.approvedBy, approvedAt: ack.approvedAt });
           toast.success('Plan approved');
@@ -413,7 +434,7 @@ export function TerraformPage() {
     setApplySubmitError(null);
     void (async () => {
       try {
-        const ack = await window.hyveon!.terraform.apply({ planRunId, planHash: planRecord.planHash! });
+        const ack = await window.hyveon!.iac.apply({ planRunId, planHash: planRecord.planHash! });
         if (ack.started && ack.runId) {
           setApplyRunId(ack.runId);
           setApplyStatus(null);
@@ -439,8 +460,8 @@ export function TerraformPage() {
     setDestroySubmitError(null);
     void (async () => {
       try {
-        const mintAck = await window.hyveon!.terraform.mintDestroyToken();
-        const ack = await window.hyveon!.terraform.destroy({ confirmationToken: mintAck.token });
+        const mintAck = await window.hyveon!.iac.mintDestroyToken();
+        const ack = await window.hyveon!.iac.destroy({ confirmationToken: mintAck.token });
         if (ack.started && ack.runId) {
           setDestroyConfirmOpen(false);
           setDestroyRunId(ack.runId);
