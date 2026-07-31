@@ -13,8 +13,8 @@
  * `@hyveon/shared` (canonical for anything Terraform/tfvars/DynamoDB-shaped:
  * `GameStatus`, `GameServer`, `GameListEntry`, `DriftReport`, `AuditEntry`,
  * etc.) and `@hyveon/desktop-preload` (canonical for the Electron IPC
- * surface: `TerraformPlanAck`, `RunHistoryRecord`, `PrerequisitesReport`,
- * `WizardState`, etc.). A handful of types the web renderer consumes are not
+ * surface: `TerraformPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
+ * handful of types the web renderer consumes are not
  * re-exported by either package's public barrel (`CostEstimates`,
  * `WatchdogConfig`, `DiscordConfigRedacted`, `AwsProfileSummary`,
  * `BootstrapResult`, `IamCheckResult`, `WizardProgress`, …) — those are
@@ -37,7 +37,6 @@ import type {
 } from '@hyveon/shared';
 import type { WizardStep } from '@hyveon/shared';
 import type {
-  PrerequisitesReport,
   RunHistoryPageResult,
   RunHistoryRecord,
   TerraformApproveAck,
@@ -377,15 +376,6 @@ export const DEMO_DIAGNOSTICS_TAIL: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Terraform prerequisites (Settings + wizard step 1)
-// ---------------------------------------------------------------------------
-
-export const DEMO_PREREQS_REPORT: PrerequisitesReport = {
-  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.5', minimumVersionSatisfied: true },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.17.0' },
-};
-
-// ---------------------------------------------------------------------------
 // Terraform run history — five records covering every kind/status
 // combination the history table renders differently.
 // ---------------------------------------------------------------------------
@@ -584,7 +574,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     terraformInitChunks: DEMO_TERRAFORM_INIT_CHUNKS,
     diagnosticsLines: DEMO_DIAGNOSTICS_TAIL,
     diagnosticsPath: '/home/hyveon/.config/Hyveon/logs/desktop-main.log',
-    prereqs: DEMO_PREREQS_REPORT,
   };
 
   await win.addInitScript((d) => {
@@ -659,8 +648,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('diagnostics.tail', () => Promise.resolve({ lines: d.diagnosticsLines }));
     mock('diagnostics.path', () => Promise.resolve({ path: d.diagnosticsPath }));
 
-    mock('wizard.prereqs.check', () => Promise.resolve(d.prereqs));
-
     // ---- Terraform ----
     mock('iac.plan', () => Promise.resolve({ started: true, runId: 'run-plan-demo' }));
     mock('iac.approve', () =>
@@ -724,7 +711,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
 
 /**
  * Seeds every `wizard.*` (and `terraform.init`) IPC channel used across all
- * five first-run-wizard steps, plus `wizard.state.get` set to
+ * four first-run-wizard steps, plus `wizard.state.get` set to
  * `{ wizardCompleted: false }` so `app.component.tsx` renders
  * `<FirstRunWizard>` instead of the normal router.
  *
@@ -733,7 +720,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
  * `'credentials'`, or `'bootstrap'` (resuming past `'terraform-init'` is
  * intentionally clamped to `'bootstrap'` by the app itself — see
  * `first-run-wizard.component.tsx`'s resume-on-mount effect — so
- * `capture.spec.ts` always reaches step 5 via one `Next` click from a
+ * `capture.spec.ts` always reaches step 4 via one `Next` click from a
  * bootstrap-complete state, never via a direct resume jump).
  *
  * Like {@link seedDemo}, registers via `win.addInitScript(...)` (not
@@ -742,10 +729,9 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
  * `FirstRunWizard` respectively — the caller must follow this call with
  * `await win.goto(win.url())` for the seed to take effect.
  */
-export async function seedWizard(win: Page, resumeStep: WizardStep = 'prerequisites'): Promise<void> {
+export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud'): Promise<void> {
   const data = {
     resumeStep,
-    prereqs: DEMO_PREREQS_REPORT,
     profiles: [
       { profileName: 'default', region: 'us-east-1' },
       { profileName: 'hyveon-deploy', region: 'eu-west-2' },
@@ -781,7 +767,6 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'prerequisi
     mock('wizard.state.get', () => Promise.resolve({ wizardCompleted: false }));
     mock('wizard.progress.get', () => Promise.resolve({ step: d.resumeStep }));
     mock('wizard.progress.save', () => Promise.resolve());
-    mock('wizard.prereqs.check', () => Promise.resolve(d.prereqs));
     mock('wizard.aws.listProfiles', () => Promise.resolve(d.profiles));
     mock('wizard.aws.saveCredentials', () => Promise.resolve({ profileName: 'hyveon-pasted' }));
     mock('wizard.state.save', (input: unknown) =>

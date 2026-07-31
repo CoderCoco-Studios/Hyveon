@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
-import { MINIMUM_TERRAFORM_VERSION } from '@hyveon/shared';
-import type { PrerequisitesReport } from '@hyveon/desktop-preload';
+import { useState } from 'react';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
 import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
 import { WatchdogPanel } from '../components/watchdog-panel.component.js';
@@ -23,14 +21,6 @@ import { Button } from '../components/ui/button.component.js';
  */
 export function SettingsPage() {
   const [reconfiguring, setReconfiguring] = useState(false);
-  const [prereqs, setPrereqs] = useState<PrerequisitesReport | null>(null);
-
-  useEffect(() => {
-    if (!window.hyveon?.wizard) return;
-    window.hyveon.wizard.checkPrereqs().then(setPrereqs).catch(() => {
-      // Best-effort — the version row just falls back to "Not detected".
-    });
-  }, []);
 
   if (reconfiguring) {
     return (
@@ -55,16 +45,20 @@ export function SettingsPage() {
         <WatchdogPanel />
       </div>
 
-      {/* Cloud setup section */}
+      {/*
+        Cloud setup section. The version-status row that used to read
+        `window.hyveon.wizard.checkPrereqs()` was removed in task 10.1/10.2
+        of `migrate-iac-to-pulumi` — that channel probed for a host
+        `terraform`/`aws` CLI, which no longer exists now the Pulumi engine
+        is app-managed. Task 10.4 replaces this with a row reporting the
+        resolved Pulumi engine version instead; until then this is a
+        deliberately thinner interim state, not a redesign.
+      */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Cloud Setup</h3>
         <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
           <div>
             <p className="text-sm font-medium">Terraform</p>
-            <p className="text-sm text-muted-foreground">
-              {prereqs?.terraform.version ? `Detected v${prereqs.terraform.version}` : 'Not detected'} · minimum v
-              {MINIMUM_TERRAFORM_VERSION}
-            </p>
           </div>
           <Button type="button" variant="outline" onClick={() => setReconfiguring(true)}>
             Reconfigure
