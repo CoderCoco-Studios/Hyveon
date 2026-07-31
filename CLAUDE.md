@@ -40,6 +40,10 @@ under `app/packages/lambda/*`, and `@hyveon/scripts`.
 npm install                     # install every workspace (run from repo root)
 
 npm run desktop:dev             # Electron dev mode: renderer HMR, auto-restart main+preload
+                                 #   currently broken (electron-vite dev's SSR bundling eagerly
+                                 #   resolves NestJS's optional lazy imports, e.g. @nestjs/websockets,
+                                 #   that production desktop:build tree-shakes away) — use
+                                 #   desktop:build + app:start instead until fixed
 npm run app:build                # compile shared → cloud-aws → desktop-main → preload → web
 npm run desktop:build           # electron-vite build → out/main, out/preload, out/renderer
 npm run app:start                # launch the built app (requires desktop:build first)

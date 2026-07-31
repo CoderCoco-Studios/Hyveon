@@ -189,8 +189,16 @@ covered by an automated test.
 git clone https://github.com/CoderCoco/Hyveon.git
 cd Hyveon
 npm install
-npm run app:dev
+npm run desktop:build
+npm run app:start
 ```
+
+:::note
+`npm run desktop:dev` (hot-reload dev mode) has a known outstanding bundling
+bug unrelated to this migration and shouldn't be used right now — build once
+with `desktop:build`, then launch with `app:start`; re-run both after pulling
+new code.
+:::
 
 The first launch replaces the entire window with the **first-run setup
 wizard** — there is no dashboard, no sidebar, and no way to skip it. Four
@@ -304,14 +312,17 @@ the [Discord](/app/discord) page's Credentials tab — you'll need it in
 Hyveon is a packaged Electron desktop app — there's no HTTP server or bearer
 token to configure. Pick one of the two ways to run it:
 
-### Option A — dev mode
+### Option A — build and launch
 
 ```bash
-npm run app:dev
+npm run desktop:build
+npm run app:start
 ```
 
-Launches the Electron app with hot-reload on renderer saves. This is the
-same flow used in [step 2](#2-clone-install-and-launch-the-wizard) above.
+Same flow used in [step 2](#2-clone-install-and-launch-the-wizard) above.
+`npm run desktop:dev` normally adds hot-reload on renderer saves, but has a
+known outstanding bundling bug right now — use the build-and-launch sequence
+above instead until that's fixed.
 
 ### Option B — packaged Electron app (distributable installer)
 

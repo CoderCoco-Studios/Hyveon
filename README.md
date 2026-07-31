@@ -56,10 +56,10 @@ Component deep-dives:
 # 1. Install dependencies
 npm install
 
-# 2. Launch the Electron app and follow the in-app setup wizard (AWS
-#    credentials, S3 bucket bootstrap, Pulumi stack init) — long-running,
-#    keep it in this terminal
-npm run app:dev
+# 2. Build and launch the Electron app, then follow the in-app setup wizard
+#    (AWS credentials, S3 bucket bootstrap, Pulumi stack init)
+npm run desktop:build
+npm run app:start
 
 # 3. In the app: Games → Add game, then Infrastructure → Run plan →
 #    Approve plan → Apply. No CLI step — the wizard and the Infrastructure

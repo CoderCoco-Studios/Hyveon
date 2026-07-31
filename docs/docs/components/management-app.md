@@ -22,10 +22,12 @@ Install everything from the root:
 npm install
 ```
 
-Dev mode (`npm run app:dev`) launches the full Electron app with hot-reload
-on renderer saves; electron-vite serves the renderer for HMR purposes only —
-it is not a network API surface. See the [setup guide](/setup) for the
-packaged-installer build.
+Dev mode (`npm run app:dev`/`desktop:dev`) is meant to launch the full
+Electron app with hot-reload on renderer saves; electron-vite serves the
+renderer for HMR purposes only, never as a network API surface. It's
+currently broken (see the [maintainer guide](/guides/maintainer)'s scripts
+table) — use `npm run desktop:build && npm run app:start` instead. See the
+[setup guide](/setup) for the packaged-installer build.
 
 ## `@hyveon/shared`
 
