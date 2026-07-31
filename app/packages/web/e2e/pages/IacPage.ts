@@ -14,15 +14,28 @@ export class IacPage {
   }
 
   /**
-   * Navigate to `/iac` by clicking the sidebar link and waiting for the
-   * URL to settle. Exact-match, since Playwright's default name match is a
-   * case-insensitive substring and other pages (e.g. the dashboard's
-   * "Infrastructure" link inside `PendingChangesBanner`) also render text
-   * containing "Infrastructure", which would otherwise collide with the
-   * sidebar's own nav item of the same name.
+   * Navigate to `/iac` by clicking the sidebar link and waiting for the URL
+   * to settle. Scoped to the `<nav aria-label="Main navigation">` landmark
+   * (`app-layout.component.tsx`) rather than an unscoped `getByRole('link')`
+   * lookup: an exact-match name alone isn't enough to disambiguate any more
+   * — the dashboard's `NoGamesCard` empty state (rendered by default in
+   * test mode, which starts with no games configured) ALSO renders a link
+   * whose text is the exact string "Infrastructure"
+   * (`dashboard.page.tsx`'s `NoGamesCard`), so an unscoped exact-match
+   * lookup matches two elements and Playwright throws a strict-mode
+   * violation. Scoping to the nav landmark first is what actually
+   * disambiguates now; the desktop sidebar's `<nav>` is the only one visible
+   * in the accessibility tree in the default (mobile drawer closed) state —
+   * `app-layout.component.tsx` renders a second, identically-labeled `<nav>`
+   * for the mobile drawer, but it's `aria-hidden`/`display: none` while
+   * closed, so `getByRole('navigation', ...)` still resolves to exactly one
+   * match here.
    */
   async gotoViaSidebar(): Promise<void> {
-    await this.page.getByRole('link', { name: 'Infrastructure', exact: true }).click();
+    await this.page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'Infrastructure', exact: true })
+      .click();
     await this.page.waitForURL('**/iac');
   }
 
