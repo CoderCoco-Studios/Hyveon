@@ -34,7 +34,7 @@ const monitoringItems: NavItem[] = [
 const configItems: NavItem[] = [
   { to: '/games', icon: Gamepad2, label: 'Games' },
   { to: '/discord', icon: MessageSquare, label: 'Discord' },
-  { to: '/iac', icon: Cloud, label: 'Terraform' },
+  { to: '/iac', icon: Cloud, label: 'Infrastructure' },
   { to: '/audit', icon: History, label: 'Audit' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
