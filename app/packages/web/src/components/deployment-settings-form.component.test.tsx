@@ -129,6 +129,48 @@ describe('DeploymentSettingsForm', () => {
     });
   });
 
+  describe('defensive defaulting for an incomplete settings object (review round 1, finding I2)', () => {
+    it('should render without crashing when the three base-allowlist arrays are absent from the fetched settings', async () => {
+      // Simulates a stored document that predates these fields — the
+      // backend now defaults them too (TfvarsService.getTopLevelSettings),
+      // but this pins the renderer's OWN independent defense, since
+      // `iac.settings.get()`'s declared return type is a compile-time
+      // promise only, not a runtime guarantee for every possible caller
+      // (a stale preload build, a test mock, ...).
+      const incompleteSettings = { ...SETTINGS } as Record<string, unknown>;
+      delete incompleteSettings['baseAllowedGuilds'];
+      delete incompleteSettings['baseAdminUserIds'];
+      delete incompleteSettings['baseAdminRoleIds'];
+      hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: incompleteSettings, etag: 'etag-1' });
+
+      render(<DeploymentSettingsForm />);
+
+      // Would previously throw inside SnowflakeListField's `value.map(...)`
+      // and white-screen the route — reaching this assertion at all is the
+      // regression test.
+      expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
+      expect(screen.getByLabelText('Base allowed guild IDs')).toBeInTheDocument();
+      expect(screen.getByLabelText('Base admin user IDs')).toBeInTheDocument();
+      expect(screen.getByLabelText('Base admin role IDs')).toBeInTheDocument();
+    });
+
+    it('should fall back to the Terraform default numeric values, never the literal string "undefined", when numeric fields are absent', async () => {
+      const incompleteSettings = { ...SETTINGS } as Record<string, unknown>;
+      delete incompleteSettings['dnsTtl'];
+      delete incompleteSettings['watchdogIntervalMinutes'];
+      delete incompleteSettings['watchdogIdleChecks'];
+      delete incompleteSettings['watchdogMinPackets'];
+      hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: incompleteSettings, etag: 'etag-1' });
+
+      render(<DeploymentSettingsForm />);
+
+      expect(await screen.findByLabelText('DNS TTL (seconds)')).toHaveValue(30);
+      expect(screen.getByLabelText('Check interval (minutes)')).toHaveValue(15);
+      expect(screen.getByLabelText('Idle checks before shutdown')).toHaveValue(4);
+      expect(screen.getByLabelText('Min packets (activity threshold)')).toHaveValue(100);
+    });
+  });
+
   describe('Discord ID chip fields', () => {
     it('should add a chip on Enter and remove it via its remove button', async () => {
       render(<DeploymentSettingsForm />);
@@ -245,6 +287,21 @@ describe('DeploymentSettingsForm', () => {
       await userEvent.click(screen.getByRole('button', { name: /save settings/i }));
 
       expect(await screen.findByText('IPC transport failed')).toBeInTheDocument();
+    });
+
+    it('should refuse to save and never call iac.settings.update when the loaded settings carried no etag (review round 1, M1)', async () => {
+      hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: SETTINGS, etag: undefined });
+      render(<DeploymentSettingsForm />);
+      await screen.findByLabelText('Hosted zone name');
+
+      await userEvent.click(screen.getByRole('button', { name: /save settings/i }));
+
+      expect(
+        await screen.findByText(
+          'No version tag for the current settings — reload the page before saving, so a concurrent edit cannot be silently overwritten.',
+        ),
+      ).toBeInTheDocument();
+      expect(hyveonMock.iac.settings.update).not.toHaveBeenCalled();
     });
   });
 });

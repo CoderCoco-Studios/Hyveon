@@ -174,5 +174,22 @@ describe('IacSettingsController', () => {
 
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
+
+    it('should return the catch-all code: "error" (never throw) for a malformed payload envelope (review round 1, M2)', async () => {
+      const tfvars = makeTfvars();
+
+      // `payload.patch` absent entirely — nothing upstream of this handler
+      // guarantees the IPC envelope is well-formed. Cast through `unknown`
+      // to simulate a caller that bypasses the renderer's typed
+      // `UpdateDeploymentSettingsPayload` construction.
+      const malformedPayload = {} as unknown as UpdateDeploymentSettingsPayload;
+
+      await expect(new IacSettingsController(tfvars).update(malformedPayload)).resolves.toEqual({
+        ok: false,
+        code: 'error',
+        message: expect.any(String),
+      });
+      expect(tfvars.updateTopLevelSettings).not.toHaveBeenCalled();
+    });
   });
 });

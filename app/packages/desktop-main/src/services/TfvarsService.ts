@@ -56,6 +56,7 @@ import {
   GAME_NAME_PATTERN_DESCRIPTION,
   OptimisticLockError,
   RemoteFileConflictError,
+  withDeploymentConfigDefaults,
 } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -344,12 +345,32 @@ export class TfvarsService {
    * immediately if the source is unreadable/unconfigured rather than
    * silently rendering stale/empty fields.
    *
+   * Runs the parsed document through {@link withDeploymentConfigDefaults}
+   * before stripping `gameServers` off, so the returned `settings` object
+   * genuinely satisfies its `Omit<DeploymentConfig, 'gameServers'>` type at
+   * RUNTIME, not just at the type-checker level. This matters because
+   * `parseConfigContents()` only validates that the parsed JSON is *an
+   * object* (see its own doc comment) — a stored document that predates a
+   * field (e.g. `baseAllowedGuilds` added after that document was last
+   * written by an older app version) parses successfully with that field
+   * simply absent, and every field the type declares as required
+   * (`string[]`, `number`, ...) would otherwise reach the renderer as
+   * `undefined` — which crashed the Settings form's `.map()` over the
+   * three Discord-ID arrays (task 9.7 review round 1, finding I2) before
+   * this defaulting was added. `withDeploymentConfigDefaults` is a safe,
+   * idempotent no-op on an already-complete document (review round 1
+   * confirmed it has zero other production call sites in this repo before
+   * this fix), and never touches `gameServers` itself — it passes that
+   * field through verbatim (no default value), which is immediately
+   * discarded below anyway.
+   *
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
    */
   async getTopLevelSettings(): Promise<{ settings: Omit<DeploymentConfig, 'gameServers'>; etag?: string }> {
     const { config: raw, etag } = await this.fetchRawConfig();
-    const { gameServers: _gameServers, ...settings } = this.parseConfigContents(raw);
+    const defaulted = withDeploymentConfigDefaults(this.parseConfigContents(raw));
+    const { gameServers: _gameServers, ...settings } = defaulted;
     return { settings, etag };
   }
 

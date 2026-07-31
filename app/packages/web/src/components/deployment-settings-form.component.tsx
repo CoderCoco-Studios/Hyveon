@@ -37,6 +37,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  DEPLOYMENT_CONFIG_DEFAULTS,
   validateDeploymentSettingsPatch,
   type DeploymentSettingsGetResult,
   type DeploymentSettingsValidationIssue,
@@ -71,23 +72,46 @@ interface SettingsDraft {
   runsTableName: string;
 }
 
-/** Builds a {@link SettingsDraft} from the server-loaded settings — the inverse of {@link draftToPatch}. */
+/**
+ * Builds a {@link SettingsDraft} from the server-loaded settings — the
+ * inverse of {@link draftToPatch}.
+ *
+ * Every field falls back to `DEPLOYMENT_CONFIG_DEFAULTS` (or `[]` for the
+ * three array fields, `''` for `hostedZoneName`, which has no default) when
+ * absent — defense in depth on top of `TfvarsService.getTopLevelSettings()`
+ * already running the parsed document through `withDeploymentConfigDefaults`
+ * server-side (task 9.7 review round 1, finding I2): `window.hyveon.iac.settings.get()`'s
+ * declared return type is exactly that, a TYPE, not a
+ * runtime guarantee — a stale preload build, an intercepted/mocked IPC
+ * response in a test, or a future regression in the server-side defaulting
+ * could all still hand this function an incomplete object. Without this,
+ * `SnowflakeListField`'s `value.map(...)` below would throw on an `undefined`
+ * array field and white-screen the whole `/settings` route, and the numeric
+ * fields would render the literal string `"undefined"` via a bare
+ * `String(undefined)`.
+ */
 function draftFromSettings(settings: TopLevelDeploymentSettings): SettingsDraft {
   return {
-    projectName: settings.projectName,
-    awsRegion: settings.awsRegion,
-    vpcCidr: settings.vpcCidr,
-    hostedZoneName: settings.hostedZoneName,
-    dnsTtl: String(settings.dnsTtl),
-    watchdogIntervalMinutes: String(settings.watchdogIntervalMinutes),
-    watchdogIdleChecks: String(settings.watchdogIdleChecks),
-    watchdogMinPackets: String(settings.watchdogMinPackets),
-    baseAllowedGuilds: settings.baseAllowedGuilds,
-    baseAdminUserIds: settings.baseAdminUserIds,
-    baseAdminRoleIds: settings.baseAdminRoleIds,
-    discordApplicationId: settings.discordApplicationId,
-    auditTableName: settings.auditTableName,
-    runsTableName: settings.runsTableName,
+    projectName: settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName,
+    awsRegion: settings.awsRegion ?? DEPLOYMENT_CONFIG_DEFAULTS.awsRegion,
+    vpcCidr: settings.vpcCidr ?? DEPLOYMENT_CONFIG_DEFAULTS.vpcCidr,
+    // hostedZoneName has no Terraform default (required in every real
+    // deployment) — an absent value falls back to '', which the form's own
+    // "must not be empty" validation then correctly flags rather than this
+    // function inventing a fake placeholder domain.
+    hostedZoneName: settings.hostedZoneName ?? '',
+    dnsTtl: String(settings.dnsTtl ?? DEPLOYMENT_CONFIG_DEFAULTS.dnsTtl),
+    watchdogIntervalMinutes: String(
+      settings.watchdogIntervalMinutes ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes,
+    ),
+    watchdogIdleChecks: String(settings.watchdogIdleChecks ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks),
+    watchdogMinPackets: String(settings.watchdogMinPackets ?? DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets),
+    baseAllowedGuilds: settings.baseAllowedGuilds ?? [],
+    baseAdminUserIds: settings.baseAdminUserIds ?? [],
+    baseAdminRoleIds: settings.baseAdminRoleIds ?? [],
+    discordApplicationId: settings.discordApplicationId ?? DEPLOYMENT_CONFIG_DEFAULTS.discordApplicationId,
+    auditTableName: settings.auditTableName ?? DEPLOYMENT_CONFIG_DEFAULTS.auditTableName,
+    runsTableName: settings.runsTableName ?? DEPLOYMENT_CONFIG_DEFAULTS.runsTableName,
   };
 }
 
@@ -259,9 +283,25 @@ export function DeploymentSettingsForm() {
    * opt-in. Routes every `DeploymentSettingsWriteResult` branch to its own
    * UI reaction; on any failure branch the draft is left untouched so the
    * operator doesn't lose their edits.
+   *
+   * Refuses to save outright when `etag` is falsy (review round 1, M1):
+   * `TfvarsService.putRawConfig()` omits the conditional-put `ifMatch` guard
+   * entirely when `expectedVersionId` is falsy, turning the write into a
+   * SILENT unconditional overwrite — exactly what "optimistic locking is
+   * mandatory for this form" (the module doc's own words) exists to
+   * prevent. In practice `iac.settings.get()` always returns an etag (every
+   * `RemoteFileStore` implementation sets one on `get()`), so this path is
+   * defensive rather than expected to fire — but degrading to an
+   * unconditional write silently would be worse than refusing loudly.
    */
   async function handleSave() {
     if (!draft || !hasSettingsBridge()) return;
+    if (!etag) {
+      setSubmitError(
+        'No version tag for the current settings — reload the page before saving, so a concurrent edit cannot be silently overwritten.',
+      );
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     setServerIssues(null);
