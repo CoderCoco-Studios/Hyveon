@@ -25,6 +25,7 @@ const hyveonMock = {
     saveCredentials: vi.fn(),
     bootstrapStateBucket: vi.fn(),
     bootstrapConfigurationBucket: vi.fn(),
+    bootstrapRunsTable: vi.fn(),
     simulateIamPermissions: vi.fn(),
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
@@ -84,6 +85,7 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.saveCredentials.mockReset();
     hyveonMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.bootstrapConfigurationBucket.mockReset().mockResolvedValue({ status: 'exists' });
+    hyveonMock.wizard.bootstrapRunsTable.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.simulateIamPermissions.mockReset();
     hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);

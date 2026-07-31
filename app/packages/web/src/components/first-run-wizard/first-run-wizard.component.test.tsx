@@ -11,6 +11,7 @@ const hyveonMock = {
     saveCredentials: vi.fn(),
     bootstrapStateBucket: vi.fn(),
     bootstrapConfigurationBucket: vi.fn(),
+    bootstrapRunsTable: vi.fn(),
     simulateIamPermissions: vi.fn(),
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
@@ -42,6 +43,12 @@ beforeEach(() => {
   hyveonMock.wizard.saveCredentials.mockReset();
   hyveonMock.wizard.bootstrapStateBucket.mockReset();
   hyveonMock.wizard.bootstrapConfigurationBucket.mockReset();
+  // Defaulted (not just reset): runBootstrap() fires this alongside the two
+  // bucket calls, but it never gates `bootstrapComplete`/"Next" — an
+  // unmocked resolution to `undefined` would otherwise throw reading
+  // `.status` off it in every test that reaches the bootstrap step,
+  // regardless of whether that test cares about the runs table at all.
+  hyveonMock.wizard.bootstrapRunsTable.mockReset().mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.simulateIamPermissions.mockReset();
   // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
   // effects — present on every render regardless of which step a test cares
@@ -326,6 +333,30 @@ describe('FirstRunWizard', () => {
       // removed the main-process handler entirely) and this wizard has no
       // client method for it either (task 5.5) — there is nothing left to
       // assert was "not called" here beyond the two real calls above.
+    });
+
+    it('should call wizard.bootstrap.runsTable alongside the two bucket calls when the bootstrap button is clicked (bootstrap-deadlock fix)', async () => {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapRunsTable.mockResolvedValue({ status: 'created' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.bootstrapRunsTable).toHaveBeenCalledTimes(1));
+      expect(await screen.findByText('Run-history table')).toBeInTheDocument();
+    });
+
+    it('should not block Next when the run-history table bootstrap fails — only the two buckets gate progression', async () => {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapRunsTable.mockRejectedValue(new Error('AccessDenied creating table'));
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      expect(await screen.findByText('AccessDenied creating table')).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
     });
 
     it('should enable Next once both resources report created or exists', async () => {

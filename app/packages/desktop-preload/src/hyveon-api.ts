@@ -1353,6 +1353,17 @@ export interface HyveonWizardApi {
    */
   bootstrapConfigurationBucket: (input: BootstrapConfigurationBucketInput) => Promise<BootstrapResult>;
   /**
+   * Idempotently creates/ensures the run-history DynamoDB table (`pk`/`sk`
+   * keys, `status-index` GSI, point-in-time recovery), fixing a Critical
+   * bootstrap deadlock: this table used to be created by the first Pulumi
+   * apply, which itself needed the table to already exist to record its own
+   * run — see `BootstrapService.ensureRunsTable`'s doc comment for the full
+   * story. Takes no payload — the table's name isn't operator-editable at
+   * this point in the wizard (no `DeploymentConfig` exists yet to hold an
+   * override), so it always uses the project-name default.
+   */
+  bootstrapRunsTable: () => Promise<BootstrapResult>;
+  /**
    * Runs the wizard's best-effort IAM permission dry-run against the
    * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.

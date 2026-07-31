@@ -102,6 +102,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     configurationBucket: 'pending',
   });
   const [resourceMessages, setResourceMessages] = useState<Partial<Record<BootstrapResourceKey, string>>>({});
+  // The run-history table (bootstrap-deadlock fix): tracked separately from
+  // `resourceNames`/`resourceStatuses` above rather than folded into
+  // `BootstrapResourceKey` — unlike the two S3 buckets, its name is not
+  // operator-editable at this point in the wizard (no `DeploymentConfig`
+  // exists yet to hold a `runsTableName` override; see
+  // `WizardController.bootstrapRunsTable`'s own doc comment), so it has no
+  // matching entry in `resourceNames`. Never gates `bootstrapComplete` below
+  // — it runs alongside the two bucket calls, not as a blocking prerequisite.
+  const [runsTableStatus, setRunsTableStatus] = useState<BootstrapResourceState>('pending');
+  const [runsTableMessage, setRunsTableMessage] = useState<string | undefined>(undefined);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [iamCheck, setIamCheck] = useState<IamCheckResult | null>(null);
   const [iamChecking, setIamChecking] = useState(false);
@@ -302,10 +312,10 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   /**
    * Runs the bootstrap IPC calls concurrently (state bucket, configuration
-   * bucket), updating each resource's status as its call settles. A failure
-   * on one resource doesn't stop the other from running, and each resource's
-   * outcome (`created` / `exists` / `failed`) is reported independently —
-   * neither call's result masks the other's.
+   * bucket, run-history table), updating each resource's status as its call
+   * settles. A failure on one resource doesn't stop the others from running,
+   * and each resource's outcome (`created` / `exists` / `failed`) is
+   * reported independently — no call's result masks another's.
    *
    * @remarks
    * Deliberately does not call `wizard.bootstrap.lockTable` — no such
@@ -316,6 +326,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * exists on {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses`
    * at all — its last remaining (non-bootstrap) use was the deleted
    * `terraform-init` step's `backendConfig`.
+   *
+   * The run-history table (`wizard.bootstrap.runsTable`, the bootstrap-
+   * deadlock fix) runs alongside the two bucket calls in the same
+   * `Promise.all`, but is tracked via {@link runsTableStatus}/
+   * {@link runsTableMessage} rather than {@link resourceStatuses} — see
+   * those states' own doc comments for why it isn't a {@link BootstrapResourceKey}.
    */
   async function runBootstrap() {
     if (!window.hyveon) {
@@ -325,11 +341,15 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
         stateBucket: bridgeUnavailable,
         configurationBucket: bridgeUnavailable,
       });
+      setRunsTableStatus('failed');
+      setRunsTableMessage(bridgeUnavailable);
       return;
     }
     setBootstrapping(true);
     setResourceStatuses((current) => ({ ...current, stateBucket: 'creating', configurationBucket: 'creating' }));
     setResourceMessages({});
+    setRunsTableStatus('creating');
+    setRunsTableMessage(undefined);
 
     const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
       ['stateBucket', () => window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
@@ -340,8 +360,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       ],
     ];
 
-    await Promise.all(
-      calls.map(async ([resource, call]) => {
+    await Promise.all([
+      ...calls.map(async ([resource, call]) => {
         try {
           const result = await call();
           setResourceStatuses((current) => ({ ...current, [resource]: result.status as BootstrapResourceState }));
@@ -356,7 +376,17 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           }));
         }
       }),
-    );
+      (async () => {
+        try {
+          const result = await window.hyveon!.wizard.bootstrapRunsTable();
+          setRunsTableStatus(result.status as BootstrapResourceState);
+          setRunsTableMessage(result.message);
+        } catch (err) {
+          setRunsTableStatus('failed');
+          setRunsTableMessage(err instanceof Error ? err.message : 'Failed to bootstrap the run-history table.');
+        }
+      })(),
+    ]);
     setBootstrapping(false);
   }
 
@@ -573,6 +603,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               onNameChange={resourceNameChange}
               onRunBootstrap={runBootstrap}
               bootstrapping={bootstrapping}
+              runsTableStatus={runsTableStatus}
+              runsTableMessage={runsTableMessage}
               iamCheck={iamCheck}
               iamChecking={iamChecking}
               iamError={iamError}
