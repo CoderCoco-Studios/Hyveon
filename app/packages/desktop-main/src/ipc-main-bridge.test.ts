@@ -134,54 +134,54 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('logs.get', expect.any(Function));
   });
 
-  it('should skip "terraform.plan" entirely, leaving it to bridge itself', async () => {
-    expect(SELF_BRIDGED_PATTERNS.has('terraform.plan')).toBe(true);
+  it('should skip "iac.plan" entirely, leaving it to bridge itself', async () => {
+    expect(SELF_BRIDGED_PATTERNS.has('iac.plan')).toBe(true);
 
-    const { transport } = makeTransport(['terraform.plan', 'games.list']);
+    const { transport } = makeTransport(['iac.plan', 'games.list']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.plan');
-    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.plan', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.plan');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.plan', expect.any(Function));
     // The sibling pattern on the same map is still bridged normally.
     expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
-  it('should skip "terraform.rollback.confirm" entirely, leaving it to bridge itself', async () => {
+  it('should skip "iac.rollback.confirm" entirely, leaving it to bridge itself', async () => {
     // C1, fix round 1: this channel was originally left off SELF_BRIDGED_PATTERNS
-    // despite TerraformController.confirmRollback taking an undecorated `ctx`
-    // second parameter exactly like terraform.plan/apply/destroy — routing it
+    // despite IacController.confirmRollback taking an undecorated `ctx`
+    // second parameter exactly like iac.plan/apply/destroy — routing it
     // through the generic bridge silently dropped `ctx`, crashing every real
     // invocation. See ipc-main-bridge.ts's own doc comment for the full root
     // cause.
-    expect(SELF_BRIDGED_PATTERNS.has('terraform.rollback.confirm')).toBe(true);
+    expect(SELF_BRIDGED_PATTERNS.has('iac.rollback.confirm')).toBe(true);
 
-    const { transport } = makeTransport(['terraform.rollback.confirm', 'games.list']);
+    const { transport } = makeTransport(['iac.rollback.confirm', 'games.list']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.rollback.confirm');
-    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.rollback.confirm', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.rollback.confirm');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.rollback.confirm', expect.any(Function));
     // The sibling pattern on the same map is still bridged normally.
     expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
-  it('should bridge "terraform.init" generically, since it no longer streams under the Pulumi engine', async () => {
-    // Task 7.10 (migrate-iac-to-pulumi): TerraformController.init became an
+  it('should bridge "iac.init" generically, since it no longer streams under the Pulumi engine', async () => {
+    // Task 7.10 (migrate-iac-to-pulumi): IacController.init became an
     // inert single-value rejection once TerraformService (and the real
     // `terraform init` it used to stream) was deleted — it no longer
     // self-bridges, so it must NOT be in SELF_BRIDGED_PATTERNS and must be
     // wired by the generic bridge like any other channel.
-    expect(SELF_BRIDGED_PATTERNS.has('terraform.init')).toBe(false);
+    expect(SELF_BRIDGED_PATTERNS.has('iac.init')).toBe(false);
 
-    const { transport } = makeTransport(['terraform.init']);
+    const { transport } = makeTransport(['iac.init']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.init');
-    expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.init', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.init');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.init', expect.any(Function));
   });
 
   it('should be a no-op when the transport has no registered handlers', async () => {
