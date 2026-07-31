@@ -19,6 +19,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ModuleRef } from '@nestjs/core';
 import type { Stack } from '@pulumi/pulumi/automation/index.js';
 import type { RunLock } from '@hyveon/shared';
+
+/** Fixed OS identity so `PulumiService.resolveInitiator()` (`os.userInfo().username`) is deterministic — mirrors `PulumiService.destroy.test.ts`'s identical mock. */
+const TEST_USERNAME = 'test-initiator';
+
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock('../logger.js', () => ({ logger: loggerMock }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, userInfo: () => ({ username: TEST_USERNAME }) };
+});
+
 import {
   PulumiService,
   PulumiOperationInFlightError,
@@ -88,7 +101,10 @@ function makeService(opts: { workspace: PulumiWorkspaceService; store?: Electron
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks();
+  loggerMock.debug.mockReset();
+  loggerMock.info.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
 });
 
 describe('PulumiService.clearStaleLock', () => {
@@ -116,6 +132,18 @@ describe('PulumiService.clearStaleLock', () => {
     const service = makeService({ workspace });
 
     await expect(service.clearStaleLock()).resolves.toBeUndefined();
+  });
+
+  it('should log a warn line naming both the stack and the resolved initiator on a successful clear (review round 1, M1)', async () => {
+    const workspace = makeWorkspace();
+    const service = makeService({ workspace });
+
+    await service.clearStaleLock();
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('cleared by explicit operator confirmation'),
+      expect.objectContaining({ stackName: 'production', initiator: TEST_USERNAME }),
+    );
   });
 
   it('should reject with PulumiOperationInFlightError, and never call getOrCreateStack, when destroy() is already in flight', async () => {
