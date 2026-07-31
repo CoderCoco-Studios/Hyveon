@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { EditGameForm } from './edit-game-form.component.js';
 import type { GameServer } from '../../api.service.js';
 
-/** Renders `<EditGameForm>` wrapped in a `MemoryRouter` — the "apply this change" hint links to `/terraform`. */
+/** Renders `<EditGameForm>` wrapped in a `MemoryRouter` — the "apply this change" hint links to `/iac`. */
 function renderForm(ui: ReactElement): RenderResult {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
 }
@@ -113,7 +113,7 @@ describe('EditGameForm', () => {
   it('should show a hint linking to the Terraform page to apply the change', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
-    expect(await screen.findByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/terraform');
+    expect(await screen.findByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/iac');
   });
 
   it('should call api.updateGame with the updated payload after a field edit and Save', async () => {

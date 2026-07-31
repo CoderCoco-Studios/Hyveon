@@ -97,6 +97,6 @@ describe('RemoveGameButton', () => {
     const dialog = screen.getByRole('alertdialog');
 
     expect(within(dialog).getByText('terraform.tfvars')).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/terraform');
+    expect(within(dialog).getByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/iac');
   });
 });
