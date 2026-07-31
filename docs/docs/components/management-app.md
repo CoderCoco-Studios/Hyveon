@@ -140,8 +140,9 @@ never speaks HTTP to this process.
   it needs at call time via `ModuleRef.get(token, { strict: false })` instead
   of constructor injection.
 - **`WizardModule`** — imports `ElectronStoreModule`; provides
-  `PrerequisiteService`, `AwsProfileService`, `BootstrapService`,
-  `IamCheckService`, `FirstRunWizardService` for the first-run setup wizard.
+  `AwsProfileService`, `BootstrapService`, `IamCheckService`, and
+  `FirstRunWizardService` for the first-run setup wizard. `PrerequisiteService`
+  was deleted (task 10.1/10.2) along with the wizard's old prerequisites step.
 - **`ElectronStoreModule`** — provides `SafeStorageService` (OS-keychain
   encryption) and `ElectronStoreService` (the typed `electron-store`
   consumer built on top of it). See

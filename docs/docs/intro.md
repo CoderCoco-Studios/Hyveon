@@ -60,8 +60,7 @@ Deep-dives on each piece, for when the guides hand-wave past something:
 - [Architecture overview](/architecture) — the diagram
   below in full, with every arrow annotated.
 - [Infra program](/components/infra) — the Pulumi
-  Automation API program: every file, resource, variable, and AWS service
-  touched.
+  Automation API program: every file, resource, and AWS service touched.
 - [Management app](/components/management-app) — the
   Nest.js API, React dashboard, and `@hyveon/shared` library.
 - [Lambdas](/components/lambdas) — the five Node.js

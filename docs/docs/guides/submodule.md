@@ -127,7 +127,9 @@ it has no effect on the running app.
 
 The generated wrapper is fully self-contained — every step is inlined
 directly in its recipes; it never shells out to a script or another
-Makefile inside the submodule. Three targets:
+Makefile inside the submodule. Four targets are declared
+(`.PHONY: help setup update dev`); `make help` just prints the usage text
+below, so the table covers the three that actually do something:
 
 | Target | What it does |
 |---|---|
