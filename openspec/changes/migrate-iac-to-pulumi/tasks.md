@@ -79,7 +79,7 @@
 - [x] 8.1 Repoint all 13 `terraform.*` / `terraform.runs.*` IPC channels at `PulumiService`, renaming them to `iac.*` / `iac.runs.*` and renaming `TerraformController` / `TerraformRunsController` to `IacController` / `IacRunsController` (main-process side only — channel strings + TerraformController/TerraformRunsController → IacController/IacRunsController; 13 primary + 9 side = 22 channels; preload/renderer repointed in 8.3/8.5)
 - [x] 8.2 Update `ConfigService`: remove `getTfStatePath`, `getTerraformDir`, `seedTerraformWorkspace`, and the tfstate cache; keep the env seams tests rely on (already satisfied by task 7.10's dead-code cleanup, commit 4689e4e — getTfStatePath/getTerraformDir/seedTerraformWorkspace/tfstate cache all confirmed gone, zero code references remain, only historical doc-comment prose; env seams untouched)
 - [ ] 8.3 Update the preload bridge and `hyveon-api.ts` types for the changed payload shapes (structured summary, partial-apply state, stale-lock recovery)
-- [ ] 8.4 Update controller unit tests, including the channel-name registration guard
+- [x] 8.4 Update controller unit tests, including the channel-name registration guard (already satisfied by task 8.1 — iac.controller.test.ts, iac-runs.controller.test.ts, and ipc-main-bridge.test.ts's SELF_BRIDGED_PATTERNS/registration-guard assertions all updated together with the rename, commit 7e6aefa; reviewer independently confirmed zero leftover terraform.* string literals anywhere)
 - [ ] 8.5 Rename the `hyveon.terraform` preload namespace to `hyveon.iac` in the preload bridge and `hyveon-api.ts`, and update every renderer call site
 
 ## 9. Renderer
