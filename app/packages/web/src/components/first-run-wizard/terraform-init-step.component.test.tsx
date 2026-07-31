@@ -5,7 +5,7 @@ import type { TerraformInitConfig } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
 
 const hyveonMock = {
-  terraform: {
+  iac: {
     init: vi.fn(),
   },
   wizard: {
@@ -23,7 +23,7 @@ const BACKEND_CONFIG: TerraformInitConfig = {
 };
 
 beforeEach(() => {
-  hyveonMock.terraform.init.mockReset();
+  hyveonMock.iac.init.mockReset();
   hyveonMock.wizard.complete.mockReset();
 });
 
@@ -32,8 +32,8 @@ afterEach(() => {
 });
 
 describe('TerraformInitStep', () => {
-  it('should stream chunks from hyveon.terraform.init and render them', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+  it('should stream chunks from hyveon.iac.init and render them', async () => {
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: 'Initializing the backend...' };
         yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
@@ -47,11 +47,11 @@ describe('TerraformInitStep', () => {
     // No AbortSignal is passed — cancellation now goes through the returned
     // HyveonStreamHandle's `cancel()` instead (a raw AbortSignal doesn't
     // survive Electron's contextBridge clone in production).
-    expect(hyveonMock.terraform.init).toHaveBeenCalledWith(BACKEND_CONFIG);
+    expect(hyveonMock.iac.init).toHaveBeenCalledWith(BACKEND_CONFIG);
   });
 
   it('should render ANSI-colored output', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: '\x1b[32msuccess\x1b[0m' };
       }),
@@ -64,7 +64,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should enable Finish setup only once the run exits successfully', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
       }),
@@ -77,7 +77,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should keep Finish setup disabled while the run is in progress', () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(
         // eslint-disable-next-line require-yield -- generator intentionally never yields/returns to keep the run "in progress" for this test
         async function* () {
@@ -92,7 +92,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should show captured log and a retry affordance when the run fails (non-zero exit)', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stderr', line: 'Error: failed to read backend config' };
         throw new Error('terraform init exited with code 1');
@@ -107,8 +107,8 @@ describe('TerraformInitStep', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
-  it('should re-invoke hyveon.terraform.init when Retry is clicked after a failure', async () => {
-    hyveonMock.terraform.init
+  it('should re-invoke hyveon.iac.init when Retry is clicked after a failure', async () => {
+    hyveonMock.iac.init
       .mockImplementationOnce(
         toStreamHandleMock(
           // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate a failed first attempt
@@ -129,11 +129,11 @@ describe('TerraformInitStep', () => {
     await userEvent.click(screen.getByRole('button', { name: /retry/i }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
-    expect(hyveonMock.terraform.init).toHaveBeenCalledTimes(2);
+    expect(hyveonMock.iac.init).toHaveBeenCalledTimes(2);
   });
 
   it('should call wizard.complete and onFinished when Finish setup is clicked', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
       }),
@@ -151,7 +151,7 @@ describe('TerraformInitStep', () => {
   });
 
   it('should show an error and not call onFinished when wizard.complete fails', async () => {
-    hyveonMock.terraform.init.mockImplementation(
+    hyveonMock.iac.init.mockImplementation(
       toStreamHandleMock(async function* () {
         yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
       }),

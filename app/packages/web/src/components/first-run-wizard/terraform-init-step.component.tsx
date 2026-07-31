@@ -36,7 +36,7 @@ export interface TerraformInitStepProps {
 /**
  * Fifth and final step of the first-run wizard (#210): runs `terraform init`
  * against the backend resources bootstrapped in the previous step, streaming
- * its ANSI-colored output live via the already-shipped `hyveon.terraform.init`
+ * its ANSI-colored output live via the already-shipped `hyveon.iac.init`
  * async iterable (reusing `AnsiLogViewer` rather than adding a second
  * streaming side-channel, per design.md decision 2). The Finish button
  * enables only once the run exits successfully (the iterable completes
@@ -70,7 +70,7 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
 
   useEffect(() => {
     if (!window.hyveon) return;
-    const handle = window.hyveon.terraform.init(backendConfig);
+    const handle = window.hyveon.iac.init(backendConfig);
     let cancelled = false;
 
     /** Fold an update into this attempt's run state, ignoring any superseded attempt. */
@@ -110,8 +110,8 @@ export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }:
     return () => {
       cancelled = true;
       // Optional chaining guards against a test double that stubbed
-      // `terraform.init` without configuring a return value (`undefined`) —
-      // the real bridge's `terraform.init` always returns a handle.
+      // `iac.init` without configuring a return value (`undefined`) —
+      // the real bridge's `iac.init` always returns a handle.
       handle?.cancel();
     };
   }, [backendConfig, attempt]);

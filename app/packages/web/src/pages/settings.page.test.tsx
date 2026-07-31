@@ -31,7 +31,7 @@ const hyveonMock = {
     saveProgress: vi.fn(),
     complete: vi.fn(),
   },
-  terraform: {
+  iac: {
     init: vi.fn(),
   },
 };
@@ -71,7 +71,7 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
     hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
-    hyveonMock.terraform.init.mockReset().mockImplementation(
+    hyveonMock.iac.init.mockReset().mockImplementation(
       toStreamHandleMock(async function* () {
         // No chunks needed by default — the Reconfigure tests below just need it to succeed.
       }),
@@ -188,7 +188,7 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
       // No second (AbortSignal) argument — cancellation now goes through the
       // returned HyveonStreamHandle's `cancel()` instead.
-      expect(hyveonMock.terraform.init).toHaveBeenCalledWith({
+      expect(hyveonMock.iac.init).toHaveBeenCalledWith({
         bucket: 'renamed-tfstate',
         region: 'us-east-1',
         dynamodbTable: 'renamed-tflock',

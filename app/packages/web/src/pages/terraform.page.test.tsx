@@ -10,13 +10,13 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
 /**
- * Stub for `window.hyveon.terraform` — `plan`/`approve`/`apply` are plain
+ * Stub for `window.hyveon.iac` — `plan`/`approve`/`apply` are plain
  * `vi.fn()`s resolved per-test; `runs.streamLogs` and `runs.get` are keyed
  * off the run id so the plan and apply runs (started sequentially in the
  * same test) can be driven independently.
  */
 const hyveonMock = {
-  terraform: {
+  iac: {
     plan: vi.fn(),
     approve: vi.fn(),
     apply: vi.fn(),
@@ -41,8 +41,8 @@ const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
 /** Seeds a plan run that streams a summary line then finishes `awaiting_approval` with `planHash`. */
 function seedSuccessfulPlan() {
-  hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-  hyveonMock.terraform.runs.streamLogs.mockImplementation(
+  hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+  hyveonMock.iac.runs.streamLogs.mockImplementation(
     toStreamHandleMock(async function* (runId: string) {
       if (runId === PLAN_RUN_ID) {
         yield { stream: 'stdout', line: 'Plan: 3 to add, 1 to change, 0 to destroy.' };
@@ -51,7 +51,7 @@ function seedSuccessfulPlan() {
       }
     }),
   );
-  hyveonMock.terraform.runs.get.mockImplementation(async (runId: string) => {
+  hyveonMock.iac.runs.get.mockImplementation(async (runId: string) => {
     if (runId === PLAN_RUN_ID) {
       return {
         found: true,
@@ -70,13 +70,13 @@ describe('TerraformPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-    hyveonMock.terraform.plan.mockReset();
-    hyveonMock.terraform.approve.mockReset();
-    hyveonMock.terraform.apply.mockReset();
-    hyveonMock.terraform.mintDestroyToken.mockReset();
-    hyveonMock.terraform.destroy.mockReset();
-    hyveonMock.terraform.runs.get.mockReset();
-    hyveonMock.terraform.runs.streamLogs.mockReset();
+    hyveonMock.iac.plan.mockReset();
+    hyveonMock.iac.approve.mockReset();
+    hyveonMock.iac.apply.mockReset();
+    hyveonMock.iac.mintDestroyToken.mockReset();
+    hyveonMock.iac.destroy.mockReset();
+    hyveonMock.iac.runs.get.mockReset();
+    hyveonMock.iac.runs.streamLogs.mockReset();
   });
 
   it('should render the Run plan trigger in the idle state', () => {
@@ -104,7 +104,7 @@ describe('TerraformPage', () => {
   });
 
   it('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
-    hyveonMock.terraform.plan.mockResolvedValue({ started: false, error: 'workspace busy', conflict: 'apply' });
+    hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'workspace busy', conflict: 'up' });
     renderPage(<TerraformPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
@@ -115,12 +115,12 @@ describe('TerraformPage', () => {
 
   it('should enable Apply only after the plan is approved, then stream apply output to completion', async () => {
     seedSuccessfulPlan();
-    hyveonMock.terraform.approve.mockResolvedValue({
+    hyveonMock.iac.approve.mockResolvedValue({
       approved: true,
       approvedBy: 'alice',
       approvedAt: new Date().toISOString(),
     });
-    hyveonMock.terraform.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
+    hyveonMock.iac.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
     renderPage(<TerraformPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
@@ -137,7 +137,7 @@ describe('TerraformPage', () => {
 
     await userEvent.click(applyBtn);
 
-    expect(hyveonMock.terraform.apply).toHaveBeenCalledWith({ planRunId: PLAN_RUN_ID, planHash: 'hash-1' });
+    expect(hyveonMock.iac.apply).toHaveBeenCalledWith({ planRunId: PLAN_RUN_ID, planHash: 'hash-1' });
     expect(await screen.findByText(/Apply complete\./)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View dashboard' })).toHaveAttribute('href', '/');
   });
@@ -145,7 +145,7 @@ describe('TerraformPage', () => {
   it('should show an expired-approval message and disable Apply until re-approved', async () => {
     seedSuccessfulPlan();
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago > 15-minute window
-    hyveonMock.terraform.approve.mockResolvedValue({ approved: true, approvedBy: 'bob', approvedAt: staleApprovedAt });
+    hyveonMock.iac.approve.mockResolvedValue({ approved: true, approvedBy: 'bob', approvedAt: staleApprovedAt });
     renderPage(<TerraformPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
@@ -170,35 +170,35 @@ describe('TerraformPage', () => {
 
       const dialog = await screen.findByRole('alertdialog');
       expect(dialog).toBeInTheDocument();
-      expect(hyveonMock.terraform.mintDestroyToken).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.mintDestroyToken).not.toHaveBeenCalled();
 
       // The dialog's own confirm button stays disabled until the exact phrase is typed.
       expect(screen.getByRole('button', { name: 'Destroy' })).toBeDisabled();
 
       await userEvent.type(screen.getByLabelText('Type to confirm'), 'wrong phrase');
       expect(screen.getByRole('button', { name: 'Destroy' })).toBeDisabled();
-      expect(hyveonMock.terraform.mintDestroyToken).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.mintDestroyToken).not.toHaveBeenCalled();
     });
 
     it('should mint a token, submit destroy with it, and stream output through the log viewer once the exact phrase is confirmed', async () => {
-      hyveonMock.terraform.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
-      hyveonMock.terraform.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+      hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
+      hyveonMock.iac.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
+      hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* (runId: string) {
           if (runId === DESTROY_RUN_ID) {
             yield { stream: 'stdout', line: 'Destroy complete! Resources: 4 destroyed.' };
           }
         }),
       );
-      hyveonMock.terraform.runs.get.mockResolvedValue({ found: true, status: 'success' });
+      hyveonMock.iac.runs.get.mockResolvedValue({ found: true, status: 'success' });
       renderPage(<TerraformPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
       await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
 
-      await waitFor(() => expect(hyveonMock.terraform.mintDestroyToken).toHaveBeenCalledTimes(1));
-      expect(hyveonMock.terraform.destroy).toHaveBeenCalledWith({ confirmationToken: 'destroy-token-1' });
+      await waitFor(() => expect(hyveonMock.iac.mintDestroyToken).toHaveBeenCalledTimes(1));
+      expect(hyveonMock.iac.destroy).toHaveBeenCalledWith({ confirmationToken: 'destroy-token-1' });
 
       expect(await screen.findByText(/Destroy complete! Resources: 4 destroyed\./)).toBeInTheDocument();
       expect(await screen.findByText('4 destroyed')).toBeInTheDocument();
@@ -207,11 +207,11 @@ describe('TerraformPage', () => {
     });
 
     it('should render a BUSY banner when destroy submission reports a workspace conflict, without opening the log view', async () => {
-      hyveonMock.terraform.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
-      hyveonMock.terraform.destroy.mockResolvedValue({
+      hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
+      hyveonMock.iac.destroy.mockResolvedValue({
         started: false,
         error: 'terraform destroy refused: apply is already in flight',
-        conflict: 'apply',
+        conflict: 'up',
       });
       renderPage(<TerraformPage />);
 
@@ -225,43 +225,43 @@ describe('TerraformPage', () => {
     });
 
     it('should mint a fresh token on every attempt', async () => {
-      hyveonMock.terraform.mintDestroyToken
+      hyveonMock.iac.mintDestroyToken
         .mockResolvedValueOnce({ token: 'destroy-token-1' })
         .mockResolvedValueOnce({ token: 'destroy-token-2' });
-      hyveonMock.terraform.destroy
-        .mockResolvedValueOnce({ started: false, error: 'workspace busy', conflict: 'apply' })
+      hyveonMock.iac.destroy
+        .mockResolvedValueOnce({ started: false, error: 'workspace busy', conflict: 'up' })
         .mockResolvedValueOnce({ started: true, runId: DESTROY_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+      hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* () { /* no chunks needed */ }),
       );
-      hyveonMock.terraform.runs.get.mockResolvedValue({ found: true, status: 'success' });
+      hyveonMock.iac.runs.get.mockResolvedValue({ found: true, status: 'success' });
       renderPage(<TerraformPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
       await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
-      await waitFor(() => expect(hyveonMock.terraform.destroy).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(hyveonMock.iac.destroy).toHaveBeenCalledTimes(1));
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
       await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
-      await waitFor(() => expect(hyveonMock.terraform.destroy).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(hyveonMock.iac.destroy).toHaveBeenCalledTimes(2));
 
-      expect(hyveonMock.terraform.mintDestroyToken).toHaveBeenCalledTimes(2);
-      expect(hyveonMock.terraform.destroy).toHaveBeenNthCalledWith(1, { confirmationToken: 'destroy-token-1' });
-      expect(hyveonMock.terraform.destroy).toHaveBeenNthCalledWith(2, { confirmationToken: 'destroy-token-2' });
+      expect(hyveonMock.iac.mintDestroyToken).toHaveBeenCalledTimes(2);
+      expect(hyveonMock.iac.destroy).toHaveBeenNthCalledWith(1, { confirmationToken: 'destroy-token-1' });
+      expect(hyveonMock.iac.destroy).toHaveBeenNthCalledWith(2, { confirmationToken: 'destroy-token-2' });
     });
   });
 
   describe('rollback flow (#112)', () => {
     it('should auto-submit a tagged plan with the rollback location.state, without requiring a Run plan click', async () => {
-      hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+      hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* () {
           /* no chunks needed for this assertion */
         }),
       );
-      hyveonMock.terraform.runs.get.mockResolvedValue({ found: false });
+      hyveonMock.iac.runs.get.mockResolvedValue({ found: false });
 
       renderPage(<TerraformPage />, {
         initialEntries: [
@@ -270,7 +270,7 @@ describe('TerraformPage', () => {
       });
 
       await waitFor(() =>
-        expect(hyveonMock.terraform.plan).toHaveBeenCalledWith({
+        expect(hyveonMock.iac.plan).toHaveBeenCalledWith({
           tfvarsVersionId: 'v-new-head',
           rolledBackFrom: 'apply-1',
         }),
@@ -279,13 +279,13 @@ describe('TerraformPage', () => {
     });
 
     it('should render a link to the rolled-back apply run once the plan record carries rolledBackFrom', async () => {
-      hyveonMock.terraform.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
-      hyveonMock.terraform.runs.streamLogs.mockImplementation(
+      hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+      hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* () {
           /* no chunks needed for this assertion */
         }),
       );
-      hyveonMock.terraform.runs.get.mockResolvedValue({
+      hyveonMock.iac.runs.get.mockResolvedValue({
         found: true,
         status: 'awaiting_approval',
         record: {
@@ -311,7 +311,7 @@ describe('TerraformPage', () => {
 
     it('should not auto-submit when there is no rollback location.state', () => {
       renderPage(<TerraformPage />);
-      expect(hyveonMock.terraform.plan).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.plan).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
     });
   });

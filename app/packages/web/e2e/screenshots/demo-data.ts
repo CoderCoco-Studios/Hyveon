@@ -662,15 +662,15 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('wizard.prereqs.check', () => Promise.resolve(d.prereqs));
 
     // ---- Terraform ----
-    mock('terraform.plan', () => Promise.resolve({ started: true, runId: 'run-plan-demo' }));
-    mock('terraform.approve', () =>
+    mock('iac.plan', () => Promise.resolve({ started: true, runId: 'run-plan-demo' }));
+    mock('iac.approve', () =>
       Promise.resolve({ approved: true, approvedBy: 'chris@hyveon.example.com', approvedAt: new Date().toISOString() }),
     );
-    mock('terraform.apply', () => Promise.resolve({ started: true, runId: 'run-apply-demo' }));
-    mock('terraform.destroy.mintToken', () => Promise.resolve({ token: 'demo-destroy-token' }));
-    mock('terraform.destroy', () => Promise.resolve({ started: true, runId: 'run-destroy-demo' }));
-    mock('terraform.output', () => Promise.resolve(null));
-    mock('terraform.runs.get', (arg: unknown) => {
+    mock('iac.apply', () => Promise.resolve({ started: true, runId: 'run-apply-demo' }));
+    mock('iac.destroy.mintToken', () => Promise.resolve({ token: 'demo-destroy-token' }));
+    mock('iac.destroy', () => Promise.resolve({ started: true, runId: 'run-destroy-demo' }));
+    mock('iac.output', () => Promise.resolve(null));
+    mock('iac.runs.get', (arg: unknown) => {
       const { runId } = (arg ?? {}) as { runId?: string };
       if (runId === 'run-plan-demo') {
         return Promise.resolve({
@@ -701,17 +701,17 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       }
       return Promise.resolve({ found: false });
     });
-    mock('terraform.runs.list', () => Promise.resolve(d.terraformHistory));
-    mock('terraform.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
+    mock('iac.runs.list', () => Promise.resolve(d.terraformHistory));
+    mock('iac.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
     // Keyed on `runId` (the preload calls this handler with `(runId, signal)`
     // — see `streamTerraformRunLogs` in `preload.ts`) so the plan and apply
     // runs each stream their own realistic output.
-    mock('terraform.runs.logs', (runId: unknown) => {
+    mock('iac.runs.logs', (runId: unknown) => {
       if (runId === 'run-plan-demo') return toIterable(d.terraformPlanChunks);
       if (runId === 'run-apply-demo') return toIterable(d.terraformApplyChunks);
       return toIterable([]);
     });
-    mock('terraform.init', () => toIterable(d.terraformInitChunks));
+    mock('iac.init', () => toIterable(d.terraformInitChunks));
   }, data);
 }
 
@@ -795,7 +795,7 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'prerequisi
     // `seedDemo`'s TSDoc for why this is a plain-object iterable rather than
     // a real `async function*`. `TerraformInitStep` reaches its `'success'`
     // state once the iteration completes without throwing.
-    mock('terraform.init', () => toIterable(d.terraformInitChunks));
+    mock('iac.init', () => toIterable(d.terraformInitChunks));
   }, data);
 }
 

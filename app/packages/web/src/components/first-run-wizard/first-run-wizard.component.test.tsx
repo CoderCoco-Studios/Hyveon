@@ -17,7 +17,7 @@ const hyveonMock = {
     saveProgress: vi.fn(),
     complete: vi.fn(),
   },
-  terraform: {
+  iac: {
     init: vi.fn(),
   },
 };
@@ -59,7 +59,7 @@ beforeEach(() => {
   hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
   hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
   hyveonMock.wizard.complete.mockReset();
-  hyveonMock.terraform.init.mockReset();
+  hyveonMock.iac.init.mockReset();
 });
 
 /** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
@@ -93,7 +93,7 @@ async function advanceToBootstrap(): Promise<void> {
 async function advanceToTerraformInit(): Promise<void> {
   hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
-  hyveonMock.terraform.init.mockImplementation(
+  hyveonMock.iac.init.mockImplementation(
     toStreamHandleMock(async function* () {
       // No chunks needed by default — individual tests override this.
     }),
@@ -466,7 +466,7 @@ describe('FirstRunWizard', () => {
     });
 
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
-      hyveonMock.terraform.init.mockImplementation(
+      hyveonMock.iac.init.mockImplementation(
         toStreamHandleMock(async function* () {
           yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
         }),
@@ -540,7 +540,7 @@ describe('FirstRunWizard', () => {
 
       expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
-      expect(hyveonMock.terraform.init).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.init).not.toHaveBeenCalled();
     });
 
     it('should not save progress before the resume check has settled, so a fast render never clobbers a resumed step', async () => {
