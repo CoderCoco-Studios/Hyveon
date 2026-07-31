@@ -988,6 +988,26 @@ export interface TerraformRollbackConfirmAck {
 }
 
 /**
+ * Result the `iac.lock.clear` IPC channel resolves with (task 9.4's
+ * stale-lock recovery flow). `cleared: true` means
+ * `PulumiService.clearStaleLock` successfully called `stack.cancel()`
+ * against the Pulumi backend — the operator should now resubmit their
+ * original plan/apply/destroy via the normal button; this channel never
+ * re-attempts it automatically. `cleared: false` means nothing was cleared
+ * (another operation was already running against the shared workspace, the
+ * backend isn't configured yet, or the clear attempt itself failed) —
+ * `error` is always a human-readable description of why.
+ *
+ * Mirrors `TerraformLockClearAck` in
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface TerraformLockClearAck {
+  cleared: boolean;
+  error?: string;
+}
+
+/**
  * Payload accepted by the `iac.apply` IPC channel. `planRunId`
  * identifies the approved plan run to apply; `planHash` is the caller's
  * expected plan hash, checked against the plan run's stored `planHash` to
@@ -1610,8 +1630,35 @@ export interface HyveonIacApi {
   runs: HyveonIacRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
   rollback: HyveonIacRollbackApi;
+  /** Stale backend-lock recovery (task 9.4): explicitly clear an unrecognized Pulumi backend lock. */
+  lock: HyveonIacLockApi;
   /** Deployment-settings editor (task 9.7): read/write every top-level `DeploymentConfig` field except `gameServers`. */
   settings: HyveonIacSettingsApi;
+}
+
+/**
+ * Stale backend-lock recovery IPC surface (task 9.4, `migrate-iac-to-pulumi`).
+ * A `plan`/`apply`/`destroy` ack can carry `staleLock` (see
+ * {@link TerraformPlanAck.staleLock}) when the Pulumi backend is locked by
+ * something this installation cannot prove is its own dead process. This
+ * namespace's sole method lets the operator, after explicitly confirming via
+ * the renderer's confirmation dialog that they believe the lock is genuinely
+ * stale, clear it and then manually resubmit their original operation.
+ */
+export interface HyveonIacLockApi {
+  /**
+   * Clears the current Pulumi backend lock by invoking the `iac.lock.clear`
+   * IPC channel, which delegates to `PulumiService.clearStaleLock()`
+   * (`stack.cancel()` under the hood). Only call this after the operator has
+   * explicitly confirmed — via the stale-lock recovery dialog — that they
+   * believe the listed holder/age evidence describes a genuinely stale lock,
+   * not a real concurrent operation. `cleared: false` means nothing was
+   * cleared (e.g. another operation is already running against the shared
+   * workspace, or the clear attempt itself failed) — `error` describes why.
+   * This method never retries the original plan/apply/destroy itself; the
+   * caller must resubmit it separately once `cleared: true`.
+   */
+  clear: () => Promise<TerraformLockClearAck>;
 }
 
 /**

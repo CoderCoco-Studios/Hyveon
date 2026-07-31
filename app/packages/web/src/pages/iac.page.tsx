@@ -10,6 +10,7 @@ import type {
   TerraformPlanPayload,
   TerraformRunChunk,
   TerraformRunRecord,
+  TerraformStaleLockInfo,
 } from '@hyveon/desktop-preload';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -210,6 +211,151 @@ export function ErrorBanner({ message }: { message: string }) {
 }
 
 /**
+ * Formats how long ago `lockedAt` was, for the stale-lock banner's "age"
+ * display — mirrors `PulumiLockRecovery.formatLockAge` (desktop-main) field
+ * for field. Duplicated here rather than imported (same reasoning as
+ * {@link APPROVAL_WINDOW_MS}'s duplication above): the renderer bundle has no
+ * reason to depend on `desktop-main`'s source, and this is a small, stable,
+ * purely-cosmetic formatting rule. Deliberately coarse (minutes/hours/days)
+ * — an operator deciding whether a lock is stale cares whether it's "5
+ * minutes old" (plausibly still in progress) vs. "3 days old" (plausibly
+ * abandoned), not second-level precision.
+ */
+function formatLockAge(lockedAt: string, nowMs: number): string {
+  const ms = Math.max(0, nowMs - new Date(lockedAt).getTime());
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'less than a minute ago';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * Shown INSTEAD OF {@link BusyBanner}/{@link ErrorBanner} (task 9.4) when a
+ * plan/apply/destroy submission was rejected because the Pulumi backend is
+ * locked by something this installation cannot prove is its own crashed run
+ * (`ack.staleLock` — see `TerraformPlanAck.staleLock`'s doc comment in
+ * `hyveon-api.ts`). `iac.controller.ts`'s own error-handling never populates
+ * both `conflict` and `staleLock` on the same rejection (each catch branch
+ * `return`s independently), so this banner and `BusyBanner` are always
+ * mutually exclusive for a given submission — this component does not need
+ * to coordinate with `BusyBanner` itself.
+ *
+ * Names the stack and lists every lock holder (username, hostname, pid, and
+ * a human-readable age via {@link formatLockAge}), then offers an explicit
+ * "Clear lock and retry" action gated behind a {@link ConfirmDialog} —
+ * reusing the same shared component the destroy- and rollback-confirmation
+ * flows already use, per this migration's established idiom. The dialog's
+ * copy is deliberately cautionary: clearing a lock that turns out to be a
+ * genuinely active operation elsewhere (not actually stale) risks two Pulumi
+ * updates racing against the same state, which can corrupt it — so the
+ * operator is asked to confirm they recognize (or don't recognize) the
+ * listed hostname/pid as a real in-progress run before proceeding.
+ *
+ * On a confirmed clear, calls `hyveon.iac.lock.clear()`. Success clears the
+ * parent's `staleLock` state via {@link StaleLockBannerProps.onCleared}
+ * (returning the page to its normal "ready to submit" state) and toasts a
+ * confirmation; the operator then retries by clicking the ordinary plan/
+ * apply/destroy button again — this component never resubmits automatically,
+ * matching `PulumiService.clearStaleLock`'s own "does not retry" design.
+ * Failure surfaces the error inline via {@link ErrorBanner} without clearing
+ * the parent's `staleLock` state, so the banner (and its evidence) stays put
+ * for another attempt.
+ */
+interface StaleLockBannerProps {
+  staleLock: TerraformStaleLockInfo;
+  /** Current time in ms (the page's own 30s-ticking clock) — drives {@link formatLockAge}'s "ago" display. */
+  nowMs: number;
+  /** Called once `hyveon.iac.lock.clear()` reports `cleared: true`. */
+  onCleared: () => void;
+}
+
+function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  function handleConfirmClear() {
+    if (!window.hyveon) {
+      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      return;
+    }
+    setClearing(true);
+    setClearError(null);
+    void (async () => {
+      try {
+        const ack = await window.hyveon!.iac.lock.clear();
+        if (ack.cleared) {
+          setConfirmOpen(false);
+          toast.success('Pulumi backend lock cleared — resubmit to retry.');
+          onCleared();
+        } else {
+          setClearError(ack.error ?? 'Could not clear the backend lock.');
+        }
+      } catch (err) {
+        setClearError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setClearing(false);
+      }
+    })();
+  }
+
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
+    >
+      <p>
+        <strong>Backend lock in the way.</strong> The Pulumi stack{' '}
+        <code className="font-[var(--font-mono)]">{staleLock.stackName}</code> is locked by something this
+        installation cannot confirm is its own crashed run:
+      </p>
+      {staleLock.locks.length > 0 ? (
+        <ul className="list-disc pl-5">
+          {staleLock.locks.map((lock) => (
+            <li key={lock.lockUrl}>
+              <code className="font-[var(--font-mono)]">
+                {lock.username}@{lock.hostname}
+              </code>{' '}
+              (pid {lock.pid}) — started {formatLockAge(lock.lockedAt, nowMs)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No holder/age evidence was available for this lock.</p>
+      )}
+      <Button
+        onClick={() => setConfirmOpen(true)}
+        variant="secondary"
+        size="sm"
+        className="self-start"
+        disabled={clearing}
+      >
+        {clearing ? <Loader2 className="animate-spin" /> : null}
+        Clear lock and retry
+      </Button>
+      {clearError && <ErrorBanner message={clearError} />}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Clear this Pulumi backend lock?"
+        description={
+          `This runs the equivalent of "pulumi cancel" against the "${staleLock.stackName}" stack, removing ` +
+          'the lock(s) listed above. Only confirm if you are CONFIDENT the listed holder (hostname/pid) is not ' +
+          "a real, currently-running plan/apply/destroy elsewhere — clearing a genuinely active operation's " +
+          'lock lets two Pulumi updates run concurrently, which can corrupt the deployed infrastructure state. ' +
+          'This does not retry your operation for you; resubmit it manually once the lock is cleared.'
+        }
+        onConfirm={handleConfirmClear}
+        confirmLabel={clearing ? 'Clearing…' : 'Clear lock'}
+      />
+    </div>
+  );
+}
+
+/**
  * {@link OpType} keys bucketed for display (task 9.1). Each bucket sums to a
  * single badge rather than rendering one badge per raw `OpType` — most runs
  * only ever populate a handful of the 15 possible keys, and the replacement
@@ -360,6 +506,7 @@ export function IacPage() {
 
   const [planRunId, setPlanRunId] = useState<string | null>(null);
   const [planConflict, setPlanConflict] = useState<Conflict | null>(null);
+  const [planStaleLock, setPlanStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
@@ -372,6 +519,7 @@ export function IacPage() {
 
   const [applyRunId, setApplyRunId] = useState<string | null>(null);
   const [applyConflict, setApplyConflict] = useState<Conflict | null>(null);
+  const [applyStaleLock, setApplyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [applySubmitError, setApplySubmitError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
@@ -381,6 +529,7 @@ export function IacPage() {
   const [destroyConfirmOpen, setDestroyConfirmOpen] = useState(false);
   const [destroyRunId, setDestroyRunId] = useState<string | null>(null);
   const [destroyConflict, setDestroyConflict] = useState<Conflict | null>(null);
+  const [destroyStaleLock, setDestroyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [destroySubmitError, setDestroySubmitError] = useState<string | null>(null);
   const [destroying, setDestroying] = useState(false);
   const [destroyStatus, setDestroyStatus] = useState<RunDetailStatus | null>(null);
@@ -457,6 +606,7 @@ export function IacPage() {
     }
     setPlanning(true);
     setPlanConflict(null);
+    setPlanStaleLock(null);
     setPlanSubmitError(null);
     void (async () => {
       try {
@@ -472,6 +622,7 @@ export function IacPage() {
           setApplyRecord(null);
         } else {
           if (ack.conflict) setPlanConflict(ack.conflict);
+          if (ack.staleLock) setPlanStaleLock(ack.staleLock);
           setPlanSubmitError(ack.error ?? 'terraform plan could not be started.');
         }
       } catch (err) {
@@ -518,6 +669,7 @@ export function IacPage() {
     if (!window.hyveon || !planRunId || !planRecord?.planHash) return;
     setApplying(true);
     setApplyConflict(null);
+    setApplyStaleLock(null);
     setApplySubmitError(null);
     void (async () => {
       try {
@@ -527,6 +679,7 @@ export function IacPage() {
           setApplyStatus(null);
         } else {
           if (ack.conflict) setApplyConflict(ack.conflict);
+          if (ack.staleLock) setApplyStaleLock(ack.staleLock);
           setApplySubmitError(ack.error ?? 'terraform apply could not be started.');
         }
       } catch (err) {
@@ -544,6 +697,7 @@ export function IacPage() {
     }
     setDestroying(true);
     setDestroyConflict(null);
+    setDestroyStaleLock(null);
     setDestroySubmitError(null);
     void (async () => {
       try {
@@ -555,6 +709,7 @@ export function IacPage() {
           setDestroyStatus(null);
         } else {
           if (ack.conflict) setDestroyConflict(ack.conflict);
+          if (ack.staleLock) setDestroyStaleLock(ack.staleLock);
           setDestroySubmitError(ack.error ?? 'terraform destroy could not be started.');
         }
       } catch (err) {
@@ -624,8 +779,14 @@ export function IacPage() {
             {planning ? <Loader2 className="animate-spin" /> : <Play />}
             Run plan
           </Button>
-          {planConflict && <BusyBanner conflict={planConflict} />}
-          {planSubmitError && <ErrorBanner message={planSubmitError} />}
+          {planStaleLock ? (
+            <StaleLockBanner staleLock={planStaleLock} nowMs={now} onCleared={() => setPlanStaleLock(null)} />
+          ) : (
+            <>
+              {planConflict && <BusyBanner conflict={planConflict} />}
+              {planSubmitError && <ErrorBanner message={planSubmitError} />}
+            </>
+          )}
         </div>
       )}
 
@@ -695,8 +856,14 @@ export function IacPage() {
                     {applying ? <Loader2 className="animate-spin" /> : <Play />}
                     Apply
                   </Button>
-                  {applyConflict && <BusyBanner conflict={applyConflict} />}
-                  {applySubmitError && <ErrorBanner message={applySubmitError} />}
+                  {applyStaleLock ? (
+                    <StaleLockBanner staleLock={applyStaleLock} nowMs={now} onCleared={() => setApplyStaleLock(null)} />
+                  ) : (
+                    <>
+                      {applyConflict && <BusyBanner conflict={applyConflict} />}
+                      {applySubmitError && <ErrorBanner message={applySubmitError} />}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -775,8 +942,14 @@ export function IacPage() {
               {destroying ? <Loader2 className="animate-spin" /> : <Trash2 />}
               Destroy infrastructure
             </Button>
-            {destroyConflict && <BusyBanner conflict={destroyConflict} />}
-            {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+            {destroyStaleLock ? (
+              <StaleLockBanner staleLock={destroyStaleLock} nowMs={now} onCleared={() => setDestroyStaleLock(null)} />
+            ) : (
+              <>
+                {destroyConflict && <BusyBanner conflict={destroyConflict} />}
+                {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+              </>
+            )}
           </div>
         )}
 

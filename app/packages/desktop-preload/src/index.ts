@@ -24,6 +24,7 @@ export type {
   TerraformDestroyMintAck,
   TerraformRollbackResolveAck,
   TerraformRollbackConfirmAck,
+  TerraformLockClearAck,
   ChangeSummary,
   OpType,
   PrerequisiteCheckResult,
