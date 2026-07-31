@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron, expect, test, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright-core';
 import { electronEnv, electronMain } from '../../playwright.config.js';
-import { GamesPage, TerraformHistoryPage, TerraformPage } from '../pages/index.js';
+import { GamesPage, IacHistoryPage, IacPage } from '../pages/index.js';
 import { DEMO_LOG_STREAM_LINES, DEMO_NOW, seedDemo, seedWizard } from './demo-data.js';
 
 /** Repo root, five directories above this file (`app/packages/web/e2e/screenshots/`). */
@@ -247,9 +247,9 @@ test('settings.png', async () => {
 test('terraform.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
-    await gotoRoute(win, '/terraform');
+    await gotoRoute(win, '/iac');
     await disableMotion(win);
-    await expect(new TerraformPage(win).heading()).toBeVisible();
+    await expect(new IacPage(win).heading()).toBeVisible();
     await expect(win.getByRole('button', { name: /Run plan/ })).toBeVisible();
     await shot(win, 'terraform.png');
   } finally {
@@ -260,8 +260,8 @@ test('terraform.png', async () => {
 test('terraform-awaiting-approval.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
-    await gotoRoute(win, '/terraform');
-    const terraform = new TerraformPage(win);
+    await gotoRoute(win, '/iac');
+    const terraform = new IacPage(win);
     // Drives the page into the approval-gate state: `terraform.plan()`
     // resolves `{started:true, runId:'run-plan-demo'}` (mocked), the plan
     // run's log stream attaches and delivers `DEMO_TERRAFORM_PLAN_CHUNKS`
@@ -288,8 +288,8 @@ test('terraform-awaiting-approval.png', async () => {
 test('terraform-apply.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
-    await gotoRoute(win, '/terraform');
-    const terraform = new TerraformPage(win);
+    await gotoRoute(win, '/iac');
+    const terraform = new IacPage(win);
     // Carries the plan from `terraform-awaiting-approval.png` one step
     // further: approve, then apply. `terraform.apply()` resolves
     // `{started:true, runId:'run-apply-demo'}` (mocked), whose log stream
@@ -323,10 +323,10 @@ test('terraform-apply.png', async () => {
 test('terraform-history.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
-    await gotoRoute(win, '/terraform');
-    await TerraformHistoryPage.historyLinkOn(win).click();
+    await gotoRoute(win, '/iac');
+    await IacHistoryPage.historyLinkOn(win).click();
     await disableMotion(win);
-    await expect(new TerraformHistoryPage(win).heading()).toBeVisible();
+    await expect(new IacHistoryPage(win).heading()).toBeVisible();
     // Rows render `record.kind` (plan/apply/destroy), not the raw `runId`.
     await expect(win.getByRole('cell', { name: 'chris@hyveon.example.com' })).toBeVisible();
     await shot(win, 'terraform-history.png');
@@ -403,7 +403,7 @@ test('wizard-terraform-init.png', async () => {
     await expect(win.getByRole('button', { name: 'Next' })).toBeEnabled();
     await win.getByRole('button', { name: 'Next' }).click();
 
-    // `TerraformInitStep` calls `window.hyveon.terraform.init(...)`, bridged
+    // `TerraformInitStep` calls `window.hyveon.iac.init(...)`, bridged
     // as a `HyveonStreamHandle` (see `preload.ts`), and streams
     // `DEMO_TERRAFORM_INIT_CHUNKS` (see `demo-data.ts`'s `seedWizard`) to
     // completion — the step reaches its `'success'` state once the iteration
