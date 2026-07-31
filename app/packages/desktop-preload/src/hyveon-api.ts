@@ -9,7 +9,7 @@
  * namespace names.
  */
 
-import type { ChangeSummary, OpType } from '@hyveon/shared';
+import type { ChangeSummary, DeploymentConfigDiff, OpType } from '@hyveon/shared';
 
 /**
  * Re-exported verbatim from `@hyveon/shared` rather than duplicated —
@@ -25,8 +25,14 @@ import type { ChangeSummary, OpType } from '@hyveon/shared';
  * directly elsewhere, so re-exporting here avoids a 15-member `OpType`
  * union silently drifting out of sync between two independently
  * hand-maintained copies. Do not "fix" this back to duplication.
+ *
+ * `DeploymentConfigDiff` (`@hyveon/shared/src/deploymentConfig.ts`) joins
+ * this re-exported group for the same reason (task 9.6): it's a pure data
+ * shape with no `@pulumi/pulumi`/Node dependency to isolate the renderer
+ * from, so re-exporting rather than hand-duplicating its fields here avoids
+ * the same kind of drift risk.
  */
-export type { ChangeSummary, OpType };
+export type { ChangeSummary, DeploymentConfigDiff, OpType };
 
 // ---------------------------------------------------------------------------
 // Shared payload shapes (mirrors types from @hyveon/shared and desktop-main)
@@ -908,6 +914,14 @@ export interface TerraformPlanAck {
  * display before anything is written. `resolved: false` means resolution
  * was rejected; `error` is always a human-readable description of why.
  *
+ * `diff` (task 9.6) is a best-effort addition: a {@link DeploymentConfigDiff}
+ * summarizing how the target version differs from the current configuration
+ * head, present when `resolved: true` and the backend could compute it.
+ * Always treat an absent `diff` as "no diff available" — NOT as an error —
+ * `resolved: true` with no `diff` is the normal, fully-successful shape of
+ * this ack whenever the best-effort diff computation degrades; the
+ * confirmation dialog must render normally without it.
+ *
  * Mirrors `TerraformRollbackResolveAck` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
@@ -916,6 +930,7 @@ export interface TerraformRollbackResolveAck {
   resolved: boolean;
   versionId?: string;
   lastModified?: string;
+  diff?: DeploymentConfigDiff;
   error?: string;
 }
 

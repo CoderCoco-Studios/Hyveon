@@ -21,7 +21,7 @@ import {
   RunRecordTableNotConfiguredError,
   type RunRecordService,
 } from '../services/RunRecordService.js';
-import { RunLockHeldError, type RunLock, type StackOutputs } from '@hyveon/shared';
+import { RunLockHeldError, type DeploymentConfigDiff, type RunLock, type StackOutputs } from '@hyveon/shared';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
@@ -125,8 +125,10 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * `preview`/`apply`/`destroy`/`confirmRollback` are empty async generators
  * that yield nothing and return `undefined`; `mintDestroyConfirmationToken`
  * returns a fixed token; `resolveRollbackTarget` resolves a fixed prior
- * version; `readRunRecord` returns `null` (no persisted record) unless a
- * test overrides it; `getStackOutputs` resolves `null`.
+ * version; `computeRollbackDiff` resolves `undefined` (mirrors its
+ * documented "no diff available" default — task 9.6); `readRunRecord`
+ * returns `null` (no persisted record) unless a test overrides it;
+ * `getStackOutputs` resolves `null`.
  */
 function makePulumi(): PulumiService {
   const stub = {
@@ -140,6 +142,7 @@ function makePulumi(): PulumiService {
       versionId: 'tfvars-v-prior',
       lastModified: new Date('2026-07-20T00:00:00.000Z'),
     }),
+    computeRollbackDiff: vi.fn().mockResolvedValue(undefined),
     readRunRecord: vi.fn().mockReturnValue(null),
     getStackOutputs: vi.fn().mockResolvedValue(null),
   };
@@ -1450,6 +1453,58 @@ describe('IacController', () => {
       });
 
       expect(result).toEqual({ resolved: false, error: error.message });
+    });
+
+    it('should include diff when PulumiService.computeRollbackDiff resolves one, called with the resolved target versionId', async () => {
+      const pulumi = makePulumi();
+      const diff: DeploymentConfigDiff = {
+        changedFields: ['dnsTtl'],
+        gameServers: { added: ['valheim'], removed: [], changed: [] },
+      };
+      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue(diff);
+
+      const result = await new IacController(pulumi).resolveRollback({
+        applyRunId: 'apply-run-1',
+      });
+
+      expect(pulumi.computeRollbackDiff).toHaveBeenCalledWith('tfvars-v-prior');
+      expect(result).toEqual({
+        resolved: true,
+        versionId: 'tfvars-v-prior',
+        lastModified: '2026-07-20T00:00:00.000Z',
+        diff,
+      });
+    });
+
+    it('should omit diff (never fail the whole resolution) when computeRollbackDiff resolves undefined', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.computeRollbackDiff).mockResolvedValue(undefined);
+
+      const result = await new IacController(pulumi).resolveRollback({
+        applyRunId: 'apply-run-1',
+      });
+
+      expect(result).toEqual({
+        resolved: true,
+        versionId: 'tfvars-v-prior',
+        lastModified: '2026-07-20T00:00:00.000Z',
+      });
+      expect(result.diff).toBeUndefined();
+    });
+
+    it('should still resolve: true with the target identified when computeRollbackDiff unexpectedly rejects', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.computeRollbackDiff).mockRejectedValue(new Error('unexpected diff failure'));
+
+      const result = await new IacController(pulumi).resolveRollback({
+        applyRunId: 'apply-run-1',
+      });
+
+      expect(result).toEqual({
+        resolved: true,
+        versionId: 'tfvars-v-prior',
+        lastModified: '2026-07-20T00:00:00.000Z',
+      });
     });
   });
 

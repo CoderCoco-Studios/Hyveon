@@ -8,10 +8,11 @@ import { Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { DestroyResult, EngineEvent, OutputMap, PreviewResult, UpResult } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
-import { CONFIGURATION_OBJECT_KEY, isApprovalExpired } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, diffDeploymentConfig, isApprovalExpired } from '@hyveon/shared';
 import type {
   ChangeSummary,
   DeploymentConfig,
+  DeploymentConfigDiff,
   OpType,
   RemoteFileStore,
   RunKind,
@@ -3571,6 +3572,105 @@ export class PulumiService {
       throw new RollbackVersionMissingError(record.tfvarsVersionId);
     }
     return prior;
+  }
+
+  /**
+   * Best-effort parse of a raw configuration-object JSON document into a
+   * {@link DeploymentConfig}. Mirrors `TfvarsService.parseConfigContents`'s
+   * body exactly (`JSON.parse` plus an object-shape check — Phase 6 dropped
+   * HCL parsing entirely, see `deploymentConfig.ts`'s file doc) but returns
+   * `undefined` instead of throwing on either a malformed-JSON or
+   * wrong-shape document, so its only caller, {@link computeRollbackDiff},
+   * can degrade to "no diff" with a single `undefined` check rather than a
+   * `try`/`catch` per parse. Not shared with `TfvarsService` — see
+   * {@link computeRollbackDiff}'s own TSDoc for why this class doesn't take
+   * a `TfvarsService` dependency just for this.
+   */
+  private static parseDeploymentConfigOrUndefined(raw: string): DeploymentConfig | undefined {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      logger.warn('PulumiService: failed to parse configuration JSON for a rollback diff', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      logger.warn('PulumiService: configuration JSON did not decode to an object for a rollback diff', {});
+      return undefined;
+    }
+    return parsed as DeploymentConfig;
+  }
+
+  /**
+   * Best-effort computation of how `targetVersionId` (a rollback target
+   * identified by {@link resolveRollbackTarget}) differs from the current
+   * configuration head — the `iac-rollback` spec's SHOULD-level "summarize
+   * how the target configuration differs from the current one" enhancement
+   * (task 9.6), layered on top of the already-working, spec-MUST
+   * "identify the target version" behavior {@link resolveRollbackTarget}
+   * provides on its own.
+   *
+   * ## Why a separate method rather than folding this into
+   * `resolveRollbackTarget` itself
+   *
+   * `resolveRollbackTarget` is called twice per rollback: once by
+   * `IacController.resolveRollback` to populate the operator's confirmation
+   * dialog (where a diff is genuinely useful), and again by
+   * {@link confirmRollback} to re-resolve the target immediately before the
+   * restore write (where a diff would only add two unnecessary
+   * `RemoteFileStore` reads to the write-guarded critical path, for a value
+   * `confirmRollback` never uses). Keeping diff computation in its own
+   * method means `confirmRollback`'s behavior — this dispatch's explicit
+   * constraint — is untouched: it still calls the exact same
+   * `resolveRollbackTarget` it always has.
+   *
+   * ## Degradation
+   *
+   * Never throws. Any failure — the target version's bytes no longer
+   * readable, the current head missing entirely, either document failing to
+   * parse or decode to an object — is caught here, logged at `warn`, and
+   * reported as `undefined`, so a diff-computation failure can never prevent
+   * the operator from seeing the already-resolved target version. Callers
+   * must treat `undefined` as "no diff available", not as an error.
+   *
+   * @param targetVersionId - The rollback target's `versionId`, as resolved
+   *   by {@link resolveRollbackTarget}.
+   * @returns A {@link DeploymentConfigDiff} comparing the target version
+   *   against the current head, or `undefined` if it could not be computed.
+   */
+  async computeRollbackDiff(targetVersionId: string): Promise<DeploymentConfigDiff | undefined> {
+    try {
+      const key = CONFIGURATION_OBJECT_KEY;
+      const remoteFileStore = this.getRemoteFileStore();
+      const [historic, head] = await Promise.all([
+        remoteFileStore.getVersion(key, targetVersionId),
+        remoteFileStore.get(key),
+      ]);
+      if (!historic || !head) {
+        logger.warn('PulumiService.computeRollbackDiff: target or current configuration bytes unavailable', {
+          targetVersionId,
+          historicFound: !!historic,
+          headFound: !!head,
+        });
+        return undefined;
+      }
+
+      const target = PulumiService.parseDeploymentConfigOrUndefined(new TextDecoder().decode(historic.body));
+      const current = PulumiService.parseDeploymentConfigOrUndefined(new TextDecoder().decode(head.body));
+      if (!target || !current) {
+        return undefined;
+      }
+
+      return diffDeploymentConfig(target, current);
+    } catch (err) {
+      logger.warn('PulumiService.computeRollbackDiff: best-effort diff computation failed — omitting diff', {
+        targetVersionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
   /**
