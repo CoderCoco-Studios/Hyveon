@@ -210,6 +210,9 @@ describe('IacPage', () => {
       expect(await screen.findByText(/production/)).toBeInTheDocument();
       expect(screen.getByText(/alice@alice-laptop/)).toBeInTheDocument();
       expect(screen.getByText(/pid 4242/)).toBeInTheDocument();
+      // formatLockAge's rendered wording (review round 1, M2) — makeStaleLockInfo's
+      // fixture sets lockedAt 5 minutes before "now".
+      expect(screen.getByText(/started 5 minutes ago/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Clear lock and retry/ })).toBeInTheDocument();
       // The raw ack.error prose must not ALSO render via the generic ErrorBanner —
       // staleLock replaces it, per the controller's own mutually-exclusive branches.
@@ -228,8 +231,19 @@ describe('IacPage', () => {
       expect(hyveonMock.iac.lock.clear).not.toHaveBeenCalled();
     });
 
-    it('should call hyveon.iac.lock.clear() and return to the idle Run plan state once the operator confirms and the clear succeeds', async () => {
-      hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'locked', staleLock: makeStaleLockInfo() });
+    it('should call hyveon.iac.lock.clear() and return to the idle Run plan state — WITHOUT the stale rejection\'s error banner reappearing — once the operator confirms and the clear succeeds', async () => {
+      // Regression test for review round 1, I1: a successful clear used to
+      // reset only xStaleLock, leaving xSubmitError (still holding the
+      // original rejection's error text) to reappear via the generic
+      // ErrorBanner the instant the ternary fell through. The exact error
+      // text below must be gone from the document after a successful clear,
+      // not just the "Clear lock and retry" button.
+      const REJECTION_ERROR_TEXT = 'the stack is currently locked by 1 lock(s)';
+      hyveonMock.iac.plan.mockResolvedValue({
+        started: false,
+        error: REJECTION_ERROR_TEXT,
+        staleLock: makeStaleLockInfo(),
+      });
       hyveonMock.iac.lock.clear.mockResolvedValue({ cleared: true });
       renderPage(<IacPage />);
       await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
@@ -242,8 +256,11 @@ describe('IacPage', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText(/Clear lock and retry/)).not.toBeInTheDocument());
       // Back to the ordinary idle state — Run plan is submittable again, matching
-      // PulumiService.clearStaleLock's "does not retry" design (task 9.4).
+      // PulumiService.clearStaleLock's "does not retry" design (task 9.4) — and
+      // the stale rejection's error text must NOT have reappeared underneath.
       expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
+      expect(screen.queryByText(REJECTION_ERROR_TEXT)).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('should surface the failure via an error banner and keep the stale-lock banner in place when the clear itself fails', async () => {
