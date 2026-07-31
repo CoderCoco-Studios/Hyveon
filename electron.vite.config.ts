@@ -85,10 +85,29 @@ export default defineConfig({
         // dependency tree (7.7.4 at the root; the nested 5.x/6.x copies all
         // belong to devDependencies), so this cannot resolve to a second
         // version.
+        // `@nestjs/common`'s `ValidationPipe` lazily `require()`s `class-validator`
+        // and `class-transformer` inside its constructor — genuinely dead code
+        // here, since nothing in `@hyveon/desktop-main` ever instantiates
+        // `ValidationPipe`. Both are optional peer deps of `@nestjs/common`,
+        // and both are now real (unused) dependencies of `@hyveon/desktop-main`
+        // — the same treatment `@grpc/proto-loader` gets above, for the same
+        // reason: this build's `output.format: 'es'` means Rollup emits a
+        // top-level ESM `import` for every externalized specifier, and ESM
+        // imports resolve eagerly at Node's module-load time regardless of
+        // whether the binding is ever used — unlike the lazy `require()` Node
+        // itself would run if this were plain CommonJS. An externalized but
+        // uninstalled package therefore crashes the main process before any
+        // window opens (`desktop:dev` reproduced this: `electron-vite dev`'s
+        // on-the-fly SSR build reaches this code path even though a full
+        // production `desktop:build` did not, because dev mode doesn't
+        // tree-shake the same way). Installing the real packages — rather
+        // than only listing them here — is what actually fixes it.
         external: [
           /^@pulumi\/pulumi(\/.*)?$/,
           /^@pulumi\/aws(\/.*)?$/,
           'semver',
+          'class-validator',
+          'class-transformer',
         ],
         output: {
           format: 'es',
