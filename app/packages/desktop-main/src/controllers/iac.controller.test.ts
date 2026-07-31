@@ -128,7 +128,8 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * version; `computeRollbackDiff` resolves `undefined` (mirrors its
  * documented "no diff available" default — task 9.6); `readRunRecord`
  * returns `null` (no persisted record) unless a test overrides it;
- * `getStackOutputs` resolves `null`.
+ * `getStackOutputs` resolves `null`; `clearStaleLock` (task 9.4) resolves
+ * `undefined` by default — i.e. "cleared successfully".
  */
 function makePulumi(): PulumiService {
   const stub = {
@@ -145,6 +146,7 @@ function makePulumi(): PulumiService {
     computeRollbackDiff: vi.fn().mockResolvedValue(undefined),
     readRunRecord: vi.fn().mockReturnValue(null),
     getStackOutputs: vi.fn().mockResolvedValue(null),
+    clearStaleLock: vi.fn().mockResolvedValue(undefined),
   };
   return stub as unknown as PulumiService;
 }
@@ -275,6 +277,11 @@ describe('IacController', () => {
     it('should register confirmRollback on the "iac.rollback.confirm" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.confirmRollback);
       expect(pattern).toEqual(['iac.rollback.confirm']);
+    });
+
+    it('should register clearStaleLock on the "iac.lock.clear" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.clearStaleLock);
+      expect(pattern).toEqual(['iac.lock.clear']);
     });
   });
 
@@ -1726,6 +1733,39 @@ describe('IacController', () => {
         error: error.message,
       });
       expect(record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearStaleLock', () => {
+    it('should return { cleared: true } when PulumiService.clearStaleLock resolves', async () => {
+      const pulumi = makePulumi();
+
+      const result = await new IacController(pulumi).clearStaleLock();
+
+      expect(result).toEqual({ cleared: true });
+      expect(pulumi.clearStaleLock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return { cleared: false, error } naming the in-flight operation when PulumiService.clearStaleLock rejects with PulumiOperationInFlightError', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.clearStaleLock).mockRejectedValue(new PulumiOperationInFlightError('up'));
+
+      const result = await new IacController(pulumi).clearStaleLock();
+
+      expect(result.cleared).toBe(false);
+      expect(result.error).toMatch(/up.*already running/i);
+    });
+
+    it('should return { cleared: false, error } when PulumiService.clearStaleLock rejects with any other error, without throwing', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.clearStaleLock).mockRejectedValue(new Error('pulumi stack.cancel() failed while clearing the stale backend lock: boom'));
+
+      const result = await new IacController(pulumi).clearStaleLock();
+
+      expect(result).toEqual({
+        cleared: false,
+        error: 'pulumi stack.cancel() failed while clearing the stale backend lock: boom',
+      });
     });
   });
 });

@@ -105,6 +105,7 @@ import type {
   TerraformDestroyMintAck,
   TerraformDestroyPayload,
   TerraformInitConfig,
+  TerraformLockClearAck,
   TerraformPlanAck,
   TerraformPlanPayload,
   TerraformRollbackConfirmAck,
@@ -760,6 +761,9 @@ const api: HyveonApi = {
         invoke<TerraformRollbackResolveAck>('iac.rollback.resolve', opts),
       confirm: (opts: { applyRunId: string }) =>
         invoke<TerraformRollbackConfirmAck>('iac.rollback.confirm', opts),
+    },
+    lock: {
+      clear: () => invoke<TerraformLockClearAck>('iac.lock.clear'),
     },
     settings: {
       get: () => invoke<DeploymentSettingsGetResult>('iac.settings.get'),

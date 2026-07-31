@@ -27,6 +27,9 @@ const hyveonMock = {
       get: vi.fn(),
       streamLogs: vi.fn(),
     },
+    lock: {
+      clear: vi.fn(),
+    },
   },
 };
 vi.stubGlobal('hyveon', hyveonMock);
@@ -91,6 +94,22 @@ function seedSuccessfulPlan() {
   });
 }
 
+/** A `TerraformStaleLockInfo`-shaped fixture (task 9.4) for one lock holder, "started" 5 minutes before `now`. */
+function makeStaleLockInfo() {
+  return {
+    stackName: 'production',
+    locks: [
+      {
+        lockUrl: 's3://hyveon-tf-state/.pulumi/locks/production/lock-1.json',
+        username: 'alice',
+        hostname: 'alice-laptop',
+        pid: 4242,
+        lockedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      },
+    ],
+  };
+}
+
 describe('IacPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
@@ -102,6 +121,7 @@ describe('IacPage', () => {
     hyveonMock.iac.destroy.mockReset();
     hyveonMock.iac.runs.get.mockReset();
     hyveonMock.iac.runs.streamLogs.mockReset();
+    hyveonMock.iac.lock.clear.mockReset();
   });
 
   it('should render the Run plan trigger in the idle state', () => {
@@ -174,6 +194,72 @@ describe('IacPage', () => {
 
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.some((el) => el.textContent?.includes('terraform apply'))).toBe(true);
+  });
+
+  describe('stale-lock recovery (task 9.4)', () => {
+    it('should render the stale-lock banner (naming the stack and every holder) instead of a busy/error banner when plan submission reports staleLock', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({
+        started: false,
+        error: 'the stack is currently locked by 1 lock(s)',
+        staleLock: makeStaleLockInfo(),
+      });
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+
+      expect(await screen.findByText(/production/)).toBeInTheDocument();
+      expect(screen.getByText(/alice@alice-laptop/)).toBeInTheDocument();
+      expect(screen.getByText(/pid 4242/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Clear lock and retry/ })).toBeInTheDocument();
+      // The raw ack.error prose must not ALSO render via the generic ErrorBanner —
+      // staleLock replaces it, per the controller's own mutually-exclusive branches.
+      expect(screen.queryByText('the stack is currently locked by 1 lock(s)')).not.toBeInTheDocument();
+    });
+
+    it('should open a confirmation dialog on "Clear lock and retry", without calling hyveon.iac.lock.clear() until confirmed', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'locked', staleLock: makeStaleLockInfo() });
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await screen.findByRole('button', { name: /Clear lock and retry/ });
+
+      await userEvent.click(screen.getByRole('button', { name: /Clear lock and retry/ }));
+
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+      expect(hyveonMock.iac.lock.clear).not.toHaveBeenCalled();
+    });
+
+    it('should call hyveon.iac.lock.clear() and return to the idle Run plan state once the operator confirms and the clear succeeds', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'locked', staleLock: makeStaleLockInfo() });
+      hyveonMock.iac.lock.clear.mockResolvedValue({ cleared: true });
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await userEvent.click(await screen.findByRole('button', { name: /Clear lock and retry/ }));
+      await screen.findByRole('alertdialog');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Clear lock' }));
+
+      await waitFor(() => expect(hyveonMock.iac.lock.clear).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText(/Clear lock and retry/)).not.toBeInTheDocument());
+      // Back to the ordinary idle state — Run plan is submittable again, matching
+      // PulumiService.clearStaleLock's "does not retry" design (task 9.4).
+      expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
+    });
+
+    it('should surface the failure via an error banner and keep the stale-lock banner in place when the clear itself fails', async () => {
+      hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'locked', staleLock: makeStaleLockInfo() });
+      hyveonMock.iac.lock.clear.mockResolvedValue({ cleared: false, error: 'pulumi stack.cancel() failed: boom' });
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await userEvent.click(await screen.findByRole('button', { name: /Clear lock and retry/ }));
+      await screen.findByRole('alertdialog');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Clear lock' }));
+
+      expect(await screen.findByText('pulumi stack.cancel() failed: boom')).toBeInTheDocument();
+      // The stale-lock evidence stays on screen — nothing was actually cleared.
+      expect(screen.getByText(/alice@alice-laptop/)).toBeInTheDocument();
+    });
   });
 
   it('should enable Apply only after the plan is approved, then stream apply output to completion', async () => {

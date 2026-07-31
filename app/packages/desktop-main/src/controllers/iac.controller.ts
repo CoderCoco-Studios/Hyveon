@@ -190,6 +190,24 @@ function serializeStaleLock(err: PulumiUnrecognizedLockError): StaleLockInfo {
 }
 
 /**
+ * Result the `iac.lock.clear` IPC channel resolves with (task 9.4,
+ * `migrate-iac-to-pulumi`'s "stale-lock recovery UI with explicit
+ * confirmation"). `cleared: true` means `PulumiService.clearStaleLock`
+ * successfully called `stack.cancel()` against the Pulumi backend — the
+ * operator should now resubmit their original plan/apply/destroy via the
+ * normal button; this channel never re-attempts it automatically (see that
+ * method's own TSDoc, "Does not retry"). `cleared: false` means nothing was
+ * cleared — either another operation was already running against the shared
+ * workspace (`PulumiOperationInFlightError`), the backend isn't configured
+ * yet, or the clear attempt itself failed (`PulumiLockClearError`) — `error`
+ * is always a human-readable description of why.
+ */
+interface TerraformLockClearAck {
+  cleared: boolean;
+  error?: string;
+}
+
+/**
  * Immediate acknowledgement `plan()` resolves with. `started: true` means a
  * `runId` was pre-minted and the streaming loop was kicked off in the
  * background (chunk/end messages will follow on the side channels, tagged
@@ -1469,6 +1487,34 @@ export class IacController implements OnModuleInit {
       return { confirmed: false, error };
     } finally {
       sender.removeListener('destroyed', onDestroyed);
+    }
+  }
+
+  /**
+   * Clears an unrecognized Pulumi backend lock after the operator has
+   * explicitly confirmed it via the renderer's stale-lock recovery UI (task
+   * 9.4, `migrate-iac-to-pulumi`) — delegates entirely to
+   * `PulumiService.clearStaleLock()`; see that method's own TSDoc for the
+   * full safety reasoning (why it refuses while another operation is already
+   * in flight, why it never re-derives or re-checks whether the lock is
+   * actually stale — that judgment call was already made by the operator
+   * before this channel is ever invoked — and why it never retries the
+   * original plan/apply/destroy itself).
+   *
+   * Reachable via the Electron IPC transport (`iac.lock.clear`), resolved by
+   * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` — a plain
+   * one-shot request/response (no streaming side channel), exactly like
+   * `iac.rollback.resolve`.
+   */
+  @MessagePattern('iac.lock.clear')
+  async clearStaleLock(): Promise<TerraformLockClearAck> {
+    try {
+      await this.pulumi.clearStaleLock();
+      return { cleared: true };
+    } catch (err) {
+      logger.error('iac lock clear error', { err });
+      const error = err instanceof Error ? err.message : String(err);
+      return { cleared: false, error };
     }
   }
 
