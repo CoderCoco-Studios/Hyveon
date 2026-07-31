@@ -5,6 +5,7 @@ import { IacController } from './iac.controller.js';
 import {
   PulumiOperationInFlightError,
   PulumiRollbackPlanFailedError,
+  PulumiStackInitializationError,
   type PulumiService,
   type PulumiRunChunk,
   type PulumiPreviewResult,
@@ -64,13 +65,6 @@ vi.mock('node:os', async () => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** A minimal backend config payload shared across the `init` test cases. */
-const CONFIG = {
-  bucket: 'hyveon-tf-state',
-  region: 'us-east-1',
-  dynamodbTable: 'hyveon-tf-locks',
-};
-
 /** A `PulumiPreviewResult` fixture, overridable per-test. Mirrors the old file's `TerraformPlanResult` builder. */
 function buildPreviewResult(overrides: Partial<PulumiPreviewResult> = {}): PulumiPreviewResult {
   return {
@@ -129,7 +123,9 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * documented "no diff available" default — task 9.6); `readRunRecord`
  * returns `null` (no persisted record) unless a test overrides it;
  * `getStackOutputs` resolves `null`; `clearStaleLock` (task 9.4) resolves
- * `undefined` by default — i.e. "cleared successfully".
+ * `undefined` by default — i.e. "cleared successfully";
+ * `initializeStack` (task 10.3) resolves immediately without ever calling
+ * its `onPhase` callback, unless a test overrides it.
  */
 function makePulumi(): PulumiService {
   const stub = {
@@ -147,6 +143,7 @@ function makePulumi(): PulumiService {
     readRunRecord: vi.fn().mockReturnValue(null),
     getStackOutputs: vi.fn().mockResolvedValue(null),
     clearStaleLock: vi.fn().mockResolvedValue(undefined),
+    initializeStack: vi.fn().mockResolvedValue(undefined),
   };
   return stub as unknown as PulumiService;
 }
@@ -234,9 +231,9 @@ describe('IacController', () => {
   // -------------------------------------------------------------------------
 
   describe('@MessagePattern channel names', () => {
-    it('should register init on the "iac.init" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.init);
-      expect(pattern).toEqual(['iac.init']);
+    it('should register initializeStack on the "iac.stack.initialize" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.initializeStack);
+      expect(pattern).toEqual(['iac.stack.initialize']);
     });
 
     it('should register output on the "iac.output" IPC channel', () => {
@@ -286,7 +283,7 @@ describe('IacController', () => {
   });
 
   // -------------------------------------------------------------------------
-  // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy
+  // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy/stack.initialize
   // -------------------------------------------------------------------------
 
   describe('onModuleInit', () => {
@@ -315,12 +312,45 @@ describe('IacController', () => {
       expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
     });
 
-    it('should NOT register a manual "iac.init" handler — the generic bridge handles it now', async () => {
-      // Unlike before task 7.10, init() no longer streams anything, so it's
-      // resolved by the generic ipcMain.handle bridge rather than manually
-      // registered here.
+    it('should register ipcMain.handle for "iac.stack.initialize" so ipcRenderer.invoke can resolve', async () => {
+      // Task 10.3: replaces the deleted `iac.init` channel — streams
+      // `onPhase` progress the same way `iac.plan` streams chunks, so it
+      // self-bridges too.
       await new IacController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.init', expect.any(Function));
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.stack.initialize', expect.any(Function));
+    });
+
+    it('should remove any existing "iac.stack.initialize" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.stack.initialize');
+      const removeCalls = mockIpcMainRemoveHandler.mock.calls
+        .map(([pattern]: [string]) => pattern)
+        .filter((pattern: string) => pattern === 'iac.stack.initialize');
+      const handleCalls = mockIpcMainHandle.mock.calls
+        .map(([pattern]: [string]) => pattern)
+        .filter((pattern: string) => pattern === 'iac.stack.initialize');
+      expect(removeCalls).toHaveLength(1);
+      expect(handleCalls).toHaveLength(1);
+    });
+
+    it('should invoke initializeStack as initializeStack(payload, { evt }) when the registered ipcMain.handle callback fires', async () => {
+      const pulumi = makePulumi();
+      const controller = new IacController(pulumi);
+      const initializeStackSpy = vi
+        .spyOn(controller, 'initializeStack')
+        .mockResolvedValue({ started: true, streamId: 'stub-stream' });
+
+      await controller.onModuleInit();
+
+      const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+        ([pattern]: [string]) => pattern === 'iac.stack.initialize',
+      ) as [string, (evt: unknown, payload: unknown) => unknown];
+      expect(registeredCallback).toBeTypeOf('function');
+
+      const fakeEvt = { sender: { id: 9 } };
+      await registeredCallback(fakeEvt, undefined);
+
+      expect(initializeStackSpy).toHaveBeenCalledWith(undefined, { evt: fakeEvt });
     });
 
     it('should register ipcMain.handle for "iac.plan" so ipcRenderer.invoke can resolve', async () => {
@@ -423,44 +453,124 @@ describe('IacController', () => {
   });
 
   // -------------------------------------------------------------------------
-  // init — always a no-op rejection under the Pulumi engine (task 7.10)
+  // initializeStack (task 10.3) — replaces the deleted `init` no-op stub
   // -------------------------------------------------------------------------
 
-  describe('init', () => {
-    it('should return { started: false, error } for a VALID config — a deliberate no-op rejection, not a real run', async () => {
+  describe('initializeStack', () => {
+    it('should return { started: true, streamId } immediately without waiting for the run to settle', async () => {
       const pulumi = makePulumi();
+      let resolveInit!: () => void;
+      vi.mocked(pulumi.initializeStack).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveInit = resolve;
+        }),
+      );
+      const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi).init(CONFIG);
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
 
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(result.error).toContain('Pulumi engine');
-      expect(result.streamId).toBeUndefined();
+      expect(result.started).toBe(true);
+      expect(typeof result.streamId).toBe('string');
+      resolveInit();
     });
 
-    it('should return { started: false, error } for an INVALID config, with its own distinct validation message', async () => {
+    it('should forward the mock streamId-tagged onPhase callback to PulumiService.initializeStack', async () => {
       const pulumi = makePulumi();
-      const invalidConfig = { bucket: '', region: 'us-east-1', dynamodbTable: 'hyveon-tf-locks' };
+      const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi).init(invalidConfig);
+      await new IacController(pulumi).initializeStack(undefined, ctx);
 
-      expect(result.started).toBe(false);
-      expect(typeof result.error).toBe('string');
-      // The two rejection reasons must be distinguishable — validation vs.
-      // the Pulumi-engine no-op message are different strings.
-      expect(result.error).not.toContain('Pulumi engine');
+      expect(pulumi.initializeStack).toHaveBeenCalledWith(expect.any(Function));
     });
 
-    it('should never touch PulumiService or the WebContents sender for either a valid or an invalid config', async () => {
+    it('should send each onPhase event to the renderer via sender.send, tagged with streamId, on the chunk channel', async () => {
       const pulumi = makePulumi();
-      const { sender } = makeCtx();
+      vi.mocked(pulumi.initializeStack).mockImplementation(async (onPhase) => {
+        onPhase?.('engine', 'start');
+        onPhase?.('engine', 'end');
+      });
+      const { ctx, sender } = makeCtx();
 
-      await new IacController(pulumi).init(CONFIG);
-      await new IacController(pulumi).init({ bucket: '', region: '', dynamodbTable: '' });
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
 
-      expect(pulumi.preview).not.toHaveBeenCalled();
-      expect(pulumi.apply).not.toHaveBeenCalled();
-      expect(pulumi.destroy).not.toHaveBeenCalled();
+      expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.chunk', {
+        streamId: result.streamId,
+        phase: 'engine',
+        status: 'start',
+      });
+      expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.chunk', {
+        streamId: result.streamId,
+        phase: 'engine',
+        status: 'end',
+      });
+    });
+
+    it('should send an end message with no error when the run succeeds', async () => {
+      const pulumi = makePulumi();
+      const { ctx, sender } = makeCtx();
+
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', { streamId: result.streamId });
+    });
+
+    it('should send an end message with the error and failedPhase when PulumiService.initializeStack throws a PulumiStackInitializationError', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.initializeStack).mockRejectedValue(
+        new PulumiStackInitializationError('plugins', new Error('network unreachable')),
+      );
+      const { ctx, sender } = makeCtx();
+
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', {
+        streamId: result.streamId,
+        error: expect.stringContaining('plugins'),
+        failedPhase: 'plugins',
+      });
+    });
+
+    it('should send an end message with an error but no failedPhase for a non-PulumiStackInitializationError failure', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.initializeStack).mockRejectedValue(new Error('unexpected'));
+      const { ctx, sender } = makeCtx();
+
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith('iac.stack.initialize.end', {
+        streamId: result.streamId,
+        error: 'unexpected',
+        failedPhase: undefined,
+      });
+    });
+
+    it('should return a conflict ack naming the in-flight op and never call PulumiService.initializeStack when the workspace is busy', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.getOperationInFlight).mockReturnValue('up');
+      const { ctx, sender } = makeCtx();
+
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
+      expect(pulumi.initializeStack).not.toHaveBeenCalled();
+      expect(sender.send).not.toHaveBeenCalled();
+    });
+
+    it('should not send further messages once the WebContents is destroyed', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.initializeStack).mockImplementation(async (onPhase) => {
+        onPhase?.('engine', 'start');
+        onPhase?.('engine', 'end');
+      });
+      const { ctx, sender } = makeCtx(true);
+
+      await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
       expect(sender.send).not.toHaveBeenCalled();
     });
   });

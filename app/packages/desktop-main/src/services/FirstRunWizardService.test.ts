@@ -84,11 +84,11 @@ describe('FirstRunWizardService', () => {
     });
 
     it('should be resumable: a later getProgress reflects the step recorded by an earlier recordStep', async () => {
-      await service.recordStep('terraform-init');
+      await service.recordStep('stack-init');
 
       const progress = await service.getProgress();
 
-      expect(progress).toEqual({ step: 'terraform-init' });
+      expect(progress).toEqual({ step: 'stack-init' });
     });
 
     it('should overwrite a previously recorded step', async () => {
@@ -106,7 +106,7 @@ describe('FirstRunWizardService', () => {
     });
 
     it('should clear the resume file, so a future re-entry (e.g. Settings Reconfigure) starts clean', async () => {
-      await service.recordStep('terraform-init');
+      await service.recordStep('stack-init');
       expect(existsSync(statePath)).toBe(true);
 
       await service.complete();

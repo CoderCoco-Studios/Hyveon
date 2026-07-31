@@ -9,11 +9,13 @@ import {
   PulumiService,
   PulumiOperationInFlightError,
   PulumiRollbackPlanFailedError,
+  PulumiStackInitializationError,
   type PulumiRunChunk,
   type PulumiPreviewResult,
   type PulumiUpResult,
   type PulumiDestroyResult,
 } from '../services/PulumiService.js';
+import type { PulumiPhaseCallback, PulumiProvisioningPhase, PulumiPhaseStatus } from '../services/PulumiEngineService.js';
 import { PulumiUnrecognizedLockError } from '../services/PulumiLockRecovery.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { AuditService } from '../services/AuditService.js';
@@ -55,34 +57,53 @@ const DESTROY_END_CHANNEL = 'iac.destroy.end';
  */
 const ROLLBACK_CONFIRM_CHUNK_CHANNEL = 'iac.rollback.confirm.chunk';
 
-/**
- * Backend configuration values the first-run wizard used to pass to
- * `terraform init -backend-config=...` for the S3 remote-state backend.
- * Defined locally (moved out of the now-deleted `TerraformService.ts` by
- * task 7.10) purely to keep {@link IacController.init}'s payload type
- * — and therefore the `iac.init` IPC contract's shape — unchanged
- * while the method body itself becomes an inert rejection (see {@link init}'s
- * own TSDoc for why the channel is kept wired but no longer does anything).
- */
-interface TerraformInitConfig {
-  bucket: string;
-  region: string;
-  dynamodbTable: string;
-}
+/** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
+const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
+
+/** Fixed side-channel `IacController.initializeStack` sends its terminal message on. */
+const STACK_INIT_END_CHANNEL = 'iac.stack.initialize.end';
 
 /**
- * Immediate acknowledgement `init()` resolves with. `started: true` means the
- * streaming loop was kicked off in the background (chunk/end messages will
- * follow on the side channels, tagged with `streamId`). `started: false`
- * means `config` failed validation, OR — since task 7.10 — that `config`
- * passed validation but `init()` is a no-op under the Pulumi engine (see
- * {@link IacController.init}'s own TSDoc); either way no run was
- * attempted and `streamId` is omitted.
+ * Immediate acknowledgement `initializeStack()` resolves with. `started: true`
+ * means `PulumiService.initializeStack` was kicked off in the background —
+ * phase-event/end messages will follow on {@link STACK_INIT_CHUNK_CHANNEL}/
+ * {@link STACK_INIT_END_CHANNEL}, tagged with `streamId`. `started: false`
+ * means the shared workspace was already busy (`conflict` names whichever of
+ * `preview`/`up`/`destroy`/`rollback` was running) — no run was attempted and
+ * `streamId` is omitted.
  */
-interface TerraformInitAck {
+interface StackInitializeAck {
   started: boolean;
   streamId?: string;
   error?: string;
+  conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
+}
+
+/**
+ * Message payload sent, in order, on {@link STACK_INIT_CHUNK_CHANNEL} for
+ * every `onPhase(phase, status)` call `PulumiService.initializeStack` makes.
+ * `streamId` ties the event back to the `initializeStack()` call that
+ * produced it — the same id already handed back in
+ * {@link StackInitializeAck.streamId} — mirrors {@link TerraformPlanChunkMessage}.
+ */
+interface StackInitializePhaseMessage {
+  streamId: string;
+  phase: PulumiProvisioningPhase;
+  status: PulumiPhaseStatus;
+}
+
+/**
+ * Message payload sent once on {@link STACK_INIT_END_CHANNEL} when an
+ * `iac.stack.initialize` run finishes. `error`/`failedPhase` are present
+ * only on a failed run — `failedPhase` is populated whenever the underlying
+ * rejection was a `PulumiStackInitializationError`, naming exactly which of
+ * the three phases failed (see that error class's own TSDoc); left
+ * `undefined` for any other, unexpected failure shape.
+ */
+interface StackInitializeEndMessage {
+  streamId: string;
+  error?: string;
+  failedPhase?: PulumiProvisioningPhase;
 }
 
 /**
@@ -536,17 +557,18 @@ export class IacController implements OnModuleInit {
    * otherwise hang. This hook bridges the gap, mirroring
    * `LogsController.onModuleInit`'s handling of `logs.stream` — see
    * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`, which excludes these
-   * four channels from the generic bridge for the same reason: each handler
+   * five channels from the generic bridge for the same reason: each handler
    * pushes follow-up chunk/end messages over side channels for the duration
    * of a long-running run rather than resolving a single value.
    *
-   * `iac.init` is deliberately NOT registered here (unlike before task
-   * 7.10) — {@link init} no longer streams anything (see its own TSDoc), so
-   * it's resolved by the generic `ipcMain.handle` bridge like any other
-   * single-value channel; only `iac.plan`/`iac.apply`/
-   * `iac.destroy`/`iac.rollback.confirm` still need this manual
-   * registration.
+   * `iac.stack.initialize` (task 10.3) was added to this set for the same
+   * reason `iac.plan`/`iac.apply`/`iac.destroy` are: {@link initializeStack}
+   * pushes phase-event/end messages over its own side channels for the
+   * duration of the run rather than resolving a single value — it replaces
+   * the old (pre-7.10) `iac.init` channel's identical streaming shape, not
+   * the never-streaming rejection stub `iac.init` became afterward.
    *
+
    * `iac.rollback.confirm` was added to this set in task 7.10 fix
    * round 1: {@link confirmRollback}'s own `ctx: { evt }` second parameter
    * has no `@Payload()`/etc. decorator, exactly like `plan`/`apply`/`destroy`
@@ -605,54 +627,104 @@ export class IacController implements OnModuleInit {
     ipcMain.handle('iac.rollback.confirm', (evt, payload: TerraformRollbackPayload) =>
       this.confirmRollback(payload, { evt: evt as IpcMainInvokeEvent }),
     );
+    // `iac.stack.initialize` streams phase-event/end messages the same way
+    // `iac.plan` streams chunk/end messages — see `SELF_BRIDGED_PATTERNS` in
+    // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
+    // the same reason.
+    ipcMain.removeHandler('iac.stack.initialize');
+    ipcMain.handle('iac.stack.initialize', (evt, payload: unknown) =>
+      this.initializeStack(payload, { evt: evt as IpcMainInvokeEvent }),
+    );
   }
 
   /**
-   * `iac.init` under the Pulumi engine — a deliberate, documented
-   * no-op rejection, not a real operation (task 7.10 decision).
+   * Task 10.3's real replacement for the deleted `iac.init` channel (which
+   * was itself a permanent, documented no-op rejection since task 7.10 —
+   * Pulumi has no `terraform init` analogue; see the deleted `init` method's
+   * former TSDoc in version control for the full history this closes).
+   * Kicks off `PulumiService.initializeStack` and streams its `onPhase`
+   * progress back to the renderer — structurally the same shape as
+   * {@link plan}/{@link apply}/{@link destroy} (a caller starts a
+   * long-running operation and wants live progress), but the payload is
+   * `{ phase, status }` provisioning-phase events, not `PulumiRunChunk` log
+   * lines, and there is no plan-hash/approval/lock gate to await first: the
+   * only pre-flight check is `PulumiService.getOperationInFlight()`, exactly
+   * like {@link plan}'s.
    *
-   * Pulumi has no analogue to `terraform init`: `PulumiEngineService`
-   * auto-installs/resolves the Pulumi engine binary on first use, and
-   * `PulumiWorkspaceService` constructs the Automation API workspace/backend
-   * on demand — neither requires a separate, explicit initialization step an
-   * operator triggers from the wizard. Rather than deleting this channel
-   * (which would break `ipcRenderer.invoke('iac.init', ...)` for
-   * whatever caller still reaches it — the first-run wizard's init-dependent
-   * prerequisite step is real, already-shipped code that Phase 8/9 haven't
-   * repointed yet) or silently reporting success (which would let the wizard
-   * believe a real initialization happened and advance past a step that did
-   * nothing), this method now always resolves `{ started: false, error }` —
-   * for VALID `config` exactly as much as for invalid `config` — naming the
-   * Pulumi engine as the reason no `terraform init` ran. This is an accepted
-   * interim state, not this dispatch's job to design a real fix for: the
-   * wizard's init-dependent prerequisite flow is "effectively broken"
-   * mid-migration and Phase 10 owns replacing it properly (see the
-   * `migrate-iac-to-pulumi` change's own notes). `config` validation is kept
-   * unchanged ahead of the rejection so a malformed payload is still
-   * diagnosed with its own specific message, exactly as it was before.
+   * Mints a `streamId` (there is no natural run id here — this operation
+   * produces no `PulumiRunRecord`) and pushes every `onPhase` event on
+   * {@link STACK_INIT_CHUNK_CHANNEL} tagged with it, mirroring
+   * `IacController.init`'s original fixed-side-channel-plus-streamId shape
+   * (see `hyveon-api.ts`/`preload.ts` — the same pattern task 10.3 reused
+   * for this channel). Checks `getOperationInFlight()` first and, with no
+   * `await` between that check and the call to
+   * `this.pulumi.initializeStack(...)`, closes the same TOCTOU gap
+   * {@link plan}'s own doc comment explains: `initializeStack`'s own busy
+   * check (a distinct `stackInitInFlight` flag, see that method's TSDoc) is
+   * set synchronously, before its own first `await`.
    *
-   * Reachable via the Electron IPC transport (`iac.init`), resolved by
-   * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` — this
-   * channel no longer self-bridges (see {@link onModuleInit}'s own TSDoc)
-   * since nothing is ever streamed any more.
+   * Once accepted, `initializeStack`'s promise is driven to completion in a
+   * fire-and-forget block (mirrors {@link plan}'s streaming loop, but there
+   * is no per-chunk drive loop to write since `onPhase` already pushes each
+   * event as it happens) — a single terminal message is sent on
+   * {@link STACK_INIT_END_CHANNEL} once it settles:
+   * `{ streamId }` on success, or `{ streamId, error, failedPhase }` on
+   * failure — `failedPhase` is populated whenever the rejection is a
+   * `PulumiStackInitializationError`, naming exactly which of the three
+   * phases failed (see that error class's own TSDoc).
+   *
+   * Reachable via the Electron IPC transport (`iac.stack.initialize`) — this
+   * channel self-bridges (see {@link onModuleInit}'s own TSDoc and
+   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts`), the same reason
+   * {@link plan}/{@link apply}/{@link destroy} do.
    */
-  @MessagePattern('iac.init')
-  async init(@Payload() config: TerraformInitConfig): Promise<TerraformInitAck> {
-    const validationError = IacController.validateConfig(config);
-    if (validationError) {
-      logger.error('terraform init rejected: invalid config', { error: validationError });
-      return { started: false, error: validationError };
+  @MessagePattern('iac.stack.initialize')
+  async initializeStack(
+    @Payload() _payload: unknown,
+    ctx: { evt: IpcMainInvokeEvent },
+  ): Promise<StackInitializeAck> {
+    const inFlight = this.pulumi.getOperationInFlight();
+    if (inFlight) {
+      const error =
+        `stack initialization refused: ${inFlight} is already in flight; wait for it to finish ` +
+        'before starting another operation';
+      logger.error('stack initialization rejected: workspace busy', { inFlight });
+      return { started: false, error, conflict: inFlight };
     }
 
-    logger.warn('terraform init rejected: no-op under the Pulumi engine', {});
-    return {
-      started: false,
-      error:
-        'iac.init is not applicable when using the Pulumi engine — Pulumi resolves and ' +
-        'installs its own engine automatically and has no separate init step. (Interim state ' +
-        'pending Phase 10 of the migrate-iac-to-pulumi change, which replaces the wizard\'s ' +
-        'init-dependent prerequisite step.)',
+    const sender: WebContents = ctx.evt.sender;
+    const streamId = randomUUID();
+    const onPhase: PulumiPhaseCallback = (phase, status) => {
+      if (sender.isDestroyed()) return;
+      const message: StackInitializePhaseMessage = { streamId, phase, status };
+      sender.send(STACK_INIT_CHUNK_CHANNEL, message);
     };
+
+    // No `await` between the busy check above and this call — see this
+    // method's own TSDoc for why that closes the same TOCTOU gap `plan()`'s
+    // identical comment explains.
+    const promise = this.pulumi.initializeStack(onPhase);
+
+    void promise
+      .then(() => {
+        if (!sender.isDestroyed()) {
+          const message: StackInitializeEndMessage = { streamId };
+          sender.send(STACK_INIT_END_CHANNEL, message);
+        }
+      })
+      .catch((err: unknown) => {
+        logger.error('stack initialization error', { err });
+        if (!sender.isDestroyed()) {
+          const message: StackInitializeEndMessage = {
+            streamId,
+            error: err instanceof Error ? err.message : String(err),
+            failedPhase: err instanceof PulumiStackInitializationError ? err.phase : undefined,
+          };
+          sender.send(STACK_INIT_END_CHANNEL, message);
+        }
+      });
+
+    return { started: true, streamId };
   }
 
   /**
@@ -1528,25 +1600,6 @@ export class IacController implements OnModuleInit {
    */
   private static resolveApprover(): string {
     return os.userInfo().username;
-  }
-
-  /**
-   * Validates that `config.bucket`, `config.region`, and
-   * `config.dynamodbTable` are all non-empty strings. Returns a descriptive
-   * error message when validation fails, or `null` when `config` is valid.
-   */
-  private static validateConfig(config: TerraformInitConfig): string | null {
-    const isNonEmptyString = (value: unknown): value is string =>
-      typeof value === 'string' && value.length > 0;
-
-    if (
-      !isNonEmptyString(config?.bucket) ||
-      !isNonEmptyString(config?.region) ||
-      !isNonEmptyString(config?.dynamodbTable)
-    ) {
-      return 'iac.init requires non-empty bucket, region, and dynamodbTable strings';
-    }
-    return null;
   }
 
   /**

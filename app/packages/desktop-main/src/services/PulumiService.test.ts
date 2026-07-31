@@ -76,7 +76,7 @@ function makeStore(opts: {
 } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
-    store.set('bootstrap', { stateBucket: opts.stateBucket, lockTable: '', configurationBucket: '' });
+    store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
   if (opts.passphrase !== undefined) {
     // Bypass the encrypted accessor pair — presence is checked via the raw

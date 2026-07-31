@@ -10,11 +10,6 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   the handler needs to push follow-up chunk/end messages over side channels
  *   derived from a `streamId` it mints itself — see
  *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
- * - `iac.init`: NOT self-bridged (unlike before task 7.10 of the
- *   `migrate-iac-to-pulumi` change) — `IacController.init` no longer
- *   streams anything under the Pulumi engine (see that method's own TSDoc);
- *   it resolves a single value like any other channel, so the generic bridge
- *   below handles it now.
  * - `iac.plan`: bridged manually by its controller because it streams
  *   `pulumi preview` progress over a side channel for the duration of a
  *   long-running run, the same self-bridging pattern `logs.stream` uses.
@@ -40,8 +35,12 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  * - `iac.runs.logs`: bridged manually by `IacRunsController`
  *   because the handler streams a run's live/replayed output over a side
  *   channel derived from a `streamId` it mints itself, the same
- *   self-bridging pattern `iac.init`/`iac.plan` use — see
+ *   self-bridging pattern `iac.plan`/`iac.runs.logs` use — see
  *   `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
+ * - `iac.stack.initialize`: bridged manually by `IacController` (task
+ *   10.3, replacing the deleted `iac.init` channel) for the same reason as
+ *   `iac.plan` — it streams `PulumiService.initializeStack`'s `onPhase`
+ *   progress over a side channel for the duration of a long-running run.
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
@@ -50,6 +49,7 @@ export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'iac.destroy',
   'iac.rollback.confirm',
   'iac.runs.logs',
+  'iac.stack.initialize',
 ]);
 
 /**
