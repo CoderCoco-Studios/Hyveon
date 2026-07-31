@@ -116,14 +116,18 @@ describe('AddGameWizard — submit success path', () => {
     toastMock.error.mockClear();
   });
 
-  it('should show a success toast, redirect to the new game page, and close the dialog', async () => {
+  it('should show a success toast telling the operator to plan/apply, redirect to the new game page, and close the dialog', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
     await openWizard();
     await fillHappyPathToReview();
 
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
-    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith('mygame created'));
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith('mygame created', {
+        description: 'Run plan and apply on the Infrastructure page to deploy it.',
+      }),
+    );
     expect(navigateMock).toHaveBeenCalledWith('/games/mygame');
     expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
   });

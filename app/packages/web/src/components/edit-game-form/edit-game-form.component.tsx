@@ -227,7 +227,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
       )}
 
       <p className="text-xs text-[var(--color-muted-foreground)]">
-        Saving only updates <code>terraform.tfvars</code> — visit{' '}
+        Saving only updates the configuration object — visit{' '}
         <Link to="/iac" className="underline underline-offset-2">
           Infrastructure
         </Link>{' '}

@@ -10,8 +10,9 @@ import {
 } from '@/components/ui/tooltip.component';
 
 /**
- * Values shown before `api.config()` resolves. They mirror the Terraform
- * defaults so the panel never renders a nonsensical idle window.
+ * Values shown before `api.config()` resolves. They mirror the
+ * `DeploymentConfig` defaults so the panel never renders a nonsensical idle
+ * window.
  */
 const FALLBACK_CONFIG: WatchdogConfig = {
   watchdog_interval_minutes: 15,
@@ -62,7 +63,9 @@ function parseField(raw: string, min: number): { value: number | null; error: st
 /**
  * Bottom-right dashboard panel that reads and writes the three watchdog knobs
  * via `/api/config`. Note these settings tune the in-app behaviour only — the
- * Lambda's EventBridge schedule is baked in at `terraform apply` time.
+ * Lambda's EventBridge schedule is instead baked in at apply time, from the
+ * separate `DeploymentConfig` watchdog fields in this same page's General
+ * section (`DeploymentSettingsForm`).
  */
 export function WatchdogPanel() {
   const [draft, setDraft] = useState<WatchdogDraft>(() => toDraft(FALLBACK_CONFIG));
@@ -132,7 +135,7 @@ export function WatchdogPanel() {
           {interval.value !== null && idleChecks.value !== null ? (
             <>
               Auto-shutdown after {interval.value * idleChecks.value} minutes idle ({interval.value} min × {idleChecks.value} checks).
-              Update Terraform vars to change the Lambda schedule.
+              Update the watchdog fields in the General section below and re-apply to change the Lambda schedule.
             </>
           ) : (
             <>Fix the highlighted fields to see the idle window.</>

@@ -305,7 +305,7 @@ test('terraform-apply.png', async () => {
     // The Plan section (with its own "1 to add" badge) stays mounted above
     // the Apply section, so `.last()` targets the Apply section's copy.
     await expect(terraform.summaryBadge('1 to add').last()).toBeVisible();
-    // `toast.success('terraform apply complete')` fires a Sonner toast that
+    // `toast.success('Apply complete')` fires a Sonner toast that
     // would otherwise sit on top of the Apply section for its full 4s
     // duration — the frozen clock never advances on its own, so nothing ever
     // dismisses it. Fast-forward past that duration (this also fires the

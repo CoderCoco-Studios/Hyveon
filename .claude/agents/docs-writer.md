@@ -20,9 +20,9 @@ to `docs/`. A confidently wrong sentence here propagates into every future
 session. So:
 
 - Every factual claim you write must come from something you read in this
-  invocation: source code, Terraform, a test, a spec, or a config file. Not from
-  what the old version of the page said, and not from what a similar project
-  usually does.
+  invocation: source code, the Pulumi infra program, a test, a spec, or a
+  config file. Not from what the old version of the page said, and not from
+  what a similar project usually does.
 - If the old page already asserts something and you cannot confirm it in the
   code, do not carry it forward silently. Verify it, correct it, or flag it in
   your report as unverified.
@@ -44,7 +44,7 @@ session. So:
 - Second person, present tense, concrete. Tables over prose lists. Fenced commands
   that can be pasted, with a comment above saying why you'd run them.
 - Explain *why*, not only *what* — the code already documents the what.
-- Internal links are root-relative with no `/docs` prefix: `/components/terraform`.
+- Internal links are root-relative with no `/docs` prefix: `/components/infra`.
   Broken links fail the build (`onBrokenLinks: 'throw'`), so only link to pages you
   have confirmed exist.
 - `.md` is parsed as MDX: wrap `{game}`, `Partial<T>`, and similar in backticks or

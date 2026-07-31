@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Eye,
@@ -218,9 +219,17 @@ export function DiscordPage() {
           <div>
             <h2 className="text-2xl font-semibold">Discord</h2>
             <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
-              {loadError
-                ? 'Discord config unavailable — infrastructure not deployed yet. Run `terraform apply` first.'
-                : 'Loading…'}
+              {loadError ? (
+                <>
+                  Discord config unavailable — infrastructure not deployed yet. Run a plan and apply from the{' '}
+                  <Link to="/iac" className="underline underline-offset-2">
+                    Infrastructure
+                  </Link>{' '}
+                  page first.
+                </>
+              ) : (
+                'Loading…'
+              )}
             </p>
           </div>
           <PollingIndicator />
@@ -305,7 +314,7 @@ function ServerlessBadge({ cfg }: { cfg: DiscordConfigRedacted }) {
     return <Badge variant="success">serverless · ready</Badge>;
   }
   const label = !cfg.interactionsEndpointUrl
-    ? 'terraform not applied'
+    ? 'not applied yet'
     : !cfg.botTokenSet || !cfg.publicKeySet
       ? 'awaiting credentials'
       : 'incomplete';
@@ -522,7 +531,11 @@ function CredentialsSection({
             </div>
           ) : (
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              Run <code>terraform apply</code> to provision the Lambda and surface this URL.
+              Run a plan and apply from the{' '}
+              <Link to="/iac" className="underline underline-offset-2">
+                Infrastructure
+              </Link>{' '}
+              page to provision the Lambda and surface this URL.
             </p>
           )}
         </div>
@@ -600,7 +613,7 @@ function SecretField({
 /**
  * Guild allowlist editor. Each row exposes Register/Remove actions and a
  * "registered this session" badge that flips after the operator clicks
- * Register. Terraform-managed guilds are non-removable but still registerable.
+ * Register. Base-config guilds are non-removable but still registerable.
  */
 function GuildsSection({
   cfg,
@@ -619,9 +632,9 @@ function GuildsSection({
   const [error, setError] = useState<string | null>(null);
   const [registered, setRegistered] = useState<Set<string>>(new Set());
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  // Merge the terraform-managed and dynamic allowlists, deduping by guild ID
+  // Merge the base-config and dynamic allowlists, deduping by guild ID
   // so a guild that appears in both never renders twice (which would collide
-  // React keys and produce conflicting per-row actions). The terraform entry
+  // React keys and produce conflicting per-row actions). The base-config entry
   // wins so the row is shown as locked.
   const allGuilds = useMemo(() => {
     const seen = new Set<string>();
@@ -787,7 +800,7 @@ function GuildsSection({
                         )}
                         {locked && (
                           <Badge variant="outline" className="text-[0.65rem]">
-                            terraform
+                            base
                           </Badge>
                         )}
                       </div>
@@ -807,7 +820,11 @@ function GuildsSection({
                           size="sm"
                           disabled={busy || locked}
                           onClick={() => setPendingRemoveId(id)}
-                          title={locked ? 'Managed by Terraform — remove via terraform.tfvars' : undefined}
+                          title={
+                            locked
+                              ? 'Locked by the base deployment config — edit "Base allowed guild IDs" on the Settings page, then plan and apply.'
+                              : undefined
+                          }
                         >
                           Remove
                         </Button>
@@ -919,7 +936,7 @@ function AdminsSection({
             <div className="border-t border-[var(--color-border)] pt-4 space-y-3">
               <div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]">
                 <ShieldCheck className="size-3.5" />
-                Terraform-managed (read-only)
+                Base config (read-only)
               </div>
               {cfg.baseAdmins.userIds.length > 0 && (
                 <div>
@@ -946,7 +963,7 @@ function AdminsSection({
 }
 
 /**
- * Read-only badge list; used to display terraform-managed user/role IDs that
+ * Read-only badge list; used to display base-config user/role IDs that
  * the operator can't edit from the UI.
  */
 function ChipList({ ids }: { ids: string[] }) {
@@ -1083,7 +1100,15 @@ function PermissionsSection({
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-[var(--color-muted-foreground)]">
-          No games configured yet — run <code>terraform apply</code> first.
+          No games configured yet — declare one on the{' '}
+          <Link to="/games" className="underline underline-offset-2">
+            Games
+          </Link>{' '}
+          page, then plan and apply from{' '}
+          <Link to="/iac" className="underline underline-offset-2">
+            Infrastructure
+          </Link>
+          .
         </CardContent>
       </Card>
     );

@@ -277,9 +277,9 @@ dev: | $(STAMP_DIR)
 }
 
 /**
- * Skeleton tfvars derived from the public terraform.tfvars.example shape. We
- * fill in the few things we just asked the user about and leave the rest as
- * commented examples.
+ * Skeleton tfvars mirroring the shape the now-deleted `terraform.tfvars.example`
+ * used to document. We fill in the few things we just asked the user about and
+ * leave the rest as commented examples.
  */
 export function renderTfvars(a: Answers): string {
   const discordBlock =
@@ -319,7 +319,8 @@ ${discordBlock}
 # base_admin_user_ids  = ["987654321098765432"]
 # base_admin_role_ids  = []
 
-# Game server definitions. See ${a.submoduleDir}/terraform/terraform.tfvars.example
+# Game server definitions — declare these via the app's Games page instead;
+# see ${a.submoduleDir}/app/packages/shared/src/tfvars.ts (GameServerConfig)
 # for the full schema.
 game_servers = {
   # palworld = {

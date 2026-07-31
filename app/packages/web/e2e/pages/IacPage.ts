@@ -16,9 +16,10 @@ export class IacPage {
   /**
    * Navigate to `/iac` by clicking the sidebar link and waiting for the
    * URL to settle. Exact-match, since Playwright's default name match is a
-   * case-insensitive substring and other pages link out to
-   * "Edit terraform.tfvars" (a GitHub help link), which would otherwise
-   * collide with the sidebar's "Infrastructure" nav item.
+   * case-insensitive substring and other pages (e.g. the dashboard's
+   * "Infrastructure" link inside `PendingChangesBanner`) also render text
+   * containing "Infrastructure", which would otherwise collide with the
+   * sidebar's own nav item of the same name.
    */
   async gotoViaSidebar(): Promise<void> {
     await this.page.getByRole('link', { name: 'Infrastructure', exact: true }).click();
@@ -27,9 +28,9 @@ export class IacPage {
 
   // ── Plan ─────────────────────────────────────────────────────────────
 
-  /** "Terraform" page heading — used as a "the page mounted" smoke check. */
+  /** "Infrastructure" page heading — used as a "the page mounted" smoke check. */
   heading(): Locator {
-    return this.page.getByRole('heading', { name: 'Terraform' });
+    return this.page.getByRole('heading', { name: 'Infrastructure' });
   }
 
   /** Trigger that submits `hyveon.iac.plan()`. */
