@@ -141,6 +141,52 @@ describe('TerraformHistoryPage', () => {
     expect(within(bodyRows[1]!).getByText('—')).toBeInTheDocument();
   });
 
+  describe('change summary (task 9.5)', () => {
+    it('should render grouped change badges for a row with a populated changeSummary', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ changeSummary: { create: 3, update: 1 } })],
+      });
+      renderPage(<TerraformHistoryPage />);
+
+      expect(await screen.findByText('3 to create')).toBeInTheDocument();
+      expect(screen.getByText('1 to update')).toBeInTheDocument();
+    });
+
+    it('should render "Change summary unavailable" for a row with no changeSummary', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
+      renderPage(<TerraformHistoryPage />);
+
+      expect(await screen.findByText('Change summary unavailable')).toBeInTheDocument();
+    });
+
+    it('should render a distinct "no changes" state for a row whose changeSummary reports only unchanged resources', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ changeSummary: { same: 5 } })],
+      });
+      renderPage(<TerraformHistoryPage />);
+
+      expect(await screen.findByText('No changes — 5 unchanged')).toBeInTheDocument();
+      expect(screen.queryByText('Change summary unavailable')).not.toBeInTheDocument();
+    });
+
+    it('should render a partial badge for a row whose record has partialApply true', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ runId: 'apply-partial', partialApply: true })],
+      });
+      renderPage(<TerraformHistoryPage />);
+
+      expect(await screen.findByText('partial')).toBeInTheDocument();
+    });
+
+    it('should not render a partial badge for a row whose record has no partialApply', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord()] });
+      renderPage(<TerraformHistoryPage />);
+
+      await screen.findByText('apply');
+      expect(screen.queryByText('partial')).not.toBeInTheDocument();
+    });
+  });
+
   describe('rollback action (#112)', () => {
     it('should show a Rollback button only for apply rows that recorded a tfvarsVersionId', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({

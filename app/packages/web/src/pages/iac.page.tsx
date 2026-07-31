@@ -276,8 +276,11 @@ function isNoOpSummary(summary: ChangeSummary): boolean {
  * structured event was never observed, a dedicated no-op message when the
  * run only reports `same`, or grouped badges for the ops that actually
  * changed something.
+ *
+ * Exported (task 9.5) so the read-only run-history table and detail view can
+ * reuse this exact three-way distinction instead of reimplementing it.
  */
-function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | undefined }) {
+export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | undefined }) {
   if (isSummaryUnavailable(summary)) {
     return <span className="text-sm italic text-[var(--color-muted-foreground)]">Change summary unavailable</span>;
   }
