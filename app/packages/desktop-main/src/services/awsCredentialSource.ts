@@ -1,6 +1,38 @@
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /**
+ * Thrown by {@link resolveAwsCredentialSource} when
+ * {@link ElectronStoreService.getPastedCredentials} throws while decrypting a
+ * stored pasted-credentials entry — Electron's `safeStorage.decryptString`
+ * throws its own raw `Error` for a corrupt or foreign ciphertext blob (e.g.
+ * encrypted on a different machine or OS user account; the same underlying
+ * condition `PulumiWorkspaceService.resolveStoredPassphrase` already
+ * classifies as `'existing-stack-decrypt-failed'` for the passphrase case).
+ * That raw error has no distinguishing type of its own, so a caller further
+ * up the stack that classifies failures by `instanceof` (see
+ * `PulumiService.classifyGetOrCreateStackFailure`) has no way to tell it
+ * apart from a genuine mid-operation Pulumi engine failure — this wraps it in
+ * a typed class so callers CAN, and never has to also cover
+ * `SafeStorageService.decrypt`'s OTHER failure mode (a merely-unavailable
+ * keychain, which decrypts to garbage silently rather than throwing — see
+ * that method's own remarks) since that path never reaches this catch at
+ * all.
+ */
+export class AwsPastedCredentialDecryptError extends Error {
+  constructor(
+    public readonly profile: string,
+    public readonly cause: unknown,
+  ) {
+    super(
+      `Cannot decrypt the stored pasted-credentials entry for AWS profile "${profile}" — the ciphertext may be ` +
+        'corrupted, or encrypted on a different machine or OS user account. Re-enter the credentials via the ' +
+        'wizard (or Settings → AWS Resources) to replace the stored entry.',
+    );
+    this.name = 'AwsPastedCredentialDecryptError';
+  }
+}
+
+/**
  * The wizard's chosen AWS credential source, resolved from
  * `ElectronStoreService`'s `aws: { region, profile }` selection plus the
  * pasted-credentials map (`creds.aws.<profileName>`) — the exact decision
@@ -35,13 +67,25 @@ export type AwsCredentialSource =
  * has its own requirements around (e.g. `BootstrapCredentialsNotConfiguredError`
  * when absent); folding it in here would force every caller through this
  * function's error handling for a concern unrelated to *which credentials* to use.
+ *
+ * @throws {@link AwsPastedCredentialDecryptError} if `profile` resolves to a
+ *   pasted-credentials entry whose stored ciphertext can't be decrypted (see
+ *   that class's own doc comment) — wraps `ElectronStoreService.getPastedCredentials`'s
+ *   raw, untyped throw so callers that classify failures by type (e.g.
+ *   `PulumiService.classifyGetOrCreateStackFailure`) can distinguish it from
+ *   an unrelated failure.
  */
 export function resolveAwsCredentialSource(store: ElectronStoreService): AwsCredentialSource {
   const profile = store.get('aws')?.profile;
   if (!profile) {
     return { kind: 'none' };
   }
-  const pasted = store.getPastedCredentials(profile);
+  let pasted: { accessKeyId: string; secretAccessKey: string; region?: string } | undefined;
+  try {
+    pasted = store.getPastedCredentials(profile);
+  } catch (err) {
+    throw new AwsPastedCredentialDecryptError(profile, err);
+  }
   if (pasted) {
     return { kind: 'pasted', profile, accessKeyId: pasted.accessKeyId, secretAccessKey: pasted.secretAccessKey };
   }
