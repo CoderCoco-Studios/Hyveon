@@ -10,6 +10,14 @@ import {
   type BucketLocationConstraint,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
+import {
+  DynamoDBClient,
+  CreateTableCommand,
+  DescribeTableCommand,
+  UpdateContinuousBackupsCommand,
+  ResourceInUseException,
+  waitUntilTableExists,
+} from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
@@ -25,6 +33,16 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
  * target.
  */
 const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
+
+/**
+ * Maximum time, in seconds, {@link BootstrapService.ensureRunsTable} will
+ * wait for a freshly-created table to reach `ACTIVE` status
+ * (`waitUntilTableExists`) before enabling point-in-time recovery — a
+ * `PAY_PER_REQUEST` table with two attributes and one GSI typically becomes
+ * `ACTIVE` within a few seconds, so 60s leaves generous headroom without
+ * risking the wizard step hanging indefinitely on a genuinely stuck table.
+ */
+const RUNS_TABLE_WAIT_TIMEOUT_SECONDS = 60;
 
 /**
  * The credentials/region shape shared by every wizard-bootstrap SDK client
@@ -180,6 +198,149 @@ export class BootstrapService {
     }
 
     return { status: created ? 'created' : 'exists' };
+  }
+
+  /**
+   * Idempotently ensures the run-history DynamoDB table exists, with the
+   * `status-index` GSI and point-in-time recovery enabled — the exact schema
+   * `@hyveon/infra`'s `dynamodb.ts` documents (that package no longer
+   * declares this table as a Pulumi resource; see its file doc for why).
+   *
+   * @remarks
+   * Called from the first-run wizard's bootstrap step, alongside
+   * {@link ensureStateBucket}/{@link ensureConfigurationBucket} — this is the
+   * fix for a Critical bootstrap deadlock: `RunRecordService`'s approve/apply
+   * gates require this table to exist before the very first Pulumi
+   * plan/apply cycle of a fresh install can ever complete, which a
+   * Pulumi-managed resource structurally cannot guarantee (a stack only
+   * reports outputs, and therefore could only report this table's name,
+   * after its first successful `apply` — see `PulumiService.getStackOutputs`'s
+   * own doc). Creating it here, before any `DeploymentConfig`/Pulumi apply
+   * exists at all, removes that circular dependency entirely.
+   *
+   * Idempotent via a `DescribeTable` pre-check (mirroring
+   * {@link bucketExists}'s `HeadBucket` pre-check for the S3 methods above),
+   * with a `ResourceInUseException` from `CreateTable` itself ALSO treated as
+   * `'exists'` (not an error) as a race-safety net — two concurrent
+   * `ensureRunsTable` calls (e.g. a wizard resume racing a Reconfigure) can
+   * both pass the pre-check before either's `CreateTable` lands.
+   *
+   * Point-in-time recovery cannot be requested at `CreateTable` time (unlike
+   * the S3 methods' versioning/encryption, which the `CreateBucket`-adjacent
+   * `Put*` calls above apply as separate calls too) — it requires a
+   * dedicated `UpdateContinuousBackups` call against a table that has
+   * already reached `ACTIVE` status, so this method waits for that via
+   * {@link waitUntilTableExists} before enabling it. Applied unconditionally
+   * on both the fresh-create and already-exists paths, mirroring
+   * {@link ensurePublicAccessBlock}'s "bring an older table up to the
+   * current standard" precedent.
+   *
+   * @param tableName - The resolved (not raw-override) table name to
+   *   create/ensure — callers must already have applied
+   *   `@hyveon/shared`'s `resolveRunsTableName` themselves; this method
+   *   creates exactly the name it's given.
+   */
+  async ensureRunsTable(tableName: string): Promise<BootstrapResult> {
+    const client = this.createDynamoDbClient();
+    let created: boolean;
+    try {
+      created = await this.createRunsTable(client, tableName);
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+
+    try {
+      await waitUntilTableExists({ client, maxWaitTime: RUNS_TABLE_WAIT_TIMEOUT_SECONDS }, { TableName: tableName });
+      await client.send(
+        new UpdateContinuousBackupsCommand({
+          TableName: tableName,
+          PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+        }),
+      );
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+
+    return { status: created ? 'created' : 'exists' };
+  }
+
+  /**
+   * Creates the run-history table, returning `true` if this call created it
+   * and `false` if it already existed (confirmed via a `DescribeTable`
+   * pre-check, or a `ResourceInUseException` race on `CreateTable` itself —
+   * both are success paths, mirroring {@link createBucket}'s
+   * `BucketAlreadyOwnedByYou` handling). Re-throws any other `CreateTable`
+   * failure.
+   */
+  private async createRunsTable(client: DynamoDBClient, tableName: string): Promise<boolean> {
+    if (await this.runsTableExists(client, tableName)) {
+      return false;
+    }
+    try {
+      await client.send(
+        new CreateTableCommand({
+          TableName: tableName,
+          BillingMode: 'PAY_PER_REQUEST',
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' },
+          ],
+          AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' },
+            { AttributeName: 'status', AttributeType: 'S' },
+            { AttributeName: 'startedAt', AttributeType: 'S' },
+          ],
+          GlobalSecondaryIndexes: [
+            {
+              IndexName: 'status-index',
+              KeySchema: [
+                { AttributeName: 'status', KeyType: 'HASH' },
+                { AttributeName: 'startedAt', KeyType: 'RANGE' },
+              ],
+              Projection: { ProjectionType: 'ALL' },
+            },
+          ],
+          Tags: [
+            { Key: 'Name', Value: tableName },
+            { Key: 'Project', Value: 'hyveon' },
+          ],
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (err instanceof ResourceInUseException) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Resolves `true` when `tableName` already exists and is reachable by the
+   * caller's credentials, via `DescribeTable`. Any failure (a genuine
+   * `ResourceNotFoundException` — the table is free to create — or anything
+   * else, e.g. a transient access denial) is treated as "not confirmed to
+   * exist" so {@link createRunsTable}'s own `CreateTable` error handling
+   * still runs — mirrors {@link bucketExists}.
+   */
+  private async runsTableExists(client: DynamoDBClient, tableName: string): Promise<boolean> {
+    try {
+      await client.send(new DescribeTableCommand({ TableName: tableName }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Creates a `DynamoDBClient` from the credentials/region chosen in the
+   * wizard's credentials step, mirroring {@link createS3Client} exactly
+   * (same {@link resolveClientConfig} seam). Extracted as a protected seam
+   * so tests can stub it without touching real credentials.
+   */
+  protected createDynamoDbClient(): DynamoDBClient {
+    return new DynamoDBClient(this.resolveClientConfig());
   }
 
   /**
