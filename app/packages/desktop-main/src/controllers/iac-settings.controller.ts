@@ -65,19 +65,28 @@ export class IacSettingsController {
    *    → `{ code: 'setup_incomplete' }`, distinct from the generic
    *    `{ code: 'error' }` so the renderer can route the operator toward the
    *    setup wizard instead of a generic failure message.
-   *  - Anything else (e.g. malformed config JSON, an unexpected S3 error) →
-   *    the catch-all `{ code: 'error' }`.
+   *  - Anything else (e.g. malformed config JSON, an unexpected S3 error, or
+   *    a malformed `payload`/`payload.patch` envelope itself) → the
+   *    catch-all `{ code: 'error' }`.
+   *
+   * The {@link validateDeploymentSettingsPatch} call lives INSIDE the `try`
+   * block (review round 1, M2) rather than before it — a malformed envelope
+   * (`payload` or `payload.patch` absent/wrong-shaped, which nothing upstream
+   * of this handler guarantees against on the IPC boundary) would otherwise
+   * throw a raw, unstructured error out of this handler instead of returning
+   * the same `{ code: 'error' }` shape every other unexpected failure here
+   * resolves to.
    *
    * Reachable via the Electron IPC transport (`iac.settings.update`).
    */
   @MessagePattern('iac.settings.update')
   async update(@Payload() payload: UpdateDeploymentSettingsPayload): Promise<DeploymentSettingsWriteResult> {
-    const issues = validateDeploymentSettingsPatch(payload.patch);
-    if (issues.length > 0) {
-      return { ok: false, code: 'validation', issues };
-    }
-
     try {
+      const issues = validateDeploymentSettingsPatch(payload.patch);
+      if (issues.length > 0) {
+        return { ok: false, code: 'validation', issues };
+      }
+
       const write = await this.tfvars.updateTopLevelSettings(payload.patch, payload.expectedVersionId);
       const { settings } = await this.tfvars.getTopLevelSettings();
       return { ok: true, settings, etag: write.etag, versionId: write.versionId };

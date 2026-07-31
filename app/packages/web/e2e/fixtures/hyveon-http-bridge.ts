@@ -96,5 +96,28 @@ export function installHyveonHttpBridge(): void {
         call(`/api/logs/${game}${limit ? `?limit=${limit}` : ''}`),
       stream: async function* () {},
     },
+    // The deployment-settings editor (task 9.7) is IPC-only in production
+    // with no HTTP route — same situation as `logs` above. `get()` resolves
+    // a `setup_incomplete` result rather than throwing: `DeploymentSettingsForm`
+    // already renders that outcome as a quiet informational message (not a
+    // red alert), which is the closest honest stand-in this HTTP-less shim
+    // can give for "no real deployment configuration in this test tier". No
+    // chromium spec exercises the settings form's real read/write behaviour
+    // (that's covered by the `web` Vitest project's own component test), so
+    // this stub exists only so `/settings` doesn't render an "IPC bridge not
+    // available" error for a namespace that, from the chromium tier's own
+    // perspective, actually is unavailable.
+    iac: {
+      settings: {
+        get: async () => ({
+          ok: false,
+          code: 'setup_incomplete',
+          message: 'Deployment settings are not available in this test tier (no HTTP route — see hyveon-http-bridge.ts).',
+        }),
+        update: async () => {
+          throw new Error('iac.settings.update has no HTTP route in the chromium e2e tier.');
+        },
+      },
+    },
   };
 }

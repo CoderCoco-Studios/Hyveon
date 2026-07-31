@@ -5,6 +5,21 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateDeploymentSettingsPatch } from './deploymentSettingsWrite.js';
+import type { TopLevelDeploymentSettings } from './deploymentConfig.js';
+
+/**
+ * Casts an arbitrary wrong-typed payload into
+ * `Partial<TopLevelDeploymentSettings>` for the "wrong-typed values" describe
+ * block below — simulates a caller that bypasses the renderer entirely (a
+ * modified client, a hand-crafted IPC payload), which is exactly the
+ * scenario `validateDeploymentSettingsPatch` exists to guard against
+ * independent of any client-side copy of the same rules. TypeScript's
+ * `Partial<TopLevelDeploymentSettings>` offers no runtime protection against
+ * this — the cast documents that gap rather than working around it.
+ */
+function wirePayload(patch: Record<string, unknown>): Partial<TopLevelDeploymentSettings> {
+  return patch as unknown as Partial<TopLevelDeploymentSettings>;
+}
 
 describe('validateDeploymentSettingsPatch', () => {
   it('should return no issues for an empty patch', () => {
@@ -127,6 +142,64 @@ describe('validateDeploymentSettingsPatch', () => {
         expect(validateDeploymentSettingsPatch({ [field]: '' })).toEqual([]);
       },
     );
+  });
+
+  describe('wrong-typed values (review round 1, finding I1) — rejected, never silently skipped', () => {
+    it.each(['hostedZoneName', 'projectName', 'awsRegion', 'discordApplicationId', 'auditTableName', 'runsTableName'] as const)(
+      'should reject a number for the string field %s instead of silently passing it through',
+      (field) => {
+        const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: 42 }));
+        expect(issues).toContainEqual({ path: field, message: 'Must be a string.' });
+      },
+    );
+
+    it.each(['hostedZoneName', 'projectName', 'awsRegion'] as const)(
+      'should reject an object for the required string field %s',
+      (field) => {
+        const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: { a: 1 } }));
+        expect(issues).toContainEqual({ path: field, message: 'Must be a string.' });
+      },
+    );
+
+    it('should reject a number for vpcCidr rather than crashing on a missing .trim()', () => {
+      const issues = validateDeploymentSettingsPatch(wirePayload({ vpcCidr: 100000 }));
+      expect(issues).toContainEqual({ path: 'vpcCidr', message: 'Must be a string.' });
+    });
+
+    it.each(['dnsTtl', 'watchdogIntervalMinutes', 'watchdogIdleChecks', 'watchdogMinPackets'] as const)(
+      'should reject a numeric-looking string for %s (already correct — pinned so it never regresses)',
+      (field) => {
+        const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: '5' }));
+        expect(issues).toContainEqual({ path: field, message: 'Must be a positive whole number.' });
+      },
+    );
+
+    it.each(['baseAllowedGuilds', 'baseAdminUserIds', 'baseAdminRoleIds'] as const)(
+      'should reject a plain string for the array field %s instead of silently accepting it',
+      (field) => {
+        // `"everyone"` is exactly the kind of value that would otherwise slip
+        // through to `infra/src/escapes.ts`'s `baseAllowedGuilds.length` (a
+        // string also has `.length`) and corrupt the BASE#discord row.
+        const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: 'everyone' }));
+        expect(issues).toContainEqual({ path: field, message: 'Must be an array of Discord snowflake IDs.' });
+      },
+    );
+
+    it.each(['baseAllowedGuilds', 'baseAdminUserIds', 'baseAdminRoleIds'] as const)(
+      'should reject a plain object for the array field %s',
+      (field) => {
+        const issues = validateDeploymentSettingsPatch(wirePayload({ [field]: { 0: 'x' } }));
+        expect(issues).toContainEqual({ path: field, message: 'Must be an array of Discord snowflake IDs.' });
+      },
+    );
+
+    it('should reject a non-string entry inside an otherwise-array baseAdminUserIds', () => {
+      const issues = validateDeploymentSettingsPatch(wirePayload({ baseAdminUserIds: [12345] }));
+      expect(issues).toContainEqual({
+        path: 'baseAdminUserIds[0]',
+        message: 'Must be a 17-20 digit Discord snowflake ID.',
+      });
+    });
   });
 
   it('should collect issues from multiple invalid fields in a single patch', () => {
