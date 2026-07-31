@@ -3882,6 +3882,127 @@ export class PulumiService {
   }
 
   /**
+   * Clears an UNRECOGNIZED Pulumi backend lock (task 9.4, `migrate-iac-to-pulumi`)
+   * after an operator has explicitly confirmed they believe it's genuinely
+   * stale — the human-confirmed counterpart to `apply()`/`destroy()`'s own
+   * internal auto-reclaim of a *provable* own-orphan lock (see
+   * `PulumiLockRecovery.ts`, `classifyStackLockConflict`'s
+   * `'reclaimable-own-orphan'` branch, wired into `apply()`/`destroy()`
+   * already). This method makes NO attempt to classify or prove anything
+   * about the lock it clears — by the time a caller reaches this method,
+   * `PulumiUnrecognizedLockError` has already told them the lock could NOT be
+   * proven this installation's own, and the confirmation UI (`iac.page.tsx`'s
+   * stale-lock banner) has already required an explicit, separately-worded
+   * confirmation specifically because clearing a genuinely still-active lock
+   * elsewhere would risk corrupting a real concurrent deployment. This method
+   * is the mechanical "do it" step once that human judgment call has already
+   * been made — it does not, and cannot, re-derive or re-check the judgment
+   * itself.
+   *
+   * ## Why refuse under `operationInFlight`
+   *
+   * If THIS app instance already has `preview`/`up`/`destroy`/`rollback`
+   * running, the backend lock the operator is looking at is (almost
+   * certainly) the one that same in-flight operation is correctly holding —
+   * it is not stale, and clearing it out from under a legitimately-running
+   * operation would let a second, uncoordinated `pulumi` invocation touch the
+   * same state concurrently, exactly the corruption this whole recovery flow
+   * exists to avoid causing. Reuses {@link PulumiOperationInFlightError}
+   * rather than introducing a new error class — the shape
+   * (`inFlight: 'preview' | 'up' | 'destroy' | 'rollback'`) and meaning
+   * ("cannot run this operation while X is already running") are identical
+   * to every other caller of that class in this file; a bespoke class here
+   * would only duplicate it for no behavioral gain.
+   *
+   * This is a synchronous, top-of-function check only — unlike `apply()`/
+   * `destroy()`, this method never itself sets {@link operationInFlight}
+   * (there is no multi-step gate here for a second call to race against), so
+   * a narrow window still exists where a fresh `preview`/`up`/`destroy`
+   * legitimately starts and re-takes the lock between this check and
+   * `stack.cancel()` actually running. That risk is inherent to clearing a
+   * lock at all — including the manual "delete the S3 lock object by hand"
+   * recovery this feature replaces — and is not something a single
+   * synchronous flag check can fully close; the meaningful safety property
+   * this method (and the confirmation dialog in front of it) provides is
+   * refusing the *common* case (an operation already running in THIS
+   * instance), not eliminating every theoretically possible race with some
+   * *other* instance or CLI invocation.
+   *
+   * ## No-op inline program
+   *
+   * Mirrors `destroy()`'s "No-op inline program" decision exactly (see that
+   * method's own TSDoc) — an `async () => ({})` program passed to
+   * {@link PulumiWorkspaceService.getOrCreateStack} only stands up the
+   * Automation API's gRPC handshake; `stack.cancel()` never runs the program
+   * or reads the deployment configuration object, so this method doesn't
+   * either. That also means clearing a lock never depends on the current
+   * configuration object being present or well-formed — operationally
+   * important, since a lock left behind by a crashed run is exactly the kind
+   * of situation where the configuration object might also be in a
+   * questionable state.
+   *
+   * ## Does not retry
+   *
+   * This method only clears the lock — it never re-attempts the
+   * plan/apply/destroy that originally hit the conflict. The operator
+   * retries by resubmitting through the normal plan/apply/destroy button
+   * afterward (task 9.4's brief, requirement 1) — a fresh, separate operator
+   * action, not an automatic one-more-attempt inside this call the way
+   * `apply()`/`destroy()`'s own reclaim-and-retry path works.
+   *
+   * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
+   *   `destroy`/`rollback` is already running against this shared workspace.
+   * @throws A descriptive `Error` if the state bucket/region isn't configured
+   *   yet, or no Pulumi stack has ever been created for this installation —
+   *   mirrors `destroy()`'s identical config-presence checks.
+   * @throws {@link PulumiLockClearError} if `stack.cancel()` itself fails —
+   *   the lock is still standing afterward exactly as it was before the
+   *   attempt; never swallowed silently.
+   */
+  async clearStaleLock(): Promise<void> {
+    if (this.operationInFlight) {
+      throw new PulumiOperationInFlightError(this.operationInFlight);
+    }
+
+    const stateBucket = this.store.get('bootstrap')?.stateBucket;
+    const stateBucketRegion = this.store.get('aws')?.region;
+    if (!stateBucket || !stateBucketRegion) {
+      throw new Error(
+        'Cannot clear the Pulumi backend lock: the state bucket / AWS region has not been configured yet. ' +
+          'Complete the bootstrap step first.',
+      );
+    }
+    const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+    if (!stackExists) {
+      throw new Error(
+        'Cannot clear the Pulumi backend lock: no Pulumi stack has ever been created for this installation ' +
+          '(no secrets passphrase on record) — nothing to clear.',
+      );
+    }
+
+    const stack = await this.workspace.getOrCreateStack({
+      // See this method's TSDoc, "No-op inline program" — mirrors destroy()'s
+      // identical reasoning for not depending on the deployment configuration
+      // object.
+      program: async () => ({}),
+      stateBucket,
+      stateBucketRegion,
+      backendReady: true,
+      stackExists: true,
+    });
+
+    try {
+      await stack.cancel();
+    } catch (err) {
+      throw new PulumiLockClearError(err);
+    }
+
+    logger.warn('pulumi backend lock cleared by explicit operator confirmation (unrecognized-lock recovery)', {
+      stackName: PULUMI_STACK_NAME,
+    });
+  }
+
+  /**
    * Throws {@link DestroyNotConfirmedError} unless `token` matches the most
    * recently minted, not-yet-expired, not-yet-consumed confirmation token AND
    * `currentStateBucket`/`currentStateBucketRegion` match the target the
@@ -4629,6 +4750,27 @@ export class PulumiDestroyError extends Error {
   constructor(public readonly cause: unknown) {
     super(`pulumi destroy failed: ${cause instanceof Error ? cause.message : String(cause)}`);
     this.name = 'PulumiDestroyError';
+  }
+}
+
+/**
+ * Thrown by `PulumiService.clearStaleLock` (task 9.4) when the Automation
+ * API's `stack.cancel()` call itself fails while attempting to clear an
+ * operator-confirmed stale backend lock. Reshaped the same way as
+ * {@link PulumiPreviewError}/{@link PulumiUpError}/{@link PulumiDestroyError}
+ * — see {@link PulumiPreviewError}'s doc comment for why `cause` replaces an
+ * `exitCode`. Distinct from those three in what the failure means: this is
+ * never "some engine operation diverged partway through" — it means the
+ * CLEAR ITSELF didn't work, so the lock the operator was trying to recover
+ * from is still standing afterward exactly as it was before the attempt, and
+ * `clearStaleLock`'s caller must not treat this as "the lock is now clear".
+ */
+export class PulumiLockClearError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(
+      `pulumi stack.cancel() failed while clearing the stale backend lock: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'PulumiLockClearError';
   }
 }
 
