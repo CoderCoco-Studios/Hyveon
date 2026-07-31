@@ -87,7 +87,6 @@ function makeStore(
   if (opts.stateBucket !== undefined || opts.configurationBucket !== undefined) {
     store.set('bootstrap', {
       stateBucket: opts.stateBucket ?? '',
-      lockTable: '',
       configurationBucket: opts.configurationBucket ?? '',
     });
   }

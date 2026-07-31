@@ -69,7 +69,7 @@ export class FirstRunWizardService {
    * wizard (`WizardController.getState`). Also clears the resume file —
    * without this, a future re-entry into the wizard (e.g. #211's Settings
    * "Reconfigure" flow) would call `getProgress()` and jump straight back
-   * to whatever step was last recorded (often `terraform-init`), skipping
+   * to whatever step was last recorded (often `stack-init`), skipping
    * every earlier step with none of their answers rehydrated.
    *
    * @remarks

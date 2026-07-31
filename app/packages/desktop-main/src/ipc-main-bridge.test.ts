@@ -168,20 +168,23 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
-  it('should bridge "iac.init" generically, since it no longer streams under the Pulumi engine', async () => {
-    // Task 7.10 (migrate-iac-to-pulumi): IacController.init became an
-    // inert single-value rejection once TerraformService (and the real
-    // `terraform init` it used to stream) was deleted — it no longer
-    // self-bridges, so it must NOT be in SELF_BRIDGED_PATTERNS and must be
-    // wired by the generic bridge like any other channel.
-    expect(SELF_BRIDGED_PATTERNS.has('iac.init')).toBe(false);
+  it('should skip "iac.stack.initialize" entirely, leaving it to bridge itself', async () => {
+    // Task 10.3 (migrate-iac-to-pulumi): IacController.initializeStack
+    // replaced the deleted `iac.init` channel (which had itself become a
+    // generically-bridged, never-streaming rejection stub since task
+    // 7.10) — it streams `onPhase` progress over its own side channels,
+    // exactly like `iac.plan`, so it must self-bridge too.
+    expect(SELF_BRIDGED_PATTERNS.has('iac.stack.initialize')).toBe(true);
 
-    const { transport } = makeTransport(['iac.init']);
+    const { transport } = makeTransport(['iac.stack.initialize', 'games.list']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.init');
-    expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.init', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.stack.initialize');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.stack.initialize', expect.any(Function));
+    // The sibling pattern on the same map is still bridged normally.
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
   });
 
   it('should be a no-op when the transport has no registered handlers', async () => {

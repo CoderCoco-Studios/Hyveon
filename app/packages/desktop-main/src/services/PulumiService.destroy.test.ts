@@ -87,7 +87,7 @@ const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secr
 function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?: string } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
-    store.set('bootstrap', { stateBucket: opts.stateBucket, lockTable: '', configurationBucket: '' });
+    store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
   if (opts.passphrase !== undefined) {
     store.set('pulumi', { passphrase: opts.passphrase });
@@ -298,7 +298,7 @@ describe('PulumiService.destroy confirmation gate', () => {
 
     // Simulate a Reconfigure completing between mint and confirm — the
     // operator now points the app at a DIFFERENT S3 state bucket.
-    store.set('bootstrap', { stateBucket: 'a-different-bucket', lockTable: '', configurationBucket: '' });
+    store.set('bootstrap', { stateBucket: 'a-different-bucket', configurationBucket: '' });
 
     await expect(collectDestroyChunks(service.destroy(token))).rejects.toBeInstanceOf(DestroyNotConfirmedError);
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
@@ -511,7 +511,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
     const workspace = { getOrCreateStack } as unknown as PulumiWorkspaceService;
 
     const store = new ElectronStoreService(new SafeStorageService());
-    store.set('bootstrap', { stateBucket: 'my-state-bucket', lockTable: '', configurationBucket: 'hyveon-config' });
+    store.set('bootstrap', { stateBucket: 'my-state-bucket', configurationBucket: 'hyveon-config' });
     store.set('pulumi', { passphrase: 'enc-secret' });
     store.set('aws', { region: 'us-east-1' });
 
