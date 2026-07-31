@@ -1,5 +1,5 @@
 import { GamesController } from '@hyveon/desktop-main/dist/controllers/games.controller.js';
-import { test, expect } from './index.js';
+import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
 
 /**
  * ECS task ARN used as the mock "running task" across start/stop tests.
@@ -10,13 +10,15 @@ const TASK_ARN = 'arn:aws:ecs:us-east-1:123456789012:task/test-cluster/abc12345'
 test.describe('Start / Stop game server', () => {
   /**
    * Golden path: `GamesController.listGames` returns both games from the
-   * tfstate fixture, and `listStatus` reports them as STOPPED — default mock
-   * behaviour (empty ListTasks queue → taskArns [] → stopped).
+   * scripted stack outputs, and `listStatus` reports them as STOPPED —
+   * default mock behaviour (empty ListTasks queue → taskArns [] → stopped).
    */
-  test('should list games from tfstate and report STOPPED status on initial load', async ({
+  test('should list games from the scripted stack outputs and report STOPPED status on initial load', async ({
     ipc,
     serverMocks: _reset,
   }) => {
+    ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
+
     const { games } = await ipc.dispatch(GamesController, 'listGames');
     // No terraform.tfvars is present in the test environment, so every game
     // in the merged list is deployed-only (declared: false, deployed: true).
@@ -41,6 +43,7 @@ test.describe('Start / Stop game server', () => {
     ipc,
     serverMocks,
   }) => {
+    ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
     await serverMocks.pushListTasks({
       type: 'success',
       data: { taskArns: [TASK_ARN] },
