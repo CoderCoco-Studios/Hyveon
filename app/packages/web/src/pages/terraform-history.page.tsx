@@ -140,7 +140,7 @@ export function TerraformHistoryPage() {
 
   const visibleRecords = kindFilter === 'all' ? records : records.filter((r) => r.kind === kindFilter);
 
-  /** Routes a confirmed rollback into the plan/apply run view — see `TerraformPage`'s `RollbackNavState`. */
+  /** Routes a confirmed rollback into the plan/apply run view — see `IacPage`'s `RollbackNavState`. */
   const handleRolledBack = useCallback(
     ({ versionId, rolledBackFrom }: RollbackResult) => {
       navigate('/terraform', { state: { tfvarsVersionId: versionId, rolledBackFrom } });

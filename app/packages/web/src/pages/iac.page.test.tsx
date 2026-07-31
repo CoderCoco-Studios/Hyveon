@@ -31,7 +31,7 @@ const hyveonMock = {
 };
 vi.stubGlobal('hyveon', hyveonMock);
 
-import { TerraformPage } from './terraform.page.js';
+import { IacPage } from './iac.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
 
 const PLAN_RUN_ID = 'run-1';
@@ -39,15 +39,21 @@ const APPLY_RUN_ID = 'apply-1';
 const DESTROY_RUN_ID = 'destroy-1';
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
-/** Seeds a plan run that streams a summary line then finishes `awaiting_approval` with `planHash`. */
+/**
+ * Seeds a plan run that streams a raw log line then finishes
+ * `awaiting_approval` with `planHash` and a structured `changeSummary` — the
+ * page reads the summary off the persisted record (task 9.1), not by
+ * scraping the streamed log text, so the log content here is just
+ * pass-through display data for `AnsiLogViewer`.
+ */
 function seedSuccessfulPlan() {
   hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
   hyveonMock.iac.runs.streamLogs.mockImplementation(
     toStreamHandleMock(async function* (runId: string) {
       if (runId === PLAN_RUN_ID) {
-        yield { stream: 'stdout', line: 'Plan: 3 to add, 1 to change, 0 to destroy.' };
+        yield { stream: 'stdout', line: 'Previewing update (hyveon-dev)' };
       } else if (runId === APPLY_RUN_ID) {
-        yield { stream: 'stdout', line: 'Apply complete! Resources: 3 added, 1 changed, 0 destroyed.' };
+        yield { stream: 'stdout', line: 'Updating (hyveon-dev)' };
       }
     }),
   );
@@ -56,17 +62,36 @@ function seedSuccessfulPlan() {
       return {
         found: true,
         status: 'awaiting_approval',
-        record: { runId: PLAN_RUN_ID, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash: 'hash-1' },
+        record: {
+          runId: PLAN_RUN_ID,
+          kind: 'plan',
+          startedAt: 't0',
+          completedAt: 't1',
+          exitCode: 0,
+          planHash: 'hash-1',
+          changeSummary: { create: 3, update: 1 },
+        },
       };
     }
     if (runId === APPLY_RUN_ID) {
-      return { found: true, status: 'success' };
+      return {
+        found: true,
+        status: 'success',
+        record: {
+          runId: APPLY_RUN_ID,
+          kind: 'apply',
+          startedAt: 't0',
+          completedAt: 't1',
+          exitCode: 0,
+          changeSummary: { create: 3, update: 1 },
+        },
+      };
     }
     return { found: false };
   });
 }
 
-describe('TerraformPage', () => {
+describe('IacPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
@@ -80,32 +105,70 @@ describe('TerraformPage', () => {
   });
 
   it('should render the Run plan trigger in the idle state', () => {
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
     expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
   });
 
   it('should link to the run-history route', () => {
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
     expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', '/terraform/history');
   });
 
-  it('should stream plan output and render the resource-change summary once the plan finishes', async () => {
+  it('should stream plan output and render the structured resource-change summary once the plan finishes', async () => {
     seedSuccessfulPlan();
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
 
-    expect(await screen.findByText(/Plan: 3 to add, 1 to change, 0 to destroy\./)).toBeInTheDocument();
-    expect(await screen.findByText('3 to add')).toBeInTheDocument();
-    expect(screen.getByText('1 to change')).toBeInTheDocument();
-    expect(screen.getByText('0 to destroy')).toBeInTheDocument();
+    expect(await screen.findByText('Previewing update (hyveon-dev)')).toBeInTheDocument();
+    expect(await screen.findByText('3 to create')).toBeInTheDocument();
+    expect(screen.getByText('1 to update')).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
   });
 
+  it('should render an explicit "summary unavailable" state when the plan record has no changeSummary', async () => {
+    hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(toStreamHandleMock(async function* () {}));
+    hyveonMock.iac.runs.get.mockResolvedValue({
+      found: true,
+      status: 'awaiting_approval',
+      record: { runId: PLAN_RUN_ID, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash: 'hash-1' },
+    });
+    renderPage(<IacPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+
+    expect(await screen.findByText('Change summary unavailable')).toBeInTheDocument();
+  });
+
+  it('should render a distinct "no changes" state when the plan record reports only unchanged resources', async () => {
+    hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
+    hyveonMock.iac.runs.streamLogs.mockImplementation(toStreamHandleMock(async function* () {}));
+    hyveonMock.iac.runs.get.mockResolvedValue({
+      found: true,
+      status: 'awaiting_approval',
+      record: {
+        runId: PLAN_RUN_ID,
+        kind: 'plan',
+        startedAt: 't0',
+        completedAt: 't1',
+        exitCode: 0,
+        planHash: 'hash-1',
+        changeSummary: { same: 5 },
+      },
+    });
+    renderPage(<IacPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+
+    expect(await screen.findByText('No changes — 5 unchanged')).toBeInTheDocument();
+    expect(screen.queryByText('Change summary unavailable')).not.toBeInTheDocument();
+  });
+
   it('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
     hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'workspace busy', conflict: 'up' });
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
 
@@ -121,7 +184,7 @@ describe('TerraformPage', () => {
       approvedAt: new Date().toISOString(),
     });
     hyveonMock.iac.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
     await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
@@ -146,7 +209,7 @@ describe('TerraformPage', () => {
     seedSuccessfulPlan();
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago > 15-minute window
     hyveonMock.iac.approve.mockResolvedValue({ approved: true, approvedBy: 'bob', approvedAt: staleApprovedAt });
-    renderPage(<TerraformPage />);
+    renderPage(<IacPage />);
 
     await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
     await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
@@ -159,12 +222,12 @@ describe('TerraformPage', () => {
 
   describe('destroy flow (#307)', () => {
     it('should render the Destroy infrastructure trigger in the idle state', () => {
-      renderPage(<TerraformPage />);
+      renderPage(<IacPage />);
       expect(screen.getByRole('button', { name: /Destroy infrastructure/ })).toBeInTheDocument();
     });
 
     it('should open a confirmation dialog on click, without minting a token until the exact phrase is typed and confirmed', async () => {
-      renderPage(<TerraformPage />);
+      renderPage(<IacPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
 
@@ -186,12 +249,23 @@ describe('TerraformPage', () => {
       hyveonMock.iac.runs.streamLogs.mockImplementation(
         toStreamHandleMock(async function* (runId: string) {
           if (runId === DESTROY_RUN_ID) {
-            yield { stream: 'stdout', line: 'Destroy complete! Resources: 4 destroyed.' };
+            yield { stream: 'stdout', line: 'Destroying (hyveon-dev)' };
           }
         }),
       );
-      hyveonMock.iac.runs.get.mockResolvedValue({ found: true, status: 'success' });
-      renderPage(<TerraformPage />);
+      hyveonMock.iac.runs.get.mockResolvedValue({
+        found: true,
+        status: 'success',
+        record: {
+          runId: DESTROY_RUN_ID,
+          kind: 'destroy',
+          startedAt: 't0',
+          completedAt: 't1',
+          exitCode: 0,
+          changeSummary: { delete: 4 },
+        },
+      });
+      renderPage(<IacPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
@@ -200,8 +274,8 @@ describe('TerraformPage', () => {
       await waitFor(() => expect(hyveonMock.iac.mintDestroyToken).toHaveBeenCalledTimes(1));
       expect(hyveonMock.iac.destroy).toHaveBeenCalledWith({ confirmationToken: 'destroy-token-1' });
 
-      expect(await screen.findByText(/Destroy complete! Resources: 4 destroyed\./)).toBeInTheDocument();
-      expect(await screen.findByText('4 destroyed')).toBeInTheDocument();
+      expect(await screen.findByText('Destroying (hyveon-dev)')).toBeInTheDocument();
+      expect(await screen.findByText('4 to delete')).toBeInTheDocument();
       expect(await screen.findByText('Destroy complete.')).toBeInTheDocument();
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     });
@@ -213,7 +287,7 @@ describe('TerraformPage', () => {
         error: 'terraform destroy refused: apply is already in flight',
         conflict: 'up',
       });
-      renderPage(<TerraformPage />);
+      renderPage(<IacPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
@@ -235,7 +309,7 @@ describe('TerraformPage', () => {
         toStreamHandleMock(async function* () { /* no chunks needed */ }),
       );
       hyveonMock.iac.runs.get.mockResolvedValue({ found: true, status: 'success' });
-      renderPage(<TerraformPage />);
+      renderPage(<IacPage />);
 
       await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
       await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
@@ -253,6 +327,122 @@ describe('TerraformPage', () => {
     });
   });
 
+  describe('partial-apply flow (task 9.3)', () => {
+    /** Drives a plan through approval and into a submitted apply, seeded to end with the given terminal `applyStatus`/`partialApply` flag. */
+    async function runApplyToPartialFailure(applyStatus: 'failed' | 'aborted') {
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+      hyveonMock.iac.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
+      hyveonMock.iac.runs.get.mockImplementation(async (runId: string) => {
+        if (runId === PLAN_RUN_ID) {
+          return {
+            found: true,
+            status: 'awaiting_approval',
+            record: {
+              runId: PLAN_RUN_ID,
+              kind: 'plan',
+              startedAt: 't0',
+              completedAt: 't1',
+              exitCode: 0,
+              planHash: 'hash-1',
+              changeSummary: { create: 3, update: 1 },
+            },
+          };
+        }
+        if (runId === APPLY_RUN_ID) {
+          return {
+            found: true,
+            status: applyStatus,
+            record: {
+              runId: APPLY_RUN_ID,
+              kind: 'apply',
+              startedAt: 't0',
+              completedAt: 't1',
+              exitCode: 1,
+              partialApply: true,
+            },
+          };
+        }
+        return { found: false };
+      });
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+      await userEvent.click(applyBtn);
+    }
+
+    it('should surface the partial-apply banner with re-plan guidance when a failed apply reports partialApply', async () => {
+      await runApplyToPartialFailure('failed');
+
+      expect(await screen.findByText(/Apply stopped partway through\./)).toBeInTheDocument();
+      expect(screen.getByText(/run a fresh plan against the current state/i)).toBeInTheDocument();
+    });
+
+    it('should surface the partial-apply banner when an aborted (not just failed) apply reports partialApply', async () => {
+      // Task 9.3's explicit requirement: the signal is `partialApply`, checked
+      // independent of which terminal status fired — `aborted` must trigger
+      // the same banner as `failed`.
+      await runApplyToPartialFailure('aborted');
+
+      expect(await screen.findByText(/Apply stopped partway through\./)).toBeInTheDocument();
+    });
+
+    it('should show exactly one "Start over" action, embedded in the partial-apply banner, not a duplicate generic one', async () => {
+      await runApplyToPartialFailure('failed');
+
+      await screen.findByText(/Apply stopped partway through\./);
+      const startOverButtons = screen.getAllByRole('button', { name: /Start over/ });
+      expect(startOverButtons).toHaveLength(1);
+
+      await userEvent.click(startOverButtons[0]);
+      expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
+    });
+
+    it('should render the generic failure banner (not the partial-apply banner) when the apply fails without partialApply', async () => {
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+      hyveonMock.iac.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
+      hyveonMock.iac.runs.get.mockImplementation(async (runId: string) => {
+        if (runId === PLAN_RUN_ID) {
+          return {
+            found: true,
+            status: 'awaiting_approval',
+            record: { runId: PLAN_RUN_ID, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash: 'hash-1' },
+          };
+        }
+        if (runId === APPLY_RUN_ID) {
+          return {
+            found: true,
+            status: 'failed',
+            record: { runId: APPLY_RUN_ID, kind: 'apply', startedAt: 't0', completedAt: 't1', exitCode: 1 },
+          };
+        }
+        return { found: false };
+      });
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+      await userEvent.click(applyBtn);
+
+      expect(await screen.findByText(/terraform apply failed — see the log above/)).toBeInTheDocument();
+      expect(screen.queryByText(/Apply stopped partway through\./)).not.toBeInTheDocument();
+    });
+  });
+
   describe('rollback flow (#112)', () => {
     it('should auto-submit a tagged plan with the rollback location.state, without requiring a Run plan click', async () => {
       hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
@@ -263,7 +453,7 @@ describe('TerraformPage', () => {
       );
       hyveonMock.iac.runs.get.mockResolvedValue({ found: false });
 
-      renderPage(<TerraformPage />, {
+      renderPage(<IacPage />, {
         initialEntries: [
           { pathname: '/terraform', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
@@ -299,7 +489,7 @@ describe('TerraformPage', () => {
         },
       });
 
-      renderPage(<TerraformPage />, {
+      renderPage(<IacPage />, {
         initialEntries: [
           { pathname: '/terraform', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
@@ -310,7 +500,7 @@ describe('TerraformPage', () => {
     });
 
     it('should not auto-submit when there is no rollback location.state', () => {
-      renderPage(<TerraformPage />);
+      renderPage(<IacPage />);
       expect(hyveonMock.iac.plan).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
     });
