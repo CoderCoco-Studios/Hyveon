@@ -6,7 +6,7 @@
  * call assertions); this file tests it directly, once, as its own unit.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { AwsPastedCredentialDecryptError, resolveAwsCredentialSource } from './awsCredentialSource.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /** Builds an `ElectronStoreService` stub whose `aws.profile` and pasted-credentials lookup are controlled directly. */
@@ -17,6 +17,21 @@ function makeStore(
   return {
     get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? { profile } : undefined)),
     getPastedCredentials: vi.fn().mockReturnValue(pastedCredentials),
+  } as Partial<ElectronStoreService> as ElectronStoreService;
+}
+
+/**
+ * Builds an `ElectronStoreService` stub whose `getPastedCredentials` throws —
+ * simulating Electron's own raw `safeStorage.decryptString` failure on a
+ * corrupt/foreign ciphertext blob (see `SafeStorageService.decrypt`'s own
+ * remarks).
+ */
+function makeStoreWithUndecryptableCredentials(profile: string, cause: unknown): ElectronStoreService {
+  return {
+    get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? { profile } : undefined)),
+    getPastedCredentials: vi.fn().mockImplementation(() => {
+      throw cause;
+    }),
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
@@ -55,5 +70,37 @@ describe('resolveAwsCredentialSource', () => {
     const source = resolveAwsCredentialSource(store);
 
     expect(source.kind).toBe('pasted');
+  });
+
+  /**
+   * Regression tests for Finding 4 (final whole-branch review):
+   * `ElectronStoreService.getPastedCredentials` → `SafeStorageService.decrypt`
+   * can throw Electron's own raw, untyped decrypt error on a corrupt/foreign
+   * ciphertext blob. Before this fix, that raw error propagated unwrapped out
+   * of `resolveAwsCredentialSource`, giving
+   * `PulumiService.classifyGetOrCreateStackFailure` no way to distinguish it
+   * from an unrelated mid-operation failure — it fell through to
+   * `'operation'` even though it's genuinely a pre-engine failure.
+   */
+  it('should throw AwsPastedCredentialDecryptError (wrapping the cause) when getPastedCredentials throws', () => {
+    const cause = new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');
+    const store = makeStoreWithUndecryptableCredentials('hyveon-pasted', cause);
+
+    let caught: unknown;
+    try {
+      resolveAwsCredentialSource(store);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AwsPastedCredentialDecryptError);
+    expect((caught as AwsPastedCredentialDecryptError).cause).toBe(cause);
+    expect((caught as AwsPastedCredentialDecryptError).profile).toBe('hyveon-pasted');
+  });
+
+  it('should name the profile in the AwsPastedCredentialDecryptError message', () => {
+    const store = makeStoreWithUndecryptableCredentials('hyveon-pasted', new Error('decrypt failed'));
+
+    expect(() => resolveAwsCredentialSource(store)).toThrow(/hyveon-pasted/);
   });
 });
