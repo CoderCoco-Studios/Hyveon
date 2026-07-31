@@ -339,21 +339,10 @@ test('terraform-history.png', async () => {
 // First-run wizard
 // ---------------------------------------------------------------------------
 
-test('wizard-prerequisites.png', async () => {
-  const { app, win } = await launchSeeded((w) => seedWizard(w, 'prerequisites'));
-  try {
-    await expect(win.getByRole('heading', { name: 'Welcome to Hyveon' })).toBeVisible();
-    await expect(win.getByText('Found v1.9.5')).toBeVisible();
-    await disableMotion(win);
-    await shot(win, 'wizard-prerequisites.png');
-  } finally {
-    await app.close();
-  }
-});
-
 test('wizard-pick-cloud.png', async () => {
   const { app, win } = await launchSeeded((w) => seedWizard(w, 'pick-cloud'));
   try {
+    await expect(win.getByRole('heading', { name: 'Welcome to Hyveon' })).toBeVisible();
     await expect(win.getByRole('radiogroup', { name: 'Cloud provider' })).toBeVisible();
     await disableMotion(win);
     await shot(win, 'wizard-pick-cloud.png');

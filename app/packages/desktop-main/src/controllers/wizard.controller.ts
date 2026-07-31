@@ -1,6 +1,5 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { PrerequisiteService, type PrerequisitesReport } from '../services/PrerequisiteService.js';
 import {
   AwsProfileService,
   type AwsProfileSummary,
@@ -91,7 +90,6 @@ export interface SaveWizardStateInput {
 @Controller()
 export class WizardController {
   constructor(
-    private readonly prerequisites: PrerequisiteService,
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
     private readonly bootstrap: BootstrapService,
@@ -175,12 +173,6 @@ export class WizardController {
     return process.env['HYVEON_TEST_MODE'] === '1';
   }
 
-  /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
-  @MessagePattern('wizard.prereqs.check')
-  checkPrereqs(): Promise<PrerequisitesReport> {
-    return this.prerequisites.check();
-  }
-
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   @MessagePattern('wizard.aws.listProfiles')
   listAwsProfiles(): Promise<AwsProfileSummary[]> {
@@ -237,7 +229,7 @@ export class WizardController {
     return this.iamCheck.checkPermissions();
   }
 
-  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  /** Returns the last-recorded resumable step, defaulting to `pick-cloud` if unset/corrupt. */
   @MessagePattern('wizard.progress.get')
   getProgress(): Promise<WizardProgress> {
     return this.firstRunWizard.getProgress();

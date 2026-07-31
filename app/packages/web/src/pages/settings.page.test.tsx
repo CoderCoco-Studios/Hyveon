@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
@@ -19,7 +19,6 @@ vi.mock('../components/DiagnosticsPanel.js', () => ({
 
 const hyveonMock = {
   wizard: {
-    checkPrereqs: vi.fn(),
     getState: vi.fn(),
     saveState: vi.fn(),
     listAwsProfiles: vi.fn(),
@@ -62,12 +61,6 @@ vi.stubGlobal('hyveon', hyveonMock);
 import { SettingsPage } from './settings.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
 
-/** Satisfies the prerequisites step so the version row has something to render. */
-const SATISFIED: PrerequisitesReport = {
-  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
-};
-
 /** A single discovered `~/.aws` profile matching the stored Reconfigure state below. */
 const SAMPLE_PROFILES: AwsProfileSummary[] = [{ profileName: 'default', region: 'us-east-1' }];
 
@@ -80,7 +73,6 @@ describe('SettingsPage', () => {
       watchdog_idle_checks: 4,
       watchdog_min_packets: 100,
     });
-    hyveonMock.wizard.checkPrereqs.mockReset().mockResolvedValue(SATISFIED);
     hyveonMock.wizard.getState
       .mockReset()
       .mockResolvedValue({ wizardCompleted: true, activeCloud: 'aws', aws: { profile: 'default', region: 'us-east-1' } });
@@ -90,7 +82,7 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.bootstrapConfigurationBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.simulateIamPermissions.mockReset();
-    hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+    hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
     hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
     hyveonMock.iac.init.mockReset().mockImplementation(
@@ -133,18 +125,6 @@ describe('SettingsPage', () => {
   it('should render the DiagnosticsPanel inside the Diagnostics section', () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
-  });
-
-  it('should show the resolved Terraform version alongside the pinned minimum', async () => {
-    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
-    expect(await screen.findByText(/detected v1\.9\.0/i)).toBeInTheDocument();
-    expect(screen.getByText(/minimum v1\.5\.0/)).toBeInTheDocument();
-  });
-
-  it('should show "Not detected" when the Terraform prerequisite check fails', async () => {
-    hyveonMock.wizard.checkPrereqs.mockRejectedValue(new Error('terraform not on PATH'));
-    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
-    expect(await screen.findByText(/not detected/i)).toBeInTheDocument();
   });
 
   describe('Reconfigure', () => {
