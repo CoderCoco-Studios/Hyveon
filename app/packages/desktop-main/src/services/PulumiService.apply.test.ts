@@ -978,6 +978,32 @@ describe('PulumiService.apply abort handling', () => {
 });
 
 describe('PulumiService.apply concurrency guard', () => {
+  it('should throw synchronously when apply() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+    // Regression test for a code-reviewer-traced race: initializeStack()
+    // does not set `operationInFlight` (see PulumiService.ts's own
+    // `stackInitInFlight` doc comment for why it's a separate flag), so
+    // apply() must check `stackInitInFlight` itself or it would sail
+    // straight through its own top-of-function check while
+    // initializeStack() is still running against the same shared local
+    // workspace.
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace: hangingWorkspace });
+
+    const initPromise = service.initializeStack();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toThrow(
+      /initializeStack.*already running/i,
+    );
+
+    void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
+  });
+
   it('should allow a new apply() call once the previous one has completed', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const service = makeService({ workspace });
