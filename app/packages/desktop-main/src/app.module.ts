@@ -23,6 +23,7 @@ import { DriftController } from './controllers/drift.controller.js';
 import { AuditController } from './controllers/audit.controller.js';
 import { IacController } from './controllers/iac.controller.js';
 import { IacRunsController } from './controllers/iac-runs.controller.js';
+import { IacSettingsController } from './controllers/iac-settings.controller.js';
 import { WizardController } from './controllers/wizard.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DriftService } from './services/DriftService.js';
@@ -88,6 +89,7 @@ import { AuditService } from './services/AuditService.js';
     AuditController,
     IacController,
     IacRunsController,
+    IacSettingsController,
     WizardController,
   ],
   providers: [

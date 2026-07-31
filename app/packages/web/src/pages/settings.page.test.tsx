@@ -33,7 +33,29 @@ const hyveonMock = {
   },
   iac: {
     init: vi.fn(),
+    settings: {
+      get: vi.fn(),
+      update: vi.fn(),
+    },
   },
+};
+
+/** Default top-level deployment settings the `DeploymentSettingsForm` (task 9.7) loads on mount. */
+const SAMPLE_DEPLOYMENT_SETTINGS = {
+  projectName: 'hyveon',
+  awsRegion: 'us-east-1',
+  vpcCidr: '10.0.0.0/16',
+  hostedZoneName: 'example.com',
+  dnsTtl: 30,
+  watchdogIntervalMinutes: 15,
+  watchdogIdleChecks: 4,
+  watchdogMinPackets: 100,
+  baseAllowedGuilds: [],
+  baseAdminUserIds: [],
+  baseAdminRoleIds: [],
+  discordApplicationId: '',
+  auditTableName: '',
+  runsTableName: '',
 };
 vi.stubGlobal('hyveon', hyveonMock);
 
@@ -76,6 +98,10 @@ describe('SettingsPage', () => {
         // No chunks needed by default — the Reconfigure tests below just need it to succeed.
       }),
     );
+    hyveonMock.iac.settings.get
+      .mockReset()
+      .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
+    hyveonMock.iac.settings.update.mockReset();
   });
 
   it('should render the Settings heading', () => {
@@ -91,6 +117,12 @@ describe('SettingsPage', () => {
   it('should render the polling indicator once the status poll resolves', async () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
+  });
+
+  it('should render the General section heading with the deployment-settings form loaded', async () => {
+    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
   });
 
   it('should render the Diagnostics section heading', () => {
