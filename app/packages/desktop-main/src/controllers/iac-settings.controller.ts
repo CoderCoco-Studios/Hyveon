@@ -3,11 +3,20 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  PulumiEngineVersionResult,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
 import { OptimisticLockError, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigurationNotConfiguredError, TfvarsService } from '../services/TfvarsService.js';
+// Deliberately a value import, not `import type` — Nest's constructor-parameter
+// DI resolves `engine`'s token off `design:paramtypes` metadata, which
+// `emitDecoratorMetadata` can only populate from a real (value) import; an
+// `import type` here erases the class reference entirely and Nest fails at
+// bootstrap with `UnknownDependenciesException` (confirmed by launching the
+// packaged app during this task's own verification — see the class doc
+// comment above `engine`'s constructor parameter).
+import { PulumiEngineService } from '../services/PulumiEngineService.js';
 
 /**
  * IPC-only controller for task 9.7's (`migrate-iac-to-pulumi`) deployment-
@@ -21,10 +30,32 @@ import { ConfigurationNotConfiguredError, TfvarsService } from '../services/Tfva
  * delegation — this surface has no audit-log requirement and a much smaller
  * error-mapping surface, so a separate service class would be pure
  * ceremony.
+ *
+ * Task 10.4 added {@link engineVersion}, reusing this controller rather than
+ * `IacController`: `AppModule`'s own doc comment already earmarked "Settings'
+ * resolved-version display" as this controller's job, and every other
+ * handler here is exactly this — Settings-page-flavored, read/write status
+ * for the Cloud Setup section — whereas `IacController` is scoped to
+ * plan/apply/destroy orchestration and its `PulumiEngineService` reference
+ * (via `PulumiService`) is purely internal to the apply gate, never surfaced
+ * on its own channel.
  */
 @Controller()
 export class IacSettingsController {
-  constructor(private readonly tfvars: TfvarsService) {}
+  /**
+   * `engine` is typed optional (`?`) purely so existing test call sites that
+   * construct `new IacSettingsController(tfvars)` directly (bypassing Nest's
+   * DI container) keep compiling without also stubbing it — mirrors
+   * `IacController`'s identical `audit`/`runRecord`/`config` optionality (see
+   * that class's own constructor doc comment). Every real bootstrap through
+   * `AppModule` still resolves a concrete `PulumiEngineService` regardless of
+   * this TS-level optionality; {@link engineVersion} treats an absent
+   * `engine` the same as "not yet provisioned" rather than throwing.
+   */
+  constructor(
+    private readonly tfvars: TfvarsService,
+    private readonly engine?: PulumiEngineService,
+  ) {}
 
   /**
    * Returns the current top-level deployment settings plus the etag to
@@ -107,5 +138,21 @@ export class IacSettingsController {
       logger.error('Failed to write deployment settings', { err });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing deployment settings.' };
     }
+  }
+
+  /**
+   * Returns the resolved Pulumi engine version — `PulumiEngineService.getResolvedVersion()`
+   * verbatim — for Settings' Cloud Setup version row (task 10.4). `resolvedVersion: null`
+   * is a real, expected "not yet provisioned" state (including while a first
+   * resolution is still in flight), not an error: unlike {@link get}/
+   * {@link update}, this handler has no failure branch to map, since the
+   * underlying getter is a synchronous field read that never throws — see
+   * {@link PulumiEngineVersionResult}'s own doc comment.
+   *
+   * Reachable via the Electron IPC transport (`iac.settings.engineVersion`).
+   */
+  @MessagePattern('iac.settings.engineVersion')
+  engineVersion(): PulumiEngineVersionResult {
+    return { resolvedVersion: this.engine?.getResolvedVersion() ?? null };
   }
 }

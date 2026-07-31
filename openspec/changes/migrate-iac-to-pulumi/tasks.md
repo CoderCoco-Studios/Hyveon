@@ -98,7 +98,7 @@
 - [x] 10.1 Delete `PrerequisiteService`, the `wizard.prereqs.check` channel, its preload mirror and types, and the prerequisites wizard step
 - [x] 10.2 Remove `prerequisites` from the wizard step list and drop the Reconfigure special-casing that excluded it
 - [x] 10.3 Replace the Terraform-init step with the stack-initialization step, reporting the three provisioning phases and setting the secrets provider at creation
-- [ ] 10.4 Replace the Settings Terraform-version row with the resolved engine version plus the pinned version, including a not-yet-provisioned state
+- [x] 10.4 Replace the Settings Terraform-version row with the resolved engine version plus the pinned version, including a not-yet-provisioned state
 - [ ] 10.5 Remove `MINIMUM_TERRAFORM_VERSION` and the version-parsing helpers
 
 ## 11. Test surface

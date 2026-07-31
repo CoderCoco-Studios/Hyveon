@@ -1341,6 +1341,19 @@ describe('preload dispatcher', () => {
         expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.update', payload);
         expect(response).toEqual(result);
       });
+
+      it('should invoke the iac.settings.engineVersion channel with no arguments', async () => {
+        const result = { resolvedVersion: '3.255.0' };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          engineVersion: () => Promise<unknown>;
+        };
+
+        const response = await settings.engineVersion();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.engineVersion');
+        expect(response).toEqual(result);
+      });
     });
 
     describe('mock-override', () => {
@@ -1363,6 +1376,22 @@ describe('preload dispatcher', () => {
         const response = await settings.update(payload);
 
         expect(mockHandler).toHaveBeenCalledWith(payload);
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(response).toEqual(result);
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.settings.engineVersion is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const result = { resolvedVersion: null };
+        const mockHandler = vi.fn().mockResolvedValue(result);
+        testApi.mock('iac.settings.engineVersion', mockHandler);
+
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          engineVersion: () => Promise<unknown>;
+        };
+        const response = await settings.engineVersion();
+
+        expect(mockHandler).toHaveBeenCalledWith();
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(response).toEqual(result);
       });

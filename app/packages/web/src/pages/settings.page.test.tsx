@@ -37,6 +37,7 @@ const hyveonMock = {
     settings: {
       get: vi.fn(),
       update: vi.fn(),
+      engineVersion: vi.fn(),
     },
   },
 };
@@ -96,6 +97,7 @@ describe('SettingsPage', () => {
       .mockReset()
       .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
     hyveonMock.iac.settings.update.mockReset();
+    hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
   });
 
   it('should render the Settings heading', () => {
@@ -127,6 +129,36 @@ describe('SettingsPage', () => {
   it('should render the DiagnosticsPanel inside the Diagnostics section', () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
+  });
+
+  describe('Cloud Setup — Pulumi engine version row (task 10.4)', () => {
+    it('should render the resolved engine version and the pinned version once the read resolves', async () => {
+      hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Pulumi engine v3.255.0 · pinned to v3.255.0')).toBeInTheDocument();
+    });
+
+    it('should render a distinct "not yet provisioned" state, alongside the pinned version, when resolvedVersion is null', async () => {
+      hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: null });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Not yet provisioned · pinned to v3.255.0')).toBeInTheDocument();
+    });
+
+    it('should render a distinct error state, not the "not yet provisioned" copy, when the engineVersion read rejects', async () => {
+      hyveonMock.iac.settings.engineVersion.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Unable to determine engine version · pinned to v3.255.0')).toBeInTheDocument();
+      expect(screen.queryByText(/not yet provisioned/i)).not.toBeInTheDocument();
+    });
+
+    it('should still render the Reconfigure button when the engine version row is in its Pulumi Engine section', () => {
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      expect(screen.getByText('Pulumi Engine')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconfigure$/i })).toBeInTheDocument();
+    });
   });
 
   describe('Reconfigure', () => {

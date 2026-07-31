@@ -117,6 +117,18 @@ export function installHyveonHttpBridge(): void {
         update: async () => {
           throw new Error('iac.settings.update has no HTTP route in the chromium e2e tier.');
         },
+        // Task 10.4's `iac.settings.engineVersion` is IPC-only in production
+        // with no HTTP route — same situation as `get`/`update` above.
+        // `resolvedVersion: null` is a real, valid result shape (Settings'
+        // Cloud Setup row renders it as "not yet provisioned"), so this stub
+        // resolves rather than throws: no chromium spec exercises the engine
+        // version row's real content (that's covered by the `web` Vitest
+        // project's own `settings.page.test.tsx`), but every spec that
+        // merely visits `/settings` needs this call to resolve instead of
+        // throwing `TypeError: settings.engineVersion is not a function`,
+        // which the page's mount effect does not catch — that class of
+        // error is a synchronous throw, not a rejected promise.
+        engineVersion: async () => ({ resolvedVersion: null }),
       },
     },
   };

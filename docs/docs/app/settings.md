@@ -106,22 +106,35 @@ Terraform values disagree, so keep them in sync by hand.
 
 ## Cloud Setup
 
-A single row showing the Terraform binary the app found:
+A single row showing the app-managed Pulumi engine's version:
 
-> **Terraform**
-> Detected v1.9.5 · minimum v1.5.0
+> **Pulumi Engine**
+> Pulumi engine v3.255.0 · pinned to v3.255.0
 
-or `Not detected · minimum v1.5.0` if the probe found nothing. The check is
-best-effort, so a failed probe looks identical to Terraform genuinely being
-absent, and there is no pass/fail styling even when the detected version is
-below the minimum — compare the two numbers yourself.
+The app provisions and runs against exactly one pinned Pulumi engine version
+(`PULUMI_ENGINE_VERSION` in `@hyveon/shared`) — unlike the old Terraform
+prerequisite check this row replaced, there is no "detected vs. minimum"
+comparison to make, because there is no host binary to detect: the engine is
+downloaded and cached by the app itself (`PulumiEngineService`), not installed
+separately by the operator.
+
+Three possible states for the first line:
+
+| State | When |
+|---|---|
+| `Pulumi engine v<version>` | The engine has been resolved (downloaded and verified, or reused from cache) at least once this session |
+| `Not yet provisioned` | A fresh install that hasn't run the engine yet — first-run setup, the wizard's stack-initialization step, or the first `plan`/`apply` will provision it |
+| `Unable to determine engine version` | The read itself failed (e.g. the IPC bridge is unavailable) — distinct from `Not yet provisioned`, which is a real, expected state, not a failure |
+
+The second half of the line (`pinned to v<version>`) is shown in every state —
+it is a plain constant, not something the app needs to look up.
 
 ### Reconfigure
 
 The **Reconfigure** button relaunches the setup wizard. It swaps out the whole
 Settings page immediately, with no confirmation.
 
-Use it to switch AWS profiles, change region, or re-point Terraform at
+Use it to switch AWS profiles, change region, or re-point the deployment at
 differently-named bootstrap resources. It runs a shortened, pre-filled variant
 of the first-run flow — four steps instead of five, every step collapsed to a
 summary with an **Edit** button, and all your edits buffered into a single
@@ -130,8 +143,9 @@ save when you press **Finish setup**. There is a **Cancel** button throughout.
 See [First-run wizard → Reconfigure](/app/first-run-wizard#reconfigure) for
 the full behaviour, including what Cancel can and cannot undo.
 
-Note that this section only reports Terraform. Your AWS profile, region and
-bootstrap resource names are not shown here — they are inside the wizard.
+Note that this section only reports the Pulumi engine version. Your AWS
+profile, region and bootstrap resource names are not shown here — they are
+inside the wizard.
 
 ## General
 
