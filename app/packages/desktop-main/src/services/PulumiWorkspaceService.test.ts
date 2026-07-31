@@ -1,6 +1,11 @@
 /**
  * Unit tests for `PulumiWorkspaceService` — the Automation API
- * workspace/backend/passphrase seam (Tasks 4.3/4.4).
+ * workspace/backend/passphrase seam (Tasks 4.3/4.4), including Finding 1's
+ * fix (final whole-branch review): `getOrCreateStack` no longer takes a
+ * caller-supplied `stackExists` belief at all — it builds the real
+ * `LocalWorkspace` itself and, only when no LOCAL passphrase record exists,
+ * asks that workspace's own `listStacks()` whether the stack already exists
+ * in the REAL backend before ever generating a fresh passphrase.
  *
  * `ElectronStoreService`/`SafeStorageService` are used as *real* instances
  * (non-Electron Map-fallback path), not stubs — the spec-critical passphrase
@@ -16,22 +21,39 @@
  * `PulumiEngineService` (whose own resolution is Task 4.1/4.2's concern,
  * already covered by its own test file) and the Pulumi SDK itself are
  * module-mocked.
+ *
+ * ## Mocking `LocalWorkspace.create` / `Stack.createOrSelect` (Finding 1)
+ *
+ * `getOrCreateStack` now builds the workspace itself via the lower-level
+ * `LocalWorkspace.create(opts)`, then (only when no local passphrase is
+ * stored) calls `ws.listStacks()` on it, then calls `Stack.createOrSelect`
+ * with that same instance — rather than the single convenience
+ * `LocalWorkspace.createOrSelectStack(args, opts)` call earlier revisions of
+ * this file mocked. `createMock` (mocking `LocalWorkspace.create`) resolves
+ * with a fake, mutable `ws` object carrying its own `envVars` (a shallow
+ * copy of `opts.envVars`, mirroring the real SDK's constructor) and a
+ * `listStacks` mock — so the production code's
+ * `ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase` mutation is
+ * observable via the SAME object `createOrSelectMock` is later called with.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
 
-const { createOrSelectStackMock, mkdirSyncMock, loggerMock } = vi.hoisted(() => ({
-  createOrSelectStackMock: vi.fn(),
+const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock } = vi.hoisted(() => ({
+  createMock: vi.fn(),
+  createOrSelectMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
+  existsSyncMock: vi.fn(),
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@pulumi/pulumi/automation/index.js', () => ({
-  LocalWorkspace: { createOrSelectStack: createOrSelectStackMock },
+  LocalWorkspace: { create: createMock },
+  Stack: { createOrSelect: createOrSelectMock },
 }));
 
-vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock }));
+vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock, existsSync: existsSyncMock }));
 
 // Mocked file-wide — this hoisted `vi.mock` replaces the module for every
 // test in this file, not only the "credentials are not logged" describe
@@ -58,18 +80,27 @@ import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from '.
 /** Minimal `PulumiCommand`-shaped object the mocked SDK is given. */
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
 
-/** Fake `Stack` the mocked `createOrSelectStack` resolves with. */
+/** Fake `Stack` the mocked `Stack.createOrSelect` resolves with. */
 const FAKE_STACK = { name: PULUMI_STACK_NAME } as unknown as Stack;
 
 /** No-op inline program — never actually invoked, since the SDK call is mocked. */
 const FAKE_PROGRAM: PulumiFn = async () => ({});
 
+/** Shape of the fake workspace object `createMock` resolves with — see this file's own doc comment. */
+interface FakeWorkspace {
+  envVars: Record<string, string>;
+  listStacks: ReturnType<typeof vi.fn>;
+  pulumiHome?: string;
+  workDir?: string;
+  secretsProvider?: string;
+  pulumiCommand?: unknown;
+  program?: PulumiFn;
+  projectSettings?: { name: string; runtime: string; main: string };
+}
+
 /**
  * Builds a valid `PulumiWorkspaceInput` for a genuinely new stack against a
- * bootstrapped backend, with all fields overridable. Centralizing the
- * defaults here (rather than repeating them per test) is what keeps the
- * addition of `stateBucketRegion`/`stackExists` a one-line change per test
- * instead of touching every call site.
+ * bootstrapped backend, with all fields overridable.
  */
 function baseInput(overrides?: Partial<PulumiWorkspaceInput>): PulumiWorkspaceInput {
   return {
@@ -77,7 +108,6 @@ function baseInput(overrides?: Partial<PulumiWorkspaceInput>): PulumiWorkspaceIn
     stateBucket: 'my-bucket',
     stateBucketRegion: 'us-west-2',
     backendReady: true,
-    stackExists: false,
     ...overrides,
   };
 }
@@ -165,14 +195,65 @@ const WORKSPACE_ROOT = '/fake/userData/pulumi-workspace';
 const PULUMI_HOME_DIR = join(WORKSPACE_ROOT, 'home');
 const WORK_DIR = join(WORKSPACE_ROOT, 'workspace', PULUMI_STACK_NAME);
 
+/**
+ * Extracts the `opts` object `LocalWorkspace.create` was called with for the
+ * `callIndex`-th `getOrCreateStack` call (0-based) — the pre-passphrase
+ * envVars/pulumiHome/workDir/secretsProvider/program/projectSettings this
+ * service builds BEFORE it knows whether a passphrase needs generating.
+ */
+function createOpts(callIndex = 0) {
+  return createMock.mock.calls[callIndex]![0] as {
+    pulumiHome: string;
+    workDir: string;
+    secretsProvider: string;
+    pulumiCommand: unknown;
+    envVars: Record<string, string>;
+    program: PulumiFn;
+    projectSettings?: { name: string; runtime: string; main: string };
+  };
+}
+
+/**
+ * Extracts the fake `ws` object `Stack.createOrSelect` was called with for
+ * the `callIndex`-th `getOrCreateStack` call (0-based) — carries the FINAL
+ * envVars, including `PULUMI_CONFIG_PASSPHRASE`, since this service mutates
+ * `ws.envVars` in place after `resolvePassphrase` resolves.
+ */
+function createOrSelectWs(callIndex = 0): FakeWorkspace {
+  return createOrSelectMock.mock.calls[callIndex]![1] as FakeWorkspace;
+}
+
 beforeEach(() => {
-  createOrSelectStackMock.mockReset();
+  createMock.mockReset();
+  createOrSelectMock.mockReset();
   mkdirSyncMock.mockReset();
+  existsSyncMock.mockReset();
   loggerMock.debug.mockReset();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
-  createOrSelectStackMock.mockResolvedValue(FAKE_STACK);
+
+  // Default: no `Pulumi.{yaml,yml,json}` exists yet in `workDir` (a brand-new
+  // workspace directory) — every test that cares about an EXISTING project
+  // settings file overrides this explicitly.
+  existsSyncMock.mockReturnValue(false);
+
+  // `LocalWorkspace.create` resolves with a fake, mutable workspace whose
+  // `envVars` starts as a shallow copy of what was passed in (mirroring the
+  // real SDK's constructor — see this file's own doc comment) and whose
+  // `listStacks()` defaults to "nothing exists yet" (the overwhelmingly
+  // common case in these tests: a genuinely new stack, or a stack this same
+  // install already created and therefore never even calls `listStacks` at
+  // all — see the "no local passphrase" describe block below for why).
+  createMock.mockImplementation(async (opts: { envVars?: Record<string, string> }) => {
+    const ws: FakeWorkspace = {
+      ...opts,
+      envVars: { ...opts.envVars },
+      listStacks: vi.fn().mockResolvedValue([]),
+    };
+    return ws;
+  });
+  createOrSelectMock.mockResolvedValue(FAKE_STACK);
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stability', () => {
@@ -181,8 +262,8 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
 
     await service.getOrCreateStack(baseInput());
 
-    expect(createOrSelectStackMock).toHaveBeenCalledOnce();
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { pulumiHome: string; workDir: string }];
+    expect(createMock).toHaveBeenCalledOnce();
+    const opts = createOpts();
     expect(opts.pulumiHome).toBe(PULUMI_HOME_DIR);
     expect(opts.workDir).toBe(WORK_DIR);
     expect(opts.pulumiHome).not.toContain('tmp');
@@ -193,13 +274,11 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
     const { service } = makeService();
 
     await service.getOrCreateStack(baseInput());
-    await service.getOrCreateStack(baseInput({ stackExists: true }));
-    await service.getOrCreateStack(baseInput({ stackExists: true }));
+    await service.getOrCreateStack(baseInput());
+    await service.getOrCreateStack(baseInput());
 
-    expect(createOrSelectStackMock).toHaveBeenCalledTimes(3);
-    const paths = createOrSelectStackMock.mock.calls.map(
-      (call) => call[1] as { pulumiHome: string; workDir: string },
-    );
+    expect(createMock).toHaveBeenCalledTimes(3);
+    const paths = createMock.mock.calls.map((call) => call[0] as { pulumiHome: string; workDir: string });
     // Every call sees the identical pair of paths — no per-operation directory.
     expect(new Set(paths.map((p) => p.pulumiHome)).size).toBe(1);
     expect(new Set(paths.map((p) => p.workDir)).size).toBe(1);
@@ -210,7 +289,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
 
     await service.getOrCreateStack(baseInput());
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { pulumiHome: string }];
+    const opts = createOpts();
     expect(opts.pulumiHome).not.toBe('/fake/userData/pulumi');
     expect(opts.pulumiHome.startsWith('/fake/userData/pulumi/versions')).toBe(false);
   });
@@ -232,12 +311,10 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
     const CALL_COUNT = 30;
 
     for (let i = 0; i < CALL_COUNT; i++) {
-      // First call is the genuinely-new-stack case; every call after that
-      // mirrors a realistic caller reporting the stack now exists.
-      await service.getOrCreateStack(baseInput({ stackExists: i > 0 }));
+      await service.getOrCreateStack(baseInput());
     }
 
-    expect(createOrSelectStackMock).toHaveBeenCalledTimes(CALL_COUNT);
+    expect(createMock).toHaveBeenCalledTimes(CALL_COUNT);
 
     // mkdirSync is called twice per operation (pulumiHome + workDir) and is
     // idempotent under `recursive: true` — being called CALL_COUNT * 2 times
@@ -248,28 +325,45 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
     const mkdirPaths = new Set(mkdirSyncMock.mock.calls.map((call) => call[0]));
     expect(mkdirPaths).toEqual(new Set([PULUMI_HOME_DIR, WORK_DIR]));
 
-    // Same guarantee restated at the createOrSelectStack call boundary,
+    // Same guarantee restated at the `LocalWorkspace.create` call boundary,
     // mirroring the 3-call path-identity test above but at a scale that
     // makes a per-operation leak impossible to miss.
-    const paths = createOrSelectStackMock.mock.calls.map(
-      (call) => call[1] as { pulumiHome: string; workDir: string },
-    );
+    const paths = createMock.mock.calls.map((call) => call[0] as { pulumiHome: string; workDir: string });
     expect(new Set(paths.map((p) => p.pulumiHome)).size).toBe(1);
     expect(new Set(paths.map((p) => p.workDir)).size).toBe(1);
   });
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — bare stack name', () => {
-  it('should pass the bare stack name and project name, never an organization/-qualified name', async () => {
+  it('should pass the bare stack name to Stack.createOrSelect, never an organization/-qualified name', async () => {
     const { service } = makeService();
 
     await service.getOrCreateStack(baseInput());
 
-    const [args] = createOrSelectStackMock.mock.calls[0] as [{ stackName: string; projectName: string }];
-    expect(args.stackName).toBe(PULUMI_STACK_NAME);
-    expect(args.projectName).toBe(PULUMI_PROJECT_NAME);
-    expect(args.stackName).not.toContain('/');
-    expect(args.stackName).not.toContain('organization');
+    const [stackName] = createOrSelectMock.mock.calls[0] as [string, unknown];
+    expect(stackName).toBe(PULUMI_STACK_NAME);
+    expect(stackName).not.toContain('/');
+    expect(stackName).not.toContain('organization');
+  });
+
+  it('should default the project to the bare PULUMI_PROJECT_NAME when no Pulumi.yaml exists yet', async () => {
+    const { service } = makeService();
+    existsSyncMock.mockReturnValue(false);
+
+    await service.getOrCreateStack(baseInput());
+
+    const opts = createOpts();
+    expect(opts.projectSettings?.name).toBe(PULUMI_PROJECT_NAME);
+  });
+
+  it('should leave an existing Pulumi.yaml alone rather than overwriting its project settings', async () => {
+    const { service } = makeService();
+    existsSyncMock.mockReturnValue(true);
+
+    await service.getOrCreateStack(baseInput());
+
+    const opts = createOpts();
+    expect(opts.projectSettings).toBeUndefined();
   });
 });
 
@@ -279,7 +373,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
 
     await service.getOrCreateStack(baseInput({ stateBucket: 'hyveon-state-abc123', stateBucketRegion: 'eu-west-1' }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['PULUMI_BACKEND_URL']).toBe('s3://hyveon-state-abc123?region=eu-west-1');
   });
 
@@ -288,7 +382,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
 
     await service.getOrCreateStack(baseInput({ stateBucketRegion: 'ap-southeast-2' }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_REGION']).toBe('ap-southeast-2');
   });
 
@@ -298,7 +392,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
     // Not a real region, but proves special characters don't corrupt the URL.
     await service.getOrCreateStack(baseInput({ stateBucketRegion: 'us east 1' }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['PULUMI_BACKEND_URL']).toBe('s3://my-bucket?region=us%20east%201');
   });
 
@@ -307,7 +401,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
 
     await service.getOrCreateStack(baseInput());
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { secretsProvider: string }];
+    const opts = createOpts();
     expect(opts.secretsProvider).toBe('passphrase');
   });
 
@@ -317,7 +411,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — PULUMI_BACKEND_URL and reg
     await service.getOrCreateStack(baseInput());
 
     expect(engine.resolve).toHaveBeenCalledOnce();
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { pulumiCommand: unknown }];
+    const opts = createOpts();
     expect(opts.pulumiCommand).toBe(FAKE_COMMAND);
   });
 });
@@ -330,7 +424,8 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
       PulumiBackendNotBootstrappedError,
     );
 
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
     expect(engine.resolve).not.toHaveBeenCalled();
   });
 
@@ -342,9 +437,20 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
     ).rejects.toThrow(/my-missing-bucket/);
   });
 
-  it('should re-classify a missing-bucket-shaped SDK failure into PulumiBackendNotBootstrappedError as a backstop', async () => {
+  it('should re-classify a missing-bucket-shaped failure from LocalWorkspace.create into PulumiBackendNotBootstrappedError as a backstop', async () => {
     const { service } = makeService();
-    createOrSelectStackMock.mockRejectedValueOnce(
+    createMock.mockRejectedValueOnce(new Error('unable to get metadata: NoSuchBucket: The specified bucket does not exist'));
+
+    await expect(service.getOrCreateStack(baseInput({ backendReady: true }))).rejects.toThrow(
+      PulumiBackendNotBootstrappedError,
+    );
+  });
+
+  it('should re-classify a missing-bucket-shaped failure from Stack.createOrSelect into PulumiBackendNotBootstrappedError as a backstop', async () => {
+    const { service, store } = makeService();
+    // Fast path (stored passphrase) so `Stack.createOrSelect` is reached without a `listStacks` probe.
+    store.setPulumiPassphrase('already-stored');
+    createOrSelectMock.mockRejectedValueOnce(
       new Error('unable to get metadata: NoSuchBucket: The specified bucket does not exist'),
     );
 
@@ -355,7 +461,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
 
   it('should propagate an SDK failure unchanged when it does not look like a missing bucket', async () => {
     const { service } = makeService();
-    createOrSelectStackMock.mockRejectedValueOnce(new Error('some unrelated CLI failure'));
+    createOrSelectMock.mockRejectedValueOnce(new Error('some unrelated CLI failure'));
 
     let caught: unknown;
     try {
@@ -373,19 +479,17 @@ describe('PulumiWorkspaceService.getOrCreateStack — passphrase generated once 
   it('should generate and store a passphrase on first use, then reuse the identical value on later calls', async () => {
     const { service, store } = makeService();
 
-    await service.getOrCreateStack(baseInput({ stackExists: false }));
-    const [, firstOpts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
-    const firstPassphrase = firstOpts.envVars['PULUMI_CONFIG_PASSPHRASE'];
+    await service.getOrCreateStack(baseInput());
+    const firstPassphrase = createOrSelectWs(0).envVars['PULUMI_CONFIG_PASSPHRASE'];
     expect(firstPassphrase).toBeTruthy();
     expect(store.get('pulumi')?.passphrase).toBeDefined();
     // Confirms the store holds the *encrypted* form, not the plaintext used in envVars.
     expect(store.get('pulumi')?.passphrase).toBe(`enc-${firstPassphrase}`);
 
-    // The stack now genuinely exists — a realistic caller would pass
-    // stackExists: true from here on.
-    await service.getOrCreateStack(baseInput({ stackExists: true }));
-    const [, secondOpts] = createOrSelectStackMock.mock.calls[1] as [unknown, { envVars: Record<string, string> }];
-    const secondPassphrase = secondOpts.envVars['PULUMI_CONFIG_PASSPHRASE'];
+    // The stack now genuinely exists (a real passphrase is now stored) — this
+    // second call must take the fast, already-stored-passphrase path.
+    await service.getOrCreateStack(baseInput());
+    const secondPassphrase = createOrSelectWs(1).envVars['PULUMI_CONFIG_PASSPHRASE'];
 
     expect(secondPassphrase).toBe(firstPassphrase);
   });
@@ -395,8 +499,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — passphrase generated once 
 
     await service.getOrCreateStack(baseInput());
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
-    const passphrase = opts.envVars['PULUMI_CONFIG_PASSPHRASE'];
+    const passphrase = createOrSelectWs().envVars['PULUMI_CONFIG_PASSPHRASE'];
     // base64 of N bytes decodes back to N bytes.
     expect(Buffer.from(passphrase, 'base64').length).toBeGreaterThanOrEqual(32);
   });
@@ -407,11 +510,9 @@ describe('PulumiWorkspaceService.getOrCreateStack — passphrase generated once 
     const store = new ElectronStoreService(safeStorage);
     const { service } = makeService({ safeStorage, store });
 
-    await expect(service.getOrCreateStack(baseInput({ stackExists: false }))).rejects.toThrow(
-      PulumiPassphraseUnavailableError,
-    );
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
 
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
     expect(store.get('pulumi')?.passphrase).toBeUndefined();
   });
 });
@@ -429,7 +530,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
     return store;
   }
 
-  it('should throw PulumiPassphraseUnavailableError and never call createOrSelectStack when the keychain is currently unavailable', async () => {
+  it('should throw PulumiPassphraseUnavailableError and never call Stack.createOrSelect when the keychain is currently unavailable', async () => {
     const safeStorage = makeAvailableSafeStorage(); // available while seeding
     const store = seedExistingPassphrase(safeStorage);
     const storedBefore = store.get('pulumi')?.passphrase;
@@ -438,16 +539,14 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
     vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(false);
     const { service } = makeService({ safeStorage, store });
 
-    await expect(service.getOrCreateStack(baseInput({ stackExists: true }))).rejects.toThrow(
-      PulumiPassphraseUnavailableError,
-    );
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
 
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
     // Never silently regenerated — the original ciphertext is untouched.
     expect(store.get('pulumi')?.passphrase).toBe(storedBefore);
   });
 
-  it('should throw PulumiPassphraseUnavailableError and never call createOrSelectStack when the stored ciphertext cannot be decrypted', async () => {
+  it('should throw PulumiPassphraseUnavailableError and never call Stack.createOrSelect when the stored ciphertext cannot be decrypted', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = seedExistingPassphrase(safeStorage);
     const storedBefore = store.get('pulumi')?.passphrase;
@@ -459,11 +558,9 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
     });
     const { service } = makeService({ safeStorage, store });
 
-    await expect(service.getOrCreateStack(baseInput({ stackExists: true }))).rejects.toThrow(
-      PulumiPassphraseUnavailableError,
-    );
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
 
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
     expect(store.get('pulumi')?.passphrase).toBe(storedBefore);
   });
 
@@ -478,33 +575,92 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
     const setSpy = vi.spyOn(store, 'setPulumiPassphrase');
     const { service } = makeService({ safeStorage, store });
 
-    await expect(service.getOrCreateStack(baseInput({ stackExists: true }))).rejects.toThrow(
-      PulumiPassphraseUnavailableError,
-    );
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
 
     // The write path was never even attempted.
     expect(setSpy).not.toHaveBeenCalled();
     expect(store.get('pulumi')?.passphrase).toBe(originalCiphertext);
   });
 
-  it('should throw PulumiPassphraseUnavailableError and never write when stackExists is true but no local passphrase was ever stored (reinstall / wiped userData / second machine)', async () => {
-    // No seeding at all — nothing has ever been stored locally, but the
-    // caller reports the stack already exists remotely (e.g. this is a
-    // reinstall, or a second machine pointed at the same state bucket).
-    const safeStorage = makeAvailableSafeStorage();
-    const store = new ElectronStoreService(safeStorage);
-    const setSpy = vi.spyOn(store, 'setPulumiPassphrase');
-    const { service } = makeService({ safeStorage, store });
+  describe('Finding 1 (final review): reinstall / wiped userData / second machine against an existing remote stack', () => {
+    it('should throw PulumiPassphraseUnavailableError with reason existing-stack-no-local-record when listStacks reports the stack already exists remotely and no local passphrase was ever stored', async () => {
+      // No seeding at all — nothing has ever been stored locally, exactly
+      // like a reinstall or a second machine pointed at the same state
+      // bucket. Before Finding 1's fix, this scenario was indistinguishable
+      // from a genuinely brand-new stack and silently generated a fresh,
+      // WRONG passphrase (permanently wedging the install). The fix: query
+      // the REAL backend via `listStacks()` before ever deciding.
+      const safeStorage = makeAvailableSafeStorage();
+      const store = new ElectronStoreService(safeStorage);
+      store.set('aws', { region: 'us-west-2', profile: 'personal' });
+      const setSpy = vi.spyOn(store, 'setPulumiPassphrase');
+      const { service } = makeService({ safeStorage, store });
+      // Simulate the remote backend genuinely already having this stack —
+      // `listStacks()` (queried against the real `s3://` backend in
+      // production) returns a summary for PULUMI_STACK_NAME.
+      createMock.mockImplementationOnce(async (opts: { envVars?: Record<string, string> }) => ({
+        ...opts,
+        envVars: { ...opts.envVars },
+        listStacks: vi.fn().mockResolvedValue([{ name: PULUMI_STACK_NAME, current: true }]),
+      }));
 
-    await expect(service.getOrCreateStack(baseInput({ stackExists: true }))).rejects.toThrow(
-      PulumiPassphraseUnavailableError,
-    );
+      let caught: unknown;
+      try {
+        await service.getOrCreateStack(baseInput());
+      } catch (err) {
+        caught = err;
+      }
 
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
-    // Critically: no passphrase was silently generated and persisted for a
-    // stack that already has real, different encrypted state remotely.
-    expect(setSpy).not.toHaveBeenCalled();
-    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+      expect(caught).toBeInstanceOf(PulumiPassphraseUnavailableError);
+      expect((caught as PulumiPassphraseUnavailableError).reason).toBe('existing-stack-no-local-record');
+      expect(createOrSelectMock).not.toHaveBeenCalled();
+      // Critically: no passphrase was silently generated and persisted for a
+      // stack that already has real, different encrypted state remotely.
+      expect(setSpy).not.toHaveBeenCalled();
+      expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    });
+
+    it('should call listStacks on the SAME workspace it later hands to Stack.createOrSelect, not a second instance', async () => {
+      const safeStorage = makeAvailableSafeStorage();
+      const store = new ElectronStoreService(safeStorage);
+      store.set('aws', { region: 'us-west-2', profile: 'personal' });
+      const { service } = makeService({ safeStorage, store });
+
+      await service.getOrCreateStack(baseInput());
+
+      expect(createMock).toHaveBeenCalledOnce();
+      const ws = createOrSelectWs();
+      expect(ws.listStacks).toHaveBeenCalledOnce();
+    });
+
+    it('should generate and persist a new passphrase when listStacks confirms the stack does not exist remotely (genuinely new stack, unaffected by the fix)', async () => {
+      const safeStorage = makeAvailableSafeStorage();
+      const store = new ElectronStoreService(safeStorage);
+      store.set('aws', { region: 'us-west-2', profile: 'personal' });
+      const { service } = makeService({ safeStorage, store });
+      // Default createMock impl already resolves listStacks() to `[]` — the
+      // genuinely-new-stack case this fix must not regress.
+
+      await service.getOrCreateStack(baseInput());
+
+      const ws = createOrSelectWs();
+      expect(ws.listStacks).toHaveBeenCalledOnce();
+      expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBeTruthy();
+      expect(store.get('pulumi')?.passphrase).toBeDefined();
+    });
+
+    it('should never call listStacks at all when a passphrase is already stored locally (common-case path is unaffected)', async () => {
+      const safeStorage = makeAvailableSafeStorage();
+      const store = new ElectronStoreService(safeStorage);
+      store.set('aws', { region: 'us-west-2', profile: 'personal' });
+      store.setPulumiPassphrase('already-stored-passphrase');
+      const { service } = makeService({ safeStorage, store });
+
+      await service.getOrCreateStack(baseInput());
+
+      const ws = createOrSelectWs();
+      expect(ws.listStacks).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -514,7 +670,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
 
     await service.getOrCreateStack(baseInput({ credentialEnvVars: { AWS_PROFILE: 'personal' } }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_PROFILE']).toBe('personal');
   });
 
@@ -531,10 +687,11 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
       }),
     );
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['PULUMI_BACKEND_URL']).toBe('s3://my-bucket?region=us-west-2');
-    expect(opts.envVars['PULUMI_CONFIG_PASSPHRASE']).not.toBe('attacker-supplied');
     expect(opts.envVars['AWS_REGION']).toBe('us-west-2');
+    const finalEnvVars = createOrSelectWs().envVars;
+    expect(finalEnvVars['PULUMI_CONFIG_PASSPHRASE']).not.toBe('attacker-supplied');
   });
 
   it('should support clearing an inherited variable via an explicit empty string', async () => {
@@ -542,7 +699,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
 
     await service.getOrCreateStack(baseInput({ credentialEnvVars: { AWS_PROFILE: '' } }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_PROFILE']).toBe('');
   });
 });
@@ -559,7 +716,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
     // future caller (Phase 7) will use, not a hand-built test fixture.
     await service.getOrCreateStack(baseInput({ credentialEnvVars: resolveCredentialEnvVars(store) }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_PROFILE']).toBe('personal');
     expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('');
     expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('');
@@ -575,7 +732,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
 
     await service.getOrCreateStack(baseInput({ credentialEnvVars: resolveCredentialEnvVars(store) }));
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('AKID123');
     expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('SECRET456');
     expect(opts.envVars['AWS_PROFILE']).toBe('');
@@ -605,7 +762,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is u
     // the extension point at all.
     await service.getOrCreateStack(baseInput());
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_PROFILE']).toBe('personal');
     expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('');
     expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('');
@@ -621,7 +778,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is u
 
     await service.getOrCreateStack(baseInput());
 
-    const [, opts] = createOrSelectStackMock.mock.calls[0] as [unknown, { envVars: Record<string, string> }];
+    const opts = createOpts();
     expect(opts.envVars['AWS_ACCESS_KEY_ID']).toBe('AKID123');
     expect(opts.envVars['AWS_SECRET_ACCESS_KEY']).toBe('SECRET456');
     expect(opts.envVars['AWS_PROFILE']).toBe('');
@@ -638,7 +795,8 @@ describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is u
 
     // Refused before ever reaching the SDK — never falls through to the
     // engine's own default AWS credential chain.
-    expect(createOrSelectStackMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
   });
 });
 
