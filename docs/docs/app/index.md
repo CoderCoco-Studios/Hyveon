@@ -27,24 +27,23 @@ one links to the page that covers it in full.
 The app checks whether you have finished setup. If you have not, it replaces
 the entire window with the first-run wizard — there is no dashboard, no
 sidebar, and no way to skip ahead. This is deliberate: nothing else in the app
-works until Terraform has a state backend to talk to.
+works until Pulumi has a state backend to talk to.
 
 ### 2. Complete the wizard
 
-Five steps: install `terraform` and the `aws` CLI, choose your cloud (AWS is
-the only option today), point the app at an AWS profile or paste access keys,
-create the three bootstrap resources (an S3 state bucket, a DynamoDB lock
-table, an S3 tfvars bucket), and finally run `terraform init` against that new
-backend.
+Four steps: choose your cloud (AWS is the only option today), point the app
+at an AWS profile or paste access keys, create the two bootstrap resources
+(an S3 state bucket and an S3 tfvars bucket), and finally initialize the
+Pulumi stack against that new backend.
 
 Progress is saved on every step change, so you can close the app and pick up
 where you left off. See [First-run wizard](/app/first-run-wizard).
 
 ### 3. Deploy the infrastructure
 
-The wizard only creates the *backend* — the buckets and lock table Terraform
-stores its state in. Your actual infrastructure (the ECS cluster, EFS file
-systems, Lambdas, DynamoDB tables, Route 53 wiring) does not exist yet.
+The wizard only creates the *backend* — the bucket Pulumi stores its state
+in. Your actual infrastructure (the ECS cluster, EFS file systems, Lambdas,
+DynamoDB tables, Route 53 wiring) does not exist yet.
 
 Go to **Terraform**, click **Run plan**, read the change summary, click
 **Approve plan**, then **Apply**. See [Terraform](/app/terraform).
