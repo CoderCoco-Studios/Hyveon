@@ -175,6 +175,6 @@ line* rather than in the banner, prefixed `[stream error]`.
 - It does not show the Hyveon app's own logs. Those are on
   [Settings → Diagnostics](/app/settings#diagnostics).
 - It does not show Terraform output. That lives on the
-  [Terraform](/app/terraform) page and in run history.
+  [Infrastructure](/app/iac) page and in run history.
 - It does not show Lambda logs. Those are in CloudWatch under the Lambdas'
   own log groups — see [Lambdas](/components/lambdas).

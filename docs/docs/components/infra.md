@@ -1,0 +1,139 @@
+---
+title: Infra program
+sidebar_position: 2
+---
+
+# Infra program
+
+All AWS infrastructure is provisioned by `app/packages/infra` (`@hyveon/infra`) —
+a **Pulumi Automation API program**, not a CLI-driven `.tf` tree. There is no
+`.tf` file anywhere in this repository; the old `terraform/` tree was deleted
+by the `migrate-iac-to-pulumi` change. Provisioning logic lives in ordinary
+TypeScript functions that declare `@pulumi/aws` resources, driven entirely
+from inside the packaged Electron app by `PulumiService`.
+
+## How it's invoked — no host-installed `pulumi` binary
+
+`PulumiService` (`app/packages/desktop-main/src/services/PulumiService.ts`)
+never shells out to a `pulumi` command it hopes is on `PATH`. Instead:
+
+- **The program is inline, not a file on disk.** Every stack operation goes
+  through `PulumiWorkspaceService.getOrCreateStack()`, which calls
+  `LocalWorkspace.createOrSelectStack({ projectName: 'hyveon', stackName:
+  'production', program })` from `@pulumi/pulumi/automation`. For `preview`
+  and `apply`, `program` is `createInfraProgram(deploymentConfig, {
+  lambdaBundlesDir })` — a function from this package, evaluated in-process.
+  `destroy` deliberately passes a no-op program instead, so tearing down a
+  stack never requires reading (or being blocked by) a broken configuration
+  object.
+- **The Pulumi CLI engine itself is still required — the app provisions it,
+  not the operator.** The Automation API is a Node wrapper around a real
+  `pulumi` binary; `PulumiEngineService` downloads and verifies the exact
+  pinned version (`PULUMI_ENGINE_VERSION` in `@hyveon/shared`, currently
+  matching this package's own `@pulumi/pulumi` dependency) into an app-owned
+  directory under Electron's `userData` — never `~/.pulumi`, and it never
+  probes `PATH`. The resolved `PulumiCommand` is passed explicitly into
+  `LocalWorkspaceOptions.pulumiCommand`. An operator following the setup
+  wizard never installs anything by hand.
+- **`@pulumi/pulumi` and `@pulumi/aws` are pinned to exact versions** (no
+  caret) in both `app/packages/infra/package.json` and
+  `app/packages/desktop-main/package.json`, kept identical on purpose —
+  `PulumiService` reads `@pulumi/aws`'s installed version to decide which
+  provider plugin to install for a stack.
+
+## State backend — self-managed S3, no DynamoDB lock table
+
+Unlike the old Terraform S3 backend (which paired an S3 bucket with a
+DynamoDB lock table), the Pulumi stack uses Pulumi's own **DIY S3 backend**
+and needs no separate lock table:
+
+- `LocalWorkspaceOptions.envVars.PULUMI_BACKEND_URL` is set to
+  `s3://<stateBucket>?region=<region>` — the same state bucket the first-run
+  wizard's bootstrap step creates (versioned, AES-256 encrypted, no public
+  access). `secretsProvider: 'passphrase'` — there is no Pulumi Cloud
+  account and no access token anywhere in this app; a random passphrase is
+  generated once per stack and stored encrypted via `SafeStorageService`.
+- **Locking is a lock *object* written into the state bucket itself**, not a
+  DynamoDB table — this is how Pulumi's CLI implements its self-managed S3
+  backend. A stale lock left by a crashed operation is recoverable through
+  `PulumiService.clearStaleLock()` after the app verifies the lock is
+  actually orphaned (same process identity, no longer alive).
+- This is a distinct concept from the app's own **apply lock**: `RunService`
+  additionally guards concurrent plan/apply/destroy submissions with an
+  in-memory lock mirrored to a DynamoDB item in the runs table. Don't confuse
+  the two — one guards the Pulumi backend itself, the other guards the app's
+  own IPC-level submission queue.
+
+## Configuration input
+
+The program takes a single `DeploymentConfig` object (`@hyveon/shared`) as
+its only input — there is no `terraform.tfvars` and no `.tfvars` file of any
+kind. `DeploymentConfig.gameServers: Record<string, GameServerConfig>` is
+the single source of truth for per-game resources; it's persisted as the
+JSON object `deployment-config.json` in the operator's S3 configuration
+bucket. `PulumiService` fetches that object, `JSON.parse`s it, and passes it
+into `createInfraProgram()`. See
+[Management app — `TfvarsModule` / `TfvarsService`](/components/management-app#tfvarsmodule--tfvarsservice)
+for how the desktop app reads and writes the same object.
+
+There is no single `for_each`-style loop over this map. `defineAll()`
+(`program.ts`) calls each resource-defining function once, in a fixed
+dependency order, and **each function loops internally** over
+`config.gameServers` to produce its own per-game resources. Adding or
+removing a game means adding or removing exactly one map entry — every
+per-game resource across every file below still fans out from that one
+object.
+
+## Files
+
+Every source file under `app/packages/infra/src/` and what it declares.
+"Fixed" means the resource is always created once; "per-game"/"conditional"
+means the count depends on `config.gameServers`.
+
+| File | Purpose | Resources |
+|---|---|---|
+| `network.ts` | VPC and public networking. | `aws.ec2.Vpc` (1), `InternetGateway` (1), `Subnet` (2, fixed — not config-driven), `RouteTable` (1, with an inline default route), `RouteTableAssociation` (2). |
+| `securityGroups.ts` | The security groups guarding game tasks, the file manager, EFS, and the EFS-seeder Lambdas. | `aws.ec2.SecurityGroup` — 3 fixed (game servers, file manager, EFS) + 1 conditional (EFS-seeder, only when at least one game declares `file_seeds`). No standalone `SecurityGroupRule` resources — ingress/egress are inline arrays. |
+| `efs.ts` | The shared encrypted EFS filesystem and its access points. | `aws.efs.FileSystem` (1), `MountTarget` (one per public subnet), `AccessPoint` (one per game/volume pair, plus one per HTTPS game for Caddy's certificate storage). |
+| `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. |
+| `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 5 fixed (task execution, watchdog, followup, interactions, dns-updater) + 1 per game with `file_seeds`. `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 4 fixed + 1 per seeder game. |
+| `lambdas.ts` | The five Lambda functions, their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). |
+| `dynamodb.ts` | The three DynamoDB tables. | `aws.dynamodb.Table` — 3 fixed: Discord state (TTL on `expiresAt`), run history (GSI on `status`/`startedAt`), audit log. All `PAY_PER_REQUEST`. |
+| `secrets.ts` | The two Discord Secrets Manager secrets and their create-only placeholder versions. | `aws.secretsmanager.Secret` (2, `recoveryWindowInDays: 0`). `SecretVersion` (2, seeded with a placeholder string and `ignoreChanges: ['secretString']` so the app can edit them afterwards without a redeploy overwriting the value). |
+| `route53.ts` | Hosted-zone lookup **only**. | **Zero Pulumi resources** — one data-source call, `aws.route53.getZoneOutput()`. See the DNS invariant below. |
+| `escapes.ts` | The imperative "escape hatches" that don't fit a declarative resource model: seeding a DynamoDB config row and invoking the EFS-seeder Lambdas. | `aws.dynamodb.TableItem` (0–2, conditional on Discord config being set). `aws.lambda.Invocation` — one per game with `file_seeds`, re-triggered only when that game's seed content hash changes. |
+| `discordDomain.ts` | The CloudFront-fronted `discord.{hostedZoneName}` custom domain in front of the interactions Lambda's Function URL (Function URLs can't be Route 53 ALIAS targets directly). | `aws.acm.Certificate` (1, `us-east-1`), `aws.route53.Record` (1, the ACM DNS-validation record), `aws.acm.CertificateValidation` (1, `us-east-1`), `aws.cloudfront.Distribution` (1), `aws.route53.Record` (2 more — A and AAAA ALIASes to the distribution). |
+| `program.ts` | The package's entry point: constructs both AWS providers, calls every `defineX()` in dependency order, and builds the stack outputs object. | `aws.Provider` (2 — the default region, plus a fixed `us-east-1` alias for the Discord domain's ACM certificate, which CloudFront requires). |
+| `index.ts` | Barrel re-export of every `defineX()`, helper, and type. | none |
+| `testing/fixtures.ts`, `testing/pulumiMocks.ts` | Test-only: shared game-config fixtures and a `pulumi.runtime.setMocks()` harness. | none |
+
+## The DNS invariant, precisely
+
+**No per-game DNS record is a Pulumi resource.** `route53.ts` declares zero
+resources — only a hosted-zone lookup — and its file doc carries an explicit
+invariant comment enforced by a negative test assertion. Per-game hostnames
+(`{game}.{hostedZoneName}`) are UPSERTed and DELETEd exclusively by
+`@hyveon/lambda-update-dns` in response to ECS task state changes; adding a
+per-game `aws.route53.Record` anywhere in this program would fight that
+Lambda.
+
+The **only** `aws.route53.Record` resources in the whole program are the
+three static, fixed records in `discordDomain.ts` for the Discord bot's own
+custom subdomain — unrelated to any game, never touched by any Lambda. This
+mirrors the old Terraform stack's one exception to the same rule, so it is
+not a migration regression.
+
+## Migrating from the old Terraform stack
+
+If you previously deployed the Terraform-based version of this stack,
+see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-terraform-teardown-one-off)
+before running `pulumi up` for the first time — the new program reuses the
+same physical resource names, and deploying both stacks against the same AWS
+account risks duplicate or conflicting infrastructure.
+
+## Dependencies
+
+| Package | Version | Where |
+|---|---|---|
+| `@pulumi/pulumi` | `3.255.0` | `app/packages/infra`, `app/packages/desktop-main` (exact pin, matches `PULUMI_ENGINE_VERSION`) |
+| `@pulumi/aws` | `7.39.0` | `app/packages/infra`, `app/packages/desktop-main` (exact pin, kept identical across both workspaces) |

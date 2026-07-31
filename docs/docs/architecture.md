@@ -8,15 +8,36 @@ sidebar_position: 2
 Three loosely-coupled pieces, all sharing types and helpers through a single
 workspace package, `@hyveon/shared`:
 
-1. **Terraform** provisions every AWS resource.
+1. **`app/packages/infra`** provisions every AWS resource — a Pulumi
+   Automation API program (TypeScript), not a CLI-driven `.tf` tree. There
+   is no `.tf` file anywhere in this repository.
 2. The **management app** is a packaged Electron desktop app and the local
    control plane. Its React/Vite renderer talks to the Nest.js backend
-   (`desktop-main`) over Electron IPC — not HTTP. The backend reads
-   `terraform.tfstate` directly to discover what the infra looks like and
-   drives AWS via the cloud-provider abstraction (SDK v3 under the hood).
-3. Five **Lambdas** run the control flow: two for Discord, one for DNS, one
-   for the idle watchdog, and one conditional per-game `efs-seeder` Lambda
-   for games that declare `file_seeds`.
+   (`desktop-main`) over Electron IPC — not HTTP. The backend reads the
+   deployed Pulumi stack's outputs (via `PulumiService.getStackOutputs()`,
+   against the S3 state backend — no local state file) to discover what the
+   infra looks like, and drives AWS via the cloud-provider abstraction (SDK
+   v3 under the hood).
+3. Five **Lambda packages** run the control flow: two for Discord, one for
+   DNS, one for the idle watchdog — all four always deployed — and one
+   conditional per-game `efs-seeder` Lambda, deployed once per game that
+   declares `file_seeds` (zero, one, or many instances, never a fixed fifth
+   function).
+
+### Why Pulumi, not Terraform
+
+The project started on Terraform and migrated to Pulumi mid-way through
+(`migrate-iac-to-pulumi`). Three reasons drove it: **multi-cloud
+optionality** — Pulumi's provider model makes a future non-AWS cloud a new
+package alongside `app/packages/infra`, using the same `CloudProvider`
+abstraction the desktop app already has, rather than a second HCL module
+tree; **no separate HCL round-trip** — the program is TypeScript end to end,
+so there's no state-diffing or code-generation step between the app's own
+types (`DeploymentConfig`, `GameServerConfig`) and the infrastructure that
+consumes them; and **no operator-installed CLI binary** — the Automation API
+lets the app drive Pulumi as a library, with `PulumiEngineService`
+provisioning the pinned engine itself, instead of requiring a `terraform`
+binary on the operator's machine.
 
 There is **no persistent ECS service**. Game servers only exist while a
 RunTask is in flight — Start triggers `ecs.runTask`, Stop triggers
@@ -34,9 +55,9 @@ route through neighbouring subgraphs and produce unreadable overlap.
 
 The Electron app's Nest.js backend is the local control plane, driven by
 its React/Vite renderer over Electron IPC (`window.hyveon`) rather than HTTP.
-It reads `terraform.tfstate` directly to discover infrastructure IDs, then
-drives ECS / DynamoDB / Secrets Manager / CloudWatch via the cloud-provider
-abstraction (SDK v3 under the hood). Players reach the game directly at the
+It reads the deployed Pulumi stack's outputs to discover infrastructure IDs,
+then drives ECS / DynamoDB / Secrets Manager / CloudWatch via the
+cloud-provider abstraction (SDK v3 under the hood). Players reach the game directly at the
 task's public IP either way — UDP/TCP games connect straight to the game
 port, and HTTPS games terminate TLS in-task via a Caddy sidecar that shares
 the same public IP. There is no load balancer anywhere in the path.
@@ -84,25 +105,30 @@ stops the task itself.
 ## Invariants
 
 These are easy to break by accident. They are spelled out in `CLAUDE.md`, the
-maintainer guide, and inline in a few Terraform files. If you change one,
-write the PR description as if you're explaining the new design.
+maintainer guide, and inline in a few `app/packages/infra` source files. If
+you change one, write the PR description as if you're explaining the new
+design.
 
-1. **`game_servers` in `terraform.tfvars` is the single source of truth.**
-   Task definitions, EFS access points, log groups, security-group rules, and
-   the `GAME_NAMES` env var on four Lambdas (interactions, followup,
-   update-dns, watchdog) are all produced by `for_each` over this map. Adding
-   or removing a game means editing exactly one place.
+1. **`DeploymentConfig.gameServers` is the single source of truth.**
+   It's persisted as the JSON object `deployment-config.json` in the
+   operator's S3 configuration bucket. Task definitions, EFS access points,
+   log groups, security-group rules, and the `GAME_NAMES` env var on four
+   Lambdas (interactions, followup, update-dns, watchdog) are all produced
+   by resource-defining functions in `app/packages/infra` that each loop
+   over this map internally. Adding or removing a game means editing
+   exactly one entry.
 
-2. **DNS is Lambda-managed, not Terraform-managed.** The Route 53 zone is
-   a data source; individual A records are created and deleted by the
-   update-dns Lambda in response to ECS task state changes. Adding an
-   `aws_route53_record` resource would fight the Lambda.
+2. **DNS is Lambda-managed, not infra-program-managed.** `route53.ts`
+   declares zero resources — only a hosted-zone data-source lookup;
+   individual A records are created and deleted by the update-dns Lambda in
+   response to ECS task state changes. Adding a per-game
+   `aws.route53.Record` resource would fight the Lambda.
 
 3. **Lambdas use `AWS_REGION_` (trailing underscore).** The standard
    `AWS_REGION` name is reserved by the Lambda runtime and cannot be
-   overridden. Terraform sets `AWS_REGION_` on all five Lambdas; the four
-   core Lambdas read `process.env.AWS_REGION_` (the fifth, `efs-seeder`,
-   makes no AWS SDK calls and never reads it).
+   overridden. The infra program sets `AWS_REGION_` on all five Lambda
+   functions; the four core Lambdas read `process.env.AWS_REGION_` (the
+   fifth, `efs-seeder`, makes no AWS SDK calls and never reads it).
 
 4. **Secrets never leave AWS.** The bot token and the Discord public key
    live in Secrets Manager. The management app can write them and

@@ -97,8 +97,8 @@ Terraform vars to change the Lambda schedule."*
 
 **To actually change the watchdog:** set `watchdog_interval_minutes`,
 `watchdog_idle_checks` and `watchdog_min_packets` in `terraform.tfvars` (see
-the [Terraform reference](/components/terraform)), then run a plan and apply
-from the [Terraform](/app/terraform) page.
+the [infra program reference](/components/infra)), then run a plan and apply
+from the [Infrastructure](/app/iac) page.
 
 There is no indication in the UI when the saved values and the applied
 Terraform values disagree, so keep them in sync by hand.
@@ -179,7 +179,7 @@ page. They edit different things:
 - The three fields here write into the deployment configuration itself —
   the same values Terraform/Pulumi bakes into the watchdog Lambda's
   EventBridge schedule and environment variables at apply time. Saving here
-  only takes effect after the next `apply` from the [Terraform](/app/terraform)
+  only takes effect after the next `apply` from the [Infrastructure](/app/iac)
   page, same as any other field in this section.
 
 ### Discord admin allowlists

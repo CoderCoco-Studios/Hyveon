@@ -1,18 +1,26 @@
 ---
-title: Terraform
+title: Infrastructure
 sidebar_position: 5
 ---
 
-# Terraform
+# Infrastructure
 
-The Terraform screen (route `/terraform`) is where declarations become real
+The Infrastructure screen (route `/iac`) is where declarations become real
 infrastructure. Every change you make on the [Games](/app/games) page sits
-inert in `terraform.tfvars` until you run a plan here, approve it, and apply
-it.
+inert in the JSON configuration object until you run a plan here, approve
+it, and apply it.
 
 > Plan, review, and apply infrastructure changes directly from the app.
 
-![The Terraform page with a Run plan button and an empty log viewer waiting for output](/img/app/terraform.png)
+:::note Still labelled "Terraform" in the sidebar
+The app's own sidebar currently labels this nav item **Terraform** even
+though its route is `/iac` and it runs a Pulumi preview/update under the
+hood — a naming leftover from the migration that hasn't been fixed in the
+UI yet. This page uses the underlying Pulumi terms so it stays accurate to
+what actually runs; expect the sidebar wording to catch up in a later pass.
+:::
+
+![The Infrastructure page with a Run plan button and an empty log viewer waiting for output](/img/app/terraform.png)
 
 The workflow is a strict sequence, and each stage only unlocks the next:
 
@@ -24,36 +32,36 @@ Destroy is a separate, deliberately isolated path at the bottom of the page.
 
 ## Run plan
 
-**Run plan** runs `terraform plan` with your tfvars, writing the resulting
-plan artifact to disk so it can be applied later without re-planning. Output
-streams into the log viewer live (`Waiting for plan output…` until the first
-line arrives). ANSI colours from Terraform are rendered; the viewer auto-scrolls
-unless you scroll up, and re-pins when you scroll back to the bottom.
+**Run plan** runs a Pulumi **preview** against the current configuration —
+no `terraform` binary, no `.tf` files. `PulumiService` invokes
+`stack.preview()` from the Automation API and writes the resulting plan
+artifact (`<runId>.plan.json`) to disk so it can be applied later without
+re-previewing. Output streams into the log viewer live (`Waiting for plan
+output…` until the first line arrives). The viewer auto-scrolls unless you
+scroll up, and re-pins when you scroll back to the bottom.
 
-Only one Terraform subcommand can run at a time. If something else is already
+Only one Pulumi operation can run at a time. If something else is already
 running, the plan is refused — see [Workspace busy](#the-workspace-busy-banner).
 
 ### The change-summary badges
 
-Once Terraform prints its summary line, three badges appear next to the
-section heading:
+Once Pulumi's preview finishes, badges appear next to the section heading,
+one per non-zero count:
 
 | Badge | Colour |
 |---|---|
-| `3 to add` | cyan |
-| `1 to change` | amber |
-| `0 to destroy` | red |
+| `N to create` | cyan |
+| `N to update` | amber |
+| `N to delete` | red |
 
-These are parsed straight out of Terraform's own `Plan: 3 to add, 1 to change,
-0 to destroy.` line. If Terraform prints no summary — for instance when there
-is nothing to do — **no badges appear at all**. Read the log body in that
-case.
+These come from Pulumi's own resource-change counts, not a parsed text
+line. If nothing changed, no badges appear at all — read the log body in
+that case.
 
-The same badges are reused for the Apply section, where they reflect
-Terraform's `Apply complete! Resources: …` counts.
+The same badges are reused for the Apply section, reflecting the counts
+from the actual update.
 
-If the plan fails you get a red banner (`terraform plan failed — see the log
-above for details.`) and a **Start over** button.
+If the plan fails you get a red banner and a **Start over** button.
 
 ## The approval gate
 
@@ -62,7 +70,7 @@ appears. Approval is a separate, recorded act — the approver's name is taken
 from the operating-system user running the app, never supplied by the page —
 so run history shows who signed off on what.
 
-![The Terraform page after a successful plan, showing the change-summary badges and an Approve plan button](/img/app/terraform-awaiting-approval.png)
+![The Infrastructure page after a successful plan, showing the change-summary badges and an Approve plan button](/img/app/terraform-awaiting-approval.png)
 
 Approving shows a `Plan approved` toast and replaces the button with a panel:
 
@@ -94,33 +102,33 @@ in order, that:
 2. it has been approved,
 3. the approval has not expired,
 4. the hash the page supplied matches the hash recorded at approval time,
-5. re-hashing the `.tfplan` file on disk *right now* still produces that same
-   hash.
+5. re-hashing the plan artifact on disk *right now* still produces that same
+   hash — this hash covers **both** the plan artifact's bytes **and** the
+   configuration object's version id at plan time, so a game edit landing
+   between plan and apply invalidates the plan rather than silently applying
+   against stale config.
 
 That last check is the important one: it means the exact plan you looked at
 and approved is the exact plan that gets applied. If the artifact were
-modified or replaced between approval and apply, you get:
-
-> Plan artifact hash mismatch for run "…": the on-disk .tfplan artifact does
-> not match the approved plan hash
-
-and nothing runs. If the page's hash disagrees with the stored one you get the
-matching `Plan hash mismatch for run "…"` error instead.
+modified or replaced between approval and apply, or the configuration
+changed underneath it, you get a plan-hash-mismatch error and nothing runs.
 
 Apply reuses the plan's own run ID, so a plan and its apply share one lineage
 in run history. Output streams the same way.
 
 On success you get a green panel reading **Apply complete.** with a **View
-dashboard** link, plus a `terraform apply complete` toast.
+dashboard** link, plus a toast.
 
-![The Terraform page after a successful apply, showing streamed apply output in the log viewer, the resources-added change summary, and a green Apply complete banner with a View dashboard link](/img/app/terraform-apply.png)
+![The Infrastructure page after a successful apply, showing streamed apply output in the log viewer, the resources-added change summary, and a green Apply complete banner with a View dashboard link](/img/app/terraform-apply.png)
 
 ## The workspace-busy banner
 
-Only one `terraform` subcommand can hold the workspace at a time. When a
-submission is refused for that reason you get an amber banner:
+Only one Pulumi operation can hold the shared workspace at a time — Pulumi's
+own operation names are `preview`/`up`, which this page relabels to the
+familiar `plan`/`apply` terms everywhere except the busy banner itself,
+which currently still reads (a leftover from the pre-migration wording):
 
-> Workspace busy — a `terraform apply` run is already in progress. Try again
+> Workspace busy — a `terraform plan` run is already in progress. Try again
 > once it finishes.
 
 It appears under whichever action you attempted (plan, apply or destroy), with
@@ -129,6 +137,19 @@ and try again.
 
 Apply additionally takes a durable lock that self-releases after one hour, so
 a crashed apply cannot wedge the workspace permanently.
+
+### Stale Pulumi backend locks
+
+Because state locking is handled by the S3 backend itself (a lock object,
+not a DynamoDB table — see [the infra program reference](/components/infra#state-backend--self-managed-s3-no-dynamodb-lock-table)),
+a crashed process can occasionally leave a lock the backend still considers
+held. When a submission is rejected for this reason (distinct from the
+ordinary workspace-busy case above) you get a banner naming the stack and
+every lock holder — username, hostname, PID, and how long ago it was taken —
+with a **Clear lock and retry** action gated behind a confirmation dialog.
+Only clear a lock you recognize as genuinely abandoned; clearing a lock that
+turns out to be a real in-progress run elsewhere risks two updates racing
+against the same state.
 
 ## Start over
 
@@ -145,16 +166,16 @@ An always-visible red-bordered panel at the bottom of the page:
 
 > **Destroy infrastructure**
 >
-> Runs `terraform destroy`, tearing down every resource this app manages. This
+> Runs a Pulumi destroy, tearing down every resource this app manages. This
 > cannot be undone from here — game servers, storage, and networking are all
 > removed.
 
 Pressing **Destroy infrastructure** opens a confirmation dialog:
 
 > ### Destroy all managed infrastructure?
-> This runs terraform destroy and tears down every resource this app manages —
-> game servers, storage, and networking. It cannot be undone from here. Type
-> "destroy infrastructure" to confirm.
+> This tears down every resource this app manages — game servers, storage,
+> and networking. It cannot be undone from here. Type "destroy
+> infrastructure" to confirm.
 
 You must type exactly:
 
@@ -168,20 +189,21 @@ become clickable.
 Behind the scenes there is a second gate: confirming mints a single-use token
 that expires after **five minutes**. If the destroy is somehow submitted
 without a fresh token it is refused outright. There is **no plan/approve cycle
-for destroy** — the typed phrase plus that token is the whole gate.
+for destroy** — the typed phrase plus that token is the whole gate. Destroy
+also runs against a no-op inline program (it never reads the configuration
+object), so it still works even if that object is missing or malformed.
 
-The destroy run streams into its own log viewer, shows a `7 destroyed` badge
-when Terraform reports its summary, and ends with a green **Destroy complete.**
-panel. There is no "Start over" for destroy — reload the page to reset the
-section.
+The destroy run streams into its own log viewer and ends with a green
+**Destroy complete.** panel. There is no "Start over" for destroy — reload
+the page to reset the section.
 
 ## Run history
 
-The **View history** link in the page header opens `/terraform/history`.
+The **View history** link in the page header opens `/iac/history`.
 
-![The Terraform run history table listing past plan, apply and destroy runs with status badges, timestamps and approver, plus Kind and Status filters](/img/app/terraform-history.png)
+![The Infrastructure run history table listing past plan, apply and destroy runs with status badges, timestamps and approver, plus Kind and Status filters](/img/app/terraform-history.png)
 
-> Past `terraform` plan, apply, and destroy runs.
+> Past plan, apply, and destroy runs.
 
 | Column | Contents |
 |---|---|
@@ -219,7 +241,7 @@ link — clicking elsewhere in a row does nothing.
 
 ## Run detail
 
-Clicking a run's kind opens `/terraform/history/:runId`.
+Clicking a run's kind opens `/iac/history/:runId`.
 
 This page is **strictly read-only**. It shows the run's kind, status,
 start/completion times, the approver, any rollback provenance, and the
@@ -249,45 +271,40 @@ at all, in which case *every* run detail page 404s.
 
 ## Rollback
 
-Apply rows that recorded which tfvars version they were built from get a
-**Rollback** button. Rollback restores the `terraform.tfvars` that was live
-*before* that apply.
+Apply rows that recorded which configuration version they were built from
+get a **Rollback** button. Rollback restores the configuration object
+(`deployment-config.json`) that was live *before* that apply.
 
 It is a two-step flow.
 
 **Step 1 — Resolve.** Pressing **Rollback** looks up the target version. This
 is read-only; nothing is written. If it cannot find one you get an inline
-error such as `Could not resolve a rollback target.`, or a specific reason:
+error such as `Could not resolve a rollback target.`, or a specific reason
+(no recorded configuration version id for that apply, or the historic
+version has aged out of S3).
 
-| Message | Meaning |
-|---|---|
-| `Apply run "…" has no recorded tfvarsVersionId — nothing to roll back.` | That apply predates version tracking |
-| `Historic tfvars version "…" no longer exists — it may have expired. Nothing was written.` | The old S3 version has aged out |
+**Step 2 — Confirm.** A dialog appears naming the target version and asking
+you to confirm restoring it as the new head, then queuing a plan against it.
+The current head is not deleted — history is append-only. There is no
+type-to-confirm here; **Roll back** is enabled immediately.
 
-**Step 2 — Confirm.** A dialog appears:
-
-> ### Roll back tfvars?
-> This restores tfvars version `abc123` (last modified 24/07/2026, 09:12:44)
-> as the new head, then queues a plan against it. The current head is not
-> deleted — history is append-only.
-
-There is no type-to-confirm here; **Roll back** is enabled immediately.
-
-**Rollback is append-only.** The historic tfvars content is written as a *new*
-version at the head of the file's history. Nothing is deleted or reverted, so
-you can always roll forward again by rolling back the rollback.
+**Rollback is append-only.** The historic configuration content is written
+as a *new* version at the head of the object's history. Nothing is deleted
+or reverted, so you can always roll forward again by rolling back the
+rollback.
 
 **A rollback does not change your infrastructure by itself.** Confirming
-restores the tfvars and then drops you on the Terraform page with a plan
-already running against the restored file — but that plan goes through the
-normal gates. **You must still approve it and apply it.** Until you do, your
-tfvars and your deployed infrastructure disagree.
+restores the configuration object and then drops you on the Infrastructure
+page with a plan already running against the restored config — but that
+plan goes through the normal gates. **You must still approve it and apply
+it.** Until you do, your declared configuration and your deployed
+infrastructure disagree.
 
 The resulting plan is tagged: it shows `Rollback of apply run <id>` on the
-Terraform page, and its row in run history carries the cyan `rollback` badge.
+Infrastructure page, and its row in run history carries the cyan `rollback`
+badge.
 
 ## Related reading
 
-- [Terraform reference](/components/terraform) — every variable, and what each resource does.
-- [S3 tfvars storage](/guides/s3-tfvars) — required for rollback and for version tracking.
+- [Infra program reference](/components/infra) — every file and resource the Pulumi program declares.
 - [Audit](/app/audit) — plan, approve, apply, destroy and rollback all leave audit entries.

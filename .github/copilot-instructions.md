@@ -68,15 +68,15 @@ If a comment would fit into any of the categories above, **do not post it**. Sil
 
 ## Repo-specific context
 
-- **Framework**: Nest.js (on `@nestjs/platform-express`) + TypeScript backend, React/Vite frontend, Terraform + AWS.
+- **Framework**: Nest.js (on `@nestjs/platform-express`) + TypeScript backend, React/Vite frontend, Pulumi (Automation API, TypeScript) + AWS.
 - **DI**: Nest's built-in `@Injectable()` providers. Do not suggest switching to tsyringe, InversifyJS, or manual wiring — we just migrated off tsyringe deliberately.
-- **ESLint + tflint run in CI.** Don't post style comments the linter would catch — those will surface in the lint job. Do flag genuine bugs the linter misses.
+- **ESLint runs in CI.** Don't post style comments the linter would catch — those will surface in the lint job. Do flag genuine bugs the linter misses. There is no `tflint` job — the `terraform/` tree was deleted; the infra program is TypeScript, linted by the same ESLint job as everything else.
 - **Test naming**: `it('should …')`. Don't suggest `it('does …')` or the reverse — the repo convention is `should`.
 - **No `as unknown as T` casts in tests.** Prefer `vi.mocked(fn)` or `Partial<T>` + single `as T`.
 - **ESM-only.** The project is `"type": "module"`. Imports must use `.js` extensions. Don't suggest removing them.
 - **Squash-merge.** See "PR title check" above — title becomes the commit subject on `main`, so it must be a Conventional Commit. Always check it.
-- **The `game_servers` Terraform map is the single source of truth.** Don't suggest hand-writing per-game resources — they all `for_each` over this map.
-- **DNS is Lambda-managed, not Terraform-managed.** Don't suggest adding `aws_route53_record` resources.
+- **`DeploymentConfig.gameServers` (the JSON configuration object) is the single source of truth.** Don't suggest hand-writing per-game resources — `app/packages/infra`'s resource-defining functions all loop over this map internally.
+- **DNS is Lambda-managed, not infra-program-managed.** Don't suggest adding a per-game `aws.route53.Record` to `app/packages/infra`.
 - **Watchdog state lives in ECS task tags.** Don't suggest adding DynamoDB / SSM / Redis for this.
 - **Lambda env var `AWS_REGION_`** (trailing underscore) is intentional — `AWS_REGION` is reserved by the Lambda runtime. Don't suggest renaming.
 
@@ -94,7 +94,7 @@ All commits will follow the conventional commit format. The commit message shoul
 
 Where:
 - `<type>` is one of the following: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `build`, `ci`, `style`.
-- `<scope>` is an optional component that provides additional context about the commit (e.g., `api`, `ui`, `terraform`).
+- `<scope>` is an optional component that provides additional context about the commit (e.g., `api`, `ui`, `infra`).
 - `<subject>` is a brief description of the change.
 - `<body>` is an optional component that provides a more detailed description of the change, including the motivation and any relevant context.
 
