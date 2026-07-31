@@ -69,7 +69,7 @@ function formatDiffSummary(diff: DeploymentConfigDiff): string {
 }
 
 /**
- * "Rollback" action for an apply row in `/terraform/history` (issue #112).
+ * "Rollback" action for an apply row in `/iac/history` (issue #112).
  * Two-step flow, mirroring the backend's resolve-then-confirm split so
  * nothing is written until the operator has seen the target version:
  *

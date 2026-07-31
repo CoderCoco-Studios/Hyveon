@@ -18,8 +18,8 @@ import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ConfirmDialog } from '../components/confirm-dialog.component.js';
 
 /**
- * `location.state` shape the rollback flow (#112) navigates to `/terraform`
- * with, from a confirmed rollback in `/terraform/history` — see
+ * `location.state` shape the rollback flow (#112) navigates to `/iac`
+ * with, from a confirmed rollback in `/iac/history` — see
  * `RollbackAction`. `tfvarsVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent
  * straight through to `hyveon.iac.plan` so the resulting plan's persisted
@@ -489,7 +489,7 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
 }
 
 /**
- * Terraform plan/apply route (`/terraform`) — lets an operator trigger
+ * Terraform plan/apply route (`/iac`) — lets an operator trigger
  * `terraform plan`, watch its live ANSI output, review the resource-change
  * summary, approve the plan, and run the plan-hash-gated `terraform apply`,
  * all over the `hyveon.iac.*` IPC surface (renamed from `hyveon.terraform.*`
@@ -640,7 +640,7 @@ export function IacPage() {
   useEffect(() => {
     if (!rollbackState || rollbackConsumedRef.current) return;
     rollbackConsumedRef.current = true;
-    navigate('/terraform', { replace: true, state: null });
+    navigate('/iac', { replace: true, state: null });
     submitPlan({ tfvarsVersionId: rollbackState.tfvarsVersionId, rolledBackFrom: rollbackState.rolledBackFrom });
   }, [navigate, rollbackState, submitPlan]);
 
@@ -766,7 +766,7 @@ export function IacPage() {
           </p>
         </div>
         <Link
-          to="/terraform/history"
+          to="/iac/history"
           className="text-sm text-[var(--color-primary)] underline underline-offset-2"
         >
           View history
@@ -813,7 +813,7 @@ export function IacPage() {
             <p className="text-sm text-[var(--color-muted-foreground)]">
               Rollback of{' '}
               <Link
-                to={`/terraform/history/${planRecord.rolledBackFrom}`}
+                to={`/iac/history/${planRecord.rolledBackFrom}`}
                 className="text-[var(--color-primary)] underline underline-offset-2"
               >
                 apply run {planRecord.rolledBackFrom}

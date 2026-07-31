@@ -131,7 +131,7 @@ describe('IacPage', () => {
 
   it('should link to the run-history route', () => {
     renderPage(<IacPage />);
-    expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', '/terraform/history');
+    expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute('href', '/iac/history');
   });
 
   it('should stream plan output and render the structured resource-change summary once the plan finishes', async () => {
@@ -558,7 +558,7 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/terraform', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 
@@ -594,12 +594,12 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/terraform', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 
       const link = await screen.findByRole('link', { name: /apply run apply-1/ });
-      expect(link).toHaveAttribute('href', '/terraform/history/apply-1');
+      expect(link).toHaveAttribute('href', '/iac/history/apply-1');
     });
 
     it('should not auto-submit when there is no rollback location.state', () => {
