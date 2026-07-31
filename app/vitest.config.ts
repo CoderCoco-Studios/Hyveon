@@ -57,7 +57,7 @@ export default defineConfig({
             'packages/**/*.test.{ts,tsx}',
             // Explicitly include desktop-preload specs so they are always discovered.
             'packages/desktop-preload/**/*.test.{ts,tsx}',
-            // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
+            // Top-level test helpers (e.g. packaging-manifest-pins.test.ts) live outside packages/.
             'test/**/*.test.{ts,tsx}',
             // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
             // (outside packages/), so it needs its own explicit include entry.
