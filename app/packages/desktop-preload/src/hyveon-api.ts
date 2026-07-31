@@ -1226,28 +1226,6 @@ export interface HyveonConfigApi {
   }) => Promise<WatchdogConfigResult>;
 }
 
-/** Detection result for a single first-run-wizard prerequisite binary. */
-export interface PrerequisiteCheckResult {
-  /** Whether the binary was located on `PATH`. */
-  found: boolean;
-  /** Absolute path to the binary, present only when `found` is `true`. */
-  path?: string;
-  /** Parsed semver string, present only when the version output was parseable. */
-  version?: string;
-}
-
-/** Detection result for `terraform`, extending the base shape with a minimum-version flag. */
-export interface TerraformPrerequisiteCheckResult extends PrerequisiteCheckResult {
-  /** Whether `version` satisfies the app's minimum supported Terraform version. */
-  minimumVersionSatisfied?: boolean;
-}
-
-/** Combined report returned by the first-run wizard's prerequisite-detection step. */
-export interface PrerequisitesReport {
-  terraform: TerraformPrerequisiteCheckResult;
-  aws: PrerequisiteCheckResult;
-}
-
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
  * `~/.aws/config`. Never carries key material.
@@ -1295,7 +1273,7 @@ export interface IamCheckResult {
 }
 
 /** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/web`'s `wizard.utils.ts`. */
-export type WizardStepName = 'prerequisites' | 'pick-cloud' | 'credentials' | 'bootstrap' | 'terraform-init';
+export type WizardStepName = 'pick-cloud' | 'credentials' | 'bootstrap' | 'terraform-init';
 
 /** Resumable wizard progress persisted to `userData/wizard-state.json`. */
 export interface WizardProgress {
@@ -1329,8 +1307,6 @@ export interface BootstrapResult {
 
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface HyveonWizardApi {
-  /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
-  checkPrereqs: () => Promise<PrerequisitesReport>;
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   listAwsProfiles: () => Promise<AwsProfileSummary[]>;
   /**

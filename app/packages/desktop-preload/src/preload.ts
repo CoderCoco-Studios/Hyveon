@@ -117,7 +117,6 @@ import type {
   TfOutputs,
   UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
-  PrerequisitesReport,
   AwsProfileSummary,
   SavePastedCredentialsInput,
   WizardState,
@@ -712,7 +711,6 @@ const api: HyveonApi = {
   },
 
   wizard: {
-    checkPrereqs: () => invoke<PrerequisitesReport>('wizard.prereqs.check'),
     listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
     saveCredentials: (input: SavePastedCredentialsInput) =>
       invoke<{ profileName: string }>('wizard.aws.saveCredentials', input),

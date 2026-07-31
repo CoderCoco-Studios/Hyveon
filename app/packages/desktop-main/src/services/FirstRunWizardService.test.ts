@@ -42,9 +42,9 @@ describe('FirstRunWizardService', () => {
   });
 
   describe('getProgress', () => {
-    it('should default to the prerequisites step when the state file does not exist', async () => {
+    it('should default to the pick-cloud step when the state file does not exist', async () => {
       const progress = await service.getProgress();
-      expect(progress).toEqual({ step: 'prerequisites' });
+      expect(progress).toEqual({ step: 'pick-cloud' });
     });
 
     it('should return the persisted step when the state file holds a recognized step name', async () => {
@@ -53,16 +53,16 @@ describe('FirstRunWizardService', () => {
       expect(progress).toEqual({ step: 'bootstrap' });
     });
 
-    it('should default to the prerequisites step when the file contains invalid JSON', async () => {
+    it('should default to the pick-cloud step when the file contains invalid JSON', async () => {
       writeFileSync(statePath, 'not valid json{{{', 'utf-8');
       const progress = await service.getProgress();
-      expect(progress).toEqual({ step: 'prerequisites' });
+      expect(progress).toEqual({ step: 'pick-cloud' });
     });
 
-    it('should default to the prerequisites step when the file holds an unrecognized step name', async () => {
+    it('should default to the pick-cloud step when the file holds an unrecognized step name', async () => {
       writeFileSync(statePath, JSON.stringify({ step: 'some-future-step' }), 'utf-8');
       const progress = await service.getProgress();
-      expect(progress).toEqual({ step: 'prerequisites' });
+      expect(progress).toEqual({ step: 'pick-cloud' });
     });
   });
 
@@ -112,7 +112,7 @@ describe('FirstRunWizardService', () => {
       await service.complete();
 
       expect(existsSync(statePath)).toBe(false);
-      expect(await service.getProgress()).toEqual({ step: 'prerequisites' });
+      expect(await service.getProgress()).toEqual({ step: 'pick-cloud' });
     });
 
     it('should not throw when the resume file never existed', async () => {

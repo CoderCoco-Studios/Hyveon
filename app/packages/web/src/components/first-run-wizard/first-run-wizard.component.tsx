@@ -6,24 +6,20 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Five steps: prerequisites, pick-cloud, credentials, bootstrap, and
- * terraform-init (the last of which runs `terraform init` and finishes the
- * wizard).
+ * Four steps: pick-cloud, credentials, bootstrap, and terraform-init (the
+ * last of which runs `terraform init` and finishes the wizard).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import type { AwsProfileSummary, IamCheckResult, PrerequisitesReport, TerraformInitConfig } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary, IamCheckResult, TerraformInitConfig } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
-import { PrerequisitesStep } from './prerequisites-step.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep, type CredentialMode, type PasteField } from './credentials-step.component.js';
 import { BootstrapStep } from './bootstrap-step.component.js';
 import { TerraformInitStep } from './terraform-init-step.component.js';
 import {
   WIZARD_STEPS,
-  arePrerequisitesSatisfied,
   defaultBootstrapResourceNames,
-  reconfigureSteps,
   type BootstrapResourceKey,
   type BootstrapResourceState,
   type WizardStep,
@@ -31,7 +27,6 @@ import {
 
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
-  prerequisites: 'Install prerequisites',
   'pick-cloud': 'Choose your cloud',
   credentials: 'AWS credentials',
   bootstrap: 'Bootstrap AWS resources',
@@ -53,12 +48,12 @@ export interface FirstRunWizardProps {
   /** Invoked once the terraform-init step's `wizard.complete` call succeeds. */
   onComplete?: () => void;
   /**
-   * `'first-run'` (default) gates the whole app and runs all five steps,
+   * `'first-run'` (default) gates the whole app and runs all four steps,
    * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
    * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
-   * launched from Settings) skips `prerequisites`, pre-marks
-   * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
-   * affordance, and buffers *edited* answers locally — a single
+   * launched from Settings) pre-marks `pick-cloud`/`credentials`/`bootstrap`
+   * as completed with a per-step Edit affordance, and buffers *edited*
+   * answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via
    * Edit, commits right before `wizard.complete` runs. A step left collapsed
    * is never included in that call, so Cancel never has anything to undo for
@@ -75,18 +70,13 @@ export interface FirstRunWizardProps {
 }
 
 /**
- * Self-contained first-run wizard: owns its own step index, the
- * prerequisites-check state (report/checking/error), the pick-cloud
+ * Self-contained first-run wizard: owns its own step index, the pick-cloud
  * selection, and the credentials-step state (profile list, mode, selection,
- * paste form). Fetches an initial prerequisites check and AWS profile list
- * on mount.
+ * paste form). Fetches an initial AWS profile list on mount.
  */
 export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: FirstRunWizardProps = {}) {
-  const steps = useMemo(() => (mode === 'reconfigure' ? reconfigureSteps() : WIZARD_STEPS), [mode]);
+  const steps = WIZARD_STEPS;
   const [stepIndex, setStepIndex] = useState(0);
-  const [report, setReport] = useState<PrerequisitesReport | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedCloud, setSelectedCloud] = useState<CloudOption>('aws');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -128,12 +118,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // Guards the save-progress effect below until the resume-on-mount effect
   // has settled (resolved or rejected) — otherwise the two effects race to
   // read/write the same file, and if the save ever won that race it would
-  // clobber a real resumed step back down to `prerequisites`. Also used to
+  // clobber a real resumed step back down to `pick-cloud`. Also used to
   // clamp how far resume is allowed to jump (see the resume effect).
   const resumeSettledRef = useRef(false);
 
   // Resume-on-mount: jump straight to the last-recorded step instead of
-  // always restarting at `prerequisites`, so closing and reopening the app
+  // always restarting at `pick-cloud`, so closing and reopening the app
   // mid-flow doesn't lose progress. Any failure (including a missing IPC
   // bridge) leaves `stepIndex` at its default of 0. Clamped to at most the
   // `bootstrap` step: none of this component's answer state (region,
@@ -269,30 +259,6 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   function handleFinished() {
     onComplete?.();
   }
-
-  const checkPrereqs = useCallback(async () => {
-    if (!window.hyveon) {
-      setError('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
-    setChecking(true);
-    setError(null);
-    try {
-      const result = await window.hyveon.wizard.checkPrereqs();
-      setReport(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to check prerequisites.');
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // `prerequisites` isn't a Reconfigure step — skip the check entirely
-    // rather than running it for no visible step.
-    if (mode !== 'first-run') return;
-    void checkPrereqs();
-  }, [mode, checkPrereqs]);
 
   useEffect(() => {
     async function fetchProfiles() {
@@ -453,13 +419,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   const advanceDisabled = stepCollapsed
     ? false
-    : step === 'prerequisites'
-      ? !arePrerequisitesSatisfied(report)
-      : step === 'credentials'
-        ? !credentialsChosen
-        : step === 'bootstrap'
-          ? !bootstrapComplete
-          : false;
+    : step === 'credentials'
+      ? !credentialsChosen
+      : step === 'bootstrap'
+        ? !bootstrapComplete
+        : false;
 
   /**
    * Advances past the current step. In `'first-run'` mode, leaving
@@ -573,9 +537,6 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           </p>
         </div>
 
-        {step === 'prerequisites' && (
-          <PrerequisitesStep report={report} checking={checking} error={error} onRecheck={checkPrereqs} />
-        )}
         {step === 'pick-cloud' &&
           (stepCollapsed ? (
             <CompletedStepSummary label={STEP_LABELS['pick-cloud']} onEdit={() => startEdit('pick-cloud')} />

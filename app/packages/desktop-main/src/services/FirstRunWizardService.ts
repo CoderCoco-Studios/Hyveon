@@ -15,7 +15,7 @@ export interface WizardProgress {
 }
 
 /** Progress returned when the state file is missing, unreadable, or holds an unrecognized step name. */
-const DEFAULT_PROGRESS: WizardProgress = { step: 'prerequisites' };
+const DEFAULT_PROGRESS: WizardProgress = { step: 'pick-cloud' };
 
 /**
  * Owns the first-run wizard's resumable step-progress file (see
@@ -32,7 +32,7 @@ const DEFAULT_PROGRESS: WizardProgress = { step: 'prerequisites' };
 export class FirstRunWizardService {
   constructor(private readonly store: ElectronStoreService) {}
 
-  /** Reads the last-recorded step, defaulting to `prerequisites` when the file is missing, unreadable, or corrupt. */
+  /** Reads the last-recorded step, defaulting to `pick-cloud` when the file is missing, unreadable, or corrupt. */
   async getProgress(): Promise<WizardProgress> {
     try {
       const raw = await readFile(this.stateFilePath(), 'utf-8');
