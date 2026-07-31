@@ -24,7 +24,7 @@ workspace package, `@hyveon/shared`:
    declares `file_seeds` (zero, one, or many instances, never a fixed fifth
    function).
 
-### Why Pulumi, not Terraform
+## Why Pulumi, not Terraform
 
 The project started on Terraform and migrated to Pulumi mid-way through
 (`migrate-iac-to-pulumi`). Three reasons drove it: **multi-cloud

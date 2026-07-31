@@ -6,12 +6,16 @@ sidebar_position: 4
 # Games
 
 The Games screen (route `/games`) is where you declare what servers exist. It
-is the app's editor for the `game_servers` map in `terraform.tfvars`.
+is the app's editor for `gameServers` in the versioned JSON configuration
+object (`deployment-config.json`, in your S3 configuration bucket) — there
+is no `terraform.tfvars` any more. A handful of literal UI strings quoted
+verbatim below still say `terraform.tfvars`; that's the app's own
+not-yet-updated copy, not a claim that the file exists.
 
 :::danger The rule that governs this whole screen
 
-**Creating, editing or removing a game only rewrites `terraform.tfvars`.
-Nothing changes in AWS until a Terraform apply.**
+**Creating, editing or removing a game only updates the JSON configuration
+object. Nothing changes in AWS until a plan/apply run.**
 
 Adding a game does not create a task definition. Removing one does not delete
 anything — the deployed task definition, EFS access point and security-group
@@ -26,8 +30,8 @@ and run plan → approve → apply.
 ## The games table
 
 The card is titled **Declared game servers**. One row per game, listing
-everything declared in tfvars first, then anything deployed but no longer
-declared.
+everything declared in the configuration object first, then anything
+deployed but no longer declared.
 
 | Column | Contents |
 |---|---|
@@ -49,19 +53,19 @@ Exactly one chip per game.
 
 | Chip | Meaning | Cause |
 |---|---|---|
-| **In sync** (green) | Declared in `terraform.tfvars` *and* present in the applied Terraform state | Normal, healthy |
-| **Pending deploy** (amber) | Declared in tfvars, not yet in the applied state | You added or changed it but have not applied yet |
-| **Undeclared** (red) | In the applied state, but **no longer in tfvars** | You removed it from tfvars but have not applied the removal |
+| **In sync** (green) | Declared in the configuration object *and* present in the last-applied Pulumi stack outputs | Normal, healthy |
+| **Pending deploy** (amber) | Declared in the configuration object, not yet in the applied outputs | You added or changed it but have not applied yet |
+| **Undeclared** (red) | In the applied outputs, but **no longer in the configuration object** | You removed it from the configuration object but have not applied the removal |
 
 **"Undeclared" is the one that surprises people.** It means the game is still
 *live in AWS* — its task definition, EFS access point and log group all still
 exist and can still be started — but there is no declaration for it any more.
-The usual cause is having pressed **Remove game** without running a Terraform
-apply afterwards.
+The usual cause is having pressed **Remove game** without running a plan/apply
+afterwards.
 
 Because there is no declaration, an undeclared row has no config to show: its
-Image, Ports, CPU and Memory columns are all `—`. Applying a Terraform plan is
-what actually tears it down.
+Image, Ports, CPU and Memory columns are all `—`. Applying a plan is what
+actually tears it down.
 
 The [pending-changes banner](/app/dashboard#the-pending-changes-banner) sits
 above the table and summarises the same drift in counts.
@@ -81,7 +85,7 @@ current step shown as `Step 1 of 5: Identity`.
 | **Image** | `itzg/minecraft-server` | Required |
 | **Connect message** | `Connect at {ip}:25565` | Optional. Only the placeholders `{host}`, `{ip}`, `{port}` and `{game}` are allowed |
 
-The name becomes the Terraform map key, the task-definition family
+The name becomes the `gameServers` map key, the task-definition family
 (`{name}-server`), the log group (`/ecs/{name}-server`) and the DNS label —
 which is why it is validated as an identifier and why it cannot be changed
 later.
@@ -126,6 +130,16 @@ Two collision checks run continuously:
 Both are hard blocks. Note that zero ports is technically allowed by the
 wizard — you can advance without adding any — but a server with no declared
 ports will not be reachable.
+
+Below the port rows, an **Enable HTTPS (Caddy sidecar)** checkbox sets the
+game's `https` flag. Checking it shows a warning: enabling HTTPS opens ports
+443 and 80 to the internet for the **whole stack**, not just this game, and
+this game's raw container port loses its public ingress rule — traffic
+reaches it through the sidecar instead. Two validations key off this flag:
+an `https = true` game must declare at least one port (`An https = true
+game server must declare at least one port.`), and its first port must be
+`tcp` (`The first port entry of an https = true game server must use
+protocol "tcp" (exact, lowercase).`).
 
 ### Step 4 — Storage
 
@@ -175,9 +189,13 @@ message rendered against the offending field.
 
 ### Fields the wizard does not cover
 
-The wizard has no controls for `https` or `environment`. A game created here
-gets neither. Add them by editing `terraform.tfvars` directly — see the
-[Infra program reference](/components/infra).
+`https` **is** covered — see the toggle in Step 3 above. `environment` is
+the one field with no control anywhere in the app today: there is no UI to
+set environment variables on a game, either in this wizard or on the edit
+form (editing a game carries any existing `environment` value forward
+unchanged — see [Editing a game](#editing-a-game) — it just can't be
+changed from here). There is currently no supported, in-app way to add or
+change environment variables on a game.
 
 ## The game detail screen
 
@@ -206,8 +224,9 @@ appear. Instead:
 > declared configuration to show.
 
 **Edit** and **Remove game** are not rendered at all, because there is nothing
-in tfvars left to edit or remove. The way to clean it up is to run a Terraform
-plan and apply, which destroys the orphaned AWS resources.
+declared left to edit or remove. The way to clean it up is to run a plan and
+apply from the [Infrastructure](/app/iac) page, which destroys the orphaned
+AWS resources.
 
 If you navigate to a name that exists in neither place you get
 `No game named "foo" was found.`
@@ -224,17 +243,23 @@ an update: the name is the task-definition family, the EFS access-point key,
 the log-group name and the DNS label. Remove the old game and add a new one if
 you need a different name.
 
-`https` and `environment` have no controls here either, but they are **carried
-forward unchanged** — editing a game will not silently drop them.
+`https` has the same toggle here as in the wizard's Networking step.
+`environment` still has no control on this form — it is **carried forward
+unchanged** — editing a game will not silently drop it, it just can't be
+changed from here.
 
 Above the save button:
 
-> Saving only updates `terraform.tfvars` — visit **Terraform** to apply this
-> change to the live server.
+> Saving only updates `terraform.tfvars` — visit **Infrastructure** to apply
+> this change to the live server.
 
-**Save changes** writes the file and returns you to the read-only view with
-the new values. Ports declared in this form are checked against every *other*
-game, so a game never collides with itself.
+**Save changes** writes the versioned JSON configuration object
+(`deployment-config.json`, in your S3 configuration bucket) and returns you
+to the read-only view with the new values — it does **not** touch AWS by
+itself. A separate plan/apply run from the [Infrastructure](/app/iac) page
+is still required to make the change live, the same as adding a game. Ports
+declared in this form are checked against every *other* game, so a game
+never collides with itself.
 
 ## Removing a game
 
@@ -243,7 +268,7 @@ game, so a game never collides with itself.
 > ### Remove minecraft?
 > This deletes the `minecraft` entry from `terraform.tfvars`. The deployed AWS
 > resources stay live until an operator applies the change from the
-> **Terraform** page.
+> **Infrastructure** page.
 
 Below the text is a single input whose placeholder is the game's own name. You
 must type the game name **exactly** — the match is case-sensitive and
@@ -251,7 +276,7 @@ untrimmed — before the **Remove game** button becomes clickable.
 
 On success you get `minecraft removed from terraform.tfvars` and are returned
 to the games list, where the game now shows as **Undeclared** until you run a
-Terraform apply.
+plan and apply.
 
 ## Concurrent-edit conflicts
 

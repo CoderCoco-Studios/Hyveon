@@ -110,10 +110,10 @@ describe('EditGameForm', () => {
     );
   });
 
-  it('should show a hint linking to the Terraform page to apply the change', async () => {
+  it('should show a hint linking to the Infrastructure page to apply the change', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
-    expect(await screen.findByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/iac');
+    expect(await screen.findByRole('link', { name: 'Infrastructure' })).toHaveAttribute('href', '/iac');
   });
 
   it('should call api.updateGame with the updated payload after a field edit and Save', async () => {

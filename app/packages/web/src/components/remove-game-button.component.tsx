@@ -84,7 +84,7 @@ export function RemoveGameButton({ game }: Props) {
               <code className="font-[var(--font-mono)] text-xs">terraform.tfvars</code>. The deployed AWS
               resources stay live until an operator applies the change from the{' '}
               <Link to="/iac" className="underline underline-offset-2">
-                Terraform
+                Infrastructure
               </Link>{' '}
               page.
             </AlertDialogDescription>

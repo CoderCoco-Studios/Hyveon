@@ -92,11 +92,11 @@ describe('RemoveGameButton', () => {
     expect(toastMock.error).toHaveBeenCalledOnce();
   });
 
-  it('should show the terraform.tfvars hint and a link to the Terraform page in the dialog', async () => {
+  it('should show the terraform.tfvars hint and a link to the Infrastructure page in the dialog', async () => {
     await openDialog('minecraft');
     const dialog = screen.getByRole('alertdialog');
 
     expect(within(dialog).getByText('terraform.tfvars')).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: 'Terraform' })).toHaveAttribute('href', '/iac');
+    expect(within(dialog).getByRole('link', { name: 'Infrastructure' })).toHaveAttribute('href', '/iac');
   });
 });

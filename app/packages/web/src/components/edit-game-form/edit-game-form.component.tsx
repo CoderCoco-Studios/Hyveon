@@ -229,7 +229,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
       <p className="text-xs text-[var(--color-muted-foreground)]">
         Saving only updates <code>terraform.tfvars</code> — visit{' '}
         <Link to="/iac" className="underline underline-offset-2">
-          Terraform
+          Infrastructure
         </Link>{' '}
         to apply this change to the live server.
       </p>

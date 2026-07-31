@@ -113,6 +113,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | `npm run app:test:e2e` | Builds `shared` + `cloud-aws`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
 | `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
+| `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package → `scripts`. Required before opening a PR. |
 | `npm run scripts:init-parent` | Runs the interactive submodule-parent-repo scaffolder — see the [submodule guide](/guides/submodule). |
 | `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`status`/`check`) — legacy tooling that syncs a `terraform.tfvars`-shaped object nothing in the app reads any more (the app exclusively uses `deployment-config.json` in the same bucket). See the [S3 tfvars storage guide](/guides/s3-tfvars). |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
@@ -197,8 +198,11 @@ env var on four Lambdas (interactions, followup, update-dns, watchdog) — is
 produced by a resource-defining function in `app/packages/infra` that loops
 over this map internally (there's no single `for_each`-equivalent loop —
 each file does its own). Do not hand-write new per-game resources. To add a
-game, an operator uses the Games page in the app and that's it — see
-[Games](/app/games) and the [infra program reference](/components/infra).
+game, an operator uses the Games page in the app — that write updates
+`deployment-config.json` only and still requires a separate plan/apply run
+from the Infrastructure page before it deploys; the Games page write is
+never itself sufficient to change AWS. See [Games](/app/games) and the
+[infra program reference](/components/infra).
 
 ### 3. DNS is Lambda-managed, not infra-program-managed
 
