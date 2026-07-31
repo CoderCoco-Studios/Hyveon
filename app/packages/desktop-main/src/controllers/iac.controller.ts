@@ -4,7 +4,7 @@ import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import { RunLockHeldError } from '@hyveon/shared';
-import type { StackOutputs } from '@hyveon/shared';
+import type { DeploymentConfigDiff, StackOutputs } from '@hyveon/shared';
 import {
   PulumiService,
   PulumiOperationInFlightError,
@@ -260,11 +260,21 @@ interface TerraformRollbackPayload {
  * payload failed validation or resolution was rejected (no matching apply
  * run, not an apply run, no recorded configuration version id, or no earlier
  * version exists) — `error` is always a human-readable description of why.
+ *
+ * `diff` is a best-effort addition (task 9.6, `iac-rollback` spec's SHOULD
+ * requirement): populated with `PulumiService.computeRollbackDiff`'s result
+ * when `resolved: true` AND the diff could be computed, omitted otherwise —
+ * either because resolution itself failed (`resolved: false`) or because the
+ * diff computation specifically failed (network error, unparseable
+ * configuration JSON, missing current head). A missing `diff` on a
+ * `resolved: true` result is NOT an error condition; the confirmation dialog
+ * must render normally without it (see `RollbackAction`'s own doc comment).
  */
 interface TerraformRollbackResolveAck {
   resolved: boolean;
   versionId?: string;
   lastModified?: string;
+  diff?: DeploymentConfigDiff;
   error?: string;
 }
 
@@ -1259,6 +1269,16 @@ export class IacController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.rollback.resolve`),
    * bridged automatically by the generic `ipcMain.handle` bridge since it
    * resolves a single value rather than streaming progress.
+   *
+   * Once the target version is identified, also asks
+   * `PulumiService.computeRollbackDiff` (task 9.6) to summarize how it
+   * differs from the current configuration head, so the confirmation
+   * dialog isn't opaque. That call is wrapped in its own `try`/`catch` here
+   * ON TOP OF `computeRollbackDiff`'s own internal best-effort handling —
+   * belt-and-braces, so an unexpected throw from the diff step can NEVER
+   * regress this method's already-working, spec-MUST "identify the target
+   * version" behavior into a `resolved: false` failure; only the `diff`
+   * field is omitted.
    */
   @MessagePattern('iac.rollback.resolve')
   async resolveRollback(@Payload() payload: TerraformRollbackPayload): Promise<TerraformRollbackResolveAck> {
@@ -1270,7 +1290,23 @@ export class IacController implements OnModuleInit {
 
     try {
       const target = await this.pulumi.resolveRollbackTarget(payload.applyRunId);
-      return { resolved: true, versionId: target.versionId, lastModified: target.lastModified.toISOString() };
+
+      let diff: DeploymentConfigDiff | undefined;
+      try {
+        diff = await this.pulumi.computeRollbackDiff(target.versionId);
+      } catch (err) {
+        logger.warn('terraform rollback resolve: diff computation failed — continuing without it', {
+          err,
+          applyRunId: payload.applyRunId,
+        });
+      }
+
+      return {
+        resolved: true,
+        versionId: target.versionId,
+        lastModified: target.lastModified.toISOString(),
+        ...(diff ? { diff } : {}),
+      };
     } catch (err) {
       logger.error('terraform rollback resolve error', { err, applyRunId: payload.applyRunId });
       const error = err instanceof Error ? err.message : String(err);

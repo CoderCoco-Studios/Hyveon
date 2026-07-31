@@ -359,6 +359,76 @@ describe('PulumiService.resolveRollbackTarget', () => {
   });
 });
 
+describe('PulumiService.computeRollbackDiff', () => {
+  /** A minimal, valid target/current pair with a few deliberate differences, for a happy-path assertion. */
+  const TARGET_CONFIG = { hostedZoneName: 'example.com', dnsTtl: 30, gameServers: { minecraft: { image: 'a' } } };
+  const CURRENT_CONFIG = { hostedZoneName: 'example.com', dnsTtl: 60, gameServers: { palworld: { image: 'b' } } };
+
+  it('should return a diff computed from the target version and the current head', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(CURRENT_CONFIG)), etag: 'e' }),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+
+    expect(diff).toEqual({
+      changedFields: ['dnsTtl'],
+      gameServers: { added: ['palworld'], removed: ['minecraft'], changed: [] },
+    });
+  });
+
+  it('should return undefined without throwing when the target version bytes cannot be read', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockResolvedValue(undefined),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when the current head is missing', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue(undefined),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when the target version JSON is malformed', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode('{not valid json') }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when a fetch rejects', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockRejectedValue(new Error('network error')),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should report zero changes when the target and current configs are structurally identical', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)), etag: 'e' }),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+
+    expect(diff).toEqual({ changedFields: [], gameServers: { added: [], removed: [], changed: [] } });
+  });
+});
+
 describe('PulumiService.confirmRollback happy path', () => {
   it('should restore the historic bytes byte-for-byte and queue a plan tagged rolledBackFrom', async () => {
     const runRecordPersister = makeRunRecordPersister();
