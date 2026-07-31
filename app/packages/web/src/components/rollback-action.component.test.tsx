@@ -91,4 +91,62 @@ describe('RollbackAction', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onRolledBack).not.toHaveBeenCalled();
   });
+
+  it('should append the diff summary to the confirmation dialog when the resolve ack carries one', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      diff: {
+        changedFields: ['awsRegion', 'dnsTtl'],
+        gameServers: { added: ['foo', 'bar', 'baz'], removed: ['qux'], changed: ['corn', 'potato'] },
+      },
+    });
+    const onRolledBack = vi.fn();
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent(
+      '3 game servers added (foo, bar, baz), 1 removed (qux), 2 changed (corn, potato); ' +
+        'other settings also changed: awsRegion, dnsTtl.',
+    );
+  });
+
+  it('should render the identify-target-only dialog with no diff line when the resolve ack has no diff', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+    });
+    const onRolledBack = vi.fn();
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('This restores tfvars version v-prior');
+    expect(dialog).not.toHaveTextContent(/game server/);
+    expect(dialog).not.toHaveTextContent(/configuration differences/);
+  });
+
+  it('should render "No configuration differences detected." when the diff has zero changes in every field', async () => {
+    hyveonMock.iac.rollback.resolve.mockResolvedValue({
+      resolved: true,
+      versionId: 'v-prior',
+      lastModified: '2026-07-18T00:00:00.000Z',
+      diff: {
+        changedFields: [],
+        gameServers: { added: [], removed: [], changed: [] },
+      },
+    });
+    const onRolledBack = vi.fn();
+    render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('No configuration differences detected.');
+  });
 });
