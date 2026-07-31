@@ -1,29 +1,5 @@
 ## ADDED Requirements
 
-### Requirement: Credentials exported to the Terraform subprocess
-
-Every `terraform` child process the app spawns SHALL receive an explicitly constructed environment carrying the credential source the operator selected, rather than inheriting the ambient AWS resolution chain. A single resolver MUST produce that environment for all terraform invocations: `AWS_PROFILE` plus region for the profile path, and `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` plus region read from the keychain at spawn time for the pasted and guided paths. Credential values MUST NOT appear in the streamed terraform log output.
-
-#### Scenario: Profile path
-
-- **WHEN** the operator's active credential source is a discovered `~/.aws` profile and a terraform command is spawned
-- **THEN** the child process environment carries `AWS_PROFILE` set to that profile and the active region
-
-#### Scenario: Pasted or guided path
-
-- **WHEN** the operator's active credential source is a keychain-stored key pair and a terraform command is spawned
-- **THEN** the child process environment carries the access key ID, secret access key, and region resolved from the keychain at spawn time
-
-#### Scenario: Credentials absent from logs
-
-- **WHEN** terraform output is streamed to the UI and the application log
-- **THEN** no access key ID or secret access key value appears in either stream
-
-#### Scenario: No credential source configured
-
-- **WHEN** a terraform command is spawned before any credential source has been selected
-- **THEN** the invocation fails with an explicit "credentials not configured" error rather than silently falling back to the ambient environment
-
 ### Requirement: In-app access key rotation
 
 `AwsProfileService` SHALL support replacing the stored access key for the active credential source: mint a new key via `iam:CreateAccessKey`, persist it through the safeStorage flow, verify it with `sts:GetCallerIdentity`, and delete the superseded key. Verification MUST precede deletion, and a failed deletion MUST be reported rather than swallowed.
@@ -31,7 +7,7 @@ Every `terraform` child process the app spawns SHALL receive an explicitly const
 #### Scenario: Rotation replaces the stored key
 
 - **WHEN** rotation runs against the active credential source
-- **THEN** the keychain holds the new key pair and subsequent AWS calls and terraform spawns use it
+- **THEN** the keychain holds the new key pair and subsequent AWS calls and infrastructure-engine invocations use it
 
 #### Scenario: Old key retained on verification failure
 
