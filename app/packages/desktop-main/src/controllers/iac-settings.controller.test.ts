@@ -4,6 +4,7 @@ import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
 import { ConfigurationNotConfiguredError, TfvarsService } from '../services/TfvarsService.js';
+import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -54,6 +55,11 @@ describe('IacSettingsController', () => {
     it('should register update on the "iac.settings.update" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.update);
       expect(pattern).toEqual(['iac.settings.update']);
+    });
+
+    it('should register engineVersion on the "iac.settings.engineVersion" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.engineVersion);
+      expect(pattern).toEqual(['iac.settings.engineVersion']);
     });
   });
 
@@ -190,6 +196,32 @@ describe('IacSettingsController', () => {
         message: expect.any(String),
       });
       expect(tfvars.updateTopLevelSettings).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('engineVersion', () => {
+    /** Build a `PulumiEngineService` stub exposing just `getResolvedVersion`. */
+    function makeEngine(resolvedVersion: string | null): PulumiEngineService {
+      return {
+        getResolvedVersion: vi.fn().mockReturnValue(resolvedVersion),
+      } as Partial<PulumiEngineService> as PulumiEngineService;
+    }
+
+    it('should return the resolved version reported by PulumiEngineService.getResolvedVersion', () => {
+      const engine = makeEngine('3.255.0');
+      const result = new IacSettingsController(makeTfvars(), engine).engineVersion();
+      expect(result).toEqual({ resolvedVersion: '3.255.0' });
+    });
+
+    it('should return resolvedVersion: null when the engine has not been provisioned yet', () => {
+      const engine = makeEngine(null);
+      const result = new IacSettingsController(makeTfvars(), engine).engineVersion();
+      expect(result).toEqual({ resolvedVersion: null });
+    });
+
+    it('should return resolvedVersion: null without throwing when no engine was injected', () => {
+      const result = new IacSettingsController(makeTfvars()).engineVersion();
+      expect(result).toEqual({ resolvedVersion: null });
     });
   });
 });

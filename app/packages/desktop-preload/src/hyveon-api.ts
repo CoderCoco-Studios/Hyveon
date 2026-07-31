@@ -15,6 +15,7 @@ import type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   OpType,
+  PulumiEngineVersionResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
@@ -46,6 +47,11 @@ import type {
  * join this group for the same reason (task 9.7, the Settings page's
  * deployment-settings editor): all four are pure data shapes with no
  * `@pulumi/pulumi`/Node dependency to isolate the renderer from.
+ *
+ * `PulumiEngineVersionResult` (`@hyveon/shared/src/pulumiVersion.ts`) joins
+ * this group for the same reason (task 10.4, Settings' Cloud Setup version
+ * row): a pure `{ resolvedVersion: string | null }` data shape with nothing
+ * to isolate the renderer from.
  */
 export type {
   ChangeSummary,
@@ -53,6 +59,7 @@ export type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   OpType,
+  PulumiEngineVersionResult,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 };
@@ -1723,6 +1730,15 @@ export interface HyveonIacSettingsApi {
    * {@link DeploymentSettingsWriteResult}.
    */
   update: (payload: UpdateDeploymentSettingsPayload) => Promise<DeploymentSettingsWriteResult>;
+  /**
+   * Reads the resolved Pulumi engine version by invoking the
+   * `iac.settings.engineVersion` IPC channel (task 10.4) — backs Settings'
+   * Cloud Setup version row. `resolvedVersion: null` is a real, expected
+   * "not yet provisioned" state (including a fresh install that hasn't
+   * completed first-run setup), never a failure — see
+   * {@link PulumiEngineVersionResult}.
+   */
+  engineVersion: () => Promise<PulumiEngineVersionResult>;
 }
 
 // ---------------------------------------------------------------------------
