@@ -39,6 +39,7 @@ import type { WizardStep } from '@hyveon/shared';
 import type {
   RunHistoryPageResult,
   RunHistoryRecord,
+  StackInitPhaseEvent,
   TerraformApproveAck,
   TerraformDestroyMintAck,
   TerraformPlanAck,
@@ -411,14 +412,16 @@ export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Terraform streamed output — realistic ANSI-colored chunks for the three
-// streaming channels (`terraform.runs.logs` for a plan/apply run,
-// `terraform.init` for the wizard step), keyed to line up with the rest of
-// the demo fixture set (the plan below mirrors {@link DEMO_DRIFT_REPORT}'s
-// palworld memory drift, and the apply chunks mirror the same change count
-// so `terraform-awaiting-approval.png`/`terraform-apply.png` tell one
+// Terraform streamed output — realistic ANSI-colored chunks for the
+// `terraform.runs.logs` streaming channel (a plan/apply run), keyed to line
+// up with the rest of the demo fixture set (the plan below mirrors
+// {@link DEMO_DRIFT_REPORT}'s palworld memory drift, and the apply chunks
+// mirror the same change count so
+// `terraform-awaiting-approval.png`/`terraform-apply.png` tell one
 // consistent story). Colors use the same SGR subset `AnsiLogViewer` parses:
-// `\x1b[32m` green, `\x1b[33m` amber, `\x1b[1m` bold, `\x1b[0m` reset.
+// `\x1b[32m` green, `\x1b[33m` amber, `\x1b[1m` bold, `\x1b[0m` reset. The
+// wizard's stack-init step (task 10.3) has no log output of its own to
+// model this way any more — see {@link DEMO_STACK_INIT_EVENTS} below.
 // ---------------------------------------------------------------------------
 
 /** Streamed `terraform plan` output for the `run-plan-demo` run — ends with the summary line `TerraformPage.parsePlanSummary` scrapes. */
@@ -462,26 +465,20 @@ export const DEMO_TERRAFORM_APPLY_CHUNKS: TerraformRunChunk[] = [
   { stream: 'stdout', line: '\x1b[1m\x1b[32mApply complete! Resources: 1 added, 1 changed, 0 destroyed.\x1b[0m' },
 ];
 
-/** Streamed `terraform init` output — the fifth first-run-wizard step and Settings' Reconfigure flow both drive this to completion. */
-export const DEMO_TERRAFORM_INIT_CHUNKS: TerraformRunChunk[] = [
-  { stream: 'stdout', line: '\x1b[1mInitializing the backend...\x1b[0m' },
-  { stream: 'stdout', line: '\x1b[1mInitializing modules...\x1b[0m' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '\x1b[1mInitializing provider plugins...\x1b[0m' },
-  { stream: 'stdout', line: '- Finding hashicorp/aws versions matching "~> 5.0"...' },
-  { stream: 'stdout', line: '- Installing hashicorp/aws v5.42.0...' },
-  { stream: 'stdout', line: '- Installed hashicorp/aws v5.42.0 (signed by HashiCorp)' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: 'Terraform has created a lock file .terraform.lock.hcl to record the provider' },
-  { stream: 'stdout', line: 'selections it made above. Include this file in your version control repository' },
-  { stream: 'stdout', line: 'so that Terraform can guarantee to make the same selections by default when' },
-  { stream: 'stdout', line: 'you run "terraform init" in the future.' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '\x1b[1m\x1b[32mTerraform has been successfully initialized!\x1b[0m' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '\x1b[32mYou may now begin working with Terraform. Try running "terraform plan" to see\x1b[0m' },
-  { stream: 'stdout', line: '\x1b[32many changes that are required for your infrastructure. All Terraform commands\x1b[0m' },
-  { stream: 'stdout', line: '\x1b[32mshould now work.\x1b[0m' },
+/**
+ * Streamed `iac.stack.initialize` phase events — the fourth first-run-wizard
+ * step and Settings' Reconfigure flow both drive this to completion (task
+ * 10.3 replaced the fifth-step `terraform init` this constant used to model
+ * with a fourth-step Pulumi stack-initialization step reporting three coarse
+ * phases instead of scrolling log lines).
+ */
+export const DEMO_STACK_INIT_EVENTS: StackInitPhaseEvent[] = [
+  { phase: 'engine', status: 'start' },
+  { phase: 'engine', status: 'end' },
+  { phase: 'plugins', status: 'start' },
+  { phase: 'plugins', status: 'end' },
+  { phase: 'operation', status: 'start' },
+  { phase: 'operation', status: 'end' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -536,7 +533,7 @@ export interface DemoOverrides {
  * of what's persisted in the Electron profile the harness happens to run
  * against.
  *
- * Streaming channels (`logs.stream`, `terraform.runs.logs`, `terraform.init`)
+ * Streaming channels (`logs.stream`, `terraform.runs.logs`, `iac.stack.initialize`)
  * are registered with a **plain-object async-iterable** mock (built by the
  * local `toIterable` helper below), not a real `async function*` — a real
  * generator instance returned from a mock handler still can't cross the
@@ -571,7 +568,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     terraformHistory: overrides.terraformHistory ?? DEMO_TERRAFORM_HISTORY,
     terraformPlanChunks: overrides.terraformPlanChunks ?? DEMO_TERRAFORM_PLAN_CHUNKS,
     terraformApplyChunks: overrides.terraformApplyChunks ?? DEMO_TERRAFORM_APPLY_CHUNKS,
-    terraformInitChunks: DEMO_TERRAFORM_INIT_CHUNKS,
+    stackInitEvents: DEMO_STACK_INIT_EVENTS,
     diagnosticsLines: DEMO_DIAGNOSTICS_TAIL,
     diagnosticsPath: '/home/hyveon/.config/Hyveon/logs/desktop-main.log',
   };
@@ -698,7 +695,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       if (runId === 'run-apply-demo') return toIterable(d.terraformApplyChunks);
       return toIterable([]);
     });
-    mock('iac.init', () => toIterable(d.terraformInitChunks));
+    mock('iac.stack.initialize', () => toIterable(d.stackInitEvents));
   }, data);
 }
 
@@ -710,14 +707,14 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
 // ---------------------------------------------------------------------------
 
 /**
- * Seeds every `wizard.*` (and `terraform.init`) IPC channel used across all
- * four first-run-wizard steps, plus `wizard.state.get` set to
+ * Seeds every `wizard.*` (and `iac.stack.initialize`) IPC channel used
+ * across all four first-run-wizard steps, plus `wizard.state.get` set to
  * `{ wizardCompleted: false }` so `app.component.tsx` renders
  * `<FirstRunWizard>` instead of the normal router.
  *
  * `resumeStep` seeds `wizard.progress.get`'s `{ step }` response, which the
  * wizard shell uses on mount to jump directly to `'pick-cloud'`,
- * `'credentials'`, or `'bootstrap'` (resuming past `'terraform-init'` is
+ * `'credentials'`, or `'bootstrap'` (resuming past `'stack-init'` is
  * intentionally clamped to `'bootstrap'` by the app itself — see
  * `first-run-wizard.component.tsx`'s resume-on-mount effect — so
  * `capture.spec.ts` always reaches step 4 via one `Next` click from a
@@ -740,7 +737,7 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     bootstrapExists: { status: 'exists' as BootstrapResourceStatus },
     iamPassed: { status: 'passed' as IamCheckStatus },
     wizardState: { wizardCompleted: false } as WizardState,
-    terraformInitChunks: DEMO_TERRAFORM_INIT_CHUNKS,
+    stackInitEvents: DEMO_STACK_INIT_EVENTS,
   };
 
   await win.addInitScript((d) => {
@@ -776,11 +773,11 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     mock('wizard.bootstrap.configurationBucket', () => Promise.resolve(d.bootstrapExists));
     mock('wizard.iam.simulate', () => Promise.resolve(d.iamPassed));
     mock('wizard.complete', () => Promise.resolve({ wizardCompleted: true }));
-    // Streams realistic `terraform init` output to completion — see
-    // `seedDemo`'s TSDoc for why this is a plain-object iterable rather than
-    // a real `async function*`. `TerraformInitStep` reaches its `'success'`
-    // state once the iteration completes without throwing.
-    mock('iac.init', () => toIterable(d.terraformInitChunks));
+    // Streams a full engine/plugins/operation phase sequence to completion —
+    // see `seedDemo`'s TSDoc for why this is a plain-object iterable rather
+    // than a real `async function*`. `StackInitializationStep` reaches its
+    // `'success'` state once the iteration completes without throwing.
+    mock('iac.stack.initialize', () => toIterable(d.stackInitEvents));
   }, data);
 }
 

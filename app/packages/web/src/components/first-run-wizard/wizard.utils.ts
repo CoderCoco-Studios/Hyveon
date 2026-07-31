@@ -11,18 +11,17 @@ export { WIZARD_STEPS, type WizardStep };
  * A backend bootstrap resource name tracked by the wizard's bootstrap step.
  *
  * @remarks
- * `lockTable` is **not** a resource the bootstrap step creates — nothing
- * has bootstrapped a DynamoDB lock table since task 5.1 removed
- * `BootstrapService.ensureLockTable`, and the bootstrap step renders no row
- * for it (see `bootstrap-step.component.tsx`'s `VisibleBootstrapResource`).
- * The key survives here only because `first-run-wizard.component.tsx`'s
- * `backendConfig.dynamodbTable` still feeds it to the still-live
- * `terraform.init` call, which requires a non-empty string — removing it
- * outright would break that (still-tested) call. Task 10.3 (replacing the
- * Terraform-init step with the Pulumi stack-initialization step) is where
- * `dynamodbTable` — and this key — should finally disappear.
+ * `lockTable` named this union until task 10.3: it was never a resource the
+ * bootstrap step creates — nothing has bootstrapped a DynamoDB lock table
+ * since task 5.1 removed `BootstrapService.ensureLockTable` — and the
+ * bootstrap step never rendered a row for it. It survived only because the
+ * now-deleted `terraform-init` step's `backendConfig.dynamodbTable` fed it
+ * to the (also now-deleted) `terraform.init` call, which required a
+ * non-empty string. Task 10.3 replaced that step with the Pulumi
+ * stack-initialization step, which needs no lock-table name at all — so the
+ * key is gone.
  */
-export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'configurationBucket';
+export type BootstrapResourceKey = 'stateBucket' | 'configurationBucket';
 
 /**
  * Client-side status for a single bootstrap resource row. Extends the
@@ -42,7 +41,6 @@ export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exist
 export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<BootstrapResourceKey, string> {
   return {
     stateBucket: `${projectName}-tfstate`,
-    lockTable: `${projectName}-tflock`,
     configurationBucket: `${projectName}-tfvars`,
   };
 }

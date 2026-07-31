@@ -379,10 +379,10 @@ test('wizard-bootstrap.png', async () => {
   }
 });
 
-test('wizard-terraform-init.png', async () => {
+test('wizard-stack-init.png', async () => {
   const { app, win } = await launchSeeded((w) => seedWizard(w, 'bootstrap'));
   try {
-    // `terraform-init` (step 5) can only be reached by advancing from a
+    // `stack-init` (step 4) can only be reached by advancing from a
     // bootstrap-complete state — the wizard's own resume-on-mount logic
     // deliberately clamps a direct resume jump at `bootstrap` (see
     // `first-run-wizard.component.tsx`), so this always takes one real
@@ -392,16 +392,16 @@ test('wizard-terraform-init.png', async () => {
     await expect(win.getByRole('button', { name: 'Next' })).toBeEnabled();
     await win.getByRole('button', { name: 'Next' }).click();
 
-    // `TerraformInitStep` calls `window.hyveon.iac.init(...)`, bridged
-    // as a `HyveonStreamHandle` (see `preload.ts`), and streams
-    // `DEMO_TERRAFORM_INIT_CHUNKS` (see `demo-data.ts`'s `seedWizard`) to
+    // `StackInitializationStep` calls `window.hyveon.iac.stack.initialize()`,
+    // bridged as a `HyveonStreamHandle` (see `preload.ts`), and streams
+    // `DEMO_STACK_INIT_EVENTS` (see `demo-data.ts`'s `seedWizard`) to
     // completion — the step reaches its `'success'` state once the iteration
-    // finishes without throwing, showing "terraform init complete." and
-    // enabling "Finish setup".
-    await expect(win.getByText('terraform init complete.')).toBeVisible({ timeout: 15_000 });
+    // finishes without throwing, showing "Stack initialization complete."
+    // and enabling "Finish setup".
+    await expect(win.getByText('Stack initialization complete.')).toBeVisible({ timeout: 15_000 });
     await expect(win.getByRole('button', { name: 'Finish setup' })).toBeEnabled();
     await disableMotion(win);
-    await shot(win, 'wizard-terraform-init.png');
+    await shot(win, 'wizard-stack-init.png');
   } finally {
     await app.close();
   }
