@@ -21,8 +21,8 @@ import { EnvController } from './controllers/env.controller.js';
 import { DiagnosticsController } from './controllers/diagnostics.controller.js';
 import { DriftController } from './controllers/drift.controller.js';
 import { AuditController } from './controllers/audit.controller.js';
-import { TerraformController } from './controllers/terraform.controller.js';
-import { TerraformRunsController } from './controllers/terraform-runs.controller.js';
+import { IacController } from './controllers/iac.controller.js';
+import { IacRunsController } from './controllers/iac-runs.controller.js';
 import { WizardController } from './controllers/wizard.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DriftService } from './services/DriftService.js';
@@ -36,8 +36,8 @@ import { AuditService } from './services/AuditService.js';
  * `ElectronStoreModule`) to the IPC controllers.
  *
  * Task 7.10 (`migrate-iac-to-pulumi`) deleted `TerraformModule`/
- * `TerraformService.ts` and repointed `TerraformController`/
- * `TerraformRunsController` onto `PulumiService` — `PulumiServiceModule`
+ * `TerraformService.ts` and repointed `IacController`/
+ * `IacRunsController` onto `PulumiService` — `PulumiServiceModule`
  * replaces `TerraformModule` in this list as the module those two
  * controllers now depend on directly for their orchestration calls.
  *
@@ -86,8 +86,8 @@ import { AuditService } from './services/AuditService.js';
     DiagnosticsController,
     DriftController,
     AuditController,
-    TerraformController,
-    TerraformRunsController,
+    IacController,
+    IacRunsController,
     WizardController,
   ],
   providers: [

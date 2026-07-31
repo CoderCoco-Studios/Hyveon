@@ -12,27 +12,27 @@ import { RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
 
-/** Every {@link RunStatus} value — used to validate {@link TerraformRunsController.list}'s `status` filter. */
+/** Every {@link RunStatus} value — used to validate {@link IacRunsController.list}'s `status` filter. */
 const RUN_STATUSES: readonly RunStatus[] = ['success', 'failed', 'aborted'];
 
-/** Result of {@link TerraformRunsController.logUrl}: a presigned/temporary URL the renderer can fetch the offloaded log from directly. */
+/** Result of {@link IacRunsController.logUrl}: a presigned/temporary URL the renderer can fetch the offloaded log from directly. */
 export interface TerraformRunsLogUrlResult {
   url: string;
 }
 
-/** Payload accepted by {@link TerraformRunsController.logUrl}. */
+/** Payload accepted by {@link IacRunsController.logUrl}. */
 export interface TerraformRunsLogUrlPayload {
   logKey: string;
   expiresInSeconds?: number;
 }
 
-/** Payload accepted by {@link TerraformRunsController.get}. */
+/** Payload accepted by {@link IacRunsController.get}. */
 export interface TerraformRunsGetPayload {
   runId: string;
 }
 
 /**
- * Result of {@link TerraformRunsController.get}: `found: false` when `runId`
+ * Result of {@link IacRunsController.get}: `found: false` when `runId`
  * is neither the currently held apply lock nor a persisted
  * `PulumiRunRecord` on disk. `found: true` always carries the derived
  * {@link RunDetailStatus}; `record` is present only once the run has produced
@@ -48,16 +48,16 @@ export type TerraformRunsGetResult =
   | { found: false }
   | { found: true; status: RunDetailStatus; record?: PulumiRunRecord };
 
-/** Payload accepted by {@link TerraformRunsController.logs}. */
+/** Payload accepted by {@link IacRunsController.logs}. */
 export interface TerraformRunsLogsPayload {
   runId: string;
 }
 
-/** Fixed side-channel {@link TerraformRunsController.logs} pushes streamed output on. */
-const LOGS_CHUNK_CHANNEL = 'terraform.runs.logs.chunk';
+/** Fixed side-channel {@link IacRunsController.logs} pushes streamed output on. */
+const LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';
 
-/** Fixed side-channel {@link TerraformRunsController.logs} sends its terminal message on. */
-const LOGS_END_CHANNEL = 'terraform.runs.logs.end';
+/** Fixed side-channel {@link IacRunsController.logs} sends its terminal message on. */
+const LOGS_END_CHANNEL = 'iac.runs.logs.end';
 
 /**
  * Message payload sent, in order, on {@link LOGS_CHUNK_CHANNEL} for every
@@ -114,12 +114,12 @@ interface TerraformRunsLogsAck {
  *
  * `logs()` bridges `PulumiService.streamRunOutput`'s async-generator output
  * (an identical signature to `TerraformService.streamRunOutput` — trivial
- * swap) onto the fixed `terraform.runs.logs.chunk` / `terraform.runs.logs.end`
- * side channels, mirroring `TerraformController.plan`'s streaming shape, so
+ * swap) onto the fixed `iac.runs.logs.chunk` / `iac.runs.logs.end`
+ * side channels, mirroring `IacController.plan`'s streaming shape, so
  * the renderer can watch (or re-attach to) a run's live or persisted output.
  */
 @Controller()
-export class TerraformRunsController implements OnModuleInit {
+export class IacRunsController implements OnModuleInit {
   constructor(
     private readonly pulumi: PulumiService,
     private readonly runService: RunService,
@@ -127,17 +127,17 @@ export class TerraformRunsController implements OnModuleInit {
   ) {}
 
   /**
-   * Registers an `ipcMain.handle` bridge for the `terraform.runs.logs`
+   * Registers an `ipcMain.handle` bridge for the `iac.runs.logs`
    * channel after the Nest module initialises, so that
-   * `ipcRenderer.invoke('terraform.runs.logs', { runId })` in the preload
+   * `ipcRenderer.invoke('iac.runs.logs', { runId })` in the preload
    * actually resolves.
    *
-   * `@MessagePattern('terraform.runs.logs')` only wires the transport's
+   * `@MessagePattern('iac.runs.logs')` only wires the transport's
    * internal dispatcher — it does **not** call `ipcMain.handle`, so
    * `ipcRenderer.invoke` would otherwise hang. This hook bridges the gap,
-   * mirroring `TerraformController.onModuleInit`'s handling of
-   * `terraform.plan`/`terraform.apply`/`terraform.destroy` — see `SELF_BRIDGED_PATTERNS` in
-   * `../ipc-main-bridge.ts`, which excludes `terraform.runs.logs` from the
+   * mirroring `IacController.onModuleInit`'s handling of
+   * `iac.plan`/`iac.apply`/`iac.destroy` — see `SELF_BRIDGED_PATTERNS` in
+   * `../ipc-main-bridge.ts`, which excludes `iac.runs.logs` from the
    * generic bridge for the same reason: the handler pushes follow-up
    * chunk/end messages over side channels for the duration of a run's output
    * rather than resolving a single value.
@@ -156,8 +156,8 @@ export class TerraformRunsController implements OnModuleInit {
     const { ipcMain } = (await import('electron')) as unknown as { ipcMain: IpcMain };
     // Remove any existing handler first so hot-reload re-registration does
     // not throw "IPC channel already registered".
-    ipcMain.removeHandler('terraform.runs.logs');
-    ipcMain.handle('terraform.runs.logs', (evt, payload: TerraformRunsLogsPayload) =>
+    ipcMain.removeHandler('iac.runs.logs');
+    ipcMain.handle('iac.runs.logs', (evt, payload: TerraformRunsLogsPayload) =>
       this.logs(payload, { evt: evt as IpcMainInvokeEvent }),
     );
   }
@@ -181,15 +181,15 @@ export class TerraformRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.runId` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`terraform.runs.get`).
+   * Reachable via the Electron IPC transport (`iac.runs.get`).
    */
-  @MessagePattern('terraform.runs.get')
+  @MessagePattern('iac.runs.get')
   async get(@Payload() payload: TerraformRunsGetPayload): Promise<TerraformRunsGetResult> {
     const runId = payload?.runId;
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
         success: false,
-        error: 'terraform.runs.get requires a non-empty runId string',
+        error: 'iac.runs.get requires a non-empty runId string',
       });
     }
 
@@ -230,7 +230,7 @@ export class TerraformRunsController implements OnModuleInit {
    * `{ streamId, error }` when it throws (e.g. `runId` doesn't match any
    * known run).
    *
-   * Mirrors `LogsController.streamLogs`/`TerraformController.init`'s
+   * Mirrors `LogsController.streamLogs`/`IacController.init`'s
    * fire-and-forget streaming shape: the controller creates its own
    * `AbortController` per invocation (since `ElectronIPCTransport` passes
    * `{ evt }` as the execution context, with no `signal` injected), and a
@@ -241,9 +241,9 @@ export class TerraformRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.runId` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`terraform.runs.logs`).
+   * Reachable via the Electron IPC transport (`iac.runs.logs`).
    */
-  @MessagePattern('terraform.runs.logs')
+  @MessagePattern('iac.runs.logs')
   async logs(
     @Payload() payload: TerraformRunsLogsPayload,
     ctx: { evt: IpcMainInvokeEvent },
@@ -252,7 +252,7 @@ export class TerraformRunsController implements OnModuleInit {
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
         success: false,
-        error: 'terraform.runs.logs requires a non-empty runId string',
+        error: 'iac.runs.logs requires a non-empty runId string',
       });
     }
 
@@ -278,7 +278,7 @@ export class TerraformRunsController implements OnModuleInit {
           sender.send(LOGS_END_CHANNEL, message);
         }
       } catch (err) {
-        logger.error('terraform.runs.logs error', { err, runId, streamId });
+        logger.error('iac.runs.logs error', { err, runId, streamId });
         if (!sender.isDestroyed()) {
           const message: TerraformRunsLogsEndMessage = { streamId, error: String(err) };
           sender.send(LOGS_END_CHANNEL, message);
@@ -295,19 +295,19 @@ export class TerraformRunsController implements OnModuleInit {
    * Returns a page of persisted run records, newest-first — see
    * `RunRecordService.listRuns()`. `opts` mirrors {@link ListRunsOpts}
    * (`limit`/`before`/`status`) and defaults to `{}` when the renderer
-   * invokes `terraform.runs.list` with no arguments.
+   * invokes `iac.runs.list` with no arguments.
    *
    * @throws `BadRequestException` when `opts.status` is present but not one
    *   of {@link RUN_STATUSES}.
    *
-   * Reachable via the Electron IPC transport (`terraform.runs.list`).
+   * Reachable via the Electron IPC transport (`iac.runs.list`).
    */
-  @MessagePattern('terraform.runs.list')
+  @MessagePattern('iac.runs.list')
   async list(@Payload() opts: ListRunsOpts = {}): Promise<RunPageResult> {
     if (opts?.status !== undefined && !RUN_STATUSES.includes(opts.status)) {
       throw new BadRequestException({
         success: false,
-        error: `terraform.runs.list status must be one of ${RUN_STATUSES.join(', ')}`,
+        error: `iac.runs.list status must be one of ${RUN_STATUSES.join(', ')}`,
       });
     }
     return this.runRecordService.listRuns(opts ?? {});
@@ -321,15 +321,15 @@ export class TerraformRunsController implements OnModuleInit {
    * @throws `BadRequestException` when `payload.logKey` isn't a non-empty
    *   string.
    *
-   * Reachable via the Electron IPC transport (`terraform.runs.logUrl`).
+   * Reachable via the Electron IPC transport (`iac.runs.logUrl`).
    */
-  @MessagePattern('terraform.runs.logUrl')
+  @MessagePattern('iac.runs.logUrl')
   async logUrl(@Payload() payload: TerraformRunsLogUrlPayload): Promise<TerraformRunsLogUrlResult> {
     const logKey = payload?.logKey;
     if (typeof logKey !== 'string' || logKey.length === 0) {
       throw new BadRequestException({
         success: false,
-        error: 'terraform.runs.logUrl requires a non-empty logKey string',
+        error: 'iac.runs.logUrl requires a non-empty logKey string',
       });
     }
 

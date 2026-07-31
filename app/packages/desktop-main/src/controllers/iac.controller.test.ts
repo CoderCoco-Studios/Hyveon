@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import * as os from 'node:os';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TerraformController } from './terraform.controller.js';
+import { IacController } from './iac.controller.js';
 import {
   PulumiOperationInFlightError,
   PulumiRollbackPlanFailedError,
@@ -48,7 +48,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// `TerraformController.approve` resolves the approver identity via
+// `IacController.approve` resolves the approver identity via
 // `os.userInfo().username` rather than trusting a client-supplied field —
 // stub it the same way `AuditService.test.ts` does so tests can assert on a
 // deterministic resolved username.
@@ -116,7 +116,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
 
 /**
  * Build a `PulumiService` stub as a plain object of `vi.fn()`s (mirroring
- * `terraform-runs.controller.test.ts`'s `makePulumi` and this file's own
+ * `iac-runs.controller.test.ts`'s `makePulumi` and this file's own
  * pre-migration `makeTerraform` pattern — never a real `PulumiService`
  * instance, whose constructor deps are far heavier than a controller unit
  * test needs).
@@ -218,7 +218,7 @@ const PATTERN_METADATA_KEY = 'microservices:pattern';
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('TerraformController', () => {
+describe('IacController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(os.userInfo).mockReturnValue({ username: 'test-operator' } as ReturnType<typeof os.userInfo>);
@@ -229,54 +229,54 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('@MessagePattern channel names', () => {
-    it('should register init on the "terraform.init" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.init);
-      expect(pattern).toEqual(['terraform.init']);
+    it('should register init on the "iac.init" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.init);
+      expect(pattern).toEqual(['iac.init']);
     });
 
-    it('should register output on the "terraform.output" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.output);
-      expect(pattern).toEqual(['terraform.output']);
+    it('should register output on the "iac.output" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.output);
+      expect(pattern).toEqual(['iac.output']);
     });
 
-    it('should register plan on the "terraform.plan" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.plan);
-      expect(pattern).toEqual(['terraform.plan']);
+    it('should register plan on the "iac.plan" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.plan);
+      expect(pattern).toEqual(['iac.plan']);
     });
 
-    it('should register approve on the "terraform.approve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.approve);
-      expect(pattern).toEqual(['terraform.approve']);
+    it('should register approve on the "iac.approve" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.approve);
+      expect(pattern).toEqual(['iac.approve']);
     });
 
-    it('should register apply on the "terraform.apply" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.apply);
-      expect(pattern).toEqual(['terraform.apply']);
+    it('should register apply on the "iac.apply" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.apply);
+      expect(pattern).toEqual(['iac.apply']);
     });
 
-    it('should register mintDestroyToken on the "terraform.destroy.mintToken" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.mintDestroyToken);
-      expect(pattern).toEqual(['terraform.destroy.mintToken']);
+    it('should register mintDestroyToken on the "iac.destroy.mintToken" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintDestroyToken);
+      expect(pattern).toEqual(['iac.destroy.mintToken']);
     });
 
-    it('should register destroy on the "terraform.destroy" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.destroy);
-      expect(pattern).toEqual(['terraform.destroy']);
+    it('should register destroy on the "iac.destroy" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.destroy);
+      expect(pattern).toEqual(['iac.destroy']);
     });
 
-    it('should register resolveRollback on the "terraform.rollback.resolve" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.resolveRollback);
-      expect(pattern).toEqual(['terraform.rollback.resolve']);
+    it('should register resolveRollback on the "iac.rollback.resolve" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.resolveRollback);
+      expect(pattern).toEqual(['iac.rollback.resolve']);
     });
 
-    it('should register confirmRollback on the "terraform.rollback.confirm" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, TerraformController.prototype.confirmRollback);
-      expect(pattern).toEqual(['terraform.rollback.confirm']);
+    it('should register confirmRollback on the "iac.rollback.confirm" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.confirmRollback);
+      expect(pattern).toEqual(['iac.rollback.confirm']);
     });
   });
 
   // -------------------------------------------------------------------------
-  // onModuleInit — ipcMain.handle bridge for terraform.plan/apply/destroy
+  // onModuleInit — ipcMain.handle bridge for iac.plan/apply/destroy
   // -------------------------------------------------------------------------
 
   describe('onModuleInit', () => {
@@ -300,62 +300,62 @@ describe('TerraformController', () => {
       // `process.versions.electron`; importing electron there would throw, so
       // the bridge must be skipped without touching ipcMain at all.
       setElectron(undefined);
-      await new TerraformController(makePulumi()).onModuleInit();
+      await new IacController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).not.toHaveBeenCalled();
       expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
     });
 
-    it('should NOT register a manual "terraform.init" handler — the generic bridge handles it now', async () => {
+    it('should NOT register a manual "iac.init" handler — the generic bridge handles it now', async () => {
       // Unlike before task 7.10, init() no longer streams anything, so it's
       // resolved by the generic ipcMain.handle bridge rather than manually
       // registered here.
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.init', expect.any(Function));
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.init', expect.any(Function));
     });
 
-    it('should register ipcMain.handle for "terraform.plan" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.plan', expect.any(Function));
+    it('should register ipcMain.handle for "iac.plan" so ipcRenderer.invoke can resolve', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.plan', expect.any(Function));
     });
 
-    it('should remove any existing "terraform.plan" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+    it('should remove any existing "iac.plan" handler before registering so hot-reload re-bootstrap does not throw', async () => {
       // A second bootstrap (hot-reload / dev restart) would otherwise hit
-      // "Attempted to register a second handler for 'terraform.plan'".
+      // "Attempted to register a second handler for 'iac.plan'".
       // Clearing the handler first keeps re-registration idempotent.
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.plan');
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.plan');
       expect(mockIpcMainRemoveHandler.mock.invocationCallOrder[0]).toBeLessThan(
         mockIpcMainHandle.mock.invocationCallOrder[0],
       );
     });
 
-    it('should register ipcMain.handle for "terraform.apply" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.apply', expect.any(Function));
+    it('should register ipcMain.handle for "iac.apply" so ipcRenderer.invoke can resolve', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.apply', expect.any(Function));
     });
 
-    it('should remove any existing "terraform.apply" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.apply');
+    it('should remove any existing "iac.apply" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.apply');
     });
 
-    it('should register ipcMain.handle for "terraform.destroy" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.destroy', expect.any(Function));
+    it('should register ipcMain.handle for "iac.destroy" so ipcRenderer.invoke can resolve', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.destroy', expect.any(Function));
     });
 
-    it('should remove any existing "terraform.destroy" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.destroy');
+    it('should remove any existing "iac.destroy" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.destroy');
     });
 
-    it('should not manually register "terraform.destroy.mintToken" — the generic bridge handles it', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.destroy.mintToken', expect.any(Function));
+    it('should not manually register "iac.destroy.mintToken" — the generic bridge handles it', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.destroy.mintToken', expect.any(Function));
     });
 
     // -------------------------------------------------------------------------
-    // C1 (fix round 1): "terraform.rollback.confirm" was originally missing
+    // C1 (fix round 1): "iac.rollback.confirm" was originally missing
     // from this manual-registration set. Left off, it fell through to the
     // GENERIC ipcMain.handle bridge, which invokes the underlying NestJS
     // handler as `handler(payload, { evt })` via the transport's own
@@ -372,27 +372,27 @@ describe('TerraformController', () => {
     // controller.confirmRollback(payload, ctx) directly.
     // -------------------------------------------------------------------------
 
-    it('should register ipcMain.handle for "terraform.rollback.confirm" so ipcRenderer.invoke can resolve', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.rollback.confirm', expect.any(Function));
+    it('should register ipcMain.handle for "iac.rollback.confirm" so ipcRenderer.invoke can resolve', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.rollback.confirm', expect.any(Function));
     });
 
-    it('should remove any existing "terraform.rollback.confirm" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-      await new TerraformController(makePulumi()).onModuleInit();
-      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.rollback.confirm');
+    it('should remove any existing "iac.rollback.confirm" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+      await new IacController(makePulumi()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.rollback.confirm');
       const removeCalls = mockIpcMainRemoveHandler.mock.calls
         .map(([pattern]: [string]) => pattern)
-        .filter((pattern: string) => pattern === 'terraform.rollback.confirm');
+        .filter((pattern: string) => pattern === 'iac.rollback.confirm');
       const handleCalls = mockIpcMainHandle.mock.calls
         .map(([pattern]: [string]) => pattern)
-        .filter((pattern: string) => pattern === 'terraform.rollback.confirm');
+        .filter((pattern: string) => pattern === 'iac.rollback.confirm');
       expect(removeCalls).toHaveLength(1);
       expect(handleCalls).toHaveLength(1);
     });
 
     it('should invoke confirmRollback as confirmRollback(payload, { evt }) when the registered ipcMain.handle callback fires — the exact ctx-construction step the original bug dropped', async () => {
       const pulumi = makePulumi();
-      const controller = new TerraformController(pulumi);
+      const controller = new IacController(pulumi);
       const confirmRollbackSpy = vi
         .spyOn(controller, 'confirmRollback')
         .mockResolvedValue({ confirmed: false, error: 'stub' });
@@ -400,7 +400,7 @@ describe('TerraformController', () => {
       await controller.onModuleInit();
 
       const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
-        ([pattern]: [string]) => pattern === 'terraform.rollback.confirm',
+        ([pattern]: [string]) => pattern === 'iac.rollback.confirm',
       ) as [string, (evt: unknown, payload: unknown) => unknown];
       expect(registeredCallback).toBeTypeOf('function');
 
@@ -420,7 +420,7 @@ describe('TerraformController', () => {
     it('should return { started: false, error } for a VALID config — a deliberate no-op rejection, not a real run', async () => {
       const pulumi = makePulumi();
 
-      const result = await new TerraformController(pulumi).init(CONFIG);
+      const result = await new IacController(pulumi).init(CONFIG);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -432,7 +432,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const invalidConfig = { bucket: '', region: 'us-east-1', dynamodbTable: 'hyveon-tf-locks' };
 
-      const result = await new TerraformController(pulumi).init(invalidConfig);
+      const result = await new IacController(pulumi).init(invalidConfig);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -445,8 +445,8 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { sender } = makeCtx();
 
-      await new TerraformController(pulumi).init(CONFIG);
-      await new TerraformController(pulumi).init({ bucket: '', region: '', dynamodbTable: '' });
+      await new IacController(pulumi).init(CONFIG);
+      await new IacController(pulumi).init({ bucket: '', region: '', dynamodbTable: '' });
 
       expect(pulumi.preview).not.toHaveBeenCalled();
       expect(pulumi.apply).not.toHaveBeenCalled();
@@ -472,7 +472,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
+      const result = await new IacController(pulumi, audit).plan({}, ctx);
 
       expect(result).toEqual({ started: true, runId: expect.any(String) });
     });
@@ -491,10 +491,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
+      const result = await new IacController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.plan.chunk');
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.plan.chunk');
       // Every chunk payload is tagged with the same runId already handed back
       // in the ack, so the renderer (and a rejected concurrent call) can tell
       // which run it belongs to.
@@ -508,7 +508,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan({ tfvarsVersionId: 'v123' }, ctx);
+      const result = await new IacController(pulumi, audit).plan({ tfvarsVersionId: 'v123' }, ctx);
       await flushPromises();
 
       expect(pulumi.preview).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, undefined);
@@ -519,7 +519,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan(
+      const result = await new IacController(pulumi, audit).plan(
         { tfvarsVersionId: 'v123', rolledBackFrom: 'apply-run-1' },
         ctx,
       );
@@ -539,15 +539,15 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
+      const result = await new IacController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
-      expect(sender.send).toHaveBeenCalledWith('terraform.plan.end', {
+      expect(sender.send).toHaveBeenCalledWith('iac.plan.end', {
         runId: result.runId,
         exitCode: 0,
         result: previewResult,
       });
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.plan.end');
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
 
@@ -561,10 +561,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(pulumi, audit).plan({}, ctx);
+      await new IacController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.plan.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.plan.end');
       expect(endCall?.[1]).toMatchObject({ exitCode: null });
       expect(String(endCall?.[1]?.error)).toContain('preview failed: engine version mismatch');
     });
@@ -586,7 +586,7 @@ describe('TerraformController', () => {
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      await new TerraformController(pulumi, audit).plan({}, ctx);
+      await new IacController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
@@ -599,7 +599,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).plan({}, ctx);
+      const result = await new IacController(pulumi, audit).plan({}, ctx);
       await flushPromises();
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
@@ -618,7 +618,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).plan({ tfvarsVersionId: 'v42' }, ctx);
+      await new IacController(pulumi, audit).plan({ tfvarsVersionId: 'v42' }, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
@@ -661,7 +661,7 @@ describe('TerraformController', () => {
         () => new Promise<void>((resolve) => { resolveAudit = resolve; }),
       );
       const audit: AuditService = { record } as unknown as AuditService;
-      const controller = new TerraformController(pulumi, audit);
+      const controller = new IacController(pulumi, audit);
       const { ctx: ctx1 } = makeCtx();
       const { ctx: ctx2 } = makeCtx();
 
@@ -699,7 +699,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply({ planRunId: '', planHash: 'plan-hash-abc' }, ctx);
+      const result = await new IacController(pulumi, audit).apply({ planRunId: '', planHash: 'plan-hash-abc' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -713,7 +713,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply({ planRunId: 'plan-run-1', planHash: '' }, ctx);
+      const result = await new IacController(pulumi, audit).apply({ planRunId: 'plan-run-1', planHash: '' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -742,7 +742,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
       expect(result.started).toBe(false);
       expect(result.conflict).toBeUndefined();
@@ -771,7 +771,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
       expect(sender.send).not.toHaveBeenCalled();
@@ -794,7 +794,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'preview' });
       expect(sender.send).not.toHaveBeenCalled();
@@ -806,7 +806,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(pulumi.apply).toHaveBeenCalledWith('plan-run-1', 'plan-hash-abc', expect.any(AbortSignal));
@@ -828,7 +828,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const applyPromise = new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      const applyPromise = new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       // Give the call's synchronous prefix a chance to run and reach the
       // still-pending gate.
       await Promise.resolve();
@@ -847,7 +847,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
@@ -866,11 +866,11 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(result).toEqual({ started: true, runId: 'plan-run-1' });
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.apply.chunk');
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.apply.chunk');
       expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
@@ -888,10 +888,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.apply.chunk');
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.apply.chunk');
       const runIds = new Set(chunkCalls.map(([, payload]) => (payload as { runId: string }).runId));
       expect(runIds).toEqual(new Set(['plan-run-1']));
       expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
@@ -908,15 +908,15 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
-      expect(sender.send).toHaveBeenCalledWith('terraform.apply.end', {
+      expect(sender.send).toHaveBeenCalledWith('iac.apply.end', {
         runId: 'plan-run-1',
         exitCode: 0,
         result: upResult,
       });
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.apply.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.apply.end');
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
 
@@ -930,10 +930,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.apply.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.apply.end');
       expect(endCall?.[1]).toMatchObject({ exitCode: null });
       expect(String(endCall?.[1]?.error)).toContain('stack.up() failed: resource creation error');
     });
@@ -955,7 +955,7 @@ describe('TerraformController', () => {
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      await new TerraformController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
@@ -970,7 +970,7 @@ describe('TerraformController', () => {
   describe('mintDestroyToken', () => {
     it('should return the token minted by PulumiService.mintDestroyConfirmationToken', () => {
       const pulumi = makePulumi();
-      const controller = new TerraformController(pulumi);
+      const controller = new IacController(pulumi);
 
       const result = controller.mintDestroyToken();
 
@@ -984,7 +984,7 @@ describe('TerraformController', () => {
   // -------------------------------------------------------------------------
 
   describe('destroy', () => {
-    /** The `terraform.destroy` payload matching {@link makePulumi}'s default `mintDestroyConfirmationToken` stub. */
+    /** The `iac.destroy` payload matching {@link makePulumi}'s default `mintDestroyConfirmationToken` stub. */
     const DESTROY_PAYLOAD = { confirmationToken: 'token-abc' };
 
     it('should reject with { started: false, error } and never call PulumiService.destroy when confirmationToken is missing', async () => {
@@ -992,7 +992,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy({ confirmationToken: '' }, ctx);
+      const result = await new IacController(pulumi, audit).destroy({ confirmationToken: '' }, ctx);
 
       expect(result.started).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1018,7 +1018,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
       expect(result.started).toBe(false);
       expect(result.conflict).toBeUndefined();
@@ -1044,7 +1044,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'destroy' });
       expect(sender.send).not.toHaveBeenCalled();
@@ -1064,7 +1064,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
       expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
       expect(sender.send).not.toHaveBeenCalled();
@@ -1076,7 +1076,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(typeof result.runId).toBe('string');
@@ -1088,7 +1088,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
@@ -1110,11 +1110,11 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(result.started).toBe(true);
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.destroy.chunk');
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.destroy.chunk');
       const runIds = new Set(chunkCalls.map(([, payload]) => (payload as { runId: string }).runId));
       expect(runIds).toEqual(new Set([result.runId]));
       expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
@@ -1131,10 +1131,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.destroy.end');
       expect(endCall?.[1]).toEqual({ runId: result.runId, exitCode: 0, result: destroyResult });
       expect(endCall?.[1]).not.toHaveProperty('error');
     });
@@ -1149,10 +1149,10 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
-      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.end');
+      const endCall = sender.send.mock.calls.find(([channel]) => channel === 'iac.destroy.end');
       expect(endCall?.[1]).toMatchObject({ exitCode: null });
       expect(String(endCall?.[1]?.error)).toContain('stack.destroy() failed: dependency violation');
     });
@@ -1174,17 +1174,17 @@ describe('TerraformController', () => {
       // Simulate WebContents already destroyed before the loop runs.
       const { ctx, sender } = makeCtx(true);
 
-      await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();
       expect(returnCalled).toBe(true);
     });
 
-    it('should surface a run visible via terraform.runs.get by tagging every message with the same runId returned in the ack', async () => {
+    it('should surface a run visible via iac.runs.get by tagging every message with the same runId returned in the ack', async () => {
       // Sanity check that the pre-minted runId used for the PulumiService.destroy()
       // call and every chunk/end message are all identical — this is what
-      // lets the renderer (and terraform.runs.get, backed by the same runId)
+      // lets the renderer (and iac.runs.get, backed by the same runId)
       // find the run afterward.
       const chunks: PulumiRunChunk[] = [{ stream: 'stdout', line: 'aws:ecs:Cluster hyveon: deleting' }];
       async function* yieldChunks(): AsyncGenerator<PulumiRunChunk, PulumiDestroyResult | undefined> {
@@ -1196,7 +1196,7 @@ describe('TerraformController', () => {
       const { audit } = makeAudit();
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
+      const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
       await flushPromises();
 
       const [destroyToken, destroySignal, destroyRunId] = vi.mocked(pulumi.destroy).mock.calls[0] as [
@@ -1204,7 +1204,7 @@ describe('TerraformController', () => {
         AbortSignal,
         string,
       ];
-      const chunkRunId = (sender.send.mock.calls.find(([channel]) => channel === 'terraform.destroy.chunk')?.[1] as {
+      const chunkRunId = (sender.send.mock.calls.find(([channel]) => channel === 'iac.destroy.chunk')?.[1] as {
         runId: string;
       }).runId;
 
@@ -1246,7 +1246,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { config } = makeConfig(OUTPUTS);
 
-      const result = await new TerraformController(pulumi, undefined, undefined, config).output({});
+      const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
       expect(result).toBe(OUTPUTS);
     });
@@ -1255,7 +1255,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.getStackOutputs).mockResolvedValue(OUTPUTS);
 
-      const result = await new TerraformController(pulumi).output({});
+      const result = await new IacController(pulumi).output({});
 
       expect(result).toBe(OUTPUTS);
       expect(pulumi.getStackOutputs).toHaveBeenCalledTimes(1);
@@ -1265,7 +1265,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { config } = makeConfig(null);
 
-      const result = await new TerraformController(pulumi, undefined, undefined, config).output({});
+      const result = await new IacController(pulumi, undefined, undefined, config).output({});
 
       expect(result).toBeNull();
     });
@@ -1274,7 +1274,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { config, getStackOutputs } = makeConfig(OUTPUTS);
 
-      await new TerraformController(pulumi, undefined, undefined, config).output({ force: true });
+      await new IacController(pulumi, undefined, undefined, config).output({ force: true });
 
       // force is accepted (kept for payload compatibility) but never
       // forwarded anywhere — ConfigService.getStackOutputs takes no
@@ -1286,7 +1286,7 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { config } = makeConfig(OUTPUTS);
 
-      const result = await new TerraformController(pulumi, undefined, undefined, config).output(undefined);
+      const result = await new IacController(pulumi, undefined, undefined, config).output(undefined);
 
       expect(result).toBe(OUTPUTS);
     });
@@ -1302,7 +1302,7 @@ describe('TerraformController', () => {
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1326,7 +1326,7 @@ describe('TerraformController', () => {
       const { runRecord, approveRun } = makeRunRecord();
       const { audit, record } = makeAudit();
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: '',
       });
 
@@ -1343,7 +1343,7 @@ describe('TerraformController', () => {
       const error = new RunRecordTableNotConfiguredError('run-123');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1358,7 +1358,7 @@ describe('TerraformController', () => {
       const error = new RunRecordNotFoundError('run-123');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1373,7 +1373,7 @@ describe('TerraformController', () => {
       const error = new RunRecordNotPlanError('run-123', 'apply');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1388,7 +1388,7 @@ describe('TerraformController', () => {
       const error = new RunRecordNotSuccessfulError('run-123', 'failed');
       approveRun.mockRejectedValue(error);
 
-      const result = await new TerraformController(pulumi, audit, runRecord).approve({
+      const result = await new IacController(pulumi, audit, runRecord).approve({
         planRunId: 'run-123',
       });
 
@@ -1399,7 +1399,7 @@ describe('TerraformController', () => {
     it('should return { approved: false, error } when no RunRecordService is available', async () => {
       const pulumi = makePulumi();
 
-      const result = await new TerraformController(pulumi).approve({
+      const result = await new IacController(pulumi).approve({
         planRunId: 'run-123',
       });
 
@@ -1416,7 +1416,7 @@ describe('TerraformController', () => {
     it('should return resolved: true with the target versionId and lastModified on success', async () => {
       const pulumi = makePulumi();
 
-      const result = await new TerraformController(pulumi).resolveRollback({
+      const result = await new IacController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
       });
 
@@ -1431,7 +1431,7 @@ describe('TerraformController', () => {
     it('should return { resolved: false, error } and never call PulumiService.resolveRollbackTarget when applyRunId is missing', async () => {
       const pulumi = makePulumi();
 
-      const result = await new TerraformController(pulumi).resolveRollback({
+      const result = await new IacController(pulumi).resolveRollback({
         applyRunId: '',
       });
 
@@ -1445,7 +1445,7 @@ describe('TerraformController', () => {
       const error = new Error('RollbackVersionMissingError: version tfvars-v-expired no longer exists');
       vi.mocked(pulumi.resolveRollbackTarget).mockRejectedValue(error);
 
-      const result = await new TerraformController(pulumi).resolveRollback({
+      const result = await new IacController(pulumi).resolveRollback({
         applyRunId: 'apply-run-1',
       });
 
@@ -1462,14 +1462,14 @@ describe('TerraformController', () => {
       const pulumi = makePulumi();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: '' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: '' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
       expect(pulumi.confirmRollback).not.toHaveBeenCalled();
     });
 
-    it('should drive the generator to completion, forwarding every intermediate chunk on terraform.rollback.confirm.chunk tagged with applyRunId', async () => {
+    it('should drive the generator to completion, forwarding every intermediate chunk on iac.rollback.confirm.chunk tagged with applyRunId', async () => {
       const chunks: PulumiRunChunk[] = [
         { stream: 'stdout', line: 'Previewing update (rollback)...' },
         { stream: 'stdout', line: '+ 1 to create' },
@@ -1483,13 +1483,13 @@ describe('TerraformController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx, sender } = makeCtx();
 
-      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-new-head' });
-      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.rollback.confirm.chunk');
+      const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.rollback.confirm.chunk');
       expect(chunkCalls).toEqual([
-        ['terraform.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
-        ['terraform.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[1] }],
+        ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
+        ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[1] }],
       ]);
     });
 
@@ -1505,7 +1505,7 @@ describe('TerraformController', () => {
       );
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
       expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-recovered' });
@@ -1527,7 +1527,7 @@ describe('TerraformController', () => {
       vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord());
       const { ctx } = makeCtx();
 
-      const ackPromise = new TerraformController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const ackPromise = new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -1551,7 +1551,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
@@ -1567,7 +1567,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result).toEqual({ confirmed: false, error: error.message });
       expect(record).not.toHaveBeenCalled();
@@ -1586,7 +1586,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1605,7 +1605,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1623,7 +1623,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result.confirmed).toBe(false);
       expect(typeof result.error).toBe('string');
@@ -1639,7 +1639,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(record).not.toHaveBeenCalled();
     });
@@ -1663,7 +1663,7 @@ describe('TerraformController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new TerraformController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
+      const result = await new IacController(pulumi, audit).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(result).toEqual({
         confirmed: false,
