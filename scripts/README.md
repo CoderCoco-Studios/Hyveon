@@ -8,21 +8,25 @@ dependencies have been installed.
 ## `init-parent.ts`
 
 Interactive scaffolder for the [private parent + submodule deployment
-pattern](https://codercoco.github.io/Hyveon/guides/submodule/). It
-generates a self-contained `Makefile`, `terraform.tfvars`, and `.gitignore`
-in your parent repo, all wired to the wrapper Make targets (`setup`, `plan`,
-`apply`, `update`, `dev`, `tfvars-pull`, `tfvars-push`, `tfvars-diff`) so you
-can drive the whole stack from the parent repo root. The generated Makefile
-never shells out to a script or another Makefile inside the submodule — every
-step (npm install, Lambda builds, Terraform S3 backend bootstrap,
-`terraform init`/`plan`/`apply`, dev servers) is inlined directly in its
-recipes.
+pattern](https://codercoco.github.io/Hyveon/guides/submodule/). It generates
+a self-contained `Makefile`, `terraform.tfvars`, and `.gitignore` in your
+parent repo, wired to three wrapper Make targets (`setup`, `update`, `dev`).
+The generated Makefile never shells out to a script or another Makefile
+inside the submodule, and it does not orchestrate any infrastructure step —
+no backend bootstrap, no `terraform`/Pulumi init/plan/apply. The app's own
+first-run wizard and its Plan/Apply page do that directly, from the packaged
+Electron app, via the AWS SDK and the Pulumi Automation API (see the
+`migrate-iac-to-pulumi` OpenSpec change). Earlier revisions of this script
+also had a `migrate --to-s3`/`--to-local` subcommand and a `--s3-tfvars`
+bootstrap flag for switching a parent repo between a local `terraform.tfvars`
+file and a maintainer-synced S3 copy of it; both were removed (task 12.3/
+12.4) once their backing `terraform/bootstrap` provisioning module was
+deleted — that S3 bucket was never the same store the app itself reads.
 
 ### Usage
 
 ```bash
-init-parent.ts [--force] [--s3-tfvars] [--yes]            Interactive bootstrap (default)
-init-parent.ts migrate --to-s3 | --to-local [--yes]        Migrate an existing parent repo's tfvars backend
+init-parent.ts [--force] [--yes]            Interactive bootstrap
 ```
 
 From the parent (private) repo root, after adding the submodule:
@@ -35,100 +39,54 @@ node --import tsx Hyveon/scripts/init-parent.ts
 npx --prefix Hyveon/scripts tsx Hyveon/scripts/init-parent.ts
 ```
 
-### Subcommands
-
-`bootstrap` is the implicit default, selected whenever the first argument is
-omitted or starts with `--` (e.g. `tsx init-parent.ts --force` keeps working
-unchanged). It can also be passed explicitly as the first token (e.g. `tsx
-init-parent.ts bootstrap --s3-tfvars`) — both forms parse identically. Only a
-genuinely unrecognized first token (one that isn't `bootstrap`, `migrate`, or
-a `--` flag) exits `1` with `Unknown subcommand "<token>"`.
-
-- **`bootstrap`** (default; may be given explicitly or omitted) — the interactive scaffolder described above:
-  prompts for parent-repo details and writes `Makefile`, `terraform.tfvars`,
-  and `.gitignore`, plus (only when requested) the `.hyveon/tfvars-bucket` S3
-  backend marker.
-- **`migrate --to-s3`** — migrates an already-scaffolded parent repo (one
-  that already has a `Makefile`, i.e. `bootstrap` has already run) from a
-  local-file tfvars backend onto a versioned S3 bucket. Writes
-  `.hyveon/tfvars-bucket` (`${project_name}-tfvars`, read out of the existing
-  `terraform.tfvars`'s `project_name` key), rewrites the `Makefile` with the
-  S3-aware targets, then runs `make setup` with `HYVEON_TFVARS_BACKEND=s3` so
-  its self-contained S3 tfvars-bootstrap step (via `terraform/bootstrap/`)
-  provisions the bucket. `terraform.tfvars` itself is left untouched — pull
-  it back down from S3 afterward with `make tfvars-pull` if you want
-  confirmation it round-tripped.
-- **`migrate --to-local`** — the reverse: drops an already-scaffolded parent
-  repo's S3 tfvars backend, reverting `make plan`/`make apply` to reading
-  `terraform.tfvars` straight off disk. Resolves the target bucket
-  (`HYVEON_TFVARS_BUCKET` env var, else the parent-root marker, else the
-  submodule-local marker), pulls `terraform.tfvars` down from S3 first if
-  it's missing locally, aborts with no changes if the local file has
-  drifted from the remote object (checked the same way `tfvars-sync.ts
-  diff` does — skipped entirely if the remote object was never seeded, in
-  which case migration proceeds straight to deleting the markers), then
-  deletes both `.hyveon/tfvars-bucket` markers and the `terraform.tfvars.lock`
-  sidecar. `terraform.tfvars` itself is left in place. The S3 bucket is
-  **not** deleted — destroy it manually with `terraform
-  -chdir=<submodule>/terraform/bootstrap destroy` if you no longer need it.
+An optional leading `bootstrap` token is accepted (and ignored) for
+backwards compatibility with older invocations that spelled it out
+explicitly — there is only one flow now. Only a genuinely unrecognized first
+token (one that isn't `bootstrap` or a `--` flag) exits `1` with
+`Unknown subcommand "<token>"`.
 
 ### Flags
 
-- `--force` — (`bootstrap` only) overwrite existing files instead of
-  skipping them.
-- `--s3-tfvars` — (`bootstrap` only) pre-answers the "bootstrap an
-  S3-backed tfvars store?" prompt with yes, skipping it, and writes the
-  `.hyveon/tfvars-bucket` marker up front.
-- `--to-s3` / `--to-local` — (`migrate` only) selects the migration
-  direction. Exactly one is required; passing both or neither is a usage
-  error.
-- `--yes` — for `migrate`, skips the "Proceed?" confirmation and runs
-  immediately. For `bootstrap`, it only pre-answers the "bootstrap an
-  S3-backed tfvars store?" prompt (defaulting to no unless `--s3-tfvars`
-  was also passed); all other bootstrap prompts (parent repo path,
-  submodule path, project name, AWS region, hosted zone, API token,
-  Discord credentials) still run interactively.
+- `--force` — overwrite existing files instead of skipping them.
+- `--yes` — skips confirmation prompts where present. Prompts specific to
+  parent-repo details (path, submodule path, project name, AWS region,
+  hosted zone, Discord credentials) still run interactively regardless.
 
-An unrecognized subcommand, an unrecognized flag for the resolved
-subcommand, or (for `migrate`) anything other than exactly one of
-`--to-s3`/`--to-local` prints a usage error to stderr and exits `1`.
+An unrecognized subcommand or an unrecognized flag prints a usage error to
+stderr and exits `1`.
 
 From inside this repo's own workspace (e.g. while developing the scaffolder
 itself), the `scripts:init-parent` npm script is an equivalent way to invoke
-it — pass subcommands/flags after `--`:
+it — pass flags after `--`:
 
 ```bash
-npm run scripts:init-parent -- migrate --to-s3
-npm run scripts:init-parent -- migrate --to-local
-npm run scripts:init-parent -- --force --s3-tfvars
+npm run scripts:init-parent -- --force
 ```
 
-`bootstrap` never reads or modifies anything inside the submodule, and is
-safe to re-run; without `--force` it leaves existing files alone. `migrate`
-is the exception: `--to-local` may delete the submodule-local
-`.hyveon/tfvars-bucket` marker (see above), and `--to-s3` runs `make setup`,
-whose self-contained recipe bootstraps the S3-backed tfvars store.
+`init-parent.ts` never reads or modifies anything inside the submodule, and
+is safe to re-run; without `--force` it leaves existing files alone.
 
 ### Requirements
 
 - Node.js 24+ (the same minimum the rest of the project enforces).
-- `git` on `$PATH` (used to detect `.gitmodules`).
-- AWS CLI and Terraform on `$PATH` — `setup` shells out to `aws` directly to
-  bootstrap the state bucket/lock table (no longer installed for you the way
-  the old `setup.sh` did); `plan`/`apply`/`update` need `terraform` on `$PATH`.
+- `git` on `$PATH` (used to detect `.gitmodules` and to run `make setup`/
+  `make update`'s submodule commands).
 - Windows users should run this under WSL or Git Bash — the generated
   `Makefile` uses `bash` and `cp`, which mirrors standard Unix shell
   expectations.
 
 ## `tfvars-sync.ts`
 
-Standalone CLI for syncing `terraform.tfvars` with the versioned S3 bucket
-provisioned by `terraform/bootstrap` (see `docs/docs/setup.md` for the
-bootstrap flow): pulls, pushes, diffs, and reports status. Useful when you
-want to sync tfvars from a shell or CI job without going through the desktop
-app. (A `RemoteTfvarsStore` service exposing the same pull/push/diff/status
-operations to `desktop-main` is planned as a follow-up; this CLI does not
-depend on it.)
+Standalone CLI for syncing a local `terraform.tfvars`-style file with a
+versioned S3 bucket: pulls, pushes, diffs, and reports status. Note that this
+is a separate, legacy bucket/format from the app's own deployment
+configuration — the app persists its configuration as JSON, exclusively in
+its own app-provisioned S3 bucket (see `TfvarsService` in `desktop-main`),
+with no local-file fallback. The `terraform/bootstrap` module that used to
+provision this CLI's bucket automatically (via `init-parent.ts`'s generated
+Makefile) was deleted along with the rest of `terraform/` — provision the
+bucket by hand if you still want to use this tool for a legacy/manual
+`terraform.tfvars` copy.
 
 ### Usage
 

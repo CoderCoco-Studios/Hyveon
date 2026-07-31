@@ -5,6 +5,21 @@ sidebar_position: 5
 
 # S3 tfvars storage
 
+:::caution This capability was removed and this page is stale
+The `tfvars-pull`/`tfvars-push`/`tfvars-diff` Makefile targets, the
+`migrate --to-s3`/`--to-local` CLI subcommand, and the `--s3-tfvars`
+bootstrap flag described below no longer exist (`migrate-iac-to-pulumi`
+change, tasks 12.1/12.3/12.4). The S3 bucket this page describes was never
+the same store the app itself reads — the app's deployment configuration
+lives in its own, app-provisioned S3 bucket as JSON, managed entirely
+through the app's first-run wizard and Settings page, with no
+operator-editable file involved. `scripts/tfvars-sync.ts` itself still
+exists as a standalone CLI if you want to inspect a legacy bucket by hand,
+but nothing wires it into the generated Makefile anymore. This page is a
+removal/rewrite candidate, not yet scheduled under a tracked task — treat
+everything below as historical context only.
+:::
+
 `terraform.tfvars` holds your hosted zone, Discord credentials, and the
 `game_servers` map — everything a deployment needs but nothing you want to
 lose or hand-edit blind on a second machine. This guide covers the optional

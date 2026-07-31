@@ -1,20 +1,20 @@
 /**
- * Vitest CLI spec for init-parent.ts's `bootstrap --s3-tfvars` flag and both
- * `migrate --to-s3` / `migrate --to-local` directions (issue #89). Covers CLI
- * argument parsing plus the actual file-system effects of each flow.
+ * Vitest CLI spec for init-parent.ts's `bootstrap` flow (issue #89, later
+ * simplified by the `migrate-iac-to-pulumi` change's task 12.3/12.4 — see
+ * that task's report for why `migrate --to-s3`/`--to-local` and the
+ * `--s3-tfvars` flag were removed rather than ported: the S3-backed
+ * tfvars-sync backend they switched between was never the same store the
+ * app itself reads, and its `terraform/bootstrap` provisioning module was
+ * deleted outright in task 12.1).
  *
- * `node:readline/promises` and `node:child_process`'s `spawnSync` are mocked
- * so no real interactive prompts or `make` invocations happen; the S3 client
- * is mocked via `aws-sdk-client-mock`, the same approach `tfvars-sync.test.ts`
- * uses. `renderMakefile`/`renderTfvars`/etc.'s own render-shape checks live in
+ * `node:readline/promises` is mocked so no real interactive prompts happen.
+ * `renderMakefile`/`renderTfvars`/etc.'s own render-shape checks live in
  * `init-parent.test.ts` — this spec only asserts the CLI dispatch + IO
  * behaviour layered on top of them.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockClient } from 'aws-sdk-client-mock';
-import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Interface } from 'node:readline/promises';
@@ -22,30 +22,17 @@ import type { Interface } from 'node:readline/promises';
 vi.mock('node:readline/promises', () => ({
   createInterface: vi.fn(),
 }));
-vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(),
-}));
 // Preserves every other `node:process` export (cwd, stdin, stdout, argv, ...)
-// but replaces `exit` with a no-op mock, so the drift-abort / make-setup-failure
-// branches in init-parent.ts (which call `exit(1)` then `return;`) can be
-// exercised without actually killing the Vitest worker process.
+// but replaces `exit` with a no-op mock, so the "not a directory" abort
+// branch in init-parent.ts (which calls `exit(1)`) can be exercised without
+// actually killing the Vitest worker process.
 vi.mock('node:process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:process')>();
   return { ...actual, exit: vi.fn() };
 });
 
 import { createInterface } from 'node:readline/promises';
-import { spawnSync } from 'node:child_process';
-import { exit } from 'node:process';
-import { CliUsageError, parseCliArgs, runBootstrap, runMigrate } from './init-parent.ts';
-
-/** Typed stand-in for the AWS S3 SDK client — patches every `new S3Client()` instance (shared by tfvars-sync.ts's pull/diff calls). */
-const s3Mock = mockClient(S3Client);
-
-/** Builds a fake `GetObjectCommand` `Body` whose `transformToString()` resolves to `content`. */
-function fakeBody(content: string): { transformToString: () => Promise<string> } {
-  return { transformToString: async () => content };
-}
+import { CliUsageError, parseCliArgs, runBootstrap } from './init-parent.ts';
 
 /**
  * Wires the mocked `node:readline/promises` `createInterface` to hand back
@@ -67,71 +54,39 @@ function queueReadlineAnswers(answers: string[]): void {
 }
 
 describe('parseCliArgs', () => {
-  it('should default to bootstrap with s3Tfvars false when no flags are given', () => {
-    expect(parseCliArgs([])).toEqual({ command: 'bootstrap', force: false, s3Tfvars: false, yes: false });
+  it('should default to force/yes false when no flags are given', () => {
+    expect(parseCliArgs([])).toEqual({ force: false, yes: false });
   });
 
-  it('should set s3Tfvars true for "bootstrap --s3-tfvars"', () => {
-    expect(parseCliArgs(['--s3-tfvars'])).toEqual({ command: 'bootstrap', force: false, s3Tfvars: true, yes: false });
+  it('should set force true for "--force"', () => {
+    expect(parseCliArgs(['--force'])).toEqual({ force: true, yes: false });
+  });
+
+  it('should set yes true for "--yes"', () => {
+    expect(parseCliArgs(['--yes'])).toEqual({ force: false, yes: true });
   });
 
   it('should accept an explicit "bootstrap" subcommand token identically to omitting it', () => {
-    expect(parseCliArgs(['bootstrap', '--s3-tfvars'])).toEqual({
-      command: 'bootstrap',
-      force: false,
-      s3Tfvars: true,
-      yes: false,
-    });
-  });
-
-  it('should set direction "to-s3" for "migrate --to-s3"', () => {
-    expect(parseCliArgs(['migrate', '--to-s3'])).toEqual({
-      command: 'migrate',
-      force: false,
-      s3Tfvars: false,
-      yes: false,
-      direction: 'to-s3',
-    });
-  });
-
-  it('should set direction "to-local" for "migrate --to-local"', () => {
-    expect(parseCliArgs(['migrate', '--to-local'])).toEqual({
-      command: 'migrate',
-      force: false,
-      s3Tfvars: false,
-      yes: false,
-      direction: 'to-local',
-    });
-  });
-
-  it('should throw CliUsageError when migrate is given neither --to-s3 nor --to-local', () => {
-    expect(() => parseCliArgs(['migrate'])).toThrow(CliUsageError);
-    expect(() => parseCliArgs(['migrate'])).toThrow('migrate requires exactly one of --to-s3 | --to-local.');
-  });
-
-  it('should throw CliUsageError when migrate is given both --to-s3 and --to-local', () => {
-    expect(() => parseCliArgs(['migrate', '--to-s3', '--to-local'])).toThrow(CliUsageError);
+    expect(parseCliArgs(['bootstrap', '--force'])).toEqual({ force: true, yes: false });
   });
 
   it('should throw CliUsageError for an unrecognized subcommand', () => {
-    expect(() => parseCliArgs(['frobnicate'])).toThrow(CliUsageError);
-    expect(() => parseCliArgs(['frobnicate'])).toThrow('Unknown subcommand "frobnicate".');
+    expect(() => parseCliArgs(['migrate'])).toThrow(CliUsageError);
+    expect(() => parseCliArgs(['migrate'])).toThrow('Unknown subcommand "migrate".');
   });
 
-  it('should throw CliUsageError for an unknown flag under the default bootstrap command', () => {
+  it('should throw CliUsageError for an unrecognized flag', () => {
     expect(() => parseCliArgs(['--to-s3'])).toThrow(CliUsageError);
-    expect(() => parseCliArgs(['--to-s3'])).toThrow(
-      'Unknown flag "--to-s3" for the default bootstrap command.',
-    );
+    expect(() => parseCliArgs(['--to-s3'])).toThrow('Unknown flag "--to-s3".');
   });
 
-  it('should throw CliUsageError when migrate is given a bootstrap-only flag', () => {
-    expect(() => parseCliArgs(['migrate', '--force'])).toThrow(CliUsageError);
-    expect(() => parseCliArgs(['migrate', '--force'])).toThrow('Unknown flag "--force" for \'migrate\'.');
+  it('should throw CliUsageError for the retired --s3-tfvars flag', () => {
+    expect(() => parseCliArgs(['--s3-tfvars'])).toThrow(CliUsageError);
+    expect(() => parseCliArgs(['--s3-tfvars'])).toThrow('Unknown flag "--s3-tfvars".');
   });
 });
 
-describe('runBootstrap --s3-tfvars', () => {
+describe('runBootstrap', () => {
   let parentDir: string;
   let originalCwd: string;
 
@@ -146,7 +101,7 @@ describe('runBootstrap --s3-tfvars', () => {
     rmSync(parentDir, { recursive: true, force: true });
   });
 
-  it('should write the .hyveon/tfvars-bucket marker (and the rest of the scaffold) when --s3-tfvars is passed', async () => {
+  it('should write Makefile/terraform.tfvars/.gitignore and never write a tfvars-bucket marker', async () => {
     queueReadlineAnswers([
       parentDir, // Parent repo path
       'Hyveon', // Submodule path
@@ -156,432 +111,35 @@ describe('runBootstrap --s3-tfvars', () => {
       'n', // Seed Discord credentials?
     ]);
 
-    const { s3Tfvars } = parseCliArgs(['--s3-tfvars']);
-    expect(s3Tfvars).toBe(true);
+    await runBootstrap({ yes: false });
 
-    await runBootstrap({ s3Tfvars, yes: false });
-
-    const markerPath = join(parentDir, '.hyveon', 'tfvars-bucket');
-    expect(existsSync(markerPath)).toBe(true);
-    expect(readFileSync(markerPath, 'utf8')).toBe('test-parent-tfvars\n');
-
-    const makefile = readFileSync(join(parentDir, 'Makefile'), 'utf8');
-    expect(makefile).toContain(
-      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
-    );
+    expect(existsSync(join(parentDir, 'Makefile'))).toBe(true);
     expect(existsSync(join(parentDir, 'terraform.tfvars'))).toBe(true);
+    expect(existsSync(join(parentDir, '.gitignore'))).toBe(true);
     expect(existsSync(join(parentDir, '.env'))).toBe(false);
-  });
-
-  it('should write the .hyveon/tfvars-bucket marker when --s3-tfvars is omitted but the operator answers "y" to the interactive prompt', async () => {
-    queueReadlineAnswers([
-      parentDir, // Parent repo path
-      'Hyveon', // Submodule path
-      'test-parent', // Project name
-      'us-east-1', // AWS region
-      'example.com', // Route 53 hosted zone
-      'n', // Seed Discord credentials?
-      'y', // Bootstrap an S3-backed tfvars store now?
-    ]);
-
-    const { s3Tfvars, yes } = parseCliArgs([]);
-    expect(s3Tfvars).toBe(false);
-    expect(yes).toBe(false);
-
-    await runBootstrap({ s3Tfvars, yes });
-
-    const markerPath = join(parentDir, '.hyveon', 'tfvars-bucket');
-    expect(existsSync(markerPath)).toBe(true);
-    expect(readFileSync(markerPath, 'utf8')).toBe('test-parent-tfvars\n');
-  });
-
-  it('should NOT write the .hyveon/tfvars-bucket marker when --s3-tfvars is omitted and --yes defaults the prompt to no', async () => {
-    queueReadlineAnswers([
-      parentDir, // Parent repo path
-      'Hyveon', // Submodule path
-      'test-parent', // Project name
-      'us-east-1', // AWS region
-      'example.com', // Route 53 hosted zone
-      'n', // Seed Discord credentials?
-      // No S3-tfvars prompt answer needed — `yes: true` without `s3Tfvars` skips it, defaulting to no.
-    ]);
-
-    const { s3Tfvars, yes } = parseCliArgs(['--yes']);
-    expect(s3Tfvars).toBe(false);
-
-    await runBootstrap({ s3Tfvars, yes });
-
+    // No S3 tfvars backend concept remains — bootstrap must never write this.
     expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
   });
-});
 
-describe('runMigrate --to-s3', () => {
-  let parentDir: string;
-  let originalCwd: string;
+  it('should render a Makefile with only the help/setup/update/dev targets', async () => {
+    queueReadlineAnswers([parentDir, 'Hyveon', 'test-parent', 'us-east-1', 'example.com', 'n']);
 
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-
-    // Minimal already-scaffolded parent repo: a Makefile with just the
-    // SUBMODULE line readExistingParent()/locateExistingParent() parse, and a
-    // terraform.tfvars carrying project_name.
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), 'project_name = "test-parent"\n');
-
-    const success: Partial<ReturnType<typeof spawnSync>> = { status: 0, error: undefined };
-    vi.mocked(spawnSync).mockReturnValue(success as ReturnType<typeof spawnSync>);
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should write the tfvars-bucket marker, rewrite the Makefile with s3-aware targets, and run `make setup` with HYVEON_TFVARS_BACKEND=s3', async () => {
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { direction } = parseCliArgs(['migrate', '--to-s3']);
-    expect(direction).toBe('to-s3');
-
-    await runMigrate('to-s3', { yes: true });
-
-    const markerPath = join(parentDir, '.hyveon', 'tfvars-bucket');
-    expect(existsSync(markerPath)).toBe(true);
-    expect(readFileSync(markerPath, 'utf8')).toBe('test-parent-tfvars\n');
+    await runBootstrap({ yes: false });
 
     const makefile = readFileSync(join(parentDir, 'Makefile'), 'utf8');
-    expect(makefile).toContain(
-      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
-    );
-    // terraform.tfvars itself is left untouched by migrate --to-s3.
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe('project_name = "test-parent"\n');
-
-    expect(spawnSync).toHaveBeenCalledWith(
-      'make',
-      ['setup'],
-      expect.objectContaining({ cwd: parentDir, env: expect.objectContaining({ HYVEON_TFVARS_BACKEND: 's3' }) }),
-    );
-
-    // One-time note pointing operators at `make tfvars-pull` to fetch
-    // terraform.tfvars back down, since migrate --to-s3 never writes it itself.
-    const written = writeSpy.mock.calls.map((args) => String(args[0])).join('');
-    expect(written).toContain('make tfvars-pull');
+    expect(makefile).toContain('.PHONY: help setup update dev');
+    expect(makefile).not.toContain('plan:');
+    expect(makefile).not.toContain('apply:');
+    expect(makefile).not.toContain('tfvars-pull:');
+    expect(makefile).not.toContain('TFVARS_BACKEND');
   });
 
-  it('should make no changes and never call spawnSync when the confirmation prompt is declined', async () => {
-    queueReadlineAnswers(['n']); // Declines the "Proceed?" prompt.
+  it('should skip existing files unless --force is passed', async () => {
+    writeFileSync(join(parentDir, 'Makefile'), 'stale\n');
+    queueReadlineAnswers([parentDir, 'Hyveon', 'test-parent', 'us-east-1', 'example.com', 'n']);
 
-    await runMigrate('to-s3', { yes: false });
+    await runBootstrap({ yes: false });
 
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-    expect(readFileSync(join(parentDir, 'Makefile'), 'utf8')).toBe('SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    expect(spawnSync).not.toHaveBeenCalled();
-  });
-
-  it('should exit 1 without rolling back the marker/Makefile when `make setup` fails', async () => {
-    const failure: Partial<ReturnType<typeof spawnSync>> = { status: 1, error: undefined };
-    vi.mocked(spawnSync).mockReturnValue(failure as ReturnType<typeof spawnSync>);
-
-    await runMigrate('to-s3', { yes: true });
-
-    expect(vi.mocked(exit)).toHaveBeenCalledWith(1);
-    // Marker + Makefile are written before `make setup` runs — a failed
-    // `make setup` doesn't roll them back, so a re-run only needs to retry it.
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(true);
-    expect(readFileSync(join(parentDir, 'Makefile'), 'utf8')).toContain(
-      'PARENT_TFVARS_MARKER := $(firstword $(wildcard $(REPO_ROOT)/.hyveon/tfvars-bucket $(REPO_ROOT)/.gsd/tfvars-bucket) $(REPO_ROOT)/.hyveon/tfvars-bucket)',
-    );
-  });
-});
-
-describe('runMigrate --to-local', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const tfvarsContent = 'project_name = "test-parent"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), tfvarsContent);
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'test-parent-tfvars\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars.lock'), '{}\n');
-
-    // Remote object exists (lockStatus()'s HeadObjectCommand check) and its
-    // content matches local, so diffTfvars() reports no drift and the
-    // migration is allowed to delete the markers.
-    s3Mock.on(HeadObjectCommand).resolves({ VersionId: 'v1', ETag: '"etag-1"' });
-    s3Mock.on(GetObjectCommand).resolves({ Body: fakeBody(tfvarsContent) as never });
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should delete the tfvars-bucket marker and lock sidecar, leaving terraform.tfvars untouched, when local and remote match', async () => {
-    const { direction } = parseCliArgs(['migrate', '--to-local']);
-    expect(direction).toBe('to-local');
-
-    await runMigrate('to-local', { yes: true });
-
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(false);
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe(tfvarsContent);
-  });
-});
-
-describe('runMigrate --to-local (terraform.tfvars missing locally)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const remoteContent = 'project_name = "test-parent"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'test-parent-tfvars\n');
-    // Deliberately no terraform.tfvars written — this parent repo is currently
-    // sourcing it purely from S3, so runMigrateToLocal must pull one down
-    // first (before the drift check can even run).
-
-    s3Mock.on(HeadObjectCommand).resolves({ VersionId: 'v1', ETag: '"etag-1"' });
-    s3Mock.on(GetObjectCommand).resolves({ Body: fakeBody(remoteContent) as never });
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should pull terraform.tfvars from S3 before the drift check runs when it is missing locally', async () => {
-    await runMigrate('to-local', { yes: true });
-
-    // pullTfvars() wrote the local file before diffTfvars() compared it —
-    // proven by the migration completing cleanly (markers deleted): if the
-    // pull hadn't happened first, diffTfvars would have compared against a
-    // missing/empty local file and aborted instead.
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe(remoteContent);
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-    // pullTfvars() also writes terraform.tfvars.lock as a side effect of the
-    // pull-if-missing step — the migration must still delete it, not just the
-    // lock that existed (or didn't) before the pull ran.
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(false);
-  });
-});
-
-describe('runMigrate --to-local (drift abort)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const localContent = 'project_name = "test-parent"\n';
-  const remoteContent = 'project_name = "test-parent-DRIFTED"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), localContent);
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'test-parent-tfvars\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars.lock'), '{}\n');
-
-    // Remote object exists but its content differs from local, so
-    // diffTfvars() reports drift and the migration must abort without
-    // touching any files.
-    s3Mock.on(HeadObjectCommand).resolves({ VersionId: 'v1', ETag: '"etag-1"' });
-    s3Mock.on(GetObjectCommand).resolves({ Body: fakeBody(remoteContent) as never });
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should abort without deleting markers/lock or touching terraform.tfvars when local and remote have drifted', async () => {
-    await runMigrate('to-local', { yes: true });
-
-    expect(vi.mocked(exit)).toHaveBeenCalledWith(1);
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(true);
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(true);
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe(localContent);
-  });
-});
-
-describe('runMigrate --to-local (bucket never seeded)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const tfvarsContent = 'project_name = "test-parent"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), tfvarsContent);
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'test-parent-tfvars\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars.lock'), '{}\n');
-
-    // The bucket marker exists (e.g. `bootstrap --s3-tfvars` ran) but the
-    // remote object was never seeded (the initial `make tfvars-push`/pull
-    // step was skipped) — lockStatus()'s HeadObjectCommand check reports the
-    // object missing, so there is nothing remote to diff against or strand.
-    s3Mock.on(HeadObjectCommand).rejects({ name: 'NotFound', $metadata: { httpStatusCode: 404 } });
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should proceed with the migration instead of reporting drift when the remote object was never seeded', async () => {
-    await runMigrate('to-local', { yes: true });
-
-    expect(vi.mocked(exit)).not.toHaveBeenCalled();
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(false);
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe(tfvarsContent);
-  });
-});
-
-describe('runMigrate --to-local (confirmation declined)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const tfvarsContent = 'project_name = "test-parent"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), tfvarsContent);
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'test-parent-tfvars\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars.lock'), '{}\n');
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should make no changes and never contact S3 when the confirmation prompt is declined', async () => {
-    queueReadlineAnswers(['n']); // Declines the "Proceed?" prompt.
-
-    await runMigrate('to-local', { yes: false });
-
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(true);
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(true);
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe(tfvarsContent);
-    // The drift check (lockStatus/diffTfvars, both backed by the S3 client)
-    // only runs after the confirmation — a decline must short-circuit before
-    // any S3 call is made.
-    expect(s3Mock.calls()).toHaveLength(0);
-    expect(vi.mocked(exit)).not.toHaveBeenCalled();
-  });
-});
-
-describe('runMigrate --to-local (no resolvable bucket)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-    delete process.env.HYVEON_TFVARS_BUCKET;
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), 'project_name = "test-parent"\n');
-    // Deliberately no .hyveon/tfvars-bucket marker anywhere (parent root or
-    // submodule) and no HYVEON_TFVARS_BUCKET env var — this parent repo was
-    // never migrated to S3, so there's nothing to resolve.
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should exit 1 without contacting S3 when neither HYVEON_TFVARS_BUCKET nor any marker file resolves a bucket', async () => {
-    await runMigrate('to-local', { yes: true });
-
-    expect(vi.mocked(exit)).toHaveBeenCalledWith(1);
-    expect(s3Mock.calls()).toHaveLength(0);
-    expect(readFileSync(join(parentDir, 'terraform.tfvars'), 'utf8')).toBe('project_name = "test-parent"\n');
-  });
-});
-
-describe('runMigrate --to-local (bucket resolution precedence)', () => {
-  let parentDir: string;
-  let originalCwd: string;
-  const tfvarsContent = 'project_name = "test-parent"\n';
-
-  beforeEach(() => {
-    originalCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), 'init-parent-cli-test-')));
-    parentDir = process.cwd();
-    s3Mock.reset();
-    delete process.env.HYVEON_TFVARS_BUCKET;
-
-    writeFileSync(join(parentDir, 'Makefile'), 'SUBMODULE   := $(REPO_ROOT)/Hyveon\n');
-    writeFileSync(join(parentDir, 'terraform.tfvars'), tfvarsContent);
-    writeFileSync(join(parentDir, 'terraform.tfvars.lock'), '{}\n');
-
-    s3Mock.on(HeadObjectCommand).resolves({ VersionId: 'v1', ETag: '"etag-1"' });
-    s3Mock.on(GetObjectCommand).resolves({ Body: fakeBody(tfvarsContent) as never });
-  });
-
-  afterEach(() => {
-    delete process.env.HYVEON_TFVARS_BUCKET;
-    process.chdir(originalCwd);
-    rmSync(parentDir, { recursive: true, force: true });
-  });
-
-  it('should prefer HYVEON_TFVARS_BUCKET over the parent-root marker when both are set', async () => {
-    mkdirSync(join(parentDir, '.hyveon'), { recursive: true });
-    writeFileSync(join(parentDir, '.hyveon', 'tfvars-bucket'), 'marker-bucket\n');
-    process.env.HYVEON_TFVARS_BUCKET = 'env-bucket';
-
-    await runMigrate('to-local', { yes: true });
-
-    expect(vi.mocked(exit)).not.toHaveBeenCalled();
-    expect(s3Mock.commandCalls(HeadObjectCommand)[0]?.args[0].input).toMatchObject({ Bucket: 'env-bucket' });
-    // The env var takes precedence for bucket resolution, but the marker
-    // deleted is still whichever one(s) exist on disk.
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-  });
-
-  it('should fall back to the submodule-local marker and delete it when no parent-root marker exists', async () => {
-    const submoduleMarkerDir = join(parentDir, 'Hyveon', '.hyveon');
-    mkdirSync(submoduleMarkerDir, { recursive: true });
-    writeFileSync(join(submoduleMarkerDir, 'tfvars-bucket'), 'submodule-bucket\n');
-    // Deliberately no parent-root .hyveon/tfvars-bucket marker.
-
-    await runMigrate('to-local', { yes: true });
-
-    expect(vi.mocked(exit)).not.toHaveBeenCalled();
-    expect(s3Mock.commandCalls(HeadObjectCommand)[0]?.args[0].input).toMatchObject({ Bucket: 'submodule-bucket' });
-    expect(existsSync(join(submoduleMarkerDir, 'tfvars-bucket'))).toBe(false);
-    expect(existsSync(join(parentDir, '.hyveon', 'tfvars-bucket'))).toBe(false);
-    expect(existsSync(join(parentDir, 'terraform.tfvars.lock'))).toBe(false);
+    expect(readFileSync(join(parentDir, 'Makefile'), 'utf8')).toBe('stale\n');
   });
 });
