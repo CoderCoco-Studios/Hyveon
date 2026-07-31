@@ -267,7 +267,6 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
       stateBucket: 'my-state-bucket',
       stateBucketRegion: 'us-east-1',
       backendReady: true,
-      stackExists: true,
     });
   });
 
@@ -546,6 +545,55 @@ describe('PulumiService.preview failure handling', () => {
 });
 
 describe('PulumiService.preview abort handling', () => {
+  /**
+   * Regression test for Finding 3 (final whole-branch review): `apply()`/
+   * `destroy()` already register their internal abort listener with
+   * `{ once: true }` (see either method's own test file for the identical
+   * test), but `previewCore` (the method `preview()` actually delegates to
+   * — see that method's own TSDoc) never got this back-ported: its listener
+   * was a bare anonymous `signal.addEventListener('abort', () => ...)` with
+   * no options and no `removeEventListener` at all.
+   */
+  it('should register the internal abort listener with { once: true }', async () => {
+    const workspace = makeWorkspace(makeHappyPathPreview());
+    const service = makeService({ workspace });
+    const controller = new AbortController();
+    const addEventListenerSpy = vi.spyOn(controller.signal, 'addEventListener');
+
+    await collectPreviewChunks(service.preview(undefined, controller.signal));
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+  });
+
+  it('should actually remove the abort listener on normal completion, not merely register it with { once: true } — a reused signal never accumulates a live listener across calls', async () => {
+    // `{ once: true }` alone only detaches a listener once the signal FIRES —
+    // it does nothing for the overwhelmingly common case where the signal
+    // never aborts across a normal completion. This test proves the
+    // listener is gone afterward (removeEventListener called with the exact
+    // same handler addEventListener registered), not merely that the option
+    // was passed — the exact leak Finding 3 closes.
+    const workspace = makeWorkspace(makeHappyPathPreview());
+    const service = makeService({ workspace });
+    const controller = new AbortController();
+    const addEventListenerSpy = vi.spyOn(controller.signal, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await collectPreviewChunks(service.preview(undefined, controller.signal));
+    const registeredHandler = addEventListenerSpy.mock.calls[0]![1];
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', registeredHandler);
+
+    // A second call on the SAME reused signal must not accumulate a second
+    // live listener either.
+    addEventListenerSpy.mockClear();
+    removeEventListenerSpy.mockClear();
+    await collectPreviewChunks(service.preview(undefined, controller.signal));
+    expect(addEventListenerSpy).toHaveBeenCalledTimes(1);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', addEventListenerSpy.mock.calls[0]![1]);
+
+    // Never actually aborted, so nothing should have fired.
+    expect(controller.signal.aborted).toBe(false);
+  });
+
   it('should end the generator cleanly (resolving undefined) without touching Pulumi when the signal is already aborted', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview());
     const service = makeService({ workspace });

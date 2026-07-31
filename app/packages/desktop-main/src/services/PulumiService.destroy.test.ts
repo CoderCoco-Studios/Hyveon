@@ -273,6 +273,54 @@ describe('PulumiService.destroy concurrency guard', () => {
 
     void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
+
+  /**
+   * Regression test for Finding 2 (final whole-branch review) — mirrors
+   * `PulumiService.apply.test.ts`'s identical test and reasoning: the
+   * post-`createRun` re-check only looked at `operationInFlight`, never
+   * `stackInitInFlight`, leaving a TOCTOU gap between `destroy()`'s entry
+   * check (both flags clear) and its post-`createRun` recheck, during which
+   * `initializeStack()` could start and set `stackInitInFlight` invisibly.
+   * Simulated by starting `initializeStack()` from inside the `createRun`
+   * mock — the exact async gap Finding 2 closes.
+   */
+  it('should refuse at the post-createRun recheck when initializeStack() starts concurrently during the gate', async () => {
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const runLockService = makeRunLockService();
+    const service = makeService({ workspace: hangingWorkspace, runLockService });
+    const token = service.mintDestroyConfirmationToken();
+    let initPromise: Promise<void> | undefined;
+    const grantedLock: RunLock = {
+      runId: 'destroy-run-1',
+      kind: 'destroy',
+      initiator: TEST_USERNAME,
+      acquiredAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    runLockService.createRun.mockImplementationOnce(async () => {
+      // `destroy()`'s ENTRY check has already passed by the time
+      // `createRun` is called — `initializeStack()`'s own entry checks
+      // still see both flags clear here, so it proceeds and sets
+      // `stackInitInFlight = true` synchronously before suspending on its
+      // own (hanging) `getOrCreateStack` call.
+      initPromise = service.initializeStack();
+      return grantedLock;
+    });
+
+    await expect(collectDestroyChunks(service.destroy(token))).rejects.toThrow(/initializeStack\(\).*already in flight/i);
+
+    // The durable lock this call won moments before the refusal must have
+    // been released, not leaked — `destroy()` reserves its own random runId
+    // (no `preMintedRunId` supplied here), so only the call COUNT is
+    // asserted, not the specific id.
+    expect(runLockService.releaseRun).toHaveBeenCalledTimes(1);
+
+    void initPromise?.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
+  });
 });
 
 describe('PulumiService.destroy confirmation gate', () => {
@@ -623,7 +671,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
 });
 
 describe('PulumiService.destroy spawning', () => {
-  it('should construct the stack via getOrCreateStack with a no-op program and stackExists: true, then call stack.destroy with no plan option', async () => {
+  it('should construct the stack via getOrCreateStack with a no-op program, then call stack.destroy with no plan option', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -632,7 +680,7 @@ describe('PulumiService.destroy spawning', () => {
 
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
     const input = workspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
-    expect(input).toMatchObject({ stateBucket: 'my-state-bucket', stateBucketRegion: 'us-east-1', backendReady: true, stackExists: true });
+    expect(input).toMatchObject({ stateBucket: 'my-state-bucket', stateBucketRegion: 'us-east-1', backendReady: true });
     expect(typeof input['program']).toBe('function');
 
     const stack = await workspace.getOrCreateStack.mock.results[0]!.value;
@@ -709,6 +757,29 @@ describe('PulumiService.destroy cache invalidation', () => {
     await collectDestroyChunks(service.destroy(token));
 
     expect(configCacheInvalidator.invalidateCache).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Regression test for Finding 5 (final whole-branch review) — mirrors
+   * `PulumiService.apply.test.ts`'s identical test and reasoning:
+   * `invalidateCache()` must run BEFORE `persistRunRecord`/`RunRecordPersister.persist`,
+   * not after, since that call reads `runsTableName` off a cache only
+   * `invalidateCache()` clears.
+   */
+  it('should invalidate the stack-outputs cache BEFORE persisting the run record, not after', async () => {
+    const workspace = makeWorkspace(makeHappyPathDestroy());
+    const configCacheInvalidator = makeConfigCacheInvalidator();
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, configCacheInvalidator, runRecordPersister });
+    const token = service.mintDestroyConfirmationToken();
+
+    await collectDestroyChunks(service.destroy(token));
+
+    expect(configCacheInvalidator.invalidateCache).toHaveBeenCalledTimes(1);
+    expect(runRecordPersister.persist).toHaveBeenCalledTimes(1);
+    const invalidateOrder = vi.mocked(configCacheInvalidator.invalidateCache).mock.invocationCallOrder[0]!;
+    const persistOrder = vi.mocked(runRecordPersister.persist).mock.invocationCallOrder[0]!;
+    expect(invalidateOrder).toBeLessThan(persistOrder);
   });
 
   it('should NOT invalidate the stack-outputs cache when the destroy fails', async () => {

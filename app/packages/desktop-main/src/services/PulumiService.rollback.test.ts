@@ -462,6 +462,29 @@ describe('PulumiService.confirmRollback happy path', () => {
     const result = await drainToCompletion(service.preview());
     expect(result).toBeDefined();
   });
+
+  /**
+   * Regression test for Finding 3 (final whole-branch review):
+   * `confirmRollback` forwards its own `signal` straight through to
+   * `previewCore` (see that method's TSDoc, "Why previewCore, not
+   * preview()") without attaching a listener of its own, so previewCore's
+   * abort-listener leak fix (see `PulumiService.preview.test.ts`'s identical
+   * test) covers this path automatically — proven directly here rather than
+   * assumed, since `confirmRollback` is a distinct public entry point.
+   */
+  it('should actually remove the abort listener on normal completion for the forwarded signal, not merely register it with { once: true }', async () => {
+    const service = makeService({});
+    const controller = new AbortController();
+    const addEventListenerSpy = vi.spyOn(controller.signal, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID, controller.signal));
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+    const registeredHandler = addEventListenerSpy.mock.calls[0]![1];
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', registeredHandler);
+    expect(controller.signal.aborted).toBe(false);
+  });
 });
 
 describe('PulumiService.confirmRollback concurrency guard', () => {

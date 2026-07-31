@@ -615,6 +615,33 @@ describe('PulumiService.apply cache invalidation', () => {
     expect(configCacheInvalidator.invalidateCache).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Regression test for Finding 5 (final whole-branch review):
+   * `invalidateCache()` must run BEFORE `persistRunRecord` (which calls
+   * `RunRecordPersister.persist`, itself backed by `RunRecordService.persist`
+   * reading `runsTableName` off a memoised `ConfigService.getStackOutputs()`
+   * that only `invalidateCache()` clears). Calling it after would let this
+   * apply's own run-record write resolve `runsTableName` against PRE-apply
+   * cached stack outputs — silently misdirecting or dropping the write for
+   * any apply that itself changes the runs table. Asserted via each mock's
+   * own `invocationCallOrder` rather than a fixed call count, since that's
+   * the only signal that actually distinguishes "before" from "after".
+   */
+  it('should invalidate the stack-outputs cache BEFORE persisting the run record, not after', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const configCacheInvalidator = makeConfigCacheInvalidator();
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, configCacheInvalidator, runRecordPersister });
+
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(configCacheInvalidator.invalidateCache).toHaveBeenCalledTimes(1);
+    expect(runRecordPersister.persist).toHaveBeenCalledTimes(1);
+    const invalidateOrder = vi.mocked(configCacheInvalidator.invalidateCache).mock.invocationCallOrder[0]!;
+    const persistOrder = vi.mocked(runRecordPersister.persist).mock.invocationCallOrder[0]!;
+    expect(invalidateOrder).toBeLessThan(persistOrder);
+  });
+
   it('should NOT invalidate the stack-outputs cache when the apply fails', async () => {
     const workspace = makeWorkspace(async () => {
       throw new Error('boom');
@@ -1002,6 +1029,55 @@ describe('PulumiService.apply concurrency guard', () => {
     );
 
     void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
+  });
+
+  /**
+   * Regression test for Finding 2 (final whole-branch review): the
+   * post-`createRun` re-check only looked at `operationInFlight`, never
+   * `stackInitInFlight` — so a TOCTOU gap existed where `apply()` passes its
+   * ENTRY check (both flags clear), awaits its multi-step gate, and
+   * `initializeStack()` starts and sets `stackInitInFlight` DURING that gate
+   * (still invisible to the entry check, which already ran). Simulated here
+   * by starting `initializeStack()` from inside the `createRun` mock — the
+   * exact async gap between `apply()`'s entry check and its post-`createRun`
+   * recheck.
+   */
+  it('should refuse at the post-createRun recheck when initializeStack() starts concurrently during the gate', async () => {
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const runLockService = makeRunLockService();
+    const service = makeService({ workspace: hangingWorkspace, runLockService });
+    let initPromise: Promise<void> | undefined;
+    const grantedLock: RunLock = {
+      runId: PLAN_RUN_ID,
+      kind: 'apply',
+      initiator: TEST_USERNAME,
+      acquiredAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    runLockService.createRun.mockImplementationOnce(async () => {
+      // `apply()`'s ENTRY check has already passed by the time `createRun`
+      // is called — this is the exact async gap Finding 2 closes.
+      // `initializeStack()`'s own entry checks (operationInFlight/
+      // stackInitInFlight) still see both flags clear here, so it proceeds
+      // and sets `stackInitInFlight = true` synchronously before suspending
+      // on its own (hanging) `getOrCreateStack` call.
+      initPromise = service.initializeStack();
+      return grantedLock;
+    });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toThrow(
+      /initializeStack\(\).*already in flight/i,
+    );
+
+    // The durable apply lock this call won moments before the refusal must
+    // have been released, not leaked.
+    expect(runLockService.releaseRun).toHaveBeenCalledWith(PLAN_RUN_ID);
+
+    void initPromise?.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 
   it('should allow a new apply() call once the previous one has completed', async () => {
