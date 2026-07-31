@@ -1,9 +1,9 @@
 import type { Page, ElectronApplication } from '../fixtures/index.js';
 import { test, expect, launchElectron, applyHyveonMocks } from '../fixtures/index.js';
-import { TerraformPage } from '../pages/index.js';
+import { IacPage } from '../pages/index.js';
 
 /**
- * `/terraform` route specs (issue #110), driven via `_electron.launch()` and
+ * `/iac` route specs (issue #110), driven via `_electron.launch()` and
  * the `window.hyveon.__test.mock()` IPC seam — mirrors `dashboard.spec.ts`'s
  * shared-app pattern rather than the older per-test `_electron.launch()` in
  * `logs.spec.ts`.
@@ -12,7 +12,7 @@ import { TerraformPage } from '../pages/index.js';
 const PLAN_RUN_ID = 'run-1';
 const APPLY_RUN_ID = 'apply-1';
 
-interface TerraformMockOptions {
+interface IacMockOptions {
   planAck?: { started: boolean; runId?: string; error?: string; conflict?: string };
   planLines?: string[];
   planStatus?: string;
@@ -24,11 +24,11 @@ interface TerraformMockOptions {
 }
 
 /**
- * Seeds every `terraform.*` IPC channel `/terraform` consumes via
+ * Seeds every `iac.*` IPC channel `/iac` consumes via
  * `window.hyveon.__test.mock()`. Must be called before navigating to the page
  * under test.
  *
- * `terraform.runs.logs` backs `hyveon.terraform.runs.streamLogs` and is
+ * `iac.runs.logs` backs `hyveon.iac.runs.streamLogs` and is
  * registered as an async generator, mirroring `logs.stream`'s mock shape in
  * `logs.spec.ts` — but its yielded chunks never actually reach the page: an
  * async generator object returned across Electron's `contextBridge` function
@@ -40,10 +40,10 @@ interface TerraformMockOptions {
  * page behaves as if the run produced no output — good enough to drive the
  * `runs.get`-derived states below (BUSY, approve, apply, success) end to end.
  * Actual chunk rendering (ANSI, ordering, summary parsing) is covered by
- * `terraform.page.test.tsx` and `ansi-log-viewer.component.test.tsx` instead,
+ * `iac.page.test.tsx` and `ansi-log-viewer.component.test.tsx` instead,
  * which mock `window.hyveon` directly in jsdom with no contextBridge involved.
  */
-async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promise<void> {
+async function mockIac(win: Page, opts: IacMockOptions = {}): Promise<void> {
   const planAck = opts.planAck ?? { started: true, runId: PLAN_RUN_ID };
   const planLines = opts.planLines ?? ['Plan: 3 to add, 1 to change, 0 to destroy.'];
   const planStatus = opts.planStatus ?? 'awaiting_approval';
@@ -63,10 +63,10 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 
-      hyveon.__test.mock('terraform.plan', () => Promise.resolve(planAck));
-      hyveon.__test.mock('terraform.approve', () => Promise.resolve(approveAck));
-      hyveon.__test.mock('terraform.apply', () => Promise.resolve(applyAck));
-      hyveon.__test.mock('terraform.runs.get', (payload: { runId: string }) => {
+      hyveon.__test.mock('iac.plan', () => Promise.resolve(planAck));
+      hyveon.__test.mock('iac.approve', () => Promise.resolve(approveAck));
+      hyveon.__test.mock('iac.apply', () => Promise.resolve(applyAck));
+      hyveon.__test.mock('iac.runs.get', (payload: { runId: string }) => {
         if (payload.runId === planRunId) {
           return Promise.resolve({
             found: true,
@@ -79,7 +79,7 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
         }
         return Promise.resolve({ found: false });
       });
-      hyveon.__test.mock('terraform.runs.logs', async function* (runId: string) {
+      hyveon.__test.mock('iac.runs.logs', async function* (runId: string) {
         if (runId === planRunId) {
           for (const line of planLines) yield { stream: 'stdout', line };
         } else if (runId === applyRunId) {
@@ -102,26 +102,26 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
   );
 }
 
-test.describe('terraform page', () => {
+test.describe('iac page', () => {
   let app: ElectronApplication | undefined;
   let win: Page;
-  let terraform: TerraformPage;
+  let iac: IacPage;
 
   test.beforeAll(async () => {
     ({ app, win } = await launchElectron());
-    terraform = new TerraformPage(win);
+    iac = new IacPage(win);
   });
 
   test.afterAll(async () => {
     if (app) await app.close();
   });
 
-  // `/terraform` carries its own multi-step run state (planRunId, approval,
+  // `/iac` carries its own multi-step run state (planRunId, approval,
   // applyRunId, ...) that only resets on remount — navigating to it again
   // while already there is a same-pathname no-op in React Router and leaves
   // the previous test's state in place, so each test's `gotoViaSidebar()`
   // call could silently act on a stale plan/apply run. Navigating away first
-  // forces `/terraform` to unmount so the next `gotoViaSidebar()` call is a
+  // forces `/iac` to unmount so the next `gotoViaSidebar()` call is a
   // real route transition that mounts it fresh. Harmless on the first test,
   // where the window is already on `/`.
   test.beforeEach(async () => {
@@ -144,56 +144,56 @@ test.describe('terraform page', () => {
 
   test('should reach awaiting_approval and enable the Approve button once the plan run finishes', async () => {
     await applyHyveonMocks(win);
-    await mockTerraform(win);
-    await terraform.gotoViaSidebar();
+    await mockIac(win);
+    await iac.gotoViaSidebar();
 
-    await terraform.runPlanButton().click();
+    await iac.runPlanButton().click();
 
-    await expect(terraform.approveButton()).toBeEnabled();
+    await expect(iac.approveButton()).toBeEnabled();
   });
 
   test('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
     await applyHyveonMocks(win);
-    await mockTerraform(win, { planAck: { started: false, error: 'workspace busy', conflict: 'apply' } });
-    await terraform.gotoViaSidebar();
+    await mockIac(win, { planAck: { started: false, error: 'workspace busy', conflict: 'up' } });
+    await iac.gotoViaSidebar();
 
-    await terraform.runPlanButton().click();
+    await iac.runPlanButton().click();
 
-    await expect(terraform.alerts().filter({ hasText: 'terraform apply' })).toBeVisible();
+    await expect(iac.alerts().filter({ hasText: 'terraform apply' })).toBeVisible();
   });
 
   test('should approve the plan, then apply and reach the success banner', async () => {
     await applyHyveonMocks(win);
-    await mockTerraform(win);
-    await terraform.gotoViaSidebar();
+    await mockIac(win);
+    await iac.gotoViaSidebar();
 
-    await terraform.runPlanButton().click();
-    await expect(terraform.approveButton()).toBeEnabled();
-    await terraform.approveButton().click();
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeEnabled();
+    await iac.approveButton().click();
 
-    await expect(terraform.approvedText()).toBeVisible();
-    await expect(terraform.applyButton()).toBeEnabled();
+    await expect(iac.approvedText()).toBeVisible();
+    await expect(iac.applyButton()).toBeEnabled();
 
-    await terraform.applyButton().click();
+    await iac.applyButton().click();
 
-    await expect(terraform.applyCompleteText()).toBeVisible();
-    await expect(terraform.dashboardLink()).toBeVisible();
+    await expect(iac.applyCompleteText()).toBeVisible();
+    await expect(iac.dashboardLink()).toBeVisible();
   });
 
   test('should show an expired-approval hint and keep Apply disabled until re-approved', async () => {
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
     await applyHyveonMocks(win);
-    await mockTerraform(win, {
+    await mockIac(win, {
       approveAck: { approved: true, approvedBy: 'bob', approvedAt: staleApprovedAt },
     });
-    await terraform.gotoViaSidebar();
+    await iac.gotoViaSidebar();
 
-    await terraform.runPlanButton().click();
-    await expect(terraform.approveButton()).toBeEnabled();
-    await terraform.approveButton().click();
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeEnabled();
+    await iac.approveButton().click();
 
-    await expect(terraform.approvalExpiredText()).toBeVisible();
-    await expect(terraform.applyButton()).toBeDisabled();
-    await expect(terraform.reapproveButton()).toBeVisible();
+    await expect(iac.approvalExpiredText()).toBeVisible();
+    await expect(iac.applyButton()).toBeDisabled();
+    await expect(iac.reapproveButton()).toBeVisible();
   });
 });
