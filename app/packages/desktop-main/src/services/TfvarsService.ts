@@ -334,6 +334,64 @@ export class TfvarsService {
   }
 
   /**
+   * Returns every top-level {@link DeploymentConfig} field EXCEPT
+   * `gameServers` (see {@link TopLevelDeploymentSettings}), plus the
+   * `RemoteFileStore` etag to round-trip as {@link updateTopLevelSettings}'s
+   * `expectedVersionId` — mirrors {@link getRawConfig}'s own `{ config, etag }`
+   * shape. Bypasses the in-memory `getGameServers()` cache (like
+   * {@link getRawConfig}) and rejects (rather than swallowing) a missing
+   * object or an unconfigured bucket — task 9.7's Settings form wants to know
+   * immediately if the source is unreadable/unconfigured rather than
+   * silently rendering stale/empty fields.
+   *
+   * @throws {@link ConfigurationNotConfiguredError} when no configuration
+   *   bucket is configured.
+   */
+  async getTopLevelSettings(): Promise<{ settings: Omit<DeploymentConfig, 'gameServers'>; etag?: string }> {
+    const { config: raw, etag } = await this.fetchRawConfig();
+    const { gameServers: _gameServers, ...settings } = this.parseConfigContents(raw);
+    return { settings, etag };
+  }
+
+  /**
+   * Merges `patch` onto every top-level {@link DeploymentConfig} field
+   * EXCEPT `gameServers` (see {@link TopLevelDeploymentSettings}) and writes
+   * the result back via {@link writeConfig} — see that method's doc for the
+   * conditional-put / `OptimisticLockError` contract. Follows
+   * {@link addGameServer}'s exact shape (read current raw config, apply a
+   * mutation, delegate to {@link writeConfig}) rather than a different
+   * pattern.
+   *
+   * `gameServers` is guaranteed to survive completely untouched: the merge
+   * always takes `gameServers` from the freshly-parsed current document,
+   * never from `patch`, regardless of what `patch` contains at runtime — see
+   * {@link applyTopLevelSettingsPatch}'s doc comment for why this is a
+   * runtime guarantee, not just a compile-time one (`patch` arrives over the
+   * IPC boundary as plain JSON, where TypeScript's `Omit` offers no
+   * protection).
+   *
+   * @param patch - Fields to merge onto the current settings; an omitted
+   *   field keeps its current stored value.
+   * @param expectedVersionId - The etag last read (e.g. via
+   *   {@link getTopLevelSettings}), used as the conditional-put guard; omit
+   *   to write unconditionally. Every real caller (the renderer's settings
+   *   form) always supplies it — see {@link getTopLevelSettings}'s doc
+   *   comment — omission is only supported for parity with
+   *   {@link addGameServer}/{@link updateGameServer}'s own convention.
+   * @returns The written object's new `etag` plus an optional `versionId`
+   *   when the underlying store supports object versioning — see
+   *   {@link writeConfig}/{@link putRawConfig}.
+   * @throws {@link ConfigurationNotConfiguredError} when no configuration
+   *   bucket is configured.
+   */
+  async updateTopLevelSettings(
+    patch: Partial<Omit<DeploymentConfig, 'gameServers'>>,
+    expectedVersionId?: string,
+  ): Promise<{ etag: string; versionId?: string }> {
+    return this.writeConfig(expectedVersionId, (raw) => this.applyTopLevelSettingsPatch(raw, patch));
+  }
+
+  /**
    * Adds a brand-new entry to the `gameServers` map (see issue #96). Reads
    * the current raw config JSON, splices `name` in as a new `gameServers`
    * key, and writes the result back via {@link writeConfig} — see that
@@ -576,6 +634,32 @@ export class TfvarsService {
     const rest = { ...gameServers };
     delete rest[name];
     return this.serializeConfig({ ...parsedConfig, gameServers: rest });
+  }
+
+  /**
+   * Merges `patch` onto `raw`'s top-level fields, with `gameServers` sourced
+   * EXCLUSIVELY from the freshly-parsed current document — never from
+   * `patch` — so the map survives untouched no matter what `patch` contains.
+   *
+   * This is a runtime guarantee, not just a compile-time one:
+   * `updateTopLevelSettings`'s `patch` parameter is typed
+   * `Partial<Omit<DeploymentConfig, 'gameServers'>>`, but that type only
+   * constrains code written against it — `patch` actually arrives from
+   * {@link updateTopLevelSettings}'s caller (ultimately the
+   * `iac.settings.update` IPC handler, fed by a plain-JSON payload crossing
+   * the Electron IPC boundary) with no runtime enforcement that a
+   * `gameServers` key isn't present. Destructuring `gameServers` off `patch`
+   * before spreading it (discarding whatever value was there) and building
+   * the final object's `gameServers` from `config.gameServers` (the current
+   * document) instead makes this impossible to get wrong regardless of what
+   * a misbehaving/future caller sends.
+   */
+  private applyTopLevelSettingsPatch(raw: string, patch: Partial<Omit<DeploymentConfig, 'gameServers'>>): string {
+    const config = this.parseConfigContents(raw);
+    const { gameServers, ...currentSettings } = config;
+    const { gameServers: _ignoredPatchGameServers, ...safePatch } = patch as Partial<DeploymentConfig>;
+
+    return this.serializeConfig({ ...currentSettings, ...safePatch, gameServers });
   }
 
   /**

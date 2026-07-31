@@ -94,6 +94,8 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type {
   CreateGamePayload,
   DeleteGamePayload,
+  DeploymentSettingsGetResult,
+  DeploymentSettingsWriteResult,
   HyveonApi,
   HyveonStreamHandle,
   HyveonTestApi,
@@ -112,6 +114,7 @@ import type {
   TerraformRunsListOpts,
   RunHistoryPageResult,
   TfOutputs,
+  UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
   PrerequisitesReport,
   AwsProfileSummary,
@@ -757,6 +760,11 @@ const api: HyveonApi = {
         invoke<TerraformRollbackResolveAck>('iac.rollback.resolve', opts),
       confirm: (opts: { applyRunId: string }) =>
         invoke<TerraformRollbackConfirmAck>('iac.rollback.confirm', opts),
+    },
+    settings: {
+      get: () => invoke<DeploymentSettingsGetResult>('iac.settings.get'),
+      update: (payload: UpdateDeploymentSettingsPayload) =>
+        invoke<DeploymentSettingsWriteResult>('iac.settings.update', payload),
     },
   },
 };

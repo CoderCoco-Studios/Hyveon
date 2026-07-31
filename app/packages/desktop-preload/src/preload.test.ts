@@ -1303,6 +1303,77 @@ describe('preload dispatcher', () => {
   });
 
   // -------------------------------------------------------------------------
+  // iac.settings
+  // -------------------------------------------------------------------------
+
+  describe('iac.settings', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke the iac.settings.get channel with no arguments', async () => {
+        const result = { ok: true, settings: { hostedZoneName: 'example.com' }, etag: 'etag-1' };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          get: () => Promise<unknown>;
+        };
+
+        const response = await settings.get();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.get');
+        expect(response).toEqual(result);
+      });
+
+      it('should invoke the iac.settings.update channel with the payload', async () => {
+        const result = {
+          ok: true,
+          settings: { hostedZoneName: 'example.com', dnsTtl: 60 },
+          etag: 'etag-2',
+          versionId: 'v-2',
+        };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          update: (payload: { patch: Record<string, unknown>; expectedVersionId?: string }) => Promise<unknown>;
+        };
+        const payload = { patch: { dnsTtl: 60 }, expectedVersionId: 'etag-1' };
+
+        const response = await settings.update(payload);
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.update', payload);
+        expect(response).toEqual(result);
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.settings.update is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const result = { ok: false, code: 'conflict', message: 'stale etag' };
+        const mockHandler = vi.fn().mockResolvedValue(result);
+        testApi.mock('iac.settings.update', mockHandler);
+
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          update: (payload: { patch: Record<string, unknown>; expectedVersionId?: string }) => Promise<unknown>;
+        };
+        const payload = { patch: { dnsTtl: 60 }, expectedVersionId: 'etag-mock' };
+        const response = await settings.update(payload);
+
+        expect(mockHandler).toHaveBeenCalledWith(payload);
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(response).toEqual(result);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // iac.output
   // -------------------------------------------------------------------------
 

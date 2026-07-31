@@ -585,6 +585,126 @@ describe('TfvarsService write path', () => {
     });
   });
 
+  describe('getTopLevelSettings / updateTopLevelSettings (task 9.7)', () => {
+    it('should return every top-level field except gameServers, plus the read etag', async () => {
+      stubCurrentConfig(remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      const { settings, etag } = await service.getTopLevelSettings();
+
+      const { gameServers: _gameServers, ...expectedSettings } = FIXTURE_CONFIG;
+      expect(settings).toEqual(expectedSettings);
+      expect(settings).not.toHaveProperty('gameServers');
+      expect(etag).toBe('etag-1');
+    });
+
+    it('should reject getTopLevelSettings with ConfigurationNotConfiguredError when no bucket is configured', async () => {
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await expect(service.getTopLevelSettings()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+      expect(remoteFileStore.get).not.toHaveBeenCalled();
+    });
+
+    it('should merge a patch onto the current top-level fields, leaving every gameServers entry intact', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const result = await service.updateTopLevelSettings({ dnsTtl: 60, awsRegion: 'eu-west-1' });
+      expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
+
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
+
+      expect(written.dnsTtl).toBe(60);
+      expect(written.awsRegion).toBe('eu-west-1');
+      // Every other top-level field round-trips unchanged.
+      expect(written.projectName).toBe(FIXTURE_CONFIG.projectName);
+      expect(written.hostedZoneName).toBe(FIXTURE_CONFIG.hostedZoneName);
+      // gameServers survives completely untouched.
+      expect(written.gameServers).toEqual(FIXTURE_CONFIG.gameServers);
+    });
+
+    it('should leave gameServers untouched even when a caller sneaks a "gameServers" key into the patch at runtime', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      // `updateTopLevelSettings`'s parameter type excludes `gameServers`, but
+      // that's only a compile-time guarantee — this payload simulates what a
+      // buggy/malicious IPC caller could still send at runtime (the IPC
+      // boundary carries plain JSON, not enforced TypeScript types), proving
+      // the service-level defense (not just the type system) is what
+      // actually protects the map.
+      const maliciousPatch = {
+        dnsTtl: 90,
+        gameServers: { palworld: { image: 'evil/corrupted-image', cpu: 1, memory: 1, ports: [], volumes: [] } },
+      } as unknown as Partial<DeploymentConfig>;
+
+      await service.updateTopLevelSettings(maliciousPatch);
+
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
+
+      expect(written.dnsTtl).toBe(90);
+      expect(written.gameServers).toEqual(FIXTURE_CONFIG.gameServers);
+      expect(written.gameServers.palworld).not.toEqual(
+        expect.objectContaining({ image: 'evil/corrupted-image' }),
+      );
+    });
+
+    it('should honour expectedVersionId as the conditional-put ifMatch guard', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      await service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-1');
+
+      expect(remoteFileStore.put).toHaveBeenCalledWith('deployment-config.json', expect.any(Uint8Array), {
+        ifMatch: 'etag-1',
+      });
+    });
+
+    it('should throw OptimisticLockError (not a raw RemoteFileConflictError) when the store rejects a conditional put', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockRejectedValue(
+        new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
+      );
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      await expect(service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-stale')).rejects.toBeInstanceOf(
+        OptimisticLockError,
+      );
+    });
+
+    it('should reject updateTopLevelSettings with ConfigurationNotConfiguredError when no bucket is configured', async () => {
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await expect(service.updateTopLevelSettings({ dnsTtl: 60 })).rejects.toBeInstanceOf(
+        ConfigurationNotConfiguredError,
+      );
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
+    });
+
+    it('should invalidate the in-memory cache so the next getGameServers() re-reads the written content', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      await service.getGameServers();
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
+
+      // updateTopLevelSettings's own writeConfig() reads the current config
+      // before mutating it (an extra `get`, unlike restoreRawTfvars's
+      // unconditional-overwrite path above), then the post-write
+      // getGameServers() re-read below issues a third.
+      await service.updateTopLevelSettings({ dnsTtl: 60 });
+      await service.getGameServers();
+
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
+    });
+  });
+
   /**
    * Task 6.5 (`migrate-iac-to-pulumi` Phase 6) / `pulumi-infra-program`'s
    * "Configuration round-trips losslessly" scenario: a `DeploymentConfig`

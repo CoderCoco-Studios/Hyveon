@@ -141,6 +141,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 | `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
 | `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. |
 | `TerraformController`, `TerraformRunsController` | `terraform.init`, `terraform.plan`, `terraform.apply`, `terraform.destroy.mintToken`, `terraform.destroy`, `terraform.output`, `terraform.approve`, `terraform.rollback.resolve`, `terraform.rollback.confirm`, `terraform.runs.*` | Drives `terraform` as a child process for the apply pipeline; `terraform.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; run history is recorded for the apply-history view. |
+| `IacSettingsController` | `iac.settings.get`, `iac.settings.update` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `TfvarsService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. |
 | `WizardController` | first-run wizard channels (prerequisites, AWS profile/credentials, bootstrap, IAM check, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 
 ### Key services
@@ -273,6 +274,14 @@ don't re-fetch from S3 on every call; `invalidateCache()` is called after any
 write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see the
 [S3 tfvars storage guide](/guides/s3-tfvars)) is a separate, maintainer-facing
 CLI concern — it does not share this resolution mechanism.
+
+`getTopLevelSettings()`/`updateTopLevelSettings()` are the top-level-field
+counterpart to `addGameServer()`/`updateGameServer()`/`removeGameServer()` —
+same conditional-put/`OptimisticLockError` contract, but merging a patch onto
+every field except `gameServers` (which `updateTopLevelSettings()` always
+takes from the freshly-read document, never from the caller's patch, even if
+a caller's payload contains a `gameServers` key at runtime). Backs the
+`IacSettingsController` row above.
 
 ### Drift detection
 

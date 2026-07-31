@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react';
 import { MINIMUM_TERRAFORM_VERSION } from '@hyveon/shared';
 import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
+import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
 import { WatchdogPanel } from '../components/watchdog-panel.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.component.js';
 import { Button } from '../components/ui/button.component.js';
 
 /**
- * Settings route (`/settings`) — watchdog config + general settings skeleton.
- * Per the issue spec, the watchdog panel moves here from the dashboard.
+ * Settings route (`/settings`) — watchdog config + the deployment-settings
+ * form (`DeploymentSettingsForm`, task 9.7 of `migrate-iac-to-pulumi`) for
+ * every top-level `DeploymentConfig` field except `gameServers`. Per the
+ * issue spec, the watchdog panel moves here from the dashboard.
  *
  * While `reconfiguring` is true, this page renders only
  * {@link FirstRunWizard} in `mode: 'reconfigure'` (#211) — mirroring how
@@ -69,12 +72,10 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* General settings placeholder */}
+      {/* General settings: top-level deployment configuration (task 9.7) */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">General</h3>
-        <p className="text-muted-foreground text-sm">
-          Additional configuration options will appear here in future updates.
-        </p>
+        <DeploymentSettingsForm />
       </div>
 
       {/* Diagnostics section */}

@@ -9,7 +9,15 @@
  * namespace names.
  */
 
-import type { ChangeSummary, DeploymentConfigDiff, OpType } from '@hyveon/shared';
+import type {
+  ChangeSummary,
+  DeploymentConfigDiff,
+  DeploymentSettingsGetResult,
+  DeploymentSettingsWriteResult,
+  OpType,
+  TopLevelDeploymentSettings,
+  UpdateDeploymentSettingsPayload,
+} from '@hyveon/shared';
 
 /**
  * Re-exported verbatim from `@hyveon/shared` rather than duplicated —
@@ -31,8 +39,23 @@ import type { ChangeSummary, DeploymentConfigDiff, OpType } from '@hyveon/shared
  * shape with no `@pulumi/pulumi`/Node dependency to isolate the renderer
  * from, so re-exporting rather than hand-duplicating its fields here avoids
  * the same kind of drift risk.
+ *
+ * `TopLevelDeploymentSettings` (`@hyveon/shared/src/deploymentConfig.ts`) and
+ * `DeploymentSettingsGetResult`/`DeploymentSettingsWriteResult`/
+ * `UpdateDeploymentSettingsPayload` (`@hyveon/shared/src/deploymentSettingsWrite.ts`)
+ * join this group for the same reason (task 9.7, the Settings page's
+ * deployment-settings editor): all four are pure data shapes with no
+ * `@pulumi/pulumi`/Node dependency to isolate the renderer from.
  */
-export type { ChangeSummary, DeploymentConfigDiff, OpType };
+export type {
+  ChangeSummary,
+  DeploymentConfigDiff,
+  DeploymentSettingsGetResult,
+  DeploymentSettingsWriteResult,
+  OpType,
+  TopLevelDeploymentSettings,
+  UpdateDeploymentSettingsPayload,
+};
 
 // ---------------------------------------------------------------------------
 // Shared payload shapes (mirrors types from @hyveon/shared and desktop-main)
@@ -1587,6 +1610,8 @@ export interface HyveonIacApi {
   runs: HyveonIacRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
   rollback: HyveonIacRollbackApi;
+  /** Deployment-settings editor (task 9.7): read/write every top-level `DeploymentConfig` field except `gameServers`. */
+  settings: HyveonIacSettingsApi;
 }
 
 /**
@@ -1619,6 +1644,38 @@ export interface HyveonIacRollbackApi {
    * attempted — `error` describes why.
    */
   confirm: (opts: { applyRunId: string }) => Promise<TerraformRollbackConfirmAck>;
+}
+
+/**
+ * Deployment-settings editor IPC surface (task 9.7, `migrate-iac-to-pulumi`)
+ * — the Settings page's form for every top-level `DeploymentConfig` field
+ * except `gameServers` (region, hosted zone, watchdog tuning, Discord admin
+ * allowlists, etc.). `gameServers` has its own dedicated add-game-wizard/
+ * edit-game-form flow (`games.create`/`games.update`/`games.delete`) and is
+ * never reachable through this namespace.
+ */
+export interface HyveonIacSettingsApi {
+  /**
+   * Reads the current top-level settings plus the etag to round-trip as
+   * {@link update}'s `expectedVersionId`, by invoking the `iac.settings.get`
+   * IPC channel. `ok: false` covers an unconfigured configuration bucket
+   * (`code: 'setup_incomplete'`) or an unexpected read failure
+   * (`code: 'error'`) — see {@link DeploymentSettingsGetResult}.
+   */
+  get: () => Promise<DeploymentSettingsGetResult>;
+  /**
+   * Submits a settings patch by invoking the `iac.settings.update` IPC
+   * channel. `payload.expectedVersionId` should always be the etag last read
+   * via {@link get} — optimistic locking is required for this form (task
+   * 9.7's brief), so an omitted `expectedVersionId` risks silently
+   * clobbering a concurrent edit. `ok: false` discriminates on `code`:
+   * `'validation'` (client should re-render the same fields with the
+   * reported issues), `'conflict'` (surface a "changed elsewhere — reload
+   * and try again" message, mirroring the game-form's own optimistic-lock
+   * UX), `'setup_incomplete'`, or the catch-all `'error'` — see
+   * {@link DeploymentSettingsWriteResult}.
+   */
+  update: (payload: UpdateDeploymentSettingsPayload) => Promise<DeploymentSettingsWriteResult>;
 }
 
 // ---------------------------------------------------------------------------
