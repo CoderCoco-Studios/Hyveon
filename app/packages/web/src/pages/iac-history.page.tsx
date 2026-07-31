@@ -29,11 +29,11 @@ function formatTimestamp(iso: string): string {
 }
 
 /**
- * Terraform run-history route (`/terraform/history`) — a newest-first table
+ * Terraform run-history route (`/iac/history`) — a newest-first table
  * of persisted `terraform` plan/apply/destroy runs backed by
  * `hyveon.iac.runs.list` (issue #111). Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
- * read-only run-detail view at `/terraform/history/:runId`. The "Changes"
+ * read-only run-detail view at `/iac/history/:runId`. The "Changes"
  * column reuses `ChangeSummaryStatus` from the live Plan/Apply page (task
  * 9.5) so a row's resource-change summary renders with the same
  * unavailable/no-op/badges three-way distinction, and a row whose record
@@ -45,7 +45,7 @@ function formatTimestamp(iso: string): string {
  * run volume at this project's scale is tiny, so a kind-filtered page can
  * render fewer rows than {@link PAGE_SIZE} without needing a dedicated index.
  */
-export function TerraformHistoryPage() {
+export function IacHistoryPage() {
   const navigate = useNavigate();
   const [loadingMore, setLoadingMore] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
@@ -149,7 +149,7 @@ export function TerraformHistoryPage() {
   /** Routes a confirmed rollback into the plan/apply run view — see `IacPage`'s `RollbackNavState`. */
   const handleRolledBack = useCallback(
     ({ versionId, rolledBackFrom }: RollbackResult) => {
-      navigate('/terraform', { state: { tfvarsVersionId: versionId, rolledBackFrom } });
+      navigate('/iac', { state: { tfvarsVersionId: versionId, rolledBackFrom } });
     },
     [navigate],
   );
@@ -163,7 +163,7 @@ export function TerraformHistoryPage() {
             Past `terraform` plan, apply, and destroy runs.
           </p>
         </div>
-        <Link to="/terraform" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
+        <Link to="/iac" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
           Back to Plan/Apply
         </Link>
       </div>
@@ -235,7 +235,7 @@ export function TerraformHistoryPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Link
-                            to={`/terraform/history/${record.runId}`}
+                            to={`/iac/history/${record.runId}`}
                             className="capitalize text-[var(--color-primary)] underline underline-offset-2"
                           >
                             {record.kind}

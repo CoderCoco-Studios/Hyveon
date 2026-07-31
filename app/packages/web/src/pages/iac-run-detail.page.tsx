@@ -164,7 +164,7 @@ function formatTimestamp(iso: string): string {
 }
 
 /**
- * Read-only run-detail route (`/terraform/history/:runId`) — shows a single
+ * Read-only run-detail route (`/iac/history/:runId`) — shows a single
  * persisted `terraform` run's status and captured log, reusing the live
  * Plan/Apply page's `AnsiLogViewer`/`ErrorBanner`/`ChangeSummaryStatus`
  * components (issue #111; `ChangeSummaryStatus` reuse added by task 9.5).
@@ -174,7 +174,7 @@ function formatTimestamp(iso: string): string {
  * "partial" badge next to its status — unlike the live page's
  * `PartialApplyBanner`, there is no "start over" action on a historical run.
  */
-export function TerraformRunDetailPage() {
+export function IacRunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const { record, loading: recordLoading } = useHistoryRecord(runId);
   const { chunks, source, loading: logLoading } = useRunLogLadder(runId, record);
@@ -186,7 +186,7 @@ export function TerraformRunDetailPage() {
           <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Run detail</h2>
           <p className="text-sm text-[var(--color-muted-foreground)]">{runId}</p>
         </div>
-        <Link to="/terraform/history" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
+        <Link to="/iac/history" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
           Back to history
         </Link>
       </div>
@@ -225,7 +225,7 @@ export function TerraformRunDetailPage() {
             <p className="text-sm text-[var(--color-muted-foreground)]">
               Rollback of{' '}
               <Link
-                to={`/terraform/history/${record.rolledBackFrom}`}
+                to={`/iac/history/${record.rolledBackFrom}`}
                 className="text-[var(--color-primary)] underline underline-offset-2"
               >
                 apply run {record.rolledBackFrom}

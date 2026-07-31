@@ -83,7 +83,7 @@ export function RemoveGameButton({ game }: Props) {
               This deletes the <code className="font-[var(--font-mono)] text-xs">{game}</code> entry from{' '}
               <code className="font-[var(--font-mono)] text-xs">terraform.tfvars</code>. The deployed AWS
               resources stay live until an operator applies the change from the{' '}
-              <Link to="/terraform" className="underline underline-offset-2">
+              <Link to="/iac" className="underline underline-offset-2">
                 Terraform
               </Link>{' '}
               page.
