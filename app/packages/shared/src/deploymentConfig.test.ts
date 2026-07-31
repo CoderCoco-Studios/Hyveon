@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEPLOYMENT_CONFIG_DEFAULTS,
   withDeploymentConfigDefaults,
+  diffDeploymentConfig,
   type DeploymentConfig,
 } from './deploymentConfig.js';
 import type { GameServerConfig } from './tfvars.js';
@@ -276,5 +277,148 @@ describe('withDeploymentConfigDefaults', () => {
 
     expect(result.auditTableName).toBe('');
     expect(result.runsTableName).toBe('');
+  });
+});
+
+describe('diffDeploymentConfig', () => {
+  it('should report no changes for two structurally identical configs', () => {
+    const previous = FULL_CONFIG;
+    const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: { ...FULL_CONFIG.gameServers } };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff).toEqual({
+      changedFields: [],
+      gameServers: { added: [], removed: [], changed: [] },
+    });
+  });
+
+  it('should report every top-level scalar and array field as changed when every one differs', () => {
+    const previous = FULL_CONFIG;
+    const current: DeploymentConfig = {
+      ...FULL_CONFIG,
+      projectName: 'other-project',
+      awsRegion: 'ap-southeast-2',
+      vpcCidr: '172.16.0.0/16',
+      hostedZoneName: 'other.example.com',
+      dnsTtl: 60,
+      watchdogIntervalMinutes: 5,
+      watchdogIdleChecks: 2,
+      watchdogMinPackets: 50,
+      baseAllowedGuilds: ['999999999999999999'],
+      baseAdminUserIds: ['888888888888888888'],
+      baseAdminRoleIds: ['777777777777777777'],
+      discordApplicationId: '555555555555555555',
+      auditTableName: 'other-audit',
+      runsTableName: 'other-runs',
+    };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.changedFields).toEqual([
+      'projectName',
+      'awsRegion',
+      'vpcCidr',
+      'hostedZoneName',
+      'dnsTtl',
+      'watchdogIntervalMinutes',
+      'watchdogIdleChecks',
+      'watchdogMinPackets',
+      'baseAllowedGuilds',
+      'baseAdminUserIds',
+      'baseAdminRoleIds',
+      'discordApplicationId',
+      'auditTableName',
+      'runsTableName',
+    ]);
+    expect(diff.gameServers).toEqual({ added: [], removed: [], changed: [] });
+  });
+
+  it('should report only the specific scalar fields that differ, leaving the rest out of changedFields', () => {
+    const previous = FULL_CONFIG;
+    const current: DeploymentConfig = { ...FULL_CONFIG, dnsTtl: 999 };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.changedFields).toEqual(['dnsTtl']);
+  });
+
+  it('should classify gameServers keys added, removed, and changed in combination', () => {
+    const previous: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: {
+        minecraft: buildHttpsGameServer(),
+        palworld: buildPlainGameServer(),
+      },
+    };
+    const current: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: {
+        // minecraft removed
+        palworld: buildGameServerWithoutHttps(), // changed (different shape entirely)
+        valheim: buildPlainGameServer(), // added
+      },
+    };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.gameServers.added).toEqual(['valheim']);
+    expect(diff.gameServers.removed).toEqual(['minecraft']);
+    expect(diff.gameServers.changed).toEqual(['palworld']);
+    expect(diff.changedFields).toEqual([]);
+  });
+
+  it('should not report a gameServers key as changed when its value is structurally identical', () => {
+    const previous: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { minecraft: buildHttpsGameServer() },
+    };
+    const current: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { minecraft: buildHttpsGameServer() },
+    };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.gameServers).toEqual({ added: [], removed: [], changed: [] });
+  });
+
+  it('should treat an empty gameServers map on both sides as no gameServers changes', () => {
+    const previous: DeploymentConfig = { ...FULL_CONFIG, gameServers: {} };
+    const current: DeploymentConfig = { ...FULL_CONFIG, gameServers: {} };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.gameServers).toEqual({ added: [], removed: [], changed: [] });
+  });
+
+  it('should report every gameServers key as added when previous has none', () => {
+    const previous: DeploymentConfig = { ...FULL_CONFIG, gameServers: {} };
+    const current: DeploymentConfig = {
+      ...FULL_CONFIG,
+      gameServers: { minecraft: buildHttpsGameServer(), palworld: buildPlainGameServer() },
+    };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.gameServers.added.sort()).toEqual(['minecraft', 'palworld']);
+    expect(diff.gameServers.removed).toEqual([]);
+    expect(diff.gameServers.changed).toEqual([]);
+  });
+
+  it('should combine top-level field changes and gameServers changes in a single diff', () => {
+    const previous = FULL_CONFIG;
+    const current: DeploymentConfig = {
+      ...FULL_CONFIG,
+      awsRegion: 'ap-southeast-2',
+      gameServers: { valheim: buildPlainGameServer() },
+    };
+
+    const diff = diffDeploymentConfig(previous, current);
+
+    expect(diff.changedFields).toEqual(['awsRegion']);
+    expect(diff.gameServers.added).toEqual(['valheim']);
+    expect(diff.gameServers.removed).toEqual(['minecraft', 'palworld']);
+    expect(diff.gameServers.changed).toEqual([]);
   });
 });
