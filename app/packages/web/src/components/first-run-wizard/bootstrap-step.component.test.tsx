@@ -26,6 +26,7 @@ function renderStep(overrides: Partial<Parameters<typeof BootstrapStep>[0]> = {}
       onRunBootstrap={vi.fn()}
       bootstrapping={false}
       runsTableStatus="pending"
+      deploymentConfigStatus="pending"
       iamCheck={null}
       iamChecking={false}
       iamError={null}
@@ -131,6 +132,34 @@ describe('BootstrapStep', () => {
 
     it('should say "Re-run bootstrap" once the run-history table alone has reached created/exists, even with both buckets still pending', () => {
       renderStep({ runsTableStatus: 'exists' });
+      expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('initial configuration row (fresh-install-bricking fix)', () => {
+    it('should render the initial configuration row alongside the two bucket rows and the run-history table row', () => {
+      renderStep();
+      expect(screen.getByText('Initial configuration')).toBeInTheDocument();
+    });
+
+    it('should show a failure message when deploymentConfigStatus is failed', () => {
+      renderStep({
+        deploymentConfigStatus: 'failed',
+        deploymentConfigMessage: 'The configuration bucket must be created before its initial configuration can be seeded.',
+      });
+      expect(
+        screen.getByText('The configuration bucket must be created before its initial configuration can be seeded.'),
+      ).toBeInTheDocument();
+    });
+
+    it('should render the created status badge for the initial configuration independently of the other rows', () => {
+      renderStep({ deploymentConfigStatus: 'created' });
+      const row = screen.getByText('Initial configuration').closest('div')!;
+      expect(within(row).getByText('Created')).toBeInTheDocument();
+    });
+
+    it('should say "Re-run bootstrap" once the initial configuration alone has reached created/exists, even with both buckets and the run-history table still pending', () => {
+      renderStep({ deploymentConfigStatus: 'exists' });
       expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeInTheDocument();
     });
   });

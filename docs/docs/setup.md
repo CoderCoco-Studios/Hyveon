@@ -216,9 +216,15 @@ steps, none of them a CLI command:
    **configuration bucket** (default `hyveon-tfvars`, versioned, 90-day
    noncurrent-version expiry) that holds the JSON configuration object your
    game servers are declared in. Both names are editable. This step also
-   has an advisory **IAM permission check** — it simulates the
-   `HyveonDeployAll` policy's actions against your credentials and tells you
-   exactly which are missing, but never blocks you from continuing.
+   seeds that configuration object with an initial, empty document
+   (`gameServers: {}`, every other field at its Terraform-parity default) if
+   one doesn't already exist — without this seed, nothing else in the app
+   ever creates that first object, so Settings saves, Games-page adds, and
+   Pulumi previews would otherwise fail immediately after the wizard
+   finishes. Finally, this step has an advisory **IAM permission check** — it
+   simulates the `HyveonDeployAll` policy's actions against your credentials
+   and tells you exactly which are missing, but never blocks you from
+   continuing.
 4. **Finish setup** — resolves and installs the pinned Pulumi engine,
    installs the AWS provider plugin, and initializes the Pulumi stack
    against the bucket you just created. Runs automatically on arrival; no

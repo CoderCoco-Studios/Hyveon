@@ -21,6 +21,11 @@ export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link WizardController.bootstrapDeploymentConfig}. */
+export interface BootstrapDeploymentConfigInput {
+  bucketName: string;
+}
+
 /** Payload accepted by {@link WizardController.saveProgress}. */
 export interface SaveWizardProgressInput {
   step: WizardStepName;
@@ -217,6 +222,21 @@ export class WizardController {
   @MessagePattern('wizard.bootstrap.configurationBucket')
   bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
+  }
+
+  /**
+   * Idempotently seeds the initial `deployment-config.json` document (see
+   * `BootstrapService.ensureDeploymentConfig`'s own doc comment for the full
+   * Critical-bug rationale — before this existed, nothing ever created that
+   * first object, so a fresh install was unusable the moment the wizard
+   * finished). Takes the SAME `bucketName` the wizard just passed to
+   * {@link bootstrapConfigurationBucket} — this must be seeded into that
+   * exact bucket, not `ConfigService.getConfigurationBucket()` (which isn't
+   * durably persisted until the operator advances past this wizard step).
+   */
+  @MessagePattern('wizard.bootstrap.deploymentConfig')
+  bootstrapDeploymentConfig(@Payload() body: BootstrapDeploymentConfigInput): Promise<BootstrapResult> {
+    return this.bootstrap.ensureDeploymentConfig(body.bucketName);
   }
 
   /**

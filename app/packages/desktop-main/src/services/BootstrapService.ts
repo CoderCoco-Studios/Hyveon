@@ -3,9 +3,11 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
   PutBucketLifecycleConfigurationCommand,
+  PutObjectCommand,
   PutPublicAccessBlockCommand,
   type BucketLocationConstraint,
   type S3ClientConfig,
@@ -19,6 +21,7 @@ import {
   waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
+import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
@@ -198,6 +201,100 @@ export class BootstrapService {
     }
 
     return { status: created ? 'created' : 'exists' };
+  }
+
+  /**
+   * Idempotently ensures the {@link CONFIGURATION_OBJECT_KEY} deployment-config
+   * JSON object exists in the configuration bucket, seeding a minimal, valid
+   * placeholder document when it's absent — NEVER overwrites a document that
+   * already exists.
+   *
+   * @remarks
+   * Fixes a Critical bootstrap gap this migration's final review round
+   * uncovered: every `TfvarsService` write path — `writeConfig` (shared by
+   * `addGameServer`/`updateGameServer`/`removeGameServer`) and
+   * `updateTopLevelSettings` — reads the current document before writing
+   * (`fetchRawConfig`), and `fetchRawConfig` throws a plain `Error` when the
+   * object doesn't exist. Before this method, nothing anywhere ever created
+   * that first object: a fresh install that completed the first-run wizard
+   * landed on the dashboard with no way to save Settings, add a game, or run
+   * a Pulumi preview — every one of those calls `fetchRawConfig` first and
+   * threw immediately. Called alongside {@link ensureConfigurationBucket}
+   * from the wizard's bootstrap step, against the SAME `bucketName` that call
+   * just created/confirmed — see `WizardController.bootstrapDeploymentConfig`.
+   *
+   * Lives here (on `BootstrapService`) rather than on `TfvarsService`
+   * deliberately: `TfvarsService` resolves its bucket from
+   * `ConfigService.getConfigurationBucket()`, which reads
+   * `ElectronStoreService`'s persisted `bootstrap.configurationBucket` — a
+   * value the wizard's bootstrap step doesn't durably save until the
+   * operator advances past the step (see `FirstRunWizard`'s `goNext`), i.e.
+   * AFTER bootstrap has already run. `BootstrapService`'s other `ensureX`
+   * methods sidestep this exact ordering problem by taking `bucketName` as a
+   * parameter and building their own S3 client directly, rather than relying
+   * on already-persisted config — this method follows that same convention
+   * so it can run in the same wizard moment as {@link ensureConfigurationBucket},
+   * before `ElectronStoreService` has any record of the bucket name at all.
+   *
+   * The seed content — `withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} })`
+   * (`@hyveon/shared`) — fills in every field that has a
+   * Terraform-parity default and leaves `hostedZoneName` as an empty-string
+   * placeholder (it has no default; every real deployment requires a real
+   * value). This deliberately never runs through
+   * `validateDeploymentSettingsPatch` (`@hyveon/shared`): that validator only
+   * gates a Settings-form PATCH via `IacSettingsController.update`, never a
+   * raw initial write like this one — so the empty placeholder here reaches
+   * storage untouched, and the very first time the operator opens the
+   * Settings page, that same validator's live client-side check immediately
+   * flags the blank hosted zone as the normal "must not be empty" issue,
+   * exactly like any other incomplete field.
+   *
+   * Idempotent via a `HeadObject` pre-check (mirroring {@link bucketExists}'s
+   * `HeadBucket` pre-check for the bucket-level methods above) — re-running
+   * the wizard's bootstrap step, or a later Reconfigure, never clobbers
+   * configuration the operator has since edited.
+   *
+   * @param bucketName - The configuration bucket to seed — the same name
+   *   just passed to {@link ensureConfigurationBucket}.
+   */
+  async ensureDeploymentConfig(bucketName: string): Promise<BootstrapResult> {
+    const client = this.createS3Client();
+    try {
+      if (await this.deploymentConfigExists(client, bucketName)) {
+        return { status: 'exists' };
+      }
+      const seed = withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} });
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucketName,
+          Key: CONFIGURATION_OBJECT_KEY,
+          Body: new TextEncoder().encode(JSON.stringify(seed, null, 2) + '\n'),
+          ContentType: 'application/json',
+        }),
+      );
+      return { status: 'created' };
+    } catch (err) {
+      return { status: 'failed', message: this.describeError(err) };
+    }
+  }
+
+  /**
+   * Resolves `true` when {@link CONFIGURATION_OBJECT_KEY} already exists in
+   * `bucketName` and is reachable by the caller's credentials, via
+   * `HeadObject`. Any failure (a genuine "not found" — the object is free to
+   * seed — or anything else, e.g. a transient access denial, or the bucket
+   * itself not existing yet) is treated as "not confirmed to exist" so
+   * {@link ensureDeploymentConfig}'s own `PutObject` still runs and its error
+   * handling takes over from there — mirrors {@link bucketExists}/
+   * {@link runsTableExists}'s identical pre-check convention.
+   */
+  private async deploymentConfigExists(client: S3Client, bucketName: string): Promise<boolean> {
+    try {
+      await client.send(new HeadObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
