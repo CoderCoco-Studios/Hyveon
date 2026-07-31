@@ -5,7 +5,7 @@ import type { RunHistoryRecord } from '@hyveon/desktop-preload';
 import type { AnsiLogChunk } from '../components/ansi-log-viewer.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
-import { ErrorBanner } from './terraform.page.js';
+import { ErrorBanner } from './iac.page.js';
 
 /**
  * Number of the most recent run records searched for a `runId` match on

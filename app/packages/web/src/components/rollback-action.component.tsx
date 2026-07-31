@@ -35,7 +35,7 @@ function formatTimestamp(iso: string): string {
  * 2. Confirming calls `hyveon.iac.rollback.confirm`, which restores that
  *    version's content as a new head. On success, {@link onRolledBack} fires
  *    with the new version id so the caller can route into the plan/apply
- *    run view with it (see `TerraformPage`'s `RollbackNavState`).
+ *    run view with it (see `IacPage`'s `RollbackNavState`).
  *
  * A failure at either step — including "no earlier version exists" / "the
  * historic version has expired" — is surfaced inline via `role="alert"` and

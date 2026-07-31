@@ -5,7 +5,7 @@ import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
 import { DiscordPage } from './pages/discord.page.js';
 import { LogsPage } from './pages/logs.page.js';
-import { TerraformPage } from './pages/terraform.page.js';
+import { IacPage } from './pages/iac.page.js';
 import { TerraformHistoryPage } from './pages/terraform-history.page.js';
 import { TerraformRunDetailPage } from './pages/terraform-run-detail.page.js';
 import { SettingsPage } from './pages/settings.page.js';
@@ -102,7 +102,7 @@ export default function App() {
               <Route path="/costs" element={<CostsPage />} />
               <Route path="/discord" element={<DiscordPage />} />
               <Route path="/logs" element={<LogsPage />} />
-              <Route path="/terraform" element={<TerraformPage />} />
+              <Route path="/terraform" element={<IacPage />} />
               <Route path="/terraform/history" element={<TerraformHistoryPage />} />
               <Route path="/terraform/history/:runId" element={<TerraformRunDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
