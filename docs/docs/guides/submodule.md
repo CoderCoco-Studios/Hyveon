@@ -135,7 +135,7 @@ below, so the table covers the three that actually do something:
 |---|---|
 | `make setup` | One-time bootstrap. Runs `git submodule update --init --recursive`, then `npm install` and `npm run app:build:lambdas` in the submodule. Does **not** touch AWS at all — the AWS backend bootstrap and the Pulumi stack deploy are both handled by the app itself, via its first-run wizard and its Infrastructure page. |
 | `make update` | Bumps the submodule to the tip of `main` (`git submodule update --remote --merge`), then reminds you to commit the new submodule pointer. Does not rebuild or re-run anything else — if upstream changed dependencies or added a workspace, `make setup` again. |
-| `make dev` | Wipes stale TypeScript build info under the submodule's `app/packages/*/`, then runs `npm run app:dev` directly in the submodule. |
+| `make dev` | Wipes stale TypeScript build info under the submodule's `app/packages/*/`, then runs `npm run app:dev` directly in the submodule — currently broken (see the [maintainer guide](/guides/maintainer)'s scripts table); build with `desktop:build` and launch with `app:start` in the submodule instead. |
 
 :::note `make dev`'s output still mentions Terraform — this is a known leftover
 The generated recipe's first line attempts a `terraform state pull` against
