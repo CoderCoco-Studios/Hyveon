@@ -2,12 +2,17 @@
 
 ### Requirement: CloudFormation template generated from the shared action set
 
-The app SHALL ship a CloudFormation template that provisions the deploy principal: an `AWS::IAM::ManagedPolicy`, an `AWS::IAM::User` whose name comes from a stack parameter defaulting to `hyveon`, and an `AWS::IAM::AccessKey` carrying `DeletionPolicy: Retain`. The managed policy document MUST be generated from `HYVEON_DEPLOY_ALL_ACTIONS` in `@hyveon/shared`, preserving the `HyveonDeploy`, `HyveonIAM`, and `HyveonTfvarsBucket` statement structure, so the provisioned permissions cannot drift from the set `IamCheckService` verifies. The generated document MUST reproduce that action set exactly, neither narrowing nor widening it — tightening the policy is a separate change. The template SHALL expose the user name, policy ARN, access key ID, and secret access key as stack outputs.
+The app SHALL ship a CloudFormation template that provisions the deploy principal: an `AWS::IAM::ManagedPolicy`, an `AWS::IAM::User` whose name comes from a stack parameter defaulting to `hyveon`, and an `AWS::IAM::AccessKey` carrying `DeletionPolicy: Retain`. The managed policy document MUST be generated from `HYVEON_DEPLOY_ALL_ACTIONS` in `@hyveon/shared`, reproducing the real current four-statement structure documented in `docs/docs/setup.md` — `HyveonDeploy`, `HyveonIAM`, `HyveonConfigurationBucket`, and `HyveonStateBucket` — so the provisioned permissions cannot drift from the set `IamCheckService` verifies. `HyveonStateBucket`'s action set MUST be exactly the actions Pulumi's self-managed S3 state backend needs (`s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`, scoped to the state bucket and its objects) and MUST NOT include any DynamoDB action — Pulumi's DIY S3 backend has no lock table, unlike the project's earlier Terraform backend. The generated document MUST reproduce the action set exactly, neither narrowing nor widening it — tightening the policy is a separate change. The template SHALL expose the user name, policy ARN, access key ID, and secret access key as stack outputs.
 
 #### Scenario: Generated policy matches the shared source of truth
 
 - **WHEN** the template's managed policy document is generated
-- **THEN** its action list is exactly `HYVEON_DEPLOY_ALL_ACTIONS`, with no action present in one and absent from the other
+- **THEN** its four statements match `docs/docs/setup.md`'s policy JSON exactly, Sid-for-Sid and action-for-action, with no action present in one and absent from the other
+
+#### Scenario: State-bucket statement has no DynamoDB action
+
+- **WHEN** the template's managed policy document is generated
+- **THEN** the `HyveonStateBucket` statement's action list contains only S3 actions, and no `dynamodb:*` action or lock-table-specific action appears anywhere in the generated document
 
 #### Scenario: Access key survives stack deletion
 
