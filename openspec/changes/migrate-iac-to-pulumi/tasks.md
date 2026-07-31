@@ -84,9 +84,9 @@
 
 ## 9. Renderer
 
-- [ ] 9.1 Render the change summary from structured data on the Plan/Apply page; delete the three duplicated summary regexes in `terraform.page.tsx` (renamed `iac.page.tsx`)
-- [ ] 9.2 Handle the missing-summary case explicitly — never present an empty summary as "no changes"
-- [ ] 9.3 Surface partial-apply failures with re-plan guidance rather than a plain retry
+- [x] 9.1 Render the change summary from structured data on the Plan/Apply page; delete the three duplicated summary regexes in `terraform.page.tsx` (renamed `iac.page.tsx`) (commit 7fedf22 — TerraformPage renamed IacPage, ChangeSummaryStatus reads changeSummary off planRecord/applyRecord/destroyRecord)
+- [x] 9.2 Handle the missing-summary case explicitly — never present an empty summary as "no changes" (commit 7fedf22 — isSummaryUnavailable/isNoOpSummary distinguish "summary unavailable" from a genuine `{ same: N }` no-op)
+- [x] 9.3 Surface partial-apply failures with re-plan guidance rather than a plain retry (commit 7fedf22 — PartialApplyBanner gated on applyRecord?.partialApply, independent of applyStatus, embeds the Start over action)
 - [ ] 9.4 Add the stale-lock recovery UI with explicit confirmation
 - [ ] 9.5 Update the run-history table and read-only detail view to render the structured summary when present and omit it cleanly when absent
 - [ ] 9.6 Update the rollback confirmation to identify the target config version and summarize how it differs from current
