@@ -39,6 +39,7 @@ import { PulumiPassphraseUnavailableError } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService, PulumiPhaseCallback } from './PulumiEngineService.js';
 import { PulumiEngineNetworkError } from './PulumiEngineService.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
+import { AwsPastedCredentialDecryptError } from './awsCredentialSource.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
@@ -312,6 +313,32 @@ describe('PulumiService.initializeStack', () => {
       expect((caught as PulumiStackInitializationError).phase).toBe('engine');
     });
 
+    it("should tag a pasted-credential decrypt failure as 'engine' — regression test for Finding 4 (final whole-branch review)", async () => {
+      // resolveCredentialEnvVars -> resolveAwsCredentialSource ->
+      // ElectronStoreService.getPastedCredentials -> SafeStorageService.decrypt
+      // can throw Electron's own raw decrypt error on a corrupt/foreign
+      // pasted-credentials ciphertext blob, wrapped as
+      // AwsPastedCredentialDecryptError (Finding 4's fix) — genuinely a
+      // pre-engine failure (credential resolution happens strictly before
+      // engine.resolve()), same class of mis-attribution bug the
+      // PulumiPassphraseUnavailableError/PulumiCredentialsNotConfiguredError
+      // tests above already cover for different error types.
+      const cause = new AwsPastedCredentialDecryptError('hyveon-pasted', new Error('decrypt failed'));
+      const workspace = makeWorkspace({ rejectWith: cause, failBeforeEngine: true });
+      const service = makeService({ workspace });
+
+      let caught: unknown;
+      try {
+        await service.initializeStack();
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
+      expect((caught as PulumiStackInitializationError).phase).toBe('engine');
+      expect((caught as PulumiStackInitializationError).cause).toBe(cause);
+    });
+
     it("should tag a createOrSelectStack failure (after engine resolution succeeded) as 'operation'", async () => {
       const cause = new Error('bucket does not exist');
       const workspace = makeWorkspace({ rejectWith: cause });
@@ -366,25 +393,33 @@ describe('PulumiService.initializeStack', () => {
     });
   });
 
-  describe('stackExists / passphrase computation', () => {
-    it('should pass stackExists: false when no passphrase is on record (genuinely new stack)', async () => {
-      const workspace = makeWorkspace();
-      const service = makeService({ workspace, store: makeNewStackStore() });
+  describe('getOrCreateStack input shape (Finding 1, final review: no more caller-supplied stackExists)', () => {
+    /**
+     * `PulumiWorkspaceInput.stackExists` was retired by Finding 1's fix
+     * (final whole-branch review): every real call site computed it as
+     * `this.store.get('pulumi')?.passphrase !== undefined`, definitionally
+     * identical to `PulumiWorkspaceService`'s own internal check, which made
+     * its "existing stack with no local record" guard permanently
+     * unreachable. `getOrCreateStack` now determines this itself via a real
+     * `listStacks()` probe against the backend — see
+     * `PulumiWorkspaceService.resolveNewPassphrase`'s doc comment — so
+     * `initializeStack` (this app's very first real caller of
+     * `getOrCreateStack`, in the first-run wizard) no longer computes or
+     * passes any such field at all, regardless of whether a passphrase is
+     * already on record.
+     */
+    it('should never pass a stackExists field, whether or not a passphrase is already on record', async () => {
+      const newStackWorkspace = makeWorkspace();
+      const newStackService = makeService({ workspace: newStackWorkspace, store: makeNewStackStore() });
+      await newStackService.initializeStack();
+      const newStackInput = newStackWorkspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
+      expect('stackExists' in newStackInput).toBe(false);
 
-      await service.initializeStack();
-
-      const input = workspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
-      expect(input['stackExists']).toBe(false);
-    });
-
-    it('should pass stackExists: true when a passphrase is already on record', async () => {
-      const workspace = makeWorkspace();
-      const service = makeService({ workspace, store: makeExistingStackStore() });
-
-      await service.initializeStack();
-
-      const input = workspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
-      expect(input['stackExists']).toBe(true);
+      const existingStackWorkspace = makeWorkspace();
+      const existingStackService = makeService({ workspace: existingStackWorkspace, store: makeExistingStackStore() });
+      await existingStackService.initializeStack();
+      const existingStackInput = existingStackWorkspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
+      expect('stackExists' in existingStackInput).toBe(false);
     });
 
     it('should always pass backendReady: true', async () => {

@@ -197,7 +197,7 @@ describe('PulumiService.getStackOutputs', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
-  it('should call getOrCreateStack with stackExists/backendReady true and the stored bucket/region once fully configured', async () => {
+  it('should call getOrCreateStack with backendReady true and the stored bucket/region once fully configured', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
     const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
@@ -208,7 +208,6 @@ describe('PulumiService.getStackOutputs', () => {
         stateBucket: 'my-state-bucket',
         stateBucketRegion: 'us-east-1',
         backendReady: true,
-        stackExists: true,
       }),
     );
   });
