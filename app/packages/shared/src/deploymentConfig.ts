@@ -323,3 +323,151 @@ export function withDeploymentConfigDefaults(
     gameServers: partial.gameServers,
   };
 }
+
+/**
+ * Every top-level {@link DeploymentConfig} field EXCEPT `gameServers`, which
+ * gets its own dedicated added/removed/changed breakdown in
+ * {@link DeploymentConfigDiff.gameServers} rather than being lumped in with
+ * scalar/array field names.
+ */
+type DeploymentConfigScalarField = keyof Omit<DeploymentConfig, 'gameServers'>;
+
+/**
+ * Structural, best-effort summary of how one {@link DeploymentConfig}
+ * differs from another — built for the `iac-rollback` confirmation dialog
+ * (task 9.6 of `migrate-iac-to-pulumi`) so an operator rolling back to a
+ * historic configuration version sees more than an opaque version id: which
+ * top-level settings changed, and which game servers were added, removed, or
+ * changed. Deliberately NOT a rich/recursive diff — no per-field before/after
+ * values, no nested-path granularity within a single `gameServers` entry.
+ * The operator can inspect the actual restored configuration after rollback
+ * for that level of detail (see {@link diffDeploymentConfig}'s TSDoc,
+ * "Scope").
+ */
+export interface DeploymentConfigDiff {
+  /**
+   * Names of every top-level scalar/array field (i.e. every
+   * {@link DeploymentConfig} key except `gameServers`) whose value differs
+   * between the two configs being compared. Order matches
+   * {@link DeploymentConfig}'s own field declaration order.
+   */
+  changedFields: DeploymentConfigScalarField[];
+  /** Per-key breakdown of how the `gameServers` maps differ. */
+  gameServers: {
+    /** Game keys present in `current` but not `previous`. */
+    added: string[];
+    /** Game keys present in `previous` but not `current`. */
+    removed: string[];
+    /** Game keys present in both, with a different entry value. */
+    changed: string[];
+  };
+}
+
+/**
+ * The {@link DeploymentConfig} field order {@link diffDeploymentConfig}
+ * walks to build {@link DeploymentConfigDiff.changedFields} — kept as an
+ * explicit list (rather than `Object.keys()` on one of the two configs
+ * being compared) so the result is deterministic and complete even when one
+ * side is missing a field the other has (e.g. an older historic version
+ * predating a field that was added later), and so its order never depends on
+ * which of the two arguments happens to declare its keys first.
+ */
+const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
+  'projectName',
+  'awsRegion',
+  'vpcCidr',
+  'hostedZoneName',
+  'dnsTtl',
+  'watchdogIntervalMinutes',
+  'watchdogIdleChecks',
+  'watchdogMinPackets',
+  'baseAllowedGuilds',
+  'baseAdminUserIds',
+  'baseAdminRoleIds',
+  'discordApplicationId',
+  'auditTableName',
+  'runsTableName',
+];
+
+/**
+ * Compares two values for {@link diffDeploymentConfig}'s purposes. Scalars
+ * (`string`/`number`/`boolean`) compare with `!==`; everything else (arrays
+ * like {@link DeploymentConfig.baseAllowedGuilds}, and `gameServers` entry
+ * objects) compares via `JSON.stringify` equality.
+ *
+ * `JSON.stringify` equality is a structural comparison, not a deep
+ * value-equality one: it is sensitive to key order within an object (e.g.
+ * `{a:1,b:2}` and `{b:2,a:1}` stringify to different strings and would be
+ * reported as "changed" despite being the same value). For this function's
+ * purpose — a best-effort rollback-confirmation SUMMARY, not a precise
+ * patch — that false-positive rate is an acceptable tradeoff: it can only
+ * ever report a field as changed when it wasn't (never miss a real change,
+ * since two values that stringify identically ARE structurally identical),
+ * and every {@link DeploymentConfig} field this function compares this way
+ * is either a flat array of primitives (order-sensitive key ordering isn't a
+ * concern — arrays don't have "key order" the way objects do) or a
+ * `GameServerConfig` object written exclusively by this app's own JSON
+ * serialization (`TfvarsService`'s write path), which produces consistent
+ * key order across writes rather than an externally-authored document with
+ * arbitrary key ordering.
+ */
+function valuesDiffer(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
+    return a !== b;
+  }
+  return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/**
+ * Compares two parsed {@link DeploymentConfig} objects and returns a
+ * structural summary of how they differ — the `iac-rollback` confirmation
+ * dialog's best-effort "SHOULD summarize how the target configuration
+ * differs from the current one" enhancement (task 9.6). Pure and
+ * synchronous: takes two already-parsed configs, does no I/O, and never
+ * throws for any two well-formed {@link DeploymentConfig} values (every
+ * field it reads is optional-safe — see {@link valuesDiffer}).
+ *
+ * ## Scope
+ *
+ * Reports WHICH top-level fields changed and WHICH game server keys were
+ * added/removed/changed — not the before/after values themselves, and not a
+ * nested field-level breakdown within a single changed `gameServers` entry
+ * (e.g. "minecraft's `cpu` changed from 2048 to 4096" is out of scope; only
+ * "minecraft changed" is reported). This is deliberate: the caller
+ * (`RollbackAction`'s confirmation dialog) needs a scannable summary before
+ * the operator commits to the rollback, not a rich diff viewer — the
+ * operator can inspect the actual restored configuration after rollback for
+ * full detail.
+ *
+ * ## Comparison strategy
+ *
+ * Scalar fields (`string`/`number`/`boolean`) compare with `!==`. Array
+ * fields (`baseAllowedGuilds`, `baseAdminUserIds`, `baseAdminRoleIds`) and
+ * `gameServers` entry values compare via `JSON.stringify` equality — see
+ * {@link valuesDiffer}'s own TSDoc for the full key-order-sensitivity
+ * rationale.
+ *
+ * @param previous - The earlier configuration (e.g. the historic rollback
+ *   target).
+ * @param current - The later configuration (e.g. the current head) to
+ *   compare `previous` against.
+ * @returns A {@link DeploymentConfigDiff} — every array is empty and
+ *   `changedFields` is `[]` when the two configs are identical by this
+ *   function's comparison strategy.
+ */
+export function diffDeploymentConfig(previous: DeploymentConfig, current: DeploymentConfig): DeploymentConfigDiff {
+  const changedFields = DEPLOYMENT_CONFIG_SCALAR_FIELDS.filter((field) => valuesDiffer(previous[field], current[field]));
+
+  const previousGameServers = previous.gameServers ?? {};
+  const currentGameServers = current.gameServers ?? {};
+  const previousKeys = new Set(Object.keys(previousGameServers));
+  const currentKeys = new Set(Object.keys(currentGameServers));
+
+  const added = [...currentKeys].filter((key) => !previousKeys.has(key));
+  const removed = [...previousKeys].filter((key) => !currentKeys.has(key));
+  const changed = [...previousKeys].filter(
+    (key) => currentKeys.has(key) && valuesDiffer(previousGameServers[key], currentGameServers[key]),
+  );
+
+  return { changedFields, gameServers: { added, removed, changed } };
+}
