@@ -3999,6 +3999,12 @@ export class PulumiService {
 
     logger.warn('pulumi backend lock cleared by explicit operator confirmation (unrecognized-lock recovery)', {
       stackName: PULUMI_STACK_NAME,
+      // Reuses the same `os.userInfo().username` accessor `destroy()` already
+      // logs with for accountability (review round 1, M1) — this is a
+      // state-mutating recovery action; the log line naming only the stack,
+      // not who cleared it, would be a weaker forensic trail than the one
+      // `destroy()` already leaves.
+      initiator: PulumiService.resolveInitiator(),
     });
   }
 

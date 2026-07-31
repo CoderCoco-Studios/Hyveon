@@ -780,7 +780,19 @@ export function IacPage() {
             Run plan
           </Button>
           {planStaleLock ? (
-            <StaleLockBanner staleLock={planStaleLock} nowMs={now} onCleared={() => setPlanStaleLock(null)} />
+            <StaleLockBanner
+              staleLock={planStaleLock}
+              nowMs={now}
+              onCleared={() => {
+                setPlanStaleLock(null);
+                // Otherwise the stale rejection's error text (still sitting
+                // in planSubmitError, never touched by a successful clear)
+                // would reappear the instant the ternary above falls through
+                // to the BusyBanner/ErrorBanner branch — a red "error" banner
+                // for an action that just succeeded (review round 1, I1).
+                setPlanSubmitError(null);
+              }}
+            />
           ) : (
             <>
               {planConflict && <BusyBanner conflict={planConflict} />}
@@ -857,7 +869,15 @@ export function IacPage() {
                     Apply
                   </Button>
                   {applyStaleLock ? (
-                    <StaleLockBanner staleLock={applyStaleLock} nowMs={now} onCleared={() => setApplyStaleLock(null)} />
+                    <StaleLockBanner
+                      staleLock={applyStaleLock}
+                      nowMs={now}
+                      onCleared={() => {
+                        setApplyStaleLock(null);
+                        // See the identical comment on the plan banner above (review round 1, I1).
+                        setApplySubmitError(null);
+                      }}
+                    />
                   ) : (
                     <>
                       {applyConflict && <BusyBanner conflict={applyConflict} />}
@@ -943,7 +963,15 @@ export function IacPage() {
               Destroy infrastructure
             </Button>
             {destroyStaleLock ? (
-              <StaleLockBanner staleLock={destroyStaleLock} nowMs={now} onCleared={() => setDestroyStaleLock(null)} />
+              <StaleLockBanner
+                staleLock={destroyStaleLock}
+                nowMs={now}
+                onCleared={() => {
+                  setDestroyStaleLock(null);
+                  // See the identical comment on the plan banner above (review round 1, I1).
+                  setDestroySubmitError(null);
+                }}
+              />
             ) : (
               <>
                 {destroyConflict && <BusyBanner conflict={destroyConflict} />}
