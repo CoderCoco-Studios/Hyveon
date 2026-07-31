@@ -23,9 +23,13 @@ deleted and the app now bootstraps its own AWS backend and deploys the stack
 itself, via its first-run wizard and its Plan/Apply page, with no Makefile
 step required. The generated Makefile now only offers `make setup` (submodule
 init, `npm install`, Lambda build), `make update` (bump the submodule), and
-`make dev`. This page is scheduled for a full rewrite; until then, treat
-anything below mentioning `plan`, `apply`, `migrate`, or tfvars sync as
-historical context, not working instructions.
+`make dev`. The removed tfvars-sync targets synced the *same* S3 bucket the
+app's own wizard provisions (`${project_name}-tfvars` by default) under a
+different, now-unread object key (`terraform.tfvars`, vs. the app's own
+`deployment-config.json`) — it's not a separate/orphaned bucket, just a dead
+key nothing reads anymore. This page is scheduled for a full rewrite; until
+then, treat anything below mentioning `plan`, `apply`, `migrate`, or tfvars
+sync as historical context, not working instructions.
 :::
 
 ## Why this layout

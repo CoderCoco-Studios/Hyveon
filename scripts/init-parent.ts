@@ -58,7 +58,15 @@ interface Answers {
 export interface CliArgs {
   /** Overwrites existing Makefile/terraform.tfvars/.gitignore instead of skipping them. */
   force: boolean;
-  /** Skips interactive confirmation prompts. */
+  /**
+   * Accepted and threaded through to {@link runBootstrap} for
+   * forward-compatibility, but currently inert: its only prior consumer was
+   * the "bootstrap an S3-backed tfvars store?" prompt, removed along with
+   * the rest of the tfvars-sync backend (task 12.3/12.4). Every remaining
+   * `runBootstrap` prompt (parent repo path, submodule path, project name,
+   * AWS region, hosted zone, Discord credentials) always runs interactively
+   * regardless of this flag.
+   */
   yes: boolean;
 }
 
@@ -188,24 +196,27 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  * does this now. The `tfvars-pull`/`tfvars-push`/`tfvars-diff`/
  * `copy-tfvars` targets (and the internal `pull-tfvars-if-needed`/
  * `check-tfvars-if-needed` gates that fed `plan`/`apply`) are gone too: they
- * existed to sync a maintainer's local `terraform.tfvars` file to/from a
- * separate `${project}-tfvars` S3 bucket provisioned by the now-deleted
- * `terraform/bootstrap` module (task 12.1). That bucket was never the same
- * store the app itself reads — the app's deployment configuration lives
- * exclusively in JSON, in a *different*, app-provisioned S3 bucket, written
- * only through `RemoteFileStore`'s conditional-put path (see
- * `TfvarsService`'s doc comment and `openspec/specs/desktop-only-operator-
- * surface`'s "No operator-editable configuration files" requirement — "There
- * MUST NOT be a local-file configuration mode"). A maintainer-synced local
- * `terraform.tfvars` copy was already a stale, disconnected artifact before
- * task 12.1 deleted its bootstrap module outright; keeping the sync targets
- * around after that would just be dead code pointed at infrastructure that
- * no longer exists. `scripts/tfvars-sync.ts` itself is untouched (still
- * usable directly, without a Makefile wrapper, by anyone who wants to
- * inspect that legacy bucket) — only the Makefile targets and the
- * `migrate --to-s3`/`--to-local` CLI subcommand that switched between local/
- * S3 tfvars modes were removed, since there is no longer an S3 tfvars mode
- * to switch to.
+ * existed to sync a maintainer's local `terraform.tfvars` file to/from an S3
+ * bucket named `${project}-tfvars` — the SAME bucket (and default name) the
+ * app's own first-run wizard provisions via `BootstrapService
+ * .ensureConfigurationBucket()`, still very much alive; `HYVEON_TFVARS_BUCKET`
+ * is even read by both this CLI's sync logic and the app's own
+ * `ConfigService.getConfigurationBucket()`. What's actually dead is the
+ * OBJECT KEY, not the bucket: `scripts/tfvars-sync.ts` reads/writes the key
+ * `terraform.tfvars` (HCL-ish text), while the app exclusively reads/writes
+ * a different key, `deployment-config.json` (JSON), via `RemoteFileStore`'s
+ * conditional-put path (see `TfvarsService`'s doc comment). Nothing anywhere
+ * reads the `terraform.tfvars` key anymore now that the Terraform tree
+ * (task 12.1) is gone — so these targets were keeping a versioned copy of a
+ * file with zero consumers. Per `openspec/specs/desktop-only-operator-
+ * surface`'s "No operator-editable configuration files" requirement ("There
+ * MUST NOT be a local-file configuration mode"), that dead-key sync isn't
+ * worth reviving even as a maintainer-only convenience. `scripts/
+ * tfvars-sync.ts` itself is untouched (still usable directly, without a
+ * Makefile wrapper, by anyone who wants to read/write the `terraform.tfvars`
+ * key by hand) — only the Makefile targets and the `migrate --to-s3`/
+ * `--to-local` CLI subcommand that switched between local/S3 tfvars modes
+ * were removed, since there is no longer an S3 tfvars mode to switch to.
  *
  * Only reads `submoduleDir` and `projectName` off `a`, so it accepts a
  * `Pick<Answers, ...>` rather than a full `Answers`.
@@ -340,7 +351,7 @@ export function renderGitignore(a: Answers): string {
 .env.*
 !.env.example
 
-# Make stamp dir (cached tf-project/tf-region/tfstate.json, ...)
+# Make stamp dir (tfstate.json, written by \`make dev\`)
 .make/
 
 # Terraform local state, if you ever fall off the S3 backend
@@ -373,16 +384,9 @@ function writeIfSafe(path: string, contents: string): 'wrote' | 'skipped' | 'ove
   return existed ? 'overwrote' : 'wrote';
 }
 
-function status(path: string, action: 'wrote' | 'skipped' | 'overwrote' | 'deleted', parentDir: string): void {
+function status(path: string, action: 'wrote' | 'skipped' | 'overwrote', parentDir: string): void {
   const rel = relative(parentDir, path) || path;
-  const tag =
-    action === 'wrote'
-      ? '  +'
-      : action === 'overwrote'
-        ? '  ~'
-        : action === 'deleted'
-          ? '  -'
-          : '  ·';
+  const tag = action === 'wrote' ? '  +' : action === 'overwrote' ? '  ~' : '  ·';
   const note = action === 'skipped' ? '  (exists — use --force to overwrite)' : '';
   output.write(`${tag} ${rel}${note}\n`);
 }
@@ -392,8 +396,10 @@ function status(path: string, action: 'wrote' | 'skipped' | 'overwrote' | 'delet
 // ─────────────────────────────────────────────────────────────────────────────
 
 function isValidProjectName(s: string): boolean {
-  // Used as part of S3 bucket names by the generated Makefile's `setup`
-  // recipe — keep it conservative.
+  // Seeds terraform.tfvars's project_name, which the app's own first-run
+  // wizard defaults its S3 bucket names from (see
+  // defaultBootstrapResourceNames() in the web wizard) — keep it
+  // conservative. The generated Makefile itself no longer names any buckets.
   return /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(s);
 }
 
@@ -409,9 +415,13 @@ function isValidDomain(s: string): boolean {
 // Bootstrap (the pre-existing interactive flow, unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Flags from {@link parseCliArgs} that {@link runBootstrap} cares about. */
+/** Flags from {@link parseCliArgs} passed through to {@link runBootstrap}. */
 export interface BootstrapOptions {
-  /** Skips interactive confirmation prompts, defaulting to "no" wherever one would otherwise be asked. */
+  /**
+   * Currently inert (see {@link CliArgs.yes}) — kept for
+   * forward-compatibility and to match {@link CliArgs}'s shape. Every
+   * `runBootstrap` prompt runs interactively regardless of this value.
+   */
   yes: boolean;
   /** Overwrites existing Makefile/terraform.tfvars/.gitignore instead of skipping them. Mirrors the module-level `FORCE` flag so callers of the exported API (not just the CLI entrypoint) can drive `--force` behaviour. */
   force?: boolean;
