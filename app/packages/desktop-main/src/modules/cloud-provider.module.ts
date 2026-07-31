@@ -6,6 +6,7 @@ import {
   AwsAuditLogStore,
   AwsRunRecordStore,
 } from '@hyveon/cloud-aws';
+import { resolvePreApplyRunsTableName } from '@hyveon/shared';
 import type {
   CloudProvider,
   SecretsStore,
@@ -41,7 +42,13 @@ export interface CloudBindings {
   remoteFileStore: (config: ConfigService) => RemoteFileStore;
   discordReceiver: (config: ConfigService) => DiscordEventReceiver;
   auditLogStore: (config: ConfigService) => AuditLogStore;
-  runRecordStore: (config: ConfigService) => RunRecordStore;
+  /**
+   * Takes `remoteFileStore` as a second argument (unlike every other
+   * `CloudBindings` factory) because {@link resolveRunRecordStoreConfig}'s
+   * pre-apply fallback needs it to read the persisted `DeploymentConfig`
+   * directly — see that function's own doc comment.
+   */
+  runRecordStore: (config: ConfigService, remoteFileStore: RemoteFileStore) => RunRecordStore;
 }
 
 /**
@@ -102,26 +109,48 @@ export async function resolveAuditLogStoreConfig(config: ConfigService): Promise
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs to target the runs DynamoDB table and the
- * configuration S3 bucket used for offloaded run logs: the table name comes
- * from `ConfigService.getStackOutputs()`'s `runsTableName` (falling back to
- * `''` when nothing has been deployed yet), the bucket from
+ * configuration S3 bucket used for offloaded run logs: the bucket from
  * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
- * bucket is configured), and the region from the same resolved
+ * bucket is configured), the region from the same resolved
  * `outputs.awsRegion` when a stack is deployed (falling back to
- * `getRegion()`'s wizard-configured value otherwise) — so `AwsRunRecordStore`
- * surfaces its own "not configured" errors rather than this factory silently
- * defaulting somewhere. Exported as a standalone function — see
- * {@link resolveTfvarsFileStoreConfig} for why. Async for the same reason,
- * and with the same "not a DI-factory hazard" and "prefer `outputs.awsRegion`
- * once deployed" reasoning, as {@link resolveAuditLogStoreConfig} — see its
- * doc comment.
+ * `getRegion()`'s wizard-configured value otherwise), and the table name from
+ * `ConfigService.getStackOutputs()`'s `runsTableName` — falling back, when
+ * that's empty, to `resolvePreApplyRunsTableName(remoteFileStore)`
+ * (`@hyveon/shared`), which reads the persisted `DeploymentConfig` directly
+ * to compute the table's deterministic name without ever touching Pulumi.
+ *
+ * This fallback is the fix for a Critical bootstrap deadlock (see
+ * `BootstrapService.ensureRunsTable`'s own doc for the full story):
+ * `getStackOutputs()` only reports a value after a stack's first successful
+ * `apply`, but the runs table is now created via the AWS SDK at
+ * wizard-bootstrap time, before any apply has ever run — without this
+ * fallback, `AwsRunRecordStore` would resolve an empty table name and throw
+ * "not configured" on every plan/apply of a fresh install, even though the
+ * table itself already exists. Only reached when `outputs?.runsTableName` is
+ * falsy (short-circuited by `||` otherwise), so a deployed stack's report is
+ * always preferred and this never costs an extra read once one exists.
+ *
+ * `remoteFileStore` is a second parameter (not resolved via `config`, unlike
+ * every other field here) because it must be the SAME `RemoteFileStore`
+ * singleton the caller already has bound to the configuration bucket — see
+ * `CloudProviderModule`'s `RUN_RECORD_STORE` provider, which injects
+ * `REMOTE_FILE_STORE` alongside `ConfigService` for exactly this purpose (an
+ * intra-module provider dependency, not a new module `imports:` edge — both
+ * tokens are already provided by this same module).
+ *
+ * Exported as a standalone function — see {@link resolveTfvarsFileStoreConfig}
+ * for why. Async for the same reason, and with the same "not a DI-factory
+ * hazard" and "prefer `outputs.awsRegion` once deployed" reasoning, as
+ * {@link resolveAuditLogStoreConfig} — see its doc comment.
  */
 export async function resolveRunRecordStoreConfig(
   config: ConfigService,
+  remoteFileStore: RemoteFileStore,
 ): Promise<{ tableName: string; bucket: string; region: string }> {
   const outputs = await config.getStackOutputs();
+  const tableName = outputs?.runsTableName || (await resolvePreApplyRunsTableName(remoteFileStore));
   return {
-    tableName: outputs?.runsTableName ?? '',
+    tableName: tableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
     region: outputs?.awsRegion ?? config.getRegion(),
   };
@@ -141,7 +170,7 @@ export const CLOUD_BINDINGS: Record<string, CloudBindings> = {
     remoteFileStore: (config) => new AwsRemoteFileStore(() => resolveTfvarsFileStoreConfig(config)),
     discordReceiver: () => new AwsDiscordEventReceiver(),
     auditLogStore: (config) => new AwsAuditLogStore(() => resolveAuditLogStoreConfig(config)),
-    runRecordStore: (config) => new AwsRunRecordStore(() => resolveRunRecordStoreConfig(config)),
+    runRecordStore: (config, remoteFileStore) => new AwsRunRecordStore(() => resolveRunRecordStoreConfig(config, remoteFileStore)),
   },
 };
 
@@ -214,8 +243,13 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
     },
     {
       provide: RUN_RECORD_STORE,
-      useFactory: (config: ConfigService) => resolveCloudBindings(config).runRecordStore(config),
-      inject: [ConfigService],
+      // Injects `REMOTE_FILE_STORE` too (an intra-module provider dependency
+      // — both tokens are declared in THIS module's own `providers:`, so
+      // this needs no `imports:` edge) for `resolveRunRecordStoreConfig`'s
+      // pre-apply table-name fallback — see that function's own doc comment.
+      useFactory: (config: ConfigService, remoteFileStore: RemoteFileStore) =>
+        resolveCloudBindings(config).runRecordStore(config, remoteFileStore),
+      inject: [ConfigService, REMOTE_FILE_STORE],
     },
   ],
   exports: [
