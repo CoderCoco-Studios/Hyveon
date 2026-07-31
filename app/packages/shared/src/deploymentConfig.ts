@@ -213,6 +213,22 @@ export interface DeploymentConfig {
 }
 
 /**
+ * Every top-level {@link DeploymentConfig} field EXCEPT `gameServers` — the
+ * exact slice task 9.7 (`migrate-iac-to-pulumi`) lets the operator edit from
+ * the Settings page's new deployment-settings form, via
+ * `TfvarsService.getTopLevelSettings`/`updateTopLevelSettings`
+ * (`@hyveon/desktop-main`) and the `iac.settings.get`/`iac.settings.update`
+ * IPC channels. Deliberately excludes `gameServers` — that map has its own
+ * dedicated add-game-wizard/edit-game-form flow (`games.create`/`games.update`/
+ * `games.delete`) and is never touched by the settings form.
+ *
+ * Re-exported from `@hyveon/desktop-preload/hyveon-api` rather than
+ * hand-duplicated there — matches task 8.3's `ChangeSummary` re-export
+ * precedent (see that file's own doc comment for the full rationale).
+ */
+export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
+
+/**
  * Every {@link DeploymentConfig} field that (a) has a static Terraform
  * default AND (b) is safe to expose as a single shared frozen constant
  * value. Two groups of fields are deliberately NOT members, for two
