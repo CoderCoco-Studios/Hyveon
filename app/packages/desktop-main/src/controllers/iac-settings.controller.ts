@@ -8,7 +8,7 @@ import type {
 } from '@hyveon/shared';
 import { OptimisticLockError, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
-import { ConfigurationNotConfiguredError, TfvarsService } from '../services/TfvarsService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError, TfvarsService } from '../services/TfvarsService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
 // DI resolves `engine`'s token off `design:paramtypes` metadata, which
 // `emitDecoratorMetadata` can only populate from a real (value) import; an
@@ -90,6 +90,11 @@ export class IacSettingsController {
    * Failure mapping:
    *  - {@link validateDeploymentSettingsPatch} reports issues → `{ code: 'validation' }`
    *    with the full issue list — never reaches `TfvarsService` at all.
+   *  - `RunsTableRenameError` (the patch would rename the already-bootstrapped
+   *    run-history table — see that class's own doc comment) → also
+   *    `{ code: 'validation' }`, with one issue per field the error reports
+   *    changed (`projectName`/`runsTableName`), so the Settings form's
+   *    existing per-field issue rendering displays it with no changes needed.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
    *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
@@ -122,6 +127,17 @@ export class IacSettingsController {
       const { settings } = await this.tfvars.getTopLevelSettings();
       return { ok: true, settings, etag: write.etag, versionId: write.versionId };
     } catch (err) {
+      if (err instanceof RunsTableRenameError) {
+        logger.warn('Deployment settings write rejected — would rename the already-bootstrapped runs table', {
+          fields: err.fields,
+          err: err.message,
+        });
+        return {
+          ok: false,
+          code: 'validation',
+          issues: err.fields.map((field) => ({ path: field, message: err.message })),
+        };
+      }
       if (err instanceof OptimisticLockError) {
         return {
           ok: false,
