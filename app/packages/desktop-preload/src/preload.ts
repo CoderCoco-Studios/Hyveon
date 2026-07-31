@@ -20,11 +20,11 @@
  * channel below is therefore split into two layers:
  *
  * - A **preload-internal** `async function*` (`streamLogs`,
- *   `streamTerraformInit`, `streamTerraformRunLogs`) that does the real IPC
+ *   `streamStackInitialize`, `streamTerraformRunLogs`) that does the real IPC
  *   listener wiring and still accepts a real `AbortSignal` — this signal is
  *   always minted *inside* preload by a `bridgeStream` wrapper, so it never
  *   itself crosses the bridge.
- * - A thin **bridge-facing wrapper** (`openLogsStream`, `openTerraformInitStream`,
+ * - A thin **bridge-facing wrapper** (`openLogsStream`, `openStackInitializeStream`,
  *   `openTerraformRunLogsStream`) that mints an `AbortController`, calls the
  *   internal generator with its signal, and hands the renderer a
  *   {@link HyveonStreamHandle} — a plain object with an own `next()`, an own
@@ -40,24 +40,23 @@
  * Calling the returned handle's `cancel()` — or breaking out of the
  * `for await` loop — sends `logs.stream.<id>.cancel` to stop the main loop.
  *
- * `openTerraformInitStream(config)` streams similarly, but `IacController.init`
- * pushes chunks/end messages on fixed `iac.init.chunk` / `iac.init.end`
- * side channels shared by every call rather than per-call channel names.
- * `invoke('iac.init', config)` resolves with a `streamId` minted by the
- * controller for this call, and every chunk/end message on those shared
- * channels is tagged with the `streamId` of the call that produced it — the
- * generator ignores any message whose `streamId` doesn't match its own, so a
- * rejected concurrent call or a late message from an abandoned stream can
- * never resolve/terminate a different call's generator. There is no dedicated
- * cancel channel — `cancel()` simply stops the generator from consuming
- * further chunks, since the main process has nothing to tear down early.
- * (Renamed from the `terraform.*` namespace by tasks 8.3/8.5; `IacController.init`
- * is now a permanent rejection stub — see `HyveonIacApi.init`'s doc comment in
- * `hyveon-api.ts` — kept wired only for its one remaining call site, pending
- * task 10.3's replacement.)
+ * `openStackInitializeStream()` streams similarly (task 10.3, replacing the
+ * deleted `iac.init`/`openTerraformInitStream`), but `IacController.initializeStack`
+ * pushes phase-event/end messages on fixed `iac.stack.initialize.chunk` /
+ * `iac.stack.initialize.end` side channels shared by every call rather than
+ * per-call channel names. `invoke('iac.stack.initialize')` resolves with a
+ * `streamId` minted by the controller for this call, and every event on
+ * those shared channels is tagged with the `streamId` of the call that
+ * produced it — the generator ignores any message whose `streamId` doesn't
+ * match its own, so a rejected concurrent call or a late message from an
+ * abandoned stream can never resolve/terminate a different call's generator.
+ * There is no dedicated cancel channel — `cancel()` simply stops the
+ * generator from consuming further events, since the main process has
+ * nothing to tear down early (`PulumiService.initializeStack` keeps running
+ * to completion regardless).
  *
- * `iac.plan(opts)` is a plain `invoke` — unlike `iac.init`, it does
- * not itself stream progress. It resolves the immediate `TerraformPlanAck`
+ * `iac.plan(opts)` is a plain `invoke` — unlike `iac.stack.initialize`, it
+ * does not itself stream progress. It resolves the immediate `TerraformPlanAck`
  * `IacController.plan` returns: `{ started: true, runId }` once the run
  * has been kicked off in the background, or `{ started: false, error, conflict?, staleLock? }`
  * when the submission was rejected outright (e.g. the shared workspace was
@@ -67,7 +66,7 @@
  * `iac.runs.get(runId)` is a plain `invoke('iac.runs.get', { runId })`
  * call — it resolves a single `TerraformRunsGetResult` snapshot with no
  * streaming involved. `openTerraformRunLogsStream(runId)` mirrors
- * `openTerraformInitStream`'s fixed-side-channel streaming shape: `IacRunsController.logs`
+ * `openStackInitializeStream`'s fixed-side-channel streaming shape: `IacRunsController.logs`
  * pushes chunk/end messages on fixed `iac.runs.logs.chunk` /
  * `iac.runs.logs.end` side channels shared by every call, each tagged
  * with the `streamId` minted for that call, so overlapping subscriptions to
@@ -104,7 +103,6 @@ import type {
   TerraformApproveAck,
   TerraformDestroyMintAck,
   TerraformDestroyPayload,
-  TerraformInitConfig,
   TerraformLockClearAck,
   TerraformPlanAck,
   TerraformPlanPayload,
@@ -114,6 +112,7 @@ import type {
   TerraformRunsGetResult,
   TerraformRunsListOpts,
   RunHistoryPageResult,
+  StackInitPhaseEvent,
   TfOutputs,
   UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
@@ -129,11 +128,11 @@ import type {
   SaveWizardProgressInput,
 } from './hyveon-api.js';
 
-/** Fixed side-channel `IacController.init` pushes streamed output on. */
-const TERRAFORM_INIT_CHUNK_CHANNEL = 'iac.init.chunk';
+/** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
+const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
 
-/** Fixed side-channel `IacController.init` sends its terminal message on. */
-const TERRAFORM_INIT_END_CHANNEL = 'iac.init.end';
+/** Fixed side-channel `IacController.initializeStack` sends its terminal message on. */
+const STACK_INIT_END_CHANNEL = 'iac.stack.initialize.end';
 
 /** Fixed side-channel `IacRunsController.logs` pushes streamed run output on. */
 const TERRAFORM_RUNS_LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';
@@ -273,76 +272,77 @@ async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<L
 
 /**
  * Preload-internal — never exposed to the renderer directly (see
- * {@link openTerraformInitStream}, its bridge-facing wrapper). Bridges
- * `IacController.init`'s fixed `iac.init.chunk` /
- * `iac.init.end` side channels into an {@link AsyncIterable} of
- * {@link TerraformRunChunk}.
+ * {@link openStackInitializeStream}, its bridge-facing wrapper). Bridges
+ * `IacController.initializeStack`'s fixed `iac.stack.initialize.chunk` /
+ * `iac.stack.initialize.end` side channels into an {@link AsyncIterable} of
+ * {@link StackInitPhaseEvent}.
  *
- * `IacController.init` pushes chunk/end events on these two fixed
- * channel names for *every* call (rather than minting per-call channel
- * names the way `streamLogs` does), but tags each payload with the
+ * `IacController.initializeStack` pushes phase-event/end messages on these
+ * two fixed channel names for *every* call (rather than minting per-call
+ * channel names the way `streamLogs` does), but tags each payload with the
  * `streamId` it minted for this call and returned in the invoke ack
  * (`{ started, streamId, error? }`). Events whose `streamId` doesn't match
  * this call's own `streamId` are ignored — this is what stops a second,
- * rejected concurrent `iac.init` call from broadcasting an end
+ * rejected concurrent `iac.stack.initialize` call from broadcasting an end
  * event that would otherwise prematurely terminate this caller's stream.
- * (`IacController.init` is now a permanent rejection stub under the Pulumi
- * engine — see `HyveonIacApi.init`'s doc comment in `hyveon-api.ts` — but the
- * channel and this streaming shape are kept wired unchanged.)
+ * (Replaces the deleted `streamTerraformInit`/`iac.init` — task 10.3 — which
+ * used this exact same fixed-side-channel-plus-streamId shape.)
  *
- * When a mock is registered for the `'iac.init'` channel (test mode
- * only), the mock handler is called with `(config)` and its return value is
- * treated as an `AsyncIterable<TerraformRunChunk>` — the real IPC listener
- * path is never touched.
+ * When a mock is registered for the `'iac.stack.initialize'` channel (test
+ * mode only), the mock handler is called with `(signal)` and its return
+ * value is treated as an `AsyncIterable<StackInitPhaseEvent>` — the real IPC
+ * listener path is never touched.
  *
- * In production (no mock registered), the `iac.init.chunk` /
- * `iac.init.end` listeners are attached **before**
- * `ipcRenderer.invoke('iac.init', config)` is called, so no chunk sent
+ * In production (no mock registered), the `iac.stack.initialize.chunk` /
+ * `iac.stack.initialize.end` listeners are attached **before**
+ * `ipcRenderer.invoke('iac.stack.initialize')` is called, so no event sent
  * immediately after the main process acknowledges the call can ever be
  * dropped. Since this call's own `streamId` isn't known until the invoke
  * resolves, events observed before then are held in a raw buffer and
  * replayed (filtered by the now-known `streamId`) once the ack arrives. The
- * invoke call resolves with `{ started, streamId?, error? }`: a `false`
- * `started` value means `config` failed validation and no run
- * was ever attempted — no chunk/end messages will ever arrive, so the
- * generator throws right away using `error` (and cleans up the now-unused
- * listeners in `finally`). When `started` is `true`, chunks tagged with this
- * call's `streamId` are buffered as they arrive on `iac.init.chunk`
- * and yielded in order; the generator completes when an `iac.init.end`
- * event tagged with this call's `streamId` fires with no `error`, or throws
- * using its `error` field otherwise.
+ * invoke call resolves with `{ started, streamId?, error?, conflict? }`: a
+ * `false` `started` value means the shared workspace was already busy (see
+ * `StackInitializeAck.conflict` in `iac.controller.ts`) and no run was ever
+ * attempted — no chunk/end messages will ever arrive, so the generator
+ * throws right away using `error` (and cleans up the now-unused listeners in
+ * `finally`). When `started` is `true`, events tagged with this call's
+ * `streamId` are buffered as they arrive on `iac.stack.initialize.chunk` and
+ * yielded in order; the generator completes when an
+ * `iac.stack.initialize.end` event tagged with this call's `streamId` fires
+ * with no `error`, or throws using its `error` field otherwise.
  *
  * Following the `logs.stream` pattern, an optional `signal` may be supplied to
  * cancel consumption early: aborting (or breaking out of the `for await`
  * loop) stops the wait loop and the `finally` block detaches the listeners.
  * There is no per-run cancel side channel to notify the main process — the
- * run itself keeps running to completion in the background,
- * but the generator stops yielding further chunks to the caller.
+ * run itself (`PulumiService.initializeStack`) keeps running to completion in
+ * the background, but the generator stops yielding further events to the
+ * caller.
  */
-async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortSignal): AsyncGenerator<TerraformRunChunk> {
-  const initMock = mockRegistry.get('iac.init');
+async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<StackInitPhaseEvent> {
+  const initMock = mockRegistry.get('iac.stack.initialize');
   if (initMock !== undefined) {
-    const mockIterable = initMock(config, signal) as AsyncIterable<TerraformRunChunk>;
+    const mockIterable = initMock(signal) as AsyncIterable<StackInitPhaseEvent>;
     yield* mockIterable;
     return;
   }
 
-  /** Chunks received but not yet yielded. */
-  const buffer: TerraformRunChunk[] = [];
+  /** Events received but not yet yielded. */
+  const buffer: StackInitPhaseEvent[] = [];
   let ended = false;
   let endError: string | undefined;
   let aborted = false;
   /**
-   * This call's own `streamId`, known only once the `iac.init` invoke
-   * resolves. `null` until then, at which point every raw chunk/end event
-   * buffered so far is replayed through the `streamId` filter below.
+   * This call's own `streamId`, known only once the `iac.stack.initialize`
+   * invoke resolves. `null` until then, at which point every raw chunk/end
+   * event buffered so far is replayed through the `streamId` filter below.
    */
   let ownStreamId: string | null = null;
   /** Chunk events observed before `ownStreamId` is known. */
-  const rawChunkBuffer: Array<{ streamId: string; chunk: TerraformRunChunk }> = [];
+  const rawChunkBuffer: Array<{ streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] }> = [];
   /** End events observed before `ownStreamId` is known. */
-  const rawEndBuffer: Array<{ streamId: string; exitCode: number | null; error?: string }> = [];
-  /** Resolves the pending `await` when a chunk arrives, the stream ends, or the signal aborts. */
+  const rawEndBuffer: Array<{ streamId: string; error?: string }> = [];
+  /** Resolves the pending `await` when an event arrives, the stream ends, or the signal aborts. */
   let wake: (() => void) | null = null;
   const signalWake = () => {
     if (wake) {
@@ -352,28 +352,31 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
     }
   };
 
-  /** Applies a chunk event, discarding it if it belongs to a different `iac.init` call. */
-  const applyChunk = (data: { streamId: string; chunk: TerraformRunChunk }) => {
+  /** Applies a phase-event, discarding it if it belongs to a different `iac.stack.initialize` call. */
+  const applyChunk = (data: { streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] }) => {
     if (data.streamId !== ownStreamId) return;
-    buffer.push(data.chunk);
+    buffer.push({ phase: data.phase, status: data.status });
     signalWake();
   };
-  /** Applies an end event, discarding it if it belongs to a different `iac.init` call. */
-  const applyEnd = (data: { streamId: string; exitCode: number | null; error?: string }) => {
+  /** Applies an end event, discarding it if it belongs to a different `iac.stack.initialize` call. */
+  const applyEnd = (data: { streamId: string; error?: string }) => {
     if (data.streamId !== ownStreamId) return;
     ended = true;
     endError = data.error;
     signalWake();
   };
 
-  const onChunk = (_evt: IpcRendererEvent, data: { streamId: string; chunk: TerraformRunChunk }) => {
+  const onChunk = (
+    _evt: IpcRendererEvent,
+    data: { streamId: string; phase: StackInitPhaseEvent['phase']; status: StackInitPhaseEvent['status'] },
+  ) => {
     if (ownStreamId === null) {
       rawChunkBuffer.push(data);
       return;
     }
     applyChunk(data);
   };
-  const onEnd = (_evt: IpcRendererEvent, data: { streamId: string; exitCode: number | null; error?: string }) => {
+  const onEnd = (_evt: IpcRendererEvent, data: { streamId: string; error?: string }) => {
     if (ownStreamId === null) {
       rawEndBuffer.push(data);
       return;
@@ -393,8 +396,8 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
   // (tagged with a foreign `streamId`) could arrive on this same fixed
   // channel before our own, and a `once` listener would consume and discard
   // it, missing our own end event entirely.
-  ipcRenderer.on(TERRAFORM_INIT_CHUNK_CHANNEL, onChunk);
-  ipcRenderer.on(TERRAFORM_INIT_END_CHANNEL, onEnd);
+  ipcRenderer.on(STACK_INIT_CHUNK_CHANNEL, onChunk);
+  ipcRenderer.on(STACK_INIT_END_CHANNEL, onEnd);
   if (signal) {
     if (signal.aborted) aborted = true;
     else signal.addEventListener('abort', onAbort, { once: true });
@@ -403,9 +406,9 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
   try {
     if (aborted) return;
 
-    const ack = (await invoke('iac.init', config)) as { started: boolean; streamId?: string; error?: string };
+    const ack = (await invoke('iac.stack.initialize')) as { started: boolean; streamId?: string; error?: string };
     if (!ack.started || !ack.streamId) {
-      throw new Error(ack.error ?? 'iac.init failed to start');
+      throw new Error(ack.error ?? 'iac.stack.initialize failed to start');
     }
     ownStreamId = ack.streamId;
 
@@ -431,8 +434,8 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
       });
     }
   } finally {
-    ipcRenderer.removeListener(TERRAFORM_INIT_CHUNK_CHANNEL, onChunk);
-    ipcRenderer.removeListener(TERRAFORM_INIT_END_CHANNEL, onEnd);
+    ipcRenderer.removeListener(STACK_INIT_CHUNK_CHANNEL, onChunk);
+    ipcRenderer.removeListener(STACK_INIT_END_CHANNEL, onEnd);
     signal?.removeEventListener('abort', onAbort);
   }
 }
@@ -444,7 +447,7 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
  * `iac.runs.logs.end` side channels into an {@link AsyncIterable} of
  * {@link TerraformRunChunk} for a single run identified by `runId`.
  *
- * Mirrors {@link streamTerraformInit}'s streaming shape: `IacRunsController.logs`
+ * Mirrors {@link streamStackInitialize}'s streaming shape: `IacRunsController.logs`
  * tags every chunk/end payload with the `streamId` it minted for this call and
  * returned in the invoke ack (`{ streamId }`), so events from an overlapping
  * subscription to a *different* run's log stream (which share the same fixed
@@ -467,8 +470,8 @@ async function* streamTerraformInit(config: TerraformInitConfig, signal?: AbortS
  * event tagged with this call's `streamId` fires with no `error`, or throws
  * using its `error` field otherwise.
  *
- * Following the `logs.stream`/`iac.init` pattern, an optional `signal`
- * may be supplied to stop consumption early: aborting (or breaking out of the
+ * Following the `logs.stream`/`iac.stack.initialize` pattern, an optional
+ * `signal` may be supplied to stop consumption early: aborting (or breaking out of the
  * `for await` loop) stops the wait loop and the `finally` block detaches the
  * listeners. There is no per-run cancel side channel — the run itself (and
  * its log tailing in the main process) keeps going in the background; only
@@ -626,14 +629,14 @@ function openLogsStream(game: string): HyveonStreamHandle<LogChunk> {
 }
 
 /**
- * Bridge-facing wrapper for {@link streamTerraformInit}. Mints an
+ * Bridge-facing wrapper for {@link streamStackInitialize}. Mints an
  * `AbortController` that never leaves preload and returns a
  * {@link HyveonStreamHandle} in place of the raw async generator — see
  * {@link bridgeStream}.
  */
-function openTerraformInitStream(config: TerraformInitConfig): HyveonStreamHandle<TerraformRunChunk> {
+function openStackInitializeStream(): HyveonStreamHandle<StackInitPhaseEvent> {
   const controller = new AbortController();
-  return bridgeStream(streamTerraformInit(config, controller.signal), controller);
+  return bridgeStream(streamStackInitialize(controller.signal), controller);
 }
 
 /**
@@ -740,7 +743,9 @@ const api: HyveonApi = {
   },
 
   iac: {
-    init: openTerraformInitStream,
+    stack: {
+      initialize: openStackInitializeStream,
+    },
     plan: (opts?: TerraformPlanPayload) => invoke<TerraformPlanAck>('iac.plan', opts),
     approve: (opts: { planRunId: string }) => invoke<TerraformApproveAck>('iac.approve', opts),
     apply: (payload: TerraformApplyPayload) => invoke<TerraformPlanAck>('iac.apply', payload),
