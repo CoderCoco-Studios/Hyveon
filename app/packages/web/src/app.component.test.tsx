@@ -29,7 +29,7 @@ vi.mock('./pages/dashboard.page.js', () => ({ DashboardPage: () => <div>dashboar
 vi.mock('./pages/costs.page.js', () => ({ CostsPage: () => null }));
 vi.mock('./pages/discord.page.js', () => ({ DiscordPage: () => null }));
 vi.mock('./pages/logs.page.js', () => ({ LogsPage: () => null }));
-vi.mock('./pages/terraform.page.js', () => ({ TerraformPage: () => null }));
+vi.mock('./pages/iac.page.js', () => ({ IacPage: () => null }));
 vi.mock('./pages/terraform-history.page.js', () => ({ TerraformHistoryPage: () => null }));
 vi.mock('./pages/terraform-run-detail.page.js', () => ({ TerraformRunDetailPage: () => null }));
 vi.mock('./pages/settings.page.js', () => ({ SettingsPage: () => null }));
