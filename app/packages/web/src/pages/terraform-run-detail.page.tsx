@@ -5,7 +5,8 @@ import type { RunHistoryRecord } from '@hyveon/desktop-preload';
 import type { AnsiLogChunk } from '../components/ansi-log-viewer.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
-import { ErrorBanner } from './iac.page.js';
+import { Badge } from '../components/ui/badge.component.js';
+import { ChangeSummaryStatus, ErrorBanner } from './iac.page.js';
 
 /**
  * Number of the most recent run records searched for a `runId` match on
@@ -165,10 +166,13 @@ function formatTimestamp(iso: string): string {
 /**
  * Read-only run-detail route (`/terraform/history/:runId`) — shows a single
  * persisted `terraform` run's status and captured log, reusing the live
- * Plan/Apply page's `AnsiLogViewer`/`ErrorBanner` components (issue #111).
+ * Plan/Apply page's `AnsiLogViewer`/`ErrorBanner`/`ChangeSummaryStatus`
+ * components (issue #111; `ChangeSummaryStatus` reuse added by task 9.5).
  * Never offers Approve/Apply controls: every record in history describes a
  * finished (terminal) run — a `RunRecord` is only ever persisted once its
- * subcommand has closed.
+ * subcommand has closed. A record with `partialApply: true` gets a read-only
+ * "partial" badge next to its status — unlike the live page's
+ * `PartialApplyBanner`, there is no "start over" action on a historical run.
  */
 export function TerraformRunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -199,9 +203,22 @@ export function TerraformRunDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             <span className="capitalize text-sm font-medium text-[var(--color-foreground)]">{record.kind}</span>
             <RunStatusBadge status={record.status} />
+            {record.partialApply === true && (
+              <Badge
+                variant="warning"
+                title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
+              >
+                partial
+              </Badge>
+            )}
             <span className="text-xs text-[var(--color-muted-foreground)]">
               Started {formatTimestamp(record.startedAt)} — completed {formatTimestamp(record.completedAt)}
             </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[var(--color-foreground)]">Changes</span>
+            <ChangeSummaryStatus summary={record.changeSummary} />
           </div>
 
           {record.rolledBackFrom && (
