@@ -128,5 +128,5 @@
 
 ## 13. Follow-up coordination
 
-- [ ] 13.1 Re-propose `add-one-click-aws-bootstrap` against the Pulumi codebase: drop its `terraform-settings-management` capability and its `TerraformService` credential fix, keep `guided-iam-provisioning`
-- [ ] 13.2 Update the CloudFormation-generated policy in that change for the DIY backend — add the four S3 backend actions, drop the lock-table DynamoDB actions
+- [x] 13.1 Re-propose `add-one-click-aws-bootstrap` against the Pulumi codebase: drop its `terraform-settings-management` capability and its `TerraformService` credential fix, keep `guided-iam-provisioning` (both dropped concerns confirmed already fully solved elsewhere — Pulumi credential injection by `PulumiCredentialResolver`/`PulumiWorkspaceService`, top-level settings by `TfvarsService.getTopLevelSettings`/`updateTopLevelSettings` from task 9.7 — rather than needing new work in the re-proposed change; also independently found and dropped the bucket-public-access-block half of "state-bucket hardening", already implemented for both buckets in `BootstrapService.ts`, narrowing that section to just configuration-bucket AES256 encryption)
+- [x] 13.2 Update the CloudFormation-generated policy in that change for the DIY backend — add the four S3 backend actions, drop the lock-table DynamoDB actions (retargeted to the real current 4-Sid policy — `HyveonDeploy`/`HyveonIAM`/`HyveonConfigurationBucket`/`HyveonStateBucket` — verified Sid-for-Sid and action-for-action against `docs/docs/setup.md`; `openspec validate --strict` passes)
