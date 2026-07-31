@@ -90,7 +90,7 @@
 - [ ] 9.4 Add the stale-lock recovery UI with explicit confirmation
 - [x] 9.5 Update the run-history table and read-only detail view to render the structured summary when present and omit it cleanly when absent
 - [x] 9.6 Update the rollback confirmation to identify the target config version and summarize how it differs from current (commits 7a8e11a, 1ac93c7, 4dcf718 — diffDeploymentConfig in @hyveon/shared, PulumiService.computeRollbackDiff wired into IacController.resolveRollback, RollbackAction renders the summary with graceful degradation)
-- [ ] 9.7 Add a deployment-settings section to Settings for the top-level configuration, so no setting requires editing a file — validated before write, sharing the game-form validation patterns
+- [x] 9.7 Add a deployment-settings section to Settings for the top-level configuration, so no setting requires editing a file — validated before write, sharing the game-form validation patterns (commit 8b42ae6 — TfvarsService.getTopLevelSettings/updateTopLevelSettings, IacSettingsController (iac.settings.get/update), HyveonIacSettingsApi in the preload bridge, DeploymentSettingsForm replacing the Settings page's General placeholder, shared validateDeploymentSettingsPatch used both client- and server-side)
 - [ ] 9.8 Rename the `/terraform` route to `/iac` (router config, nav link, routed page component/directory) and update every Playwright page object and e2e mock that references it
 
 ## 10. Wizard and prerequisites
