@@ -81,7 +81,7 @@
  * | 61 | `aws_route53_record.discord` | `discordDomain.aliasRecord` | |
  * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
  * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
- * | 64 | `aws_dynamodb_table.runs` | `dynamoDb.runsTable` | |
+ * | 64 | `aws_dynamodb_table.runs` | **omitted from this program (post-launch fix)** | Originally `dynamoDb.runsTable`, matching row 49/63's pattern exactly — removed by the final-review bootstrap-deadlock fix (after this audit table was first written): `RunRecordService`'s approve/apply gates need this table to exist before the very FIRST Pulumi apply of a fresh install ever succeeds, which a Pulumi-managed resource structurally cannot guarantee. Ported to `BootstrapService.ensureRunsTable` (AWS SDK, wizard-bootstrap-time) instead — see `dynamodb.ts`'s file doc for the full rationale, which is the same "Lambda-managed, never Terraform-managed" pattern CLAUDE.md documents for DNS records. |
  * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureTfvarsBucket` over the AWS SDK instead (`migrate-iac-to-pulumi` tasks 5.1–5.6), not into this Pulumi stack. This bucket becomes the operator's CONFIGURATION bucket — task 5.2 renames "tfvars bucket" to "configuration bucket" throughout `BootstrapService`; `design.md`'s "No operator-editable files on disk" decision: "The S3 configuration bucket becomes the only source" — and holds `DeploymentConfig`, THIS PROGRAM'S OWN INPUT (Phase 6), so it must exist and be populated BEFORE `defineAll`/`createInfraProgram` can even be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
  * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
  * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
@@ -138,7 +138,7 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { PulumiFn } from '@pulumi/pulumi/automation';
-import type { DeploymentConfig, GameServerConfig, StackOutputs } from '@hyveon/shared';
+import { resolveRunsTableName, type DeploymentConfig, type GameServerConfig, type StackOutputs } from '@hyveon/shared';
 import { defineNetwork, type NetworkResources } from './network.js';
 import { defineSecurityGroups, type SecurityGroupResources } from './securityGroups.js';
 import { defineIamRoles, defineIamPolicies, type IamRoleResources, type IamPolicyResources } from './iam.js';
@@ -360,7 +360,6 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   const dynamoDb = defineDynamoDb({
     projectName: config.projectName,
     auditTableName: config.auditTableName,
-    runsTableName: config.runsTableName,
     provider,
   });
 
@@ -537,8 +536,33 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   discordTableName: pulumi.Output<string>;
   /** Mirrors {@link StackOutputs.auditTableName} — `dynamoDb.auditTable.name` (the RESOLVED name, `dynamodb.ts`'s `resolveTableName` already applied — not `config.auditTableName`, which may be `""`). */
   auditTableName: pulumi.Output<string>;
-  /** Mirrors {@link StackOutputs.runsTableName} — `dynamoDb.runsTable.name` (resolved, same caveat as {@link auditTableName}). */
-  runsTableName: pulumi.Output<string>;
+  /**
+   * Mirrors {@link StackOutputs.runsTableName} — UNLIKE every other
+   * resource-shaped field on this interface, this is a plain `string`, not a
+   * `pulumi.Output`: the runs table is no longer a Pulumi-managed resource
+   * (see `dynamodb.ts`'s file doc for the bootstrap-deadlock fix that removed
+   * it), so this is computed directly from `config` via `@hyveon/shared`'s
+   * `resolveRunsTableName(config.projectName, config.runsTableName)` — the
+   * same resolution `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`)
+   * applies at wizard-bootstrap time, so the two can never disagree.
+   *
+   * Note this alone does NOT close the bootstrap deadlock by itself:
+   * `PulumiService.getStackOutputs()` (the thing `RunRecordService` actually
+   * reads) only reports a stack's LAST-APPLIED outputs — it degrades to
+   * `null` for a stack that has only ever had `preview()` run against it,
+   * this plain-value field included (see that method's own doc, "empty
+   * outputs also degrades to null"). The deadlock's real fix is
+   * `RunRecordService`/`resolveRunRecordStoreConfig`'s separate
+   * `resolvePreApplyRunsTableName` fallback (`@hyveon/desktop-main`), which
+   * reads `DeploymentConfig` directly instead of going through Pulumi at
+   * all. What being a plain (not resource-derived) value DOES buy here: this
+   * field is correct in a stack's outputs as of its FIRST successful
+   * `apply()` (no dependency on the runs table itself ever having been
+   * created, since there's no such resource any more) — unlike
+   * {@link auditTableName}, which requires the audit table to have actually
+   * been applied.
+   */
+  runsTableName: string;
   /** Mirrors {@link StackOutputs.discordBotTokenSecretArn} — `secrets.discordBotTokenSecret.arn`. */
   discordBotTokenSecretArn: pulumi.Output<string>;
   /** Mirrors {@link StackOutputs.discordPublicKeySecretArn} — `secrets.discordPublicKeySecret.arn`. */
@@ -617,7 +641,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
     gameNames: Object.keys(config.gameServers).sort(),
     discordTableName: resources.dynamoDb.discordTable.name,
     auditTableName: resources.dynamoDb.auditTable.name,
-    runsTableName: resources.dynamoDb.runsTable.name,
+    runsTableName: resolveRunsTableName(config.projectName, config.runsTableName),
     discordBotTokenSecretArn: resources.secrets.discordBotTokenSecret.arn,
     discordPublicKeySecretArn: resources.secrets.discordPublicKeySecret.arn,
     interactionsInvokeUrl: discordCustomDomainUrl,
