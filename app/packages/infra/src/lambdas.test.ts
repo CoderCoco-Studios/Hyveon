@@ -165,7 +165,7 @@ function findByNameAndType(resources: RecordedResource[], name: string, type: st
   return matches[0];
 }
 
-/** A game-server map exercising `connect_message`/ports-derived env vars: `withMessage` has both a message and a port; `noMessage` has a port but no message; `noPorts` has neither. */
+/** A game-server map exercising `connect_message`/ports-derived env vars: `withMessage` has both a message and a port; `noMessage` has a port but no message. */
 const CONNECT_MESSAGE_FIXTURE: Record<string, GameServerConfig> = {
   withMessage: {
     image: 'example/with-message:latest',

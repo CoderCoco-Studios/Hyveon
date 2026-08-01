@@ -360,6 +360,22 @@ describe('defineEfsSeederInvocations', () => {
     ).seedsHash;
 
     expect(secondHash).not.toBe(firstHash);
+
+    const third = defineEfsSeederInvocations({
+      projectName: 'hyveon',
+      provider,
+      gameServers: { echo: SEEDED_GAME },
+      efsSeederFunctions: { echo: fn },
+      efsSeederPolicies: { echo: policy },
+    });
+    await promiseOf(third.echo.id);
+    const thirdHash = (
+      mocks.resources.filter((resource) => resource.name === 'hyveon-efs-seeder-echo-invocation').at(-1)!.inputs.triggers as Record<
+        string,
+        string
+      >
+    ).seedsHash;
+    expect(thirdHash).toBe(firstHash);
   });
 
   it('should declare each invocation via escapeResourceOptions.forEfsSeederInvocation, not an equivalent-but-uninspected options object', async () => {

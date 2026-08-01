@@ -492,7 +492,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * plain values back via `stack.outputs()`, which is where a
  * {@link StackOutputs} value is actually materialized.
  *
- * Only three fields are plain (not `Output`-wrapped), because they are
+ * Only four fields are plain (not `Output`-wrapped), because they are
  * already known synchronously from `config` with no resource round-trip
  * needed: {@link awsRegion}, {@link domainName}, {@link gameNames}, and
  * {@link appliedGameServers} — mirroring the four Terraform outputs
@@ -585,6 +585,9 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
 export function buildStackOutputs(resources: InfraResources, config: DeploymentConfig): StackOutputValues {
   const gameAccessPointIds: Record<string, pulumi.Output<string>> = {};
   for (const [game, gameConfig] of Object.entries(config.gameServers)) {
+    if (gameConfig.volumes.length === 0) {
+      throw new Error(`buildStackOutputs: game "${game}" has no volumes configured — efs.gameAccessPoints has nothing to key off of.`);
+    }
     const firstVolumeName = gameConfig.volumes[0].name;
     const key = `${game}-${firstVolumeName}`;
     const accessPoint = resources.efs.gameAccessPoints[key];

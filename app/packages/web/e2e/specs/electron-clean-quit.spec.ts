@@ -119,6 +119,8 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boo
 }
 
 test.describe('electron clean quit', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('should exit within the quit budget when closed while idle', async () => {
     const { app } = await launchElectron();
     const pid = app.process().pid;

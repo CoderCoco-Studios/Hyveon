@@ -136,11 +136,10 @@ export function defineDynamoDb(args: DefineDynamoDbArgs): DynamoDbResources {
         { name: 'status', type: 'S' },
         { name: 'startedAt', type: 'S' },
       ],
-      // `hashKey`/`rangeKey` on a GSI are deprecated in this provider version
-      // in favor of `keySchemas` (multi-attribute keys) — deliberately used
-      // anyway, matching the HCL's own single-attribute `hash_key`/`range_key`
-      // GSI block exactly rather than introducing a `keySchemas` shape with
-      // no HCL counterpart to verify against.
+      // Conventional single-attribute `hashKey`/`rangeKey` GSI fields remain
+      // valid here — only the multi-attribute `keySchemas` form is a separate
+      // concept. This matches the HCL's own single-attribute
+      // `hash_key`/`range_key` GSI block exactly.
       globalSecondaryIndexes: [{ name: 'status-index', hashKey: 'status', rangeKey: 'startedAt', projectionType: 'ALL' }],
       pointInTimeRecovery: { enabled: true },
       tags: { Name: resolvedRunsTableName },

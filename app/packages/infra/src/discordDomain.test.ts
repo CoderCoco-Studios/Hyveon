@@ -33,7 +33,7 @@ describe('defineDiscordDomain', () => {
     usEast1Provider = new aws.Provider('aws-us-east-1', { region: 'us-east-1' });
   });
 
-  /** Constructs a real (mocked) resource graph and settles it, returning the mock handle's live `resources`/`calls` arrays plus the constructed handles. */
+  /** Constructs a real (mocked) resource graph and settles it, returning the constructed resource handles. Read recorded registrations from the enclosing `mocks.resources`. */
   async function run(overrides: Partial<Parameters<typeof defineDiscordDomain>[0]> = {}) {
     const result = defineDiscordDomain({
       projectName: 'hyveon',

@@ -95,11 +95,15 @@ describe('defineSecrets', () => {
     // literal (using `satisfies` against the real parameter type) fails to
     // compile — the enforcement is at the type-checker, this assertion is
     // just documentation that the check exists.
-    const args: Parameters<typeof defineSecrets>[0] = {
-      projectName: 'hyveon',
-      provider: new aws.Provider('aws', { region: 'us-east-1' }),
-    };
-    expect(Object.keys(args).sort()).toEqual(['projectName', 'provider']);
+    // Fails to compile if `DefineSecretsArgs` gains ANY field, optional or not.
+    type AllowedKeys = 'projectName' | 'provider';
+    type ActualKeys = keyof Parameters<typeof defineSecrets>[0];
+    const keysAreExactlyAllowed: AllowedKeys extends ActualKeys
+      ? ActualKeys extends AllowedKeys
+        ? true
+        : never
+      : never = true;
+    expect(keysAreExactlyAllowed).toBe(true);
   });
 
   it('should declare both SecretVersion resources via secretResourceOptions.forVersion, not an equivalent-but-uninspected options object', async () => {

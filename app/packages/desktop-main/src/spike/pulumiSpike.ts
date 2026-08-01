@@ -250,8 +250,12 @@ export async function runPulumiSpike(): Promise<void> {
     };
   } finally {
     result.finishedAt = new Date().toISOString();
-    await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-    console.log(`[pulumi-spike] wrote ${outPath} (pass=${String(result.pass)})`);
+    try {
+      await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+      console.log(`[pulumi-spike] wrote ${outPath} (pass=${String(result.pass)})`);
+    } catch (writeErr) {
+      console.error(`[pulumi-spike] failed to write ${outPath}:`, writeErr);
+    }
 
     // Remove the throwaway file backend and PULUMI_HOME. Best-effort: a
     // cleanup failure must not mask the spike's own verdict.
