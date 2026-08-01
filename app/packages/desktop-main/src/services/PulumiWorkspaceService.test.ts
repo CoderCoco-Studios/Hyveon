@@ -59,7 +59,7 @@ import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from '.
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
 
 /** Fake `Stack` the mocked `createOrSelectStack` resolves with. */
-const FAKE_STACK = { name: PULUMI_STACK_NAME } as unknown as Stack;
+const FAKE_STACK = { name: PULUMI_STACK_NAME } as Partial<Stack> as Stack;
 
 /** No-op inline program — never actually invoked, since the SDK call is mocked. */
 const FAKE_PROGRAM: PulumiFn = async () => ({});
@@ -95,7 +95,8 @@ class TestablePulumiWorkspaceService extends PulumiWorkspaceService {
 
 /** Builds a `PulumiEngineService` stub whose `resolve()` resolves with `FAKE_COMMAND`. */
 function stubEngine(): PulumiEngineService {
-  return { resolve: vi.fn().mockResolvedValue(FAKE_COMMAND) } as unknown as PulumiEngineService;
+  const engine: Partial<PulumiEngineService> = { resolve: vi.fn().mockResolvedValue(FAKE_COMMAND) };
+  return engine as PulumiEngineService;
 }
 
 /**

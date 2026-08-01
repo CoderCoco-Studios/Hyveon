@@ -347,8 +347,14 @@ export function classifyStackLockConflict(
     return { kind: 'requires-confirmation', locks };
   }
 
-  const evidenceByLock = locks.map((lock) => findReclaimEvidence(lock, identity, freshRecords));
-  const provenEvidence = evidenceByLock.filter((evidence): evidence is OwnershipEntry => evidence !== null);
+  const unusedRecords = [...freshRecords];
+  const provenEvidence: OwnershipEntry[] = [];
+  for (const lock of locks) {
+    const evidence = findReclaimEvidence(lock, identity, unusedRecords);
+    if (!evidence) break;
+    unusedRecords.splice(unusedRecords.indexOf(evidence), 1);
+    provenEvidence.push(evidence);
+  }
   const allReclaimable = provenEvidence.length === locks.length;
 
   if (allReclaimable) {

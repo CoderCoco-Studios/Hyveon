@@ -91,6 +91,7 @@ function makeStore(records: (PulumiLockOwnershipRecord & { runId: string })[]): 
   } as Partial<ElectronStoreService> as ElectronStoreService & { clearPulumiLockAttempt: ReturnType<typeof vi.fn> };
 }
 
+/** Builds a fresh `PulumiLockOwnershipRecord` for stack `production` under {@link IDENTITY}, with per-test overrides. */
 function makeRecord(
   overrides: Partial<PulumiLockOwnershipRecord & { runId: string }> = {},
 ): PulumiLockOwnershipRecord & { runId: string } {
@@ -399,6 +400,22 @@ describe("classifyStackLockConflict — another machine's active lock is not pre
     const stderr = diyLockStderr([
       { pid: 4242, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:30:00Z' },
       { pid: 999, username: 'other-user', hostname: 'other-machine', lockedAt: '2024-01-15T10:31:00Z' },
+    ]);
+    const err = realSdkErrorFromStderr(stderr);
+
+    const result = classifyStackLockConflict(err, store, 'production', IDENTITY, new Date('2024-01-15T10:35:00Z'));
+
+    expect(result.kind).toBe('requires-confirmation');
+  });
+});
+
+describe('classifyStackLockConflict — one ownership record cannot prove two locks', () => {
+  it('should return "requires-confirmation" when two dead same-machine locks share only one fresh record', () => {
+    mockPidDead();
+    const store = makeStore([makeRecord({ runId: 'run-1', startedAt: '2024-01-15T10:29:00Z' })]);
+    const stderr = diyLockStderr([
+      { pid: 4242, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:30:00Z' },
+      { pid: 4243, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:31:00Z' },
     ]);
     const err = realSdkErrorFromStderr(stderr);
 

@@ -211,7 +211,7 @@ describe('resolveCredentialEnvVars — exclusivity reaches a spawned child proce
     expect(seen).not.toBe('ambient-sso-session-token');
   });
 
-  it('contrast: merely omitting the key (rather than explicitly clearing it) DOES let the ambient value leak through the identical merge', async () => {
+  it('should let the ambient value leak through the identical merge when the key is merely omitted instead of explicitly cleared', async () => {
     // This is what "not merely omitted" in the spec is guarding against —
     // proves the explicit-empty-string mechanism is load-bearing, not
     // redundant with the merge itself.
