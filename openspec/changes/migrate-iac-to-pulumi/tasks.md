@@ -1,33 +1,33 @@
 ## 1. Spikes (gate everything else)
 
-- [ ] 1.1 Add `@pulumi/pulumi@3.255.0` and `@pulumi/aws@7.39.0` to a scratch workspace; mark `@pulumi/pulumi` `external` in `electron.vite.config.ts` and add it plus `@pulumi/aws` to `electron-builder.yml` `files`, following the `@cdktf/hcl2json` precedent
-- [ ] 1.2 Spike: run `PulumiCommand.install({ root: <userData>/pulumi })` from the Electron main process and confirm the binary lands at `<root>/bin/pulumi` and that a second call short-circuits
-- [ ] 1.3 Spike: run a trivial inline program from inside a packaged `app.asar` build and confirm the `--client` gRPC callback executes the closure — this is the highest-risk unknown and gates the whole approach
-- [ ] 1.4 During the first bootstrap run, point `PULUMI_BACKEND_URL` at the newly created bucket and run a read-only `stack ls` to confirm the `s3://` driver authenticates without a login (Open Question 1); if it fails, add a login step to the workspace seam
-- [ ] 1.5 Spike: after one `preview` and one `up`, confirm the Electron app quits cleanly with no orphaned `pulumi` process; add this as a permanent e2e check rather than a one-off
-- [ ] 1.6 If 1.3 fails, stop and re-evaluate against the OpenTofu auto-download fallback recorded in `design.md` before continuing
+- [x] 1.1 Add `@pulumi/pulumi@3.255.0` and `@pulumi/aws@7.39.0` to a scratch workspace; mark `@pulumi/pulumi` `external` in `electron.vite.config.ts` and add it plus `@pulumi/aws` to `electron-builder.yml` `files`, following the `@cdktf/hcl2json` precedent
+- [x] 1.2 Spike: run `PulumiCommand.install({ root: <userData>/pulumi })` from the Electron main process and confirm the binary lands at `<root>/bin/pulumi` and that a second call short-circuits
+- [x] 1.3 Spike: run a trivial inline program from inside a packaged `app.asar` build and confirm the `--client` gRPC callback executes the closure — this is the highest-risk unknown and gates the whole approach
+- [x] 1.4 During the first bootstrap run, point `PULUMI_BACKEND_URL` at the newly created bucket and run a read-only `stack ls` to confirm the `s3://` driver authenticates without a login (Open Question 1); if it fails, add a login step to the workspace seam
+- [x] 1.5 Spike: after one `preview` and one `up`, confirm the Electron app quits cleanly with no orphaned `pulumi` process; add this as a permanent e2e check rather than a one-off
+- [x] 1.6 If 1.3 fails, stop and re-evaluate against the OpenTofu auto-download fallback recorded in `design.md` before continuing
 
 ## 2. Infra workspace scaffold
 
-- [ ] 2.1 Create the `app/packages/infra` workspace (`@hyveon/infra`) with its `package.json`, `tsconfig.json`, and ESLint wiring so root `app:lint` / `app:test` pick it up
-- [ ] 2.2 Define the typed configuration model in `@hyveon/shared`, covering both the `game_servers` map and the top-level deployment settings (project name, region, hosted zone, watchdog tunables), with TSDoc on every field
-- [ ] 2.3 Add unit tests for the configuration model covering every field, including the `https` flag that HCL round-tripping previously corrupted
-- [ ] 2.4 Define the stack-outputs type in `@hyveon/shared`, covering cluster, subnet, security-group, Discord table and secret locations, interactions invoke URL, and runs table name
+- [x] 2.1 Create the `app/packages/infra` workspace (`@hyveon/infra`) with its `package.json`, `tsconfig.json`, and ESLint wiring so root `app:lint` / `app:test` pick it up
+- [x] 2.2 Define the typed configuration model in `@hyveon/shared`, covering both the `game_servers` map and the top-level deployment settings (project name, region, hosted zone, watchdog tunables), with TSDoc on every field
+- [x] 2.3 Add unit tests for the configuration model covering every field, including the `https` flag that HCL round-tripping previously corrupted
+- [x] 2.4 Define the stack-outputs type in `@hyveon/shared`, covering cluster, subnet, security-group, Discord table and secret locations, interactions invoke URL, and runs table name
 
 ## 3. Infra program — resource parity
 
-- [ ] 3.1 Port networking: VPC, subnet, internet gateway, route table, association
-- [ ] 3.2 Port EFS: file system, mount target, per-game save-data access points, per-HTTPS-game certificate access points
-- [ ] 3.3 Port ECS: cluster and per-game task definitions derived by iteration over the config map, including the Caddy sidecar container for `https = true` games
-- [ ] 3.4 Port security groups, including the deduplicated per-game port ingress and the 443/80 opening for HTTPS games
-- [ ] 3.5 Port IAM roles and policies (6 roles, 5 inline policies, 1 attachment)
-- [ ] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
-- [ ] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
-- [ ] 3.8 Port DynamoDB tables (discord, runs, audit) and the Secrets Manager secrets, declaring placeholder versions only — drop the `discord_bot_token` / `discord_public_key` inputs so no secret value can enter the stack, and ensure a re-deploy never resets a configured secret back to its placeholder
-- [ ] 3.9 Port Route53: hosted-zone lookup and the updater Lambda only — assert no per-game DNS record resources exist, since the Lambda is the sole writer
-- [ ] 3.10 Port the remaining imperative escapes (`aws_dynamodb_table_item` ×2, `aws_lambda_invocation`, `terraform_data`, `aws_secretsmanager_secret_version` ×2) as explicit constructs, and document why each is not a plain resource
-- [ ] 3.11 Export the stack outputs defined in 2.4
-- [ ] 3.12 Diff the synthesized resource inventory against the 69 Terraform resources and record any intentional omission with its reason
+- [x] 3.1 Port networking: VPC, subnet, internet gateway, route table, association
+- [x] 3.2 Port EFS: file system, mount target, per-game save-data access points, per-HTTPS-game certificate access points
+- [x] 3.3 Port ECS: cluster and per-game task definitions derived by iteration over the config map, including the Caddy sidecar container for `https = true` games
+- [x] 3.4 Port security groups, including the deduplicated per-game port ingress and the 443/80 opening for HTTPS games
+- [x] 3.5 Port IAM roles and policies (6 roles, 5 inline policies, 1 attachment)
+- [x] 3.6 Port the five Lambda functions with code sourced from prebuilt `dist/handler.cjs` bundles, plus their log groups, permissions, and the function URL
+- [x] 3.7 Port EventBridge rules and targets for the DNS updater and the watchdog
+- [x] 3.8 Port DynamoDB tables (discord, runs, audit) and the Secrets Manager secrets, declaring placeholder versions only — drop the `discord_bot_token` / `discord_public_key` inputs so no secret value can enter the stack, and ensure a re-deploy never resets a configured secret back to its placeholder
+- [x] 3.9 Port Route53: hosted-zone lookup and the updater Lambda only — assert no per-game DNS record resources exist, since the Lambda is the sole writer
+- [x] 3.10 Port the remaining imperative escapes (`aws_dynamodb_table_item` ×2, `aws_lambda_invocation`, `terraform_data`, `aws_secretsmanager_secret_version` ×2) as explicit constructs, and document why each is not a plain resource
+- [x] 3.11 Export the stack outputs defined in 2.4
+- [x] 3.12 Diff the synthesized resource inventory against the 69 Terraform resources and record any intentional omission with its reason
 
 ## 4. Engine runtime
 

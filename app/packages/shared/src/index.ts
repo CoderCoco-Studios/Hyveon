@@ -4,6 +4,8 @@ export * from './terraformVersion.js';
 export * from './iamPolicy.js';
 export * from './wizardSteps.js';
 export * from './tfvars.js';
+export * from './deploymentConfig.js';
+export * from './stackOutputs.js';
 export * from './gameServerValidator.js';
 export * from './gamesWrite.js';
 export * from './drift.js';

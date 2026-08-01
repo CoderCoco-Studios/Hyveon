@@ -20,6 +20,7 @@ export const HYVEON_DEPLOY_ALL_ACTIONS: readonly string[] = [
   'secretsmanager:*',
   's3:*',
   'cloudfront:*',
+  'acm:*',
   'iam:*',
   's3:GetObject',
   's3:PutObject',

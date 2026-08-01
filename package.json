@@ -13,6 +13,11 @@
   "engines": {
     "node": ">=24.0.0"
   },
+  "dependencies": {
+    "@cdktf/hcl2json": "^0.21.0",
+    "@pulumi/aws": "7.39.0",
+    "@pulumi/pulumi": "3.255.0"
+  },
   "devDependencies": {
     "@swc/core": "^1.15.46",
     "electron-builder": "^26.15.3",
@@ -28,7 +33,7 @@
     "app:start": "npm run start          -w @hyveon/app",
     "app:build:lambdas": "npm run build:lambdas  -w @hyveon/app",
     "app:test": "npm run test           -w @hyveon/app",
-    "app:typecheck": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/desktop-preload && npm run build -w @hyveon/desktop-main && npm run typecheck:full -w @hyveon/web && npm run typecheck -w @hyveon/lambda-interactions -w @hyveon/lambda-followup -w @hyveon/lambda-update-dns -w @hyveon/lambda-watchdog -w @hyveon/lambda-efs-seeder -w @hyveon/scripts",
+    "app:typecheck": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run build -w @hyveon/infra && npm run build -w @hyveon/desktop-preload && npm run build -w @hyveon/desktop-main && npm run typecheck:full -w @hyveon/web && npm run typecheck -w @hyveon/lambda-interactions -w @hyveon/lambda-followup -w @hyveon/lambda-update-dns -w @hyveon/lambda-watchdog -w @hyveon/lambda-efs-seeder -w @hyveon/scripts",
     "app:test:coverage": "npm run test:coverage -w @hyveon/app",
     "app:test:watch": "npm run test:watch     -w @hyveon/app",
     "app:lint": "npm run lint           -w @hyveon/app",
@@ -38,7 +43,7 @@
     "scripts:init-parent": "npm run init-parent  -w @hyveon/scripts",
     "scripts:tfvars-sync": "npm run tfvars-sync  -w @hyveon/scripts",
     "desktop:dev": "electron-vite dev",
-    "desktop:build": "electron-vite build",
+    "desktop:build": "electron-vite build && node build/verify-main-bundle-externals.mjs",
     "desktop:package": "npm run desktop:build && electron-builder --config electron-builder.yml --publish never",
     "icons:generate": "node build/generate-icons.mjs",
     "docs:screenshots": "npm run build -w @hyveon/shared && npm run build -w @hyveon/cloud-aws && npm run desktop:build && playwright test --config app/packages/web/playwright.screenshots.config.ts"

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 /** Absolute path to the repo root (three directories above this config). */
-const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+export const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 /** Absolute path to the electron-vite main output entry point. */
 export const electronMain = join(repoRoot, 'out', 'main', 'index.js');
@@ -13,17 +13,27 @@ export const electronMain = join(repoRoot, 'out', 'main', 'index.js');
 // instead of `win.loadFile()`. Removing it ensures packaged-renderer smoke
 // tests always exercise the `loadFile()` path even when run from a shell that
 // still has dev-server variables set.
+//
+// `HYVEON_PULUMI_SPIKE*` is stripped for a sharper reason: the whole inherited
+// environment is spread into every `_electron.launch()` below, so a
+// `HYVEON_PULUMI_SPIKE=1` exported in the shell running the suite would reach
+// every launched app and make each spec provision a 344 MB Pulumi engine and run
+// a real `up`. The main process refuses the spike under `HYVEON_TEST_MODE`
+// anyway (see `electron-entry.ts`); this is the other half of that belt.
 const {
   ELECTRON_RENDERER_URL: _rendererUrl,
+  HYVEON_PULUMI_SPIKE: _pulumiSpike,
+  HYVEON_PULUMI_SPIKE_OUT: _pulumiSpikeOut,
+  HYVEON_PULUMI_SPIKE_QUIT: _pulumiSpikeQuit,
   ...inheritedEnv
 } = process.env as Record<string, string>;
 
 /**
  * Environment variables injected into every Electron launch during e2e tests.
  *
- * Inherits the current environment (minus `ELECTRON_RENDERER_URL`, stripped
- * above) plus `HYVEON_TEST_MODE=1`, which switches the main process into its
- * test seam.
+ * Inherits the current environment (minus `ELECTRON_RENDERER_URL` and the
+ * `HYVEON_PULUMI_SPIKE*` trio, all stripped above) plus `HYVEON_TEST_MODE=1`,
+ * which switches the main process into its test seam.
  */
 export const electronEnv: Record<string, string> = {
   ...inheritedEnv,
@@ -41,7 +51,9 @@ export const electronEnv: Record<string, string> = {
  *    seam spec against the packaged main bundle. Each spec manages its own
  *    ElectronApplication.
  *
- * `electron-smoke.spec.ts`, `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
+ * `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts` (the permanent
+ * clean-quit guard from the Pulumi migration's task 1.5 spike),
+ * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
  * (migrated in #191), `discord.spec.ts` (migrated in #194),
  * `terraform.spec.ts` (new route, issue #110), and
@@ -52,6 +64,7 @@ export const electronEnv: Record<string, string> = {
  */
 const ELECTRON_SPECS = [
   '**/electron-smoke.spec.ts',
+  '**/electron-clean-quit.spec.ts',
   '**/electron-ipc-roundtrip.spec.ts',
   '**/ipc-mock.spec.ts',
   '**/streaming-handle-roundtrip.spec.ts',
