@@ -72,9 +72,9 @@ export class PulumiBackendNotBootstrappedError extends Error {
  * was wrong (a caller bug, or the bucket was deleted between the caller's
  * check and this call). Unlike {@link PulumiEngineService}'s error-message
  * patterns, this one is **not** verified against a real S3 backend —
- * design.md's spike only exercised a `file://` backend, and the S3-specific
+ * the original spike only exercised a `file://` backend, so the S3-specific
  * gocloud/AWS SDK error surface this DIY backend driver actually produces
- * was explicitly left unverified there. Covers the AWS SDK's own error code
+ * has not been directly verified. Covers the AWS SDK's own error code
  * (`NoSuchBucket`) and the common English phrasings blob-storage drivers
  * tend to use, on a best-effort basis — a failure that doesn't match this
  * falls through to the raw SDK error rather than being misclassified.
@@ -117,7 +117,7 @@ export type PulumiPassphraseUnavailableReason =
    * outcome the "never regenerate" rule exists to prevent, just via a
    * different route than a corrupted/inaccessible local entry: `createOrSelectStack`
    * would *select* (not create) the existing remote stack — `secretsProvider`
-   * is a no-op on the select path per design.md — so nothing would object
+   * is a no-op on the select path — so nothing would object
    * before the freshly-generated, unrelated passphrase silently replaced the
    * local record of a passphrase that can never again decrypt that stack's
    * state.
@@ -528,7 +528,7 @@ export class PulumiWorkspaceService {
    * The stable, app-owned directory `LocalWorkspaceOptions.workDir` points
    * at for {@link PULUMI_STACK_NAME} — where the Automation API's
    * `Pulumi.yaml`/`Pulumi.<stack>.yaml` bookkeeping lives for this stack.
-   * Not a seeded program directory (the program is inline, per design.md) —
+   * Not a seeded program directory (the program is inline) —
    * but it is **not** disposable scratch space either: `Pulumi.<stack>.yaml`
    * carries the stack's `encryptionsalt` (derived from the secrets
    * passphrase) and other per-stack settings the CLI expects to find again

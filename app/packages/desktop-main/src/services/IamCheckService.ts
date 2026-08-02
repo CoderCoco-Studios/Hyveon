@@ -8,8 +8,7 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * Maximum number of action names sent in a single `SimulatePrincipalPolicy`
- * request, matching design.md decision 6 ("batch `SimulatePrincipalPolicy`
- * calls (~50 actions per request)").
+ * request — batched at roughly 50 actions per request.
  */
 const SIMULATE_BATCH_SIZE = 50;
 

@@ -33,9 +33,8 @@ import { logger } from '../logger.js';
  * }
  * ```
  *
- * This confirms design.md's `"the stack is currently locked by"` match
- * string exactly, and — going further than design.md states — shows the
- * message is **structured and parseable**: each lock file still present gets
+ * This confirms the `"the stack is currently locked by"` match string
+ * exactly, and shows the message is **structured and parseable**: each lock file still present gets
  * its own line naming the lock's URL, the OS username and hostname of the
  * process that created it, that process's PID, and an RFC3339 creation
  * timestamp. {@link parseStackLocks} below parses exactly this shape. The
@@ -293,8 +292,8 @@ function findReclaimEvidence(
  * have created every lock present, has confirmed each one's process is no
  * longer running, and has a fresh local record consistent with having
  * started that specific lock's attempt. Requiring *every* lock to match (not
- * just one) matters because `stack.cancel()` — the mechanism design.md
- * reserves for actually clearing a stale lock — is not scoped to a single
+ * just one) matters because `stack.cancel()` — the mechanism used to
+ * actually clear a stale lock — is not scoped to a single
  * lock file; reclaiming when even one present lock belongs to someone else
  * (or is still live) would improperly clear their lock too.
  *

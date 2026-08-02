@@ -107,11 +107,10 @@ import { logger } from '../logger.js';
 /**
  * Bounded window a cancelled operation is given to exit gracefully (i.e. to
  * respond to the SDK's own `SIGINT`) before {@link runWithEscalatingCancellation}
- * gives up waiting and escalates. Neither the `pulumi-engine-runtime` delta
- * spec nor design.md names a specific value — design.md only says "a wedged
- * engine would keep the Electron main process alive forever, so we add our
- * own escalation timer" — so this is a deliberately chosen default rather
- * than one derived from the spec.
+ * gives up waiting and escalates. The `pulumi-engine-runtime` delta spec
+ * doesn't name a specific value here — only that a wedged engine would keep
+ * the Electron main process alive forever, hence this escalation timer — so
+ * this is a deliberately chosen default rather than one derived from the spec.
  *
  * 30 seconds was chosen over a shorter value because a graceful `SIGINT`
  * during a real `up`/`destroy` can legitimately need time to let an

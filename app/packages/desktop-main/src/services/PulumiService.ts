@@ -1145,8 +1145,8 @@ export class PulumiService {
    * itself (threaded through to `PulumiEngineService.resolve`) —
    * this method does not fire it directly, only forwards `onPhase` into that
    * call. 'operation' wraps the `stack.refresh()` call: with zero resources
-   * in state, this is trivially a no-op change-wise (and, per design.md's
-   * DIY-S3-backend spike, `LocalWorkspace.createOrSelectStack`'s own stack-init
+   * in state, this is trivially a no-op change-wise (and, as the DIY-S3-backend
+   * spike demonstrated, `LocalWorkspace.createOrSelectStack`'s own stack-init
    * path already durably writes the stack's empty checkpoint to the backend
    * as part of the 'engine' step above — this call is not literally the
    * moment the stack first becomes durable) — but it still exercises the
@@ -1511,8 +1511,7 @@ export class PulumiService {
    *
    * ## Chunk streaming (ported from `TerraformService.spawnAndStream`)
    *
-   * `onOutput`/`onError` deliver **unbounded chunks, not lines** (design.md's
-   * "Streaming and cancellation" section) — the exact same shape
+   * `onOutput`/`onError` deliver **unbounded chunks, not lines** — the exact same shape
    * `spawnAndStream`'s `child.stdout`/`.stderr` `'data'` handlers received.
    * The line-splitting algorithm is ported verbatim: accumulate a per-stream
    * buffer, `split(/\r?\n/)`, hold back the trailing partial line, flush any
@@ -3160,11 +3159,11 @@ export class PulumiService {
    *
    * Unlike {@link apply}, `destroy` has no preceding `preview()` plan to
    * validate against: there is no saved artifact, no `planHash`, no approval
-   * lineage. design.md is explicit about the consequence: "destroy cannot be
-   * plan-constrained... the destroy path therefore relies ENTIRELY on the
-   * confirmation-token gate... for its safety, with no plan artifact behind
-   * it — the token gate is load-bearing in a way the apply path's is not."
-   * Every design decision below treats the token check as THE safety-critical
+   * lineage. Destroy cannot be plan-constrained the way apply is — the destroy
+   * path therefore relies ENTIRELY on the confirmation-token gate for its
+   * safety, with no plan artifact behind it — the token gate is load-bearing
+   * in a way the apply path's is not. Every design decision below treats the
+   * token check as THE safety-critical
    * step of this method, not one of several redundant checks.
    *
    * ## Gate structure (simpler than `apply`'s, and
@@ -4404,7 +4403,7 @@ export class PulumiService {
    *
    * Logs a `logger.warn` naming the SPECIFIC rejection reason (no token ever
    * minted, token mismatch, expired, or target mismatch) before throwing on
-   * every failure branch — this gate is, per design.md, the ONLY thing
+   * every failure branch — this gate is the ONLY thing
    * standing between an accidental invocation and destroying all managed
    * infrastructure, and `AuditService` only records ACCEPTED submissions
    * (the `iac-destroy-flow` spec's audit requirement is scoped to those), so
