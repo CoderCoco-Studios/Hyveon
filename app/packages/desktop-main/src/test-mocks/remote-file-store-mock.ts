@@ -4,13 +4,10 @@ import { CONFIGURATION_OBJECT_KEY, type DeploymentConfig } from '@hyveon/shared'
 
 /**
  * A placeholder, structurally-valid {@link DeploymentConfig} — empty
- * `gameServers`, every other field at a Terraform-default-shaped value —
- * seeded as the configuration object's initial content. The fake-terraform
- * binary (`app/test/fake-terraform.mjs`) never reads this content; it exists
- * purely so `TerraformService.plan()`'s `pullVarFile()` (which requires a
- * configuration bucket to be configured — there is no local-file fallback
- * any more, see the `migrate-iac-to-pulumi` change's Phase 6) has a real
- * object to fetch.
+ * `gameServers`, every other field at a default-shaped value — seeded as the
+ * configuration object's initial content so `TfvarsService`/`PulumiService`
+ * (which require a configuration bucket to be configured — there is no
+ * local-file fallback) have a real object to fetch.
  */
 const PLACEHOLDER_CONFIG: DeploymentConfig = {
   projectName: 'hyveon-integration-test',
@@ -41,7 +38,7 @@ interface StoredVersion {
  * In-memory backing store for the configuration-bucket S3 mock installed by
  * {@link installRemoteFileStoreMock} — a single versioned object (keyed by
  * `CONFIGURATION_OBJECT_KEY`), newest version first, mirroring how
- * `AwsRemoteFileStore`/`TfvarsService`/`TerraformService` only ever read/write
+ * `AwsRemoteFileStore`/`TfvarsService`/`PulumiService` only ever read/write
  * one object. Seeded with {@link PLACEHOLDER_CONFIG} so a spec that never
  * calls `TfvarsService`'s write path still gets a valid `get()`.
  *
@@ -111,7 +108,7 @@ class RemoteFileStoreMockStore {
  * Shared backing store for {@link installRemoteFileStoreMock}'s interceptors.
  * Integration specs reach for this directly (e.g.
  * `remoteFileStoreMockStore.seed({...})`) to seed specific configuration
- * content before driving a `TerraformService.plan()`/`TfvarsService` call.
+ * content before driving a `PulumiService`/`TfvarsService` call.
  */
 export const remoteFileStoreMockStore = new RemoteFileStoreMockStore();
 
@@ -121,7 +118,7 @@ export const remoteFileStoreMockStore = new RemoteFileStoreMockStore();
  * counterpart of `ecs-mock.ts`'s `installEcsMock`/`run-record-mock.ts`'s
  * `installRunRecordDynamoMock`. Every `GetObjectCommand`/`PutObjectCommand`/
  * `ListObjectVersionsCommand` the real `AwsRemoteFileStore` issues (via
- * `TfvarsService`/`TerraformService`) is intercepted regardless of the
+ * `TfvarsService`/`PulumiService`) is intercepted regardless of the
  * `Bucket`/`Key` it was issued against — this mock backs the single
  * configuration object every integration spec cares about, not a
  * general-purpose multi-object S3 double.

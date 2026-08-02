@@ -1,4 +1,5 @@
 import { test as base } from '@playwright/test';
+import type { StackOutputs } from '@hyveon/shared';
 // Deep import into @hyveon/desktop-main's compiled `dist/`, mirroring
 // `ipc-harness.ts` — the module is a process-wide singleton, so pushing here
 // is visible to any `ipc` harness dispatched in the same test process.
@@ -45,12 +46,20 @@ type IntegrationFixtures = {
    * test so no queued responses leak between specs.
    */
   serverMocks: ServerMocks;
+  /**
+   * Test option scripting the `ipc` harness's `PulumiService` stub's
+   * `getStackOutputs()` response. Defaults to `null` (never-deployed stack,
+   * matching production's default state) — a spec needing a deployed-stack
+   * scenario sets it via `test.use({ stackOutputs: STACK_OUTPUTS_FIXTURE })`.
+   */
+  stackOutputs: StackOutputs | null;
 };
 
 export const test = base.extend<IntegrationFixtures>({
-  // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature requires the deps param even when unused.
-  ipc: async ({}, use) => {
-    const harness = await createIpcHarness();
+  stackOutputs: [null, { option: true }],
+
+  ipc: async ({ stackOutputs }, use) => {
+    const harness = await createIpcHarness(stackOutputs);
     await use(harness);
     await harness.close();
   },

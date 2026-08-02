@@ -24,15 +24,15 @@ interface TerraformMockOptions {
 }
 
 /**
- * Seeds every `terraform.*` IPC channel `/terraform` consumes via
+ * Seeds every `iac.*` IPC channel `/terraform` consumes via
  * `window.hyveon.__test.mock()`. Must be called before navigating to the page
  * under test.
  *
- * `terraform.runs.logs` backs `hyveon.terraform.runs.streamLogs` and is
- * registered as an async generator, mirroring `logs.stream`'s mock shape in
- * `logs.spec.ts` — but its yielded chunks never actually reach the page: an
- * async generator object returned across Electron's `contextBridge` function
- * proxy (crossing back from this main-world mock into the isolated-world
+ * `iac.runs.logs` backs `hyveon.iac.runs.streamLogs` and is registered as an
+ * async generator, mirroring `logs.stream`'s mock shape in `logs.spec.ts` —
+ * but its yielded chunks never actually reach the page: an async generator
+ * object returned across Electron's `contextBridge` function proxy (crossing
+ * back from this main-world mock into the isolated-world
  * `streamTerraformRunLogs`) fails with "An object could not be cloned",
  * regardless of which streaming channel or generator body is used — verified
  * against `logs.stream`'s own proven-working mock too. `useTerraformRunLog`'s
@@ -63,10 +63,10 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
         __test: { mock: (channel: string, handler: unknown) => void };
       };
 
-      hyveon.__test.mock('terraform.plan', () => Promise.resolve(planAck));
-      hyveon.__test.mock('terraform.approve', () => Promise.resolve(approveAck));
-      hyveon.__test.mock('terraform.apply', () => Promise.resolve(applyAck));
-      hyveon.__test.mock('terraform.runs.get', (payload: { runId: string }) => {
+      hyveon.__test.mock('iac.plan', () => Promise.resolve(planAck));
+      hyveon.__test.mock('iac.approve', () => Promise.resolve(approveAck));
+      hyveon.__test.mock('iac.apply', () => Promise.resolve(applyAck));
+      hyveon.__test.mock('iac.runs.get', (payload: { runId: string }) => {
         if (payload.runId === planRunId) {
           return Promise.resolve({
             found: true,
@@ -79,7 +79,7 @@ async function mockTerraform(win: Page, opts: TerraformMockOptions = {}): Promis
         }
         return Promise.resolve({ found: false });
       });
-      hyveon.__test.mock('terraform.runs.logs', async function* (runId: string) {
+      hyveon.__test.mock('iac.runs.logs', async function* (runId: string) {
         if (runId === planRunId) {
           for (const line of planLines) yield { stream: 'stdout', line };
         } else if (runId === applyRunId) {
@@ -154,7 +154,7 @@ test.describe('terraform page', () => {
 
   test('should render a BUSY banner when plan submission reports a workspace conflict', async () => {
     await applyHyveonMocks(win);
-    await mockTerraform(win, { planAck: { started: false, error: 'workspace busy', conflict: 'apply' } });
+    await mockTerraform(win, { planAck: { started: false, error: 'workspace busy', conflict: 'up' } });
     await terraform.gotoViaSidebar();
 
     await terraform.runPlanButton().click();

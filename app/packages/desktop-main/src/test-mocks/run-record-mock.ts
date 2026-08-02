@@ -16,9 +16,7 @@ const LOCK_SK = 'CURRENT';
  *
  * Exposed separately from the SDK interceptor (mirrors `mock-store.ts`'s
  * split from `ecs-mock.ts`) so integration specs can directly patch a stored
- * record's `approvedAt` to simulate an expired approval without fake timers
- * — which, per the design doc, never reach the spawned fake-terraform child
- * process.
+ * record's `approvedAt` to simulate an expired approval without fake timers.
  */
 class RunRecordMockStore {
   private items: Record<string, unknown>[] = [];

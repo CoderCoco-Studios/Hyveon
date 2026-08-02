@@ -36,6 +36,7 @@
   "devDependencies": {
     "@hyveon/desktop-main": "*",
     "@hyveon/desktop-preload": "*",
+    "@nestjs/testing": "^11.1.28",
     "@playwright/test": "^1.62.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.0",

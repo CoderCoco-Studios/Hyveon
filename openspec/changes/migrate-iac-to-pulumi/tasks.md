@@ -103,9 +103,9 @@
 
 ## 11. Test surface
 
-- [ ] 11.1 Delete `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures' `PATH`-shim wiring; replace with a `PulumiService` stub injected at the DI seam per the `orchestrator-integration-coverage` delta spec's "In-process engine stub injected via DI" requirement
-- [ ] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from the stub's scripted `stack.outputs()` instead of `TF_STATE_PATH`, including the never-deployed-stack case
-- [ ] 11.3 Update Electron e2e mocks for the changed IPC payload shapes
+- [x] 11.1 Delete `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures' `PATH`-shim wiring; replace with a `PulumiService` stub injected at the DI seam per the `orchestrator-integration-coverage` delta spec's "In-process engine stub injected via DI" requirement
+- [x] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from the stub's scripted `stack.outputs()` instead of `TF_STATE_PATH`, including the never-deployed-stack case
+- [x] 11.3 Update Electron e2e mocks for the changed IPC payload shapes
 - [ ] 11.4 Keep the 1.6 clean-quit check green in CI
 
 ## 12. Removal and documentation
