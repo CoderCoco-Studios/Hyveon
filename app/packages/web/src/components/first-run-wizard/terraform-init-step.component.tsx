@@ -34,14 +34,14 @@ export interface TerraformInitStepProps {
 }
 
 /**
- * Fifth and final step of the first-run wizard (#210): runs `terraform init`
+ * Fifth and final step of the first-run wizard: runs `terraform init`
  * against the backend resources bootstrapped in the previous step, streaming
- * its ANSI-colored output live via the already-shipped `hyveon.iac.init`
- * async iterable (reusing `AnsiLogViewer` rather than adding a second
- * streaming side-channel, per design.md decision 2). The Finish button
- * enables only once the run exits successfully (the iterable completes
- * without throwing); a failed run shows the captured log plus a Retry
- * button rather than silently blocking wizard progression.
+ * its ANSI-colored output live via the `hyveon.iac.init` async iterable
+ * (reusing `AnsiLogViewer` rather than adding a second streaming
+ * side-channel). The Finish button enables only once the run exits
+ * successfully (the iterable completes without throwing); a failed run
+ * shows the captured log plus a Retry button rather than silently blocking
+ * wizard progression.
  */
 export function TerraformInitStep({ backendConfig, onFinished, onBeforeFinish }: TerraformInitStepProps) {
   const [attempt, setAttempt] = useState(0);

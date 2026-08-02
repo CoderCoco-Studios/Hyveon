@@ -103,8 +103,8 @@ export interface GameLogs {
 
 // ---------------------------------------------------------------------------
 // Fixed clock — every timestamp-bearing fixture below is anchored to this
-// instant so screenshots are byte-for-byte reproducible between runs (task
-// 2.11). `capture.spec.ts` freezes `Date`/`Intl` to the same instant via
+// instant so screenshots are byte-for-byte reproducible between runs.
+// `capture.spec.ts` freezes `Date`/`Intl` to the same instant via
 // `page.clock.install()` before any screenshot is taken.
 // ---------------------------------------------------------------------------
 
@@ -223,10 +223,9 @@ export const DEMO_COST_ESTIMATES: CostEstimates = {
 /**
  * Builds a deterministic `ActualCosts` window ending at {@link DEMO_NOW},
  * for a given number of trailing days. Pure (no `Date.now()`/`Math.random()`)
- * so repeat harness runs produce byte-identical output (task 2.11). The
- * sinusoidal `base` term gives the Costs page's stacked bar chart and
- * delta-vs-prior pill visibly non-flat, non-zero data without hand-authoring
- * every day.
+ * so repeat harness runs produce byte-identical output. The sinusoidal
+ * `base` term gives the Costs page's stacked bar chart and delta-vs-prior
+ * pill visibly non-flat, non-zero data without hand-authoring every day.
  */
 export function demoActualCosts(days: number): ActualCosts {
   const end = new Date(DEMO_NOW);

@@ -184,14 +184,12 @@ export class AwsCloudProvider implements CloudProvider {
    *   Optional so the class remains constructible with no arguments while
    *   the cost/logs methods are still stubs.
    *
-   *   May return a `Promise` (task 7.4, `migrate-iac-to-pulumi`): the real
-   *   app's `EcsService.buildProviderConfig` now reads
+   *   May return a `Promise`: `EcsService.buildProviderConfig` reads
    *   `ConfigService.getStackOutputs()`, which is async. Every real
    *   invocation of this callback happens from inside this class's own
    *   already-`async` methods (or, for `streamWorkloadLogs`, an async
    *   generator), so awaiting it costs nothing — see `AwsAuditLogStore`'s
-   *   identical constructor doc comment for the full "no async-factory
-   *   gymnastics needed, existing sync closures are unaffected" reasoning.
+   *   identical constructor doc comment for the full reasoning.
    * @param logger - Optional sink for errors swallowed by `findRunningTask`
    *   and `getPublicIp` so operators can diagnose ECS/EC2 SDK failures
    *   instead of them silently masquerading as "stopped" / "no IP".

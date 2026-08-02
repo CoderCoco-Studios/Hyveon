@@ -160,14 +160,14 @@ export interface PersistRunRecordParams {
    * The structured resource-change summary this run's `preview`/`up`
    * reported, if the caller has one — see `ChangeSummary`'s doc comment
    * (`@hyveon/shared/changeSummary.js`). Populated by `PulumiService.preview`
-   * (task 7.1) and threaded through to {@link RunRecord.changeSummary}.
+   * and threaded through to {@link RunRecord.changeSummary}.
    */
   changeSummary?: ChangeSummary;
   /**
    * The Pulumi engine version stamped into this run's saved plan artifact,
    * if the caller has one — see {@link RunRecord.engineVersion}'s doc
-   * comment. Populated by `PulumiService.preview` (task 7.1) and threaded
-   * through to {@link RunRecord.engineVersion}.
+   * comment. Populated by `PulumiService.preview` and threaded through to
+   * {@link RunRecord.engineVersion}.
    */
   engineVersion?: string;
   /**
@@ -176,7 +176,7 @@ export interface PersistRunRecordParams {
    * applied — independent of which of the two it was; see
    * {@link RunRecord.partialApply}'s doc comment (`@hyveon/shared/runs.js`)
    * for why this must never be gated behind `status === 'failed'`. Populated
-   * by `PulumiService.apply` (task 7.2) and threaded through to
+   * by `PulumiService.apply` and threaded through to
    * {@link RunRecord.partialApply}.
    */
   partialApply?: boolean;

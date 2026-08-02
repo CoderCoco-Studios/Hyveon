@@ -97,10 +97,10 @@ export class AwsRunRecordStore implements RunRecordStore {
    *   `process.env` directly here, per CLAUDE.md's "no raw `process.env`
    *   in business logic" guideline.
    *
-   *   May return a `Promise` (task 7.4, `migrate-iac-to-pulumi`) — see
-   *   `AwsAuditLogStore`'s identical constructor doc comment for why this is
-   *   safe (every real invocation happens inside this class's own
-   *   already-`async` methods) and why existing sync closures are unaffected.
+   *   May return a `Promise` — see `AwsAuditLogStore`'s identical
+   *   constructor doc comment for why this is safe (every real invocation
+   *   happens inside this class's own already-`async` methods) and why
+   *   existing sync closures are unaffected.
    */
   constructor(
     private readonly getConfig?: () => (

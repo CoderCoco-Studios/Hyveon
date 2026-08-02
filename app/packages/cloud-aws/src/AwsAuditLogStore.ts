@@ -35,13 +35,12 @@ export class AwsAuditLogStore implements AuditLogStore {
    *   from `process.env` directly here, per CLAUDE.md's "no raw
    *   `process.env` in business logic" guideline.
    *
-   *   May return a `Promise` (task 7.4, `migrate-iac-to-pulumi`): the table
-   *   name is sourced from a deployed Pulumi stack's async outputs read
-   *   (`ConfigService.getStackOutputs()`) in the real app, via
-   *   `cloud-provider.module.ts`'s `resolveAuditLogStoreConfig`. Every real
-   *   invocation of this callback happens from inside this class's own
-   *   already-`async` public methods below, so awaiting it costs nothing —
-   *   no NestJS async-factory-provider gymnastics needed; the closure Nest's
+   *   May return a `Promise`: the table name is sourced from a deployed
+   *   Pulumi stack's async outputs read (`ConfigService.getStackOutputs()`)
+   *   in the real app, via `cloud-provider.module.ts`'s
+   *   `resolveAuditLogStoreConfig`. Every real invocation of this callback
+   *   happens from inside this class's own already-`async` public methods
+   *   below, so awaiting it costs nothing — the closure Nest's
    *   (synchronous) `useFactory` passes into the constructor just returns a
    *   `Promise` now instead of a plain value. Existing sync closures (e.g.
    *   this file's own tests) keep working unchanged — `await`ing a

@@ -12,19 +12,12 @@
 import type { ChangeSummary, OpType } from '@hyveon/shared';
 
 /**
- * Re-exported verbatim from `@hyveon/shared` rather than duplicated —
- * deliberately deviating from every other `Terraform*` type in this file's
- * usual "duplicate the shape + `Mirrors X — keep in sync` TSDoc" convention.
- * That convention exists to isolate the preload from the `@pulumi/pulumi`
- * Automation API's own types leaking across the IPC boundary — but
- * `ChangeSummary`/`OpType` (`@hyveon/shared/src/changeSummary.ts`) is
- * ALREADY that hand-maintained isolation layer, not a raw SDK re-export
- * (that file's own TSDoc explains it deliberately duplicates rather than
- * imports `@pulumi/pulumi/automation`'s `OpType`/`OpMap` byte-for-byte, for
- * exactly this reason). `@hyveon/web` already depends on `@hyveon/shared`
- * directly elsewhere, so re-exporting here avoids a 15-member `OpType`
- * union silently drifting out of sync between two independently
- * hand-maintained copies. Do not "fix" this back to duplication.
+ * Re-exported verbatim from `@hyveon/shared` rather than duplicated like the
+ * other `Terraform*` types in this file. `ChangeSummary`/`OpType` are
+ * already a hand-maintained isolation layer over `@pulumi/pulumi`'s own
+ * types (see `@hyveon/shared/src/changeSummary.ts`), so duplicating them
+ * again here would just be a second copy to drift out of sync — `@hyveon/web`
+ * already depends on `@hyveon/shared` directly elsewhere anyway.
  */
 export type { ChangeSummary, OpType };
 
@@ -94,39 +87,29 @@ export type LogChunk = string;
  *
  * Electron's `contextBridge` structured-clones every value that crosses the
  * isolated-world boundary. A raw `AsyncGenerator` is not structured-cloneable
- * — a bridged function that returns one throws synchronously with
- * `Uncaught Error: An object could not be cloned.` the moment the renderer
+ * — a bridged function that returns one throws synchronously
+ * (`Uncaught Error: An object could not be cloned.`) the moment the renderer
  * calls it, and the generator body never executes. This plain object — an
- * own `next()` function, an own `cancel()` function, and an own
- * `[Symbol.asyncIterator]` function returning itself — was empirically
- * verified to survive the clone boundary intact (functions proxy across the
- * bridge fine; a plain object with own function/symbol-keyed properties
- * clones as a plain object retaining those properties as live proxies to the
- * preload-side functions). It satisfies both `AsyncIterable<T>` and
+ * own `next()`, an own `cancel()`, and an own `[Symbol.asyncIterator]`
+ * returning itself — survives the clone boundary intact (functions proxy
+ * across the bridge fine) and satisfies both `AsyncIterable<T>` and
  * `AsyncIterator<T>`, so it can be consumed directly with
  * `for await (const chunk of handle)`.
  *
  * Cancellation is a `cancel()` method rather than an `AbortSignal` parameter:
  * `AbortSignal` instances also don't survive the `contextBridge` clone —
  * their prototype getters (`aborted`) and methods (`addEventListener`) are
- * stripped, leaving an inert plain object with no own enumerable keys, so a
- * preload-side `signal.addEventListener(...)` call throws
- * `TypeError: signal.addEventListener is not a function` the instant the
- * renderer passes one across. Call `cancel()` from a `useEffect` cleanup /
- * `finally` block instead of aborting a controller and passing its signal in.
+ * stripped, leaving an inert plain object with no own enumerable keys. Call
+ * `cancel()` from a `useEffect` cleanup / `finally` block instead of
+ * aborting a controller and passing its signal in.
  */
 export interface HyveonStreamHandle<T> {
   /**
    * Resolves the next chunk, or a result whose `done` is `true` once the
-   * stream ends (successfully or via {@link cancel}). Shaped exactly like the
-   * lib-standard `AsyncIterator<T>['next']` result — a discriminated union on
-   * `done`, carrying `value` only on the non-done branch — so TypeScript
-   * narrows the element type of a `for await (const chunk of handle)` loop to
-   * `T`, not `T | undefined`. This is deliberately not a single object type
-   * with both fields optional, which would lose that narrowing. On the
-   * terminal (done) result, `value` is always absent in practice: the bridge
-   * clone drops object properties whose value is `undefined` in transit, and
-   * these streams never resolve their return value to anything else.
+   * stream ends (successfully or via {@link cancel}). Shaped as a
+   * discriminated union on `done` (not a single type with both fields
+   * optional) so `for await (const chunk of handle)` narrows to `T`, not
+   * `T | undefined`.
    */
   next: () => Promise<{ done?: false; value: T } | { done: true; value?: undefined }>;
   /**
@@ -595,8 +578,8 @@ export interface AuditPageResult {
  * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
  * source of truth; keep this copy in sync with it. Named `TerraformRunChunk`
  * for historical reasons (this preload's namespace was `hyveon.terraform`
- * pre-migration) — not renamed by tasks 8.3/8.5, which rename only the IPC
- * namespace key and channel strings, not exported type names.
+ * pre-migration) — exported type names were not renamed when the namespace
+ * moved to `iac`.
  */
 export interface TerraformRunChunk {
   stream: 'stdout' | 'stderr';
@@ -612,8 +595,8 @@ export interface TerraformRunChunk {
  * source of truth; keep this copy in sync with it. Kept alive as a
  * transitional stub: the Pulumi engine has no `init` step, so
  * `iac.controller.ts`'s `init` handler is now a permanent rejection; its
- * only call site (`terraform-init-step.component.tsx`) is slated for full
- * replacement by task 10.3.
+ * only call site (`terraform-init-step.component.tsx`) is slated for
+ * replacement.
  */
 export interface TerraformInitConfig {
   bucket: string;
@@ -846,11 +829,9 @@ export interface TerraformStaleLockHolder {
  * Present on {@link TerraformPlanAck}/apply/destroy results instead of (or
  * alongside) `error` when the rejection was `PulumiUnrecognizedLockError` —
  * a Pulumi backend lock conflict that couldn't be proven to be this
- * installation's own orphaned run. This dispatch (tasks 8.3/8.5) only wires
- * the READ side through so the holder/age evidence reaches the renderer
- * instead of only `error`'s prose; task 9.4 ("stale-lock recovery UI with
- * explicit confirmation") designs the confirmation flow and any "clear the
- * lock" write path — no such channel exists yet.
+ * installation's own orphaned run. Only the read side is wired through
+ * today (holder/age evidence surfaced to the renderer); there is no
+ * "clear the lock" write path yet.
  */
 export interface TerraformStaleLockInfo {
   stackName: string;
@@ -860,13 +841,13 @@ export interface TerraformStaleLockInfo {
 /**
  * Immediate acknowledgement the `iac.plan` IPC channel resolves with.
  * `started: true` means a `runId` was minted and the run was kicked off in
- * the background — the streamed progress/final result are delivered
- * separately over the `iac.plan.chunk` / `iac.plan.end` side channels,
- * tagged with this same `runId`, but **nothing in this preload currently
- * listens on those side channels** — this ack and the ALREADY-bridged
- * `iac.runs.get`/`iac.runs.list` channels (see
+ * the background. The `iac.plan.chunk` / `iac.plan.end` side channels carry
+ * the streamed progress/final result tagged with this same `runId`, but
+ * **nothing in this preload currently listens on those side channels** —
+ * poll `iac.runs.get`/`iac.runs.list` (see
  * {@link TerraformRunRecord.changeSummary}/{@link RunHistoryRecord.changeSummary})
- * are the only paths a caller has to a plan's structured result today.
+ * for a plan's structured result instead.
+ *
  * `started: false` means the submission was rejected before any run was
  * attempted (no `runId` is present): `error` is a human-readable description
  * of why, `conflict` additionally names the already-running operation
@@ -875,19 +856,15 @@ export interface TerraformStaleLockInfo {
  * additionally carries holder/age evidence when the rejection was an
  * unrecognized Pulumi backend lock conflict — see
  * {@link TerraformStaleLockInfo}. `apply`/`destroy` (both resolve this same
- * ack shape) can hit this `staleLock` case too: `PulumiUnrecognizedLockError`
- * is only ever detected once the underlying operation has already settled,
- * so it surfaces here whenever that happens before the generator's first
- * chunk would otherwise have been queued (the common case in practice, since
- * a lock conflict is detected at the very start of `stack.up()`/
- * `stack.destroy()`, before typical output exists). If the conflict is
- * instead detected after real output has already streamed, the main process
- * still records `staleLock` — on `iac.controller.ts`'s internal
- * `TerraformApplyEndMessage`/`TerraformDestroyEndMessage` — but **this
- * preload has no listener on the `iac.apply.end`/`iac.destroy.end` side
- * channels** (see `TerraformPlanEndMessage`'s doc comment in
- * `iac.controller.ts`, "nothing subscribes to this channel yet"), so that
- * variant does not currently reach the renderer through this bridge.
+ * ack shape) can hit this `staleLock` case too, since
+ * `PulumiUnrecognizedLockError` is only ever detected once the underlying
+ * operation has already settled — typically before any real output has
+ * streamed, since the conflict is detected at the very start of
+ * `stack.up()`/`stack.destroy()`. If the conflict is instead detected after
+ * real output has already streamed, the main process still records
+ * `staleLock` internally, but **this preload has no listener on the
+ * `iac.apply.end`/`iac.destroy.end` side channels**, so that variant does
+ * not currently reach the renderer through this bridge.
  *
  * Mirrors `TerraformPlanAck` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
@@ -928,16 +905,13 @@ export interface TerraformRollbackResolveAck {
  * write was attempted and the restore-then-plan unit failed partway through
  * — `error` is always a human-readable description of why. **`versionId` is
  * ALSO populated on a `confirmed: false` result** specifically when the
- * failure is a `PulumiRollbackPlanFailedError` (the restore write succeeded
- * but the follow-up plan didn't) — it names the version that was actually
+ * restore write succeeded but the follow-up plan didn't
+ * (`PulumiRollbackPlanFailedError`) — it names the version that was actually
  * restored as the new head despite the result reporting failure, so a caller
  * can act on it (e.g. offer "plan against the restored version" as a next
- * step) instead of only reading it out of `error`'s prose. This dispatch
- * (tasks 8.3/8.5) only fixes this doc comment to stop describing
- * `confirmed: false` as "no write was attempted" unconditionally — it does
- * not change `rollback-action.component.tsx`'s error-handling logic to
- * actually use `versionId` in the failure branch; that UI improvement is
- * task 9.6's job.
+ * step) instead of only reading it out of `error`'s prose. Note
+ * `rollback-action.component.tsx`'s error-handling logic does not currently
+ * use `versionId` in the failure branch.
  *
  * Mirrors `TerraformRollbackConfirmAck` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
@@ -1016,15 +990,12 @@ export interface TerraformApproveAck {
  * Mirrors `TfOutputs` in `@hyveon/desktop-main/src/services/ConfigService.ts`
  * — that file is the source of truth; keep this copy in sync with it.
  *
- * **Dead surface (as of tasks 8.3/8.5):** `iac.controller.ts`'s `output`
- * handler now actually resolves `StackOutputs | null`
- * (`@hyveon/shared/src/stackOutputs.ts`), not `TfOutputs | null`, and its
- * `force` parameter is ignored — but this preload's `output()` type was left
- * unchanged because there is currently zero `window.hyveon.iac.output()`
- * call site anywhere in `@hyveon/web` (confirmed by grep; only
- * `e2e/screenshots/demo-data.ts` mocks the channel, to `null`). If a future
- * caller is added, this type's shape will need reconciling with
- * `StackOutputs` at that point — deliberately not done speculatively here.
+ * **Dead surface:** `iac.controller.ts`'s `output` handler now actually
+ * resolves `StackOutputs | null` (`@hyveon/shared/src/stackOutputs.ts`), not
+ * `TfOutputs | null`, and its `force` parameter is ignored — but this
+ * preload's `output()` type was left unchanged since nothing in
+ * `@hyveon/web` currently calls `window.hyveon.iac.output()`. Reconcile this
+ * type's shape with `StackOutputs` if a caller is ever added.
  */
 export interface TfOutputs {
   aws_region: string;
@@ -1470,15 +1441,13 @@ export interface HyveonIacApi {
    * {@link TerraformRunChunk}. Consume it with
    * `for await (const chunk of iac.init(config))`.
    *
-   * **Transitional stub (tasks 8.3/8.5):** the Pulumi engine has no `init`
-   * step, so `iac.controller.ts`'s `init` handler is now a permanent
-   * rejection — this call always resolves a stream whose end message
-   * carries an error, never a successful run. The channel and this method
-   * are kept wired (mechanically renamed from `terraform.init`, not deleted
-   * or special-cased) purely so `TerraformInitConfig`'s payload shape stays
-   * unchanged for its only call site,
-   * `terraform-init-step.component.tsx` — which task 10.3 will replace
-   * entirely, at which point this method should finally be removed.
+   * **Transitional stub:** the Pulumi engine has no `init` step, so
+   * `iac.controller.ts`'s `init` handler is now a permanent rejection —
+   * this call always resolves a stream whose end message carries an error,
+   * never a successful run. The channel and this method are kept wired
+   * purely so `TerraformInitConfig`'s payload shape stays unchanged for its
+   * only call site, `terraform-init-step.component.tsx`, which is slated
+   * for replacement.
    *
    * Internally this wraps the fixed `iac.init.chunk` / `iac.init.end`
    * side-channel IPC messages `IacController.init` sends in a
@@ -1713,10 +1682,9 @@ export interface HyveonApi {
   /**
    * Iac orchestration: plan/apply/destroy/rollback against the Pulumi-backed
    * engine, plus the transitional `terraform init` stub. Namespace renamed
-   * from `terraform` to `iac` by tasks 8.3/8.5 — only the namespace key and
-   * IPC channel strings moved; the `Terraform*`-prefixed payload/ack type
-   * names were deliberately left unrenamed (matches task 8.1's own
-   * precedent on the main-process side).
+   * from `terraform` to `iac` — only the namespace key and IPC channel
+   * strings moved; the `Terraform*`-prefixed payload/ack type names were
+   * deliberately left unrenamed.
    */
   iac: HyveonIacApi;
   /**

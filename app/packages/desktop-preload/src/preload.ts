@@ -51,10 +51,9 @@
  * never resolve/terminate a different call's generator. There is no dedicated
  * cancel channel — `cancel()` simply stops the generator from consuming
  * further chunks, since the main process has nothing to tear down early.
- * (Renamed from the `terraform.*` namespace by tasks 8.3/8.5; `IacController.init`
- * is now a permanent rejection stub — see `HyveonIacApi.init`'s doc comment in
- * `hyveon-api.ts` — kept wired only for its one remaining call site, pending
- * task 10.3's replacement.)
+ * (Renamed from the `terraform.*` namespace; `IacController.init` is now a
+ * permanent rejection stub — see `HyveonIacApi.init`'s doc comment in
+ * `hyveon-api.ts` — kept wired only for its one remaining call site.)
  *
  * `iac.plan(opts)` is a plain `invoke` — unlike `iac.init`, it does
  * not itself stream progress. It resolves the immediate `TerraformPlanAck`

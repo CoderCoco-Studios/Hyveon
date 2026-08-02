@@ -66,33 +66,19 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
  * name comes from `ConfigService.getStackOutputs()`'s `auditTableName`
  * (falling back to `''` when nothing has been deployed yet, so
  * `AwsAuditLogStore` surfaces its own "table not configured" error rather
- * than this factory silently defaulting somewhere), and the region from the
- * SAME resolved `outputs.awsRegion` when a stack is deployed (falling back
- * to `getRegion()`'s wizard-configured value only when nothing is deployed
- * yet). Exported as a standalone function — see
- * {@link resolveTfvarsFileStoreConfig} for why.
+ * than this factory silently defaulting somewhere), and the region prefers
+ * the same resolved `outputs.awsRegion` once a stack is deployed, falling
+ * back to `getRegion()`'s wizard-configured value otherwise — this
+ * self-corrects to whatever region a stack was actually provisioned into,
+ * in case it drifts from the wizard's credentials-step region. Exported as
+ * a standalone function — see {@link resolveTfvarsFileStoreConfig} for why.
  *
- * Region source, revisited: `ConfigService.getRegion()` reads the
- * wizard-configured `aws.region` rather than the deployed stack's own
- * `awsRegion` output (see that method's doc comment for why it can't
- * synchronously read stack outputs). But this function is already async and
- * already resolves `outputs` — so once a stack IS deployed, preferring
- * `outputs.awsRegion` here restores the old self-correcting behavior
- * (`DeploymentConfig.awsRegion`, operator-edited, is the value actually
- * provisioned into; nothing enforces it staying in sync with the wizard's
- * credentials-step region) for these DynamoDB clients specifically, at zero
- * extra cost.
- *
- * Async since task 7.4 (`migrate-iac-to-pulumi`): `getStackOutputs()`
- * replaced the synchronous `getTfOutputs()` this used to read. This is NOT
- * the "DI-factory async hazard" the task brief flagged — `CLOUD_BINDINGS.aws.auditLogStore`
- * below passes `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s
- * lazy `getConfig` closure, not as something the (synchronous) `useFactory`
- * provider below awaits itself; the closure is only ever invoked later, from
- * inside `AwsAuditLogStore`'s own already-`async` methods, where awaiting a
- * `Promise`-returning closure costs nothing extra. See `AwsAuditLogStore`'s
- * constructor doc comment for the same reasoning spelled out at the
- * consumer end.
+ * Async because `getStackOutputs()` is async-only. This is not a
+ * DI-factory hazard: `CLOUD_BINDINGS.aws.auditLogStore` below passes
+ * `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s lazy
+ * `getConfig` closure, invoked later from inside its own already-`async`
+ * methods — awaiting there costs nothing extra. See `AwsAuditLogStore`'s
+ * constructor doc comment for the same reasoning at the consumer end.
  */
 export async function resolveAuditLogStoreConfig(config: ConfigService): Promise<{ tableName: string; region: string }> {
   const outputs = await config.getStackOutputs();
@@ -103,18 +89,16 @@ export async function resolveAuditLogStoreConfig(config: ConfigService): Promise
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs to target the runs DynamoDB table and the
  * configuration S3 bucket used for offloaded run logs: the table name comes
- * from `ConfigService.getStackOutputs()`'s `runsTableName` (falling back to
- * `''` when nothing has been deployed yet), the bucket from
- * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
- * bucket is configured), and the region from the same resolved
- * `outputs.awsRegion` when a stack is deployed (falling back to
- * `getRegion()`'s wizard-configured value otherwise) — so `AwsRunRecordStore`
- * surfaces its own "not configured" errors rather than this factory silently
- * defaulting somewhere. Exported as a standalone function — see
+ * from `ConfigService.getStackOutputs()`'s `runsTableName`, the bucket from
+ * `ConfigService.getConfigurationBucket()`, and the region prefers the same
+ * resolved `outputs.awsRegion` once a stack is deployed, falling back to
+ * `getRegion()`'s wizard-configured value otherwise. Falls back to `''`
+ * where nothing is configured, so `AwsRunRecordStore` surfaces its own "not
+ * configured" errors rather than this factory silently defaulting
+ * somewhere. Exported as a standalone function — see
  * {@link resolveTfvarsFileStoreConfig} for why. Async for the same reason,
- * and with the same "not a DI-factory hazard" and "prefer `outputs.awsRegion`
- * once deployed" reasoning, as {@link resolveAuditLogStoreConfig} — see its
- * doc comment.
+ * with the same region-preference and "not a DI-factory hazard" reasoning,
+ * as {@link resolveAuditLogStoreConfig} — see its doc comment.
  */
 export async function resolveRunRecordStoreConfig(
   config: ConfigService,
@@ -173,16 +157,12 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
  * concrete AWS class — that's what keeps swapping the active cloud a one-module
  * change instead of a call-site hunt.
  *
- * `PulumiService.preview` (task 7.1, `migrate-iac-to-pulumi`) resolves
- * `REMOTE_FILE_STORE` from this module lazily via a `ModuleRef.get()`
- * strict-false lookup rather than a constructor dependency — see
- * `run-record.module.ts`'s doc comment for why a static `imports:` edge from
- * `PulumiServiceModule` back to this module (reachable from `ConfigModule`,
- * which imports `PulumiServiceModule`) was tried, found to deadlock the real
- * module graph even with every cycle edge `forwardRef()`-wrapped, and
- * abandoned in favor of the `ModuleRef` lookup. This module's own
- * `ConfigModule` import therefore stays the plain, non-circular import it
- * always was.
+ * `PulumiService.preview` resolves `REMOTE_FILE_STORE` from this module
+ * lazily via a `ModuleRef.get()` strict-false lookup rather than a
+ * constructor dependency, to avoid a module cycle through `ConfigModule`
+ * (which imports `PulumiServiceModule`) — see `run-record.module.ts` for the
+ * full explanation. This module's own `ConfigModule` import stays the
+ * plain, non-circular import it always was.
  */
 @Module({
   imports: [ConfigModule],
