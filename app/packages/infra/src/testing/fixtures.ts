@@ -7,7 +7,7 @@
 import type { DeploymentConfig, GameServerConfig } from '@hyveon/shared';
 
 /**
- * A representative `gameServers` map exercising every case task 3.4's
+ * A representative `gameServers` map exercising every case the
  * security-group dedup logic must handle:
  *  - `alpha` and `bravo` both declare `25565/tcp` — two different games
  *    sharing a port MUST collapse to a single ingress rule.

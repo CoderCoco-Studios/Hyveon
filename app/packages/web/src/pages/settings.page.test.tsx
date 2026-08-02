@@ -42,7 +42,7 @@ const hyveonMock = {
   },
 };
 
-/** Default top-level deployment settings the `DeploymentSettingsForm` (task 9.7) loads on mount. */
+/** Default top-level deployment settings the `DeploymentSettingsForm` loads on mount. */
 const SAMPLE_DEPLOYMENT_SETTINGS = {
   projectName: 'hyveon',
   awsRegion: 'us-east-1',
@@ -131,7 +131,7 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
   });
 
-  describe('Cloud Setup — Pulumi engine version row (task 10.4)', () => {
+  describe('Cloud Setup — Pulumi engine version row', () => {
     it('should render the resolved engine version and the pinned version once the read resolves', async () => {
       hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });

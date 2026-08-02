@@ -92,10 +92,9 @@ describe('createInfraProgram', () => {
   it('should resolve to the stack-outputs object when invoked', async () => {
     // Deliberately does not inspect individual resources or await any
     // returned Output field to its underlying value: `buildStackOutputs`
-    // (task 3.11) builds every field synchronously off `defineAll`'s
-    // resource handles (`.apply(...)` registers a callback but does not
-    // await it) — so, same as the closure's previous `void`-returning form,
-    // this test's own promise resolution does not depend on when the mocked
+    // builds every field synchronously off `defineAll`'s resource handles
+    // (`.apply(...)` registers a callback but does not await it), so this
+    // test's own promise resolution does not depend on when the mocked
     // resource-registration promise chains settle, and needs no completion
     // barrier. `defineAll` and `buildStackOutputs` field derivation are
     // covered field-by-field by the `buildStackOutputs` describe block below.
@@ -157,40 +156,40 @@ describe('defineAll', () => {
     expect(types.filter((type) => type === 'aws:ecs/taskDefinition:TaskDefinition')).toHaveLength(4);
     expect(types).not.toContain('aws:ecs/service:Service');
 
-    // Task 3.8: DynamoDB tables + Secrets Manager.
+    // DynamoDB tables + Secrets Manager.
     expect(types.filter((type) => type === 'aws:dynamodb/table:Table')).toHaveLength(3);
     expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(2);
     expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(2);
 
-    // Task 3.9's `route53.zone` lookup itself is a pure data-source — no
-    // resource. Task 3.x's `discordDomain` DOES declare Route 53 records (the
-    // ACM DNS-validation CNAME + the A/AAAA aliases to CloudFront) — static
-    // custom-domain infrastructure, not per-game records, so they do NOT
-    // violate the "DNS records are Lambda-managed" invariant (see
-    // `discordDomain.ts`'s file doc). Assert the FULL expected record set —
-    // by name, not just count — so a sneaky extra record (e.g. a per-game
-    // record slipping in) still fails this test.
+    // `route53.zone` lookup itself is a pure data-source — no resource.
+    // `discordDomain` DOES declare Route 53 records (the ACM DNS-validation
+    // CNAME + the A/AAAA aliases to CloudFront) — static custom-domain
+    // infrastructure, not per-game records, so they do NOT violate the "DNS
+    // records are Lambda-managed" invariant (see `discordDomain.ts`'s file
+    // doc). Assert the FULL expected record set — by name, not just count —
+    // so a sneaky extra record (e.g. a per-game record slipping in) still
+    // fails this test.
     const recordNames = mocks.resources.filter((resource) => resource.type === 'aws:route53/record:Record').map((resource) => resource.name);
     expect(recordNames.sort()).toEqual(
       ['hyveon-discord-acm-validation', 'hyveon-discord-alias-a', 'hyveon-discord-alias-aaaa'].sort(),
     );
 
-    // Tasks 3.6/3.7: the five Lambda functions — FIXTURE_GAME_SERVERS has no
-    // file_seeds, so only the four non-per-game functions are declared here.
+    // The four non-per-game Lambda functions — FIXTURE_GAME_SERVERS has no file_seeds, so
+    // only the four non-per-game functions are declared here.
     expect(types.filter((type) => type === 'aws:lambda/function:Function')).toHaveLength(4);
     expect(types).toContain('aws:lambda/functionUrl:FunctionUrl');
     expect(types.filter((type) => type === 'aws:cloudwatch/eventRule:EventRule')).toHaveLength(2);
 
-    // Task 3.5's other half: the five inline IAM policies (no efs-seeder policy for this fixture).
+    // The four inline IAM policies (no efs-seeder policy for this fixture).
     expect(types.filter((type) => type === 'aws:iam/rolePolicy:RolePolicy')).toHaveLength(4);
 
-    // Task 3.10: no table item/invocation for this fixture — buildTestDeploymentConfig's
+    // No table item/invocation for this fixture — buildTestDeploymentConfig's
     // defaults have empty base-allowlist/admin arrays, an empty discordApplicationId,
     // and FIXTURE_GAME_SERVERS declares no file_seeds.
     expect(types).not.toContain('aws:dynamodb/tableItem:TableItem');
     expect(types).not.toContain('aws:lambda/invocation:Invocation');
 
-    // Task 3.x: the Discord custom domain — one certificate, one validation, one distribution.
+    // The Discord custom domain — one certificate, one validation, one distribution.
     expect(types.filter((type) => type === 'aws:acm/certificate:Certificate')).toHaveLength(1);
     expect(types.filter((type) => type === 'aws:acm/certificateValidation:CertificateValidation')).toHaveLength(1);
     expect(types.filter((type) => type === 'aws:cloudfront/distribution:Distribution')).toHaveLength(1);

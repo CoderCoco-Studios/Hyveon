@@ -1,15 +1,14 @@
 /**
  * The five Lambda functions, their log groups, permissions, the interactions
  * Function URL, and the two EventBridge (CloudWatch Events) rule/target pairs
- * that trigger the watchdog and DNS-updater Lambdas — ported from
- * `terraform/aws/interactions.tf`, `followup.tf`, `watchdog.tf`, `route53.tf`
- * (its Lambda + EventBridge blocks only — the hosted-zone data-source lookup
- * is task 3.9's), and `efs-seeder.tf` (its Lambda block only — the shared
- * security group was moved to `securityGroups.ts` in a fix-review round, see
- * that file's doc for why, and the per-game IAM role/policy pair was already
- * ported by task 3.5, see `iam.ts`'s `IamRoleResources.efsSeederRoles` /
- * `IamPolicyResources.efsSeederPolicies`). Tasks 3.6 and 3.7 of
- * `migrate-iac-to-pulumi`.
+ * that trigger the watchdog and DNS-updater Lambdas. Functionally equivalent
+ * to `terraform/aws/interactions.tf`, `followup.tf`, `watchdog.tf`,
+ * `route53.tf` (its Lambda + EventBridge blocks only — the hosted-zone
+ * data-source lookup lives in `route53.ts`), and `efs-seeder.tf` (its Lambda
+ * block only — the shared security group is constructed in
+ * `securityGroups.ts`, see that file's doc for why, and the per-game IAM
+ * role/policy pair lives in `iam.ts`'s `IamRoleResources.efsSeederRoles` /
+ * `IamPolicyResources.efsSeederPolicies`).
  *
  * | HCL address | This file |
  * | --- | --- |
@@ -78,7 +77,7 @@
  * nonexistent path once bundled, which is worse than requiring the caller to
  * be explicit: it would look correct in every unit test (which import this
  * module directly from `src/`, unbundled) and only break inside the
- * packaged app, the one environment task 3.6 has no automated coverage of.
+ * packaged app, an environment this package's unit tests do not exercise.
  *
  * So the contract is: **every caller supplies `lambdaBundlesDir` explicitly**
  * — this package computes no fallback. Concretely:
@@ -89,44 +88,42 @@
  *    `@pulumi/pulumi`'s `asset/*.js`) — and `pulumi.runtime.setMocks`
  *    (`testing/pulumiMocks.ts`) intercepts every resource registration
  *    before any real engine or upload is involved, so no test needs a real
- *    bundle file to exist on disk, matching this task's brief.
- *  - **Phase 7's `PulumiService`** (`desktop-main`, not yet built) must
- *    resolve a real directory before calling `defineAll`/`createInfraProgram`,
- *    following the same three-tier pattern `ConfigService.getTfStatePath()`
- *    already establishes for `terraform.tfstate` (the configuration bucket's
- *    `getConfigurationBucket()`, post-`migrate-iac-to-pulumi` Phase 6, is a
- *    bucket *name* resolved from `ElectronStoreService`, not a filesystem
- *    path, so it's no longer an applicable precedent here): an env var
- *    override, then `app.isPackaged` → `path.join(process.resourcesPath, 'lambda')`,
- *    then a repo-relative dev fallback. The packaged branch is NOT satisfiable
- *    today without an `electron-builder.yml` change this task does not make:
- *    `app/packages/lambda/*\/dist/**` is not currently in that file's
- *    `files:`/`extraResources:` list (only `out/**` and the pinned
- *    `node_modules/**` closures are), so Phase 7 must add an `extraResources`
- *    entry copying each package's `dist/handler.cjs` to
- *    `resourcesPath/lambda/<name>/dist/handler.cjs` before this contract can
- *    resolve correctly in a packaged build.
+ *    bundle file to exist on disk.
+ *  - **`PulumiService`** (`desktop-main`, not yet built) must resolve a real
+ *    directory before calling `defineAll`/`createInfraProgram`, following the
+ *    same three-tier pattern `ConfigService.getTfStatePath()` establishes for
+ *    `terraform.tfstate` (the configuration bucket's
+ *    `getConfigurationBucket()` resolves a bucket *name* from
+ *    `ElectronStoreService`, not a filesystem path, so it isn't an
+ *    applicable precedent here): an env var override, then `app.isPackaged`
+ *    → `path.join(process.resourcesPath, 'lambda')`, then a repo-relative
+ *    dev fallback. The packaged branch is not yet satisfiable:
+ *    `app/packages/lambda/*\/dist/**` is not currently in
+ *    `electron-builder.yml`'s `files:`/`extraResources:` list (only `out/**`
+ *    and the pinned `node_modules/**` closures are), so `PulumiService` must
+ *    add an `extraResources` entry copying each package's `dist/handler.cjs`
+ *    to `resourcesPath/lambda/<name>/dist/handler.cjs` before this contract
+ *    can resolve correctly in a packaged build.
  *  - **`defineAll`/`createInfraProgram`** (`program.ts`) thread a second
  *    `options: InfraProgramOptions` parameter carrying `lambdaBundlesDir`
  *    straight through to the `defineLambdas` call inside `defineAll` — see
  *    `program.ts`'s `InfraProgramOptions` doc.
  *
- * ## Deferred inputs, now real
+ * ## Required environment-variable inputs
  *
- * Three environment variables across the five functions were only
- * resolvable once later tasks landed: `TABLE_NAME`/`DISCORD_PUBLIC_KEY_SECRET_ARN`
- * (DynamoDB + Secrets Manager, `dynamodb.ts`/`secrets.ts`) and
- * `HOSTED_ZONE_ID` (Route 53, `route53.ts`). {@link DefineLambdasArgs} threads
- * all three as required `pulumi.Input<string>` parameters
- * (`dynamodbDiscordTableName`, `discordPublicKeySecretArn`, `hostedZoneId`)
- * rather than optional ones, for the same reason `iam.ts`'s
- * `DefineIamPoliciesArgs` does: an optional parameter defaulting to
- * `undefined` would silently deploy a broken environment variable instead of
- * failing to compile. `program.ts`'s `defineAll` now supplies real values for
- * all three (`dynamoDb.discordTable.name`, `secrets.discordPublicKeySecret.arn`,
- * `route53.zoneId`) — see that file's doc for the full call sequence. The
- * EFS-seeder security group itself never had this blocker — it depends only
- * on `gameServers`/`vpcId`/`projectName` (`securityGroups.ts`'s
+ * `TABLE_NAME`/`DISCORD_PUBLIC_KEY_SECRET_ARN` (DynamoDB + Secrets Manager,
+ * `dynamodb.ts`/`secrets.ts`) and `HOSTED_ZONE_ID` (Route 53, `route53.ts`)
+ * are threaded through {@link DefineLambdasArgs} as required
+ * `pulumi.Input<string>` parameters (`dynamodbDiscordTableName`,
+ * `discordPublicKeySecretArn`, `hostedZoneId`) rather than optional ones,
+ * for the same reason `iam.ts`'s `DefineIamPoliciesArgs` does: an optional
+ * parameter defaulting to `undefined` would silently deploy a broken
+ * environment variable instead of failing to compile. `program.ts`'s
+ * `defineAll` supplies `dynamoDb.discordTable.name`,
+ * `secrets.discordPublicKeySecret.arn`, and `route53.zoneId` for these three
+ * — see that file's doc for the full call sequence. The EFS-seeder security
+ * group has no such requirement — it depends only on
+ * `gameServers`/`vpcId`/`projectName` (`securityGroups.ts`'s
  * `defineSecurityGroups`).
  *
  * ## Lambda role/policy creation order — a deliberate deviation from the HCL
@@ -134,17 +131,15 @@
  * Every `aws_lambda_function` in the HCL carries
  * `depends_on = [aws_iam_role_policy.<x>]`, forcing Terraform to attach each
  * function's inline policy before creating the function itself. This
- * program's call order is the opposite: `defineIamRoles` runs first (task
- * 3.5, already wired), `defineLambdas` runs next (this task) referencing
- * only each role's ARN (never its policy), and `defineIamPolicies` runs
- * last — necessarily, since one of its inputs
- * (`followupLambdaArn`) does not exist until `defineLambdas` has created the
- * followup function. `iam.ts`'s file doc lays out why no call order
- * satisfies both directions at once (`defineIamPolicies` needs a live Lambda
- * ARN; the HCL's `depends_on` wants the policy to exist before any Lambda
- * function does) — task 3.5 already accepted this trade-off for the whole
- * program, and this task inherits it rather than reopening it. Lambda
- * function creation only requires its execution role to exist and be
+ * program's call order is the opposite: `defineIamRoles` runs first,
+ * `defineLambdas` runs next referencing only each role's ARN (never its
+ * policy), and `defineIamPolicies` runs last — necessarily, since one of its
+ * inputs (`followupLambdaArn`) does not exist until `defineLambdas` has
+ * created the followup function. `iam.ts`'s file doc lays out why no call
+ * order satisfies both directions at once (`defineIamPolicies` needs a live
+ * Lambda ARN; the HCL's `depends_on` wants the policy to exist before any
+ * Lambda function does). Lambda function creation only requires its
+ * execution role to exist and be
  * assumable (AWS does not require every eventual permission to be attached
  * before a function can be created, only before it is successfully
  * invoked) — the deviation is a construction-order difference within a
@@ -273,8 +268,7 @@ export interface DefineLambdasArgs {
    * The directory every function's prebuilt `dist/handler.cjs` bundle is
    * resolved against — REQUIRED, with no default computed in this package.
    * See this file's doc, "The lambda-bundle path contract", for the full
-   * rationale and what a caller (tests now; Phase 7's `PulumiService`
-   * eventually) must supply.
+   * rationale and what a caller (tests; `PulumiService`) must supply.
    */
   lambdaBundlesDir: string;
 
@@ -398,18 +392,18 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
 /**
  * Declares every Lambda function, its log group, its permissions, the
  * interactions Function URL, and the watchdog/dns-updater EventBridge
- * rule/target/permission triples (tasks 3.6 and 3.7 of
- * `migrate-iac-to-pulumi`) — see this file's doc for the full HCL→Pulumi
- * address table and the lambda-bundle path contract. Must be called from
- * inside the Pulumi inline-program closure, never at module scope, and after
- * `defineIamRoles`, `defineSecurityGroups`, `defineEfs`, `defineEcs`,
- * `defineDynamoDb`, `defineSecrets`, and `defineRoute53` (all seven of whose
- * outputs it consumes — `defineSecurityGroups` for `efsSeederSecurityGroupId`,
- * the latter three for the deferred inputs described above). `program.ts`'s
- * `defineAll` calls this function in exactly that order.
+ * rule/target/permission triples — see this file's doc for the full
+ * HCL→Pulumi address table and the lambda-bundle path contract. Must be
+ * called from inside the Pulumi inline-program closure, never at module
+ * scope, and after `defineIamRoles`, `defineSecurityGroups`, `defineEfs`,
+ * `defineEcs`, `defineDynamoDb`, `defineSecrets`, and `defineRoute53` (all
+ * seven of whose outputs it consumes — `defineSecurityGroups` for
+ * `efsSeederSecurityGroupId`, the latter three for the required
+ * environment-variable inputs described above). `program.ts`'s `defineAll`
+ * calls this function in exactly that order.
  *
  * @param args - Naming, config, IAM, network, EFS, bundle-path, and
- *   deferred-value inputs — see {@link DefineLambdasArgs}.
+ *   environment-variable inputs — see {@link DefineLambdasArgs}.
  * @returns The declared resources — see {@link LambdaResources}.
  */
 export function defineLambdas(args: DefineLambdasArgs): LambdaResources {

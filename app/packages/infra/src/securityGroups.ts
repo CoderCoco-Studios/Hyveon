@@ -1,24 +1,23 @@
 /**
- * Security-group resources — ported from `terraform/aws/main.tf`'s
- * `## Security Groups` block (`game_servers`, `file_manager`, `efs`) plus
- * `aws_security_group.efs_seeder` from `terraform/aws/efs-seeder.tf`.
+ * Security-group resources: `game_servers`, `file_manager`, `efs`, and a
+ * conditional `efs_seeder` group for EFS-seeder Lambdas
+ * (`aws_security_group.efs_seeder` in the HCL equivalent).
  *
- * `efs_seeder` lives in THIS file, not `lambdas.ts`, as of a fix-review
- * round on task 3.6/3.7: an earlier version declared the seeder security
- * group in `lambdas.ts` and attached its ingress rule to `efs` as a
- * standalone `aws.ec2.SecurityGroupRule`. `@pulumi/aws`'s own
- * `SecurityGroupRule` docs warn explicitly against mixing a security
- * group's in-line `ingress`/`egress` rules with standalone
+ * `efs_seeder` lives in THIS file, not `lambdas.ts`. Declaring the seeder
+ * security group in `lambdas.ts` and attaching its ingress rule to `efs` as
+ * a standalone `aws.ec2.SecurityGroupRule` would conflict with `@pulumi/aws`'s
+ * own `SecurityGroupRule` docs, which warn explicitly against mixing a
+ * security group's in-line `ingress`/`egress` rules with standalone
  * `SecurityGroupRule` resources targeting that same group — the combination
  * produces rule conflicts, perpetual diffs, and rules getting silently
  * overwritten. The `efs` group here already declares its NFS-from-game-
- * servers rule in-line, so that mix was exactly the broken combination:
+ * servers rule in-line, so that mix would be exactly the broken combination:
  * every `pulumi up`/refresh with a seeded game would see the seeder's
  * standalone rule as drift against `efs`'s own in-line state and fight over
  * it, flapping NFS port 2049 access.
  *
- * The fix does what the HCL itself does: `aws_security_group.efs`'s second
- * ingress rule (`main.tf`'s second `dynamic "ingress"` block, gated on
+ * Instead, this mirrors what the HCL itself does: `aws_security_group.efs`'s
+ * second ingress rule (`main.tf`'s second `dynamic "ingress"` block, gated on
  * `local.games_with_seeds` being non-empty) is a second IN-LINE entry in
  * the SAME resource's `ingress` array, not a separate resource. Reproducing
  * that in Pulumi means the seeder security group must exist BEFORE `efs`'s
@@ -133,10 +132,10 @@ export function hasHttpsGame(gameServers: Record<string, GameServerConfig>): boo
 }
 
 /**
- * Declares the `game_servers`, `file_manager`, and `efs` security groups
- * (task 3.4 of `migrate-iac-to-pulumi`). Must be called from inside the
- * Pulumi inline-program closure (see `program.ts`'s
- * {@link createInfraProgram}/`defineAll`), never at module scope.
+ * Declares the `game_servers`, `file_manager`, `efs`, and conditional
+ * `efs_seeder` security groups. Must be called from inside the Pulumi inline-program closure (see
+ * `program.ts`'s {@link createInfraProgram}/`defineAll`), never at module
+ * scope.
  *
  * Terraform's `lifecycle { create_before_destroy = true }` on `game_servers`
  * and `file_manager` (NOT present on `efs` — the HCL omits it there) is not

@@ -351,7 +351,7 @@ interface TerraformRollbackResolveAck {
  * completed successfully — `versionId` is the restored version's id, ready
  * to pass to `iac.plan`'s `tfvarsVersionId` (alongside
  * `rolledBackFrom: applyRunId`) for a renderer that still drives the
- * pre-migration two-call flow (see {@link IacController.confirmRollback}'s
+ * existing two-call flow (see {@link IacController.confirmRollback}'s
  * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
  * `confirmed: false` means no write was attempted, or a write was attempted
  * and the restore-then-plan unit failed partway through — `error` is always
@@ -948,9 +948,8 @@ export class IacController implements OnModuleInit {
    * {@link TerraformPlanEndMessage}'s doc comment for why `exitCode` is a
    * plain `0`/`null` pair now rather than a recovered process exit code.
    *
-   * Unlike the pre-migration version of this method, there is no
-   * `RunService.createRun`/`releaseRun` call anywhere in this controller any
-   * more, and no redundant "release the lock in this controller's own
+   * There is no `RunService.createRun`/`releaseRun` call anywhere in this
+   * controller, and no redundant "release the lock in this controller's own
    * `finally` too" safety net — `PulumiService.apply`'s own gate acquires the
    * durable lock and its own persistence path (`RunRecordService.persist`'s
    * `finally`) releases it on every settlement path, including a
@@ -1146,10 +1145,9 @@ export class IacController implements OnModuleInit {
    * a single terminal message is sent on {@link DESTROY_END_CHANNEL}, mirroring
    * {@link TerraformApplyEndMessage}'s `exitCode` convention.
    *
-   * Unlike the pre-migration version of this method, there is no
-   * `RunService.createRun`/`releaseRun` call anywhere in this controller any
-   * more — `PulumiService.destroy`'s own gate and persistence path own that
-   * entirely, mirroring {@link apply}.
+   * There is no `RunService.createRun`/`releaseRun` call anywhere in this
+   * controller — `PulumiService.destroy`'s own gate and persistence path own
+   * that entirely, mirroring {@link apply}.
    *
    * Creates its own `AbortController` per invocation and registers it in
    * {@link activeDestroys} keyed by `runId`, the same reasoning as

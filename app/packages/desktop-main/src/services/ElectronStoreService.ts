@@ -390,13 +390,13 @@ export class ElectronStoreService {
 
   /**
    * Records that an infrastructure operation against `stackName` is about to
-   * invoke the Pulumi engine — Task 4.8's ownership-record mechanism (see
-   * {@link PulumiLockOwnershipRecord}'s doc comment). Must be called
-   * immediately before the SDK invocation that could take the backend's DIY
-   * lock, so a crash or the Task 4.7 forceful-termination escalation path
-   * mid-operation still leaves a record this installation can later prove
-   * against via `PulumiLockRecovery.classifyStackLockConflict`. Merges into
-   * any existing `pulumi.lockOwnership` map rather than overwriting it.
+   * invoke the Pulumi engine (see {@link PulumiLockOwnershipRecord}'s doc
+   * comment). Must be called immediately before the SDK invocation that could
+   * take the backend's DIY lock, so a crash or a forceful-termination
+   * escalation mid-operation still leaves a record this installation can
+   * later prove against via `PulumiLockRecovery.classifyStackLockConflict`.
+   * Merges into any existing `pulumi.lockOwnership` map rather than
+   * overwriting it.
    *
    * @returns The freshly-minted run id. Pass it to
    *   {@link clearPulumiLockAttempt} once the operation completes *normally*

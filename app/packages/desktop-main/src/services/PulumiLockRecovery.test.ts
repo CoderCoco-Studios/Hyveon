@@ -1,6 +1,6 @@
 /**
- * Unit tests for Task 4.8's stale-backend-lock-recovery primitives, covering
- * the `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
+ * Unit tests for the stale-backend-lock-recovery primitives, covering the
+ * `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
  * requirement's four scenarios: "Force-terminated run reclaims its own
  * lock", "Unrecognised lock requires confirmation with evidence", "Another
  * machine's active lock is not presented as stale", and "In-app concurrency
@@ -8,10 +8,10 @@
  * describe block below explaining why this module never even sees that
  * case, so it is argued in prose/TSDoc rather than exercised by a test).
  *
- * Also covers the fix-round findings: a live same-machine lock must never be
- * classified as reclaimable regardless of identity match, ownership records
- * must be pruned after a bounded age, and evidence used to justify a reclaim
- * must be consumed (cleared) rather than reusable.
+ * Also covers: a live same-machine lock must never be classified as
+ * reclaimable regardless of identity match, ownership records must be
+ * pruned after a bounded age, and evidence used to justify a reclaim must
+ * be consumed (cleared) rather than reusable.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'node:module';

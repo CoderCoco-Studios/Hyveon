@@ -1,92 +1,65 @@
 /**
- * The HCL's remaining "imperative escape" resources (task 3.10 of
- * `migrate-iac-to-pulumi`): resources whose Terraform declaration reaches
- * beyond pure declarative infrastructure management — seeding a mutable
- * DynamoDB row, invoking a deployed Lambda as a one-shot build step, or
- * shelling out via a local-exec provisioner. The task-3.8-3.10 brief lists
- * five such HCL resources; this file accounts for three of them directly,
- * one lives in `secrets.ts` (by the brief's own instruction), and one has no
- * Pulumi port at all — see the table and the two sections below.
+ * Imperative-escape resources: infrastructure whose declaration reaches
+ * beyond pure declarative management — seeding a mutable DynamoDB row, or
+ * invoking a deployed Lambda as a one-shot build step. This file declares
+ * three such resources directly; one more (the Discord secret versions)
+ * lives in `secrets.ts`, and one has no Pulumi equivalent at all — see the
+ * table and the two sections below.
  *
- * | HCL address | This file / elsewhere |
+ * | Resource | Declared by |
  * | --- | --- |
- * | `aws_dynamodb_table_item.discord_base_config` | {@link DiscordTableItemResources.discordBaseConfigItem} |
- * | `aws_dynamodb_table_item.discord_config_seed` | {@link DiscordTableItemResources.discordConfigSeedItem} |
- * | `aws_lambda_invocation.efs_seeder` (`for_each`) | {@link defineEfsSeederInvocations}'s return value |
- * | `aws_secretsmanager_secret_version.discord_bot_token` / `discord_public_key` | `secrets.ts`'s `SecretsResources` — see that file's doc, "Create-only secret versions," for why they live there instead |
- * | `terraform_data.discord_register_commands` | **NOT ported** — see "Why `terraform_data.discord_register_commands` has no Pulumi analogue" below |
+ * | Discord `BASE#discord` table row | {@link DiscordTableItemResources.discordBaseConfigItem} |
+ * | Discord `CONFIG#discord` table row | {@link DiscordTableItemResources.discordConfigSeedItem} |
+ * | Per-game EFS-seeder invocation | {@link defineEfsSeederInvocations}'s return value |
+ * | Discord bot-token / public-key secret versions | `secrets.ts`'s `SecretsResources` — see that file's doc, "Create-only secret versions" |
+ * | Discord slash-command auto-registration | not ported — see "Why command auto-registration has no Pulumi analogue" below |
  *
- * ## Why each ported resource is not a plain declarative resource
+ * ## Why each of these is not a plain declarative resource
  *
- * - **`aws_dynamodb_table_item` (×2)** — a DynamoDB *row*, not
- *   infrastructure; `aws.dynamodb.TableItem` exists specifically because
- *   Terraform (and Pulumi) otherwise has no declarative way to seed a
- *   table's initial content. Both items are conditional, mirroring the HCL's
- *   `count = ... ? 1 : 0` guards exactly (`undefined` when the guard's
- *   condition is false — same optional-resource contract
- *   `securityGroups.ts`'s `efsSeeder` already establishes for this package).
+ * - **The two Discord table rows** are DynamoDB *rows*, not infrastructure;
+ *   `aws.dynamodb.TableItem` exists specifically because there is no other
+ *   declarative way to seed a table's initial content. Both are conditional
+ *   — `undefined` when their guard condition doesn't hold, the same
+ *   optional-resource contract `securityGroups.ts`'s `efsSeeder` uses.
  *   {@link DiscordTableItemResources.discordConfigSeedItem} carries
- *   `ignoreChanges: ['item']` — the Pulumi equivalent of the HCL's
- *   `lifecycle { ignore_changes = [item] }` — so the management app's own
- *   `PutItem` writes to the `CONFIG#discord` row (the Discord Settings save
- *   path) are never reverted by a later `pulumi up`.
- *   {@link DiscordTableItemResources.discordBaseConfigItem} carries NO such
- *   option, matching the HCL exactly: the `BASE#discord` row is recomputed
- *   from `baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds` on every
+ *   `ignoreChanges: ['item']` so the management app's own `PutItem` writes to
+ *   the `CONFIG#discord` row (the Discord Settings save path) are never
+ *   reverted by a later `pulumi up`. {@link DiscordTableItemResources.discordBaseConfigItem}
+ *   carries no such option: the `BASE#discord` row is recomputed from
+ *   `baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds` on every
  *   deploy, by design — `deploymentConfig.ts`'s doc on those three fields
  *   describes this as "an immutable floor the management UI can never
  *   remove."
  *
- * - **`aws_lambda_invocation`** — invokes an already-deployed Lambda as a
+ * - **The EFS-seeder invocation** runs an already-deployed Lambda as a
  *   one-shot *build step* (writing a file to EFS through the seeder Lambda),
  *   not a resource with its own AWS-side lifecycle; `aws.lambda.Invocation`
- *   (`lifecycleScope: 'CREATE_ONLY'`, the default) exists for exactly this
- *   "run this Lambda once, then again only if its input changed" shape — see
- *   its own SDK doc: "By default this resource only invokes the function
- *   when the arguments call for a create or replace... To dynamically invoke
- *   the function, see the triggers example." The HCL's
- *   `triggers.seeds_hash` (a content hash of that game's `file_seeds`)
- *   becomes this construct's own `triggers` map below, reproducing the same
- *   re-invoke-iff-content-changed semantics. Per the task-3.8-3.10 brief's
- *   review-mandated constraint, each invocation also carries an explicit
- *   `dependsOn` on `efsSeederPolicies[game]` — the HCL didn't need this
- *   (Terraform's own `depends_on = [..., aws_iam_role_policy.efs_seeder]`
- *   handled the ordering there), but see `lambdas.ts`'s file doc, "Lambda
- *   role/policy creation order": this program's IAM policies attach strictly
- *   AFTER the functions they target now exist, so the invocation — which
- *   genuinely needs the policy's `elasticfilesystem:ClientWrite` grant live
- *   at invoke time — has no automatic Pulumi dependency edge onto it
- *   otherwise.
+ *   (`lifecycleScope: 'CREATE_ONLY'`, the default) only re-invokes when its
+ *   `triggers` map changes. Each game's `triggers.seedsHash` is a content
+ *   hash of that game's `file_seeds`, so the invocation re-runs iff the seed
+ *   content changes. Each invocation also carries an explicit `dependsOn` on
+ *   `efsSeederPolicies[game]`: see `lambdas.ts`'s file doc, "Lambda
+ *   role/policy creation order" — this program's IAM policies attach after
+ *   the Lambda functions they target, so the invocation, which needs the
+ *   policy's `elasticfilesystem:ClientWrite` grant live at invoke time, has
+ *   no automatic dependency edge onto it otherwise.
  *
- * ## Why `terraform_data.discord_register_commands` has no Pulumi analogue
+ * ## Why command auto-registration has no Pulumi analogue
  *
- * NOT ported, deliberately — no resource is declared for it anywhere in this
- * package. The HCL resource shells out to `curl` (via a `local-exec`
- * provisioner) with `var.discord_bot_token` injected as an environment
- * variable, to auto-register slash commands in every `base_allowed_guilds`
- * entry at `apply` time. That requires the live bot token as an input — and
- * the bot token is precisely the value `pulumi-infra-program`'s "No secret
- * material enters the stack" requirement forbids this program from
- * accepting (`DeploymentConfig` — `@hyveon/shared` — has no such field; see
- * `secrets.ts`'s file doc). There is no way to port this resource's effect
- * without reopening the exact route that requirement closes, so it is not
- * ported — not "deferred," not "TODO," a deliberate permanent omission.
+ * Not ported, deliberately — no resource is declared for it anywhere in this
+ * package. Auto-registering Discord slash commands in every
+ * `base_allowed_guilds` entry requires the live bot token as an input, and
+ * the bot token is precisely the value this program's "no secret material
+ * enters the stack" requirement forbids it from accepting (`DeploymentConfig`
+ * — `@hyveon/shared` — has no such field; see `secrets.ts`'s file doc).
  *
- * This is safe because the HCL's own effect for base guilds was only ever a
- * convenience, not the only path to that outcome:
- * `terraform/aws/discord_store.tf`'s own file doc already documents that
- * "Guilds added later via the management UI still require the 'Register
- * commands' button in the Guilds tab" — i.e. the app already has, and has
- * always had, a manual fallback for exactly this action
- * (`desktop-main/src/services/DiscordCommandRegistrar.ts`, wired to a button
- * on the Discord settings page — its own file doc: "the operator clicks
- * 'Register commands' in the web UI for each allowlisted guild"). Post
- * migration, an operator who has configured `baseAllowedGuilds` clicks that
- * same button once per base guild after the first deploy, instead of
- * Terraform doing it automatically at `apply` time. No functionality is
- * lost — only the one-time convenience of not having to click a button per
- * base guild — and the alternative (accepting a live bot token as a Pulumi
- * program input) would be strictly worse.
+ * This is safe because the app already has a manual fallback for the same
+ * action: an operator who has configured `baseAllowedGuilds` clicks
+ * "Register commands" in the Guilds tab of the Discord settings page once
+ * per base guild after the first deploy
+ * (`desktop-main/src/services/DiscordCommandRegistrar.ts`). No functionality
+ * is lost — only the one-time convenience of not clicking a button per base
+ * guild.
  */
 
 import * as crypto from 'node:crypto';
@@ -130,34 +103,25 @@ export interface DefineDiscordTableItemsArgs {
 }
 
 /**
- * Builds the `pulumi.CustomResourceOptions` this file's two SPEC-CRITICAL/
- * review-mandated resource kinds are declared with: the `discord_config_seed`
- * item's create-only `ignoreChanges: ['item']` (the Pulumi equivalent of the
- * HCL's `lifecycle { ignore_changes = [item] }`) and each EFS-seeder
- * invocation's required `dependsOn: [policy]` edge (see this file's doc,
- * "Why each ported resource is not a plain declarative resource," for both
- * rationales). Exposed as methods on an exported object (not bare functions)
- * specifically so a spec can `vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem')`/
+ * Builds the `pulumi.CustomResourceOptions` for this file's two resources
+ * that need more than the bare `{ provider }` option: the
+ * `discord_config_seed` item's create-only `ignoreChanges: ['item']`, and
+ * each EFS-seeder invocation's required `dependsOn: [policy]` edge (see this
+ * file's doc, "Why each of these is not a plain declarative resource," for
+ * both rationales).
+ *
+ * Exposed as methods on an exported object, not bare functions, so a spec
+ * can `vi.spyOn(escapeResourceOptions, 'forDiscordConfigSeedItem')` /
  * `vi.spyOn(escapeResourceOptions, 'forEfsSeederInvocation')` and assert
- * {@link defineDiscordTableItems}/{@link defineEfsSeederInvocations}
- * themselves call these exact functions at each resource's construction
- * site — not merely that the functions, called directly, return the right
- * shape. Pulumi's mock test harness (`testing/pulumiMocks.ts`) does not
- * expose `ignoreChanges`/`dependsOn` (or any other `CustomResourceOptions`
- * field) to a `newResource` mock callback — confirmed by reading
- * `@pulumi/pulumi`'s `runtime/mocks.d.ts`, whose `MockResourceArgs` carries
- * only `type`/`name`/`inputs`/`provider`/`custom`/`id` — so there is no way
- * to assert either option's presence by inspecting a recorded resource the
- * way every other test in this package does. A test that only calls
- * `escapeResourceOptions.forX(...)` directly and checks its return value
- * would NOT catch a future edit that quietly swaps a construction call site
- * back to the plain `{ provider }` options in scope (silently dropping the
- * create-only guard, or the required `dependsOn` edge) — the spy closes
- * exactly that gap, by asserting the function object the `defineX` caller
- * actually invokes, not a same-named copy the test constructs independently.
- * `secrets.ts`'s `secretResourceOptions` establishes this same pattern for
- * the two secret versions — see that file's doc for the identical rationale
- * spelled out in full.
+ * that {@link defineDiscordTableItems}/{@link defineEfsSeederInvocations}
+ * actually call these functions at each resource's construction site.
+ * Pulumi's mock test harness (`testing/pulumiMocks.ts`) does not expose
+ * `ignoreChanges` or `dependsOn` to a `newResource` mock callback, so there
+ * is no way to assert either option's presence by inspecting a recorded
+ * resource the way other tests in this package do — the spy is the only way
+ * to catch a future edit that quietly reverts a call site back to plain
+ * `{ provider }` options. `secrets.ts`'s `secretResourceOptions` uses the
+ * same pattern for its two secret versions.
  */
 export const escapeResourceOptions = {
   /**
@@ -179,9 +143,8 @@ export const escapeResourceOptions = {
 };
 
 /**
- * Declares the two conditional Discord table rows (task 3.10 of
- * `migrate-iac-to-pulumi`) — see this file's doc for the full HCL→Pulumi
- * address table and rationale. Must be called from inside the Pulumi
+ * Declares the two conditional Discord table rows — see this file's doc for
+ * the resource table and rationale. Must be called from inside the Pulumi
  * inline-program closure, never at module scope, and after `dynamodb.ts`'s
  * `defineDynamoDb` (its `discordTable` is a required input here).
  *
@@ -278,13 +241,10 @@ export interface DefineEfsSeederInvocationsArgs {
 
 /**
  * Computes the `triggers.seedsHash` value every invocation is declared with
- * — a SHA-256 digest of the game's `file_seeds` array, reproducing the HCL's
- * `sha256(jsonencode(each.value.file_seeds))` content-addressed re-invoke
- * trigger (exact hash value need not match the retired Terraform state's own
- * hash — there is no state migration across this rewrite — only that it
- * changes if and only if the seed content changes, which a stable
+ * — a SHA-256 digest of the game's `file_seeds` array. The hash only needs
+ * to change if and only if the seed content changes, which a stable
  * `JSON.stringify` over the same in-memory config value guarantees across
- * repeated calls).
+ * repeated calls.
  *
  * @param fileSeeds - The game's `file_seeds` array (possibly empty/undefined).
  * @returns A hex-encoded SHA-256 digest.
@@ -294,10 +254,10 @@ function fileSeedsHash(fileSeeds: GameServerConfig['file_seeds']): string {
 }
 
 /**
- * Declares one `aws.lambda.Invocation` per game with `file_seeds` (task 3.10
- * of `migrate-iac-to-pulumi`) — see this file's doc for the full rationale
- * and the review-mandated `dependsOn` constraint. Must be called from inside
- * the Pulumi inline-program closure, never at module scope, and after both
+ * Declares one `aws.lambda.Invocation` per game with `file_seeds` — see this
+ * file's doc for the full rationale and the required `dependsOn` constraint.
+ * Must be called from inside the Pulumi inline-program closure, never at
+ * module scope, and after both
  * `lambdas.ts`'s `defineLambdas` (its `efsSeederFunctions`) and `iam.ts`'s
  * `defineIamPolicies` (its `efsSeederPolicies`) — the only call order that
  * satisfies this function's required `dependsOn` edge.

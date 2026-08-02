@@ -1,12 +1,11 @@
 /**
- * Unit tests for Task 4.9's leaked-promise-handling primitives, covering
- * design.md's "Leaked-promise check throws on the success path" risk: a
- * successful Pulumi operation must not be reported as a failure merely
- * because the inline program left a dangling promise.
+ * Unit tests for the leaked-promise-handling primitives: a successful
+ * Pulumi operation must not be reported as a failure merely because the
+ * inline program left a dangling promise.
  *
  * Constructs the exact message shape `debuggable.leakedPromises()`
- * (`node_modules/@pulumi/pulumi/runtime/debuggable.js`) produces, verified
- * during this task's investigation, rather than a hand-waved approximation.
+ * (`node_modules/@pulumi/pulumi/runtime/debuggable.js`) produces, rather
+ * than a hand-waved approximation.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'node:module';

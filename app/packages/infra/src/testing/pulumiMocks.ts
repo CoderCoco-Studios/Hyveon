@@ -2,9 +2,9 @@
  * Shared Pulumi unit-test harness — the pattern every `@hyveon/infra` spec
  * uses to exercise resource-declaring code without an engine, AWS, or the
  * network, via `@pulumi/pulumi`'s `pulumi.runtime.setMocks` (the SDK's
- * standard unit-test seam). Established by task 3.1/3.4 of
- * `migrate-iac-to-pulumi`; every later Phase-3 dispatch (EFS, ECS, IAM,
- * Lambdas, ...) reuses it rather than re-deriving its own mock wiring.
+ * standard unit-test seam). Every `defineX` module in this package (EFS,
+ * ECS, IAM, Lambdas, ...) reuses this harness rather than re-deriving its
+ * own mock wiring.
  *
  * Usage: call {@link installPulumiMocks} before constructing any Pulumi
  * resource (typically in a `beforeEach`), then run the code under test and
@@ -97,8 +97,8 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
   'aws:index/getAvailabilityZones:getAvailabilityZones': {
     names: ['us-east-1a', 'us-east-1b', 'us-east-1c'],
   },
-  // `route53.ts`'s `defineRoute53` (task 3.9) — a fixed result regardless of
-  // the queried `name`, matching every other entry in this table.
+  // `route53.ts`'s `defineRoute53` — a fixed result regardless of the
+  // queried `name`, matching every other entry in this table.
   'aws:route53/getZone:getZone': {
     zoneId: 'Z1234567890ABC',
     name: 'example.com',
@@ -121,8 +121,8 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
  * {@link CALL_MOCKS} for regular (non-data-source) resources. Every other
  * `defineX` module in this package only ever reads a mocked resource's `id`
  * downstream (always present — {@link installPulumiMocks} synthesizes it for
- * every resource), so this table stayed empty until `discordDomain.ts` (task
- * 3.x) needed to read `aws.acm.Certificate.domainValidationOptions` and
+ * every resource); `discordDomain.ts`'s `defineDiscordDomain` is the
+ * exception, needing to read `aws.acm.Certificate.domainValidationOptions` and
  * `aws.cloudfront.Distribution.domainName`/`hostedZoneId` — none of which are
  * INPUT properties, so the generic `state: mockArgs.inputs` echo below never
  * populates them, and code that reads them (e.g.
@@ -170,9 +170,9 @@ const RESOURCE_STATE_MOCKS: Record<string, (inputs: Record<string, unknown>) => 
   'aws:route53/record:Record': (inputs) => ({
     fqdn: typeof inputs.name === 'string' && inputs.name.endsWith('.') ? inputs.name : `${inputs.name as string}.`,
   }),
-  // `lambdas.ts`'s `defineLambdas` (tasks 3.6/3.7) — `functionUrl` is
-  // AWS-assigned at create time, and `discordDomain.ts`'s `defineDiscordDomain`
-  // (task 3.x) reads it to derive the CloudFront origin domain.
+  // `lambdas.ts`'s `defineLambdas` — `functionUrl` is AWS-assigned at create
+  // time, and `discordDomain.ts`'s `defineDiscordDomain` reads it to derive
+  // the CloudFront origin domain.
   'aws:lambda/functionUrl:FunctionUrl': () => ({
     functionUrl: 'https://mock-function-url.lambda-url.us-east-1.on.aws/',
   }),

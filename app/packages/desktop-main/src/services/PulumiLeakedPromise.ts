@@ -1,10 +1,10 @@
 import { logger } from '../logger.js';
 
 /**
- * Task 4.9's leaked-promise-handling primitive, satisfying design.md's Risks
- * section: "If the inline program leaves dangling promises, `onPulumiExit`
- * throws *after* an otherwise successful operation. Handle 'succeeded then
- * threw' so a successful apply is not reported as a failure."
+ * Leaked-promise-handling primitive: if the inline Pulumi program leaves
+ * dangling promises, the SDK's `onPulumiExit` throws *after* an otherwise
+ * successful operation. This module lets a caller treat "succeeded, then
+ * threw because of a leaked promise" as a success rather than a failure.
  *
  * ## Verified from source: exactly where and why this throw happens
  *
@@ -67,12 +67,10 @@ import { logger } from '../logger.js';
  * is, by that same construction, proof the actual CLI operation succeeded —
  * no separate CLI-exit-code tracking is needed to corroborate it.
  *
- * ## Verified: recovering "success" this way still leaks gRPC servers and a temp log file
+ * ## Recovering "success" this way still leaks gRPC servers and a temp log file
  *
- * A review of this task's first draft caught that its own quoted source
- * already proved a further, unaddressed consequence. Re-reading `stack.js`'s
- * `up()` (lines ~276-279 for `onExit`'s definition, ~303-306 for the
- * `finally` block that calls it) closely: `onExit` itself is
+ * `stack.js`'s `up()` (lines ~276-279 for `onExit`'s definition, ~303-306 for
+ * the `finally` block that calls it): `onExit` itself is
  *
  * ```js
  * onExit = (hasError) => {
@@ -103,37 +101,34 @@ import { logger } from '../logger.js';
  * of that — the operation is recorded as having succeeded, so nothing
  * downstream has any reason to notice a server or file was left behind.
  *
- * This directly contradicts design.md's Risks section claim ("every gRPC
- * server and temp resource is torn down in a `finally`") for this one
- * specific path — that claim is true for every *other* exit from `up`/
- * `preview`/`destroy` (a genuine failure, or a genuine success with no
- * leaked promise), just not this one, and design.md has been corrected to
- * say so. This is the same class of failure as the `@cdktf/hcl2json`
- * quit-hang incident this repo has already been burned by once. Nothing in
- * this module can fix it — `server`, `eventsServer`, and `logFile` are
- * local variables entirely inside `stack.js`, never exposed to any caller —
- * so the mitigation is process-level, not code-level: **Phase 7/11's "app
- * quits cleanly after an operation" e2e check must specifically include a
- * run that exercises this leaked-promise-recovery path** (an inline program
- * that deliberately leaves a dangling promise), not only the ordinary
- * happy-path `up`/`destroy`, since the happy path alone cannot catch this.
+ * This one exit path — a genuine success with a leaked promise — is the only
+ * exit from `up`/`preview`/`destroy` where the gRPC servers and the temp log
+ * file are NOT torn down. This is the same class of failure as the
+ * `@cdktf/hcl2json` quit-hang incident this repo has already been burned by
+ * once. Nothing in this module can fix it — `server`, `eventsServer`, and
+ * `logFile` are local variables entirely inside `stack.js`, never exposed to
+ * any caller — so the mitigation has to be process-level, not code-level: an
+ * "app quits cleanly after an operation" e2e check needs to specifically
+ * include a run that exercises this leaked-promise-recovery path (an inline
+ * program that deliberately leaves a dangling promise), not only the
+ * ordinary happy-path `up`/`destroy`, since the happy path alone cannot catch
+ * this.
  *
- * ## What this task could and could not complete
+ * ## Division of responsibility with the caller
  *
  * {@link isLeakedPromiseError} (the classifier) and
- * {@link runTreatingLeakedPromiseAsSuccess} (the generic recovery wrapper)
- * are complete and tested now — they depend on nothing from Phase 7.
- * What they cannot do yet: actually reconstruct the lost `UpResult`/
- * `PreviewResult`/`DestroyResult` (outputs, summary, stdout/stderr) once the
- * SDK's promise has rejected this way, since that data was never returned
- * to any caller in the first place — it's local to the now-unwinding
- * `stack.up()` call inside the SDK, not something this module or Phase 7 can
- * reach after it has already thrown. Phase 7's `PulumiService.preview`/`.up`/`.destroy`
- * must supply `recoverResult` — most plausibly by calling `stack.outputs()`
- * and `stack.info()` again as fresh, independent read-only calls (these
- * don't re-run the operation, they just read current stack state) to
- * reconstruct a synthetic success result, since the update itself already
- * landed in the backend by the time this throw happens.
+ * {@link runTreatingLeakedPromiseAsSuccess} (the generic recovery wrapper) do
+ * not reconstruct the lost `UpResult`/`PreviewResult`/`DestroyResult`
+ * (outputs, summary, stdout/stderr) once the SDK's promise has rejected this
+ * way, since that data was never returned to any caller in the first place —
+ * it's local to the now-unwinding `stack.up()` call inside the SDK, not
+ * something this module can reach after it has already thrown. The caller's
+ * `recoverResult` is responsible for rebuilding a result — `PulumiService`
+ * does this by calling `stack.outputs()` and `stack.info()` again as fresh,
+ * independent read-only calls (these don't re-run the operation, they just
+ * read current stack state) to reconstruct a synthetic success result, since
+ * the update itself already landed in the backend by the time this throw
+ * happens.
  */
 
 /**
@@ -165,11 +160,12 @@ export function isLeakedPromiseError(err: unknown): boolean {
  *
  * @param operation - The Pulumi SDK call to run (e.g. `() => stack.up(opts)`).
  * @param recoverResult - Builds the result to return in place of the
- *   rejection, given the leak error — see this file's top-level TSDoc for
- *   why Phase 7 will need this to re-read `stack.outputs()`/`stack.info()`
- *   rather than reconstruct anything from the rejected promise itself (there
- *   is nothing to reconstruct from). If `recoverResult` itself throws, that
- *   error propagates instead of the original leak error.
+ *   rejection, given the leak error — see this file's top-level TSDoc,
+ *   "Division of responsibility with the caller", for why this needs to
+ *   re-read `stack.outputs()`/`stack.info()` rather than reconstruct
+ *   anything from the rejected promise itself (there is nothing to
+ *   reconstruct from). If `recoverResult` itself throws, that error
+ *   propagates instead of the original leak error.
  */
 export async function runTreatingLeakedPromiseAsSuccess<T>(
   operation: () => Promise<T>,

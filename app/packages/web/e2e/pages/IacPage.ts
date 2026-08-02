@@ -42,9 +42,19 @@ export class IacPage {
     return this.page.getByRole('alert');
   }
 
-  /** A single change-summary badge, e.g. "3 to add" / "1 to change" / "0 to destroy". */
+  /** A single change-summary badge, e.g. "3 to create" / "1 to update" / "1 unchanged" — see `ChangeSummaryStatus`. */
   summaryBadge(text: string): Locator {
     return this.page.getByText(text, { exact: true });
+  }
+
+  /** Partial-apply banner — shown instead of the generic apply-failure banner when `applyRecord.partialApply` is `true`. */
+  partialApplyBanner(): Locator {
+    return this.page.getByRole('alert').filter({ hasText: 'Apply stopped partway through' });
+  }
+
+  /** Stale-lock recovery banner — shown instead of the BUSY/error banner when a plan/apply/destroy submission reports `ack.staleLock`. */
+  staleLockBanner(): Locator {
+    return this.page.getByRole('alert').filter({ hasText: 'Backend lock in the way' });
   }
 
   // ── Approve ──────────────────────────────────────────────────────────

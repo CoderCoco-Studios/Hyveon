@@ -13,9 +13,8 @@
  *  - deployed-only (tfstate has a game name with no matching config entry)
  *  - both (a game name present in both the parsed config and tfstate outputs)
  *
- * There is no local-file fallback any more (Phase 6's "no local
- * configuration fallback" requirement) — every scenario below configures a
- * bucket and drives reads/writes through a stubbed `RemoteFileStore`. `fs`
+ * There is no local-file fallback any more — every scenario below configures
+ * a bucket and drives reads/writes through a stubbed `RemoteFileStore`. `fs`
  * stays mocked purely to prove it is never touched (see the
  * `expect(mockRead/mockWrite/mockExists).not.toHaveBeenCalled()` assertions
  * threaded through the specs below) — this module's production code no
@@ -151,7 +150,7 @@ function makeMutableRemoteFileStore(initialJson: string): RemoteFileStore & { cu
 /**
  * Builds a `ConfigService` stub exposing just what `TfvarsService`/`GamesController`
  * read. A configuration bucket is always configured — there is no local-file
- * mode any more (Phase 6).
+ * mode any more.
  */
 function makeConfig(gameNames: string[]): ConfigService {
   const outputs: Partial<StackOutputs> = { gameNames };

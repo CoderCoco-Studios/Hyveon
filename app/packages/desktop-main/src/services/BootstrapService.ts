@@ -16,14 +16,11 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * How many days a noncurrent configuration-bucket object version is retained
- * before expiring — matches the parity baseline in
+ * before expiring — matches the baseline in
  * `terraform/bootstrap/main.tf`'s `aws_s3_bucket_lifecycle_configuration.tfvars`
  * rule (that module still names the resource for its Terraform-era `tfvars`
- * object; this service now uses the same 90-day window for the renamed
- * configuration bucket). Historical HCL baseline only — `terraform/bootstrap/`
- * is deleted as part of Phase 12 of this change, at which point this citation
- * becomes "what the bucket used to be provisioned by," not a live parity
- * target.
+ * object; this service uses the same 90-day window for the renamed
+ * configuration bucket).
  */
 const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
 
@@ -69,7 +66,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
  * Deliberately AWS-SDK-direct rather than routed through the cloud-agnostic
  * `RunTask`/`StopTask` contracts in `@hyveon/shared/cloud.ts` — bootstrap is
  * AWS-only setup plumbing, not a steady-state operation any other cloud
- * provider needs to satisfy (see design.md decision 6).
+ * provider needs to satisfy.
  */
 @Injectable()
 export class BootstrapService {
@@ -131,16 +128,14 @@ export class BootstrapService {
    * Matches `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
    * / `aws_s3_bucket_lifecycle_configuration.tfvars` /
    * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
-   * lifecycle, and public-access-block specifically (design.md decision 6) —
-   * the resulting bucket is the canonical `RemoteFileStore` holding the JSON
-   * game-server configuration. This is *not* full parity with that HCL
-   * module: it has no server-side-encryption resource for this bucket (only
-   * `ensureStateBucket`'s bucket gets SSE, and the delta spec doesn't ask for
-   * it here either), so "behaviourally consistent" only ever meant those
-   * three settings, not everything the module does. Historical HCL baseline
-   * only — `terraform/bootstrap/` (which still names its bucket for the
-   * Terraform-era `terraform.tfvars` object it once held) is deleted as part
-   * of Phase 12 of this change.
+   * lifecycle, and public-access-block specifically — the resulting bucket is
+   * the canonical `RemoteFileStore` holding the JSON game-server
+   * configuration. This is *not* full parity with that HCL module: it has no
+   * server-side-encryption resource for this bucket (only
+   * `ensureStateBucket`'s bucket gets SSE), so "behaviourally consistent"
+   * only ever means those three settings, not everything the module does.
+   * `terraform/bootstrap/` still names its bucket for the Terraform-era
+   * `terraform.tfvars` object it once held.
    *
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */

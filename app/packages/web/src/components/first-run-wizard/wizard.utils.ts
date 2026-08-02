@@ -27,9 +27,9 @@ export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exist
 /**
  * Sensible default resource names for the bootstrap step's editable name
  * fields, derived from the operator's project name (defaults to `hyveon`,
- * matching `terraform/variables.tf`'s `project_name` default). Per design.md's
- * open questions, these are operator-editable rather than fixed — the
- * defaults just save typing in the common case.
+ * matching `terraform/variables.tf`'s `project_name` default). These are
+ * operator-editable rather than fixed — the defaults just save typing in the
+ * common case.
  */
 export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<BootstrapResourceKey, string> {
   return {

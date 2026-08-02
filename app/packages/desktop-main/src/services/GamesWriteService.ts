@@ -237,7 +237,7 @@ export class GamesWriteService {
     // A write only reaches this point once `TfvarsService.writeConfig()` has
     // already succeeded, which requires a configured configuration bucket
     // (`ConfigurationNotConfiguredError` otherwise) — so `mode` is always
-    // `'s3'` here; there is no local-file mode any more (Phase 6).
+    // `'s3'` here; there is no local-file mode.
     logger.info('Game server write', { action, game: name, mode: 's3' });
 
     await this.audit.record({

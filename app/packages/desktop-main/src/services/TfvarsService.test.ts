@@ -1,14 +1,12 @@
 /**
  * Tests for `TfvarsService` — the S3-backed deployment-config reader/parser.
  *
- * The config is plain JSON now (see the `migrate-iac-to-pulumi` change's
- * Phase 6), so fixtures are inline `DeploymentConfig`-shaped objects
- * `JSON.stringify`d — no fixture files needed, unlike the retired HCL
- * fixtures this file used to load from `__fixtures__/*.tfvars` (there's no
- * comment/heredoc complexity to fixture-test with JSON).
+ * The config is plain JSON, so fixtures are inline `DeploymentConfig`-shaped
+ * objects `JSON.stringify`d — no fixture files needed, unlike the retired
+ * HCL fixtures this file used to load from `__fixtures__/*.tfvars` (there's
+ * no comment/heredoc complexity to fixture-test with JSON).
  *
- * There is no local-file fallback any more (Phase 6's "no local configuration
- * fallback" requirement) — every test that used to select "local mode" via a
+ * There is no local-file fallback — every test that used to select "local mode" via a
  * `null` bucket now exercises the "unconfigured" behaviour instead (see the
  * `unconfigured` describe block below), which asserts `fs` is never touched.
  * `fs` stays mocked here purely so that assertion is meaningful — this
