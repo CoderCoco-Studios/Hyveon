@@ -29,7 +29,7 @@ export const PULUMI_PROJECT_NAME = 'hyveon';
  * reads/writes today — there is no per-environment or per-game Pulumi stack),
  * so one fixed name is enough.
  *
- * Pinned as a single constant per design.md's "Stack naming is a trap": a
+ * Pinned as a single constant because stack naming is a trap: a
  * non-legacy DIY backend accepts either a bare stack name or
  * `organization/<project>/<stack>` where `org` must be the *literal string*
  * `organization` — getting that wrong silently creates the wrong stack rather
@@ -47,7 +47,7 @@ const PASSPHRASE_ENTROPY_BYTES = 32;
  * or (see {@link BUCKET_MISSING_PATTERN}) as a best-effort backstop when the
  * SDK call itself fails in a way that looks like a missing bucket. The seam
  * never attempts to create the bucket itself — bootstrapping it is
- * `BootstrapService`'s job (Phase 5/6) — it only refuses to run an operation
+ * `BootstrapService`'s job — it only refuses to run an operation
  * against a backend that isn't there, per the "Backend is not yet
  * bootstrapped" scenario in the `pulumi-engine-runtime` delta spec.
  */
@@ -185,7 +185,7 @@ export interface PulumiWorkspaceInput {
    * Name of the operator's own S3 bucket the self-managed backend reads and
    * writes state into (provisioned by `BootstrapService`). The seam only
    * builds `s3://<stateBucket>` from this — bucket creation belongs to the
-   * bootstrap flow (Phase 5/6), not here.
+   * bootstrap flow, not here.
    */
   stateBucket: string;
   /**
@@ -209,12 +209,11 @@ export interface PulumiWorkspaceInput {
    * helper. `false` makes this throw {@link PulumiBackendNotBootstrappedError}
    * immediately, without invoking Pulumi at all. The seam deliberately does
    * not perform this check itself: it has no AWS SDK client of its own, and
-   * Phase 5/6 already own bucket existence as part of the bootstrap flow —
-   * duplicating that check here would mean either giving this seam an AWS
-   * dependency it otherwise has no reason for, or trusting an unverified
-   * Pulumi/CLI error string that this SDK version's spike never empirically
-   * exercised against a real S3 backend (see design.md's "DIY S3 backend"
-   * section). This is the *primary* signal; {@link getOrCreateStack} also
+   * `BootstrapService` already owns bucket existence as part of the bootstrap
+   * flow — duplicating that check here would mean either giving this seam an
+   * AWS dependency it otherwise has no reason for, or trusting an unverified
+   * Pulumi/CLI error string this SDK's DIY S3 backend path has never been
+   * empirically exercised against. This is the *primary* signal; {@link getOrCreateStack} also
    * applies a best-effort backstop (see {@link BUCKET_MISSING_PATTERN}) for
    * when this flag is wrong or the bucket is deleted between the caller's
    * check and this call, but that backstop is not a substitute for passing
@@ -243,8 +242,8 @@ export interface PulumiWorkspaceInput {
    * environment (named profile via `AWS_PROFILE`, or decrypted pasted keys),
    * normally left **unset**.
    *
-   * When omitted (the expected case for every real caller, including Phase
-   * 7's `PulumiService`), {@link getOrCreateStack} resolves this itself via
+   * When omitted (the expected case for every real caller, including
+   * `PulumiService`), {@link getOrCreateStack} resolves this itself via
    * {@link resolveCredentialEnvVars} against the injected
    * {@link ElectronStoreService} — every operation gets a sanitized
    * credential environment unconditionally, per the `pulumi-engine-runtime`
@@ -254,10 +253,10 @@ export interface PulumiWorkspaceInput {
    * can inject arbitrary env values directly without going through the
    * store — a caller that supplies it is opting out of the automatic
    * resolution and is responsible for its correctness (including the
-   * exclusivity clear below), which is why Phase 7 should leave it unset
-   * rather than resolve credentials itself and pass them through here.
+   * exclusivity clear below), which is why real callers should leave it unset
+   * rather than resolve credentials themselves and pass them through here.
    *
-   * 4.5's spec also requires *clearing* inherited credential variables
+   * The spec also requires *clearing* inherited credential variables
    * belonging to the unselected source (e.g. `AWS_PROFILE` when pasted keys
    * were chosen), not merely omitting them: `PulumiCommand.run()` (`cmd.js`)
    * spawns via `execa` with the default `extendEnv` behaviour, so the child
@@ -274,14 +273,12 @@ export interface PulumiWorkspaceInput {
    */
   credentialEnvVars?: Record<string, string>;
   /**
-   * Task 4.6's phase-reporting extension point — forwarded verbatim to
+   * Phase-reporting extension point — forwarded verbatim to
    * {@link PulumiEngineService.resolve}, so `('engine', 'start' | 'end')` is
-   * reported around this call's own engine-resolution step. See that
-   * method's TSDoc for exactly what 4.6 could and could not wire up yet —
-   * `'plugins'`/`'operation'` are never reported by anything in this file,
-   * since neither has any observable event in the code Phase 4 builds
-   * (plugin download and the operation itself both belong to Phase 7's
-   * `PulumiService`).
+   * reported around this call's own engine-resolution step.
+   * `'plugins'`/`'operation'` are never reported by anything in this file —
+   * plugin download and the operation itself are both `PulumiService`'s
+   * responsibility to report, not this workspace seam's.
    */
   onPhase?: PulumiPhaseCallback;
 }
@@ -310,12 +307,12 @@ export interface PulumiWorkspaceInput {
  *    {@link resolvePassphrase}).
  *
  * Deliberately does **not** implement `preview`/`up`/`destroy` — those are
- * Phase 7's `PulumiService`, which will call {@link getOrCreateStack} and
- * then drive the returned `Stack`. Cancellation (`AbortSignal` plus a bounded
- * forceful-termination escalation, Task 4.7) threads through those
- * *operation* calls on the returned `Stack`, not through workspace
- * construction — this seam has nothing to cancel, since it never awaits a
- * long-running engine invocation itself.
+ * `PulumiService`'s, which calls {@link getOrCreateStack} and then drives the
+ * returned `Stack`. Cancellation (`AbortSignal` plus a bounded
+ * forceful-termination escalation) threads through those *operation* calls on
+ * the returned `Stack`, not through workspace construction — this seam has
+ * nothing to cancel, since it never awaits a long-running engine invocation
+ * itself.
  */
 @Injectable()
 export class PulumiWorkspaceService {
@@ -351,14 +348,14 @@ export class PulumiWorkspaceService {
       throw new PulumiBackendNotBootstrappedError(input.stateBucket);
     }
 
-    // Passphrase resolution happens before the engine is even resolved: per
-    // design.md, `stack init` under `--non-interactive` is a hard exit-1
-    // without `PULUMI_CONFIG_PASSPHRASE` already set, so there is no
-    // reasonable order in which the passphrase can be an afterthought.
+    // Passphrase resolution happens before the engine is even resolved:
+    // `stack init` under `--non-interactive` is a hard exit-1 without
+    // `PULUMI_CONFIG_PASSPHRASE` already set, so there is no reasonable order
+    // in which the passphrase can be an afterthought.
     const passphrase = this.resolvePassphrase(input.stackExists);
 
-    // Unconditional credential resolution (fix round 1): `input.credentialEnvVars`
-    // is normally unset, so this seam resolves the wizard's selected AWS
+    // Credential resolution is unconditional: `input.credentialEnvVars` is
+    // normally unset, so this seam resolves the wizard's selected AWS
     // credential source itself rather than trusting the caller to remember
     // to pass it — see PulumiWorkspaceInput.credentialEnvVars's doc comment.
     // Throws PulumiCredentialsNotConfiguredError if the store has no

@@ -1,12 +1,11 @@
 /**
- * Unit tests for `PulumiService.preview` (task 7.1 of `migrate-iac-to-pulumi`)
+ * Unit tests for `PulumiService.preview`
  * — the first real Pulumi operation, replacing `TerraformService.plan()`.
  * Mirrors `TerraformService.plan.test.ts`'s coverage breadth (spawn/artifact
  * persistence, streaming, run-log capture, `run.json` persistence,
  * `RunRecordService` persistence, structured summary, abort handling) plus
- * the Pulumi-specific additions this dispatch's brief called out: the
- * config-version-aware plan hash, engine-version stamping, and
- * leaked-promise recovery.
+ * the Pulumi-specific additions: the config-version-aware plan hash,
+ * engine-version stamping, and leaked-promise recovery.
  *
  * `node:fs` is fully mocked (mirrors `TerraformService.plan.test.ts` exactly)
  * so no test touches the real filesystem. `node:crypto`'s `randomUUID` is
@@ -121,8 +120,8 @@ function makeRemoteFileStore(
 
 /**
  * `RunRecordPersister` stub backed by directly-inspectable `persist`/
- * `getByRunId` mocks. `getByRunId` (task 7.2's addition to the interface,
- * used by `apply()`'s gate) defaults to rejecting loudly — none of this
+ * `getByRunId` mocks. `getByRunId` (used by `apply()`'s gate) defaults to
+ * rejecting loudly — none of this
  * file's `preview()` tests ever reach it, so an unexpected call fails loudly
  * instead of silently resolving `undefined`.
  */
@@ -183,8 +182,8 @@ function makeModuleRef(runRecordPersister: RunRecordPersister, remoteFileStore: 
 }
 
 /**
- * Stub `PulumiEngineService` — `preview()` never touches it (task 7.2's
- * `apply()` gate is this dependency's only real caller), so both methods
+ * Stub `PulumiEngineService` — `preview()` never touches it (`apply()`'s
+ * gate is this dependency's only real caller), so both methods
  * throwing is intentional, mirroring `makeRunRecordPersister`'s
  * `getByRunId` stub above.
  */
@@ -336,7 +335,7 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
     await expect(second.next()).rejects.toThrow(/already.*running/i);
   });
 
-  it('should throw synchronously when preview() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+  it('should throw synchronously when preview() is called while initializeStack() is already in flight', async () => {
     // Regression test for a code-reviewer-traced race: initializeStack()
     // does not set `operationInFlight` (see PulumiService.ts's own
     // `stackInitInFlight` doc comment for why it's a separate flag), so
@@ -457,8 +456,8 @@ describe('PulumiService.preview plan hash and engine version', () => {
     const { result } = await collectPreviewChunks(service.preview());
 
     // Normalized against `PulumiEngineService.getResolvedVersion()`'s own
-    // un-prefixed shape (`SemVer.toString()` never includes a "v") so a
-    // future apply-time comparison (task 7.2) is a bare string equality.
+    // un-prefixed shape (`SemVer.toString()` never includes a "v") so an
+    // apply-time comparison against this value is a bare string equality.
     expect(result?.engineVersion).toBe('3.255.0');
   });
 

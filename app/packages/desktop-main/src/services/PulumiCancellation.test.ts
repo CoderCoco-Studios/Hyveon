@@ -1,5 +1,5 @@
 /**
- * Unit tests for Task 4.7's `runWithEscalatingCancellation` — covering the
+ * Unit tests for `runWithEscalatingCancellation`, covering the
  * `pulumi-engine-runtime` delta spec's "Engine process lifecycle"
  * requirement's "Operation is cancelled" and "Unresponsive engine is
  * force-terminated" scenarios, plus the verified pre-aborted-signal gotcha

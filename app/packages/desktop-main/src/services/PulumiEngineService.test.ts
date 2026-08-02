@@ -335,8 +335,7 @@ describe('PulumiEngineService.resolve — ambiguous cache failures are not delet
   });
 
   it('should restore the prior install from the trash directory when post-rename verification fails after a successful swap-aside', async () => {
-    // The gap the coordinator's round-1 re-review flagged: an ambiguous
-    // entry gets swapped aside, the fresh install passes its own
+    // An ambiguous entry gets swapped aside, the fresh install passes its own
     // pre-rename verification, but the *separate* post-rename get()
     // re-check then fails (a transient exec flake right after the move).
     // The trashed prior install must survive that failure — it was never
@@ -529,7 +528,7 @@ describe('PulumiEngineService — engine cache root resolution', () => {
   });
 });
 
-describe('PulumiEngineService.resolve — phase reporting (Task 4.6)', () => {
+describe('PulumiEngineService.resolve — phase reporting', () => {
   it('should report ("engine", "start") synchronously before provisioning does any work, then ("engine", "end") once resolution settles', async () => {
     const service = makeService();
     const calls: Array<['engine', 'start' | 'end']> = [];
@@ -590,7 +589,7 @@ describe('PulumiEngineService.resolve — phase reporting (Task 4.6)', () => {
     await expect(service.resolve()).resolves.toBeDefined();
   });
 
-  it('should never report a "plugins" or "operation" phase — Phase 7 has not landed the code that would observe either', async () => {
+  it('should never report a "plugins" or "operation" phase — no code path yet observes either', async () => {
     const service = makeService();
     const onPhase = vi.fn();
 
