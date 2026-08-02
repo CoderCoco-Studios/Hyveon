@@ -40,24 +40,24 @@ describe('cloud-aws barrel export', () => {
     expect(new AwsCloudProvider()).toBeInstanceOf(AwsCloudProvider);
   });
 
-  it('should reject with a "Terraform not applied" error when startWorkload is called without config', async () => {
+  it('should reject with an "Infrastructure is not deployed" error when startWorkload is called without config', async () => {
     await expect(new AwsCloudProvider().startWorkload('x', {})).rejects.toThrow(
-      "Terraform not applied. Run 'terraform apply' first.",
+      'Infrastructure is not deployed. Run Apply on the IaC page first.',
     );
   });
 
-  it('should reject with a "Terraform not applied" error when stopWorkload is called without config', async () => {
-    await expect(new AwsCloudProvider().stopWorkload('x')).rejects.toThrow('Terraform not applied.');
+  it('should reject with an "Infrastructure is not deployed" error when stopWorkload is called without config', async () => {
+    await expect(new AwsCloudProvider().stopWorkload('x')).rejects.toThrow('Infrastructure is not deployed.');
   });
 
   it('should return a not_deployed status when getWorkloadStatus is called without config', async () => {
     await expect(new AwsCloudProvider().getWorkloadStatus('x')).resolves.toEqual({
       state: 'not_deployed',
-      message: 'Run terraform apply first.',
+      message: 'Run Apply on the IaC page first.',
     });
   });
 
-  it('should reject with a "Terraform not applied" error when streamWorkloadLogs is iterated without config', async () => {
+  it('should reject with an "Infrastructure is not deployed" error when streamWorkloadLogs is iterated without config', async () => {
     const controller = new AbortController();
     await expect(
       (async () => {
@@ -65,7 +65,7 @@ describe('cloud-aws barrel export', () => {
           // draining the generator triggers the guard check on first iteration
         }
       })(),
-    ).rejects.toThrow("Terraform not applied. Run 'terraform apply' first.");
+    ).rejects.toThrow('Infrastructure is not deployed. Run Apply on the IaC page first.');
   });
 
   it('should return a zeroed CostBreakdown when getCostEstimate is called without config', async () => {

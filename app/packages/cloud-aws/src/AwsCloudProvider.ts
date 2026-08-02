@@ -391,7 +391,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async startWorkload(game: string, _opts: StartOpts): Promise<WorkloadHandle> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
     const subnets = subnetIds
@@ -440,7 +440,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async stopWorkload(game: string): Promise<void> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError('Terraform not applied.');
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed.');
 
     const cluster = config.ecsClusterName;
 
@@ -468,7 +468,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async getWorkloadStatus(game: string): Promise<WorkloadStatus> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) return { state: 'not_deployed', message: 'Run terraform apply first.' };
+    if (!config) return { state: 'not_deployed', message: 'Run Apply on the IaC page first.' };
 
     const { region, ecsClusterName: cluster, domainName: domain } = config;
 
@@ -517,7 +517,7 @@ export class AwsCloudProvider implements CloudProvider {
     pollInterval = 2000,
   ): AsyncGenerator<LogChunk> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region } = config;
     const logGroup = `/ecs/${game}-server`;
