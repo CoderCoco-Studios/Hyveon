@@ -11,13 +11,15 @@
  *
  * ## Why this exists
  *
- * `@cdktf/hcl2json`, `@pulumi/pulumi` and `@pulumi/aws` are marked `external` in
+ * `@pulumi/pulumi` and `@pulumi/aws` are marked `external` in
  * `electron.vite.config.ts` because bundling them stops Electron from quitting:
- * hcl2json's Go `wasm_exec` glue runs module-scope side effects, and
- * `@pulumi/pulumi` pulls in `@grpc/grpc-js`, which owns sockets. `semver` is
- * external for a different reason — `PulumiCommand.install()` `instanceof`-checks
- * a `SemVer` against its own copy of the class, so a second bundled copy breaks
- * it.
+ * `@pulumi/pulumi` pulls in `@grpc/grpc-js`, which owns sockets. (`@cdktf/hcl2json`
+ * was guarded here too, for the same class of failure — its Go `wasm_exec` glue
+ * ran module-scope side effects — before the `migrate-iac-to-pulumi` change
+ * removed it from the dependency tree entirely; see `TfvarsService.ts`'s
+ * JSON-only configuration model.) `semver` is external for a different reason —
+ * `PulumiCommand.install()` `instanceof`-checks a `SemVer` against its own copy
+ * of the class, so a second bundled copy breaks it.
  *
  * Rollup's `external` array matches import ids *exactly*, and the task 1.3 spike
  * found that `'@pulumi/pulumi'` therefore did nothing for
@@ -63,10 +65,6 @@ const GUARDED = [
   {
     package: '@pulumi/aws',
     markers: ['pulumi:providers:aws'],
-  },
-  {
-    package: '@cdktf/hcl2json',
-    markers: ['main.wasm.gz'],
   },
 ];
 

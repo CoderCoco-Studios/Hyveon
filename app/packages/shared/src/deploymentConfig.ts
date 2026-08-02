@@ -9,9 +9,9 @@
  *    {@link GameServerConfig} — the existing shared game-server shape (see
  *    `./tfvars.js`) already dictates `snake_case` field names
  *    (`container_path`, `connect_message`, `content_base64`) and is deeply
- *    embedded across `gameServerValidator.ts`, `hclEmit.ts`/`hclSurgeon.ts`,
- *    and the Games UI, so this model reuses it as-is rather than forking a
- *    parallel `camelCase` copy.
+ *    embedded across `gameServerValidator.ts`, `TfvarsService.ts`'s JSON
+ *    read/write paths, and the Games UI, so this model reuses it as-is
+ *    rather than forking a parallel `camelCase` copy.
  *  - The model is plain data — every field is JSON-serializable (`string`,
  *    `number`, `boolean`, array, or plain object; no `Date`, `Map`, `Set`, or
  *    class instance) — because Phase 6 of the migration persists it verbatim
@@ -49,6 +49,21 @@
  */
 
 import type { GameServerConfig } from './tfvars.js';
+
+/**
+ * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
+ * inside the operator's configuration bucket. Shared by `TfvarsService`
+ * (desktop-main) and `TerraformService`'s rollback flow (#112) — both derive
+ * the object key from this single constant rather than a filesystem path's
+ * `basename()`, which was the pre-`migrate-iac-to-pulumi` mechanism
+ * (`ConfigService.getTfvarsPath()`, retired alongside local-file mode; see
+ * Phase 6, "Configuration persisted as versioned JSON"). Deriving the key
+ * from a path was never more than an accident of the local-file-mode
+ * implementation — an env-var override to that path (`TFVARS_PATH`) could
+ * silently change the S3 key a deployment used, which this constant makes
+ * impossible.
+ */
+export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 
 /**
  * Full deployment configuration: the top-level settings the Pulumi program

@@ -1,9 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { Inject, Injectable } from '@nestjs/common';
+import { CONFIGURATION_OBJECT_KEY } from '@hyveon/shared';
 import type { RemoteFileStore, RunKind } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService, projectTfOutputs, type TfOutputs } from './ConfigService.js';
@@ -627,8 +628,9 @@ export class TerraformService {
    * class) so this service depends only on the interface; `@Inject(REMOTE_FILE_STORE)`
    * tells Nest which concrete provider (bound by `CloudProviderModule` for
    * whichever cloud is active) to resolve for that parameter. Used by
-   * {@link plan} to pull the current tfvars snapshot when S3 tfvars sync is
-   * configured (mirrors `TfvarsService`'s local-vs-S3 read). `runRecordService`
+   * {@link plan} to pull the current configuration snapshot when a
+   * configuration bucket is configured (mirrors `TfvarsService`'s own read).
+   * `runRecordService`
    * persists the run-history record to the cloud-agnostic `RunRecordStore`
    * (DynamoDB for AWS) alongside the local `<runsDir>/<runId>/run.json` write
    * — see {@link persistRunRecord}. `tfvarsService`, used only by the
@@ -832,18 +834,16 @@ export class TerraformService {
    * are captured together for a later `apply()` to consume (see the
    * "Terraform run cache" row of the electron-desktop-pivot design spec).
    *
-   * `tfvarsVersionId`, when provided and the tfvars source is S3-backed
-   * (`ConfigService.getTfvarsBucket()` resolves one), is enforced as a
-   * pre-spawn staleness assertion: {@link pullVarFile} calls
-   * `remoteFileStore.listVersions(key)` and compares `tfvarsVersionId`
-   * against the head (most recent) entry, throwing a descriptive `Error`
-   * before `terraform` is ever spawned when they no longer match — i.e. the
-   * remote tfvars changed underneath the caller since they last read a
-   * version id (e.g. from `TfvarsService`). `RemoteFileStore` has no
-   * version-specific `get`, so this is a staleness check rather than a
-   * pinned/versioned download; the plan is always run against the current
-   * head object once the check passes. Ignored entirely in local-file mode
-   * or when omitted.
+   * `tfvarsVersionId`, when provided, is enforced as a pre-spawn staleness
+   * assertion: {@link pullVarFile} calls `remoteFileStore.listVersions(key)`
+   * and compares `tfvarsVersionId` against the head (most recent) entry,
+   * throwing a descriptive `Error` before `terraform` is ever spawned when
+   * they no longer match — i.e. the remote configuration changed underneath
+   * the caller since they last read a version id (e.g. from `TfvarsService`).
+   * `RemoteFileStore` has no version-specific `get`, so this is a staleness
+   * check rather than a pinned/versioned download; the plan is always run
+   * against the current head object once the check passes. Ignored entirely
+   * when omitted.
    *
    * While streaming, stdout lines are scanned via {@link PLAN_SUMMARY_PATTERN}
    * for Terraform's summary line (`Plan: N to add, N to change, N to destroy.`)
@@ -1246,14 +1246,14 @@ export class TerraformService {
    * these three checks close off path traversal and applying an unrelated
    * plan artifact via caller-supplied `runId`/`planFile` values. Then, once
    * the abort signal has been checked (see below) and if `tfvarsVersionId` is
-   * provided and the tfvars source is S3-backed
-   * (`ConfigService.getTfvarsBucket()` resolves one), asserts that it still
-   * matches the head (most recent) version of the tfvars object via
-   * `remoteFileStore.listVersions(key)`, throwing {@link StalePlanError}
+   * provided and a configuration bucket is configured
+   * (`ConfigService.getConfigurationBucket()` resolves one), asserts that it
+   * still matches the head (most recent) version of the configuration object
+   * via `remoteFileStore.listVersions(key)`, throwing {@link StalePlanError}
    * *before* `terraform` is ever spawned when they no longer match — the
-   * plan being applied was generated against tfvars that have since changed
-   * underneath the caller. Ignored entirely in local-file mode or when
-   * `tfvarsVersionId` is omitted.
+   * plan being applied was generated against configuration that has since
+   * changed underneath the caller. Ignored entirely when no bucket is
+   * configured or when `tfvarsVersionId` is omitted.
    *
    * Every yielded chunk's `line` is also accumulated in-memory as it streams
    * through, and — once the spawned process has closed — written in a
@@ -2020,22 +2020,22 @@ export class TerraformService {
 
   /**
    * Pre-spawn staleness guard for {@link apply}: when `tfvarsVersionId` is
-   * provided and the tfvars source is S3-backed
-   * (`ConfigService.getTfvarsBucket()` resolves one), asserts it still
-   * matches the head (most recent) version of the tfvars object via
-   * `remoteFileStore.listVersions(key)`. A no-op in local-file mode or when
-   * `tfvarsVersionId` is omitted — there's no version history to compare
-   * against.
+   * provided and a configuration bucket is configured
+   * (`ConfigService.getConfigurationBucket()` resolves one), asserts it still
+   * matches the head (most recent) version of the configuration object via
+   * `remoteFileStore.listVersions(key)`. A no-op when no bucket is configured
+   * or when `tfvarsVersionId` is omitted — there's no version history to
+   * compare against.
    *
    * @throws {@link StalePlanError} when the head version no longer matches.
    */
   private async assertPlanTfvarsNotStale(tfvarsVersionId?: string): Promise<void> {
     if (!tfvarsVersionId) return;
 
-    const bucket = this.config.getTfvarsBucket();
+    const bucket = this.config.getConfigurationBucket();
     if (!bucket) return;
 
-    const key = basename(this.config.getTfvarsPath());
+    const key = CONFIGURATION_OBJECT_KEY;
     const versions = await this.remoteFileStore.listVersions(key);
     const head = versions[0];
     if (!head || head.versionId !== tfvarsVersionId) {
@@ -2360,7 +2360,7 @@ export class TerraformService {
       throw new RollbackNoTfvarsVersionError(applyRunId);
     }
 
-    const key = basename(this.config.getTfvarsPath());
+    const key = CONFIGURATION_OBJECT_KEY;
     const versions = await this.remoteFileStore.listVersions(key);
     const index = versions.findIndex((v) => v.versionId === record.tfvarsVersionId);
     const prior = index === -1 ? undefined : versions[index + 1];
@@ -2397,7 +2397,7 @@ export class TerraformService {
     }
 
     const target = await this.resolveRollbackTarget(applyRunId);
-    const key = basename(this.config.getTfvarsPath());
+    const key = CONFIGURATION_OBJECT_KEY;
     const obj = await this.remoteFileStore.getVersion(key, target.versionId);
     if (!obj) {
       throw new RollbackVersionMissingError(target.versionId);
@@ -2415,62 +2415,63 @@ export class TerraformService {
   }
 
   /**
-   * Pulls the current `terraform.tfvars` — from the S3 tfvars bucket via the
-   * injected `RemoteFileStore` when `ConfigService.getTfvarsBucket()`
-   * resolves one (mirrors `TfvarsService.fetchRawTfvars`'s S3-mode read),
-   * otherwise from the local file at `ConfigService.getTfvarsPath()` — and
-   * writes a snapshot copy into `runDir` under the source file's own
-   * basename, so {@link plan} runs against the exact bytes captured for this
-   * run regardless of concurrent edits to the canonical source afterward.
+   * Pulls the current deployment configuration — from the configuration
+   * bucket via the injected `RemoteFileStore`, keyed by
+   * {@link CONFIGURATION_OBJECT_KEY} (mirrors `TfvarsService.fetchRawConfig`'s
+   * own read) — and writes a snapshot copy into `runDir` under that same
+   * object key, so {@link plan} runs against the exact bytes captured for
+   * this run regardless of concurrent edits to the canonical source
+   * afterward. There is no local-file fallback: a configuration bucket MUST
+   * be configured (`ConfigService.getConfigurationBucket()`) for `plan()` to
+   * proceed, matching `TfvarsService`'s "no local configuration fallback"
+   * contract (see the `migrate-iac-to-pulumi` change's Phase 6).
    *
-   * In S3 mode, when `tfvarsVersionId` is provided, this first calls
+   * When `tfvarsVersionId` is provided, this first calls
    * `remoteFileStore.listVersions(key)` and asserts that `tfvarsVersionId`
    * matches the head (most recent) entry *before* reading the object —
    * `RemoteFileStore.get` has no version-specific overload, so this is a
    * staleness assertion rather than a pinned/versioned read: it guards
-   * against planning against tfvars that changed underneath the caller since
-   * they last observed a version id, without actually downloading that
-   * specific historical version.
+   * against planning against configuration that changed underneath the
+   * caller since they last observed a version id, without actually
+   * downloading that specific historical version.
    *
    * @returns The absolute path to the written snapshot, which {@link plan}
    *   passes to `terraform plan` as `-var-file=<path>`.
-   * @throws A descriptive `Error` when the configured source (S3 object or
-   *   local file) doesn't exist, or when `tfvarsVersionId` no longer matches
-   *   the head version of the S3 object — a `plan()` run with no tfvars to
-   *   plan against, or against tfvars known to be stale, isn't meaningful.
+   * @throws A descriptive `Error` when no configuration bucket is configured,
+   *   when the configuration object doesn't exist in the bucket, or when
+   *   `tfvarsVersionId` no longer matches the head version — a `plan()` run
+   *   with no configuration to plan against, or against configuration known
+   *   to be stale, isn't meaningful.
    */
   private async pullVarFile(runDir: string, tfvarsVersionId?: string): Promise<string> {
-    const bucket = this.config.getTfvarsBucket();
-    const sourcePath = this.config.getTfvarsPath();
-    const destPath = join(runDir, basename(sourcePath));
-
-    if (bucket) {
-      const key = basename(sourcePath);
-
-      if (tfvarsVersionId) {
-        const versions = await this.remoteFileStore.listVersions(key);
-        const head = versions[0];
-        if (!head || head.versionId !== tfvarsVersionId) {
-          throw new Error(
-            `tfvars object "${key}" in S3 bucket "${bucket}" is stale: expected version ` +
-              `"${tfvarsVersionId}" to be the current head, but the head version is ` +
-              `${head ? `"${head.versionId}"` : 'missing'}. Refresh the tfvars before planning.`,
-          );
-        }
-      }
-
-      const obj = await this.remoteFileStore.get(key);
-      if (!obj) {
-        throw new Error(`tfvars object "${key}" not found in S3 bucket "${bucket}".`);
-      }
-      writeFileSync(destPath, obj.body);
-      return destPath;
+    const bucket = this.config.getConfigurationBucket();
+    if (!bucket) {
+      throw new Error(
+        'Cannot pull deployment configuration for terraform plan: no configuration bucket is configured. ' +
+          'Finish the setup wizard before planning.',
+      );
     }
 
-    if (!existsSync(sourcePath)) {
-      throw new Error(`tfvars file not found at "${sourcePath}".`);
+    const key = CONFIGURATION_OBJECT_KEY;
+    const destPath = join(runDir, key);
+
+    if (tfvarsVersionId) {
+      const versions = await this.remoteFileStore.listVersions(key);
+      const head = versions[0];
+      if (!head || head.versionId !== tfvarsVersionId) {
+        throw new Error(
+          `tfvars object "${key}" in S3 bucket "${bucket}" is stale: expected version ` +
+            `"${tfvarsVersionId}" to be the current head, but the head version is ` +
+            `${head ? `"${head.versionId}"` : 'missing'}. Refresh the tfvars before planning.`,
+        );
+      }
     }
-    copyFileSync(sourcePath, destPath);
+
+    const obj = await this.remoteFileStore.get(key);
+    if (!obj) {
+      throw new Error(`tfvars object "${key}" not found in S3 bucket "${bucket}".`);
+    }
+    writeFileSync(destPath, obj.body);
     return destPath;
   }
 

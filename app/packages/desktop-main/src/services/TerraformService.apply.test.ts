@@ -99,23 +99,23 @@ function queueSuccessfulResolution(binaryPath = '/usr/local/bin/terraform', vers
 
 /**
  * `ConfigService` stub for `apply()` tests: exposes `getTerraformDir`,
- * `getRunsDir`, `getTfvarsBucket`, and `getTfvarsPath` — the accessors
- * `apply()` (directly, or via {@link TerraformService.assertPlanTfvarsNotStale}
- * and {@link TerraformService.writeRunRecord}) reads.
+ * `getRunsDir`, and `getConfigurationBucket` — the accessors `apply()`
+ * (directly, or via {@link TerraformService.assertPlanTfvarsNotStale} and
+ * {@link TerraformService.writeRunRecord}) reads. `apply()` never calls
+ * `pullVarFile`, so `tfvarsBucket` defaulting to `null` (unconfigured) is a
+ * legitimate default here, unlike the `plan()` stubs elsewhere.
  */
 function stubApplyConfigService(
   opts: {
     terraformDir?: string;
     runsDir?: string;
     tfvarsBucket?: string | null;
-    tfvarsPath?: string;
   } = {},
 ): ConfigService {
   return {
     getTerraformDir: () => opts.terraformDir ?? '/repo/terraform',
     getRunsDir: () => opts.runsDir ?? '/repo/runs',
-    getTfvarsBucket: () => opts.tfvarsBucket ?? null,
-    getTfvarsPath: () => opts.tfvarsPath ?? '/repo/terraform/terraform.tfvars',
+    getConfigurationBucket: () => opts.tfvarsBucket ?? null,
   } as ConfigService;
 }
 
@@ -257,7 +257,7 @@ describe('TerraformService.apply stale-plan guard', () => {
     ]);
 
     const service = new TerraformService(
-      stubApplyConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
+      stubApplyConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
       remoteFileStore,
       stubRunRecordService(),
     );
@@ -265,7 +265,7 @@ describe('TerraformService.apply stale-plan guard', () => {
     await expect(
       collectApplyChunks(service.apply('run-1', 'v1', '/repo/runs/run-1/run-1.tfplan')),
     ).rejects.toBeInstanceOf(StalePlanError);
-    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('terraform.tfvars');
+    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('deployment-config.json');
     expect(spawnMock).not.toHaveBeenCalled();
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
@@ -282,7 +282,7 @@ describe('TerraformService.apply stale-plan guard', () => {
     ]);
 
     const service = new TerraformService(
-      stubApplyConfigService({ tfvarsBucket: 'hyveon-tfvars', tfvarsPath: '/repo/terraform/terraform.tfvars' }),
+      stubApplyConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
       remoteFileStore,
       stubRunRecordService(),
     );
@@ -291,7 +291,7 @@ describe('TerraformService.apply stale-plan guard', () => {
       child.close(0),
     );
 
-    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('terraform.tfvars');
+    expect(remoteFileStore.listVersions).toHaveBeenCalledWith('deployment-config.json');
     expect(spawnMock).toHaveBeenCalledWith(
       '/usr/local/bin/terraform',
       ['apply', '-input=false', '-no-color', '/repo/runs/run-2/run-2.tfplan'],
@@ -1079,7 +1079,20 @@ describe('TerraformService.apply cross-subcommand lock enforcement', () => {
     const child = new FakeChildProcess();
     queueSpawn(child);
 
-    const service = new TerraformService(stubApplyConfigService(), stubRemoteFileStore(), stubRunRecordService());
+    // Unlike apply() itself, the incidental plan() call below needs a
+    // configured configuration bucket to pull a snapshot and reach spawn —
+    // there is no local-file fallback any more.
+    const remoteFileStore = stubRemoteFileStore();
+    vi.mocked(remoteFileStore.get).mockResolvedValue({
+      body: new TextEncoder().encode('{}'),
+      etag: 'etag-fixture',
+    });
+
+    const service = new TerraformService(
+      stubApplyConfigService({ tfvarsBucket: 'hyveon-tfvars' }),
+      remoteFileStore,
+      stubRunRecordService(),
+    );
     const planGen = service.plan();
     const planNext = planGen.next(); // starts plan()'s body, setting the shared in-flight flag synchronously
 

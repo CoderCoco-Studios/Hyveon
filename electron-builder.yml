@@ -19,23 +19,16 @@ publish:
 
 files:
   - out/**
-  # @cdktf/hcl2json is deliberately NOT bundled into out/main (see the
-  # `external` entry in electron.vite.config.ts) — its wasm bridge must load
-  # main.wasm.gz relative to its own module file, and its bundled copy breaks
-  # Electron's quit path. Ship the module and its transitive runtime deps
-  # (fs-extra → graceful-fs/jsonfile/universalify) so the packaged main
-  # process can resolve the bare `import '@cdktf/hcl2json'`.
-  - node_modules/@cdktf/hcl2json/**
-  - node_modules/fs-extra/**
-  - node_modules/graceful-fs/**
-  - node_modules/jsonfile/**
-  - node_modules/universalify/**
   # @pulumi/pulumi and @pulumi/aws are deliberately NOT bundled into out/main
   # (see the `external` entries in electron.vite.config.ts) — `@pulumi/pulumi`
   # pulls in `@grpc/grpc-js`, which owns sockets, and bundling either package
-  # (60 MB / 15 MB unpacked) risks the same "Electron never quits" failure the
-  # @cdktf/hcl2json incident produced. Ship both packages and their full
-  # transitive runtime-dependency closure — computed by walking each
+  # (60 MB / 15 MB unpacked) risks an "Electron never quits" failure — the
+  # same failure mode the retired `@cdktf/hcl2json` externalization here once
+  # guarded against, before the `migrate-iac-to-pulumi` change removed that
+  # dependency entirely. `graceful-fs` below is a transitive dependency of
+  # this closure (via `@npmcli/*` → `node-gyp`), not a leftover from that
+  # retired entry. Ship both packages and their full transitive runtime-dependency
+  # closure — computed by walking each
   # package's own package.json "dependencies" AND "optionalDependencies"
   # fields recursively from the installed node_modules tree (optional deps
   # matter here: minipass-fetch → iconv-lite → safer-buffer is an

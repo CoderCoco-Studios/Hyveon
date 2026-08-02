@@ -50,7 +50,7 @@ function makeConfig(
   const stub: Partial<ConfigService> = {
     getActiveCloud: () => activeCloud,
     getRegion: () => 'us-east-1',
-    getTfvarsBucket: () => tfvarsBucket,
+    getConfigurationBucket: () => tfvarsBucket,
     getTfOutputs: () => ({ audit_table_name: auditTableName, runs_table_name: runsTableName } as TfOutputs),
   };
   return stub as ConfigService;
@@ -187,12 +187,12 @@ describe('resolveCloudBindings', () => {
       expect(bindings.remoteFileStore(config)).toBeInstanceOf(AwsRemoteFileStore);
     });
 
-    it('should resolve the tfvars file store bucket from ConfigService.getTfvarsBucket() and region from getRegion()', () => {
+    it('should resolve the tfvars file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
       const config = makeConfig('aws', 'my-tfvars-bucket');
       expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: 'my-tfvars-bucket', region: 'us-east-1' });
     });
 
-    it('should fall back to an empty bucket name when getTfvarsBucket() reports no bucket configured', () => {
+    it('should fall back to an empty bucket name when getConfigurationBucket() reports no bucket configured', () => {
       const config = makeConfig('aws', null);
       expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: '', region: 'us-east-1' });
     });
@@ -228,7 +228,7 @@ describe('resolveCloudBindings', () => {
       expect(bindings.runRecordStore(config)).toBeInstanceOf(AwsRunRecordStore);
     });
 
-    it('should resolve the run record store table from ConfigService.getTfOutputs().runs_table_name, bucket from getTfvarsBucket(), and region from getRegion()', () => {
+    it('should resolve the run record store table from ConfigService.getTfOutputs().runs_table_name, bucket from getConfigurationBucket(), and region from getRegion()', () => {
       const config = makeConfig('aws', 'my-tfvars-bucket', 'test-audit-table', 'my-runs-table');
       expect(resolveRunRecordStoreConfig(config)).toEqual({
         tableName: 'my-runs-table',
@@ -237,7 +237,7 @@ describe('resolveCloudBindings', () => {
       });
     });
 
-    it('should fall back to empty table/bucket names when getTfOutputs() and getTfvarsBucket() report nothing configured', () => {
+    it('should fall back to empty table/bucket names when getTfOutputs() and getConfigurationBucket() report nothing configured', () => {
       const config: ConfigService = {
         ...makeConfig('aws', null),
         getTfOutputs: () => null,

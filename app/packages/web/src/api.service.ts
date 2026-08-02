@@ -169,8 +169,21 @@ export interface GameWriteNotFound {
 }
 
 /**
+ * No configuration bucket is configured — the operator has not finished (or
+ * has somehow un-finished) the First-Run Wizard's bootstrap step.
+ *
+ * Mirrors `GameWriteSetupIncomplete` in `@hyveon/shared/src/gamesWrite.ts` —
+ * that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameWriteSetupIncomplete {
+  ok: false;
+  code: 'setup_incomplete';
+  message: string;
+}
+
+/**
  * Catch-all failure for errors that aren't a conflict, validation failure,
- * or not-found (e.g. filesystem I/O).
+ * not-found, or setup-incomplete (e.g. an unexpected S3 error).
  *
  * Mirrors `GameWriteFailure` in `@hyveon/shared/src/gamesWrite.ts` — that
  * file is the source of truth; keep this copy in sync with it.
@@ -194,6 +207,7 @@ export type GameWriteResult =
   | GameWriteConflict
   | GameWriteValidationFailure
   | GameWriteNotFound
+  | GameWriteSetupIncomplete
   | GameWriteFailure;
 
 /**
