@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrap } from './main.js';
-import { electronRendererUrl, isPulumiSpikeEnabled, isTestMode } from './env.js';
+import { electronRendererUrl, isTestMode } from './env.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
 
@@ -81,28 +81,6 @@ app.whenReady().then(() => {
       });
 
       createWindow();
-
-      // SPIKE SCAFFOLDING — `migrate-iac-to-pulumi` tasks 1.3 / 1.5. Gated
-      // behind HYVEON_PULUMI_SPIKE=1 and imported dynamically so that a normal
-      // app start never loads `@pulumi/pulumi` or `@grpc/grpc-js`. Remove this
-      // block together with `spike/pulumiSpike.ts` and
-      // `isPulumiSpikeEnabled()` once `PulumiEngineService` (Phase 4)
-      // supersedes them.
-      //
-      // `!isTestMode()` is load-bearing, not defensive: Playwright's
-      // `electronEnv` spreads the whole inherited environment into every
-      // `_electron.launch()`, so a `HYVEON_PULUMI_SPIKE=1` exported in the shell
-      // that runs the e2e suite would otherwise reach every launched app and
-      // make each spec download a 344 MB engine and run a real `up`. The e2e
-      // config also strips the variable (see `electronEnv`); this guard is the
-      // half that cannot be bypassed by launching the app some other way.
-      if (isPulumiSpikeEnabled() && !isTestMode()) {
-        void import('./spike/pulumiSpike.js')
-          .then((spike) => spike.runPulumiSpike())
-          .catch((err: unknown) => {
-            console.error('[desktop-main] pulumi spike failed to load:', err);
-          });
-      }
 
       // On macOS re-create the window when the dock icon is clicked and there
       // are no other windows open (standard macOS behaviour).

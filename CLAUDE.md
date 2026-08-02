@@ -101,6 +101,13 @@ these are easy to violate while making an otherwise reasonable change.
   `Partial<T>` + a single `as T` for service-shaped stubs.
 - **No raw `process.env` in business logic.** Wrap env access behind a service method so
   tests stub it with `vi.spyOn` instead of mutating `process.env`.
+- **Comments document current behavior, not how it got that way.** State what the code does
+  and, only where genuinely non-obvious, why (a hidden constraint, a subtle invariant, a
+  workaround for a specific bug). Never write task/phase numbers ("task 7.4"), "considered
+  and rejected" narratives, "found during review" process notes, or pointers to design docs/
+  report files — that history belongs in the commit message and PR description, and rots the
+  moment the plan changes. If a comment needs more than 2-3 sentences to say what the code
+  does now, it's narrating history — cut it down to the current fact.
 
 Three complementary test tiers:
 

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import type { AuditPageResult } from '@hyveon/shared';
 import { AuditController } from './audit.controller.js';
-import type { AuditService } from '../services/AuditService.js';
+import type { AuditService, ListAuditEntriesOpts } from '../services/AuditService.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -63,6 +63,14 @@ describe('AuditController', () => {
     it('should default to an empty opts object when called with no arguments', async () => {
       const audit = makeAudit();
       await new AuditController(audit).list();
+      expect(audit.list).toHaveBeenCalledWith({});
+    });
+
+    it('should default to an empty opts object when the IPC transport delivers an explicit null payload', async () => {
+      const audit = makeAudit();
+      const nullPayload: ListAuditEntriesOpts | null = null;
+      // @ts-expect-error — simulating a real IPC transport payload of `null`, which the declared type disallows but the runtime must still handle.
+      await new AuditController(audit).list(nullPayload);
       expect(audit.list).toHaveBeenCalledWith({});
     });
 

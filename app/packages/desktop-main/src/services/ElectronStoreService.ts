@@ -28,17 +28,14 @@ export interface PastedAwsCredentials {
 }
 
 /**
- * A single outstanding record of "this installation caused the backend's DIY
- * lock to be taken" — Task 4.8's ownership-record mechanism, per the
- * `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
- * requirement: "The app MUST record the identity of every lock it causes to
- * be taken." Written via {@link ElectronStoreService.recordPulumiLockAttempt}
- * immediately before a `preview`/`up`/`destroy` invocation that could take the
+ * A record of a lock attempt this installation made against a stack's DIY
+ * backend lock. Written via {@link ElectronStoreService.recordPulumiLockAttempt}
+ * immediately before a `preview`/`up`/`destroy` call that could take the
  * lock, and cleared via {@link ElectronStoreService.clearPulumiLockAttempt}
- * once that operation completes *normally* — a record still present later is
- * evidence (not proof by itself; see `PulumiLockRecovery.classifyStackLockConflict`)
- * that this installation's own prior run may have orphaned the lock, e.g. via
- * a crash or the forceful-termination escalation path (Task 4.7).
+ * once that operation completes *normally*. A record still present later is
+ * evidence (not proof — see `PulumiLockRecovery.classifyStackLockConflict`)
+ * that this installation's own prior run orphaned the lock, e.g. via a crash
+ * or a forceful-termination escalation.
  *
  * `username`/`hostname` are **not secret** — no encryption via
  * {@link SafeStorageService} is applied to this field, unlike
@@ -50,18 +47,43 @@ export interface PulumiLockOwnershipRecord {
   /** ISO-8601 timestamp captured when this attempt was recorded, i.e. immediately before the SDK invocation. */
   startedAt: string;
   /**
-   * `os.userInfo().username` of *this* process at the moment the attempt was
-   * recorded — the same OS-level identity the `pulumi` CLI child process
-   * (spawned directly from this Electron process, inheriting its OS session)
-   * will report via Go's `user.Current().Username` in its own lock file, per
-   * `pkg/backend/diy/lock.go`. This is the closest available proxy for "this
-   * installation" — see `PulumiLockRecovery`'s file-level TSDoc for why a
-   * tighter, run-specific identifier (e.g. the CLI child's own PID) is not
-   * obtainable through the Automation API's public surface.
+   * `os.userInfo().username` of *this* process when the attempt was recorded
+   * — the same OS-level identity the `pulumi` CLI child process (spawned
+   * directly from this Electron process, inheriting its OS session) reports
+   * in its own lock file via Go's `user.Current().Username`
+   * (`pkg/backend/diy/lock.go`). Used as the closest available proxy for
+   * "this installation" since a tighter, run-specific identifier (e.g. the
+   * CLI child's own PID) isn't obtainable through the Automation API.
    */
   username: string;
   /** `os.hostname()` of this machine at the moment the attempt was recorded — see {@link username}'s doc comment. */
   hostname: string;
+}
+
+/**
+ * A marker for when `PulumiService.confirmRollback` restores historic
+ * configuration bytes as the new head but the follow-up plan then fails —
+ * the `iac-rollback` spec requires that failure not be left silent. Written
+ * via {@link ElectronStoreService.recordOrphanedRollback} the instant the
+ * failure is caught, so the orphan survives an app restart even though
+ * nothing reads it yet (an in-memory-only field, like `PulumiService`'s
+ * `pendingDestroyConfirmation`, would lose it the moment the process exits).
+ *
+ * Single-slot, not a map keyed by `applyRunId` like
+ * {@link PulumiLockOwnershipRecord}'s `lockOwnership` — this failure path is
+ * rare by construction (it only fires once a restore has already succeeded
+ * and the follow-up plan then fails independently), so a single
+ * most-recent slot is the minimum durable signal the spec requires.
+ */
+export interface OrphanedRollbackRecord {
+  /** The `runId` of the `apply` run {@link PulumiService.confirmRollback} was rolling back. */
+  applyRunId: string;
+  /** The configuration-object version id that was successfully restored as the new head before the plan attempt failed. */
+  restoredVersionId: string;
+  /** ISO-8601 timestamp captured the instant the follow-up plan attempt was caught as failed. */
+  failedAt: string;
+  /** `Error.message` (or `String(err)` for a non-`Error` throw) of the plan-creation failure. */
+  failureMessage: string;
 }
 
 /**
@@ -103,16 +125,14 @@ export interface AppStoreSchema {
    * The bootstrap step's resource names, as last submitted (whether that
    * submission succeeded or is still `pending`/`failed` for a given
    * resource — this just records what the operator asked for). Names are
-   * operator-editable, so without this the Settings "Reconfigure" flow
-   * (#211) would have no way to rehydrate a non-default name and would run
+   * operator-editable, so without this the Settings "Reconfigure" flow would
+   * have no way to rehydrate a non-default name and would run
    * `terraform init` against the wrong bucket/table.
    *
-   * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
-   * `ensureLockTable`) — it is kept only because the still-live
-   * `terraform.init` call requires a non-empty `dynamodbTable` backend-config
-   * value, rehydrated from this same field on Reconfigure. Task 10.3
-   * (replacing the Terraform-init step) is where this field should finally
-   * be dropped.
+   * `lockTable` no longer names a bootstrapped resource — it is kept only
+   * because the still-live `terraform.init` call requires a non-empty
+   * `dynamodbTable` backend-config value, rehydrated from this same field on
+   * Reconfigure.
    */
   bootstrap?: {
     stateBucket: string;
@@ -141,11 +161,16 @@ export interface AppStoreSchema {
     passphrase?: string;
     /**
      * Outstanding lock-ownership records, keyed by a freshly-minted run id —
-     * see {@link PulumiLockOwnershipRecord}'s doc comment and Task 4.8's
-     * `PulumiLockRecovery` module. Not secret — stored in plaintext, unlike
-     * `passphrase` above.
+     * see {@link PulumiLockOwnershipRecord} and the `PulumiLockRecovery`
+     * module. Not secret — stored in plaintext, unlike `passphrase` above.
      */
     lockOwnership?: Record<string, PulumiLockOwnershipRecord>;
+    /**
+     * The most recent unresolved rollback orphan — see
+     * {@link OrphanedRollbackRecord}. Not secret — stored in plaintext,
+     * unlike `passphrase` above.
+     */
+    orphanedRollback?: OrphanedRollbackRecord;
   };
 }
 
@@ -318,12 +343,11 @@ export class ElectronStoreService {
    *
    * @remarks
    * Callers that need to distinguish "never stored" from "stored but
-   * undecryptable" (the `pulumi-engine-runtime` delta spec's "Missing
-   * passphrase for an existing stack fails loudly" scenario) must check
-   * presence via `get('pulumi')?.passphrase !== undefined` themselves
-   * *before* calling this — like {@link decrypt}, this method can itself
-   * throw (a corrupted/foreign ciphertext) rather than returning `undefined`.
-   * `PulumiWorkspaceService` owns that distinction; this accessor only mirrors
+   * undecryptable" must check presence via
+   * `get('pulumi')?.passphrase !== undefined` themselves *before* calling
+   * this — like `decrypt`, this method can itself throw (a corrupted/foreign
+   * ciphertext) rather than returning `undefined`. `PulumiWorkspaceService`
+   * owns that distinction; this accessor only mirrors
    * {@link getSecretAccessKeyId}'s shape.
    *
    * @returns The decrypted passphrase, or `undefined` if never stored.
@@ -341,14 +365,13 @@ export class ElectronStoreService {
    *
    * @remarks
    * Callers must check {@link SafeStorageService.isAvailable} themselves
-   * before calling this for a *new* stack's passphrase — mirroring
-   * `AwsProfileService.savePastedCredentials`'s "fail loudly before any
-   * write" precedent, this method does not enforce that on its own (like
-   * {@link setSecretAccessKeyId}, it transparently degrades to plaintext
-   * storage outside Electron via {@link SafeStorageService.encrypt}, which is
-   * fine for AWS keys' test/CI convenience but would be a silent security
-   * regression for a passphrase if a caller relied on it instead of checking
-   * availability itself).
+   * before calling this for a *new* stack's passphrase — this method does
+   * not enforce that on its own. Like {@link setSecretAccessKeyId}, it
+   * transparently degrades to plaintext storage outside Electron via
+   * {@link SafeStorageService.encrypt}, which is fine for AWS keys'
+   * test/CI convenience but would be a silent security regression for a
+   * passphrase if a caller relied on it instead of checking availability
+   * itself.
    *
    * @param value - Plaintext passphrase to encrypt and store.
    */
@@ -361,13 +384,12 @@ export class ElectronStoreService {
 
   /**
    * Records that an infrastructure operation against `stackName` is about to
-   * invoke the Pulumi engine — Task 4.8's ownership-record mechanism (see
-   * {@link PulumiLockOwnershipRecord}'s doc comment). Must be called
-   * immediately before the SDK invocation that could take the backend's DIY
-   * lock, so a crash or the Task 4.7 forceful-termination escalation path
-   * mid-operation still leaves a record this installation can later prove
-   * against via `PulumiLockRecovery.classifyStackLockConflict`. Merges into
-   * any existing `pulumi.lockOwnership` map rather than overwriting it.
+   * invoke the Pulumi engine (see {@link PulumiLockOwnershipRecord}). Must be
+   * called immediately before the SDK invocation that could take the
+   * backend's DIY lock, so a crash or forceful-termination mid-operation
+   * still leaves a record this installation can later prove against via
+   * `PulumiLockRecovery.classifyStackLockConflict`. Merges into any existing
+   * `pulumi.lockOwnership` map rather than overwriting it.
    *
    * @returns The freshly-minted run id. Pass it to
    *   {@link clearPulumiLockAttempt} once the operation completes *normally*
@@ -392,9 +414,9 @@ export class ElectronStoreService {
    * completes normally (success, or a genuine non-abort failure): a normal
    * CLI exit releases its own backend lock via the DIY backend's own
    * `Unlock()` call, so the record is no longer needed as reclaim evidence.
-   * Never call this when the operation was forcefully terminated (Task
-   * 4.7) — see {@link recordPulumiLockAttempt}'s doc comment. A no-op if
-   * `runId` is not present (already cleared, or never recorded).
+   * Never call this when the operation was forcefully terminated — see
+   * {@link recordPulumiLockAttempt}. A no-op if `runId` is not present
+   * (already cleared, or never recorded).
    */
   clearPulumiLockAttempt(runId: string): void {
     const current = this.get('pulumi') ?? {};
@@ -413,18 +435,53 @@ export class ElectronStoreService {
    * prior run.
    *
    * Returns each record together with its `runId` (unlike a bare
-   * `PulumiLockOwnershipRecord`) so a caller that identifies which record(s)
-   * it actually relied on as evidence can clear exactly those via
-   * {@link clearPulumiLockAttempt} — `PulumiLockRecovery.classifyStackLockConflict`
-   * uses this both to prune expired records and to consume the record it
-   * reclaims against, so a single past reclaim can't stand as permanent,
-   * reusable justification for reclaiming an unrelated future lock.
+   * `PulumiLockOwnershipRecord`) so a caller can clear exactly the record(s)
+   * it relied on as evidence via {@link clearPulumiLockAttempt} — preventing
+   * a single past reclaim from standing as permanent justification for
+   * reclaiming an unrelated future lock.
    */
   listPulumiLockAttempts(stackName: string): (PulumiLockOwnershipRecord & { runId: string })[] {
     const lockOwnership = this.get('pulumi')?.lockOwnership ?? {};
     return Object.entries(lockOwnership)
       .filter(([, record]) => record.stackName === stackName)
       .map(([runId, record]) => ({ runId, ...record }));
+  }
+
+  /**
+   * Records that `PulumiService.confirmRollback` restored a historic
+   * configuration version as the head but could not complete the follow-up
+   * plan — see {@link OrphanedRollbackRecord} for why this durable marker
+   * exists. Overwrites any existing record (single-slot); call immediately
+   * after catching the plan-creation failure, before re-throwing
+   * `PulumiRollbackPlanFailedError` to the caller.
+   */
+  recordOrphanedRollback(record: OrphanedRollbackRecord): void {
+    const current = this.get('pulumi') ?? {};
+    this.set('pulumi', { ...current, orphanedRollback: record });
+  }
+
+  /**
+   * Reads the current orphaned-rollback marker, if any — see
+   * {@link recordOrphanedRollback}/{@link OrphanedRollbackRecord}.
+   *
+   * @returns The most recently recorded {@link OrphanedRollbackRecord}, or
+   *   `undefined` if none is outstanding.
+   */
+  getOrphanedRollback(): OrphanedRollbackRecord | undefined {
+    return this.get('pulumi')?.orphanedRollback;
+  }
+
+  /**
+   * Clears the orphaned-rollback marker — call once an operator has
+   * resolved it, or once a subsequent rollback attempt against the same or a
+   * different apply run supersedes it. A no-op if none is currently
+   * recorded.
+   */
+  clearOrphanedRollback(): void {
+    const current = this.get('pulumi') ?? {};
+    if (!current.orphanedRollback) return;
+    const { orphanedRollback: _orphanedRollback, ...rest } = current;
+    this.set('pulumi', rest);
   }
 
   /**

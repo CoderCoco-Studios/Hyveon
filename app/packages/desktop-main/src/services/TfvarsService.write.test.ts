@@ -523,6 +523,26 @@ describe('TfvarsService write path', () => {
         service.addGameServer('terraria', NEW_ENTRY_CONFIG, 'etag-stale'),
       ).rejects.toBeInstanceOf(OptimisticLockError);
     });
+
+    it('should guard against a concurrent write even when the caller omits expectedVersionId, using the etag its own read just observed', async () => {
+      // e.g. GamesWriteService's create path, which has no prior read to base
+      // a version on. Without falling back to the read's own etag, this would
+      // write unconditionally and never detect that the remote object
+      // changed underneath it.
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockRejectedValue(
+        new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-1'),
+      );
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      await expect(service.addGameServer('terraria', NEW_ENTRY_CONFIG)).rejects.toBeInstanceOf(
+        OptimisticLockError,
+      );
+      expect(remoteFileStore.put).toHaveBeenCalledWith('deployment-config.json', expect.any(Uint8Array), {
+        ifMatch: 'etag-1',
+      });
+    });
   });
 
   describe('structured lock error', () => {

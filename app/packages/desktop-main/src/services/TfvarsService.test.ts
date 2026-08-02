@@ -347,6 +347,11 @@ describe('TfvarsService', () => {
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       expect(service.isConfigured()).toBe(true);
     });
+
+    it('should return false for an empty-string bucket, matching fetchRawConfig/putRawConfig\'s own truthy check', () => {
+      const service = new TfvarsService(makeConfig({ bucket: '' }), remoteFileStore);
+      expect(service.isConfigured()).toBe(false);
+    });
   });
 
   describe('unconfigured (no disk fallback reachable)', () => {

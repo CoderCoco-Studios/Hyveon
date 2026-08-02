@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import type { RunLock, RunPageResult, RunRecord } from '@hyveon/shared';
-import { TerraformRunsController } from './terraform-runs.controller.js';
-import type { TerraformService, TerraformRunChunk, TerraformRunRecord } from '../services/TerraformService.js';
+import { IacRunsController } from './iac-runs.controller.js';
+import type { PulumiService, PulumiRunChunk, PulumiRunRecord } from '../services/PulumiService.js';
 import type { RunService } from '../services/RunService.js';
 import type { RunRecordService, ListRunsOpts } from '../services/RunRecordService.js';
 
@@ -34,21 +34,27 @@ vi.mock('../logger.js', () => ({
 }));
 
 /**
- * Build a `TerraformService` stub. `record` seeds what `readRunRecord`
- * resolves for any `runId` (defaults to `null`, i.e. no persisted run);
+ * Build a `PulumiService` stub. `record` seeds what `readRunRecord` resolves
+ * for any `runId` (defaults to `null`, i.e. no persisted run);
  * `planArtifactExists` seeds `hasPlanArtifact`'s return value;
  * `streamRunOutput` seeds an empty async generator by default so `logs()`
  * tests can override it per-case via `vi.mocked(...).mockImplementation(...)`.
+ * Task 7.10: replaces the pre-migration `makeTerraform` stub (this
+ * controller's `readRunRecord`/`hasPlanArtifact`/`streamRunOutput` calls were
+ * repointed from `TerraformService` onto `PulumiService`, an identical
+ * signature/behavior port — see those methods' own doc comments on
+ * `PulumiService.ts`).
  */
-function makeTerraform(
-  record: TerraformRunRecord | null = null,
+function makePulumi(
+  record: PulumiRunRecord | null = null,
   planArtifactExists = false,
-): TerraformService {
-  return {
+): PulumiService {
+  const stub: Partial<PulumiService> = {
     readRunRecord: vi.fn().mockReturnValue(record),
     hasPlanArtifact: vi.fn().mockReturnValue(planArtifactExists),
     streamRunOutput: vi.fn().mockImplementation(async function* () { /* empty */ }),
-  } as unknown as TerraformService;
+  };
+  return stub as PulumiService;
 }
 
 /**
@@ -86,8 +92,8 @@ function makeRunService(lock: RunLock | undefined = undefined): RunService {
   } as unknown as RunService;
 }
 
-/** A `TerraformRunRecord` fixture for a successful `plan` run. */
-function buildRecord(overrides: Partial<TerraformRunRecord> = {}): TerraformRunRecord {
+/** A `PulumiRunRecord` fixture for a successful `plan` run. */
+function buildRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunRecord {
   return {
     runId: 'run-1',
     kind: 'plan',
@@ -135,23 +141,23 @@ function buildDynamoRecord(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
-describe('TerraformRunsController.get', () => {
+describe('IacRunsController.get', () => {
   it('should return found: true, status: running for the runId currently holding the apply lock', async () => {
     const runService = makeRunService(buildLock({ runId: 'run-live' }));
-    const terraform = makeTerraform();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const pulumi = makePulumi();
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-live' });
 
     expect(result).toEqual({ found: true, status: 'running' });
-    expect(terraform.readRunRecord).not.toHaveBeenCalled();
+    expect(pulumi.readRunRecord).not.toHaveBeenCalled();
   });
 
   it('should return found: true, status: success plus the record for a finished apply run', async () => {
     const record = buildRecord({ runId: 'run-apply', kind: 'apply', exitCode: 0 });
-    const terraform = makeTerraform(record);
+    const pulumi = makePulumi(record);
     const runService = makeRunService();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-apply' });
 
@@ -160,9 +166,9 @@ describe('TerraformRunsController.get', () => {
 
   it('should return found: true, status: failed plus the record for a plan run that exited non-zero', async () => {
     const record = buildRecord({ runId: 'run-failed', kind: 'plan', exitCode: 1 });
-    const terraform = makeTerraform(record, false);
+    const pulumi = makePulumi(record, false);
     const runService = makeRunService();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-failed' });
 
@@ -171,31 +177,31 @@ describe('TerraformRunsController.get', () => {
 
   it('should return found: true, status: aborted plus the record for a run with no exit code', async () => {
     const record = buildRecord({ runId: 'run-aborted', kind: 'destroy', exitCode: null });
-    const terraform = makeTerraform(record);
+    const pulumi = makePulumi(record);
     const runService = makeRunService();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-aborted' });
 
     expect(result).toEqual({ found: true, status: 'aborted', record });
   });
 
-  it('should return found: true, status: awaiting_approval plus the record for a successful plan run whose .tfplan artifact still exists', async () => {
+  it('should return found: true, status: awaiting_approval plus the record for a successful plan run whose plan artifact still exists', async () => {
     const record = buildRecord({ runId: 'run-plan', kind: 'plan', exitCode: 0 });
-    const terraform = makeTerraform(record, true);
+    const pulumi = makePulumi(record, true);
     const runService = makeRunService();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'run-plan' });
 
     expect(result).toEqual({ found: true, status: 'awaiting_approval', record });
-    expect(terraform.hasPlanArtifact).toHaveBeenCalledWith('run-plan');
+    expect(pulumi.hasPlanArtifact).toHaveBeenCalledWith('run-plan');
   });
 
   it('should return found: false when runId is neither the held lock nor a persisted run', async () => {
-    const terraform = makeTerraform(null);
+    const pulumi = makePulumi(null);
     const runService = makeRunService();
-    const controller = new TerraformRunsController(terraform, runService, makeRunRecordService());
+    const controller = new IacRunsController(pulumi, runService, makeRunRecordService());
 
     const result = await controller.get({ runId: 'does-not-exist' });
 
@@ -203,7 +209,7 @@ describe('TerraformRunsController.get', () => {
   });
 
   it('should reject a payload with a missing runId', async () => {
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     await expect(
       controller.get({} as unknown as { runId: string }),
@@ -211,7 +217,7 @@ describe('TerraformRunsController.get', () => {
   });
 
   it('should reject a payload with a non-string runId', async () => {
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     await expect(
       controller.get({ runId: 42 } as unknown as { runId: string }),
@@ -219,13 +225,13 @@ describe('TerraformRunsController.get', () => {
   });
 
   it('should reject a payload with an empty-string runId', async () => {
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     await expect(controller.get({ runId: '' })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
-describe('TerraformRunsController.onModuleInit', () => {
+describe('IacRunsController.onModuleInit', () => {
   // onModuleInit only wires the bridge when running inside a real Electron
   // main process, detected via `process.versions.electron`. Vitest runs under
   // plain Node where it's undefined, so fake it for the "is Electron" cases
@@ -247,32 +253,32 @@ describe('TerraformRunsController.onModuleInit', () => {
 
   it('should skip the ipcMain bridge when not running inside an Electron main process', async () => {
     setElectron(undefined);
-    await new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService()).onModuleInit();
+    await new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService()).onModuleInit();
 
     expect(mockIpcMainHandle).not.toHaveBeenCalled();
     expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
   });
 
-  it('should register ipcMain.handle for "terraform.runs.logs" so ipcRenderer.invoke can resolve', async () => {
-    await new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService()).onModuleInit();
+  it('should register ipcMain.handle for "iac.runs.logs" so ipcRenderer.invoke can resolve', async () => {
+    await new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService()).onModuleInit();
 
-    expect(mockIpcMainHandle).toHaveBeenCalledWith('terraform.runs.logs', expect.any(Function));
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.runs.logs', expect.any(Function));
   });
 
-  it('should remove any existing "terraform.runs.logs" handler before registering so hot-reload re-bootstrap does not throw', async () => {
-    await new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService()).onModuleInit();
+  it('should remove any existing "iac.runs.logs" handler before registering so hot-reload re-bootstrap does not throw', async () => {
+    await new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService()).onModuleInit();
 
-    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('terraform.runs.logs');
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('iac.runs.logs');
     expect(mockIpcMainRemoveHandler.mock.invocationCallOrder[0]).toBeLessThan(
       mockIpcMainHandle.mock.invocationCallOrder[0],
     );
   });
 });
 
-describe('TerraformRunsController.logs', () => {
+describe('IacRunsController.logs', () => {
   it('should return a non-empty streamId string immediately', async () => {
     const { ctx } = makeCtx();
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     const result = await controller.logs({ runId: 'run-1' }, ctx);
 
@@ -282,87 +288,87 @@ describe('TerraformRunsController.logs', () => {
   });
 
   it('should reject a payload with a missing runId without opening a stream', async () => {
-    const terraform = makeTerraform();
+    const pulumi = makePulumi();
     const { ctx } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await expect(
       controller.logs({} as unknown as { runId: string }, ctx),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(terraform.streamRunOutput).not.toHaveBeenCalled();
+    expect(pulumi.streamRunOutput).not.toHaveBeenCalled();
   });
 
   it('should reject a payload with an empty-string runId without opening a stream', async () => {
-    const terraform = makeTerraform();
+    const pulumi = makePulumi();
     const { ctx } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await expect(controller.logs({ runId: '' }, ctx)).rejects.toBeInstanceOf(BadRequestException);
-    expect(terraform.streamRunOutput).not.toHaveBeenCalled();
+    expect(pulumi.streamRunOutput).not.toHaveBeenCalled();
   });
 
-  it('should forward every chunk, in order, on terraform.runs.logs.chunk tagged with the streamId', async () => {
-    const chunks: TerraformRunChunk[] = [
+  it('should forward every chunk, in order, on iac.runs.logs.chunk tagged with the streamId', async () => {
+    const chunks: PulumiRunChunk[] = [
       { stream: 'stdout', line: 'Terraform will perform the following actions:' },
       { stream: 'stdout', line: 'Plan: 1 to add, 0 to change, 0 to destroy.' },
     ];
     async function* twoChunks() {
       for (const chunk of chunks) yield chunk;
     }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(twoChunks);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(twoChunks);
     const { ctx, sender } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     const { streamId } = await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
 
-    const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.runs.logs.chunk');
+    const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.runs.logs.chunk');
     expect(chunkCalls).toEqual([
-      ['terraform.runs.logs.chunk', { streamId, chunk: chunks[0] }],
-      ['terraform.runs.logs.chunk', { streamId, chunk: chunks[1] }],
+      ['iac.runs.logs.chunk', { streamId, chunk: chunks[0] }],
+      ['iac.runs.logs.chunk', { streamId, chunk: chunks[1] }],
     ]);
   });
 
-  it('should call TerraformService.streamRunOutput with the runId and an AbortSignal', async () => {
-    const terraform = makeTerraform();
+  it('should call PulumiService.streamRunOutput with the runId and an AbortSignal', async () => {
+    const pulumi = makePulumi();
     const { ctx } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await controller.logs({ runId: 'run-42' }, ctx);
     await flushPromises();
 
-    expect(terraform.streamRunOutput).toHaveBeenCalledWith('run-42', expect.any(AbortSignal));
+    expect(pulumi.streamRunOutput).toHaveBeenCalledWith('run-42', expect.any(AbortSignal));
   });
 
-  it('should send exactly one terraform.runs.logs.end message with no error when the run reaches a terminal status', async () => {
+  it('should send exactly one iac.runs.logs.end message with no error when the run reaches a terminal status', async () => {
     async function* empty() { /* run already settled — no further chunks */ }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(empty);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(empty);
     const { ctx, sender } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     const { streamId } = await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
 
-    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.runs.logs.end');
-    expect(endCalls).toEqual([['terraform.runs.logs.end', { streamId }]]);
+    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.runs.logs.end');
+    expect(endCalls).toEqual([['iac.runs.logs.end', { streamId }]]);
   });
 
-  it('should send exactly one terraform.runs.logs.end message with an error when the stream throws', async () => {
-    async function* throwsError(): AsyncGenerator<TerraformRunChunk> {
+  it('should send exactly one iac.runs.logs.end message with an error when the stream throws', async () => {
+    async function* throwsError(): AsyncGenerator<PulumiRunChunk> {
       yield { stream: 'stdout', line: 'partial' };
       throw new Error('no run found for runId "run-1"');
     }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(throwsError);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(throwsError);
     const { ctx, sender } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     const { streamId } = await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
 
-    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.runs.logs.end');
+    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.runs.logs.end');
     expect(endCalls).toHaveLength(1);
     const [, message] = endCalls[0] as [string, { streamId: string; error?: string }];
     expect(message.streamId).toBe(streamId);
@@ -372,22 +378,22 @@ describe('TerraformRunsController.logs', () => {
   it('should stop sending chunks once the WebContents is destroyed mid-stream', async () => {
     let sawAbort = false;
     async function* waitForAbort(
-      runId: string,
-      signal: AbortSignal,
-    ): AsyncGenerator<TerraformRunChunk> {
+      _runId: string,
+      signal: AbortSignal | undefined,
+    ): AsyncGenerator<PulumiRunChunk> {
       yield { stream: 'stdout', line: 'first' };
       await new Promise<void>((resolve) => {
-        signal.addEventListener('abort', () => {
+        signal?.addEventListener('abort', () => {
           sawAbort = true;
           resolve();
         });
       });
       yield { stream: 'stdout', line: 'should never be sent' };
     }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(waitForAbort);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(waitForAbort);
     const { ctx, sender, fireDestroyed } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
@@ -399,20 +405,20 @@ describe('TerraformRunsController.logs', () => {
     await flushPromises();
 
     expect(sawAbort).toBe(true);
-    const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.runs.logs.chunk');
+    const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.runs.logs.chunk');
     expect(chunkCalls).toHaveLength(1);
-    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'terraform.runs.logs.end');
+    const endCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.runs.logs.end');
     expect(endCalls).toHaveLength(0);
   });
 
   it('should not send any messages when the WebContents is already destroyed before the first chunk', async () => {
-    async function* oneChunk(): AsyncGenerator<TerraformRunChunk> {
+    async function* oneChunk(): AsyncGenerator<PulumiRunChunk> {
       yield { stream: 'stdout', line: 'line' };
     }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(oneChunk);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(oneChunk);
     const { ctx, sender } = makeCtx(true);
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
@@ -422,10 +428,10 @@ describe('TerraformRunsController.logs', () => {
 
   it('should remove the destroyed listener after the stream ends naturally', async () => {
     async function* empty() { /* terminates immediately */ }
-    const terraform = makeTerraform();
-    vi.mocked(terraform.streamRunOutput).mockImplementation(empty);
+    const pulumi = makePulumi();
+    vi.mocked(pulumi.streamRunOutput).mockImplementation(empty);
     const { ctx, sender } = makeCtx();
-    const controller = new TerraformRunsController(terraform, makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(pulumi, makeRunService(), makeRunRecordService());
 
     await controller.logs({ runId: 'run-1' }, ctx);
     await flushPromises();
@@ -434,10 +440,10 @@ describe('TerraformRunsController.logs', () => {
   });
 });
 
-describe('TerraformRunsController.list', () => {
+describe('IacRunsController.list', () => {
   it("should delegate to RunRecordService.listRuns with the given opts", async () => {
     const runRecordService = makeRunRecordService();
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     await controller.list({ limit: 10, before: 'cursor-sk', status: 'failed' });
 
@@ -446,7 +452,7 @@ describe('TerraformRunsController.list', () => {
 
   it('should default to an empty opts object when the renderer invokes with no arguments', async () => {
     const runRecordService = makeRunRecordService();
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     await controller.list();
 
@@ -456,7 +462,7 @@ describe('TerraformRunsController.list', () => {
   it("should return the page resolved by RunRecordService.listRuns", async () => {
     const record = buildDynamoRecord();
     const runRecordService = makeRunRecordService({ records: [record], nextBefore: record.sk });
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     const result = await controller.list({ limit: 20 });
 
@@ -465,7 +471,7 @@ describe('TerraformRunsController.list', () => {
 
   it('should reject a status filter that is not a known RunStatus', async () => {
     const runRecordService = makeRunRecordService();
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     await expect(
       controller.list({ status: 'pending' } as unknown as ListRunsOpts),
@@ -474,10 +480,10 @@ describe('TerraformRunsController.list', () => {
   });
 });
 
-describe('TerraformRunsController.logUrl', () => {
+describe('IacRunsController.logUrl', () => {
   it("should delegate to RunRecordService.getLogUrl and wrap the result in { url }", async () => {
     const runRecordService = makeRunRecordService(undefined, 'https://example.com/signed-log');
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     const result = await controller.logUrl({ logKey: 'runs/run-123.log' });
 
@@ -487,7 +493,7 @@ describe('TerraformRunsController.logUrl', () => {
 
   it('should forward a custom expiresInSeconds to RunRecordService.getLogUrl', async () => {
     const runRecordService = makeRunRecordService();
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), runRecordService);
+    const controller = new IacRunsController(makePulumi(), makeRunService(), runRecordService);
 
     await controller.logUrl({ logKey: 'runs/run-123.log', expiresInSeconds: 60 });
 
@@ -495,7 +501,7 @@ describe('TerraformRunsController.logUrl', () => {
   });
 
   it('should reject a payload with a missing logKey', async () => {
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     await expect(
       controller.logUrl({} as unknown as { logKey: string }),
@@ -503,7 +509,7 @@ describe('TerraformRunsController.logUrl', () => {
   });
 
   it('should reject a payload with an empty-string logKey', async () => {
-    const controller = new TerraformRunsController(makeTerraform(), makeRunService(), makeRunRecordService());
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
 
     await expect(controller.logUrl({ logKey: '' })).rejects.toBeInstanceOf(BadRequestException);
   });

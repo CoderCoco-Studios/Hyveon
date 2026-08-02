@@ -26,10 +26,18 @@ vi.mock('./logger.js', () => ({
 }));
 
 import { initUpdater } from './updater.js';
+import { logger } from './logger.js';
 
 /** Builds a minimal `ElectronStoreService`-shaped stub for `initUpdater`'s single `get` call. */
 function makeStore(enableAutoUpdate: boolean | undefined): ElectronStoreService {
   return { get: vi.fn().mockReturnValue(enableAutoUpdate) } as unknown as ElectronStoreService;
+}
+
+/** Finds the handler `initUpdater` registered via `autoUpdater.on(event, handler)` for `event`. */
+function findHandler(event: string): (...args: unknown[]) => void {
+  const call = onMock.mock.calls.find(([registeredEvent]) => registeredEvent === event);
+  if (!call) throw new Error(`no handler registered for "${event}"`);
+  return call[1] as (...args: unknown[]) => void;
 }
 
 describe('initUpdater', () => {
@@ -92,5 +100,45 @@ describe('initUpdater', () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('network unreachable'));
 
     await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
+  });
+
+  it('should log an Error instance\'s message when the "error" event fires', async () => {
+    await initUpdater(makeStore(true));
+
+    findHandler('error')(new Error('feed unreachable'));
+
+    expect(logger.error).toHaveBeenCalledWith('[updater] update check failed', { error: 'feed unreachable' });
+  });
+
+  it('should stringify a non-Error value when the "error" event fires', async () => {
+    await initUpdater(makeStore(true));
+
+    findHandler('error')('feed offline');
+
+    expect(logger.error).toHaveBeenCalledWith('[updater] update check failed', { error: 'feed offline' });
+  });
+
+  it('should log the version when the "update-available" event fires', async () => {
+    await initUpdater(makeStore(true));
+
+    findHandler('update-available')({ version: '1.2.3' });
+
+    expect(logger.info).toHaveBeenCalledWith('[updater] update available', { version: '1.2.3' });
+  });
+
+  it('should log when the "update-not-available" event fires', async () => {
+    await initUpdater(makeStore(true));
+
+    findHandler('update-not-available')();
+
+    expect(logger.info).toHaveBeenCalledWith('[updater] no update available');
+  });
+
+  it('should log the version when the "update-downloaded" event fires', async () => {
+    await initUpdater(makeStore(true));
+
+    findHandler('update-downloaded')({ version: '1.2.3' });
+
+    expect(logger.info).toHaveBeenCalledWith('[updater] update downloaded', { version: '1.2.3' });
   });
 });

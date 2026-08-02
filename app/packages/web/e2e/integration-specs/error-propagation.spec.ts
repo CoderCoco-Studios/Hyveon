@@ -1,4 +1,5 @@
 import { GamesController } from '@hyveon/desktop-main/dist/controllers/games.controller.js';
+import { STACK_OUTPUTS_FIXTURE } from '../fixtures/stack-outputs.fixture.js';
 import { test, expect } from './index.js';
 
 /**
@@ -13,9 +14,14 @@ import { test, expect } from './index.js';
  *
  * `GamesController.start` is the IPC handler backing the Electron `games.start`
  * channel and delegates to `EcsService`, so this spec exercises the real
- * error-propagation path.
+ * error-propagation path. A deployed-stack scripted response
+ * (`STACK_OUTPUTS_FIXTURE`) is required — `start()` short-circuits with a
+ * "Infrastructure not deployed" guard before ever reaching RunTask for a
+ * never-deployed stack.
  */
 test.describe('Error propagation', () => {
+  test.use({ stackOutputs: STACK_OUTPUTS_FIXTURE });
+
   test('should surface RunTask AccessDeniedException as a failed start response', async ({
     ipc,
     serverMocks,

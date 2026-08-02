@@ -17,9 +17,10 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { EcsService, createAwsCloudProvider } from './EcsService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import { EcsService, createAwsCloudProvider, buildProviderConfig } from './EcsService.js';
+import type { ConfigService } from './ConfigService.js';
 import type { Ec2Service } from './Ec2Service.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 /** Typed stand-in for the AWS ECS SDK client. */
 const ecsMock = mockClient(ECSClient);
@@ -34,30 +35,38 @@ const ecsMock = mockClient(ECSClient);
 const ec2Mock = mockClient(EC2Client);
 
 /**
- * A canonical set of Terraform outputs used by most tests. Individual tests
- * spread over this to tweak specific fields (e.g. clearing `domain_name`).
+ * A canonical set of stack outputs used by most tests. Individual tests
+ * spread over this to tweak specific fields (e.g. clearing `domainName`).
  */
-const DEFAULT_OUTPUTS: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: 'game-cluster',
-  ecs_cluster_arn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
-  subnet_ids: 'subnet-a, subnet-b',
-  security_group_id: 'sg-game',
-  file_manager_security_group_id: 'sg-files',
-  efs_file_system_id: 'fs-1',
-  efs_access_points: { minecraft: 'fsap-1' },
-  domain_name: 'example.com',
-  game_names: ['minecraft'],
+const DEFAULT_OUTPUTS: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: 'game-cluster',
+  ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
+  subnetIds: ['subnet-a', 'subnet-b'],
+  securityGroupId: 'sg-game',
+  fileManagerSecurityGroupId: 'sg-files',
+  efsFileSystemId: 'fs-1',
+  efsAccessPoints: { minecraft: 'fsap-1' },
+  domainName: 'example.com',
+  gameNames: ['minecraft'],
+  discordTableName: 'discord-table',
+  auditTableName: 'audit-table',
+  runsTableName: 'runs-table',
+  discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
+  discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 /**
  * Build a minimal ConfigService stub with just the methods EcsService reads.
- * Pass `null` to simulate "terraform apply hasn't been run yet".
+ * Pass `null` to simulate "nothing has been deployed yet".
  */
-function makeConfig(outputs: TfOutputs | null = DEFAULT_OUTPUTS): ConfigService {
+function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigService {
   const stub: Partial<ConfigService> = {
     getRegion: () => 'us-east-1',
-    getTfOutputs: () => outputs,
+    getStackOutputs: async () => outputs,
   };
   return stub as ConfigService;
 }
@@ -167,11 +176,11 @@ describe('EcsService', () => {
   });
 
   describe('getStatus', () => {
-    it('should return not_deployed when terraform outputs are missing', async () => {
+    it('should return not_deployed when stack outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const status = await service.getStatus('minecraft');
       expect(status.state).toBe('not_deployed');
-      expect(status.message).toMatch(/terraform apply/i);
+      expect(status.message).toMatch(/run an apply/i);
     });
 
     it('should return running with public IP and hostname for a RUNNING task', async () => {
@@ -222,7 +231,7 @@ describe('EcsService', () => {
     });
 
     it('should omit hostname when no domain_name is configured', async () => {
-      const outputs: TfOutputs = { ...DEFAULT_OUTPUTS, domain_name: '' };
+      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, domainName: '' };
       ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
       ecsMock.on(DescribeTasksCommand).resolves({
         tasks: [{ taskArn: 'arn1', lastStatus: 'RUNNING', attachments: [] }],
@@ -235,11 +244,11 @@ describe('EcsService', () => {
   });
 
   describe('start', () => {
-    it('should return failure if terraform outputs are missing', async () => {
+    it('should return failure if stack outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const result = await service.start('minecraft');
       expect(result.success).toBe(false);
-      expect(result.message).toMatch(/terraform apply/i);
+      expect(result.message).toMatch(/run an apply/i);
     });
 
     it('should refuse to start if a task is already running', async () => {
@@ -482,5 +491,19 @@ describe('EcsService', () => {
       expect(input.task).toBe('arn');
       expect(input.reason).toBe('because');
     });
+  });
+});
+
+describe('buildProviderConfig', () => {
+  it('should return null before anything has been deployed', async () => {
+    await expect(buildProviderConfig(makeConfig(null))).resolves.toBeNull();
+  });
+
+  it('should prefer the deployed stack outputs awsRegion over ConfigService.getRegion() once deployed', async () => {
+    const config = makeConfig({ ...DEFAULT_OUTPUTS, awsRegion: 'eu-central-1' });
+    // getRegion() stays 'us-east-1' (the makeConfig stub default) — proving
+    // the resolved config prefers the stack's own deployed region, not the
+    // wizard-configured fallback, once a stack actually exists.
+    await expect(buildProviderConfig(config)).resolves.toMatchObject({ region: 'eu-central-1' });
   });
 });

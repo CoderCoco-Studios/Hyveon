@@ -62,24 +62,25 @@
 
 ## 7. Service replacement
 
-- [ ] 7.1 Implement `PulumiService.preview` returning structured `changeSummary`, saving the update plan as a run artifact, reusing the existing chunk line-splitting for `onOutput`/`onError`
-- [ ] 7.2 Implement `PulumiService.up` constrained by the saved plan, distinguishing clean failure from partial apply in the run's terminal state
-- [ ] 7.3 Implement `PulumiService.destroy` behind the existing confirmation-token gate; assert no untokened call site exists
-- [ ] 7.4 Implement stack output reads replacing `ConfigService.getTfOutputs()`, degrading to "not deployed yet" for a never-deployed stack
-- [ ] 7.5 Port the plan-hash gate: hash over the saved plan artifact plus the config object's version id, with the staleness check independent of plan-file parseability, and refuse to apply a plan produced by a different engine version (`plan.json`'s `manifest.version`)
-- [ ] 7.6 Port `resolveRollbackTarget` / `confirmRollback` to the JSON config object, restoring historic content byte-for-byte, holding the shared lock across restore and plan-record persistence, with compensating semantics when plan creation fails
-- [ ] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
-- [ ] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable
-- [ ] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors
-- [ ] 7.10 Delete `TerraformService.ts` and its tests
+- [x] 7.1 Implement `PulumiService.preview` returning structured `changeSummary`, saving the update plan as a run artifact, reusing the existing chunk line-splitting for `onOutput`/`onError`
+- [x] 7.2 Implement `PulumiService.up` constrained by the saved plan, distinguishing clean failure from partial apply in the run's terminal state
+- [x] 7.3 Implement `PulumiService.destroy` behind the existing confirmation-token gate; assert no untokened call site exists
+- [x] 7.4 Implement stack output reads replacing `ConfigService.getTfOutputs()`, degrading to "not deployed yet" for a never-deployed stack (`PulumiService.getStackOutputs()`, delegated to via `ConfigService.getStackOutputs()`; all ~14 real call sites migrated — see task-7.4-7.8-7.9-report.md)
+- [x] 7.5 Port the plan-hash gate: hash over the saved plan artifact plus the config object's version id, with the staleness check independent of plan-file parseability, and refuse to apply a plan produced by a different engine version (`plan.json`'s `manifest.version`) (hash computation in 7.1: sha256(artifactBytes ++ utf8(configVersionId)); staleness re-derivation independent of plan-file parseability + engine-version check in 7.2's 8-step gate; PulumiPlanHashError renamed from TerraformPlanHashError)
+- [x] 7.6 Port `resolveRollbackTarget` / `confirmRollback` to the JSON config object, restoring historic content byte-for-byte, holding the shared lock across restore and plan-record persistence, with compensating semantics when plan creation fails (`operationInFlight` gained a `'rollback'` state, acquired before the restore write and held through the delegated plan via a new `previewCore` split out of `preview()`; `confirmRollback` returns the same `AsyncGenerator` shape as `preview()`; compensating semantics = record-and-surface via a new `ElectronStoreService.recordOrphanedRollback` durable marker plus `PulumiRollbackPlanFailedError` — see task-7.6-report.md)
+- [x] 7.7 Make apply-lock acquisition a single atomic compare-and-set that is the authoritative gate, not a preceding "workspace is free" check
+- [x] 7.8 Add the optional structured change summary to `RunRecord` in `@hyveon/shared/runs.ts` and persist it, keeping older records readable (`ChangeSummary`/`OpType` in new `@hyveon/shared/changeSummary.ts`; type plumbed through `RunRecordService`/`AwsRunRecordStore`; `PulumiService.preview`/`.up` (7.1/7.2) now populate it with a real value)
+- [x] 7.9 Port the 12 typed error classes, dropping the ones with no Pulumi analogue and adding stale-lock and partial-apply errors (13 original classes found, not 12; 11 ported + `PulumiPartialApplyError` added, colocated in new `PulumiService.ts`; `PulumiUnrecognizedLockError` confirmed as the existing stale-lock class, not recreated — see task-7.4-7.8-7.9-report.md)
+- [x] 7.10 Delete `TerraformService.ts` and its tests
+- [ ] 7.11 Rebuild Tier-2 integration coverage for plan/apply/destroy/rollback orchestration, lost when `TerraformService`'s fake-`terraform`-binary-on-PATH mechanism was deleted in task 7.10 (no Pulumi Automation API analogue exists for that mechanism — task 11.1's `PulumiService` stub injected at the DI seam replaces it for the Playwright `ipc` fixture layer, but the deeper plan/apply/destroy/rollback orchestration paths those deleted Tier-2 specs exercised have no replacement yet; found during task 7.10 fix round 1 code review)
 
 ## 8. Controllers and preload
 
-- [ ] 8.1 Repoint all 13 `terraform.*` / `terraform.runs.*` IPC channels at `PulumiService`, renaming them to `iac.*` / `iac.runs.*` and renaming `TerraformController` / `TerraformRunsController` to `IacController` / `IacRunsController`
-- [ ] 8.2 Update `ConfigService`: remove `getTfStatePath`, `getTerraformDir`, `seedTerraformWorkspace`, and the tfstate cache; keep the env seams tests rely on
-- [ ] 8.3 Update the preload bridge and `hyveon-api.ts` types for the changed payload shapes (structured summary, partial-apply state, stale-lock recovery)
-- [ ] 8.4 Update controller unit tests, including the channel-name registration guard
-- [ ] 8.5 Rename the `hyveon.terraform` preload namespace to `hyveon.iac` in the preload bridge and `hyveon-api.ts`, and update every renderer call site
+- [x] 8.1 Repoint all 13 `terraform.*` / `terraform.runs.*` IPC channels at `PulumiService`, renaming them to `iac.*` / `iac.runs.*` and renaming `TerraformController` / `TerraformRunsController` to `IacController` / `IacRunsController` (main-process side only — channel strings + TerraformController/TerraformRunsController → IacController/IacRunsController; 13 primary + 9 side = 22 channels; preload/renderer repointed in 8.3/8.5)
+- [x] 8.2 Update `ConfigService`: remove `getTfStatePath`, `getTerraformDir`, `seedTerraformWorkspace`, and the tfstate cache; keep the env seams tests rely on (already satisfied by task 7.10's dead-code cleanup, commit 4689e4e — getTfStatePath/getTerraformDir/seedTerraformWorkspace/tfstate cache all confirmed gone, zero code references remain, only historical doc-comment prose; env seams untouched)
+- [x] 8.3 Update the preload bridge and `hyveon-api.ts` types for the changed payload shapes (structured summary, partial-apply state, stale-lock recovery) (bundled with 8.5 — routed changeSummary/engineVersion/partialApply through runs.get/runs.list mirrors rather than new .end-channel streaming; staleLock added via PulumiUnrecognizedLockError catch in iac.controller.ts, ISO-string serialized; ChangeSummary/OpType re-exported from @hyveon/shared; see task-8.3-8.5-report.md)
+- [x] 8.4 Update controller unit tests, including the channel-name registration guard (already satisfied by task 8.1 — iac.controller.test.ts, iac-runs.controller.test.ts, and ipc-main-bridge.test.ts's SELF_BRIDGED_PATTERNS/registration-guard assertions all updated together with the rename, commit 7e6aefa; reviewer independently confirmed zero leftover terraform.* string literals anywhere)
+- [x] 8.5 Rename the `hyveon.terraform` preload namespace to `hyveon.iac` in the preload bridge and `hyveon-api.ts`, and update every renderer call site (bundled with 8.3, commits 86ecb65/34bce96 — hyveon.terraform→hyveon.iac namespace + channel strings only, Terraform*-prefixed type names deliberately left unrenamed matching 8.1's precedent; file/route renames deferred to 9.1/9.8)
 
 ## 9. Renderer
 
@@ -102,9 +103,9 @@
 
 ## 11. Test surface
 
-- [ ] 11.1 Delete `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures' `PATH`-shim wiring; replace with a `PulumiService` stub injected at the DI seam per the `orchestrator-integration-coverage` delta spec's "In-process engine stub injected via DI" requirement
-- [ ] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from the stub's scripted `stack.outputs()` instead of `TF_STATE_PATH`, including the never-deployed-stack case
-- [ ] 11.3 Update Electron e2e mocks for the changed IPC payload shapes
+- [x] 11.1 Delete `app/test/fake-terraform.mjs` and the `terraform-shim.ts` / `terraform-fixtures.ts` Playwright fixtures' `PATH`-shim wiring; replace with a `PulumiService` stub injected at the DI seam per the `orchestrator-integration-coverage` delta spec's "In-process engine stub injected via DI" requirement
+- [x] 11.2 Update the integration harness so `ipc` specs resolve stack outputs from the stub's scripted `stack.outputs()` instead of `TF_STATE_PATH`, including the never-deployed-stack case
+- [x] 11.3 Update Electron e2e mocks for the changed IPC payload shapes
 - [ ] 11.4 Keep the 1.6 clean-quit check green in CI
 
 ## 12. Removal and documentation

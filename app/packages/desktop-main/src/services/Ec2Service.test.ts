@@ -65,6 +65,14 @@ describe('Ec2Service', () => {
       const input = ec2Mock.commandCalls(DescribeNetworkInterfacesCommand)[0]!.args[0].input;
       expect(input.NetworkInterfaceIds).toEqual(['eni-123']);
     });
+
+    it('should resolve correctly across repeated calls on the same instance (exercises the cached-client path)', async () => {
+      ec2Mock.on(DescribeNetworkInterfacesCommand).resolves({
+        NetworkInterfaces: [{ Association: { PublicIp: '54.1.2.3' } }],
+      });
+      expect(await service.getPublicIp('eni-1')).toBe('54.1.2.3');
+      expect(await service.getPublicIp('eni-2')).toBe('54.1.2.3');
+    });
   });
 
   describe('getPrivateIp', () => {

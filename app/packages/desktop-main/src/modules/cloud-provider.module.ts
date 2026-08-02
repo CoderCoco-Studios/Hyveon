@@ -63,35 +63,51 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
 /**
  * Resolves the `{ tableName, region }` config the AWS `AuditLogStore`'s
  * `getConfig` callback needs to target the audit DynamoDB table: the table
- * name comes from `ConfigService.getTfOutputs()?.audit_table_name` (falling
- * back to `''` when the tfstate hasn't been applied yet, so `AwsAuditLogStore`
- * surfaces its own "table not configured" error rather than this factory
- * silently defaulting somewhere), and the region from `getRegion()`. Exported
- * as a standalone function — see {@link resolveTfvarsFileStoreConfig} for why.
+ * name comes from `ConfigService.getStackOutputs()`'s `auditTableName`
+ * (falling back to `''` when nothing has been deployed yet, so
+ * `AwsAuditLogStore` surfaces its own "table not configured" error rather
+ * than this factory silently defaulting somewhere), and the region prefers
+ * the same resolved `outputs.awsRegion` once a stack is deployed, falling
+ * back to `getRegion()`'s wizard-configured value otherwise — this
+ * self-corrects to whatever region a stack was actually provisioned into,
+ * in case it drifts from the wizard's credentials-step region. Exported as
+ * a standalone function — see {@link resolveTfvarsFileStoreConfig} for why.
+ *
+ * Async because `getStackOutputs()` is async-only. This is not a
+ * DI-factory hazard: `CLOUD_BINDINGS.aws.auditLogStore` below passes
+ * `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s lazy
+ * `getConfig` closure, invoked later from inside its own already-`async`
+ * methods — awaiting there costs nothing extra. See `AwsAuditLogStore`'s
+ * constructor doc comment for the same reasoning at the consumer end.
  */
-export function resolveAuditLogStoreConfig(config: ConfigService): { tableName: string; region: string } {
-  return { tableName: config.getTfOutputs()?.audit_table_name ?? '', region: config.getRegion() };
+export async function resolveAuditLogStoreConfig(config: ConfigService): Promise<{ tableName: string; region: string }> {
+  const outputs = await config.getStackOutputs();
+  return { tableName: outputs?.auditTableName ?? '', region: outputs?.awsRegion ?? config.getRegion() };
 }
 
 /**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs to target the runs DynamoDB table and the
  * configuration S3 bucket used for offloaded run logs: the table name comes
- * from `ConfigService.getTfOutputs()?.runs_table_name` (falling back to `''`
- * when the tfstate hasn't been applied yet), the bucket from
- * `ConfigService.getConfigurationBucket()` (falling back to `''` when no
- * bucket is configured), and the region from `getRegion()` — so
- * `AwsRunRecordStore` surfaces its own "not configured" errors rather than
- * this factory silently defaulting somewhere. Exported as a standalone
- * function — see {@link resolveTfvarsFileStoreConfig} for why.
+ * from `ConfigService.getStackOutputs()`'s `runsTableName`, the bucket from
+ * `ConfigService.getConfigurationBucket()`, and the region prefers the same
+ * resolved `outputs.awsRegion` once a stack is deployed, falling back to
+ * `getRegion()`'s wizard-configured value otherwise. Falls back to `''`
+ * where nothing is configured, so `AwsRunRecordStore` surfaces its own "not
+ * configured" errors rather than this factory silently defaulting
+ * somewhere. Exported as a standalone function — see
+ * {@link resolveTfvarsFileStoreConfig} for why. Async for the same reason,
+ * with the same region-preference and "not a DI-factory hazard" reasoning,
+ * as {@link resolveAuditLogStoreConfig} — see its doc comment.
  */
-export function resolveRunRecordStoreConfig(
+export async function resolveRunRecordStoreConfig(
   config: ConfigService,
-): { tableName: string; bucket: string; region: string } {
+): Promise<{ tableName: string; bucket: string; region: string }> {
+  const outputs = await config.getStackOutputs();
   return {
-    tableName: config.getTfOutputs()?.runs_table_name ?? '',
+    tableName: outputs?.runsTableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
-    region: config.getRegion(),
+    region: outputs?.awsRegion ?? config.getRegion(),
   };
 }
 
@@ -140,6 +156,13 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
  * and depend only on the corresponding `@hyveon/shared` interface, never on the
  * concrete AWS class — that's what keeps swapping the active cloud a one-module
  * change instead of a call-site hunt.
+ *
+ * `PulumiService.preview` resolves `REMOTE_FILE_STORE` from this module
+ * lazily via a `ModuleRef.get()` strict-false lookup rather than a
+ * constructor dependency, to avoid a module cycle through `ConfigModule`
+ * (which imports `PulumiServiceModule`) — see `run-record.module.ts` for the
+ * full explanation. This module's own `ConfigModule` import stays the
+ * plain, non-circular import it always was.
  */
 @Module({
   imports: [ConfigModule],

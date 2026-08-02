@@ -10,45 +10,41 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   the handler needs to push follow-up chunk/end messages over side channels
  *   derived from a `streamId` it mints itself — see
  *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
- * - `terraform.init`: bridged manually by its own controller because the
- *   handler streams progress events over a side channel for the duration of
- *   a long-running `terraform init` invocation, the same self-bridging
- *   pattern `logs.stream` uses.
- * - `terraform.plan`: bridged manually by the same controller for the same
- *   reason as `terraform.init` — it streams `terraform plan` progress over a
- *   side channel for the duration of a long-running run.
- * - `terraform.apply`: bridged manually by the same controller for the same
- *   reason as `terraform.plan` — it streams `terraform apply` progress over a
- *   side channel for the duration of a long-running run (see #109).
- * - `terraform.destroy`: bridged manually by the same controller for the
- *   same reason as `terraform.apply` — it streams `terraform destroy`
- *   progress over a side channel for the duration of a long-running run (see
- *   #307). `terraform.destroy.mintToken` is *not* in this set — it resolves
- *   a single value, so the generic bridge handles it.
- * - `terraform.runs.logs`: bridged manually by `TerraformRunsController`
- *   because the handler streams a run's live/replayed output over a side
- *   channel derived from a `streamId` it mints itself, the same
- *   self-bridging pattern `terraform.init`/`terraform.plan` use — see
- *   `app/packages/desktop-main/src/controllers/terraform-runs.controller.ts`.
+ * - `iac.plan` / `iac.apply` / `iac.destroy`: bridged manually by
+ *   `IacController` because each streams `pulumi preview`/`up`/`destroy`
+ *   progress over a side channel for the duration of a long-running run, the
+ *   same self-bridging pattern `logs.stream` uses. `iac.destroy.mintToken`
+ *   is *not* in this set — it resolves a single value, so the generic bridge
+ *   handles it.
+ * - `iac.rollback.confirm`: bridged manually by `IacController` for the same
+ *   reason — `PulumiService.confirmRollback` is an `AsyncGenerator` that
+ *   streams a real plan run internally, and `IacController.confirmRollback`
+ *   forwards each chunk over its own side channel before resolving. Its
+ *   `ctx: { evt }` parameter is undecorated, so the generic bridge cannot
+ *   size NestJS's `initialArgs` array correctly for it — omitting this entry
+ *   would silently drop `ctx` at runtime.
+ * - `iac.runs.logs`: bridged manually by `IacRunsController` because the
+ *   handler streams a run's live/replayed output over a side channel derived
+ *   from a `streamId` it mints itself, the same self-bridging pattern above
+ *   — see `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
-  'terraform.init',
-  'terraform.plan',
-  'terraform.apply',
-  'terraform.destroy',
-  'terraform.runs.logs',
+  'iac.plan',
+  'iac.apply',
+  'iac.destroy',
+  'iac.rollback.confirm',
+  'iac.runs.logs',
 ]);
 
 /**
  * `ElectronIPCTransport` (from `nestjs-electron-ipc-transport`) only exposes
  * its registered `@MessagePattern` handlers via the `messageHandlers` map it
  * inherits from `@nestjs/microservices`'s abstract `Server` class, and that
- * field is `protected`. Rather than reaching into it with an
- * `as unknown as` cast at every call site, this subclass exposes a single
- * public, typed accessor so callers (and this module's own
- * {@link registerIpcMainBridges} helper) can read the map through the normal
- * type system.
+ * field is `protected`. This subclass exposes a single public, typed
+ * accessor so callers (and {@link registerIpcMainBridges}) can read the map
+ * through the normal type system instead of an `as unknown as` cast at every
+ * call site.
  */
 export class BridgedElectronIPCTransport extends ElectronIPCTransport {
   /** Public, typed view of the protected `messageHandlers` map inherited from `Server`. */
@@ -59,16 +55,14 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
   /**
    * Nest 11 promoted `on()` and `unwrap()` to abstract members of the
    * `Server` base class. `nestjs-electron-ipc-transport` was written against
-   * Nest 8 and implements neither, so the concrete subclass has to supply
-   * them or `tsc` rejects the class as abstract-incomplete.
+   * Nest 8 and implements neither, so this subclass must supply them or
+   * `tsc` rejects the class as abstract-incomplete.
    *
-   * Both throw rather than silently no-op. Neither is reachable from Nest's
-   * own bootstrap path — they exist for application code that wants to
-   * observe broker-level events or reach the underlying client — and this
-   * transport has neither an event emitter nor a native server object to
-   * hand back. A thrown error surfaces that immediately; a no-op `on()`
-   * would swallow the registration and leave the caller waiting on events
-   * that can never arrive.
+   * Both throw rather than silently no-op: neither is reachable from Nest's
+   * own bootstrap path, and this transport has no event emitter or native
+   * server object to hand back. A thrown error surfaces immediately; a
+   * no-op `on()` would leave a caller waiting on events that can never
+   * arrive.
    */
   public on(event: string | symbol): never {
     throw new Error(
@@ -92,26 +86,20 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * `ipcMain.handle` registration, so `ipcRenderer.invoke(channel, payload)`
  * calls made from the preload actually resolve.
  *
- * `ElectronIPCTransport.listen()` (from `nestjs-electron-ipc-transport`) only
- * subscribes to its own internal `ipcMessageDispatcher` — it never calls
- * `ipcMain.handle` itself. Without this bridge, every `@MessagePattern`
- * channel other than `logs.stream` (which bridges itself, see
- * {@link SELF_BRIDGED_PATTERNS}) hangs forever when invoked from the
- * renderer, because `ipcRenderer.invoke` requires a matching
- * `ipcMain.handle` registration in the main process (see #277).
+ * `ElectronIPCTransport.listen()` only subscribes to its own internal
+ * `ipcMessageDispatcher` — it never calls `ipcMain.handle` itself. Without
+ * this bridge, every `@MessagePattern` channel other than `logs.stream`
+ * (which bridges itself, see {@link SELF_BRIDGED_PATTERNS}) hangs forever
+ * when invoked from the renderer.
  *
  * For each bridged pattern, any existing handler is removed first via
- * `ipcMain.removeHandler` so hot-reload re-registration does not throw
- * "Attempted to register a second handler for '<channel>'", mirroring the
- * approach `LogsController.onModuleInit` already takes for `logs.stream`.
- * The registered `ipcMain.handle` callback invokes the NestJS handler as
+ * `ipcMain.removeHandler` so hot-reload re-registration does not throw. The
+ * registered `ipcMain.handle` callback invokes the NestJS handler as
  * `handler(payload, { evt })`, matching the `{ evt }` context shape
- * `ElectronIPCTransport.onMessage` passes today so controller method
- * signatures do not need to change.
+ * `ElectronIPCTransport.onMessage` passes today.
  *
  * Silent no-op outside a real Electron main process
- * (`process.versions.electron` undefined) — matching the guard
- * `LogsController.onModuleInit` uses — so the plain-Node integration test
+ * (`process.versions.electron` undefined) so the plain-Node integration test
  * harness, Docker builds, and CI never attempt to import `electron`.
  */
 export async function registerIpcMainBridges(transport: BridgedElectronIPCTransport): Promise<void> {

@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RunRecord, RunRecordStore } from '@hyveon/shared';
+import type { RunRecord, RunRecordStore, StackOutputs } from '@hyveon/shared';
 import {
   INLINE_LOG_LIMIT_BYTES,
   RunRecordNotFoundError,
@@ -21,29 +21,29 @@ import {
   RunRecordTableNotConfiguredError,
   type PersistRunRecordParams,
 } from './RunRecordService.js';
-import { ConfigService, type TfOutputs } from './ConfigService.js';
+import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
 
-/** Minimal `TfOutputs` stub exposing just `runs_table_name`. */
-const TF: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: '',
-  ecs_cluster_arn: '',
-  subnet_ids: '',
-  security_group_id: '',
-  file_manager_security_group_id: '',
-  efs_file_system_id: '',
-  efs_access_points: {},
-  domain_name: '',
-  game_names: [],
-  discord_table_name: '',
-  audit_table_name: '',
-  runs_table_name: 'test-runs',
-  discord_bot_token_secret_arn: '',
-  discord_public_key_secret_arn: '',
-  interactions_invoke_url: null,
-  discord_interactions_url: null,
-  applied_game_servers: null,
+/** Minimal `StackOutputs` stub exposing just `runsTableName`. */
+const TF: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: '',
+  ecsClusterArn: '',
+  subnetIds: [],
+  securityGroupId: '',
+  fileManagerSecurityGroupId: '',
+  efsFileSystemId: '',
+  efsAccessPoints: {},
+  domainName: '',
+  gameNames: [],
+  discordTableName: '',
+  auditTableName: '',
+  runsTableName: 'test-runs',
+  discordBotTokenSecretArn: '',
+  discordPublicKeySecretArn: '',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 const putRecordMock = vi.fn<RunRecordStore['putRecord']>();
@@ -88,11 +88,11 @@ function makeRunService(): RunService {
 
 /** Builds a `RunRecordService` with a `ConfigService` stub returning `outputs` and the given (or default) store/run-service stubs. */
 function makeService(
-  outputs: TfOutputs | null = TF,
+  outputs: StackOutputs | null = TF,
   store: RunRecordStore = makeStore(),
   runService: RunService = makeRunService(),
 ): RunRecordService {
-  const config = { getTfOutputs: () => outputs } as Partial<ConfigService> as ConfigService;
+  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new RunRecordService(config, store, runService);
 }
 
@@ -218,6 +218,26 @@ describe('RunRecordService', () => {
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
       expect(record.tfvarsVersionId).toBe('v-1');
+    });
+
+    it('should include partialApply on the record when present on params', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.persist(makeParams({ partialApply: true }), null);
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.partialApply).toBe(true);
+    });
+
+    it('should omit partialApply from the record when absent on params', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.persist(makeParams(), null);
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record).not.toHaveProperty('partialApply');
     });
 
     it('should include planHash on the record when present on params', async () => {

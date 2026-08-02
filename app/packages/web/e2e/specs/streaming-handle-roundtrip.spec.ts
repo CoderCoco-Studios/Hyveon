@@ -3,8 +3,8 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
 
 /**
  * Regression spec for the streaming-IPC contextBridge clone bug: every
- * bridged streaming channel (`logs.stream`, `terraform.init`,
- * `terraform.runs.streamLogs`) used to return a raw `AsyncGenerator` from the
+ * bridged streaming channel (`logs.stream`, `iac.init`,
+ * `iac.runs.streamLogs`) used to return a raw `AsyncGenerator` from the
  * preload script. `contextBridge.exposeInMainWorld` structured-clones every
  * value crossing the isolated-world boundary, and an `AsyncGenerator` isn't
  * cloneable — calling any of these three methods from the renderer threw
@@ -90,7 +90,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
     }
   });
 
-  test('should stream chunks from window.hyveon.terraform.init() without a clone error', async () => {
+  test('should stream chunks from window.hyveon.iac.init() without a clone error', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -99,12 +99,12 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
-          terraform: {
+          iac: {
             init: (config: unknown) => AsyncIterable<{ stream: string; line: string }> & { cancel: () => void };
           };
         };
 
-        hyveon.__test.mock('terraform.init', () => {
+        hyveon.__test.mock('iac.init', () => {
           const queued = [
             { stream: 'stdout', line: 'Initializing the backend...' },
             { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
@@ -121,7 +121,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         });
 
-        const handle = hyveon.terraform.init({ bucket: 'b', region: 'us-east-1', dynamodbTable: 't' });
+        const handle = hyveon.iac.init({ bucket: 'b', region: 'us-east-1', dynamodbTable: 't' });
         const chunks: { stream: string; line: string }[] = [];
         for await (const chunk of handle) {
           chunks.push(chunk);
@@ -139,7 +139,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
     }
   });
 
-  test('should stream chunks from window.hyveon.terraform.runs.streamLogs() without a clone error', async () => {
+  test('should stream chunks from window.hyveon.iac.runs.streamLogs() without a clone error', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -148,7 +148,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
-          terraform: {
+          iac: {
             runs: {
               streamLogs: (
                 runId: string,
@@ -157,7 +157,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         };
 
-        hyveon.__test.mock('terraform.runs.logs', () => {
+        hyveon.__test.mock('iac.runs.logs', () => {
           const queued = [{ stream: 'stdout', line: 'Refreshing state...' }];
           let index = 0;
           return {
@@ -171,7 +171,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         });
 
-        const handle = hyveon.terraform.runs.streamLogs('run-123');
+        const handle = hyveon.iac.runs.streamLogs('run-123');
         const chunks: { stream: string; line: string }[] = [];
         for await (const chunk of handle) {
           chunks.push(chunk);

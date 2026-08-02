@@ -154,9 +154,8 @@ On the AWS side you need:
 > needs** on `${project_name}-tf-state` — the bucket the desktop app's
 > bootstrap step creates to hold infra state. `s3:ListBucket` (bucket-level)
 > plus `s3:GetObject`/`s3:PutObject`/`s3:DeleteObject` (object-level) are
-> exactly what a DIY S3 state backend needs to read and write state objects
-> and history under its own prefix. Locking uses a separate DynamoDB table
-> (`${project_name}-tf-locks`, see step 3 below), not S3. `s3:PutBucketVersioning` and
+> exactly what a DIY S3 state backend needs to read and write state objects,
+> locks, and history under its own prefix. `s3:PutBucketVersioning` and
 > `s3:PutEncryptionConfiguration` are what the bootstrap step's
 > `ensureStateBucket` call uses to enable versioning and default (AES256)
 > encryption on this bucket; `s3:PutBucketPublicAccessBlock` lets it harden
@@ -212,8 +211,9 @@ option today — more clouds are planned), choosing (or pasting) AWS
 credentials, running an IAM permission simulation, and bootstrapping the
 AWS resources the root Terraform config needs before its first `apply`:
 
-- The S3 state bucket (`{project_name}-tf-state`) and DynamoDB lock table
-  (`{project_name}-tf-locks`) used as the Terraform backend.
+- The S3 state bucket (`{project_name}-tf-state`) used as the Terraform
+  backend — a DIY S3 backend, so locking lives in the bucket itself (its own
+  prefix) rather than a separate DynamoDB table.
 - The versioned tfvars bucket (`{project_name}-tfvars`, provisioned by the
   `terraform/bootstrap/` module — see
   [Bootstrap the tfvars bucket](#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)

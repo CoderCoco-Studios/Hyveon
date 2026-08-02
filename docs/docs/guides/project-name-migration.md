@@ -41,32 +41,33 @@ Renaming `project_name` forces AWS to:
 
 Work through the checklist below in order.
 
-:::caution Backend bucket/lock table are also derived from `project_name`
+:::caution Backend bucket/lock table (`make setup`) are also derived from `project_name`
 
 The Terraform **backend itself** — the S3 state bucket (`{project_name}-tf-state`)
-and the DynamoDB lock table (`{project_name}-tf-locks`) described in
-[the setup guide](/setup) — is named off `project_name`, the same variable
-you're about to change. If you already have a live, applied stack and you
-change `project_name` before touching the backend, the resulting
-bucket/table names computed from the new value are **different from, and
-nonexistent relative to**, the ones your existing state lives in.
+and the DynamoDB lock table (`{project_name}-tf-locks`) the generated Makefile's
+`make setup` provisions (see [the submodule guide](/guides/submodule)) — is named
+off `project_name`, the same variable you're about to change. If you already have
+a live, applied stack and you change `project_name` before touching the backend,
+the resulting bucket/table names computed from the new value are **different
+from, and nonexistent relative to**, the ones your existing state lives in.
 
 A bare `terraform init` against a bucket/table that doesn't exist yet will
 **error out loudly** rather than silently standing up an empty backend — the
-S3 backend never auto-creates its bucket or lock table. The silent-orphan
-risk instead comes from the desktop app's **bootstrap step** (the setup
-wizard, or Settings → Reconfigure on an already-set-up install): it derives
-`{project_name}-tf-state`/`{project_name}-tf-locks` from whatever
-`project_name` is currently set to and idempotently creates them if missing,
-then runs `terraform init` against that new backend. Re-running that
-bootstrap step after changing `project_name` on an already-provisioned stack
-will therefore happily create a brand-new empty bucket/table pair and point
-Terraform at it — your real infrastructure's state file is left behind,
-untouched and invisible to future `plan`/`apply` runs (effectively orphaned,
-not migrated).
+S3 backend never auto-creates its bucket or lock table. The silent-orphan risk
+instead comes from re-running **`make setup`**: it derives
+`{project_name}-tf-state`/`{project_name}-tf-locks` from whatever `project_name`
+is currently set to and idempotently creates them if missing, then runs
+`terraform init` against that new backend. Re-running it after changing
+`project_name` on an already-provisioned stack will therefore happily create a
+brand-new empty bucket/table pair and point Terraform at it — your real
+infrastructure's state file is left behind, untouched and invisible to future
+`plan`/`apply` runs (effectively orphaned, not migrated). The desktop app's own
+bootstrap step is a separate mechanism: it only creates a state bucket and a
+configuration bucket (no DynamoDB — the DIY S3 backend locks via its own S3
+prefix) and does not run `terraform init`.
 
-Before re-running the app's bootstrap step (or `terraform plan`/`apply`
-directly) with the new `project_name`, pick one:
+Before re-running `make setup` (or `terraform plan`/`apply` directly) with the
+new `project_name`, pick one:
 
 - **(a) Keep the existing backend.** Pin `project_name = "game-servers"`
   (the old default, prior to the `hyveon` rebrand tracked in
@@ -81,8 +82,8 @@ directly) with the new `project_name`, pick one:
   below.
 - **(b) Deliberately migrate the backend.** If you want the bucket/table
   names themselves to match the new `project_name`, create the new S3
-  bucket + DynamoDB table first (don't let a re-run of the app's bootstrap
-  step silently create them against empty state), back up the
+  bucket + DynamoDB table first (don't let a re-run of `make setup`
+  silently create them against empty state), back up the
   existing state object in S3, then run `terraform init -migrate-state`
   pointing at the new backend config — let Terraform copy the state over
   itself rather than manually copying the state object or the lock table

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { GameServer } from '@hyveon/shared';
+import type { GameServer, StackOutputs } from '@hyveon/shared';
 import { DriftService, computeDrift } from './DriftService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
 import type { TfvarsService } from './TfvarsService.js';
 
 /** Minimal, valid `GameServer` fixture for a single declared game. */
@@ -17,10 +17,10 @@ function buildGameServer(name: string, overrides: Partial<GameServer> = {}): Gam
   };
 }
 
-/** Minimal TfOutputs for DriftService tests. */
-const DEFAULT_OUTPUTS: Partial<TfOutputs> = {
-  game_names: ['minecraft'],
-  applied_game_servers: {
+/** Minimal StackOutputs for DriftService tests. */
+const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
+  gameNames: ['minecraft'],
+  appliedGameServers: {
     minecraft: {
       image: 'example/image:latest',
       cpu: 1024,
@@ -32,14 +32,15 @@ const DEFAULT_OUTPUTS: Partial<TfOutputs> = {
 };
 
 /**
- * Build a ConfigService stub. Pass `null` to simulate a pre-apply state
- * where `getTfOutputs()` returns null.
+ * Build a ConfigService stub. Pass `null` to simulate a pre-deploy state
+ * where `getStackOutputs()` resolves to null.
  */
-function makeConfig(outputs: Partial<TfOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  return {
+function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
+  const stub: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
-  } as Partial<ConfigService> as ConfigService;
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
+  };
+  return stub as ConfigService;
 }
 
 /** Build a TfvarsService stub with `invalidateCache` and `getGameServers` pre-wired. */
@@ -207,10 +208,10 @@ describe('computeDrift', () => {
 
 describe('DriftService', () => {
   describe('getDrift', () => {
-    it('should invalidate the tfstate cache before reading state', async () => {
+    it('should NOT invalidate the stack-outputs cache — this method backs a 30-second dashboard poll, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
       await new DriftService(makeTfvars(), config).getDrift();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before reading state', async () => {
@@ -229,7 +230,7 @@ describe('DriftService', () => {
 
     it('should not report pending_create for a game already present in game_names when applied_game_servers is null', async () => {
       const minecraft = buildGameServer('minecraft');
-      const outputs: Partial<TfOutputs> = { game_names: ['minecraft'], applied_game_servers: null };
+      const outputs: Partial<StackOutputs> = { gameNames: ['minecraft'], appliedGameServers: null };
 
       const result = await new DriftService(makeTfvars([minecraft]), makeConfig(outputs)).getDrift();
 
@@ -237,7 +238,7 @@ describe('DriftService', () => {
     });
 
     it('should report pending_delete from game_names when applied_game_servers is null and the game is no longer declared', async () => {
-      const outputs: Partial<TfOutputs> = { game_names: ['minecraft'], applied_game_servers: null };
+      const outputs: Partial<StackOutputs> = { gameNames: ['minecraft'], appliedGameServers: null };
 
       const result = await new DriftService(makeTfvars([]), makeConfig(outputs)).getDrift();
 
@@ -257,9 +258,9 @@ describe('DriftService', () => {
     it('should report a mixed/degraded report combining pending_create, config_drift, and pending_delete entries', async () => {
       const ark = buildGameServer('ark');
       const minecraft = buildGameServer('minecraft', { cpu: 4096 });
-      const outputs: Partial<TfOutputs> = {
-        game_names: ['minecraft', 'zomboid'],
-        applied_game_servers: {
+      const outputs: Partial<StackOutputs> = {
+        gameNames: ['minecraft', 'zomboid'],
+        appliedGameServers: {
           minecraft: {
             image: minecraft.image,
             cpu: 1024,

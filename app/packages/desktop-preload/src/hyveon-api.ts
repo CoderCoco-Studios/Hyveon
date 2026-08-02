@@ -9,6 +9,18 @@
  * namespace names.
  */
 
+import type { ChangeSummary, OpType, StackOutputs } from '@hyveon/shared';
+
+/**
+ * Re-exported verbatim from `@hyveon/shared` rather than duplicated like the
+ * other `Terraform*` types in this file. `ChangeSummary`/`OpType` are
+ * already a hand-maintained isolation layer over `@pulumi/pulumi`'s own
+ * types (see `@hyveon/shared/src/changeSummary.ts`), so duplicating them
+ * again here would just be a second copy to drift out of sync — `@hyveon/web`
+ * already depends on `@hyveon/shared` directly elsewhere anyway.
+ */
+export type { ChangeSummary, OpType };
+
 // ---------------------------------------------------------------------------
 // Shared payload shapes (mirrors types from @hyveon/shared and desktop-main)
 // ---------------------------------------------------------------------------
@@ -71,43 +83,33 @@ export type LogChunk = string;
 
 /**
  * ContextBridge-safe async-iterable handle for a streaming IPC channel
- * (`logs.stream`, `terraform.init`, `terraform.runs.streamLogs`).
+ * (`logs.stream`, `iac.init`, `iac.runs.streamLogs`).
  *
  * Electron's `contextBridge` structured-clones every value that crosses the
  * isolated-world boundary. A raw `AsyncGenerator` is not structured-cloneable
- * — a bridged function that returns one throws synchronously with
- * `Uncaught Error: An object could not be cloned.` the moment the renderer
+ * — a bridged function that returns one throws synchronously
+ * (`Uncaught Error: An object could not be cloned.`) the moment the renderer
  * calls it, and the generator body never executes. This plain object — an
- * own `next()` function, an own `cancel()` function, and an own
- * `[Symbol.asyncIterator]` function returning itself — was empirically
- * verified to survive the clone boundary intact (functions proxy across the
- * bridge fine; a plain object with own function/symbol-keyed properties
- * clones as a plain object retaining those properties as live proxies to the
- * preload-side functions). It satisfies both `AsyncIterable<T>` and
+ * own `next()`, an own `cancel()`, and an own `[Symbol.asyncIterator]`
+ * returning itself — survives the clone boundary intact (functions proxy
+ * across the bridge fine) and satisfies both `AsyncIterable<T>` and
  * `AsyncIterator<T>`, so it can be consumed directly with
  * `for await (const chunk of handle)`.
  *
  * Cancellation is a `cancel()` method rather than an `AbortSignal` parameter:
  * `AbortSignal` instances also don't survive the `contextBridge` clone —
  * their prototype getters (`aborted`) and methods (`addEventListener`) are
- * stripped, leaving an inert plain object with no own enumerable keys, so a
- * preload-side `signal.addEventListener(...)` call throws
- * `TypeError: signal.addEventListener is not a function` the instant the
- * renderer passes one across. Call `cancel()` from a `useEffect` cleanup /
- * `finally` block instead of aborting a controller and passing its signal in.
+ * stripped, leaving an inert plain object with no own enumerable keys. Call
+ * `cancel()` from a `useEffect` cleanup / `finally` block instead of
+ * aborting a controller and passing its signal in.
  */
 export interface HyveonStreamHandle<T> {
   /**
    * Resolves the next chunk, or a result whose `done` is `true` once the
-   * stream ends (successfully or via {@link cancel}). Shaped exactly like the
-   * lib-standard `AsyncIterator<T>['next']` result — a discriminated union on
-   * `done`, carrying `value` only on the non-done branch — so TypeScript
-   * narrows the element type of a `for await (const chunk of handle)` loop to
-   * `T`, not `T | undefined`. This is deliberately not a single object type
-   * with both fields optional, which would lose that narrowing. On the
-   * terminal (done) result, `value` is always absent in practice: the bridge
-   * clone drops object properties whose value is `undefined` in transit, and
-   * these streams never resolve their return value to anything else.
+   * stream ends (successfully or via {@link cancel}). Shaped as a
+   * discriminated union on `done` (not a single type with both fields
+   * optional) so `for await (const chunk of handle)` narrows to `T`, not
+   * `T | undefined`.
    */
   next: () => Promise<{ done?: false; value: T } | { done: true; value?: undefined }>;
   /**
@@ -569,11 +571,15 @@ export interface AuditPageResult {
 }
 
 /**
- * A single line of output from a streamed `terraform` subcommand run, tagged
- * with the stream it came from.
+ * A single line of output from a streamed Pulumi run, tagged with the stream
+ * it came from.
  *
- * Mirrors `TerraformRunChunk` in `@hyveon/desktop-main/src/services/TerraformService.ts`
- * — that file is the source of truth; keep this copy in sync with it.
+ * Structurally identical to `PulumiRunChunk` in
+ * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
+ * source of truth; keep this copy in sync with it. Named `TerraformRunChunk`
+ * for historical reasons (this preload's namespace was `hyveon.terraform`
+ * pre-migration) — exported type names were not renamed when the namespace
+ * moved to `iac`.
  */
 export interface TerraformRunChunk {
   stream: 'stdout' | 'stderr';
@@ -584,8 +590,13 @@ export interface TerraformRunChunk {
  * Backend configuration values passed to `terraform init -backend-config=...`
  * for the S3 remote state backend bootstrapped by the First-Run Wizard.
  *
- * Mirrors `TerraformInitConfig` in `@hyveon/desktop-main/src/services/TerraformService.ts`
- * — that file is the source of truth; keep this copy in sync with it.
+ * Mirrors the local `TerraformInitConfig` interface in
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file is the
+ * source of truth; keep this copy in sync with it. Kept alive as a
+ * transitional stub: the Pulumi engine has no `init` step, so
+ * `iac.controller.ts`'s `init` handler is now a permanent rejection; its
+ * only call site (`terraform-init-step.component.tsx`) is slated for
+ * replacement.
  */
 export interface TerraformInitConfig {
   bucket: string;
@@ -594,21 +605,25 @@ export interface TerraformInitConfig {
 }
 
 /**
- * Which `terraform` subcommand produced a {@link TerraformRunRecord}.
+ * Which subcommand produced a {@link TerraformRunRecord}. Named for the
+ * pre-migration `terraform` CLI subcommands (`plan`/`apply`/`destroy`) —
+ * Pulumi's equivalent Automation API calls are `preview`/`up`/`destroy`, but
+ * this value is a persisted-record discriminant, not a currently-running
+ * operation name, so it keeps its original vocabulary.
  *
- * Mirrors the `kind` field of `TerraformRunRecord` in
- * `@hyveon/desktop-main/src/services/TerraformService.ts` — that file is the
+ * Mirrors the `kind` field of `PulumiRunRecord` in
+ * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
  * source of truth; keep this copy in sync with it.
  */
 export type TerraformRunKind = 'plan' | 'apply' | 'destroy';
 
 /**
- * Persisted local run record for a finished `terraform` plan/apply/destroy
- * run — a lightweight run history entry written once the run's spawned
- * process has closed.
+ * Persisted local run record for a finished plan/apply/destroy run — a
+ * lightweight run history entry written once the run has settled. Returned
+ * on the `record` field of `iac.runs.get`'s result.
  *
- * Mirrors `TerraformRunRecord` in
- * `@hyveon/desktop-main/src/services/TerraformService.ts` — that file is the
+ * Mirrors `PulumiRunRecord` in
+ * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
  * source of truth; keep this copy in sync with it.
  */
 export interface TerraformRunRecord {
@@ -629,11 +644,33 @@ export interface TerraformRunRecord {
    * `plan` run produced. Set only on a successful `plan` record; a failed
    * or aborted `plan` run (and `apply`/`destroy` records generally) leave
    * this unset. The `/terraform` page passes this straight through to
-   * `hyveon.terraform.apply`'s `planHash` payload field.
+   * `hyveon.iac.apply`'s `planHash` payload field.
    */
   planHash?: string;
   /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow. */
   rolledBackFrom?: string;
+  /**
+   * Structured resource-change summary the Pulumi engine reported for this
+   * run, mirroring `PulumiRunRecord.changeSummary`. Absent/`{}` means "the
+   * engine's structured summary event was never observed for this run" —
+   * NOT "this operation made no changes" (a genuine no-op reports
+   * `{ same: N }`). Never collapse the two — see `ChangeSummary`'s own
+   * TSDoc (`@hyveon/shared/src/changeSummary.ts`) for the full sharp edge.
+   */
+  changeSummary?: ChangeSummary;
+  /** The Pulumi engine version this run executed against, mirroring `PulumiRunRecord.engineVersion`. */
+  engineVersion?: string;
+  /**
+   * `true` when the run's Pulumi engine settled with some resources having
+   * already been mutated before the failure/abort — check this field
+   * directly, independent of which non-`'success'` status the run settled
+   * with, mirroring `PulumiRunRecord.partialApply`'s own doc comment. This
+   * dispatch (tasks 8.3/8.5) deliberately does not surface the underlying
+   * per-resource step list (`PulumiPartialApplyError.completedSteps`) — this
+   * boolean is sufficient for "surface partial-apply failures with re-plan
+   * guidance"; granular step detail is a future UI decision.
+   */
+  partialApply?: boolean;
 }
 
 /**
@@ -650,7 +687,7 @@ export interface TerraformRunRecord {
 export type RunDetailStatus = 'success' | 'failed' | 'aborted' | 'running' | 'awaiting_approval';
 
 /**
- * Result of the `terraform.runs.get` IPC channel: `found: false` when the
+ * Result of the `iac.runs.get` IPC channel: `found: false` when the
  * requested `runId` is neither the currently in-flight run nor a persisted
  * {@link TerraformRunRecord} on disk. `found: true` always carries the
  * derived {@link RunDetailStatus}; `record` is present only once the run has
@@ -658,7 +695,7 @@ export type RunDetailStatus = 'success' | 'failed' | 'aborted' | 'running' | 'aw
  * `running`, since a run in flight hasn't closed its process yet).
  *
  * Mirrors `TerraformRunsGetResult` in
- * `@hyveon/desktop-main/src/controllers/terraform-runs.controller.ts` — that
+ * `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts` — that
  * file is the source of truth; keep this copy in sync with it.
  */
 export type TerraformRunsGetResult =
@@ -675,8 +712,8 @@ export type RunHistoryStatus = 'success' | 'failed' | 'aborted';
 
 /**
  * A single row in the DynamoDB-persisted run-history table — the shape
- * `terraform.runs.list` returns pages of. Distinct from the local-disk
- * {@link TerraformRunRecord} that `terraform.runs.get`/`streamLogs` operate
+ * `iac.runs.list` returns pages of. Distinct from the local-disk
+ * {@link TerraformRunRecord} that `iac.runs.get`/`streamLogs` operate
  * on: this record additionally carries `sk`, `status`, `approvedBy`/
  * `approvedAt`, and the offloaded-log fields.
  *
@@ -712,11 +749,26 @@ export interface RunHistoryRecord {
   logS3Key?: string;
   /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow (#112). */
   rolledBackFrom?: string;
+  /**
+   * Structured resource-change summary the Pulumi engine reported for this
+   * run. See {@link TerraformRunRecord.changeSummary}'s doc comment for the
+   * `{}`-does-not-mean-"no changes" sharp edge — it applies identically here.
+   */
+  changeSummary?: ChangeSummary;
+  /** The Pulumi engine version this run executed against. */
+  engineVersion?: string;
+  /**
+   * `true` when the run's Pulumi engine settled with some resources already
+   * mutated before the failure/abort. See
+   * {@link TerraformRunRecord.partialApply}'s doc comment for the full
+   * semantics — identical here.
+   */
+  partialApply?: boolean;
 }
 
 /**
  * A page of {@link RunHistoryRecord}s, newest-first, plus an optional cursor
- * for fetching the next page. Returned by the `terraform.runs.list` IPC
+ * for fetching the next page. Returned by the `iac.runs.list` IPC
  * channel.
  *
  * Mirrors `RunPageResult` in `@hyveon/shared/src/runs.ts` — that file is the
@@ -729,7 +781,7 @@ export interface RunHistoryPageResult {
   nextBefore?: string;
 }
 
-/** Options accepted by the `terraform.runs.list` IPC channel. */
+/** Options accepted by the `iac.runs.list` IPC channel. */
 export interface TerraformRunsListOpts {
   /** Requested page size; the main process clamps to `[1, 100]` and defaults to `25` when omitted or invalid. */
   limit?: number;
@@ -740,13 +792,13 @@ export interface TerraformRunsListOpts {
 }
 
 /**
- * Payload accepted by the `terraform.plan` IPC channel. `tfvarsVersionId`,
+ * Payload accepted by the `iac.plan` IPC channel. `tfvarsVersionId`,
  * when the configured tfvars source is S3-backed, is forwarded verbatim to
- * `TerraformService.plan`'s pre-spawn staleness check against the current
+ * `PulumiService.preview`'s pre-spawn staleness check against the current
  * head version of the tfvars object.
  *
  * Mirrors `TerraformPlanPayload` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformPlanPayload {
@@ -756,37 +808,85 @@ export interface TerraformPlanPayload {
 }
 
 /**
- * Immediate acknowledgement the `terraform.plan` IPC channel resolves with.
- * `started: true` means a `runId` was minted and the `terraform plan` run
- * was kicked off in the background — the streamed progress/final result
- * (`TerraformPlanResult`) are delivered separately over the
- * `terraform.plan.chunk` / `terraform.plan.end` side channels, tagged with
- * this same `runId`. `started: false` means the submission was rejected
- * before any run was attempted (no `runId` is present): `error` is a
- * human-readable description of why, and `conflict` additionally names the
- * already-running subcommand (`init` / `plan` / `apply` / `destroy`) when the
- * rejection was specifically because the shared Terraform workspace was busy.
+ * Holder/age evidence for one lock entry parsed off a Pulumi backend lock
+ * conflict — the preload-side mirror of the main process's `StaleLockInfo`
+ * (`@hyveon/desktop-main/src/controllers/iac.controller.ts`), which itself
+ * mirrors `PulumiStackLockInfo`
+ * (`@hyveon/desktop-main/src/services/PulumiLockRecovery.ts`) with
+ * `lockedAt` serialized to an ISO string rather than a `Date` — a raw `Date`
+ * does not survive Electron's IPC structured-clone/contextBridge boundary
+ * reliably.
+ */
+export interface TerraformStaleLockHolder {
+  lockUrl: string;
+  username: string;
+  hostname: string;
+  pid: number;
+  lockedAt: string;
+}
+
+/**
+ * Present on {@link TerraformPlanAck}/apply/destroy results instead of (or
+ * alongside) `error` when the rejection was `PulumiUnrecognizedLockError` —
+ * a Pulumi backend lock conflict that couldn't be proven to be this
+ * installation's own orphaned run. Only the read side is wired through
+ * today (holder/age evidence surfaced to the renderer); there is no
+ * "clear the lock" write path yet.
+ */
+export interface TerraformStaleLockInfo {
+  stackName: string;
+  locks: TerraformStaleLockHolder[];
+}
+
+/**
+ * Immediate acknowledgement the `iac.plan` IPC channel resolves with.
+ * `started: true` means a `runId` was minted and the run was kicked off in
+ * the background. The `iac.plan.chunk` / `iac.plan.end` side channels carry
+ * the streamed progress/final result tagged with this same `runId`, but
+ * **nothing in this preload currently listens on those side channels** —
+ * poll `iac.runs.get`/`iac.runs.list` (see
+ * {@link TerraformRunRecord.changeSummary}/{@link RunHistoryRecord.changeSummary})
+ * for a plan's structured result instead.
+ *
+ * `started: false` means the submission was rejected before any run was
+ * attempted (no `runId` is present): `error` is a human-readable description
+ * of why, `conflict` additionally names the already-running operation
+ * (`preview` / `up` / `destroy` / `rollback`) when the rejection was
+ * specifically because the shared workspace was busy, and `staleLock`
+ * additionally carries holder/age evidence when the rejection was an
+ * unrecognized Pulumi backend lock conflict — see
+ * {@link TerraformStaleLockInfo}. `apply`/`destroy` (both resolve this same
+ * ack shape) can hit this `staleLock` case too, since
+ * `PulumiUnrecognizedLockError` is only ever detected once the underlying
+ * operation has already settled — typically before any real output has
+ * streamed, since the conflict is detected at the very start of
+ * `stack.up()`/`stack.destroy()`. If the conflict is instead detected after
+ * real output has already streamed, the main process still records
+ * `staleLock` internally, but **this preload has no listener on the
+ * `iac.apply.end`/`iac.destroy.end` side channels**, so that variant does
+ * not currently reach the renderer through this bridge.
  *
  * Mirrors `TerraformPlanAck` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformPlanAck {
   started: boolean;
   runId?: string;
   error?: string;
-  conflict?: 'init' | 'plan' | 'apply' | 'destroy';
+  conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
+  staleLock?: TerraformStaleLockInfo;
 }
 
 /**
- * Result the `terraform.rollback.resolve` IPC channel resolves with.
+ * Result the `iac.rollback.resolve` IPC channel resolves with.
  * `resolved: true` carries the historic version identified as the rollback
  * target — `versionId`/`lastModified` — for the confirmation dialog to
  * display before anything is written. `resolved: false` means resolution
  * was rejected; `error` is always a human-readable description of why.
  *
  * Mirrors `TerraformRollbackResolveAck` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformRollbackResolveAck {
@@ -797,14 +897,24 @@ export interface TerraformRollbackResolveAck {
 }
 
 /**
- * Result the `terraform.rollback.confirm` IPC channel resolves with.
+ * Result the `iac.rollback.confirm` IPC channel resolves with.
  * `confirmed: true` means the historic tfvars content was restored as a new
- * head version — `versionId` is the new version's id. `confirmed: false`
- * means no write was attempted; `error` is always a human-readable
- * description of why.
+ * head version AND the follow-up plan run `PulumiService.confirmRollback`
+ * runs internally also completed successfully — `versionId` is the restored
+ * version's id. `confirmed: false` means either no write was attempted, or a
+ * write was attempted and the restore-then-plan unit failed partway through
+ * — `error` is always a human-readable description of why. **`versionId` is
+ * ALSO populated on a `confirmed: false` result** specifically when the
+ * restore write succeeded but the follow-up plan didn't
+ * (`PulumiRollbackPlanFailedError`) — it names the version that was actually
+ * restored as the new head despite the result reporting failure, so a caller
+ * can act on it (e.g. offer "plan against the restored version" as a next
+ * step) instead of only reading it out of `error`'s prose. Note
+ * `rollback-action.component.tsx`'s error-handling logic does not currently
+ * use `versionId` in the failure branch.
  *
  * Mirrors `TerraformRollbackConfirmAck` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformRollbackConfirmAck {
@@ -814,7 +924,7 @@ export interface TerraformRollbackConfirmAck {
 }
 
 /**
- * Payload accepted by the `terraform.apply` IPC channel. `planRunId`
+ * Payload accepted by the `iac.apply` IPC channel. `planRunId`
  * identifies the approved plan run to apply; `planHash` is the caller's
  * expected plan hash, checked against the plan run's stored `planHash` to
  * catch drift between when the plan was approved and when apply runs.
@@ -829,12 +939,12 @@ export interface TerraformApplyPayload {
 }
 
 /**
- * Result the `terraform.destroy.mintToken` IPC channel resolves with —
+ * Result the `iac.destroy.mintToken` IPC channel resolves with —
  * `token` must be supplied back on {@link TerraformDestroyPayload.confirmationToken}
- * within its short expiry window (see `TerraformService.mintDestroyConfirmationToken`).
+ * within its short expiry window (see `PulumiService.mintDestroyConfirmationToken`).
  *
  * Mirrors `TerraformDestroyMintAck` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformDestroyMintAck {
@@ -842,13 +952,13 @@ export interface TerraformDestroyMintAck {
 }
 
 /**
- * Payload accepted by the `terraform.destroy` IPC channel. `confirmationToken`
+ * Payload accepted by the `iac.destroy` IPC channel. `confirmationToken`
  * must be the most recently minted, unexpired, not-yet-consumed value
- * returned by `terraform.destroy.mintToken` — enforced server-side, never
+ * returned by `iac.destroy.mintToken` — enforced server-side, never
  * trusted from the client beyond this single round-trip.
  *
  * Mirrors `TerraformDestroyPayload` in
- * `@hyveon/desktop-main/src/controllers/terraform.controller.ts` — that file
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface TerraformDestroyPayload {
@@ -856,9 +966,9 @@ export interface TerraformDestroyPayload {
 }
 
 /**
- * Immediate acknowledgement the `terraform.approve` IPC channel resolves
+ * Immediate acknowledgement the `iac.approve` IPC channel resolves
  * with once the identified plan run has been marked approved. Mirrors
- * `TerraformApproveAck` in `@hyveon/desktop-main/src/controllers/terraform.controller.ts`
+ * `TerraformApproveAck` in `@hyveon/desktop-main/src/controllers/iac.controller.ts`
  * — that type is the source of truth; keep this copy in sync with it.
  * `approved: true` means `RunRecordService.approveRun` succeeded and
  * `approvedBy`/`approvedAt` mirror the values stamped onto the persisted
@@ -872,38 +982,6 @@ export interface TerraformApproveAck {
   approvedBy?: string;
   approvedAt?: string;
   error?: string;
-}
-
-/**
- * Shape of the subset of Terraform root outputs the management app consumes.
- *
- * Mirrors `TfOutputs` in `@hyveon/desktop-main/src/services/ConfigService.ts`
- * — that file is the source of truth; keep this copy in sync with it.
- */
-export interface TfOutputs {
-  aws_region: string;
-  ecs_cluster_name: string;
-  ecs_cluster_arn: string;
-  subnet_ids: string;
-  security_group_id: string;
-  file_manager_security_group_id: string;
-  efs_file_system_id: string;
-  efs_access_points: Record<string, string>;
-  domain_name: string;
-  game_names: string[];
-  discord_table_name: string;
-  audit_table_name: string;
-  discord_bot_token_secret_arn: string;
-  discord_public_key_secret_arn: string;
-  interactions_invoke_url: string | null;
-  discord_interactions_url: string | null;
-  /**
-   * Full per-game `game_servers` configuration as last applied by Terraform
-   * (the `applied_game_servers` sensitive output — see `terraform/aws/outputs.tf`),
-   * keyed by game name. `null` when the output is absent (e.g. state predates
-   * this output, or `terraform apply` hasn't run since it was added).
-   */
-  applied_game_servers: Record<string, Omit<GameServer, 'name'>> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1194,7 +1272,7 @@ export interface WizardAwsChoice {
  * `lockTable` no longer names a bootstrapped resource (task 5.1 removed
  * `ensureLockTable`/`wizard.bootstrap.lockTable`, and the bootstrap step
  * renders no row for it) — it is kept here only because the still-live
- * `terraform.init` call requires a non-empty `dynamodbTable` backend-config
+ * `iac.init` call requires a non-empty `dynamodbTable` backend-config
  * value, which Reconfigure rehydrates from this same field. Task 10.3
  * (replacing the Terraform-init step) is where this field should finally
  * be dropped.
@@ -1249,29 +1327,29 @@ export interface HyveonAuditApi {
 }
 
 /**
- * Terraform run history: look up a single plan/apply/destroy run's current
+ * Iac run history: look up a single plan/apply/destroy run's current
  * status and stream its live/replayed log output (issue #108).
  */
-export interface HyveonTerraformRunsApi {
+export interface HyveonIacRunsApi {
   /**
    * Looks up the run identified by `runId` and returns its current
    * {@link TerraformRunsGetResult} — `{ found: false }` if `runId` is
    * neither the in-flight run nor a persisted {@link TerraformRunRecord},
    * otherwise `{ found: true, status, record? }`.
    *
-   * Internally this is a plain `invoke('terraform.runs.get', { runId })`
+   * Internally this is a plain `invoke('iac.runs.get', { runId })`
    * call — unlike {@link streamLogs}, there is no streaming involved.
    */
   get: (runId: string) => Promise<TerraformRunsGetResult>;
   /**
    * Opens a live/replayed log stream for the run identified by `runId`,
    * returning a {@link HyveonStreamHandle} of {@link TerraformRunChunk}.
-   * Consume it with `for await (const chunk of terraform.runs.streamLogs(runId))`.
+   * Consume it with `for await (const chunk of iac.runs.streamLogs(runId))`.
    *
-   * Mirrors {@link HyveonTerraformApi.init}'s streaming shape: the
-   * `terraform.runs.logs` invoke call resolves immediately with an opaque
+   * Mirrors {@link HyveonIacApi.init}'s streaming shape: the
+   * `iac.runs.logs` invoke call resolves immediately with an opaque
    * `streamId`, and subsequent chunk/end messages arrive on the fixed
-   * `terraform.runs.logs.chunk` / `terraform.runs.logs.end` side channels,
+   * `iac.runs.logs.chunk` / `iac.runs.logs.end` side channels,
    * tagged with that `streamId` so overlapping subscriptions to different
    * runs can never cross-terminate one another.
    *
@@ -1282,7 +1360,7 @@ export interface HyveonTerraformRunsApi {
    * caller's consumption stops.
    *
    * The iteration completes normally once the run's output finishes
-   * replaying/streaming, and throws (using the `terraform.runs.logs.end`
+   * replaying/streaming, and throws (using the `iac.runs.logs.end`
    * payload's `error` field) if it terminated due to an error.
    */
   streamLogs: (runId: string) => HyveonStreamHandle<TerraformRunChunk>;
@@ -1291,9 +1369,12 @@ export interface HyveonTerraformRunsApi {
    * the number of records returned; `opts.before` is a pagination cursor (a
    * {@link RunHistoryRecord.sk} value) from a previous page's `nextBefore`,
    * used to fetch the next, older page; `opts.status` filters to a single
-   * run status.
+   * run status. Each returned {@link RunHistoryRecord} carries
+   * `changeSummary`/`engineVersion`/`partialApply` when the Pulumi engine
+   * reported them for that run — see {@link RunHistoryRecord.changeSummary}'s
+   * doc comment for the `{}`-does-not-mean-"no changes" sharp edge.
    *
-   * Internally this is a plain `invoke('terraform.runs.list', opts)` call —
+   * Internally this is a plain `invoke('iac.runs.list', opts)` call —
    * no streaming involved.
    */
   list: (opts?: TerraformRunsListOpts) => Promise<RunHistoryPageResult>;
@@ -1302,7 +1383,7 @@ export interface HyveonTerraformRunsApi {
    * offloaded to remote storage (i.e. the record's `logS3Key` is set,
    * distinguishing it from a small enough log embedded on `logInline`).
    *
-   * Internally this is a plain `invoke` call on the `terraform.runs.logUrl`
+   * Internally this is a plain `invoke` call on the `iac.runs.logUrl`
    * channel, unwrapped from the channel's `url` result field to a bare
    * string for ergonomic `fetch(url)` use at the call site.
    */
@@ -1310,58 +1391,67 @@ export interface HyveonTerraformRunsApi {
 }
 
 /**
- * Terraform orchestration: streams `terraform init` output live as the
- * process runs.
+ * Iac orchestration: streams `terraform init` output live as the
+ * process runs, and submits plan/apply/destroy/rollback operations against
+ * the Pulumi-backed engine.
  */
-export interface HyveonTerraformApi {
+export interface HyveonIacApi {
   /**
    * Runs `terraform init` against `config` (backend bucket/region/DynamoDB
    * lock table) and returns its output as a {@link HyveonStreamHandle} of
    * {@link TerraformRunChunk}. Consume it with
-   * `for await (const chunk of terraform.init(config))`.
+   * `for await (const chunk of iac.init(config))`.
    *
-   * Internally this wraps the fixed `terraform.init.chunk` / `terraform.init.end`
-   * side-channel IPC messages `TerraformController.init` sends in a
+   * **Transitional stub:** the Pulumi engine has no `init` step, so
+   * `iac.controller.ts`'s `init` handler is now a permanent rejection —
+   * this call always resolves a stream whose end message carries an error,
+   * never a successful run. The channel and this method are kept wired
+   * purely so `TerraformInitConfig`'s payload shape stays unchanged for its
+   * only call site, `terraform-init-step.component.tsx`, which is slated
+   * for replacement.
+   *
+   * Internally this wraps the fixed `iac.init.chunk` / `iac.init.end`
+   * side-channel IPC messages `IacController.init` sends in a
    * preload-internal async generator — unlike `logs.stream`, there is no
-   * per-call `streamId` because `TerraformService.init` only ever allows one
-   * run in flight at a time.
+   * per-call `streamId` because only one run is ever allowed in flight at a
+   * time.
    *
    * Call the returned handle's `cancel()` to stop consuming the run's
-   * output early, mirroring `logs.stream`'s cancellation semantics — the
-   * `terraform init` process itself is not killed, only this caller's
-   * consumption of its output stops.
+   * output early, mirroring `logs.stream`'s cancellation semantics.
    *
    * The iteration completes normally once the run finishes successfully, and
-   * throws (using the `terraform.init.end` payload's `error` field) if the
+   * throws (using the `iac.init.end` payload's `error` field) if the
    * run failed — including if the initial `config` failed validation and no
-   * `terraform init` process was ever spawned.
+   * run was ever attempted.
    */
   init: (config: TerraformInitConfig) => HyveonStreamHandle<TerraformRunChunk>;
   /**
-   * Submits a `terraform plan` run by invoking the `terraform.plan` IPC
+   * Submits a plan (`pulumi preview`) run by invoking the `iac.plan` IPC
    * channel and resolves its immediate {@link TerraformPlanAck}.
    *
    * `opts.tfvarsVersionId`, when supplied, is forwarded to
-   * `TerraformService.plan`'s staleness check against the current head
+   * `PulumiService.preview`'s staleness check against the current head
    * version of the tfvars object. The resolved ack reports whether the run
    * started (`{ started: true, runId }`) or was rejected before starting —
-   * the only rejection path is the shared Terraform workspace already being
-   * busy running `init`/`plan`/`apply`/`destroy`
-   * (`{ started: false, error, conflict }`). Any other failure — including a
-   * stale-tfvars rejection — still resolves `{ started: true, runId }`; the
-   * error arrives afterwards on the `terraform.plan.end` side channel
-   * (`exitCode: null`) rather than on this ack.
+   * rejection happens when the shared workspace is already busy running
+   * `preview`/`up`/`destroy`/`rollback` (`{ started: false, error, conflict }`)
+   * or when an unrecognized Pulumi backend lock conflict was hit
+   * (`{ started: false, error, staleLock }` — see
+   * {@link TerraformPlanAck.staleLock}).
    *
-   * This call only resolves the initial acknowledgement — it does not itself
-   * stream the run's output; consume `terraform.plan.chunk` /
-   * `terraform.plan.end` (tagged with the returned `runId`) separately for
-   * progress and the final `TerraformPlanResult`.
+   * This call only resolves the initial acknowledgement — it does not
+   * stream the run's output itself. **Nothing in this preload currently
+   * listens on the `iac.plan.chunk` / `iac.plan.end` side channels** (see
+   * {@link TerraformPlanAck}'s doc comment) — for progress and the final
+   * structured result, poll `iac.runs.get(runId)` (whose `record` carries
+   * `changeSummary`/`engineVersion`/`partialApply` once the run settles) or
+   * consume `iac.runs.streamLogs(runId)` for live text output.
    */
   plan: (opts?: TerraformPlanPayload) => Promise<TerraformPlanAck>;
   /**
    * Approves a completed plan run (identified by `opts.planRunId`, its
    * `runId`) so `apply` may proceed against it, by invoking the
-   * `terraform.approve` IPC channel with `opts`.
+   * `iac.approve` IPC channel with `opts`.
    *
    * Mirrors `POST /api/terraform/runs/:id/approve` (#109) — admin-only;
    * records the approver and approved-at timestamp on the plan run and
@@ -1369,18 +1459,19 @@ export interface HyveonTerraformApi {
    */
   approve: (opts: { planRunId: string }) => Promise<TerraformApproveAck>;
   /**
-   * Submits a `terraform apply` run gated on plan-hash + approval by
-   * invoking the `terraform.apply` IPC channel, resolving an ack shaped like
+   * Submits an apply (`pulumi up`) run gated on plan-hash + approval by
+   * invoking the `iac.apply` IPC channel, resolving an ack shaped like
    * {@link TerraformPlanAck}. Mirrors `POST /api/terraform/apply` (#109):
    * rejects when the plan run isn't approved, the current tfvars has
    * drifted since the plan, the supplied `planHash` doesn't match the plan
-   * run's stored hash, or another run already holds the shared workspace
-   * lock.
+   * run's stored hash, another run already holds the shared workspace lock,
+   * or an unrecognized Pulumi backend lock conflict was hit (see
+   * {@link TerraformPlanAck.staleLock}).
    */
   apply: (payload: TerraformApplyPayload) => Promise<TerraformPlanAck>;
   /**
    * Mints a fresh, short-lived destroy-confirmation token by invoking the
-   * `terraform.destroy.mintToken` IPC channel — call this the moment the
+   * `iac.destroy.mintToken` IPC channel — call this the moment the
    * operator's type-to-confirm phrase is accepted, then pass the returned
    * `token` straight through to {@link destroy}'s `confirmationToken` before
    * it expires. Minting a new token supersedes (invalidates) any prior
@@ -1388,43 +1479,46 @@ export interface HyveonTerraformApi {
    */
   mintDestroyToken: () => Promise<TerraformDestroyMintAck>;
   /**
-   * Submits a `terraform destroy -auto-approve` run gated on
+   * Submits a destroy (`pulumi destroy`) run gated on
    * `payload.confirmationToken` (minted via {@link mintDestroyToken}) by
-   * invoking the `terraform.destroy` IPC channel, resolving an ack shaped
-   * like {@link TerraformPlanAck}. Mirrors {@link apply}: this call only
-   * resolves the initial acknowledgement — it does not itself stream the
-   * run's output; consume `hyveon.terraform.runs.streamLogs(runId)` (tagged
-   * with the returned `runId`) for progress, the same seam every other
-   * `terraform` run's live output flows through.
+   * invoking the `iac.destroy` IPC channel, resolving an ack shaped
+   * like {@link TerraformPlanAck} (including the same `staleLock` case).
+   * Mirrors {@link apply}: this call only resolves the initial
+   * acknowledgement — it does not itself stream the run's output; consume
+   * `hyveon.iac.runs.streamLogs(runId)` (tagged with the returned `runId`)
+   * for progress, the same seam every other run's live output flows
+   * through.
    */
   destroy: (payload: TerraformDestroyPayload) => Promise<TerraformPlanAck>;
   /**
-   * Returns the current Terraform outputs by invoking the `terraform.output`
-   * IPC channel with `{ force }`. `force` defaults to `false`, matching
-   * `TerraformService.output`'s own default; pass `true` to bypass its
-   * in-memory cache and re-spawn `terraform output -json`. Resolves `null`
-   * when Terraform reports no outputs (infra not yet deployed).
+   * Returns the deployed stack's outputs by invoking the `iac.output` IPC
+   * channel with `{ force }`. Dead surface with no renderer call site today;
+   * `force` is ignored by the main process's handler.
    */
-  output: (force?: boolean) => Promise<TfOutputs | null>;
-  /** Terraform run history: look up a single run's status and stream its log output. */
-  runs: HyveonTerraformRunsApi;
+  output: (force?: boolean) => Promise<StackOutputs | null>;
+  /** Iac run history: look up a single run's status and stream its log output. */
+  runs: HyveonIacRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
-  rollback: HyveonTerraformRollbackApi;
+  rollback: HyveonIacRollbackApi;
 }
 
 /**
  * Rollback flow (#112) IPC surface. A rollback is two calls: {@link resolve}
  * previews the target version for the confirmation dialog without writing
- * anything, then {@link confirm} restores it as a new tfvars head version.
- * The caller completes the rollback with an ordinary `terraform.plan` call
+ * anything, then {@link confirm} restores it as a new tfvars head version
+ * (and, internally, re-plans against it — see
+ * {@link TerraformRollbackConfirmAck}'s doc comment). The caller completes
+ * the rollback with an ordinary `iac.plan` call
  * (`{ tfvarsVersionId: confirm's returned versionId, rolledBackFrom: applyRunId }`)
  * so the tagged plan streams and gates through the exact same channel every
- * other plan does.
+ * other plan does — see `iac.controller.ts`'s `confirmRollback` TSDoc,
+ * "Known, accepted consequence", for the resulting duplicate-plan-record
+ * behavior this produces today.
  */
-export interface HyveonTerraformRollbackApi {
+export interface HyveonIacRollbackApi {
   /**
    * Resolves the tfvars version that was live immediately before the given
-   * `apply` run, by invoking the `terraform.rollback.resolve` IPC channel.
+   * `apply` run, by invoking the `iac.rollback.resolve` IPC channel.
    * Read-only — performs no write. `resolved: false` means the target
    * couldn't be resolved (no matching apply run, not an apply run, no
    * recorded `tfvarsVersionId`, or no earlier version exists) — `error`
@@ -1433,7 +1527,7 @@ export interface HyveonTerraformRollbackApi {
   resolve: (opts: { applyRunId: string }) => Promise<TerraformRollbackResolveAck>;
   /**
    * Confirms a previewed rollback of `opts.applyRunId`, by invoking the
-   * `terraform.rollback.confirm` IPC channel — restores the historic tfvars
+   * `iac.rollback.confirm` IPC channel — restores the historic tfvars
    * content as a new head version. `confirmed: false` means no write was
    * attempted — `error` describes why.
    */
@@ -1544,8 +1638,14 @@ export interface HyveonApi {
   diagnostics: HyveonDiagnosticsApi;
   /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
   audit: HyveonAuditApi;
-  /** Terraform orchestration: streams `terraform init` output live as the process runs. */
-  terraform: HyveonTerraformApi;
+  /**
+   * Iac orchestration: plan/apply/destroy/rollback against the Pulumi-backed
+   * engine, plus the transitional `terraform init` stub. Namespace renamed
+   * from `terraform` to `iac` — only the namespace key and IPC channel
+   * strings moved; the `Terraform*`-prefixed payload/ack type names were
+   * deliberately left unrenamed.
+   */
+  iac: HyveonIacApi;
   /**
    * Test-only injection surface; `undefined` in production.
    *

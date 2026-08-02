@@ -25,7 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
 import { buildRunSk, deriveRunStatus } from '@hyveon/shared';
-import type { RunKind, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
+import type { ChangeSummary, RunKind, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
@@ -33,8 +33,8 @@ import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
 
 /**
  * Thrown by {@link RunRecordService.approveRun} when the run-history table
- * isn't configured yet (`ConfigService.getTfOutputs().runs_table_name` is
- * unset) — the same chicken-and-egg guard {@link RunRecordService.persist}
+ * isn't configured yet (`ConfigService.getStackOutputs()`'s `runsTableName`
+ * is unset) — the same chicken-and-egg guard {@link RunRecordService.persist}
  * applies, but here it's surfaced to the caller rather than swallowed, since
  * an approval that silently no-ops would let a later apply attempt proceed
  * without ever having recorded who approved it.
@@ -156,6 +156,30 @@ export interface PersistRunRecordParams {
    * started this run via the rollback flow (#112).
    */
   rolledBackFrom?: string;
+  /**
+   * The structured resource-change summary this run's `preview`/`up`
+   * reported, if the caller has one — see `ChangeSummary`'s doc comment
+   * (`@hyveon/shared/changeSummary.js`). Populated by `PulumiService.preview`
+   * and threaded through to {@link RunRecord.changeSummary}.
+   */
+  changeSummary?: ChangeSummary;
+  /**
+   * The Pulumi engine version stamped into this run's saved plan artifact,
+   * if the caller has one — see {@link RunRecord.engineVersion}'s doc
+   * comment. Populated by `PulumiService.preview` and threaded through to
+   * {@link RunRecord.engineVersion}.
+   */
+  engineVersion?: string;
+  /**
+   * `true` only for a `kind: 'apply'` run that did NOT settle as a success
+   * (failed OR aborted) after at least one resource step had already been
+   * applied — independent of which of the two it was; see
+   * {@link RunRecord.partialApply}'s doc comment (`@hyveon/shared/runs.js`)
+   * for why this must never be gated behind `status === 'failed'`. Populated
+   * by `PulumiService.apply` and threaded through to
+   * {@link RunRecord.partialApply}.
+   */
+  partialApply?: boolean;
 }
 
 /**
@@ -224,7 +248,7 @@ export class RunRecordService {
    */
   async persist(params: PersistRunRecordParams, logFilePath: string | null): Promise<void> {
     try {
-      const tableName = this.config.getTfOutputs()?.runs_table_name;
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
       if (!tableName) {
         logger.warn('RunRecordService.persist: runs_table_name not configured, skipping run record persistence', {
           runId: params.runId,
@@ -277,6 +301,9 @@ export class RunRecordService {
           ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
           ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
           ...(params.rolledBackFrom !== undefined ? { rolledBackFrom: params.rolledBackFrom } : {}),
+          ...(params.changeSummary !== undefined ? { changeSummary: params.changeSummary } : {}),
+          ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
+          ...(params.partialApply !== undefined ? { partialApply: params.partialApply } : {}),
           ...(logInline !== undefined ? { logInline } : {}),
           ...(logS3Key !== undefined ? { logS3Key } : {}),
         };
@@ -328,7 +355,7 @@ export class RunRecordService {
    *   configured yet).
    */
   async getByRunId(runId: string): Promise<RunRecord | undefined> {
-    const tableName = this.config.getTfOutputs()?.runs_table_name;
+    const tableName = (await this.config.getStackOutputs())?.runsTableName;
     if (!tableName) {
       logger.warn('RunRecordService.getByRunId: runs_table_name not configured, returning undefined', {
         runId,
@@ -353,7 +380,7 @@ export class RunRecordService {
    * @returns The requested page of records plus a cursor for the next page.
    */
   async listRuns(opts: ListRunsOpts = {}): Promise<RunPageResult> {
-    const tableName = this.config.getTfOutputs()?.runs_table_name;
+    const tableName = (await this.config.getStackOutputs())?.runsTableName;
     if (!tableName) {
       logger.warn('RunRecordService.listRuns: runs_table_name not configured, returning empty run history page');
       return { records: [] };
@@ -393,7 +420,7 @@ export class RunRecordService {
    * @returns The updated {@link RunRecord}, with `approvedBy`/`approvedAt` set.
    */
   async approveRun(runId: string, approvedBy: string): Promise<RunRecord> {
-    const tableName = this.config.getTfOutputs()?.runs_table_name;
+    const tableName = (await this.config.getStackOutputs())?.runsTableName;
     if (!tableName) {
       throw new RunRecordTableNotConfiguredError(runId);
     }

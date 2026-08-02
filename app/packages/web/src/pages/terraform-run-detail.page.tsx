@@ -16,7 +16,7 @@ import { ErrorBanner } from './terraform.page.js';
  */
 const LOOKUP_PAGE_SIZE = 200;
 
-/** Resolves the {@link RunHistoryRecord} for `runId` by searching the most recent page of `hyveon.terraform.runs.list`. */
+/** Resolves the {@link RunHistoryRecord} for `runId` by searching the most recent page of `hyveon.iac.runs.list`. */
 function useHistoryRecord(runId: string | undefined): {
   record: RunHistoryRecord | null | undefined;
   loading: boolean;
@@ -41,7 +41,7 @@ function useHistoryRecord(runId: string | undefined): {
   useEffect(() => {
     if (!runId || !window.hyveon) return;
     let cancelled = false;
-    window.hyveon.terraform.runs
+    window.hyveon.iac.runs
       .list({ limit: LOOKUP_PAGE_SIZE })
       .then((page) => {
         if (cancelled) return;
@@ -68,9 +68,9 @@ type LogSource = 'stream' | 'inline' | 'url' | 'none';
 
 /**
  * Resolves a finished run's captured log via the fallback ladder: replay via
- * `hyveon.terraform.runs.streamLogs` when local run artifacts still exist,
+ * `hyveon.iac.runs.streamLogs` when local run artifacts still exist,
  * otherwise the persisted record's `logInline` text, otherwise a presigned
- * URL fetched via `hyveon.terraform.runs.logUrl(record.logS3Key)`.
+ * URL fetched via `hyveon.iac.runs.logUrl(record.logS3Key)`.
  */
 function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | null | undefined): {
   chunks: AnsiLogChunk[];
@@ -111,7 +111,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
     void (async () => {
       try {
         const streamed: AnsiLogChunk[] = [];
-        for await (const chunk of window.hyveon!.terraform.runs.streamLogs(runId)) {
+        for await (const chunk of window.hyveon!.iac.runs.streamLogs(runId)) {
           if (cancelled) return;
           streamed.push(chunk);
         }
@@ -133,7 +133,7 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
 
       if (record.logS3Key) {
         try {
-          const url = await window.hyveon!.terraform.runs.logUrl(record.logS3Key);
+          const url = await window.hyveon!.iac.runs.logUrl(record.logS3Key);
           const res = await fetch(url);
           if (!res.ok) throw new Error(`presigned log fetch failed: ${res.status}`);
           const text = await res.text();

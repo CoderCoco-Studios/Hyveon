@@ -14,33 +14,37 @@ vi.mock('../logger.js', () => ({
 
 import { LogsService } from './LogsService.js';
 import { createAwsCloudProvider } from './EcsService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 /** Typed stand-in for the AWS CloudWatch Logs SDK client. */
 const cwMock = mockClient(CloudWatchLogsClient);
 
 /**
- * A minimal set of Terraform outputs satisfying `AwsCloudProvider`'s
+ * A minimal set of stack outputs satisfying `AwsCloudProvider`'s
  * `getConfig` callback. `streamLogs` only reads `region` off the resolved
  * config, but `buildProviderConfig` (shared with `EcsService`) always maps
- * the full `TfOutputs` shape, so every field needs a value here.
+ * the full `StackOutputs` shape, so every field needs a value here.
  */
-const TF_OUTPUTS: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: 'game-cluster',
-  ecs_cluster_arn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
-  subnet_ids: 'subnet-a',
-  security_group_id: 'sg-game',
-  file_manager_security_group_id: 'sg-files',
-  efs_file_system_id: 'fs-1',
-  efs_access_points: {},
-  domain_name: 'example.com',
-  game_names: ['minecraft'],
-  discord_table_name: 'discord-table',
-  discord_bot_token_secret_arn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
-  discord_public_key_secret_arn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
-  interactions_invoke_url: null,
-  discord_interactions_url: null,
+const STACK_OUTPUTS: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: 'game-cluster',
+  ecsClusterArn: 'arn:aws:ecs:us-east-1:123:cluster/game-cluster',
+  subnetIds: ['subnet-a'],
+  securityGroupId: 'sg-game',
+  fileManagerSecurityGroupId: 'sg-files',
+  efsFileSystemId: 'fs-1',
+  efsAccessPoints: {},
+  domainName: 'example.com',
+  gameNames: ['minecraft'],
+  discordTableName: 'discord-table',
+  auditTableName: 'audit-table',
+  runsTableName: 'runs-table',
+  discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
+  discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
 };
 
 /**
@@ -51,7 +55,7 @@ const TF_OUTPUTS: TfOutputs = {
 function makeConfig(): ConfigService {
   const stub: Partial<ConfigService> = {
     getRegion: () => 'us-east-1',
-    getTfOutputs: () => TF_OUTPUTS,
+    getStackOutputs: async () => STACK_OUTPUTS,
   };
   return stub as ConfigService;
 }

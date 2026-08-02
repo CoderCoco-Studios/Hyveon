@@ -240,9 +240,13 @@ Two services, both provided by `ElectronStoreModule`:
   with an identical public API, so reads/writes just don't persist across
   process restarts in tests/CI. Its `AppStoreSchema` holds
   `wizardCompleted`, the selected `activeCloud`/AWS profile/region, the
-  bootstrap step's last-submitted resource names (state bucket, lock table,
-  tfvars bucket — so Settings' "Reconfigure" flow can rehydrate a non-default
-  name), and pasted-credentials profiles keyed by profile name. Every secret
+  bootstrap step's last-submitted resource names (state bucket and
+  configuration bucket — so Settings' "Reconfigure" flow can rehydrate a
+  non-default name), and pasted-credentials profiles keyed by profile name.
+  The schema still carries a vestigial `lockTable` field — nothing bootstraps
+  a DynamoDB lock table any more, but the field is kept to satisfy `iac.init`'s
+  unchanged payload shape (see [First-run wizard](/app/first-run-wizard)).
+  Every secret
   field (`aws.accessKeyId`, `aws.secretAccessKey`,
   `creds.aws.<profile>.accessKeyId`/`secretAccessKey`) is encrypted via
   `SafeStorageService` on write and decrypted on the dedicated getter — there

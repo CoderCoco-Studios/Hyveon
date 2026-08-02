@@ -1,4 +1,5 @@
 import { GamesController } from '@hyveon/desktop-main/dist/controllers/games.controller.js';
+import { STACK_OUTPUTS_FIXTURE } from '../fixtures/stack-outputs.fixture.js';
 import { test, expect } from './index.js';
 
 /**
@@ -8,12 +9,14 @@ import { test, expect } from './index.js';
 const TASK_ARN = 'arn:aws:ecs:us-east-1:123456789012:task/test-cluster/abc12345';
 
 test.describe('Start / Stop game server', () => {
+  test.use({ stackOutputs: STACK_OUTPUTS_FIXTURE });
+
   /**
    * Golden path: `GamesController.listGames` returns both games from the
-   * tfstate fixture, and `listStatus` reports them as STOPPED — default mock
-   * behaviour (empty ListTasks queue → taskArns [] → stopped).
+   * scripted stack outputs, and `listStatus` reports them as STOPPED —
+   * default mock behaviour (empty ListTasks queue → taskArns [] → stopped).
    */
-  test('should list games from tfstate and report STOPPED status on initial load', async ({
+  test('should list games from the scripted stack outputs and report STOPPED status on initial load', async ({
     ipc,
     serverMocks: _reset,
   }) => {

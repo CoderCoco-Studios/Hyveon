@@ -48,8 +48,8 @@ state backend.
 A few ways to bootstrap it, in order of convenience:
 
 1. **The desktop app's setup wizard** — bootstraps this bucket for you as
-   part of its bootstrap step (alongside the state bucket and lock table —
-   see the [setup guide](/setup#3-clone-install-and-bootstrap-aws-resources)),
+   part of its bootstrap step (alongside the state bucket — see the
+   [setup guide](/setup#3-clone-install-and-bootstrap-aws-resources)),
    directly via the AWS SDK.
 
 2. **`init-parent.ts bootstrap --s3-tfvars`** — when scaffolding a fresh
