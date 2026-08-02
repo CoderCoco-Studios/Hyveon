@@ -83,11 +83,10 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
  * credentials-step region) for these DynamoDB clients specifically, at zero
  * extra cost.
  *
- * Async since task 7.4 (`migrate-iac-to-pulumi`): `getStackOutputs()`
- * replaced the synchronous `getTfOutputs()` this used to read. This is NOT
- * the "DI-factory async hazard" the task brief flagged — `CLOUD_BINDINGS.aws.auditLogStore`
- * below passes `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s
- * lazy `getConfig` closure, not as something the (synchronous) `useFactory`
+ * Async because `getStackOutputs()` is an async read. This is not a
+ * DI-factory async hazard: `CLOUD_BINDINGS.aws.auditLogStore` below passes
+ * `() => resolveAuditLogStoreConfig(config)` as `AwsAuditLogStore`'s lazy
+ * `getConfig` closure, not as something the (synchronous) `useFactory`
  * provider below awaits itself; the closure is only ever invoked later, from
  * inside `AwsAuditLogStore`'s own already-`async` methods, where awaiting a
  * `Promise`-returning closure costs nothing extra. See `AwsAuditLogStore`'s
@@ -173,16 +172,14 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
  * concrete AWS class — that's what keeps swapping the active cloud a one-module
  * change instead of a call-site hunt.
  *
- * `PulumiService.preview` (task 7.1, `migrate-iac-to-pulumi`) resolves
- * `REMOTE_FILE_STORE` from this module lazily via a `ModuleRef.get()`
- * strict-false lookup rather than a constructor dependency — see
- * `run-record.module.ts`'s doc comment for why a static `imports:` edge from
- * `PulumiServiceModule` back to this module (reachable from `ConfigModule`,
- * which imports `PulumiServiceModule`) was tried, found to deadlock the real
- * module graph even with every cycle edge `forwardRef()`-wrapped, and
- * abandoned in favor of the `ModuleRef` lookup. This module's own
- * `ConfigModule` import therefore stays the plain, non-circular import it
- * always was.
+ * `PulumiService.preview` resolves `REMOTE_FILE_STORE` from this module
+ * lazily via a `ModuleRef.get()` strict-false lookup rather than a
+ * constructor dependency: a static `imports:` edge from `PulumiServiceModule`
+ * back to this module (reachable from `ConfigModule`, which imports
+ * `PulumiServiceModule`) would deadlock the module graph even with every
+ * cycle edge `forwardRef()`-wrapped (see `run-record.module.ts`'s doc
+ * comment). This module's own `ConfigModule` import therefore stays the
+ * plain, non-circular import it always was.
  */
 @Module({
   imports: [ConfigModule],

@@ -1,8 +1,6 @@
 /**
  * Reads and parses the app's JSON deployment configuration into the
- * `GameServer[]` shape declared by `@hyveon/shared/tfvars.js` (which mirrors
- * `terraform/variables.tf`'s retired `game_servers` map — see the
- * `migrate-iac-to-pulumi` OpenSpec change).
+ * `GameServer[]` shape declared by `@hyveon/shared/tfvars.js`.
  *
  * The operator's versioned S3 configuration bucket
  * (`ConfigService.getConfigurationBucket()`) is the ONLY configuration
@@ -16,10 +14,9 @@
  * method.
  *
  * The raw text is `JSON.parse()`d directly into a `DeploymentConfig`
- * (`@hyveon/shared/deploymentConfig.js`) — no HCL parsing is involved any
- * more (see the `migrate-iac-to-pulumi` change's Phase 6, "Configuration
- * persisted as versioned JSON") — and its `gameServers` record is flattened
- * into a `GameServer[]` with the map key attached as `name`.
+ * (`@hyveon/shared/deploymentConfig.js`) — no HCL parsing is involved — and
+ * its `gameServers` record is flattened into a `GameServer[]` with the map
+ * key attached as `name`.
  *
  * Parsed results are cached in-memory for `ConfigService.readEnvTfvarsCacheTtlMs()`
  * milliseconds so frequent callers (e.g. polling endpoints) don't re-fetch
@@ -341,28 +338,21 @@ export class TfvarsService {
    * `expectedVersionId` — mirrors {@link getRawConfig}'s own `{ config, etag }`
    * shape. Bypasses the in-memory `getGameServers()` cache (like
    * {@link getRawConfig}) and rejects (rather than swallowing) a missing
-   * object or an unconfigured bucket — task 9.7's Settings form wants to know
+   * object or an unconfigured bucket — the Settings form needs to know
    * immediately if the source is unreadable/unconfigured rather than
    * silently rendering stale/empty fields.
    *
    * Runs the parsed document through {@link withDeploymentConfigDefaults}
    * before stripping `gameServers` off, so the returned `settings` object
    * genuinely satisfies its `Omit<DeploymentConfig, 'gameServers'>` type at
-   * RUNTIME, not just at the type-checker level. This matters because
-   * `parseConfigContents()` only validates that the parsed JSON is *an
-   * object* (see its own doc comment) — a stored document that predates a
-   * field (e.g. `baseAllowedGuilds` added after that document was last
-   * written by an older app version) parses successfully with that field
-   * simply absent, and every field the type declares as required
-   * (`string[]`, `number`, ...) would otherwise reach the renderer as
-   * `undefined` — which crashed the Settings form's `.map()` over the
-   * three Discord-ID arrays (task 9.7 review round 1, finding I2) before
-   * this defaulting was added. `withDeploymentConfigDefaults` is a safe,
-   * idempotent no-op on an already-complete document (review round 1
-   * confirmed it has zero other production call sites in this repo before
-   * this fix), and never touches `gameServers` itself — it passes that
-   * field through verbatim (no default value), which is immediately
-   * discarded below anyway.
+   * runtime, not just at the type-checker level: `parseConfigContents()`
+   * only validates that the parsed JSON is *an object*, so a document
+   * written by an older app version can be missing a field added later
+   * (e.g. `baseAllowedGuilds`), and an undefaulted required field would
+   * reach the renderer as `undefined`, crashing the Settings form's
+   * `.map()` over the Discord-ID arrays. `withDeploymentConfigDefaults` is
+   * an idempotent no-op on an already-complete document and passes
+   * `gameServers` through verbatim, which is discarded below anyway.
    *
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.

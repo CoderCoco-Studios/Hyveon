@@ -54,11 +54,8 @@ export type ActiveCloud = 'aws';
  *  - `server_config.json` — user-editable watchdog tunables. Path resolved
  *    by {@link ConfigService.getServerConfigPath}.
  *  - The deployed Pulumi stack's outputs — read via {@link getStackOutputs},
- *    a memoised delegate to {@link PulumiService.getStackOutputs}. This is
- *    the modern replacement for the old `terraform.tfstate`-parsing path
- *    (`getTfOutputs()`/`projectTfOutputs()`/`getTfStatePath()`), removed as
- *    dead code by task 7.10 — nothing reads a local tfstate file under the
- *    Pulumi engine.
+ *    a memoised delegate to {@link PulumiService.getStackOutputs}. Nothing
+ *    reads a local `terraform.tfstate` file under the Pulumi engine.
  *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
  * `getServerConfigPath()` follows a three-tier priority:
@@ -75,9 +72,9 @@ export class ConfigService {
   /**
    * `electronStore` is the source of truth for the configured configuration
    * bucket name (`bootstrap.configurationBucket`, written by the First-Run
-   * Wizard's bootstrap step — see {@link getConfigurationBucket}) and, since
-   * task 7.4, the wizard-configured AWS region (`aws.region`) {@link getRegion}
-   * now reads directly rather than through a deployed stack's outputs (see
+   * Wizard's bootstrap step — see {@link getConfigurationBucket}) and the
+   * wizard-configured AWS region (`aws.region`), which {@link getRegion}
+   * reads directly rather than through a deployed stack's outputs (see
    * that method's doc comment for why). `pulumiService` backs
    * {@link getStackOutputs} — see that method's doc comment for why the read
    * is exposed here rather than requiring every caller to depend on
@@ -89,40 +86,30 @@ export class ConfigService {
   ) {}
 
   /**
-   * Memoised {@link getStackOutputs} result, mirroring the old `tfCache`
-   * field's tri-state shape and rationale — added because several callers (e.g.
-   * `DiscordConfigService.getRedacted()`) read more than one field off a
-   * single logical "the deployed config" via more than one call into this
-   * class, and `getOrCreateStack()` + `stack.outputs()` is a genuinely
-   * expensive round-trip (engine resolution, passphrase, S3 backend) to pay
-   * twice for what should be one read. Stores the in-flight/settled
-   * `Promise` itself (not just its resolved value) so concurrent callers
-   * during the first read coalesce onto the same request rather than each
-   * kicking off their own — mirrors `DiscordConfigService.inflight`'s
-   * coalescing pattern. A *rejected* promise is deliberately NOT cached (see
+   * Memoised {@link getStackOutputs} result. Several callers (e.g.
+   * `DiscordConfigService.getRedacted()`) read more than one field off "the
+   * deployed config" across more than one call into this class, and
+   * `getOrCreateStack()` + `stack.outputs()` is an expensive round-trip
+   * (engine resolution, passphrase, S3 backend) to pay twice. Stores the
+   * in-flight/settled `Promise` itself (not just its resolved value) so
+   * concurrent callers during the first read coalesce onto the same request.
+   * A *rejected* promise is deliberately NOT cached (see
    * {@link getStackOutputs}) — only a settled `null` ("not deployed") or a
    * real {@link StackOutputs} value are memoised.
    *
    * **Why a settled `null` still needs its own bounded TTL, not indefinite
-   * caching:** `PulumiService.getStackOutputs()` (task 7.4's post-review fix)
-   * degrades EVERY failure to a resolved `null` — a transient S3 blip, an
-   * expired credential, a keychain hiccup all look identical to "genuinely
-   * not deployed" from here. That's the right contract for callers (restores
-   * the old `getTfOutputs()`'s never-throw guarantee), but it means a resolved
-   * `null` is no longer proof of "not deployed" the way it was for `tfCache`
-   * (which only ever cached `null` for an actually-missing/malformed file).
-   * Caching it indefinitely would let one transient blip during, e.g., the
-   * very first real deploy wedge the dashboard on "not deployed" forever —
-   * especially now that the hot poll paths (`GamesController.listGames`/
-   * `listStatus`, `DriftService.getDrift`) no longer call
-   * {@link invalidateCache} on every tick (see those methods' own doc
-   * comments for why that eager invalidation was removed). See
+   * caching:** `PulumiService.getStackOutputs()` degrades EVERY failure to a
+   * resolved `null` — a transient S3 blip, an expired credential, a
+   * keychain hiccup all look identical to "genuinely not deployed" from
+   * here. Caching it indefinitely would let one transient blip wedge the
+   * dashboard on "not deployed" forever, especially since the hot poll paths
+   * (`GamesController.listGames`/`listStatus`, `DriftService.getDrift`) do
+   * not call {@link invalidateCache} on every tick. See
    * {@link STACK_OUTPUTS_NULL_TTL_MS} and {@link getStackOutputs} for the
    * TTL mechanics. A resolved {@link StackOutputs} value has no such
    * problem — a successful read really did observe a deployed stack — so it
    * stays cached with no TTL, cleared only by an explicit
-   * {@link invalidateCache} call (expected from a future `up()`-completion
-   * hook, per task 7.4's dispatch notes for whichever dispatch adds it).
+   * {@link invalidateCache} call.
    */
   private stackOutputsCache: Promise<StackOutputs | null> | undefined;
 
@@ -160,34 +147,23 @@ export class ConfigService {
   }
 
   /**
-   * Reads every value the app cares about off the deployed Pulumi stack —
-   * task 7.4's async replacement for the old synchronous `getTfOutputs()`,
-   * which every caller was migrated to as part of that dispatch.
-   * `getTfOutputs()` itself, along with its `projectTfOutputs()`/
-   * `getTfStatePath()`/`TfOutputs` support, was removed by task 7.10 once
-   * nothing but `TerraformService.output()` still called it and
-   * `TerraformService.ts` itself (and the `terraform.controller.ts` handler
-   * that used to type its return value against `TfOutputs`) were deleted —
-   * nothing reads a local `terraform.tfstate` file under the Pulumi engine
-   * any more.
+   * Reads every value the app cares about off the deployed Pulumi stack.
+   * Nothing reads a local `terraform.tfstate` file under the Pulumi engine.
    *
    * A memoised delegate to {@link PulumiService.getStackOutputs} — see that
    * method's doc comment for the full "never deployed yet degrades to
    * `null`, never throws, period" contract and how it's implemented. Exposed
-   * here (rather than requiring every one of the old `getTfOutputs()`'s ~14
-   * call sites to take a new `PulumiService` constructor dependency) so that
-   * migration's diff at each call site is the minimal `getTfOutputs()` →
-   * `await getStackOutputs()` swap, mirroring how `ConfigService` already
+   * here rather than requiring every caller to take a `PulumiService`
+   * constructor dependency directly, mirroring how `ConfigService`
    * re-exposes `ElectronStoreService.get('bootstrap')?.configurationBucket`
    * as {@link getConfigurationBucket} instead of making every
    * configuration-bucket reader depend on `ElectronStoreService` directly.
    *
    * Cached via {@link stackOutputsCache} — see that field's doc comment for
-   * why (mirrors the old `getTfOutputs()`'s `tfCache`, plus in-flight
-   * coalescing) and for why a resolved `null` additionally expires after
-   * {@link STACK_OUTPUTS_NULL_TTL_MS} rather than staying cached forever.
-   * Cleared unconditionally (both the value and the null-TTL clock) by
-   * {@link invalidateCache}.
+   * the coalescing behavior and for why a resolved `null` additionally
+   * expires after {@link STACK_OUTPUTS_NULL_TTL_MS} rather than staying
+   * cached forever. Cleared unconditionally (both the value and the
+   * null-TTL clock) by {@link invalidateCache}.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
     const cacheIsStale =
@@ -329,11 +305,9 @@ export class ConfigService {
 
   /**
    * Resolve the configured S3 configuration bucket name — the sole source of
-   * `TfvarsService`'s configuration JSON as of the `migrate-iac-to-pulumi`
-   * change's Phase 6 ("Configuration persisted as versioned JSON"). Returns
-   * `null` when no bucket is configured, which callers MUST treat as "setup
-   * incomplete" — there is no local-file fallback any more (see
-   * `TfvarsService.isConfigured()`).
+   * `TfvarsService`'s configuration JSON. Returns `null` when no bucket is
+   * configured, which callers MUST treat as "setup incomplete" — there is no
+   * local-file fallback (see `TfvarsService.isConfigured()`).
    *
    * Resolution order:
    *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set. A dev/CI convenience
@@ -343,11 +317,7 @@ export class ConfigService {
    *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
    *     operator-configured value, submitted by the First-Run Wizard's
    *     bootstrap step (`WizardController.saveState`) and read back via
-   *     `WizardController.getState`. This is the real post-Phase-5 source of
-   *     truth, replacing the `.hyveon`/`.gsd` `tfvars-bucket` marker-file
-   *     walk-up this method used to perform — that marker file existed only
-   *     to support the CLI and the now-removed local-file mode; it never
-   *     reflected what the desktop app itself had configured.
+   *     `WizardController.getState`.
    *  3. `null` — no backend configured.
    */
   getConfigurationBucket(): string | null {
@@ -368,21 +338,16 @@ export class ConfigService {
   /**
    * Resolve the AWS region for SDK clients.
    *
-   * Prior to task 7.4, this preferred the region the deployed stack's
-   * outputs reported (`getTfOutputs()?.aws_region`). That source is now
-   * async-only ({@link getStackOutputs}), and this method has many
-   * synchronous callers across the app (SDK client construction,
-   * `cloud-provider.module.ts`'s DI factories) that task 7.4's brief
-   * explicitly did not ask to convert to async — so this method stays
-   * synchronous by switching its preferred source to the wizard-configured
-   * region (`ElectronStoreService`'s `aws.region`, set by the credentials
-   * step and used by `BootstrapService` to create the state bucket itself —
-   * see that service's own region resolution). This is a strictly better
-   * source for this purpose anyway: it's known before anything is ever
-   * deployed (unlike the old tfstate-derived value, which only existed
-   * post-apply), and for a single-region-per-install app the two can never
-   * legitimately disagree. Falls back to `AWS_DEFAULT_REGION`, then to
-   * `us-east-1`, unchanged from before.
+   * Prefers the wizard-configured region (`ElectronStoreService`'s
+   * `aws.region`, set by the credentials step and used by `BootstrapService`
+   * to create the state bucket itself — see that service's own region
+   * resolution) so the method can stay synchronous, which matters because it
+   * has many synchronous callers across the app (SDK client construction,
+   * `cloud-provider.module.ts`'s DI factories) while {@link getStackOutputs}
+   * is async-only. The wizard-configured region is known before anything is
+   * ever deployed, and for a single-region-per-install app it can never
+   * legitimately disagree with the deployed stack's outputs. Falls back to
+   * `AWS_DEFAULT_REGION`, then to `us-east-1`.
    */
   getRegion(): string {
     return (
