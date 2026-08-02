@@ -21,6 +21,10 @@ export default defineConfig({
       // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior
       // `npm run build -w @hyveon/cloud-aws`, so its dist/ never exists.
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
+      // Same rationale — desktop-main's PulumiService imports @hyveon/infra
+      // directly, and CI runs `vitest run` without a prior
+      // `npm run build -w @hyveon/infra`, so its dist/ never exists.
+      '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the
       // same imports resolve under Vitest.
