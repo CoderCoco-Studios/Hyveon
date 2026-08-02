@@ -49,7 +49,7 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { TfvarsService, ConfigurationNotConfiguredError } from './TfvarsService.js';
+import { TfvarsService, ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 
@@ -533,6 +533,22 @@ describe('TfvarsService', () => {
       service.nowMock.mockReturnValue(1_010_000); // 10s later, well within a 30s TTL
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw a structural GameServerEntryError from addGameServer when the config JSON has no gameServers map', async () => {
+      remoteFileStore.get.mockResolvedValue({
+        body: new TextEncoder().encode('{"awsRegion":"us-east-1"}'),
+        etag: 'etag-1',
+      });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      await expect(service.addGameServer('terraria', { image: 'terraria:latest' })).rejects.toMatchObject({
+        reason: 'structural',
+      });
+      await expect(service.addGameServer('terraria', { image: 'terraria:latest' })).rejects.toBeInstanceOf(
+        GameServerEntryError,
+      );
     });
 
     it('should retry the source once the TTL has elapsed after a failed parse', async () => {
