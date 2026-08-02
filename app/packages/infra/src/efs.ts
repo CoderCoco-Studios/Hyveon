@@ -1,8 +1,8 @@
 /**
  * EFS (persistent game saves) resources: one shared EFS filesystem, its
- * mount targets (one per public subnet), one access point per `(game,
- * volume)` pair, and one certificate-storage access point per `https: true`
- * game.
+ * mount targets (one per public subnet), one access point per
+ * `(game, volume)` pair, and one certificate-storage access point per
+ * `https: true` game.
  *
  * | Resource | This file |
  * | --- | --- |
