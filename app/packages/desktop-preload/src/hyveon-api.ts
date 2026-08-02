@@ -36,22 +36,22 @@ import type {
  * hand-maintained copies. Do not "fix" this back to duplication.
  *
  * `DeploymentConfigDiff` (`@hyveon/shared/src/deploymentConfig.ts`) joins
- * this re-exported group for the same reason (task 9.6): it's a pure data
- * shape with no `@pulumi/pulumi`/Node dependency to isolate the renderer
- * from, so re-exporting rather than hand-duplicating its fields here avoids
- * the same kind of drift risk.
+ * this re-exported group for the same reason: it's a pure data shape with no
+ * `@pulumi/pulumi`/Node dependency to isolate the renderer from, so
+ * re-exporting rather than hand-duplicating its fields here avoids the same
+ * kind of drift risk.
  *
  * `TopLevelDeploymentSettings` (`@hyveon/shared/src/deploymentConfig.ts`) and
  * `DeploymentSettingsGetResult`/`DeploymentSettingsWriteResult`/
  * `UpdateDeploymentSettingsPayload` (`@hyveon/shared/src/deploymentSettingsWrite.ts`)
- * join this group for the same reason (task 9.7, the Settings page's
- * deployment-settings editor): all four are pure data shapes with no
+ * join this group for the same reason — they back the Settings page's
+ * deployment-settings editor and are all pure data shapes with no
  * `@pulumi/pulumi`/Node dependency to isolate the renderer from.
  *
  * `PulumiEngineVersionResult` (`@hyveon/shared/src/pulumiVersion.ts`) joins
- * this group for the same reason (task 10.4, Settings' Cloud Setup version
- * row): a pure `{ resolvedVersion: string | null }` data shape with nothing
- * to isolate the renderer from.
+ * this group for the same reason — it backs Settings' Cloud Setup version
+ * row and is a pure `{ resolvedVersion: string | null }` data shape with
+ * nothing to isolate the renderer from.
  */
 export type {
   ChangeSummary,
@@ -630,9 +630,8 @@ export interface AuditPageResult {
  * Structurally identical to `PulumiRunChunk` in
  * `@hyveon/desktop-main/src/services/PulumiService.ts` — that file is the
  * source of truth; keep this copy in sync with it. Named `TerraformRunChunk`
- * for historical reasons (this preload's namespace was `hyveon.terraform`
- * pre-migration) — not renamed by tasks 8.3/8.5, which rename only the IPC
- * namespace key and channel strings, not exported type names.
+ * for historical reasons: this preload's namespace is `hyveon.iac`, but the
+ * `Terraform*`-prefixed exported type names were deliberately left unrenamed.
  */
 export interface TerraformRunChunk {
   stream: 'stdout' | 'stderr';
@@ -726,10 +725,10 @@ export interface TerraformRunRecord {
    * already been mutated before the failure/abort — check this field
    * directly, independent of which non-`'success'` status the run settled
    * with, mirroring `PulumiRunRecord.partialApply`'s own doc comment. This
-   * dispatch (tasks 8.3/8.5) deliberately does not surface the underlying
-   * per-resource step list (`PulumiPartialApplyError.completedSteps`) — this
-   * boolean is sufficient for "surface partial-apply failures with re-plan
-   * guidance"; granular step detail is a future UI decision.
+   * type deliberately does not surface the underlying per-resource step list
+   * (`PulumiPartialApplyError.completedSteps`) — this boolean is sufficient
+   * to surface partial-apply failures with re-plan guidance; granular step
+   * detail is a future UI decision.
    */
   partialApply?: boolean;
 }
@@ -890,11 +889,11 @@ export interface TerraformStaleLockHolder {
  * Present on {@link TerraformPlanAck}/apply/destroy results instead of (or
  * alongside) `error` when the rejection was `PulumiUnrecognizedLockError` —
  * a Pulumi backend lock conflict that couldn't be proven to be this
- * installation's own orphaned run. This dispatch (tasks 8.3/8.5) only wires
- * the READ side through so the holder/age evidence reaches the renderer
- * instead of only `error`'s prose; task 9.4 ("stale-lock recovery UI with
- * explicit confirmation") designs the confirmation flow and any "clear the
- * lock" write path — no such channel exists yet.
+ * installation's own orphaned run. Carries only the holder/age evidence so
+ * the renderer can render it instead of only `error`'s prose; clearing the
+ * lock is a separate write path on the `iac.lock.clear` channel (see
+ * {@link HyveonIacLockApi.clear}), gated on the operator explicitly
+ * confirming the lock is genuinely stale.
  */
 export interface TerraformStaleLockInfo {
   stackName: string;
@@ -952,7 +951,7 @@ export interface TerraformPlanAck {
  * display before anything is written. `resolved: false` means resolution
  * was rejected; `error` is always a human-readable description of why.
  *
- * `diff` (task 9.6) is a best-effort addition: a {@link DeploymentConfigDiff}
+ * `diff` is a best-effort addition: a {@link DeploymentConfigDiff}
  * summarizing how the target version differs from the current configuration
  * head, present when `resolved: true` and the backend could compute it.
  * Always treat an absent `diff` as "no diff available" — NOT as an error —
@@ -985,12 +984,9 @@ export interface TerraformRollbackResolveAck {
  * but the follow-up plan didn't) — it names the version that was actually
  * restored as the new head despite the result reporting failure, so a caller
  * can act on it (e.g. offer "plan against the restored version" as a next
- * step) instead of only reading it out of `error`'s prose. This dispatch
- * (tasks 8.3/8.5) only fixes this doc comment to stop describing
- * `confirmed: false` as "no write was attempted" unconditionally — it does
- * not change `rollback-action.component.tsx`'s error-handling logic to
- * actually use `versionId` in the failure branch; that UI improvement is
- * task 9.6's job.
+ * step) instead of only reading it out of `error`'s prose.
+ * `rollback-action.component.tsx`'s error-handling logic does not yet read
+ * `versionId` in the failure branch — that UI improvement is still open.
  *
  * Mirrors `TerraformRollbackConfirmAck` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
@@ -1003,8 +999,8 @@ export interface TerraformRollbackConfirmAck {
 }
 
 /**
- * Result the `iac.lock.clear` IPC channel resolves with (task 9.4's
- * stale-lock recovery flow). `cleared: true` means
+ * Result the `iac.lock.clear` IPC channel resolves with, as part of the
+ * stale-lock recovery flow. `cleared: true` means
  * `PulumiService.clearStaleLock` successfully called `stack.cancel()`
  * against the Pulumi backend — the operator should now resubmit their
  * original plan/apply/destroy via the normal button; this channel never
@@ -1089,7 +1085,7 @@ export interface TerraformApproveAck {
  * Mirrors `TfOutputs` in `@hyveon/desktop-main/src/services/ConfigService.ts`
  * — that file is the source of truth; keep this copy in sync with it.
  *
- * **Dead surface (as of tasks 8.3/8.5):** `iac.controller.ts`'s `output`
+ * **Dead surface:** `iac.controller.ts`'s `output`
  * handler now actually resolves `StackOutputs | null`
  * (`@hyveon/shared/src/stackOutputs.ts`), not `TfOutputs | null`, and its
  * `force` parameter is ignored — but this preload's `output()` type was left
@@ -1386,14 +1382,9 @@ export interface WizardAwsChoice {
  * operator-editable.
  *
  * @remarks
- * `lockTable` named this shape until task 10.3: it never described a
- * bootstrapped resource (task 5.1 removed `ensureLockTable`/
- * `wizard.bootstrap.lockTable`, and the bootstrap step renders no row for
- * it) and was kept only because the now-deleted `iac.init` call required a
- * non-empty `dynamodbTable` backend-config value, rehydrated from that field
- * on Reconfigure. Task 10.3 replaced the Terraform-init step with
- * `iac.stack.initialize`, which needs no lock-table name at all — so the
- * field is gone.
+ * Has no `lockTable` field: `iac.stack.initialize` (the wizard's stack-init
+ * step) needs no lock-table name, unlike the deleted `iac.init` call it
+ * replaced.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
@@ -1508,10 +1499,8 @@ export interface HyveonIacRunsApi {
 }
 
 /**
- * Stack-initialization IPC surface (task 10.3, `migrate-iac-to-pulumi`) — the
- * first-run wizard's real replacement for the deleted `iac.init` channel
- * (itself a permanent no-op rejection since task 7.10; Pulumi has no
- * `terraform init` analogue).
+ * Stack-initialization IPC surface — the first-run wizard's replacement for
+ * the deleted `iac.init` channel. Pulumi has no `terraform init` analogue.
  */
 export interface HyveonIacStackApi {
   /**
@@ -1540,8 +1529,7 @@ export interface HyveonIacStackApi {
    * `iac.stack.initialize.end` side-channel IPC messages
    * `IacController.initializeStack` sends in a preload-internal async
    * generator, tagged with the `streamId` minted for this call — mirrors
-   * `iac.runs.streamLogs`'s shape (the same one the original, pre-7.10
-   * `iac.init` channel used) exactly.
+   * `iac.runs.streamLogs`'s shape exactly.
    *
    * Call the returned handle's `cancel()` to stop consuming progress early —
    * mirroring every other streaming method's cancellation semantics, this
@@ -1558,7 +1546,7 @@ export interface HyveonIacStackApi {
  * against the Pulumi-backed engine.
  */
 export interface HyveonIacApi {
-  /** Stack initialization (task 10.3): the wizard's real `terraform init` replacement. */
+  /** Stack initialization: the wizard's `terraform init` replacement. */
   stack: HyveonIacStackApi;
   /**
    * Submits a plan (`pulumi preview`) run by invoking the `iac.plan` IPC
@@ -1637,14 +1625,14 @@ export interface HyveonIacApi {
   runs: HyveonIacRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
   rollback: HyveonIacRollbackApi;
-  /** Stale backend-lock recovery (task 9.4): explicitly clear an unrecognized Pulumi backend lock. */
+  /** Stale backend-lock recovery: explicitly clear an unrecognized Pulumi backend lock. */
   lock: HyveonIacLockApi;
-  /** Deployment-settings editor (task 9.7): read/write every top-level `DeploymentConfig` field except `gameServers`. */
+  /** Deployment-settings editor: read/write every top-level `DeploymentConfig` field except `gameServers`. */
   settings: HyveonIacSettingsApi;
 }
 
 /**
- * Stale backend-lock recovery IPC surface (task 9.4, `migrate-iac-to-pulumi`).
+ * Stale backend-lock recovery IPC surface.
  * A `plan`/`apply`/`destroy` ack can carry `staleLock` (see
  * {@link TerraformPlanAck.staleLock}) when the Pulumi backend is locked by
  * something this installation cannot prove is its own dead process. This
@@ -1701,9 +1689,9 @@ export interface HyveonIacRollbackApi {
 }
 
 /**
- * Deployment-settings editor IPC surface (task 9.7, `migrate-iac-to-pulumi`)
- * — the Settings page's form for every top-level `DeploymentConfig` field
- * except `gameServers` (region, hosted zone, watchdog tuning, Discord admin
+ * Deployment-settings editor IPC surface — the Settings page's form for
+ * every top-level `DeploymentConfig` field except `gameServers` (region,
+ * hosted zone, watchdog tuning, Discord admin
  * allowlists, etc.). `gameServers` has its own dedicated add-game-wizard/
  * edit-game-form flow (`games.create`/`games.update`/`games.delete`) and is
  * never reachable through this namespace.
@@ -1720,9 +1708,9 @@ export interface HyveonIacSettingsApi {
   /**
    * Submits a settings patch by invoking the `iac.settings.update` IPC
    * channel. `payload.expectedVersionId` should always be the etag last read
-   * via {@link get} — optimistic locking is required for this form (task
-   * 9.7's brief), so an omitted `expectedVersionId` risks silently
-   * clobbering a concurrent edit. `ok: false` discriminates on `code`:
+   * via {@link get} — this form requires optimistic locking, so an omitted
+   * `expectedVersionId` risks silently clobbering a concurrent edit.
+   * `ok: false` discriminates on `code`:
    * `'validation'` (client should re-render the same fields with the
    * reported issues), `'conflict'` (surface a "changed elsewhere — reload
    * and try again" message, mirroring the game-form's own optimistic-lock
@@ -1732,8 +1720,8 @@ export interface HyveonIacSettingsApi {
   update: (payload: UpdateDeploymentSettingsPayload) => Promise<DeploymentSettingsWriteResult>;
   /**
    * Reads the resolved Pulumi engine version by invoking the
-   * `iac.settings.engineVersion` IPC channel (task 10.4) — backs Settings'
-   * Cloud Setup version row. `resolvedVersion: null` is a real, expected
+   * `iac.settings.engineVersion` IPC channel — backs Settings' Cloud Setup
+   * version row. `resolvedVersion: null` is a real, expected
    * "not yet provisioned" state (including a fresh install that hasn't
    * completed first-run setup), never a failure — see
    * {@link PulumiEngineVersionResult}.
@@ -1846,12 +1834,11 @@ export interface HyveonApi {
   /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
   audit: HyveonAuditApi;
   /**
-   * Iac orchestration: plan/apply/destroy/rollback against the Pulumi-backed
-   * engine, plus the transitional `terraform init` stub. Namespace renamed
-   * from `terraform` to `iac` by tasks 8.3/8.5 — only the namespace key and
-   * IPC channel strings moved; the `Terraform*`-prefixed payload/ack type
-   * names were deliberately left unrenamed (matches task 8.1's own
-   * precedent on the main-process side).
+   * Iac orchestration: stack initialization plus plan/apply/destroy/rollback
+   * against the Pulumi-backed engine. The namespace is `iac`, not
+   * `terraform` — but the `Terraform*`-prefixed payload/ack type names are
+   * deliberately kept for continuity with the main-process types they
+   * mirror.
    */
   iac: HyveonIacApi;
   /**

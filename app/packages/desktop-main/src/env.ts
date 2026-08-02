@@ -22,7 +22,8 @@ export function electronRendererUrl(): string | undefined {
 }
 
 /**
- * SPIKE SCAFFOLDING — `migrate-iac-to-pulumi` tasks 1.3 / 1.5.
+ * SPIKE SCAFFOLDING — a leftover early prototype for validating the Pulumi
+ * Automation API, now superseded by `PulumiEngineService`.
  *
  * Returns `true` when `HYVEON_PULUMI_SPIKE=1` is set, which makes the Electron
  * entry-point dynamically import and run `spike/pulumiSpike.ts`. The gate is
@@ -36,8 +37,8 @@ export function electronRendererUrl(): string | undefined {
  * into a 344 MB engine download.
  *
  * Delete this function, `spike/pulumiSpike.ts`, and the call site in
- * `electron-entry.ts` once `PulumiEngineService` (Phase 4) supersedes them —
- * see task 11.x cleanup.
+ * `electron-entry.ts` — `PulumiEngineService` now covers what this spike was
+ * validating.
  */
 export function isPulumiSpikeEnabled(): boolean {
   return process.env.HYVEON_PULUMI_SPIKE === '1';

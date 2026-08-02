@@ -40,8 +40,8 @@
  * Calling the returned handle's `cancel()` — or breaking out of the
  * `for await` loop — sends `logs.stream.<id>.cancel` to stop the main loop.
  *
- * `openStackInitializeStream()` streams similarly (task 10.3, replacing the
- * deleted `iac.init`/`openTerraformInitStream`), but `IacController.initializeStack`
+ * `openStackInitializeStream()` streams similarly, replacing the deleted
+ * `iac.init`/`openTerraformInitStream`, but `IacController.initializeStack`
  * pushes phase-event/end messages on fixed `iac.stack.initialize.chunk` /
  * `iac.stack.initialize.end` side channels shared by every call rather than
  * per-call channel names. `invoke('iac.stack.initialize')` resolves with a
@@ -286,8 +286,8 @@ async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<L
  * this call's own `streamId` are ignored — this is what stops a second,
  * rejected concurrent `iac.stack.initialize` call from broadcasting an end
  * event that would otherwise prematurely terminate this caller's stream.
- * (Replaces the deleted `streamTerraformInit`/`iac.init` — task 10.3 — which
- * used this exact same fixed-side-channel-plus-streamId shape.)
+ * (Replaces the deleted `streamTerraformInit`/`iac.init`, which used this
+ * exact same fixed-side-channel-plus-streamId shape.)
  *
  * When a mock is registered for the `'iac.stack.initialize'` channel (test
  * mode only), the mock handler is called with `(signal)` and its return
