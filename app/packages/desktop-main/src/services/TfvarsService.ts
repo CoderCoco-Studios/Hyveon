@@ -227,16 +227,18 @@ export class TfvarsService {
   }
 
   /**
-   * Reports whether a configuration bucket is currently configured
-   * (`ConfigService.getConfigurationBucket()` resolves non-`null`) — i.e.
+   * Reports whether a configuration bucket is currently configured — i.e.
    * whether setup is complete enough for this service to read/write real
-   * configuration content. Lets a caller distinguish "unconfigured" from
-   * "configured but genuinely zero games" for wizard-routing purposes,
-   * since {@link getGameServers} resolves to `[]` in both cases (its
-   * never-reject contract means it can't surface that distinction itself).
+   * configuration content. Uses the same truthiness check as
+   * {@link fetchRawConfig}/{@link putRawConfig} so a stored empty-string
+   * bucket is classified as unconfigured consistently everywhere, not just
+   * here. Lets a caller distinguish "unconfigured" from "configured but
+   * genuinely zero games" for wizard-routing purposes, since
+   * {@link getGameServers} resolves to `[]` in both cases (its never-reject
+   * contract means it can't surface that distinction itself).
    */
   isConfigured(): boolean {
-    return this.config.getConfigurationBucket() !== null;
+    return Boolean(this.config.getConfigurationBucket());
   }
 
   /**
