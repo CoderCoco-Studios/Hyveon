@@ -405,10 +405,19 @@ already implements) or to the OpenTofu alternative.
 
 **Electron may not quit cleanly after an operation** → Source review found no
 daemon, no persistent listener, and no polling timer between operations; every
-gRPC server and temp resource is torn down in a `finally`. But this is exactly
-the class of failure the hcl2json incident produced. Mark `@pulumi/pulumi`
-external from the first commit and add an explicit "app quits cleanly after an
-`up`" e2e check early, not at the end.
+gRPC server and temp resource is torn down in a `finally` — **with one verified
+exception** (found during Task 4.9's implementation, not this spike): when the
+inline program leaves a leaked promise, `stack.js`'s `up()`/`preview()`/
+`destroy()` `finally` block throws partway through, before it reaches
+`server.forceShutdown()` and `cleanUp(logFile, ..., eventsServer)` — so the
+language-server gRPC server, the event-log gRPC server, and the temp log file
+are all left dangling on that specific path (see `PulumiLeakedPromise.ts`'s
+TSDoc for the exact source lines). This is exactly the class of failure the
+hcl2json incident produced. Mark `@pulumi/pulumi` external from the first
+commit and add an explicit "app quits cleanly after an `up`" e2e check early,
+not at the end — **and make sure that check's coverage includes a run that
+exercises the leaked-promise-recovery path specifically, not only the ordinary
+happy path**, since the happy path alone cannot catch this leak.
 
 **First run downloads hundreds of megabytes** → The engine plus the AWS provider
 plugin are both fetched on first use. Reported as distinct wizard phases so it

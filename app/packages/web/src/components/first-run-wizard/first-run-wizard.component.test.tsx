@@ -11,8 +11,7 @@ const hyveonMock = {
     listAwsProfiles: vi.fn(),
     saveCredentials: vi.fn(),
     bootstrapStateBucket: vi.fn(),
-    bootstrapLockTable: vi.fn(),
-    bootstrapTfvarsBucket: vi.fn(),
+    bootstrapConfigurationBucket: vi.fn(),
     simulateIamPermissions: vi.fn(),
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
@@ -52,8 +51,7 @@ beforeEach(() => {
   hyveonMock.wizard.listAwsProfiles.mockReset().mockResolvedValue(SAMPLE_PROFILES);
   hyveonMock.wizard.saveCredentials.mockReset();
   hyveonMock.wizard.bootstrapStateBucket.mockReset();
-  hyveonMock.wizard.bootstrapLockTable.mockReset();
-  hyveonMock.wizard.bootstrapTfvarsBucket.mockReset();
+  hyveonMock.wizard.bootstrapConfigurationBucket.mockReset();
   hyveonMock.wizard.simulateIamPermissions.mockReset();
   // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
   // effects — present on every render regardless of which step a test cares
@@ -91,11 +89,10 @@ async function advanceToBootstrap(): Promise<void> {
   await screen.findByLabelText('Terraform state bucket name');
 }
 
-/** Advances the wizard all the way to the terraform-init step, with all three bootstrap resources succeeding. */
+/** Advances the wizard all the way to the terraform-init step, with both bootstrap resources succeeding. */
 async function advanceToTerraformInit(): Promise<void> {
   hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-  hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-  hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+  hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
   hyveonMock.terraform.init.mockImplementation(
     toStreamHandleMock(async function* () {
       // No chunks needed by default — individual tests override this.
@@ -369,16 +366,15 @@ describe('FirstRunWizard', () => {
   });
 
   describe('bootstrap step', () => {
-    it('should disable Next until all three resources are created or already exist', async () => {
+    it('should disable Next until both resources are created or already exist', async () => {
       await advanceToBootstrap();
 
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
     });
 
-    it('should call all three bootstrap IPC methods with the current resource names when the bootstrap button is clicked', async () => {
+    it('should call both bootstrap IPC methods with the current resource names when the bootstrap button is clicked, and never call the removed lock-table channel', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -386,14 +382,16 @@ describe('FirstRunWizard', () => {
       await waitFor(() =>
         expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
       );
-      expect(hyveonMock.wizard.bootstrapLockTable).toHaveBeenCalledWith({ tableName: 'hyveon-tflock' });
-      expect(hyveonMock.wizard.bootstrapTfvarsBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
+      expect(hyveonMock.wizard.bootstrapConfigurationBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
+      // No `wizard.bootstrap.lockTable` channel exists anymore (task 5.1
+      // removed the main-process handler entirely) and this wizard has no
+      // client method for it either (task 5.5) — there is nothing left to
+      // assert was "not called" here beyond the two real calls above.
     });
 
-    it('should enable Next once all three resources report created or exists', async () => {
+    it('should enable Next once both resources report created or exists', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'exists' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -401,16 +399,22 @@ describe('FirstRunWizard', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
     });
 
-    it('should keep Next disabled and show a failure message when one resource fails', async () => {
+    it('should independently report each resource\'s outcome when only one bootstrap call fails, never masking the other\'s success', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       await advanceToBootstrap();
 
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
 
+      // The failing resource: its failure message renders, and it gates Next.
       expect(await screen.findByText('bucket taken')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+      // The succeeding sibling: reported fully and independently — its name
+      // field locks in as succeeded and its public-access-block outcome
+      // renders, unaffected by the other resource's failure. Exactly one
+      // "Public access blocked" line renders (the failed resource gets none).
+      expect(screen.getByLabelText('Configuration bucket name')).toBeDisabled();
+      expect(screen.getAllByText('Public access blocked')).toHaveLength(1);
     });
 
     it('should run the IAM check via wizard.iam.simulate and render a passed result', async () => {
@@ -422,10 +426,9 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/all required permissions are present/i)).toBeInTheDocument();
     });
 
-    it('should not block Next on a failed or missing IAM check — only the three bootstrap resources gate progression', async () => {
+    it('should not block Next on a failed or missing IAM check — only the two bootstrap resources gate progression', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.simulateIamPermissions.mockResolvedValue({ status: 'missing', policyJson: '{}' });
       await advanceToBootstrap();
 
@@ -439,8 +442,7 @@ describe('FirstRunWizard', () => {
 
     it('should persist the current resource names via wizard.state.save when advancing past bootstrap', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false });
       await advanceToBootstrap();
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -450,7 +452,7 @@ describe('FirstRunWizard', () => {
 
       await waitFor(() =>
         expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
-          bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', tfvarsBucket: 'hyveon-tfvars' },
+          bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', configurationBucket: 'hyveon-tfvars' },
         }),
       );
     });
@@ -482,8 +484,7 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByLabelText('Terraform state bucket name');
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapLockTable.mockResolvedValue({ status: 'created' });
-      hyveonMock.wizard.bootstrapTfvarsBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));

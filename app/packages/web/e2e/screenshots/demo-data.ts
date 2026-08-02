@@ -788,8 +788,7 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'prerequisi
       Promise.resolve({ wizardCompleted: false, ...(input as object) }),
     );
     mock('wizard.bootstrap.stateBucket', () => Promise.resolve(d.bootstrapCreated));
-    mock('wizard.bootstrap.lockTable', () => Promise.resolve(d.bootstrapCreated));
-    mock('wizard.bootstrap.tfvarsBucket', () => Promise.resolve(d.bootstrapExists));
+    mock('wizard.bootstrap.configurationBucket', () => Promise.resolve(d.bootstrapExists));
     mock('wizard.iam.simulate', () => Promise.resolve(d.iamPassed));
     mock('wizard.complete', () => Promise.resolve({ wizardCompleted: true }));
     // Streams realistic `terraform init` output to completion — see

@@ -16,13 +16,8 @@ export interface BootstrapStateBucketInput {
   bucketName: string;
 }
 
-/** Payload accepted by {@link WizardController.bootstrapLockTable}. */
-export interface BootstrapLockTableInput {
-  tableName: string;
-}
-
-/** Payload accepted by {@link WizardController.bootstrapTfvarsBucket}. */
-export interface BootstrapTfvarsBucketInput {
+/** Payload accepted by {@link WizardController.bootstrapConfigurationBucket}. */
+export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
@@ -50,11 +45,21 @@ export interface WizardAwsChoice {
  * Reconfigure flow (#211) needs these on record to run `terraform init`
  * against the resources that actually exist rather than
  * `defaultBootstrapResourceNames()`.
+ *
+ * @remarks
+ * `lockTable` no longer names a resource this controller's bootstrap
+ * handlers create (task 5.1 removed `ensureLockTable`/`wizard.bootstrap.lockTable`
+ * entirely) — it is kept here only because the still-live `terraform.init`
+ * IPC call requires a `dynamodbTable` backend-config value, and Settings'
+ * Reconfigure flow rehydrates that value from this same field (see
+ * `first-run-wizard.component.tsx`'s `backendConfig.dynamodbTable`). Task
+ * 10.3 (replacing the Terraform-init step with the Pulumi
+ * stack-initialization step) is where this field should finally be dropped.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
   lockTable: string;
-  tfvarsBucket: string;
+  configurationBucket: string;
 }
 
 /** Minimal wizard-progress summary the renderer needs to decide whether to show the wizard route. */
@@ -203,22 +208,23 @@ export class WizardController {
   }
 
   /**
-   * Idempotently creates/ensures the Terraform state-lock DynamoDB table.
-   * See `BootstrapService.ensureLockTable` for the full idempotency mapping.
+   * Idempotently creates/ensures the versioned configuration S3 bucket
+   * (versioning + 90-day noncurrent-version-expiration lifecycle rule +
+   * public-access-block, applied on both the fresh-create and
+   * already-exists paths). See `BootstrapService.ensureConfigurationBucket`
+   * for the full idempotency mapping.
+   *
+   * @remarks
+   * A public-access-block failure surfaces the same way any other
+   * configuration failure on this bucket does — the bucket's own
+   * `status: 'failed'` plus the underlying SDK error's message — rather than
+   * a separate status field, matching `BootstrapService.ensurePublicAccessBlock`'s
+   * documented error-handling convention (no dedicated error type for PAB,
+   * consistent with versioning/lifecycle).
    */
-  @MessagePattern('wizard.bootstrap.lockTable')
-  bootstrapLockTable(@Payload() body: BootstrapLockTableInput): Promise<BootstrapResult> {
-    return this.bootstrap.ensureLockTable(body.tableName);
-  }
-
-  /**
-   * Idempotently creates/ensures the versioned tfvars S3 bucket (versioning +
-   * 90-day noncurrent-version-expiration lifecycle rule). See
-   * `BootstrapService.ensureTfvarsBucket` for the full idempotency mapping.
-   */
-  @MessagePattern('wizard.bootstrap.tfvarsBucket')
-  bootstrapTfvarsBucket(@Payload() body: BootstrapTfvarsBucketInput): Promise<BootstrapResult> {
-    return this.bootstrap.ensureTfvarsBucket(body.bucketName);
+  @MessagePattern('wizard.bootstrap.configurationBucket')
+  bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
+    return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
   /**

@@ -6,29 +6,30 @@ import {
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
   PutBucketLifecycleConfigurationCommand,
+  PutPublicAccessBlockCommand,
   type BucketLocationConstraint,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
-import { DynamoDBClient, CreateTableCommand, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
- * How long `ensureLockTable` waits for a freshly-created lock table to reach
- * `ACTIVE` before giving up and reporting `failed`.
+ * How many days a noncurrent configuration-bucket object version is retained
+ * before expiring — matches the parity baseline in
+ * `terraform/bootstrap/main.tf`'s `aws_s3_bucket_lifecycle_configuration.tfvars`
+ * rule (that module still names the resource for its Terraform-era `tfvars`
+ * object; this service now uses the same 90-day window for the renamed
+ * configuration bucket). Historical HCL baseline only — `terraform/bootstrap/`
+ * is deleted as part of Phase 12 of this change, at which point this citation
+ * becomes "what the bucket used to be provisioned by," not a live parity
+ * target.
  */
-const LOCK_TABLE_ACTIVE_WAIT_SECONDS = 60;
-
-/**
- * How many days a noncurrent tfvars object version is retained before
- * expiring — matches `terraform/bootstrap/main.tf`'s
- * `aws_s3_bucket_lifecycle_configuration.tfvars` rule.
- */
-const TFVARS_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
+const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
 
 /**
  * The credentials/region shape shared by every wizard-bootstrap SDK client
- * (`S3Client`, `DynamoDBClient`, ...). `region` and `credentials` are
+ * construction (currently `S3Client` only). `region` and `credentials` are
  * structurally identical across `@aws-sdk/client-*` config types, so a
  * single resolved value can construct any of them without a per-service cast.
  */
@@ -60,9 +61,11 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
 
 /**
  * Performs the first-run wizard's AWS SDK-only bootstrap operations (see
- * `openspec/changes/add-first-run-wizard`, "Cloud Bootstrap" spec) —
- * idempotently provisioning the Terraform backend resources via
- * `@aws-sdk/client-s3` directly, never by shelling out to `terraform`/`aws`.
+ * `openspec/changes/migrate-iac-to-pulumi`, "cloud-bootstrap" spec) —
+ * idempotently provisioning the self-managed infrastructure backend's state
+ * bucket and the configuration bucket via `@aws-sdk/client-s3` directly,
+ * never by shelling out to a CLI and never by invoking the infrastructure
+ * engine, which cannot provision the backend it is configured to read from.
  * Deliberately AWS-SDK-direct rather than routed through the cloud-agnostic
  * `RunTask`/`StopTask` contracts in `@hyveon/shared/cloud.ts` — bootstrap is
  * AWS-only setup plumbing, not a steady-state operation any other cloud
@@ -73,15 +76,15 @@ export class BootstrapService {
   constructor(private readonly store: ElectronStoreService) {}
 
   /**
-   * Idempotently ensures the Terraform S3 state bucket exists with
-   * versioning and default (AES256) server-side encryption enabled.
+   * Idempotently ensures the S3 bucket backing the self-managed
+   * infrastructure state backend exists with versioning, default (AES256)
+   * server-side encryption, and all four public-access-block settings
+   * enabled.
    *
    * @remarks
-   * Mirrors the intent of `terraform/bootstrap/` (which provisions the
-   * tfvars bucket, not this one — there is no Terraform resource for the
-   * state bucket itself, since Terraform can't manage the backend it also
-   * reads from) — kept in TSDoc here as the two must stay behaviourally
-   * consistent if either changes.
+   * There is no Terraform/Pulumi resource for this bucket itself, since the
+   * infrastructure program can't provision the backend it also reads state
+   * from — this SDK path is the only place that creates and hardens it.
    *
    * @param bucketName - Name of the state bucket to create/ensure. Naming
    *   defaults and operator editability are a concern of the bootstrap
@@ -111,6 +114,7 @@ export class BootstrapService {
           },
         }),
       );
+      await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
       return { status: 'failed', message: this.describeError(err) };
     }
@@ -119,36 +123,28 @@ export class BootstrapService {
   }
 
   /**
-   * Idempotently ensures the Terraform state-lock DynamoDB table exists,
-   * with the `LockID` string hash key the S3 backend's native locking
-   * requires, waiting until the table reaches `ACTIVE` before reporting
-   * success on a fresh create.
-   *
-   * @param tableName - Name of the lock table to create/ensure.
-   */
-  async ensureLockTable(tableName: string): Promise<BootstrapResult> {
-    const client = this.createDynamoDbClient();
-    try {
-      const created = await this.createTable(client, tableName);
-      return { status: created ? 'created' : 'exists' };
-    } catch (err) {
-      return { status: 'failed', message: this.describeError(err) };
-    }
-  }
-
-  /**
-   * Idempotently ensures the versioned tfvars S3 bucket exists with a
-   * lifecycle rule expiring noncurrent object versions after 90 days.
+   * Idempotently ensures the versioned configuration S3 bucket exists with a
+   * lifecycle rule expiring noncurrent object versions after 90 days and all
+   * four public-access-block settings enabled.
    *
    * @remarks
-   * Mirrors `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
-   * / `aws_s3_bucket_lifecycle_configuration.tfvars` resources so the SDK
-   * and HCL provisioning paths stay behaviourally consistent (design.md
-   * decision 6) — the resulting bucket is the canonical `RemoteFileStore`.
+   * Matches `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
+   * / `aws_s3_bucket_lifecycle_configuration.tfvars` /
+   * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
+   * lifecycle, and public-access-block specifically (design.md decision 6) —
+   * the resulting bucket is the canonical `RemoteFileStore` holding the JSON
+   * game-server configuration. This is *not* full parity with that HCL
+   * module: it has no server-side-encryption resource for this bucket (only
+   * `ensureStateBucket`'s bucket gets SSE, and the delta spec doesn't ask for
+   * it here either), so "behaviourally consistent" only ever meant those
+   * three settings, not everything the module does. Historical HCL baseline
+   * only — `terraform/bootstrap/` (which still names its bucket for the
+   * Terraform-era `terraform.tfvars` object it once held) is deleted as part
+   * of Phase 12 of this change.
    *
-   * @param bucketName - Name of the tfvars bucket to create/ensure.
+   * @param bucketName - Name of the configuration bucket to create/ensure.
    */
-  async ensureTfvarsBucket(bucketName: string): Promise<BootstrapResult> {
+  async ensureConfigurationBucket(bucketName: string): Promise<BootstrapResult> {
     const client = this.createS3Client();
     let created: boolean;
     try {
@@ -174,46 +170,19 @@ export class BootstrapService {
                 Status: 'Enabled',
                 Filter: {},
                 NoncurrentVersionExpiration: {
-                  NoncurrentDays: TFVARS_NONCURRENT_VERSION_EXPIRATION_DAYS,
+                  NoncurrentDays: CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS,
                 },
               },
             ],
           },
         }),
       );
+      await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
       return { status: 'failed', message: this.describeError(err) };
     }
 
     return { status: created ? 'created' : 'exists' };
-  }
-
-  /**
-   * Creates the lock table and waits for it to become `ACTIVE`, returning
-   * `true` if this call created it and `false` if it already existed
-   * (`ResourceInUseException`) — both are success paths.
-   */
-  private async createTable(client: DynamoDBClient, tableName: string): Promise<boolean> {
-    try {
-      await client.send(
-        new CreateTableCommand({
-          TableName: tableName,
-          AttributeDefinitions: [{ AttributeName: 'LockID', AttributeType: 'S' }],
-          KeySchema: [{ AttributeName: 'LockID', KeyType: 'HASH' }],
-          BillingMode: 'PAY_PER_REQUEST',
-        }),
-      );
-      await waitUntilTableExists(
-        { client, maxWaitTime: LOCK_TABLE_ACTIVE_WAIT_SECONDS },
-        { TableName: tableName },
-      );
-      return true;
-    } catch (err) {
-      if (this.isAwsErrorCode(err, 'ResourceInUseException')) {
-        return false;
-      }
-      throw err;
-    }
   }
 
   /**
@@ -275,6 +244,39 @@ export class BootstrapService {
     }
   }
 
+  /**
+   * Applies all four S3 public-access-block settings (`BlockPublicAcls`,
+   * `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`) to
+   * `bucketName`, mirroring `terraform/bootstrap/main.tf`'s
+   * `aws_s3_bucket_public_access_block.tfvars` resource — a historical HCL
+   * baseline only, since `terraform/bootstrap/` is deleted as part of Phase
+   * 12 of this change.
+   *
+   * @remarks
+   * Called unconditionally after {@link createBucket} resolves — on both the
+   * fresh-create and already-exists paths — so a bucket created by an
+   * earlier version of this service (before this hardening existed) is
+   * brought up to the current standard the next time the wizard runs, not
+   * only a brand-new bucket. Any failure propagates to the caller's own
+   * try/catch, which already reports it as `{ status: 'failed', message }`
+   * — this has no dedicated error type, consistent with every other
+   * bucket-configuration call in {@link ensureStateBucket} /
+   * {@link ensureConfigurationBucket}.
+   */
+  private async ensurePublicAccessBlock(client: S3Client, bucketName: string): Promise<void> {
+    await client.send(
+      new PutPublicAccessBlockCommand({
+        Bucket: bucketName,
+        PublicAccessBlockConfiguration: {
+          BlockPublicAcls: true,
+          IgnorePublicAcls: true,
+          BlockPublicPolicy: true,
+          RestrictPublicBuckets: true,
+        },
+      }),
+    );
+  }
+
   private isAwsErrorCode(err: unknown, code: string): boolean {
     return err instanceof Error && err.name === code;
   }
@@ -285,24 +287,14 @@ export class BootstrapService {
 
   /**
    * Builds an S3 client from the credentials/region chosen in the wizard's
-   * credentials step (`ElectronStoreService.aws`). A stored `profile` name
-   * is resolved as a pasted-credentials entry first (`creds.aws.<profile>`)
-   * and falls back to a real `~/.aws` CLI profile via `fromIni` — matching
-   * how the credentials step can populate `profile` from either path (see
-   * `AwsProfileService`/`WizardController.saveCredentials`). Extracted as a
+   * credentials step (`ElectronStoreService.aws`), via
+   * {@link resolveAwsCredentialSource} (a pasted-credentials entry wins over
+   * a real `~/.aws` CLI profile of the same name — see that function's doc
+   * comment for why there is no separate discriminator). Extracted as a
    * protected seam so tests can stub it without touching real credentials.
    */
   protected createS3Client(): S3Client {
     return new S3Client(this.resolveClientConfig());
-  }
-
-  /**
-   * Builds a DynamoDB client from the same wizard-chosen credentials/region
-   * as {@link createS3Client}. Extracted as a protected seam so tests can
-   * stub it without touching real credentials.
-   */
-  protected createDynamoDbClient(): DynamoDBClient {
-    return new DynamoDBClient(this.resolveClientConfig());
   }
 
   private resolveClientConfig(): WizardAwsClientConfig {
@@ -310,17 +302,18 @@ export class BootstrapService {
     if (!aws?.region) {
       throw new BootstrapCredentialsNotConfiguredError();
     }
-    const { region, profile } = aws;
-    if (!profile) {
-      return { region };
+    const { region } = aws;
+    const source = resolveAwsCredentialSource(this.store);
+    switch (source.kind) {
+      case 'none':
+        return { region };
+      case 'pasted':
+        return {
+          region,
+          credentials: { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey },
+        };
+      case 'profile':
+        return { region, credentials: fromIni({ profile: source.profile }) };
     }
-    const pasted = this.store.getPastedCredentials(profile);
-    if (pasted) {
-      return {
-        region,
-        credentials: { accessKeyId: pasted.accessKeyId, secretAccessKey: pasted.secretAccessKey },
-      };
-    }
-    return { region, credentials: fromIni({ profile }) };
   }
 }

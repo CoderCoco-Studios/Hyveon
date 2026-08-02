@@ -108,7 +108,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const [resourceStatuses, setResourceStatuses] = useState<Record<BootstrapResourceKey, BootstrapResourceState>>({
     stateBucket: 'pending',
     lockTable: 'pending',
-    tfvarsBucket: 'pending',
+    configurationBucket: 'pending',
   });
   const [resourceMessages, setResourceMessages] = useState<Partial<Record<BootstrapResourceKey, string>>>({});
   const [bootstrapping, setBootstrapping] = useState(false);
@@ -238,6 +238,25 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       });
   }, [mode, profiles, profilesError]);
 
+  /**
+   * `dynamodbTable` still reads `resourceNames.lockTable` even though
+   * nothing bootstraps a lock table anymore (task 5.1 removed
+   * `BootstrapService.ensureLockTable`, and the bootstrap step's UI no
+   * longer renders an editable row for it — see `bootstrap-step.component.tsx`).
+   *
+   * This is deliberately NOT dead code: `TerraformController.init` /
+   * `TerraformService.init` still validate `dynamodbTable` as a required
+   * non-empty string and pass it straight through as a real
+   * `-backend-config=dynamodb_table=...` flag to the `terraform init`
+   * process this step still shells out to. Settings' Reconfigure flow also
+   * still rehydrates this value from `WizardBootstrapNames.lockTable` (see
+   * `settings.page.test.tsx`'s "rehydrate stored bootstrap resource names
+   * into terraform init" case). Task 10.3 (replacing the Terraform-init
+   * step with the Pulumi stack-initialization step) is the right place to
+   * remove `dynamodbTable` — and `lockTable` — entirely; until then, this
+   * field must keep flowing through unchanged or the still-live
+   * `terraform init` call breaks.
+   */
   const backendConfig = useMemo<TerraformInitConfig>(
     () => ({
       bucket: resourceNames.stateBucket,
@@ -336,25 +355,44 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   }
 
   /**
-   * Runs the three bootstrap IPC calls concurrently (state bucket, lock
-   * table, tfvars bucket), updating each resource's status as its call
-   * settles. A failure on one resource doesn't stop the others from running.
+   * Runs the bootstrap IPC calls concurrently (state bucket, configuration
+   * bucket), updating each resource's status as its call settles. A failure
+   * on one resource doesn't stop the other from running, and each resource's
+   * outcome (`created` / `exists` / `failed`) is reported independently —
+   * neither call's result masks the other's.
+   *
+   * @remarks
+   * Deliberately does not call `wizard.bootstrap.lockTable` — no such
+   * channel exists anymore (task 5.1 removed the main-process handler
+   * entirely: the DIY Pulumi S3 backend locks via objects in the state
+   * bucket, not a DynamoDB table). `lockTable` no longer has a row in
+   * {@link BootstrapStep} either (task 5.5), so `resourceStatuses.lockTable`
+   * simply sits at `'pending'` forever, unrendered and untouched — see
+   * `resourceNames.lockTable`'s remaining (non-bootstrap) use in
+   * {@link backendConfig}.
    */
   async function runBootstrap() {
     if (!window.hyveon) {
       const bridgeUnavailable = 'IPC bridge (window.hyveon) is not available in this context.';
-      setResourceStatuses({ stateBucket: 'failed', lockTable: 'failed', tfvarsBucket: 'failed' });
-      setResourceMessages({ stateBucket: bridgeUnavailable, lockTable: bridgeUnavailable, tfvarsBucket: bridgeUnavailable });
+      setResourceStatuses({ stateBucket: 'failed', lockTable: 'failed', configurationBucket: 'failed' });
+      setResourceMessages({
+        stateBucket: bridgeUnavailable,
+        lockTable: bridgeUnavailable,
+        configurationBucket: bridgeUnavailable,
+      });
       return;
     }
     setBootstrapping(true);
-    setResourceStatuses({ stateBucket: 'creating', lockTable: 'creating', tfvarsBucket: 'creating' });
+    setResourceStatuses((current) => ({ ...current, stateBucket: 'creating', configurationBucket: 'creating' }));
     setResourceMessages({});
 
     const calls: Array<[BootstrapResourceKey, () => Promise<{ status: string; message?: string }>]> = [
       ['stateBucket', () => window.hyveon!.wizard.bootstrapStateBucket({ bucketName: resourceNames.stateBucket })],
-      ['lockTable', () => window.hyveon!.wizard.bootstrapLockTable({ tableName: resourceNames.lockTable })],
-      ['tfvarsBucket', () => window.hyveon!.wizard.bootstrapTfvarsBucket({ bucketName: resourceNames.tfvarsBucket })],
+      [
+        'configurationBucket',
+        () =>
+          window.hyveon!.wizard.bootstrapConfigurationBucket({ bucketName: resourceNames.configurationBucket }),
+      ],
     ];
 
     await Promise.all(
@@ -395,7 +433,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     }
   }
 
-  const bootstrapComplete = (['stateBucket', 'lockTable', 'tfvarsBucket'] as BootstrapResourceKey[]).every(
+  const bootstrapComplete = (['stateBucket', 'configurationBucket'] as BootstrapResourceKey[]).every(
     (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
   );
 
