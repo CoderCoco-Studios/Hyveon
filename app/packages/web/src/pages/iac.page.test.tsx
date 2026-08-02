@@ -28,6 +28,7 @@ const hyveonMock = {
       streamLogs: vi.fn(),
     },
     lock: {
+      mintToken: vi.fn(),
       clear: vi.fn(),
     },
   },
@@ -121,6 +122,7 @@ describe('IacPage', () => {
     hyveonMock.iac.destroy.mockReset();
     hyveonMock.iac.runs.get.mockReset();
     hyveonMock.iac.runs.streamLogs.mockReset();
+    hyveonMock.iac.lock.mintToken.mockReset();
     hyveonMock.iac.lock.clear.mockReset();
   });
 
@@ -244,6 +246,7 @@ describe('IacPage', () => {
         error: REJECTION_ERROR_TEXT,
         staleLock: makeStaleLockInfo(),
       });
+      hyveonMock.iac.lock.mintToken.mockResolvedValue({ token: 'test-token' });
       hyveonMock.iac.lock.clear.mockResolvedValue({ cleared: true });
       renderPage(<IacPage />);
       await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
@@ -253,6 +256,7 @@ describe('IacPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Clear lock' }));
 
       await waitFor(() => expect(hyveonMock.iac.lock.clear).toHaveBeenCalledTimes(1));
+      expect(hyveonMock.iac.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'test-token' });
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText(/Clear lock and retry/)).not.toBeInTheDocument());
       // Back to the ordinary idle state — Run plan is submittable again, matching
@@ -265,6 +269,7 @@ describe('IacPage', () => {
 
     it('should surface the failure via an error banner and keep the stale-lock banner in place when the clear itself fails', async () => {
       hyveonMock.iac.plan.mockResolvedValue({ started: false, error: 'locked', staleLock: makeStaleLockInfo() });
+      hyveonMock.iac.lock.mintToken.mockResolvedValue({ token: 'test-token' });
       hyveonMock.iac.lock.clear.mockResolvedValue({ cleared: false, error: 'pulumi stack.cancel() failed: boom' });
       renderPage(<IacPage />);
       await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));

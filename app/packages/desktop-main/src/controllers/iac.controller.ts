@@ -231,6 +231,31 @@ interface TerraformLockClearAck {
 }
 
 /**
+ * Result {@link IacController.mintLockClearToken} resolves with — delegates
+ * directly to `PulumiService.mintLockClearConfirmationToken()`, which the
+ * operator must then supply back on {@link IacController.clearStaleLock}'s
+ * payload within its short expiry window. Mirrors {@link TerraformDestroyMintAck}.
+ */
+interface TerraformLockClearMintAck {
+  token: string;
+}
+
+/**
+ * Payload accepted by {@link IacController.clearStaleLock}. `confirmationToken`
+ * must be the most recently minted, unexpired, not-yet-consumed value
+ * returned by {@link IacController.mintLockClearToken} — enforced
+ * server-side by `PulumiService.clearStaleLock`'s own token gate (see
+ * `LockClearNotConfirmedError`).
+ *
+ * Mirrors `TerraformLockClearPayload` in
+ * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
+ * that sibling contract.
+ */
+interface TerraformLockClearPayload {
+  confirmationToken: string;
+}
+
+/**
  * Immediate acknowledgement `plan()` resolves with. `started: true` means a
  * `runId` was pre-minted and the streaming loop was kicked off in the
  * background (chunk/end messages will follow on the side channels, tagged
@@ -1069,6 +1094,18 @@ export class IacController implements OnModuleInit {
   }
 
   /**
+   * Mints a fresh, single-use confirmation token the renderer must supply
+   * back on {@link clearStaleLock}'s payload before it expires — mirrors
+   * {@link mintDestroyToken} exactly, for the lock-clear confirmation gate.
+   *
+   * Reachable via the Electron IPC transport (`iac.lock.clear.mintToken`).
+   */
+  @MessagePattern('iac.lock.clear.mintToken')
+  mintLockClearToken(): TerraformLockClearMintAck {
+    return { token: this.pulumi.mintLockClearConfirmationToken() };
+  }
+
+  /**
    * Destroys the deployed stack and streams its output back to the renderer
    * — mirrors {@link apply}'s streaming/gate-awaiting shape, gated behind
    * `payload.confirmationToken` (minted via {@link mintDestroyToken}) instead
@@ -1542,15 +1579,26 @@ export class IacController implements OnModuleInit {
    * before this channel is ever invoked — and why it never retries the
    * original plan/apply/destroy itself).
    *
+   * Gated behind `payload.confirmationToken` (minted via
+   * {@link mintLockClearToken}) — mirrors {@link destroy}'s token-gate
+   * validation, thin as it is here since this channel isn't a streaming
+   * operation.
+   *
    * Reachable via the Electron IPC transport (`iac.lock.clear`), resolved by
    * the generic `ipcMain.handle` bridge in `../ipc-main-bridge.ts` — a plain
    * one-shot request/response (no streaming side channel), exactly like
    * `iac.rollback.resolve`.
    */
   @MessagePattern('iac.lock.clear')
-  async clearStaleLock(): Promise<TerraformLockClearAck> {
+  async clearStaleLock(@Payload() payload: TerraformLockClearPayload): Promise<TerraformLockClearAck> {
+    const validationError = IacController.validateLockClearPayload(payload);
+    if (validationError) {
+      logger.error('iac lock clear rejected: invalid payload', { error: validationError });
+      return { cleared: false, error: validationError };
+    }
+
     try {
-      await this.pulumi.clearStaleLock();
+      await this.pulumi.clearStaleLock(payload.confirmationToken);
       return { cleared: true };
     } catch (err) {
       logger.error('iac lock clear error', { err });
@@ -1597,6 +1645,21 @@ export class IacController implements OnModuleInit {
 
     if (!isNonEmptyString(payload?.confirmationToken)) {
       return 'iac.destroy requires a non-empty confirmationToken string';
+    }
+    return null;
+  }
+
+  /**
+   * Validates that `payload.confirmationToken` is a non-empty string.
+   * Mirrors {@link validateDestroyPayload} exactly, for the lock-clear
+   * confirmation gate.
+   */
+  private static validateLockClearPayload(payload: TerraformLockClearPayload): string | null {
+    const isNonEmptyString = (value: unknown): value is string =>
+      typeof value === 'string' && value.length > 0;
+
+    if (!isNonEmptyString(payload?.confirmationToken)) {
+      return 'iac.lock.clear requires a non-empty confirmationToken string';
     }
     return null;
   }

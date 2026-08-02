@@ -289,6 +289,13 @@ const MUTATING_OP_TYPES: ReadonlySet<OpType> = new Set([
 const DESTROY_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 
 /**
+ * How long a token minted by {@link PulumiService.mintLockClearConfirmationToken}
+ * stays valid before {@link PulumiService.clearStaleLock} rejects it as
+ * stale, even if it was never consumed — mirrors {@link DESTROY_CONFIRMATION_TTL_MS}.
+ */
+const LOCK_CLEAR_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+
+/**
  * The most recently minted destroy-confirmation token, its expiry, and the
  * destroy TARGET it was bound to — set by
  * {@link PulumiService.mintDestroyConfirmationToken} and consumed (single-use)
@@ -359,6 +366,29 @@ interface PulumiPendingDestroyConfirmation {
   /** {@link PULUMI_STACK_NAME} at mint time — always the same constant today; see this interface's doc comment for why it's still recorded. */
   stackName: string;
   /** {@link PULUMI_PROJECT_NAME} at mint time — always the same constant today, for the identical reason {@link stackName} is still recorded. */
+  projectName: string;
+}
+
+/**
+ * The most recently minted lock-clear-confirmation token, its expiry, and
+ * the target it's bound to — set by
+ * {@link PulumiService.mintLockClearConfirmationToken} and consumed
+ * (single-use) by {@link PulumiService.assertFreshLockClearConfirmation} the
+ * moment a {@link PulumiService.clearStaleLock} call validates it. Mirrors
+ * {@link PulumiPendingDestroyConfirmation}'s target-binding design exactly.
+ */
+interface PulumiPendingLockClearConfirmation {
+  /** The single-use token the renderer must supply back to {@link PulumiService.clearStaleLock}. */
+  token: string;
+  /** `Date.now() + LOCK_CLEAR_CONFIRMATION_TTL_MS`, captured at mint time. */
+  expiresAt: number;
+  /** The self-managed backend's configured state bucket at mint time, or `undefined` if unconfigured. */
+  stateBucket: string | undefined;
+  /** The state bucket's configured AWS region at mint time. */
+  stateBucketRegion: string | undefined;
+  /** {@link PULUMI_STACK_NAME} at mint time. */
+  stackName: string;
+  /** {@link PULUMI_PROJECT_NAME} at mint time. */
   projectName: string;
 }
 
@@ -641,6 +671,13 @@ export class PulumiService {
    * field exactly, extended with the target fields that field never carried.
    */
   private pendingDestroyConfirmation: PulumiPendingDestroyConfirmation | null = null;
+
+  /**
+   * The most recently minted lock-clear-confirmation token, its expiry, and
+   * its bound target — see {@link PulumiPendingLockClearConfirmation}'s doc
+   * comment for the full contract.
+   */
+  private pendingLockClearConfirmation: PulumiPendingLockClearConfirmation | null = null;
 
   /**
    * `engine` is `apply`'s route to
@@ -3098,6 +3135,25 @@ export class PulumiService {
   }
 
   /**
+   * Mints a fresh, single-use confirmation token for a subsequent
+   * {@link clearStaleLock} call, valid for {@link LOCK_CLEAR_CONFIRMATION_TTL_MS},
+   * bound to the CURRENT lock-clear target — mirrors
+   * {@link mintDestroyConfirmationToken} exactly. Intended to be called the
+   * moment the renderer shows its stale-lock confirmation dialog.
+   */
+  mintLockClearConfirmationToken(): string {
+    this.pendingLockClearConfirmation = {
+      token: randomUUID(),
+      expiresAt: Date.now() + LOCK_CLEAR_CONFIRMATION_TTL_MS,
+      stateBucket: this.store.get('bootstrap')?.stateBucket,
+      stateBucketRegion: this.store.get('aws')?.region,
+      stackName: PULUMI_STACK_NAME,
+      projectName: PULUMI_PROJECT_NAME,
+    };
+    return this.pendingLockClearConfirmation.token;
+  }
+
+  /**
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
    * produces it, and resolving to a {@link PulumiDestroyResult} once it
@@ -4264,16 +4320,21 @@ export class PulumiService {
    * action, not an automatic one-more-attempt inside this call the way
    * `apply()`/`destroy()`'s own reclaim-and-retry path works.
    *
+   * @param token - The single-use confirmation token minted by
+   *   {@link mintLockClearConfirmationToken} — validated by
+   *   {@link assertFreshLockClearConfirmation} before anything else runs.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
    *   `destroy`/`rollback` is already running against this shared workspace.
    * @throws A descriptive `Error` if the state bucket/region isn't configured
    *   yet, or no Pulumi stack has ever been created for this installation —
    *   mirrors `destroy()`'s identical config-presence checks.
+   * @throws {@link LockClearNotConfirmedError} if `token` is missing, wrong,
+   *   expired, or bound to a different target.
    * @throws {@link PulumiLockClearError} if `stack.cancel()` itself fails —
    *   the lock is still standing afterward exactly as it was before the
    *   attempt; never swallowed silently.
    */
-  async clearStaleLock(): Promise<void> {
+  async clearStaleLock(token: string): Promise<void> {
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
@@ -4293,6 +4354,8 @@ export class PulumiService {
           '(no secrets passphrase on record) — nothing to clear.',
       );
     }
+
+    this.assertFreshLockClearConfirmation(token, stateBucket, stateBucketRegion);
 
     const stack = await this.workspace.getOrCreateStack({
       // See this method's TSDoc, "No-op inline program" — mirrors destroy()'s
@@ -4407,6 +4470,60 @@ export class PulumiService {
       throw new DestroyNotConfirmedError();
     }
     this.pendingDestroyConfirmation = null;
+  }
+
+  /**
+   * Throws {@link LockClearNotConfirmedError} unless `token` matches the most
+   * recently minted, not-yet-expired, not-yet-consumed lock-clear
+   * confirmation token AND `currentStateBucket`/`currentStateBucketRegion`
+   * match the target the token was minted against — mirrors
+   * {@link assertFreshDestroyConfirmation} exactly. Fully synchronous, so
+   * token consumption is atomic the same way that method's is. Does NOT
+   * clear {@link pendingLockClearConfirmation} on failure — a still-valid
+   * token remains usable by a subsequent call.
+   */
+  private assertFreshLockClearConfirmation(
+    token: string,
+    currentStateBucket: string | undefined,
+    currentStateBucketRegion: string | undefined,
+  ): void {
+    const pending = this.pendingLockClearConfirmation;
+    if (!pending) {
+      logger.warn('pulumi lock clear confirmation rejected: no confirmation token has ever been minted');
+      throw new LockClearNotConfirmedError();
+    }
+    if (pending.token !== token) {
+      logger.warn(
+        'pulumi lock clear confirmation rejected: supplied token does not match the most recently minted token',
+      );
+      throw new LockClearNotConfirmedError();
+    }
+    if (Date.now() > pending.expiresAt) {
+      logger.warn('pulumi lock clear confirmation rejected: the most recently minted token has expired', {
+        expiresAt: pending.expiresAt,
+      });
+      throw new LockClearNotConfirmedError();
+    }
+    if (
+      pending.stateBucket !== currentStateBucket ||
+      pending.stateBucketRegion !== currentStateBucketRegion ||
+      pending.stackName !== PULUMI_STACK_NAME ||
+      pending.projectName !== PULUMI_PROJECT_NAME
+    ) {
+      logger.warn(
+        'pulumi lock clear confirmation rejected: token is bound to a different target — the state bucket/region ' +
+          '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
+          'between',
+        {
+          mintedStateBucket: pending.stateBucket,
+          currentStateBucket,
+          mintedStateBucketRegion: pending.stateBucketRegion,
+          currentStateBucketRegion,
+        },
+      );
+      throw new LockClearNotConfirmedError();
+    }
+    this.pendingLockClearConfirmation = null;
   }
 
   /**
@@ -5412,6 +5529,22 @@ export class DestroyNotConfirmedError extends Error {
         'destroy() before it expires.',
     );
     this.name = 'DestroyNotConfirmedError';
+  }
+}
+
+/**
+ * Thrown by `PulumiService.clearStaleLock` when it's called without a
+ * fresh, valid confirmation token — mirrors {@link DestroyNotConfirmedError}
+ * exactly, for the lock-clear confirmation gate.
+ */
+export class LockClearNotConfirmedError extends Error {
+  constructor() {
+    super(
+      'pulumi lock clear refused: no fresh confirmation token was supplied. Call ' +
+        'PulumiService.mintLockClearConfirmationToken() and pass the returned token to ' +
+        'clearStaleLock() before it expires.',
+    );
+    this.name = 'LockClearNotConfirmedError';
   }
 }
 

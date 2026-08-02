@@ -1061,6 +1061,33 @@ export interface TerraformDestroyPayload {
 }
 
 /**
+ * Result the `iac.lock.clear.mintToken` IPC channel resolves with —
+ * `token` must be supplied back on {@link TerraformLockClearPayload.confirmationToken}
+ * within its short expiry window (see `PulumiService.mintLockClearConfirmationToken`).
+ *
+ * Mirrors `TerraformLockClearMintAck` in
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface TerraformLockClearMintAck {
+  token: string;
+}
+
+/**
+ * Payload accepted by the `iac.lock.clear` IPC channel. `confirmationToken`
+ * must be the most recently minted, unexpired, not-yet-consumed value
+ * returned by `iac.lock.clear.mintToken` — enforced server-side, never
+ * trusted from the client beyond this single round-trip.
+ *
+ * Mirrors `TerraformLockClearPayload` in
+ * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface TerraformLockClearPayload {
+  confirmationToken: string;
+}
+
+/**
  * Immediate acknowledgement the `iac.approve` IPC channel resolves
  * with once the identified plan run has been marked approved. Mirrors
  * `TerraformApproveAck` in `@hyveon/desktop-main/src/controllers/iac.controller.ts`
@@ -1642,18 +1669,28 @@ export interface HyveonIacApi {
  */
 export interface HyveonIacLockApi {
   /**
+   * Mints a fresh, short-lived lock-clear-confirmation token by invoking the
+   * `iac.lock.clear.mintToken` IPC channel — call this the moment the
+   * operator confirms via the stale-lock recovery dialog, then pass the
+   * returned `token` straight through to {@link clear}'s `confirmationToken`
+   * before it expires. Mirrors `HyveonIacApi.mintDestroyToken`.
+   */
+  mintToken: () => Promise<TerraformLockClearMintAck>;
+  /**
    * Clears the current Pulumi backend lock by invoking the `iac.lock.clear`
-   * IPC channel, which delegates to `PulumiService.clearStaleLock()`
+   * IPC channel with `payload.confirmationToken` (minted via
+   * {@link mintToken}), which delegates to `PulumiService.clearStaleLock()`
    * (`stack.cancel()` under the hood). Only call this after the operator has
    * explicitly confirmed — via the stale-lock recovery dialog — that they
    * believe the listed holder/age evidence describes a genuinely stale lock,
    * not a real concurrent operation. `cleared: false` means nothing was
    * cleared (e.g. another operation is already running against the shared
-   * workspace, or the clear attempt itself failed) — `error` describes why.
-   * This method never retries the original plan/apply/destroy itself; the
-   * caller must resubmit it separately once `cleared: true`.
+   * workspace, the token was missing/stale, or the clear attempt itself
+   * failed) — `error` describes why. This method never retries the original
+   * plan/apply/destroy itself; the caller must resubmit it separately once
+   * `cleared: true`.
    */
-  clear: () => Promise<TerraformLockClearAck>;
+  clear: (payload: TerraformLockClearPayload) => Promise<TerraformLockClearAck>;
 }
 
 /**

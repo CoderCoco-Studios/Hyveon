@@ -253,7 +253,10 @@ function formatLockAge(lockedAt: string, nowMs: number): string {
  * operator is asked to confirm they recognize (or don't recognize) the
  * listed hostname/pid as a real in-progress run before proceeding.
  *
- * On a confirmed clear, calls `hyveon.iac.lock.clear()`. Success clears the
+ * On a confirmed clear, mints a fresh confirmation token via
+ * `hyveon.iac.lock.mintToken()` and passes it to
+ * `hyveon.iac.lock.clear({ confirmationToken })` — mirroring the destroy
+ * flow's mint-then-confirm pattern. Success clears the
  * parent's `staleLock` state via {@link StaleLockBannerProps.onCleared}
  * (returning the page to its normal "ready to submit" state) and toasts a
  * confirmation; the operator then retries by clicking the ordinary plan/
@@ -285,7 +288,8 @@ function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) 
     setClearError(null);
     void (async () => {
       try {
-        const ack = await window.hyveon!.iac.lock.clear();
+        const { token } = await window.hyveon!.iac.lock.mintToken();
+        const ack = await window.hyveon!.iac.lock.clear({ confirmationToken: token });
         if (ack.cleared) {
           setConfirmOpen(false);
           toast.success('Pulumi backend lock cleared — resubmit to retry.');
