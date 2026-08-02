@@ -1,5 +1,5 @@
 /**
- * Unit tests for `resolveCredentialEnvVars` — Task 4.5's credential resolver,
+ * Unit tests for `resolveCredentialEnvVars`, the credential resolver,
  * covering the `pulumi-engine-runtime` delta spec's "Wizard-selected
  * credentials reach the engine" requirement's five scenarios: named profile,
  * pasted keys, ambient-keys-cannot-override-profile,
@@ -89,7 +89,7 @@ describe('resolveCredentialEnvVars — ambient profile cannot override pasted ke
   });
 
   it('should also clear AWS_SESSION_TOKEN, since the paste flow never has one of its own to set', () => {
-    // Regression test (fix round 1): the paste flow only ever collects
+    // Regression test: the paste flow only ever collects
     // accessKeyId/secretAccessKey (ElectronStoreService.getPastedCredentials
     // has no sessionToken field), so an ambient AWS_SESSION_TOKEN — e.g. from
     // an `aws sso`/assume-role shell session the app was launched from — was
@@ -126,9 +126,10 @@ describe('resolveCredentialEnvVars — no credential source configured', () => {
  * are not logged" test proves that call (and every other logger call made
  * while resolving a stack with real pasted-key `credentialEnvVars`) never
  * carries the secret values, which is the meaningful place to make this
- * assertion. What is NOT covered by either test file: Phase 7's future
- * `PulumiService.preview`/`.up`, which will stream real CLI stdout/stderr —
- * scrubbing *that* stream is that phase's own responsibility.
+ * assertion. What is NOT covered by either test file: `PulumiService.preview`'s/
+ * `.apply`'s (which calls `stack.up()`) future streaming of real CLI
+ * stdout/stderr — scrubbing that stream is the responsibility of whichever
+ * code implements it.
  */
 
 /**
@@ -191,7 +192,7 @@ describe('resolveCredentialEnvVars — exclusivity reaches a spawned child proce
     expect(seen).not.toBe('AMBIENT-AKID-FROM-SHELL');
   });
 
-  it('should clear an ambient AWS_SESSION_TOKEN from what a spawned child actually sees when pasted keys are selected (fix round 1 regression)', async () => {
+  it('should clear an ambient AWS_SESSION_TOKEN from what a spawned child actually sees when pasted keys are selected', async () => {
     // The failure this guards against: an operator launches the app from a
     // shell that still has a temporary `aws sso`/assume-role session
     // exported (access key + secret + session token all ambient), then

@@ -96,8 +96,8 @@ function clearedEnvVars(keys: readonly string[]): Record<string, string> {
  * has `''` for the cleared key, not the ambient value" (see
  * `PulumiCredentialResolver.test.ts`'s spawn-based proof) — proving the
  * `pulumi` binary's own AWS SDK-for-Go credential chain treats that `''` as
- * absent requires actually running the real binary, which is Phase 7's
- * territory (real `preview`/`up` operations), not this task's.
+ * absent would require running the real binary during a `preview`/`up`
+ * operation, which is `PulumiService`'s territory, not this resolver's.
  *
  * ## Not logged
  *
@@ -110,11 +110,10 @@ function clearedEnvVars(keys: readonly string[]): Record<string, string> {
  * is `PulumiWorkspaceService.test.ts`'s "should never pass the resolved
  * pasted-key values to any logger call" test, which exercises this
  * function's real output flowing through `getOrCreateStack` and inspects
- * every logger call the service makes while doing so. Neither test can speak
- * to Phase 7's future
- * `PulumiService.preview`/`.up`, which will stream real CLI stdout/stderr —
- * that streamed output is that phase's own responsibility to scrub, not
- * something this task's code path touches.
+ * every logger call the service makes while doing so. Neither test covers
+ * `PulumiService.preview`/`.up`, which stream real CLI stdout/stderr —
+ * scrubbing that streamed output is `PulumiService`'s own responsibility, not
+ * something this function's code path touches.
  *
  * @throws {@link PulumiCredentialsNotConfiguredError} when no credential
  *   source is selected at all (`resolveAwsCredentialSource` returns `'none'`).

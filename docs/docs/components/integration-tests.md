@@ -5,7 +5,7 @@ sidebar_position: 5
 
 # Integration Test Suite (Tier 2)
 
-Playwright-driven tests that dispatch directly into the real `AppModule` Nest.js DI container — built in-process via `NestFactory.createApplicationContext()` — with the AWS SDK mocked. There is no HTTP server, no Vite build/preview, and no `BrowserWindow`: everything runs in a single Node process. The goal is to validate controller-level business logic (permission checks, tfstate parsing, ECS command orchestration, error propagation) against the exact provider wiring the Electron IPC transport uses at runtime, without spinning up real AWS infrastructure.
+Playwright-driven tests that dispatch directly into the real `AppModule` Nest.js DI container — built in-process via `@nestjs/testing`'s `Test.createTestingModule()` — with the AWS SDK mocked and `PulumiService` substituted for an in-memory stub at the DI seam. There is no HTTP server, no Vite build/preview, and no `BrowserWindow`: everything runs in a single Node process. The goal is to validate controller-level business logic (permission checks, stack-output resolution, ECS command orchestration, error propagation) against the exact provider wiring the Electron IPC transport uses at runtime, without spinning up real AWS infrastructure or a real Pulumi engine.
 
 ## How to Run
 
@@ -24,17 +24,16 @@ This command (from the repo root):
 
 ```text
 Playwright test process (single Node process, no HTTP server, no BrowserWindow)
-  ├── ipc (IpcHarness) ─────────────────────────── NestFactory.createApplicationContext(AppModule)
+  ├── ipc (IpcHarness) ─────────────────────────── Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()
   │     ├── dispatch(Controller, 'method', ...) ── invokes the controller instance directly
-  │     └── get(Provider) ────────────────────────  resolves a provider (e.g. TerraformService) straight from the container
+  │     └── get(Provider) ────────────────────────  resolves a provider (e.g. PulumiService) straight from the container
+  ├── ipc.mocks.pulumi (PulumiServiceStub) ──────── the DI-substituted PulumiService — script*() setters control stack outputs, preview/apply/destroy chunks+result
   ├── serverMocks (ServerMocks) ────────────────── pushes into the shared MockStore singleton
   │     └── aws-sdk-client-mock (ECSClient prototype patched) ── installEcsMock() reads from MockStore
   ├── runRecordMockStore ────────────────────────── stateful pk=RUN / pk=LOCK item store
   │     └── aws-sdk-client-mock (DynamoDBDocumentClient prototype patched) ── installRunRecordDynamoMock()
-  ├── remoteFileStoreMockStore ───────────────────── single versioned configuration-object store
-  │     └── aws-sdk-client-mock (S3Client prototype patched) ── installRemoteFileStoreMock()
-  └── terraformFixture ──────────────────────────── PATH-shim dir + TF_DIR/RUNS_DIR_PATH temp dirs, HYVEON_TFVARS_BUCKET env var
-        └── fake-terraform.mjs ──────────────────── resolved as the `terraform` binary via the shim wrapper
+  └── remoteFileStoreMockStore ───────────────────── single versioned configuration-object store
+        └── aws-sdk-client-mock (S3Client prototype patched) ── installRemoteFileStoreMock()
 ```
 
 ### Key Files
@@ -45,13 +44,12 @@ Playwright test process (single Node process, no HTTP server, no BrowserWindow)
 | `app/packages/desktop-main/src/test-mocks/ecs-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `ECSClient`, wired to `MockStore`. |
 | `app/packages/desktop-main/src/test-mocks/run-record-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `DynamoDBDocumentClient`, backed by the stateful `runRecordMockStore` singleton (`pk = RUN` run records + the single `pk = LOCK` apply-lock item) — see [DynamoDB Run-Record Mock](#dynamodb-run-record-mock) below. |
 | `app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` | Installs `aws-sdk-client-mock` interceptors on `S3Client`, backed by the stateful `remoteFileStoreMockStore` singleton (a single versioned configuration object, keyed by `CONFIGURATION_OBJECT_KEY`) — see [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock) below. |
-| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `NestFactory.createApplicationContext(AppModule)`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Also exposes `get(Provider)` to resolve a provider (e.g. `TerraformService`) directly from the container. |
+| `app/packages/desktop-main/src/test-mocks/pulumi-mock.ts` | `PulumiServiceStub` — the class substituted for the real `PulumiService` at the DI seam. Exposes `script*` setters (`scriptStackOutputs`, `scriptPreview`/`scriptApply`/`scriptDestroy`, `scriptOperationInFlight`, `scriptDestroyToken`) plus `reset()` — see [PulumiService DI-Seam Stub](#pulumiservice-di-seam-stub) below. |
+| `app/packages/web/e2e/fixtures/ipc-harness.ts` | Builds the in-process IPC test harness (`createIpcHarness()`) via `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub).compile()`, deep-importing `@hyveon/desktop-main`'s compiled `dist/`, and dispatches directly to controller methods. Also exposes `get(Provider)` to resolve a provider (e.g. `PulumiService`) directly from the container, and `mocks.pulumi` to reach the scriptable stub. |
 | `app/packages/web/e2e/fixtures/server-mocks.ts` | `ServerMocks` class + extended `test` with `serverMocks` and `ipc` fixtures. |
-| `app/packages/web/e2e/fixtures/terraform-shim.ts` | Extended `test` (`terraformFixture` + an `ipc` override that waits on it) that prepends a `terraform` PATH shim, points `TF_DIR`/`RUNS_DIR_PATH`/`FAKE_TERRAFORM_SCRIPT` at fresh per-spec temp dirs, and sets `HYVEON_TFVARS_BUCKET` (so `TerraformService.plan()` can pull a configuration snapshot through the S3 mock — there is no local-file fallback) before the `ipc` harness is built — see [PATH-Shim Injection](#path-shim-injection) below. |
-| `app/packages/web/e2e/fixtures/terraform-fixtures.ts` | Builder functions (`successfulPlanEntry`, `failedPlanEntry`, `successfulApplyEntry`, `successfulDestroyEntry`, `successfulOutputEntry`, `ansiPlanEntry`, `versionEntry`) and `writeFixture()` for scripting `fake-terraform.mjs` responses from orchestrator specs. |
+| `app/packages/web/e2e/fixtures/stack-outputs.fixture.ts` | Exports `DEFAULT_STACK_OUTPUTS: StackOutputs` — a synthetic, fully-deployed stack-outputs value (`minecraft` + `valheim`, `us-east-1`, `test.example.com`) that specs script onto `ipc.mocks.pulumi` via `scriptStackOutputs()`. Replaces the deleted `tfstate.fixture.json`; re-exported from `integration-specs/index.ts`. |
 | `app/packages/web/playwright.integration.config.ts` | Playwright config: `testDir: e2e/integration-specs`, `workers: 1`, no `webServer`, no `projects`. |
-| `app/packages/web/e2e/fixtures/tfstate.fixture.json` | Synthetic Terraform state (`minecraft` + `valheim`, `us-east-1`, `test.example.com`, including `runs_table_name`), injected via `TF_STATE_PATH` when the `ipc` harness boots. |
-| `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect` from `./index.js` (or, for orchestrator specs, `../fixtures/terraform-shim.js`), not `@playwright/test`. |
+| `app/packages/web/e2e/integration-specs/` | All integration specs; import `test`/`expect`/`DEFAULT_STACK_OUTPUTS` from `./index.js`, not `@playwright/test`. |
 
 ## How Mock Responses Work
 
@@ -93,112 +91,76 @@ await serverMocks.pushRunTask({
 
 | Spec | What it tests |
 |------|---------------|
-| `config-service.spec.ts` | `EnvController.getEnv` returns region + domain from the tfstate fixture; `GamesController.listGames`/`listStatus` return the fixture game list. |
+| `config-service.spec.ts` | `EnvController.getEnv` returns region + domain, and `GamesController.listGames`/`listStatus` return the game list, once `ipc.mocks.pulumi` is scripted with `DEFAULT_STACK_OUTPUTS`. |
 | `discord-config.spec.ts` | `DiscordController.getConfig` never echoes the raw bot token or public key — only the redacted `botTokenSet`/`publicKeySet` booleans. |
 | `start-stop.spec.ts` | `GamesController.listGames`/`listStatus` report STOPPED games on initial load; a game seeded as RUNNING via mocked ECS responses can be stopped. |
 | `status-polling.spec.ts` | Pushing RUNNING mock responses causes the next `GamesController.listStatus` dispatch to reflect the state change (the in-process analogue of the dashboard's poller). |
 | `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
 | `can-run.spec.ts` | Placeholder — skipped until Discord permission enforcement (`canRun()`) is wired into the `ipc` test harness. |
-| `terraform-plan.spec.ts` | `TerraformService.plan()` produces a `.tfplan` artifact + SHA-256 `planHash` on success; a failing plan yields `TerraformPlanError` with no `planHash`; binary/version resolution succeeds through the PATH shim. |
-| `terraform-apply.spec.ts` | `TerraformController.apply` rejects an unapproved, expired-approval, or hash-mismatched plan without spawning `terraform` (verified via the fake binary's own end-channel message and `readRunRecord`); a fresh, matching approval applies and streams the scripted `apply` to completion. |
-| `terraform-destroy.spec.ts` | `TerraformService.destroy()` throws `DestroyNotConfirmedError` without a token or once a token is reused; a fresh token streams the scripted destroy to completion. |
-| `terraform-streaming.spec.ts` | ANSI escape sequences and stdout/stderr attribution survive streaming chunks and the persisted `terraform.log` byte-for-byte. |
-| `terraform-run-records.spec.ts` | `run.json` is written for both successful and failed runs (with/without `planHash`); the `RunRecordStore` record embeds the log inline (no S3 offload key) and is retrievable via `TerraformRunsController.get`. |
-| `terraform-output.spec.ts` | `TerraformController.output` returns the parsed outputs from a scripted `terraform output -json` response. |
+| `stack-outputs.spec.ts` | `IacController.output` (the `iac.output` channel) returns the scripted `PulumiService.getStackOutputs()` value verbatim, and degrades to `null` — not a throw — for a never-deployed stack. |
+| `pulumi-di-seam.spec.ts` | Proves the DI substitution itself: a scripted, non-UUID-shaped `mintDestroyConfirmationToken()` value round-trips through `IacController.mintDestroyToken`, and `ipc.get(PulumiService)` is reference-equal to `ipc.mocks.pulumi`. |
 
-## `fake-terraform.mjs` — Scripted Terraform Stand-In
+## PulumiService DI-Seam Stub
 
-`app/test/fake-terraform.mjs` is a scripted stand-in for the real `terraform` binary. It lets the integration tier (and any orchestrator unit tests) exercise `TerraformService` against realistic `stdout`/`stderr` output and exit codes without shelling out to real Terraform or touching real AWS. The orchestrator specs (`terraform-*.spec.ts`) wire it in via the PATH shim described below.
+`TerraformService` (which shelled out to a real `terraform` binary, faked via a PATH-shimmed `fake-terraform.mjs` script) is gone — the `migrate-iac-to-pulumi` change replaced it with `PulumiService`, which drives the `@pulumi/pulumi/automation` API in-process. There is no PATH to shim any more, so the integration tier fakes it the way Nest testing intends: `createIpcHarness()` (`ipc-harness.ts`) builds the container with `Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PulumiService).useValue(pulumiStub)`, substituting a fresh `PulumiServiceStub` (`app/packages/desktop-main/src/test-mocks/pulumi-mock.ts`) for every consumer that injects `PulumiService` — `ConfigService`, `IacController`, `IacRunsController`, `DriftService`, and so on. This is also *why* the harness switched off `NestFactory.createApplicationContext()`: that API has no provider-override hook, and a `TestingModule` already extends `NestApplicationContext` (`.get()`, `.close()`, ...), so no separate "create an application" step is needed once it's compiled.
 
-### Invocation
-
-```bash
-FAKE_TERRAFORM_SCRIPT=/path/to/fixture.json node app/test/fake-terraform.mjs plan -out=tfplan
-```
-
-- `FAKE_TERRAFORM_SCRIPT` (required) — absolute path to a JSON fixture file describing the scripted output. If unset, unreadable, or not valid JSON, the script writes a `fake-terraform: …` message to stderr and exits `1`.
-- The subcommand (`init`, `plan`, `apply`, `destroy`, or `output` — whatever `TerraformService` would invoke `terraform` with) is read from `process.argv[2]`. Any extra CLI args (`-out=tfplan`, `-auto-approve`, etc.) are accepted but ignored — only the subcommand name is used to look up the scripted response.
-- If no subcommand is given, or the fixture has no entry for the given subcommand, the script writes an error to stderr (listing the subcommands that *are* scripted) and exits `1`.
-
-### Fixture Schema
-
-The fixture is a JSON object keyed by subcommand name:
-
-```json
-{
-  "plan": {
-    "exitCode": 0,
-    "lines": [
-      { "stream": "stdout", "text": "Refreshing state...", "delayMs": 10 },
-      { "stream": "stderr", "text": "Warning: deprecated argument", "delayMs": 5 },
-      { "stream": "stdout", "text": "Plan: 1 to add, 0 to change, 0 to destroy." }
-    ]
-  }
-}
-```
-
-| Field | Type | Default | Notes |
-|-------|------|---------|-------|
-| `<subcommand>.exitCode` | `number` | `0` | Process exit code once every line has been written. |
-| `<subcommand>.lines` | `array` | `[]` | Emitted strictly in array order regardless of which stream each line targets, so fixtures can script realistic stdout/stderr interleaving. |
-| `lines[].stream` | `"stdout"` \| `"stderr"` | `"stdout"` | Any value other than `"stderr"` is treated as `"stdout"`. |
-| `lines[].text` | `string` | — | Written followed by a newline. |
-| `lines[].delayMs` | `number` | `0` | Awaited immediately before that line is written, per-line, so fixtures can simulate realistic Terraform timing (e.g. a slow `plan` refresh before later output). |
-| `<subcommand>.outFileContent` | `string` | *(unset)* | Opt-in artifact-writing field: when present, its bytes are written verbatim to the path supplied via a `-out=<path>` CLI argument once every scripted line has been emitted — e.g. a `plan` fixture sets this so the caller's SHA-256 `planHash` has a real `.tfplan` artifact on disk to hash. If `outFileContent` is scripted but no `-out=` argument was passed, the process exits `1` with a descriptive stderr message instead of silently dropping the artifact. Absent entirely, existing fixtures are unaffected — no file is written. |
-
-## PATH-Shim Injection
-
-`app/packages/web/e2e/fixtures/terraform-shim.ts` exports an extended `test` (`terraformFixture` fixture, plus an `ipc` override) that orchestrator specs import instead of `./index.js`:
+Reach the stub via `ipc.mocks.pulumi` (aliased as `harness.mocks.pulumi` in the type):
 
 ```ts
-import { test, expect } from '../fixtures/terraform-shim.js';
-import { successfulPlanEntry, versionEntry, writeFixture } from '../fixtures/terraform-fixtures.js';
+import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
+import { IacController } from '@hyveon/desktop-main/dist/controllers/iac.controller.js';
 
-test('should ...', async ({ ipc, terraformFixture }) => {
-  writeFixture(terraformFixture.scriptPath, {
-    version: versionEntry(),
-    plan: successfulPlanEntry(),
-  });
-  const terraform = ipc.get(TerraformService);
-  // ...drive terraform.plan() directly, or ipc.dispatch(TerraformController, 'plan', ...)
+test('should ...', async ({ ipc }) => {
+  ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
+  ipc.mocks.pulumi.scriptApply({ chunks: [{ stream: 'stdout', text: '...' }], result: { /* PulumiUpResult */ } });
+
+  const outputs = await ipc.dispatch(IacController, 'output', {});
 });
 ```
 
-`terraformFixture` runs *before* `ipc` (the fixture's own `ipc` override depends on it purely for ordering) because `TerraformService` resolves its binary path — and reads the `TF_DIR`/`RUNS_DIR_PATH`/`HYVEON_TFVARS_BUCKET`/`FAKE_TERRAFORM_SCRIPT` env seams — lazily on first use, but the shim must already be in place by the time anything in the built container could trigger that resolution. Per spec, `terraformFixture`:
+Scripting surface (see the class's own TSDoc for the full contract):
 
-1. Creates three temp dirs: a shim dir (holding an executable `terraform` wrapper that `exec`s `node app/test/fake-terraform.mjs "$@"`, plus the JSON fixture file), a `TF_DIR` composer dir (left empty — the fake binary ignores cwd contents), and a `RUNS_DIR_PATH` run-artifacts dir.
-2. Prepends the shim dir to `process.env.PATH` and sets `FAKE_TERRAFORM_SCRIPT`/`TF_DIR`/`RUNS_DIR_PATH`/`HYVEON_TFVARS_BUCKET`, snapshotting prior values first. `HYVEON_TFVARS_BUCKET` is set so `ConfigService.getConfigurationBucket()` resolves non-`null` — `TerraformService.plan()`'s `pullVarFile()` requires a configured bucket (there is no local-file fallback any more) to pull a configuration snapshot through the [Configuration-Bucket S3 Mock](#configuration-bucket-s3-mock) below; the pulled content itself is never applied for real (`fake-terraform.mjs` ignores it).
-3. On teardown, restores every snapshotted env var (deleting keys that were previously unset) and removes all three temp dirs.
+| Setter | Scripts |
+|--------|---------|
+| `scriptStackOutputs(outputs \| null)` | `getStackOutputs()`'s next resolution — `null` models a never-deployed stack (the default). |
+| `scriptOperationInFlight(op \| null)` | `getOperationInFlight()`'s next return value — `null` (default) means the workspace is free. |
+| `scriptDestroyToken(token)` | The token `mintDestroyConfirmationToken()` returns next. |
+| `scriptPreview(run)` / `scriptApply(run)` / `scriptDestroy(run)` | The `{ chunks?, result? }` or `{ chunks?, failure? }` an operation's async generator plays back — yields `chunks` in order, then either returns `result` or throws `failure`, mirroring how a real `PulumiService` operation settles. Takes effect for every subsequent call until re-scripted (not a one-shot FIFO queue). |
+| `reset()` | Restores every scripted response to its never-deployed/workspace-free/empty-run default. |
 
-Safe under the tier's `workers: 1`, `fullyParallel: false` config — env mutation windows never overlap between specs.
+**Un-scripted surface.** `initializeStack`/`resolveRollbackTarget`/`computeRollbackDiff`/`confirmRollback`/`clearStaleLock`/`computePlanHash`/`readRunRecord`/`hasPlanArtifact`/`streamRunOutput` have no `script*` setter yet — nothing in the current spec set (tasks 11.1/11.2) drives them, so they resolve fixed, harmless placeholder values. Adding `script*` setters for these, to back Plan/Apply/Destroy gating, ANSI-preservation, and run-record-persistence integration coverage, is tracked as follow-up work under task 7.11 in `openspec/changes/migrate-iac-to-pulumi/tasks.md`.
+
+`createIpcHarness()` builds a fresh `PulumiServiceStub` per harness (per Playwright test) — unlike `mockStore`/`runRecordMockStore`/`remoteFileStoreMockStore`, which are process-wide singletons reset between harnesses because `aws-sdk-client-mock` patches a shared client prototype, a fresh stub instance needs no cross-test reset.
+
+`DEFAULT_STACK_OUTPUTS` (`app/packages/web/e2e/fixtures/stack-outputs.fixture.ts`) is the fixture most specs script — a synthetic, fully-deployed `StackOutputs` value with the same region/domain/game names/table names the deleted `tfstate.fixture.json` used, so every spec that asserted against the old fixture keeps asserting the same values, just read through `PulumiService.getStackOutputs()`'s stubbed return instead of a parsed `terraform.tfstate` file.
 
 ## DynamoDB Run-Record Mock
 
-`app/packages/desktop-main/src/test-mocks/run-record-mock.ts` installs `aws-sdk-client-mock` interceptors on the `DynamoDBDocumentClient` prototype (`installRunRecordDynamoMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`), backed by the exported `runRecordMockStore` singleton. Unlike `MockStore`'s FIFO queues, this is a genuinely **stateful** table: a plan run persisted via `TerraformService.plan()` (through the real `RunRecordService`) is retrievable by a later `TerraformController.approve`/`apply` call in the same spec, exactly like production.
+`app/packages/desktop-main/src/test-mocks/run-record-mock.ts` installs `aws-sdk-client-mock` interceptors on the `DynamoDBDocumentClient` prototype (`installRunRecordDynamoMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`), backed by the exported `runRecordMockStore` singleton. Unlike `MockStore`'s FIFO queues, this is a genuinely **stateful** table: a run persisted through the real `RunRecordService` is retrievable by a later call in the same spec, exactly like production. No spec in the current set (tasks 11.1/11.2) drives a real plan/apply run far enough to write one — that requires the real `PulumiService`, which every current harness replaces with the stub above — so this mock is installed and reset but currently inert; it exists for the `IacController.approve` path (which calls `RunRecordService` directly, independent of `PulumiService`) and for the task-7.11 follow-up specs that will drive real persistence.
 
 - **`pk = RUN` items** — `PutCommand`/`QueryCommand` mirror `AwsRunRecordStore`'s `putRecord`/`getRecordByRunId`/`listRuns` request shapes (upsert-by-`sk`, filter by `runId`/`before`/`status`, `Limit`).
 - **`pk = LOCK` / `sk = CURRENT` item** — the single apply-lock item `RunService.createRun`/`releaseRun` acquire/release via `acquireRunLock`/`releaseRunLock`. `PutCommand`'s conditional-put semantics (`attribute_not_exists(pk) OR expiresAt < :now`) are reproduced, throwing `ConditionalCheckFailedException` when another unexpired lock is held — the same exception `AwsRunRecordStore.acquireRunLock` catches and converts to `RunLockHeldError`.
-- **`runRecordMockStore.patchApprovedAt(runId, isoString)`** — directly overwrites a stored record's `approvedAt`, letting a spec simulate an approval minted outside the 15-minute apply window without fake timers (which never reach the spawned fake-terraform child process).
+- **`runRecordMockStore.patchApprovedAt(runId, isoString)`** — directly overwrites a stored record's `approvedAt`, letting a spec simulate an approval minted outside the 15-minute apply window without fake timers (which don't reach a spawned child process, and `PulumiService`'s Automation API calls do spawn one).
 - **Reset per harness** — `createIpcHarness()` calls `runRecordMockStore.reset()` before installing the mock, so no plan/apply/destroy record or apply lock leaks from one spec's `AppModule` context into the next.
 
 Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also intercepts `AuditService`'s DynamoDB traffic (harmless — audit items land in the same in-memory item list but are excluded from every `runId`-filtered query).
 
 ## Configuration-Bucket S3 Mock
 
-`app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` installs `aws-sdk-client-mock` interceptors on the `S3Client` prototype (`installRemoteFileStoreMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`/`installRunRecordDynamoMock()`), backed by the exported `remoteFileStoreMockStore` singleton — the configuration-bucket counterpart of the ECS/run-record mocks above. There is no local-file configuration fallback (see the `migrate-iac-to-pulumi` change's Phase 6), so `TerraformService.plan()`'s `pullVarFile()` and `TfvarsService`'s read/write paths require a genuinely working `RemoteFileStore` to reach spawn/succeed in this tier.
+`app/packages/desktop-main/src/test-mocks/remote-file-store-mock.ts` installs `aws-sdk-client-mock` interceptors on the `S3Client` prototype (`installRemoteFileStoreMock()`, wired into `createIpcHarness()` alongside `installEcsMock()`/`installRunRecordDynamoMock()`), backed by the exported `remoteFileStoreMockStore` singleton — the configuration-bucket counterpart of the ECS/run-record mocks above. There is no local-file configuration fallback (see the `migrate-iac-to-pulumi` change's Phase 6), so `TfvarsService`'s read/write paths require a genuinely working `RemoteFileStore` to succeed against real AWS.
 
 - **A single versioned object**, keyed by `CONFIGURATION_OBJECT_KEY` (`@hyveon/shared`, `'deployment-config.json'`) — `GetObjectCommand`/`PutObjectCommand`/`ListObjectVersionsCommand` are reproduced against an in-memory, newest-version-first history, mirroring `AwsRemoteFileStore`'s real command usage.
-- **Seeded with a placeholder `DeploymentConfig`** on install/reset, so any spec whose `TerraformService.plan()` call doesn't care about configuration *content* (the common case — `fake-terraform.mjs` never reads the pulled var-file) still gets a valid `get()` without individually stubbing anything.
+- **Seeded with a placeholder `DeploymentConfig`** on install/reset, so any spec that ends up on this path still gets a valid `get()` without individually stubbing anything.
 - **`remoteFileStoreMockStore.seed(config)`** — replaces the object's entire history with a fresh single version containing `config`, for specs (e.g. future `TfvarsService`/rollback specs) that need specific configuration content.
 - **Reset per harness** — `createIpcHarness()` calls `remoteFileStoreMockStore.reset()` before installing the mock, so no configuration content or version history leaks from one spec's `AppModule` context into the next.
-- **`terraform-shim.ts`'s `terraformFixture`** sets `HYVEON_TFVARS_BUCKET` (see [PATH-Shim Injection](#path-shim-injection) above) so `ConfigService.getConfigurationBucket()` resolves non-`null` — this mock is otherwise never reached, since `AwsRemoteFileStore` throws its own "bucket not configured" error before ever calling `S3Client.send()`. Installing the mock unconditionally in `createIpcHarness()` (rather than only for terraform specs) is inert for every other spec for the same reason.
+- **Currently inert for every spec in the set (tasks 11.1/11.2)** — `GamesController.listGames`/`listStatus` (dispatched by `config-service.spec.ts`/`start-stop.spec.ts`) do call into `TfvarsService`, but none of the specs in this set set `HYVEON_TFVARS_BUCKET`, so `TfvarsService.getGameServers()` catches its own `ConfigurationNotConfiguredError` and returns an empty list before ever reaching `RemoteFileStore`/`S3Client.send()`. Installing the mock unconditionally in `createIpcHarness()` is forward-looking — it exists for `TfvarsService`-content/rollback specs that haven't landed yet.
 
 ## Design Constraints
 
 - **`workers: 1`, `fullyParallel: false`** — the `MockStore` is an in-process singleton; concurrent tests would corrupt each other's queues.
 - **`serverMocks` resets before and after every test** — the fixture calls `mockStore.reset()` in-process in setup and teardown; there is no HTTP round-trip.
 - **No HTTP server, no Vite build/preview, no `BrowserWindow`** — every integration spec dispatches directly to the `AppModule` DI container via the `ipc` fixture (`ipc-harness.ts`) and pushes mock ECS responses straight into the in-process `MockStore` singleton via the `serverMocks` fixture (`server-mocks.ts`), so there is no test-only route surface and nothing for Playwright to boot as a `webServer`.
-- **`TF_STATE_PATH`** — `createIpcHarness()` (`ipc-harness.ts`) sets this env var to `e2e/fixtures/tfstate.fixture.json` before building the `AppModule` context, so `ConfigService` reads the fixture instead of requiring a real Terraform state file.
+- **No real Pulumi engine, ever** — `createIpcHarness()` substitutes `PulumiServiceStub` for `PulumiService` at the DI seam (see [PulumiService DI-Seam Stub](#pulumiservice-di-seam-stub) above), so no integration spec can spawn the Pulumi CLI, download the engine binary, or reach real AWS through it — structurally, not just by convention.
 
 ## Related: the tier-1 Electron e2e IPC mock seam
 
@@ -277,7 +239,7 @@ jsdom, `node` collects everything else under `node`.
   not in a separate `__tests__` directory.
 - Mock the API client and any module-level singleton with `vi.mock`.
 - For a component driven by a streaming channel (`logs.stream`,
-  `terraform.init`, `terraform.runs.streamLogs`), back the mock with
+  `iac.stack.initialize`, `iac.runs.streamLogs`), back the mock with
   `toStreamHandleMock()` from `src/test-utils/stream-handle.test-utils.ts`. It
   wraps an ordinary async generator body in the `HyveonStreamHandle` shape the
   real preload bridge returns — including the `cancel()` method components call

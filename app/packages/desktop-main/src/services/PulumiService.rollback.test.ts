@@ -1,18 +1,17 @@
 /**
  * Unit tests for `PulumiService.resolveRollbackTarget`/`.confirmRollback`
- * (task 7.6 of `migrate-iac-to-pulumi`) — the rollback flow's successor,
- * replacing `TerraformService.ts`'s same-named methods with a version that
- * holds `PulumiService`'s private `operationInFlight` guard across the
- * restore write AND the follow-up plan's persistence (the old
- * `TerraformService` version never held any lock across those two steps at
- * all — see `confirmRollback`'s own TSDoc, "The old TerraformService gap
- * this closes").
+ * — the rollback flow's successor, replacing `TerraformService.ts`'s
+ * same-named methods with a version that holds `PulumiService`'s private
+ * `operationInFlight` guard across the restore write AND the follow-up
+ * plan's persistence (the old `TerraformService` version never held any
+ * lock across those two steps at all — see `confirmRollback`'s own TSDoc,
+ * "The old TerraformService gap this closes").
  *
- * Named `PulumiService.rollback.test.ts` (task-scoped, not one-method-scoped
- * like `PulumiService.preview.test.ts`/`.apply.test.ts`/`.destroy.test.ts`)
- * because `resolveRollbackTarget` and `confirmRollback` are tightly coupled —
- * `confirmRollback` calls `resolveRollbackTarget` internally, and task 7.6
- * itself is scoped to both methods jointly.
+ * Named `PulumiService.rollback.test.ts` (covering both methods jointly,
+ * not one-method-scoped like `PulumiService.preview.test.ts`/
+ * `.apply.test.ts`/`.destroy.test.ts`) because `resolveRollbackTarget` and
+ * `confirmRollback` are tightly coupled — `confirmRollback` calls
+ * `resolveRollbackTarget` internally.
  *
  * `node:fs` is fully mocked (mirrors every other `PulumiService.*.test.ts`
  * file) so no test touches the real filesystem. `node:crypto`'s `randomUUID`
@@ -489,7 +488,7 @@ describe('PulumiService.confirmRollback concurrency guard', () => {
     await expect(destroyGen.next()).rejects.toThrow(/rollback.*already.*running/i);
   });
 
-  it('should throw synchronously when confirmRollback() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+  it('should throw synchronously when confirmRollback() is called while initializeStack() is already in flight', async () => {
     // Regression test for a code-reviewer-traced race: initializeStack()
     // does not set `operationInFlight` (see PulumiService.ts's own
     // `stackInitInFlight` doc comment for why it's a separate flag), so

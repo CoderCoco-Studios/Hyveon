@@ -149,12 +149,10 @@ describe('registerIpcMainBridges', () => {
   });
 
   it('should skip "iac.rollback.confirm" entirely, leaving it to bridge itself', async () => {
-    // C1, fix round 1: this channel was originally left off SELF_BRIDGED_PATTERNS
-    // despite IacController.confirmRollback taking an undecorated `ctx`
-    // second parameter exactly like iac.plan/apply/destroy — routing it
-    // through the generic bridge silently dropped `ctx`, crashing every real
-    // invocation. See ipc-main-bridge.ts's own doc comment for the full root
-    // cause.
+    // "iac.rollback.confirm" must stay in SELF_BRIDGED_PATTERNS: IacController.confirmRollback
+    // takes an undecorated `ctx` second parameter exactly like iac.plan/apply/destroy — routing
+    // it through the generic bridge would silently drop `ctx`, crashing every real invocation.
+    // See ipc-main-bridge.ts's own doc comment for the full root cause.
     expect(SELF_BRIDGED_PATTERNS.has('iac.rollback.confirm')).toBe(true);
 
     const { transport } = makeTransport(['iac.rollback.confirm', 'games.list']);
@@ -169,11 +167,8 @@ describe('registerIpcMainBridges', () => {
   });
 
   it('should skip "iac.stack.initialize" entirely, leaving it to bridge itself', async () => {
-    // Task 10.3 (migrate-iac-to-pulumi): IacController.initializeStack
-    // replaced the deleted `iac.init` channel (which had itself become a
-    // generically-bridged, never-streaming rejection stub since task
-    // 7.10) — it streams `onPhase` progress over its own side channels,
-    // exactly like `iac.plan`, so it must self-bridge too.
+    // IacController.initializeStack streams `onPhase` progress over its own
+    // side channels, exactly like `iac.plan`, so it must self-bridge too.
     expect(SELF_BRIDGED_PATTERNS.has('iac.stack.initialize')).toBe(true);
 
     const { transport } = makeTransport(['iac.stack.initialize', 'games.list']);

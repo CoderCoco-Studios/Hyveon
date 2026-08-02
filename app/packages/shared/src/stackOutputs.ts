@@ -1,10 +1,9 @@
 /**
- * Typed contract for the values `PulumiService` (Phase 7 of the
- * `migrate-iac-to-pulumi` OpenSpec change) reads back off a deployed Pulumi
- * stack, replacing `ConfigService.getTfOutputs()`'s parse of
- * `terraform.tfstate` (`@hyveon/desktop-main`). This module defines the
- * TYPE ONLY — no reading/parsing logic lives here; `PulumiService` owns
- * turning a stack's `outputs` map into a {@link StackOutputs} value.
+ * Typed contract for the values `PulumiService` (a `@hyveon/desktop-main`
+ * service) reads back off a deployed Pulumi stack, in place of
+ * `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`. This module
+ * defines the TYPE ONLY — no reading/parsing logic lives here; `PulumiService`
+ * owns turning a stack's `outputs` map into a {@link StackOutputs} value.
  *
  * Field inventory: every field mirrors an `output` block in
  * `terraform/aws/outputs.tf` (re-exported unchanged by the root
@@ -16,8 +15,8 @@
  * deliberately NOT carried forward because no consumer reads them today:
  * `vpc_id`, `task_definitions`, `hosted_zone_id`, `dns_records`,
  * `watchdog_function_name`, and the root-only `tfvars_bucket_name` (whose
- * bucket-naming role Phase 6's configuration store resolves independently —
- * see `deploymentConfig.js`'s file doc for the parallel `tfvars_bucket_name`
+ * bucket-naming role the configuration store resolves independently — see
+ * `deploymentConfig.js`'s file doc for the parallel `tfvars_bucket_name`
  * exclusion on the input side). Add a field here when a consumer needs one.
  *
  * Naming and data-shape conventions match `deploymentConfig.js`: idiomatic
@@ -117,8 +116,8 @@ export interface StackOutputs {
    * Custom-domain URL for the Discord interactions endpoint. Mirrors the
    * `discord_interactions_url` output — a second, `discord.<domain>`-rooted
    * URL alongside {@link interactionsInvokeUrl} (the two overlap in today's
-   * Terraform module; carried forward as-is for consumer parity rather than
-   * resolved in this task). `null` when absent from the stack's outputs.
+   * Terraform module; carried forward as-is for consumer parity). `null`
+   * when absent from the stack's outputs.
    */
   discordInteractionsUrl: string | null;
 

@@ -1,6 +1,8 @@
 import type { Page, ElectronApplication } from '../fixtures/index.js';
 import { test, expect, launchElectron, applyHyveonMocks } from '../fixtures/index.js';
 import { IacPage } from '../pages/index.js';
+import type { ChangeSummary } from '@hyveon/shared';
+import type { TerraformStaleLockInfo } from '@hyveon/desktop-preload';
 
 /**
  * `/iac` route specs (issue #110), driven via `_electron.launch()` and
@@ -13,14 +15,30 @@ const PLAN_RUN_ID = 'run-1';
 const APPLY_RUN_ID = 'apply-1';
 
 interface IacMockOptions {
-  planAck?: { started: boolean; runId?: string; error?: string; conflict?: string };
+  planAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: TerraformStaleLockInfo };
   planLines?: string[];
   planStatus?: string;
   planHash?: string;
+  /**
+   * Structured resource-change counts attached to the scripted plan run's
+   * `iac.runs.get` record (`TerraformRunRecord.changeSummary`) — drives
+   * `ChangeSummaryStatus`'s badge rendering. Omitted by default, matching a
+   * run whose structured summary event was never observed.
+   */
+  planChangeSummary?: ChangeSummary;
   approveAck?: { approved: boolean; approvedBy?: string; approvedAt?: string; error?: string };
-  applyAck?: { started: boolean; runId?: string; error?: string; conflict?: string };
+  applyAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: TerraformStaleLockInfo };
   applyLines?: string[];
   applyStatus?: string;
+  /** Structured resource-change counts attached to the scripted apply run's `iac.runs.get` record — see {@link planChangeSummary}. */
+  applyChangeSummary?: ChangeSummary;
+  /**
+   * `partialApply` flag attached to the scripted apply run's `iac.runs.get`
+   * record (`TerraformRunRecord.partialApply`) — drives `PartialApplyBanner`'s
+   * rendering in place of the generic apply-failure banner. Omitted by
+   * default.
+   */
+  applyPartialApply?: boolean;
 }
 
 /**
@@ -48,6 +66,7 @@ async function mockIac(win: Page, opts: IacMockOptions = {}): Promise<void> {
   const planLines = opts.planLines ?? ['Plan: 3 to add, 1 to change, 0 to destroy.'];
   const planStatus = opts.planStatus ?? 'awaiting_approval';
   const planHash = opts.planHash ?? 'hash-1';
+  const planChangeSummary = opts.planChangeSummary;
   const approveAck = opts.approveAck ?? {
     approved: true,
     approvedBy: 'alice',
@@ -56,9 +75,25 @@ async function mockIac(win: Page, opts: IacMockOptions = {}): Promise<void> {
   const applyAck = opts.applyAck ?? { started: true, runId: APPLY_RUN_ID };
   const applyLines = opts.applyLines ?? ['Apply complete! Resources: 3 added, 1 changed, 0 destroyed.'];
   const applyStatus = opts.applyStatus ?? 'success';
+  const applyChangeSummary = opts.applyChangeSummary;
+  const applyPartialApply = opts.applyPartialApply;
 
   await win.evaluate(
-    ({ planAck, planLines, planStatus, planHash, approveAck, applyAck, applyLines, applyStatus, planRunId, applyRunId }) => {
+    ({
+      planAck,
+      planLines,
+      planStatus,
+      planHash,
+      planChangeSummary,
+      approveAck,
+      applyAck,
+      applyLines,
+      applyStatus,
+      applyChangeSummary,
+      applyPartialApply,
+      planRunId,
+      applyRunId,
+    }) => {
       const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
         __test: { mock: (channel: string, handler: unknown) => void };
       };
@@ -71,11 +106,31 @@ async function mockIac(win: Page, opts: IacMockOptions = {}): Promise<void> {
           return Promise.resolve({
             found: true,
             status: planStatus,
-            record: { runId: planRunId, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash },
+            record: {
+              runId: planRunId,
+              kind: 'plan',
+              startedAt: 't0',
+              completedAt: 't1',
+              exitCode: 0,
+              planHash,
+              ...(planChangeSummary ? { changeSummary: planChangeSummary } : {}),
+            },
           });
         }
         if (payload.runId === applyRunId) {
-          return Promise.resolve({ found: true, status: applyStatus });
+          return Promise.resolve({
+            found: true,
+            status: applyStatus,
+            record: {
+              runId: applyRunId,
+              kind: 'apply',
+              startedAt: 't0',
+              completedAt: 't1',
+              exitCode: applyStatus === 'success' ? 0 : 1,
+              ...(applyChangeSummary ? { changeSummary: applyChangeSummary } : {}),
+              ...(applyPartialApply !== undefined ? { partialApply: applyPartialApply } : {}),
+            },
+          });
         }
         return Promise.resolve({ found: false });
       });
@@ -92,10 +147,13 @@ async function mockIac(win: Page, opts: IacMockOptions = {}): Promise<void> {
       planLines,
       planStatus,
       planHash,
+      planChangeSummary,
       approveAck,
       applyAck,
       applyLines,
       applyStatus,
+      applyChangeSummary,
+      applyPartialApply,
       planRunId: PLAN_RUN_ID,
       applyRunId: APPLY_RUN_ID,
     },
@@ -195,5 +253,62 @@ test.describe('iac page', () => {
     await expect(iac.approvalExpiredText()).toBeVisible();
     await expect(iac.applyButton()).toBeDisabled();
     await expect(iac.reapproveButton()).toBeVisible();
+  });
+
+  test('should render the structured change-summary badges once the plan run finishes', async () => {
+    await applyHyveonMocks(win);
+    await mockIac(win, { planChangeSummary: { create: 3, update: 1 } });
+    await iac.gotoViaSidebar();
+
+    await iac.runPlanButton().click();
+
+    await expect(iac.summaryBadge('3 to create')).toBeVisible();
+    await expect(iac.summaryBadge('1 to update')).toBeVisible();
+  });
+
+  test('should render the partial-apply banner instead of the generic error banner when the apply run reports partialApply', async () => {
+    await applyHyveonMocks(win);
+    await mockIac(win, { applyStatus: 'failed', applyPartialApply: true });
+    await iac.gotoViaSidebar();
+
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeEnabled();
+    await iac.approveButton().click();
+    await expect(iac.applyButton()).toBeEnabled();
+    await iac.applyButton().click();
+
+    await expect(iac.partialApplyBanner()).toBeVisible();
+    await expect(iac.alerts().filter({ hasText: 'terraform apply failed' })).toHaveCount(0);
+  });
+
+  test('should render a StaleLockBanner with holder info when a plan submission reports a stale lock', async () => {
+    await applyHyveonMocks(win);
+    await mockIac(win, {
+      planAck: {
+        started: false,
+        error: 'Pulumi backend is locked.',
+        staleLock: {
+          stackName: 'hyveon-prod',
+          locks: [
+            {
+              lockUrl: 's3://hyveon-pulumi-state/.pulumi/locks/hyveon-prod/lock-1.json',
+              username: 'alice',
+              hostname: 'ci-runner',
+              pid: 4321,
+              lockedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+            },
+          ],
+        },
+      },
+    });
+    await iac.gotoViaSidebar();
+
+    await iac.runPlanButton().click();
+
+    const banner = iac.staleLockBanner();
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('hyveon-prod');
+    await expect(banner).toContainText('alice@ci-runner');
+    await expect(banner).toContainText('pid 4321');
   });
 });

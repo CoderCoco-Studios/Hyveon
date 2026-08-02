@@ -8,4 +8,5 @@
  */
 export { test, type MockResponse, ServerMocks } from '../fixtures/server-mocks.js';
 export type { IpcHarness } from '../fixtures/ipc-harness.js';
+export { DEFAULT_STACK_OUTPUTS } from '../fixtures/stack-outputs.fixture.js';
 export { expect } from '@playwright/test';

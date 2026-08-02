@@ -1,6 +1,6 @@
 /**
- * Unit tests for `PulumiService.apply` (task 7.2 of `migrate-iac-to-pulumi`)
- * — the self-contained 8-step plan-hash gate (tasks 7.5/7.7) plus the
+ * Unit tests for `PulumiService.apply`
+ * — the self-contained 8-step plan-hash gate plus the
  * plan-constrained `stack.up()` call, replacing `TerraformController.apply`
  * + `TerraformService.apply`'s split gate/spawn. Mirrors
  * `TerraformService.apply.test.ts`'s coverage breadth (spawning, streaming,
@@ -207,7 +207,7 @@ function makeEngine(
  * Stub `ModuleRef` routing `.get(token, { strict: false })` to the four
  * lazily-resolved dependencies `apply()` uses — mirrors
  * `PulumiService.preview.test.ts`'s identical pattern, extended with the two
- * new tokens (`RUN_LOCK_SERVICE`, `CONFIG_CACHE_INVALIDATOR`) task 7.2 adds.
+ * additional tokens `apply()` needs (`RUN_LOCK_SERVICE`, `CONFIG_CACHE_INVALIDATOR`).
  */
 function makeModuleRef(deps: {
   runRecordPersister: RunRecordPersister;
@@ -889,10 +889,10 @@ describe('PulumiService.apply abort handling', () => {
   });
 
   it('should persist partialApply: true when the operator cancels mid-flight after at least one mutating resource step already completed', async () => {
-    // Fix round 1: the operator pressing Cancel partway through a real apply
-    // is arguably the single most likely real-world way this system ends up
-    // partway through — this is the case the original `outcome.kind ===
-    // 'failed'`-only formula silently dropped entirely.
+    // The operator pressing Cancel partway through a real apply is arguably
+    // the single most likely real-world way this system ends up partway
+    // through — an `outcome.kind === 'failed'`-only formula would silently
+    // drop this case entirely.
     let rejectUp!: (err: unknown) => void;
     const upMock = vi.fn().mockImplementation((opts: UpOptions) => {
       opts.onOutput?.('Updating...\n');
@@ -978,7 +978,7 @@ describe('PulumiService.apply abort handling', () => {
 });
 
 describe('PulumiService.apply concurrency guard', () => {
-  it('should throw synchronously when apply() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+  it('should throw synchronously when apply() is called while initializeStack() is already in flight', async () => {
     // Regression test for a code-reviewer-traced race: initializeStack()
     // does not set `operationInFlight` (see PulumiService.ts's own
     // `stackInitInFlight` doc comment for why it's a separate flag), so
@@ -1026,10 +1026,10 @@ describe('PulumiService.apply concurrency guard', () => {
   });
 
   it('should throw when apply() is called while a PRIOR apply has already won the durable lock and is actively running the engine', async () => {
-    // Fix round 1: `operationInFlight` is no longer set at the very top of
-    // apply() (that was the forbidden early observation — see the next
-    // test), so this must drive the first call all the way past gate step 8
-    // and into stack.up() before the guard is genuinely armed.
+    // `operationInFlight` is not set at the very top of apply() (an early
+    // observation there is forbidden — see the next test), so this must
+    // drive the first call all the way past gate step 8 and into stack.up()
+    // before the guard is genuinely armed.
     let upCalls = 0;
     const workspace = makeWorkspace(() => {
       upCalls += 1;
@@ -1051,9 +1051,9 @@ describe('PulumiService.apply concurrency guard', () => {
   });
 
   it('should let two concurrent apply() calls for the SAME plan race through the entire gate and resolve the race via the atomic createRun lock, not an early observation', async () => {
-    // This is the scenario the pre-fix-round-1 version of apply() could
-    // never actually exercise: `operationInFlight` used to be set at the
-    // very top of the method, so the second of two concurrent apply() calls
+    // This is a scenario an earlier version of apply() could never actually
+    // exercise: `operationInFlight` used to be set at the very top of the
+    // method, so the second of two concurrent apply() calls
     // was refused before ever reading a record — never reaching (let alone
     // being ordered by) gate step 8's atomic compare-and-set. The
     // `iac-plan-apply-page` spec's "Two simultaneous applies are ordered by
@@ -1093,8 +1093,8 @@ describe('PulumiService.apply concurrency guard', () => {
   });
 
   it('should release the just-won durable lock and refuse when a concurrent preview() starts running against the shared workspace DURING the apply gate phase', async () => {
-    // Fix round 1's post-createRun re-check — closes the apply-vs-preview()
-    // local-workspace race reopened by no longer setting `operationInFlight`
+    // Tests the post-createRun re-check that closes the apply-vs-preview()
+    // local-workspace race that opens up from not setting `operationInFlight`
     // at the very top of apply(). Deliberately starts apply() FIRST (so its
     // own top-of-function check passes while operationInFlight is still
     // null) and only starts preview() while apply() is suspended mid-gate —

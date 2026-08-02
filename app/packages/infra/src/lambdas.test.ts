@@ -16,12 +16,12 @@ import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/
  * touching the filesystem (confirmed by reading `@pulumi/pulumi`'s
  * `asset/*.js`), and `installPulumiMocks` intercepts every resource
  * registration before any real engine or upload is involved — so no test in
- * this file needs a real bundle file to exist on disk, matching this task's
- * brief. See `lambdas.ts`'s file doc, "The lambda-bundle path contract".
+ * this file needs a real bundle file to exist on disk. See `lambdas.ts`'s
+ * file doc, "The lambda-bundle path contract".
  */
 const LAMBDA_BUNDLES_DIR = '/fixtures/lambda-bundles';
 
-/** Literal values standing in for task 3.8/3.9's eventual resource outputs — {@link defineLambdas}'s deferred parameters. */
+/** Literal values standing in for the DynamoDB/Secrets Manager/Route 53 resource outputs {@link defineLambdas} requires as parameters. */
 const DEFERRED_VALUES = {
   dynamodbDiscordTableName: 'hyveon-discord',
   discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-discord-public-key-abc123',
@@ -38,7 +38,7 @@ const MOCK_NETWORK_INPUTS = {
 
 /**
  * Mock id standing in for `securityGroups.ts`'s `SecurityGroupResources.efsSeeder?.id`
- * — `defineLambdas` no longer constructs this security group itself (see
+ * — `defineLambdas` does not construct this security group itself (see
  * `lambdas.ts`'s file doc); tests that exercise the EFS-seeder path pass
  * this plain string rather than a real `defineSecurityGroups` call.
  */

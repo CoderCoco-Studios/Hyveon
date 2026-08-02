@@ -1,9 +1,9 @@
 /**
  * Unit tests for `resolveAwsCredentialSource` — the single decision
- * `BootstrapService` and `IamCheckService` each used to duplicate privately
- * before Task 4.5 extracted it. `BootstrapService.test.ts`/`IamCheckService.test.ts`
- * already cover this decision indirectly (via `store.getPastedCredentials`
- * call assertions); this file tests it directly, once, as its own unit.
+ * `BootstrapService` and `IamCheckService` would otherwise each duplicate
+ * privately. `BootstrapService.test.ts`/`IamCheckService.test.ts` already
+ * cover this decision indirectly (via `store.getPastedCredentials` call
+ * assertions); this file tests it directly, once, as its own unit.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';

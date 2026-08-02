@@ -8,29 +8,21 @@ import { repoRoot } from '../../playwright.config.js';
 /**
  * Clean-quit regression guard for the Electron main process.
  *
- * Two independent failure modes have already cost this repo a full round of
- * red CI, and both looked identical from the outside — `app.close()` never
- * resolving until Playwright's worker teardown timeout killed the run:
- *
- *  1. `@cdktf/hcl2json` bundled into `out/main`, whose Go `wasm_exec` glue runs
- *     module-scope side effects that keep the Electron event loop alive.
- *  2. The same hazard anticipated for `@pulumi/pulumi`, which pulls in
- *     `@grpc/grpc-js` — a module that owns sockets. Both packages are therefore
- *     marked `external` in `electron.vite.config.ts` and shipped unpacked.
- *
- * The Pulumi migration's `pulumi-engine-runtime` spec turns that into a
- * requirement ("App quits cleanly during idle"), so it gets a permanent check
- * rather than a one-off spike.
+ * `@cdktf/hcl2json`'s Go `wasm_exec` glue and `@pulumi/pulumi`'s
+ * `@grpc/grpc-js` transport both run module-scope side effects that can keep
+ * the Electron event loop alive after `app.quit()`. Both packages are marked
+ * `external` in `electron.vite.config.ts` and shipped unpacked to avoid that;
+ * this spec is the permanent check that `app.close()` still resolves
+ * promptly.
  *
  * **What this spec can and cannot cover.** It deliberately never runs a real
  * `preview`/`up`: that needs a ~100 MB engine download plus provider plugins,
- * which CI has no business fetching. The quit-after-a-real-operation half of
- * the risk was verified manually during the task 1.3/1.5 spike (packaged
- * `--dir` build, one `preview` + one `up` against a `file://` backend, app
- * quit 64 ms after `app.quit()` with zero surviving `pulumi` processes). What
- * runs here on every CI push is the half that regresses silently: quitting
- * while idle, and quitting after the whole `@pulumi/pulumi` module graph
- * (including `@grpc/grpc-js`) has been loaded into the main process.
+ * which CI has no business fetching. A packaged `--dir` build running one
+ * `preview` and one `up` against a `file://` backend quits cleanly with zero
+ * surviving `pulumi` processes, but that case isn't exercised here. What runs
+ * on every CI push is the half that regresses silently: quitting while idle,
+ * and quitting after the whole `@pulumi/pulumi` module graph (including
+ * `@grpc/grpc-js`) has been loaded into the main process.
  */
 
 /** Upper bound on how long `app.close()` may take before we call it a hang. */

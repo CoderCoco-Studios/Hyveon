@@ -1,7 +1,6 @@
 /**
- * Unit tests for `PulumiService.clearStaleLock` (task 9.4 of
- * `migrate-iac-to-pulumi` — "stale-lock recovery UI with explicit
- * confirmation"). This is the human-confirmed write path a caller reaches
+ * Unit tests for `PulumiService.clearStaleLock` — the stale-lock recovery
+ * UI's explicit-confirmation write path. This is the human-confirmed path a caller reaches
  * only after `PulumiUnrecognizedLockError` has already told them a backend
  * lock conflict couldn't be proven this installation's own orphaned run, and
  * the renderer's confirmation dialog has required an explicit operator
@@ -139,7 +138,7 @@ describe('PulumiService.clearStaleLock', () => {
     await expect(service.clearStaleLock(token)).resolves.toBeUndefined();
   });
 
-  it('should log a warn line naming both the stack and the resolved initiator on a successful clear (review round 1, M1)', async () => {
+  it('should log a warn line naming both the stack and the resolved initiator on a successful clear', async () => {
     const workspace = makeWorkspace();
     const service = makeService({ workspace });
     const token = service.mintLockClearConfirmationToken();

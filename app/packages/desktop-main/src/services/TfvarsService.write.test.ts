@@ -17,8 +17,7 @@
  * so "preservation" here means "unrelated fields/entries round-trip with the
  * same values," not "identical bytes."
  *
- * There is no local-file fallback any more (Phase 6's "no local
- * configuration fallback" requirement) — every write goes through the
+ * There is no local-file fallback — every write goes through the
  * `RemoteFileStore` stub. `fs` stays mocked purely so the
  * `ConfigurationNotConfiguredError` tests can assert it is never touched;
  * this module no longer imports `fs` in production code at all.
@@ -388,9 +387,9 @@ describe('TfvarsService write path', () => {
      * `assertValidGameName()` is only ever called from `insertGameServerEntry()`
      * (the `addGameServer` path) — `updateGameServer`/`removeGameServer` never
      * re-validate an existing key against the current DNS-safe pattern. This
-     * guarantee is what lets a legacy, pre-migration name that predates
-     * {@link GAME_NAME_PATTERN} (declared back when the source was HCL and the
-     * old `HCL_IDENTIFIER_PATTERN` allowed underscores) keep working
+     * guarantee is what lets a legacy name that predates
+     * {@link GAME_NAME_PATTERN} (created under the old, more permissive
+     * `HCL_IDENTIFIER_PATTERN`, which allowed underscores) keep working
      * indefinitely. These specs pin that guarantee with a test, so a future
      * "let's validate consistently on every write" refactor can't silently
      * break it.
@@ -585,7 +584,7 @@ describe('TfvarsService write path', () => {
     });
   });
 
-  describe('getTopLevelSettings / updateTopLevelSettings (task 9.7)', () => {
+  describe('getTopLevelSettings / updateTopLevelSettings', () => {
     it('should return every top-level field except gameServers, plus the read etag', async () => {
       stubCurrentConfig(remoteFileStore);
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -604,7 +603,7 @@ describe('TfvarsService write path', () => {
       expect(remoteFileStore.get).not.toHaveBeenCalled();
     });
 
-    describe('defaulting a document missing fields (review round 1, finding I2)', () => {
+    describe('defaulting a document missing fields', () => {
       /**
        * A stored document that predates the three base-allowlist array
        * fields and the numeric watchdog/dnsTtl fields entirely — simulates a
@@ -773,8 +772,8 @@ describe('TfvarsService write path', () => {
   });
 
   /**
-   * Task 6.5 (`migrate-iac-to-pulumi` Phase 6) / `pulumi-infra-program`'s
-   * "Configuration round-trips losslessly" scenario: a `DeploymentConfig`
+   * `pulumi-infra-program`'s "Configuration round-trips losslessly" scenario:
+   * a `DeploymentConfig`
    * with EVERY field populated — every top-level field with a non-default,
    * non-empty value, and a `gameServers` entry with every optional
    * `GameServerConfig` field populated (not omitted) — must survive a

@@ -1,33 +1,27 @@
 /**
- * ECS cluster, per-game CloudWatch log groups, and per-game task definitions
- * — ported from `terraform/aws/main.tf`'s `## CloudWatch Log Groups`,
- * `## ECS Cluster`, and `## ECS Task Definitions` blocks (task 3.3 of
- * `migrate-iac-to-pulumi`).
+ * ECS cluster, per-game CloudWatch log groups, and per-game task definitions.
  *
- * | HCL address | This file |
+ * | Resource | This file |
  * | --- | --- |
- * | `aws_cloudwatch_log_group.game` (`for_each` over `var.game_servers`) | {@link EcsResources.logGroups} |
+ * | `aws_cloudwatch_log_group.game` (one per game) | {@link EcsResources.logGroups} |
  * | `aws_ecs_cluster.main` | {@link EcsResources.cluster} |
- * | `aws_ecs_task_definition.game` (`for_each` over `var.game_servers`) | {@link EcsResources.taskDefinitions} |
+ * | `aws_ecs_task_definition.game` (one per game) | {@link EcsResources.taskDefinitions} |
  *
  * ## Log-group ownership
  *
- * `aws_cloudwatch_log_group.game` sits in `main.tf` under its own heading,
- * textually separate from both the EFS block (task 3.2) and the ECS blocks
- * (task 3.3) — but every reader of a game's log group is a container in that
- * game's task definition (`aws_ecs_task_definition.game`'s two
- * `logConfiguration.options."awslogs-group"` references, one per container).
- * No Lambda function or other resource in the HCL reads
- * `aws_cloudwatch_log_group.game`. It is ported here, alongside the task
- * definitions that are its only consumer, rather than split into its own
- * module or deferred to a later task — there is no forward reference to
- * satisfy and no later dispatch that would otherwise own it.
+ * Every reader of a game's log group is a container in that game's task
+ * definition — each contributes its own
+ * `logConfiguration.options."awslogs-group"` reference (one for the game
+ * container, plus one more for the `caddy` sidecar on HTTPS games) — no
+ * Lambda or other resource reads a game's log group.
+ * It is declared here, alongside the task definitions that are its only
+ * consumer.
  *
  * ## No persistent ECS Service
  *
  * CLAUDE.md invariant: tasks are launched on demand via `RunTask`/`StopTask`
- * (the followup Lambda, task 3.6), never through an `aws.ecs.Service`. This
- * file declares `aws.ecs.TaskDefinition` only — see {@link defineEcs}'s doc.
+ * (the followup Lambda), never through an `aws.ecs.Service`. This file
+ * declares `aws.ecs.TaskDefinition` only — see {@link defineEcs}'s doc.
  */
 
 import * as aws from '@pulumi/aws';
@@ -56,9 +50,9 @@ export interface DefineEcsArgs {
   /** The configured game-server map (`DeploymentConfig.gameServers`) the log groups and task definitions are derived from by iteration. */
   gameServers: Record<string, GameServerConfig>;
   /**
-   * The EFS resources task 3.2's {@link defineEfs} declared
-   * — `fileSystem.id` and both access-point maps are threaded into each task
-   * definition's `volumes` block (`efs_volume_configuration`).
+   * The EFS resources {@link defineEfs} declares — `fileSystem.id` and both
+   * access-point maps are threaded into each task definition's `volumes`
+   * block (`efs_volume_configuration`).
    */
   efs: EfsResources;
   /** The ECS task-execution role's ARN (`defineIamRoles`'s `IamRoleResources.ecsTaskExecutionRole.arn`) — every task definition's `execution_role_arn`. */
@@ -94,16 +88,15 @@ function logConfiguration(
 
 /**
  * Declares the ECS cluster, one CloudWatch log group per game, and one task
- * definition per game — task 3.3 of `migrate-iac-to-pulumi`. Must be called
- * from inside the Pulumi inline-program closure, never at module scope, and
- * after {@link defineEfs} (its access points are required
- * inputs).
+ * definition per game. Must be called from inside the Pulumi inline-program
+ * closure, never at module scope, and after {@link defineEfs} (its access
+ * points are required inputs).
  *
  * Declares `aws.ecs.TaskDefinition` only — never `aws.ecs.Service`. Tasks are
- * started on demand via `RunTask`/`StopTask` (the followup Lambda, task 3.6)
- * against the family names this function declares; a persistent Service
- * would keep a task running (and billing) at all times, breaking the
- * on-demand cost model CLAUDE.md documents as an invariant.
+ * started on demand via `RunTask`/`StopTask` (the followup Lambda) against
+ * the family names this function declares; a persistent Service would keep a
+ * task running (and billing) at all times, breaking the on-demand cost model
+ * CLAUDE.md documents as an invariant.
  *
  * @param args - Naming, config, EFS, IAM, and provider inputs — see
  *   {@link DefineEcsArgs}.

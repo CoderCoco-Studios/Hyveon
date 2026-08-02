@@ -7,13 +7,13 @@ import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
 /**
- * Literal values standing in for task 3.2/3.6/3.8/3.9's eventual resource
- * outputs — {@link defineIamPolicies}'s deferred-ARN parameters.
- * `dynamodbDiscordTableArn` is deliberately wrapped in `pulumi.output(...)`
- * rather than passed as a bare string when building `DEFERRED_ARGS` below,
- * so at least one deferred parameter is exercised as a real `Output<string>`
- * (matching what task 3.8's real `aws.dynamodb.Table.arn` will be), not just
- * as a plain string that happens to satisfy `pulumi.Input<string>`.
+ * Literal stand-ins for the resource ARNs {@link defineIamPolicies} expects
+ * as its deferred-ARN parameters. `dynamodbDiscordTableArn` is deliberately
+ * wrapped in `pulumi.output(...)` rather than passed as a bare string when
+ * building `DEFERRED_ARGS` below, so at least one deferred parameter is
+ * exercised as a real `Output<string>` (matching what `aws.dynamodb.Table.arn`
+ * actually is), not just as a plain string that happens to satisfy
+ * `pulumi.Input<string>`.
  */
 const DEFERRED_ARN_VALUES = {
   efsFileSystemArn: 'arn:aws:elasticfilesystem:us-east-1:123456789012:file-system/fs-mock',

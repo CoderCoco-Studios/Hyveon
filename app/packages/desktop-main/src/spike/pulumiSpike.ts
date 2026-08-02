@@ -56,7 +56,7 @@ const SENTINEL = 'HYVEON_PULUMI_SPIKE_SENTINEL';
 /** Throwaway passphrase for the spike's `passphrase` secrets provider. */
 const SPIKE_PASSPHRASE = 'spike-throwaway-passphrase';
 
-/** Bare stack name — the DIY-backend naming rule pinned in `design.md`. */
+/** Bare stack name — no org/project prefix, per the DIY (non-S3) backend's naming rule. */
 const STACK_NAME = 'spike';
 
 /** Project name for the throwaway inline program. */
@@ -182,9 +182,9 @@ export async function runPulumiSpike(): Promise<void> {
       {
         stackName: STACK_NAME,
         projectName: PROJECT_NAME,
-        // The whole lifecycle of an inline program must be contained in the
-        // closure (design.md), so everything the program needs is captured here
-        // and nothing is awaited outside it.
+        // The whole lifecycle of an inline program must be contained in this
+        // closure, so everything the program needs is captured here and
+        // nothing is awaited outside it.
         program: async () => {
           closurePid = process.pid;
           const line = `${SENTINEL} pid=${process.pid} execPath=${process.execPath} moduleUrl=${moduleUrl}`;

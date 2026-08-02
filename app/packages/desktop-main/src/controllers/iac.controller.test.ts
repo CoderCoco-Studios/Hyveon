@@ -111,8 +111,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
 
 /**
  * Build a `PulumiService` stub as a plain object of `vi.fn()`s (mirroring
- * `iac-runs.controller.test.ts`'s `makePulumi` and this file's own
- * pre-migration `makeTerraform` pattern — never a real `PulumiService`
+ * `iac-runs.controller.test.ts`'s `makePulumi` — never a real `PulumiService`
  * instance, whose constructor deps are far heavier than a controller unit
  * test needs).
  *
@@ -121,12 +120,12 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * that yield nothing and return `undefined`; `mintDestroyConfirmationToken`
  * and `mintLockClearConfirmationToken` return fixed tokens; `resolveRollbackTarget` resolves a fixed prior
  * version; `computeRollbackDiff` resolves `undefined` (mirrors its
- * documented "no diff available" default — task 9.6); `readRunRecord`
+ * documented "no diff available" default); `readRunRecord`
  * returns `null` (no persisted record) unless a test overrides it;
- * `getStackOutputs` resolves `null`; `clearStaleLock` (task 9.4) resolves
+ * `getStackOutputs` resolves `null`; `clearStaleLock` resolves
  * `undefined` by default — i.e. "cleared successfully";
- * `initializeStack` (task 10.3) resolves immediately without ever calling
- * its `onPhase` callback, unless a test overrides it.
+ * `initializeStack` resolves immediately without ever calling its
+ * `onPhase` callback, unless a test overrides it.
  */
 function makePulumi(): PulumiService {
   const stub = {
@@ -320,9 +319,8 @@ describe('IacController', () => {
     });
 
     it('should register ipcMain.handle for "iac.stack.initialize" so ipcRenderer.invoke can resolve', async () => {
-      // Task 10.3: replaces the deleted `iac.init` channel — streams
-      // `onPhase` progress the same way `iac.plan` streams chunks, so it
-      // self-bridges too.
+      // Streams `onPhase` progress the same way `iac.plan` streams chunks,
+      // so it self-bridges too.
       await new IacController(makePulumi()).onModuleInit();
       expect(mockIpcMainHandle).toHaveBeenCalledWith('iac.stack.initialize', expect.any(Function));
     });
@@ -402,21 +400,20 @@ describe('IacController', () => {
     });
 
     // -------------------------------------------------------------------------
-    // C1 (fix round 1): "iac.rollback.confirm" was originally missing
-    // from this manual-registration set. Left off, it fell through to the
-    // GENERIC ipcMain.handle bridge, which invokes the underlying NestJS
-    // handler as `handler(payload, { evt })` via the transport's own
-    // RpcContextCreator — but confirmRollback's `ctx` parameter carries no
-    // `@Payload()`/etc decorator, so RpcContextCreator sized its internal
-    // args array to the one decorated parameter it saw and silently dropped
-    // `ctx`, which arrived as `undefined` at runtime. Every real invocation
-    // then threw `TypeError: Cannot read properties of undefined (reading
-    // 'evt')` on confirmRollback's first line. These tests both prove the
-    // registration exists AND — the actual blind spot that let this ship —
-    // that the registered callback constructs `ctx` from `evt` correctly,
-    // dispatching through the same `(evt, payload) => ...` shape the real
-    // ipcMain.handle callback fires with, rather than calling
-    // controller.confirmRollback(payload, ctx) directly.
+    // "iac.rollback.confirm" must stay in this manual-registration set: left
+    // off, it would fall through to the GENERIC ipcMain.handle bridge, which
+    // invokes the underlying NestJS handler as `handler(payload, { evt })` via
+    // the transport's own RpcContextCreator — but confirmRollback's `ctx`
+    // parameter carries no `@Payload()`/etc decorator, so RpcContextCreator
+    // would size its internal args array to the one decorated parameter it
+    // saw and silently drop `ctx`, arriving as `undefined` at runtime and
+    // throwing `TypeError: Cannot read properties of undefined (reading
+    // 'evt')` on confirmRollback's first line. These tests prove both that
+    // the registration exists AND that the registered callback constructs
+    // `ctx` from `evt` correctly, dispatching through the same
+    // `(evt, payload) => ...` shape the real ipcMain.handle callback fires
+    // with, rather than calling controller.confirmRollback(payload, ctx)
+    // directly.
     // -------------------------------------------------------------------------
 
     it('should register ipcMain.handle for "iac.rollback.confirm" so ipcRenderer.invoke can resolve', async () => {
@@ -460,7 +457,7 @@ describe('IacController', () => {
   });
 
   // -------------------------------------------------------------------------
-  // initializeStack (task 10.3) — replaces the deleted `init` no-op stub
+  // initializeStack
   // -------------------------------------------------------------------------
 
   describe('initializeStack', () => {
@@ -524,8 +521,8 @@ describe('IacController', () => {
     });
 
     it('should send an end message with only streamId and error (no structured failedPhase field) when PulumiService.initializeStack throws a PulumiStackInitializationError', async () => {
-      // Fix round 1: `failedPhase` was removed from the renderer-facing end
-      // message entirely — it never reliably crossed the contextBridge (see
+      // `failedPhase` is not included in the renderer-facing end message —
+      // it never reliably crosses the contextBridge (see
       // `IacController.initializeStack`'s own TSDoc, "Why no structured
       // failedPhase field"). The phase is still named in `error`'s prose
       // (via `PulumiStackInitializationError`'s own message format) and
@@ -767,17 +764,14 @@ describe('IacController', () => {
     });
 
     // -------------------------------------------------------------------------
-    // I1 (fix round 1): ported TOCTOU regression test. The original
-    // `terraform.controller.test.ts` (pre-task-7.10) pinned the load-bearing
-    // ordering where `stream.next()` — which synchronously reserves the
-    // shared workspace inside PulumiService.preview, before its own first
-    // `await` — happens BEFORE `await this.audit?.record(...)`. That ordering
-    // is exactly as load-bearing in the rewritten controller: if a future
-    // edit ever moved the audit-record await above the `.next()` call, two
-    // concurrent plan submissions could both pass the top-of-function
+    // TOCTOU regression test: pins the load-bearing ordering where
+    // `stream.next()` — which synchronously reserves the shared workspace
+    // inside PulumiService.preview, before its own first `await` — happens
+    // BEFORE `await this.audit?.record(...)`. If a future edit ever moved the
+    // audit-record await above the `.next()` call, two concurrent plan
+    // submissions could both pass the top-of-function
     // `getOperationInFlight()` busy check before either one actually reserves
-    // the workspace. No equivalent test existed in this rewritten file, so
-    // that regression could reopen with a fully green suite.
+    // the workspace.
     // -------------------------------------------------------------------------
 
     it('should never resolve { started: true } for a second concurrent submission while a plan is already in flight, even when audit.record() is slow', async () => {
@@ -862,14 +856,14 @@ describe('IacController', () => {
     });
 
     // -----------------------------------------------------------------------
-    // New coverage (task 7.10): the controller now awaits the gate's first
-    // .next() call before acking. PulumiService.apply's 8-step gate (plan
-    // lookup, approval/expiry, plan-hash verification, engine-version check,
-    // durable lock acquisition) is entirely self-contained inside the
-    // service now — this controller has nothing left to re-verify, so these
-    // tests exercise the awaiting-first-.next() contract itself rather than
-    // re-deriving the gate's own step-by-step behavior (already covered by
-    // PulumiService's own test suite).
+    // The controller awaits the gate's first .next() call before acking.
+    // PulumiService.apply's 8-step gate (plan lookup, approval/expiry,
+    // plan-hash verification, engine-version check, durable lock
+    // acquisition) is entirely self-contained inside the service — this
+    // controller has nothing left to re-verify, so these tests exercise the
+    // awaiting-first-.next() contract itself rather than re-deriving the
+    // gate's own step-by-step behavior (already covered by PulumiService's
+    // own test suite).
     // -----------------------------------------------------------------------
 
     it('should reject with { started: false, error } (no conflict) and never touch activeApplies or record an audit entry when the gate\'s first .next() rejects with a generic error', async () => {
@@ -919,12 +913,12 @@ describe('IacController', () => {
     });
 
     it('should reject with { started: false, error, conflict: "preview" } and never touch activeApplies or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
-      // I2 (fix round 1): PulumiService.apply's own in-process
-      // operationInFlight mutex (checked before any of the 8 gate steps) is
-      // cheaper and earlier than the durable RunLockHeldError race above —
-      // but before this fix, only RunLockHeldError populated `conflict`; a
-      // plain busy-mutex rejection fell into the generic branch and silently
-      // lost the field the renderer's busy banner (terraform.page.tsx) reads.
+      // PulumiService.apply's own in-process operationInFlight mutex (checked
+      // before any of the 8 gate steps) is cheaper and earlier than the
+      // durable RunLockHeldError race above, and must also populate
+      // `conflict` — a plain busy-mutex rejection must not fall into the
+      // generic branch and lose the field the renderer's busy banner
+      // (iac.page.tsx) reads.
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate the top-of-function busy check
       async function* rejectsBusy(): AsyncGenerator<PulumiRunChunk> {
         throw new PulumiOperationInFlightError('preview');
@@ -1142,10 +1136,9 @@ describe('IacController', () => {
     });
 
     // -----------------------------------------------------------------------
-    // New coverage (task 7.10): mirrors apply()'s awaiting-first-.next()
-    // tests — PulumiService.destroy's own gate (busy check, config-presence
-    // checks, single-use token consumption, durable lock acquisition) is
-    // entirely self-contained now.
+    // Mirrors apply()'s awaiting-first-.next() tests — PulumiService.destroy's
+    // own gate (busy check, config-presence checks, single-use token
+    // consumption, durable lock acquisition) is entirely self-contained.
     // -----------------------------------------------------------------------
 
     it('should reject with { started: false, error } (no conflict) and never touch activeDestroys or record an audit entry when the gate\'s first .next() rejects with a generic error (e.g. DestroyNotConfirmedError)', async () => {
@@ -1192,9 +1185,9 @@ describe('IacController', () => {
     });
 
     it('should reject with { started: false, error, conflict: "up" } and never touch activeDestroys or record an audit entry when the gate\'s top-of-function operationInFlight busy check rejects with PulumiOperationInFlightError', async () => {
-      // I2 (fix round 1), mirrors the equivalent apply() test — see that
-      // test's comment for why the in-process busy mutex needs the exact
-      // same `conflict` treatment as the durable RunLockHeldError race above.
+      // Mirrors the equivalent apply() test — see that test's comment for
+      // why the in-process busy mutex needs the exact same `conflict`
+      // treatment as the durable RunLockHeldError race above.
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate the top-of-function busy check
       async function* rejectsBusy(): AsyncGenerator<PulumiRunChunk> {
         throw new PulumiOperationInFlightError('up');
@@ -1646,7 +1639,7 @@ describe('IacController', () => {
   });
 
   // -------------------------------------------------------------------------
-  // confirmRollback — the one structurally new streaming shape (task 7.10)
+  // confirmRollback — a structurally distinct streaming shape
   // -------------------------------------------------------------------------
 
   describe('confirmRollback', () => {
@@ -1837,12 +1830,12 @@ describe('IacController', () => {
     });
 
     it('should return { confirmed: false, versionId, error } — surfacing the version that WAS restored — when the restore-then-plan unit fails with PulumiRollbackPlanFailedError', async () => {
-      // I3 (fix round 1): the restore write succeeded (the config version
-      // named by restoredVersionId is now the new head) even though the
-      // follow-up plan inside PulumiService.confirmRollback failed — before
-      // this fix, that fact was only readable out of err.message's prose,
-      // not programmatically, so a caller couldn't act on it (e.g. offer
-      // "plan against the restored version" as a next step).
+      // The restore write succeeded (the config version named by
+      // restoredVersionId is now the new head) even though the follow-up
+      // plan inside PulumiService.confirmRollback failed. That fact must be
+      // readable programmatically, not just out of err.message's prose, so a
+      // caller can act on it (e.g. offer "plan against the restored version"
+      // as a next step).
       const pulumi = makePulumi();
       const error = new PulumiRollbackPlanFailedError(
         'apply-run-1',

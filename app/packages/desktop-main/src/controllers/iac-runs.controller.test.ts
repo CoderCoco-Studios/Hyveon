@@ -39,11 +39,9 @@ vi.mock('../logger.js', () => ({
  * `planArtifactExists` seeds `hasPlanArtifact`'s return value;
  * `streamRunOutput` seeds an empty async generator by default so `logs()`
  * tests can override it per-case via `vi.mocked(...).mockImplementation(...)`.
- * Task 7.10: replaces the pre-migration `makeTerraform` stub (this
- * controller's `readRunRecord`/`hasPlanArtifact`/`streamRunOutput` calls were
- * repointed from `TerraformService` onto `PulumiService`, an identical
- * signature/behavior port — see those methods' own doc comments on
- * `PulumiService.ts`).
+ * Backs the controller's `readRunRecord`/`hasPlanArtifact`/`streamRunOutput`
+ * calls, which are routed through `PulumiService` (see that class's own doc
+ * comments for signature/behavior details).
  */
 function makePulumi(
   record: PulumiRunRecord | null = null,

@@ -1,5 +1,5 @@
 import { DiscordController } from '@hyveon/desktop-main/dist/controllers/discord.controller.js';
-import { test, expect } from './index.js';
+import { test, expect, DEFAULT_STACK_OUTPUTS } from './index.js';
 
 /**
  * Verifies the server-side secret-redaction contract for `DiscordController.getConfig`.
@@ -9,17 +9,24 @@ import { test, expect } from './index.js';
  * This spec dispatches directly to the IPC controller and asserts that the raw
  * `botToken` and `publicKey` fields are absent from the response body.
  *
- * DynamoDB and Secrets Manager calls fail gracefully in the test environment
- * (no real AWS credentials), so the service returns an empty config with both
- * `*Set` flags false — which is still sufficient to prove the redaction contract.
+ * `DiscordConfigService` resolves its DynamoDB table name and Secrets Manager
+ * ARNs from `ConfigService.getStackOutputs()`, so the `ipc` harness's
+ * `PulumiService` DI-seam stub is scripted with `DEFAULT_STACK_OUTPUTS` first
+ * — without it, `getRedacted()` throws before ever reaching DynamoDB/Secrets
+ * Manager (see `DiscordConfigService.botTokenSecretArn`/`publicKeySecretArn`,
+ * "not in the deployed stack outputs"). The subsequent DynamoDB and Secrets
+ * Manager calls themselves still fail gracefully in the test environment (no
+ * real AWS credentials), so the service returns an empty config with both
+ * `*Set` flags false — which is still sufficient to prove the redaction
+ * contract.
  */
-// Skipped: this spec's IPC harness is wired against the pre-Pulumi service
-// surface — PR #372 replaces it with a PulumiService DI-seam stub.
-test.describe.skip('Discord config — secret redaction', () => {
+test.describe('Discord config — secret redaction', () => {
   test('should never echo the bot token or public key in the config response', async ({
     ipc,
     serverMocks: _reset,
   }) => {
+    ipc.mocks.pulumi.scriptStackOutputs(DEFAULT_STACK_OUTPUTS);
+
     const body = (await ipc.dispatch(DiscordController, 'getConfig')) as Record<string, unknown>;
 
     // Raw secrets must not be present — the contract is booleans-only.
