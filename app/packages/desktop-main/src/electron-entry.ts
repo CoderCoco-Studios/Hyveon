@@ -82,12 +82,11 @@ app.whenReady().then(() => {
 
       createWindow();
 
-      // SPIKE SCAFFOLDING — `migrate-iac-to-pulumi` tasks 1.3 / 1.5. Gated
+      // SPIKE SCAFFOLDING — a leftover early prototype for validating the
+      // Pulumi Automation API, now superseded by `PulumiEngineService`. Gated
       // behind HYVEON_PULUMI_SPIKE=1 and imported dynamically so that a normal
       // app start never loads `@pulumi/pulumi` or `@grpc/grpc-js`. Remove this
-      // block together with `spike/pulumiSpike.ts` and
-      // `isPulumiSpikeEnabled()` once `PulumiEngineService` (Phase 4)
-      // supersedes them.
+      // block together with `spike/pulumiSpike.ts` and `isPulumiSpikeEnabled()`.
       //
       // `!isTestMode()` is load-bearing, not defensive: Playwright's
       // `electronEnv` spreads the whole inherited environment into every

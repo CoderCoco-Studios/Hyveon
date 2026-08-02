@@ -119,7 +119,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
  * Defaults: `getOperationInFlight` reports `null` (workspace free);
  * `preview`/`apply`/`destroy`/`confirmRollback` are empty async generators
  * that yield nothing and return `undefined`; `mintDestroyConfirmationToken`
- * returns a fixed token; `resolveRollbackTarget` resolves a fixed prior
+ * and `mintLockClearConfirmationToken` return fixed tokens; `resolveRollbackTarget` resolves a fixed prior
  * version; `computeRollbackDiff` resolves `undefined` (mirrors its
  * documented "no diff available" default — task 9.6); `readRunRecord`
  * returns `null` (no persisted record) unless a test overrides it;
@@ -136,6 +136,7 @@ function makePulumi(): PulumiService {
     destroy: vi.fn().mockImplementation(async function* () { /* empty */ }),
     confirmRollback: vi.fn().mockImplementation(async function* () { /* empty */ }),
     mintDestroyConfirmationToken: vi.fn().mockReturnValue('token-abc'),
+    mintLockClearConfirmationToken: vi.fn().mockReturnValue('lock-clear-token-abc'),
     resolveRollbackTarget: vi.fn().mockResolvedValue({
       versionId: 'tfvars-v-prior',
       lastModified: new Date('2026-07-20T00:00:00.000Z'),
@@ -280,6 +281,11 @@ describe('IacController', () => {
     it('should register clearStaleLock on the "iac.lock.clear" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.clearStaleLock);
       expect(pattern).toEqual(['iac.lock.clear']);
+    });
+
+    it('should register mintLockClearToken on the "iac.lock.clear.mintToken" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacController.prototype.mintLockClearToken);
+      expect(pattern).toEqual(['iac.lock.clear.mintToken']);
     });
   });
 
@@ -1861,20 +1867,34 @@ describe('IacController', () => {
   });
 
   describe('clearStaleLock', () => {
-    it('should return { cleared: true } when PulumiService.clearStaleLock resolves', async () => {
+    /** The `iac.lock.clear` payload matching {@link makePulumi}'s default `mintLockClearConfirmationToken` stub. */
+    const LOCK_CLEAR_PAYLOAD = { confirmationToken: 'lock-clear-token-abc' };
+
+    it('should return { cleared: true } and delegate to PulumiService.clearStaleLock(token) when PulumiService.clearStaleLock resolves', async () => {
       const pulumi = makePulumi();
 
-      const result = await new IacController(pulumi).clearStaleLock();
+      const result = await new IacController(pulumi).clearStaleLock(LOCK_CLEAR_PAYLOAD);
 
       expect(result).toEqual({ cleared: true });
       expect(pulumi.clearStaleLock).toHaveBeenCalledTimes(1);
+      expect(pulumi.clearStaleLock).toHaveBeenCalledWith('lock-clear-token-abc');
+    });
+
+    it('should return { cleared: false, error } and never call PulumiService.clearStaleLock when confirmationToken is missing', async () => {
+      const pulumi = makePulumi();
+
+      const result = await new IacController(pulumi).clearStaleLock({ confirmationToken: '' });
+
+      expect(result.cleared).toBe(false);
+      expect(result.error).toMatch(/non-empty confirmationToken/i);
+      expect(pulumi.clearStaleLock).not.toHaveBeenCalled();
     });
 
     it('should return { cleared: false, error } naming the in-flight operation when PulumiService.clearStaleLock rejects with PulumiOperationInFlightError', async () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.clearStaleLock).mockRejectedValue(new PulumiOperationInFlightError('up'));
 
-      const result = await new IacController(pulumi).clearStaleLock();
+      const result = await new IacController(pulumi).clearStaleLock(LOCK_CLEAR_PAYLOAD);
 
       expect(result.cleared).toBe(false);
       expect(result.error).toMatch(/up.*already running/i);
@@ -1884,12 +1904,28 @@ describe('IacController', () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.clearStaleLock).mockRejectedValue(new Error('pulumi stack.cancel() failed while clearing the stale backend lock: boom'));
 
-      const result = await new IacController(pulumi).clearStaleLock();
+      const result = await new IacController(pulumi).clearStaleLock(LOCK_CLEAR_PAYLOAD);
 
       expect(result).toEqual({
         cleared: false,
         error: 'pulumi stack.cancel() failed while clearing the stale backend lock: boom',
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // mintLockClearToken
+  // -------------------------------------------------------------------------
+
+  describe('mintLockClearToken', () => {
+    it('should return the token minted by PulumiService.mintLockClearConfirmationToken', () => {
+      const pulumi = makePulumi();
+      const controller = new IacController(pulumi);
+
+      const result = controller.mintLockClearToken();
+
+      expect(pulumi.mintLockClearConfirmationToken).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ token: 'lock-clear-token-abc' });
     });
   });
 });

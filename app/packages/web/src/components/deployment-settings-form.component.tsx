@@ -1,11 +1,11 @@
 /**
- * Deployment-settings editor for the Settings page's "General" section
- * (task 9.7, `migrate-iac-to-pulumi`). Reads and writes every top-level
- * `DeploymentConfig` field EXCEPT `gameServers` — region, hosted zone, DNS
- * TTL, watchdog tuning, Discord admin allowlists, Discord application ID,
- * and the audit/runs table name overrides. `gameServers` keeps its own
- * dedicated add-game-wizard/edit-game-form flow and is never reachable from
- * this component.
+ * Deployment-settings editor for the Settings page's "General" section.
+ * Reads and writes every top-level `DeploymentConfig` field EXCEPT
+ * `gameServers` — region, hosted zone, DNS TTL, watchdog tuning, Discord
+ * admin allowlists, Discord application ID, and the audit/runs table name
+ * overrides. `gameServers` keeps its own dedicated
+ * add-game-wizard/edit-game-form flow and is never reachable from this
+ * component.
  *
  * Mirrors `EditGameForm`'s (`edit-game-form.component.tsx`) established
  * shape rather than inventing a new one:
@@ -23,9 +23,9 @@
  *
  * Unlike the game-server CRUD flow (where `expectedVersionId` is an
  * opt-in caller convenience), this form ALWAYS sends the etag it last read
- * as `expectedVersionId` — task 9.7's brief calls this out explicitly:
- * silently clobbering a concurrent edit is exactly what optimistic locking
- * exists to prevent for a live settings form. A `code: 'conflict'` result
+ * as `expectedVersionId` — silently clobbering a concurrent edit is exactly
+ * what optimistic locking exists to prevent for a live settings form. A
+ * `code: 'conflict'` result
  * surfaces a "this setting was changed elsewhere since you loaded this page
  * — reload and try again" message and does NOT silently retry or overwrite
  * — mirroring how `EditGameForm`'s `handleSave` routes every
@@ -80,11 +80,11 @@ interface SettingsDraft {
  * three array fields, `''` for `hostedZoneName`, which has no default) when
  * absent — defense in depth on top of `TfvarsService.getTopLevelSettings()`
  * already running the parsed document through `withDeploymentConfigDefaults`
- * server-side (task 9.7 review round 1, finding I2): `window.hyveon.iac.settings.get()`'s
- * declared return type is exactly that, a TYPE, not a
- * runtime guarantee — a stale preload build, an intercepted/mocked IPC
- * response in a test, or a future regression in the server-side defaulting
- * could all still hand this function an incomplete object. Without this,
+ * server-side: `window.hyveon.iac.settings.get()`'s declared return type is
+ * exactly that, a TYPE, not a runtime guarantee — a stale preload build, an
+ * intercepted/mocked IPC response in a test, or a future regression in the
+ * server-side defaulting could all still hand this function an incomplete
+ * object. Without this,
  * `SnowflakeListField`'s `value.map(...)` below would throw on an `undefined`
  * array field and white-screen the whole `/settings` route, and the numeric
  * fields would render the literal string `"undefined"` via a bare
@@ -284,15 +284,15 @@ export function DeploymentSettingsForm() {
    * UI reaction; on any failure branch the draft is left untouched so the
    * operator doesn't lose their edits.
    *
-   * Refuses to save outright when `etag` is falsy (review round 1, M1):
+   * Refuses to save outright when `etag` is falsy:
    * `TfvarsService.putRawConfig()` omits the conditional-put `ifMatch` guard
    * entirely when `expectedVersionId` is falsy, turning the write into a
-   * SILENT unconditional overwrite — exactly what "optimistic locking is
-   * mandatory for this form" (the module doc's own words) exists to
-   * prevent. In practice `iac.settings.get()` always returns an etag (every
-   * `RemoteFileStore` implementation sets one on `get()`), so this path is
-   * defensive rather than expected to fire — but degrading to an
-   * unconditional write silently would be worse than refusing loudly.
+   * SILENT unconditional overwrite — exactly what optimistic locking exists
+   * to prevent for this form. In practice `iac.settings.get()` always
+   * returns an etag (every `RemoteFileStore` implementation sets one on
+   * `get()`), so this path is defensive rather than expected to fire — but
+   * degrading to an unconditional write silently would be worse than
+   * refusing loudly.
    */
   async function handleSave() {
     if (!draft || !hasSettingsBridge()) return;
@@ -591,10 +591,9 @@ function TextField({
 /**
  * Chip-style editor for a Discord snowflake ID list — a smaller,
  * form-local counterpart to `discord.page.tsx`'s `SnowflakeChipsInput`
- * (not reused directly: that component is private to the Discord page and
- * out of scope for task 9.7 to refactor into a shared export). Tokens
- * commit on Enter, comma, or blur; Backspace on an empty draft removes the
- * last chip.
+ * (not reused directly: that component is private to the Discord page).
+ * Tokens commit on Enter, comma, or blur; Backspace on an empty draft
+ * removes the last chip.
  */
 function SnowflakeListField({
   id,

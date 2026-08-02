@@ -21,9 +21,9 @@
 export const PULUMI_ENGINE_VERSION = '3.255.0';
 
 /**
- * Result shape for the `iac.settings.engineVersion` IPC channel (task 10.4,
- * `migrate-iac-to-pulumi`) — Settings' Cloud Setup version row reads this to
- * pair the resolved engine version with {@link PULUMI_ENGINE_VERSION}.
+ * Result shape for the `iac.settings.engineVersion` IPC channel — Settings'
+ * Cloud Setup version row reads this to pair the resolved engine version
+ * with {@link PULUMI_ENGINE_VERSION}.
  * `resolvedVersion` mirrors `PulumiEngineService.getResolvedVersion()`'s own
  * return type verbatim: `null` means the engine has not been provisioned yet
  * (including while a first resolution is still in flight) — a real, expected

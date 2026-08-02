@@ -8,19 +8,7 @@ import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.util
 
 /**
  * Human-readable heading for each {@link BootstrapResourceKey} this step
- * renders an editable row for — today, every key on that type.
- *
- * @remarks
- * Until task 10.3, {@link BootstrapResourceKey} also carried a `lockTable`
- * member this step deliberately excluded from its rendered rows (nothing
- * has bootstrapped a DynamoDB lock table since task 5.1 removed
- * `BootstrapService.ensureLockTable` and its `wizard.bootstrap.lockTable`
- * IPC channel, so an editable name field for it would have had zero effect
- * on what gets created — only on a value the now-deleted `terraform-init`
- * step's `backendConfig` separately fed to the also-now-deleted
- * `terraform.init` call). Task 10.3 removed `lockTable` from
- * {@link BootstrapResourceKey} entirely, so this record now covers every key
- * on that type — no `Exclude<...>` narrowing needed any more.
+ * renders an editable row for — every key on that type.
  */
 const RESOURCE_LABELS: Record<BootstrapResourceKey, string> = {
   stateBucket: 'Terraform state bucket',

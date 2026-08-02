@@ -11,15 +11,8 @@ export { WIZARD_STEPS, type WizardStep };
  * A backend bootstrap resource name tracked by the wizard's bootstrap step.
  *
  * @remarks
- * `lockTable` named this union until task 10.3: it was never a resource the
- * bootstrap step creates — nothing has bootstrapped a DynamoDB lock table
- * since task 5.1 removed `BootstrapService.ensureLockTable` — and the
- * bootstrap step never rendered a row for it. It survived only because the
- * now-deleted `terraform-init` step's `backendConfig.dynamodbTable` fed it
- * to the (also now-deleted) `terraform.init` call, which required a
- * non-empty string. Task 10.3 replaced that step with the Pulumi
- * stack-initialization step, which needs no lock-table name at all — so the
- * key is gone.
+ * Does not include a lock-table key: nothing bootstraps a DynamoDB lock
+ * table, and the bootstrap step never renders a row for one.
  */
 export type BootstrapResourceKey = 'stateBucket' | 'configurationBucket';
 

@@ -703,12 +703,12 @@ describe('TfvarsService write path', () => {
       // boundary carries plain JSON, not enforced TypeScript types), proving
       // the service-level defense (not just the type system) is what
       // actually protects the map.
-      const maliciousPatch = {
+      await service.updateTopLevelSettings({
         dnsTtl: 90,
+        // @ts-expect-error — simulates a runtime IPC payload that smuggles
+        // `gameServers` past the compile-time parameter type.
         gameServers: { palworld: { image: 'evil/corrupted-image', cpu: 1, memory: 1, ports: [], volumes: [] } },
-      } as unknown as Partial<DeploymentConfig>;
-
-      await service.updateTopLevelSettings(maliciousPatch);
+      });
 
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
       const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;

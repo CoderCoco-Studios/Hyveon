@@ -49,7 +49,7 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { TfvarsService, ConfigurationNotConfiguredError } from './TfvarsService.js';
+import { TfvarsService, ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 
@@ -347,6 +347,11 @@ describe('TfvarsService', () => {
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       expect(service.isConfigured()).toBe(true);
     });
+
+    it('should return false when the configuration bucket resolves to an empty string, matching fetchRawConfig/putRawConfig\'s truthiness check', () => {
+      const service = new TfvarsService(makeConfig({ bucket: '' }), remoteFileStore);
+      expect(service.isConfigured()).toBe(false);
+    });
   });
 
   describe('unconfigured (no disk fallback reachable)', () => {
@@ -533,6 +538,27 @@ describe('TfvarsService', () => {
       service.nowMock.mockReturnValue(1_010_000); // 10s later, well within a 30s TTL
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw a structural GameServerEntryError from addGameServer when the config JSON has no gameServers map', async () => {
+      remoteFileStore.get.mockResolvedValue({
+        body: new TextEncoder().encode('{"awsRegion":"us-east-1"}'),
+        etag: 'etag-1',
+      });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const entry = {
+        image: 'ryshe/terraria',
+        cpu: 512,
+        memory: 1024,
+        ports: [{ container: 7777, protocol: 'tcp' as const }],
+        volumes: [{ name: 'world', container_path: '/config' }],
+      };
+
+      await expect(service.addGameServer('terraria', entry)).rejects.toMatchObject({
+        reason: 'structural',
+      });
+      await expect(service.addGameServer('terraria', entry)).rejects.toBeInstanceOf(GameServerEntryError);
     });
 
     it('should retry the source once the TTL has elapsed after a failed parse', async () => {
