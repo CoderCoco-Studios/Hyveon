@@ -238,7 +238,7 @@ export class TfvarsService {
    * never-reject contract means it can't surface that distinction itself).
    */
   isConfigured(): boolean {
-    return this.config.getConfigurationBucket() !== null;
+    return Boolean(this.config.getConfigurationBucket());
   }
 
   /**
@@ -464,9 +464,9 @@ export class TfvarsService {
     expectedVersionId: string | undefined,
     mutate: (raw: string) => string,
   ): Promise<{ etag: string; versionId?: string }> {
-    const { config: raw } = await this.fetchRawConfig();
+    const { config: raw, etag } = await this.fetchRawConfig();
     const mutated = mutate(raw);
-    const result = await this.putRawConfig(mutated, expectedVersionId);
+    const result = await this.putRawConfig(mutated, expectedVersionId ?? etag);
     this.invalidateCache();
     return result;
   }

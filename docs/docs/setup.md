@@ -154,8 +154,9 @@ On the AWS side you need:
 > needs** on `${project_name}-tf-state` — the bucket the desktop app's
 > bootstrap step creates to hold infra state. `s3:ListBucket` (bucket-level)
 > plus `s3:GetObject`/`s3:PutObject`/`s3:DeleteObject` (object-level) are
-> exactly what a DIY S3 state backend needs to read and write state objects,
-> locks, and history under its own prefix. `s3:PutBucketVersioning` and
+> exactly what a DIY S3 state backend needs to read and write state objects
+> and history under its own prefix. Locking uses a separate DynamoDB table
+> (`${project_name}-tf-locks`, see step 3 below), not S3. `s3:PutBucketVersioning` and
 > `s3:PutEncryptionConfiguration` are what the bootstrap step's
 > `ensureStateBucket` call uses to enable versioning and default (AES256)
 > encryption on this bucket; `s3:PutBucketPublicAccessBlock` lets it harden
