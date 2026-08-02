@@ -220,6 +220,26 @@ describe('RunRecordService', () => {
       expect(record.tfvarsVersionId).toBe('v-1');
     });
 
+    it('should include partialApply on the record when present on params', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.persist(makeParams({ partialApply: true }), null);
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.partialApply).toBe(true);
+    });
+
+    it('should omit partialApply from the record when absent on params', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.persist(makeParams(), null);
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record).not.toHaveProperty('partialApply');
+    });
+
     it('should include planHash on the record when present on params', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();

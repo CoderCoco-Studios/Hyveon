@@ -58,8 +58,8 @@ function makeStore(): RunRecordStore {
 
 /** Builds a `RunService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
 function makeService(outputs: StackOutputs | null = TF, store: RunRecordStore = makeStore()): RunService {
-  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
-  return new RunService(config, store);
+  const configStub: Partial<ConfigService> = { getStackOutputs: async () => outputs };
+  return new RunService(configStub as ConfigService, store);
 }
 
 beforeEach(() => {

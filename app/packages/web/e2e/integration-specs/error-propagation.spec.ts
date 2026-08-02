@@ -16,7 +16,7 @@ import { test, expect } from './index.js';
  * channel and delegates to `EcsService`, so this spec exercises the real
  * error-propagation path. A deployed-stack scripted response
  * (`STACK_OUTPUTS_FIXTURE`) is required — `start()` short-circuits with a
- * "Terraform not applied" guard before ever reaching RunTask for a
+ * "Infrastructure not deployed" guard before ever reaching RunTask for a
  * never-deployed stack.
  */
 test.describe('Error propagation', () => {

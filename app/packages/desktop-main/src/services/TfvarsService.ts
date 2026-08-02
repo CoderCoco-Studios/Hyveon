@@ -230,15 +230,18 @@ export class TfvarsService {
 
   /**
    * Reports whether a configuration bucket is currently configured
-   * (`ConfigService.getConfigurationBucket()` resolves non-`null`) — i.e.
-   * whether setup is complete enough for this service to read/write real
-   * configuration content. Lets a caller distinguish "unconfigured" from
+   * (`ConfigService.getConfigurationBucket()` resolves a non-empty bucket
+   * name) — i.e. whether setup is complete enough for this service to
+   * read/write real configuration content. Matches the same truthy check
+   * {@link fetchRawConfig}/{@link putRawConfig} use, so this never reports
+   * "configured" for an empty-string bucket that every actual read/write
+   * would then reject. Lets a caller distinguish "unconfigured" from
    * "configured but genuinely zero games" for wizard-routing purposes,
    * since {@link getGameServers} resolves to `[]` in both cases (its
    * never-reject contract means it can't surface that distinction itself).
    */
   isConfigured(): boolean {
-    return this.config.getConfigurationBucket() !== null;
+    return Boolean(this.config.getConfigurationBucket());
   }
 
   /**
@@ -349,7 +352,7 @@ export class TfvarsService {
    * @param config - The new entry's fields (everything but `name`, which is
    *   the map key rather than an object attribute).
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to write unconditionally.
+   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -379,7 +382,7 @@ export class TfvarsService {
    * @param name - The `gameServers` map key to update.
    * @param config - The entry's new fields (everything but `name`).
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to write unconditionally.
+   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -408,7 +411,7 @@ export class TfvarsService {
    *
    * @param name - The `gameServers` map key to remove.
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to write unconditionally.
+   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -452,11 +455,19 @@ export class TfvarsService {
    * {@link fetchRawConfig}, applies `mutate` to it, writes the mutated text
    * back via {@link putRawConfig} (a conditional `RemoteFileStore.put()`),
    * and invalidates the in-memory `getGameServers()` cache so the next read
-   * reflects the write. `mutate` running before the write (rather than
-   * concurrently) keeps the conditional-put guard meaningful —
-   * `expectedVersionId` is checked against the store's current etag at write
-   * time, so a conflicting write since `fetchRawConfig` ran is still caught
-   * even though `mutate` itself is synchronous.
+   * reflects the write.
+   *
+   * Falls back to the etag {@link fetchRawConfig} just read when the caller
+   * omits `expectedVersionId`, rather than writing unconditionally — two
+   * callers that both omit it (e.g. `GamesWriteService`'s create path, which
+   * has no prior read to base a version on) would otherwise be able to
+   * silently clobber each other's mutation: both read the same document,
+   * each applies a different change, and the later write wins outright with
+   * no conflict ever raised. Using the just-read etag as the guard instead
+   * means a genuine concurrent write between this read and this write still
+   * surfaces as an {@link OptimisticLockError}, while a caller's own
+   * intentionally-empty starting point (this read's etag) still succeeds
+   * normally.
    *
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    */
@@ -464,9 +475,9 @@ export class TfvarsService {
     expectedVersionId: string | undefined,
     mutate: (raw: string) => string,
   ): Promise<{ etag: string; versionId?: string }> {
-    const { config: raw } = await this.fetchRawConfig();
+    const { config: raw, etag } = await this.fetchRawConfig();
     const mutated = mutate(raw);
-    const result = await this.putRawConfig(mutated, expectedVersionId);
+    const result = await this.putRawConfig(mutated, expectedVersionId ?? etag);
     this.invalidateCache();
     return result;
   }

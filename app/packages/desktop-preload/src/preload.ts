@@ -90,6 +90,7 @@
 
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
+import type { StackOutputs } from '@hyveon/shared';
 import type {
   CreateGamePayload,
   DeleteGamePayload,
@@ -110,7 +111,6 @@ import type {
   TerraformRunsGetResult,
   TerraformRunsListOpts,
   RunHistoryPageResult,
-  TfOutputs,
   UpdateGamePayload,
   PrerequisitesReport,
   AwsProfileSummary,
@@ -743,7 +743,7 @@ const api: HyveonApi = {
     apply: (payload: TerraformApplyPayload) => invoke<TerraformPlanAck>('iac.apply', payload),
     mintDestroyToken: () => invoke<TerraformDestroyMintAck>('iac.destroy.mintToken'),
     destroy: (payload: TerraformDestroyPayload) => invoke<TerraformPlanAck>('iac.destroy', payload),
-    output: (force?: boolean) => invoke<TfOutputs | null>('iac.output', { force }),
+    output: (force?: boolean) => invoke<StackOutputs | null>('iac.output', { force }),
     runs: {
       get: (runId: string) => invoke<TerraformRunsGetResult>('iac.runs.get', { runId }),
       streamLogs: openTerraformRunLogsStream,

@@ -51,12 +51,21 @@ export class AwsAuditLogStore implements AuditLogStore {
   ) {}
 
   /**
-   * Resolves the configured table name, throwing a clear error instead of
-   * letting an unconfigured table fall through to a malformed DynamoDB
-   * request.
+   * Resolves `getConfig()` exactly once, so `putEntry`/`listEntries` build
+   * their client and table name from the same snapshot rather than two
+   * independent (and possibly inconsistent) reads.
    */
-  private async getTableName(): Promise<string> {
-    const tableName = (await this.getConfig?.())?.tableName;
+  private async resolveConfig(): Promise<{ tableName: string; region?: string } | undefined> {
+    return this.getConfig?.();
+  }
+
+  /**
+   * Extracts the table name from an already-resolved config, throwing a
+   * clear error instead of letting an unconfigured table fall through to a
+   * malformed DynamoDB request.
+   */
+  private tableNameFrom(config: { tableName: string; region?: string } | undefined): string {
+    const tableName = config?.tableName;
     if (!tableName) {
       throw new Error(
         'AwsAuditLogStore: table not configured. Supply a getConfig callback that resolves { tableName }.',
@@ -66,15 +75,15 @@ export class AwsAuditLogStore implements AuditLogStore {
   }
 
   /**
-   * Lazily constructs the DynamoDB document client, recreating it whenever
-   * the freshly-resolved region differs from the region the cached client
-   * was built with — mirrors `AwsSecretsStore.getClient`'s
+   * Lazily constructs the DynamoDB document client from an already-resolved
+   * config, recreating it whenever the region differs from the region the
+   * cached client was built with — mirrors `AwsSecretsStore.getClient`'s
    * rebuild-on-region-change pattern. Region defaults come from the
    * dedicated {@link resolveDefaultAwsRegion} environment accessor rather
    * than reading `process.env` inline.
    */
-  private async getClient(): Promise<DynamoDBDocumentClient> {
-    const region = (await this.getConfig?.())?.region ?? resolveDefaultAwsRegion();
+  private clientFor(config: { tableName: string; region?: string } | undefined): DynamoDBDocumentClient {
+    const region = config?.region ?? resolveDefaultAwsRegion();
 
     if (!this.client || this.clientRegion !== region) {
       this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
@@ -95,9 +104,10 @@ export class AwsAuditLogStore implements AuditLogStore {
    * @param entry - The entry to persist, including its `sk` (see `buildAuditSk`).
    */
   async putEntry(entry: AuditEntry): Promise<void> {
-    await (await this.getClient()).send(
+    const config = await this.resolveConfig();
+    await this.clientFor(config).send(
       new PutCommand({
-        TableName: await this.getTableName(),
+        TableName: this.tableNameFrom(config),
         Item: {
           pk: PARTITION_KEY,
           sk: entry.sk,
@@ -132,9 +142,10 @@ export class AwsAuditLogStore implements AuditLogStore {
    * @returns The requested page of entries plus a cursor for the next page.
    */
   async listEntries(limit: number, before?: string): Promise<AuditPageResult> {
-    const resp = await (await this.getClient()).send(
+    const config = await this.resolveConfig();
+    const resp = await this.clientFor(config).send(
       new QueryCommand({
-        TableName: await this.getTableName(),
+        TableName: this.tableNameFrom(config),
         KeyConditionExpression: before ? 'pk = :pk AND sk < :before' : 'pk = :pk',
         ExpressionAttributeValues: before
           ? { ':pk': PARTITION_KEY, ':before': before }

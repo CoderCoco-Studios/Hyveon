@@ -9,7 +9,7 @@
  * namespace names.
  */
 
-import type { ChangeSummary, OpType } from '@hyveon/shared';
+import type { ChangeSummary, OpType, StackOutputs } from '@hyveon/shared';
 
 /**
  * Re-exported verbatim from `@hyveon/shared` rather than duplicated like the
@@ -984,45 +984,6 @@ export interface TerraformApproveAck {
   error?: string;
 }
 
-/**
- * Shape of the subset of Terraform root outputs the management app consumes.
- *
- * Mirrors `TfOutputs` in `@hyveon/desktop-main/src/services/ConfigService.ts`
- * — that file is the source of truth; keep this copy in sync with it.
- *
- * **Dead surface:** `iac.controller.ts`'s `output` handler now actually
- * resolves `StackOutputs | null` (`@hyveon/shared/src/stackOutputs.ts`), not
- * `TfOutputs | null`, and its `force` parameter is ignored — but this
- * preload's `output()` type was left unchanged since nothing in
- * `@hyveon/web` currently calls `window.hyveon.iac.output()`. Reconcile this
- * type's shape with `StackOutputs` if a caller is ever added.
- */
-export interface TfOutputs {
-  aws_region: string;
-  ecs_cluster_name: string;
-  ecs_cluster_arn: string;
-  subnet_ids: string;
-  security_group_id: string;
-  file_manager_security_group_id: string;
-  efs_file_system_id: string;
-  efs_access_points: Record<string, string>;
-  domain_name: string;
-  game_names: string[];
-  discord_table_name: string;
-  audit_table_name: string;
-  discord_bot_token_secret_arn: string;
-  discord_public_key_secret_arn: string;
-  interactions_invoke_url: string | null;
-  discord_interactions_url: string | null;
-  /**
-   * Full per-game `game_servers` configuration as last applied by Terraform
-   * (the `applied_game_servers` sensitive output — see `terraform/aws/outputs.tf`),
-   * keyed by game name. `null` when the output is absent (e.g. state predates
-   * this output, or `terraform apply` hasn't run since it was added).
-   */
-  applied_game_servers: Record<string, Omit<GameServer, 'name'>> | null;
-}
-
 // ---------------------------------------------------------------------------
 // Per-namespace sub-interfaces
 // ---------------------------------------------------------------------------
@@ -1530,13 +1491,11 @@ export interface HyveonIacApi {
    */
   destroy: (payload: TerraformDestroyPayload) => Promise<TerraformPlanAck>;
   /**
-   * Returns the current Terraform outputs by invoking the `iac.output`
-   * IPC channel with `{ force }`. See {@link TfOutputs}'s doc comment: this
-   * channel and its return type are currently a dead surface with no
-   * renderer call site, and the main process's actual return shape has
-   * already diverged from this type (`force` is now ignored).
+   * Returns the deployed stack's outputs by invoking the `iac.output` IPC
+   * channel with `{ force }`. Dead surface with no renderer call site today;
+   * `force` is ignored by the main process's handler.
    */
-  output: (force?: boolean) => Promise<TfOutputs | null>;
+  output: (force?: boolean) => Promise<StackOutputs | null>;
   /** Iac run history: look up a single run's status and stream its log output. */
   runs: HyveonIacRunsApi;
   /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */

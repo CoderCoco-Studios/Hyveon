@@ -390,7 +390,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async startWorkload(game: string, _opts: StartOpts): Promise<WorkloadHandle> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    if (!config) throw new WorkloadGuardError('Infrastructure not deployed. Run an apply from the IAC page first.');
 
     const { region, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
     const subnets = subnetIds
@@ -439,7 +439,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async stopWorkload(game: string): Promise<void> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError('Terraform not applied.');
+    if (!config) throw new WorkloadGuardError('Infrastructure not deployed.');
 
     const cluster = config.ecsClusterName;
 
@@ -459,7 +459,7 @@ export class AwsCloudProvider implements CloudProvider {
    * Retrieves the current status of a game workload on AWS.
    *
    * Mirrors `EcsService.getStatus`'s state transitions exactly: `not_deployed`
-   * when Terraform hasn't been applied, `running` with resolved IP/hostname
+   * when infrastructure hasn't been deployed, `running` with resolved IP/hostname
    * once the task's ENI is up, `starting` while the task is still
    * provisioning, `stopped` when no task is found, and `error` on failure.
    *
@@ -467,7 +467,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async getWorkloadStatus(game: string): Promise<WorkloadStatus> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) return { state: 'not_deployed', message: 'Run terraform apply first.' };
+    if (!config) return { state: 'not_deployed', message: 'Run an apply from the IAC page first.' };
 
     const { region, ecsClusterName: cluster, domainName: domain } = config;
 
@@ -516,7 +516,7 @@ export class AwsCloudProvider implements CloudProvider {
     pollInterval = 2000,
   ): AsyncGenerator<LogChunk> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    if (!config) throw new WorkloadGuardError('Infrastructure not deployed. Run an apply from the IAC page first.');
 
     const { region } = config;
     const logGroup = `/ecs/${game}-server`;
@@ -562,7 +562,7 @@ export class AwsCloudProvider implements CloudProvider {
    * previous `CostsController.estimate` + `CostService.estimateForSpec`
    * behaviour), keyed by game name in `breakdown`, with `total` set to the
    * sum-if-everything-were-running-simultaneously. Returns a zeroed {@link
-   * CostBreakdown} when Terraform hasn't been applied (`getConfig` returns
+   * CostBreakdown} when infrastructure hasn't been deployed (`getConfig` returns
    * nothing) or `config.gameNames` is missing/empty.
    */
   async getCostEstimate(): Promise<CostBreakdown> {

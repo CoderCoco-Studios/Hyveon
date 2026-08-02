@@ -42,8 +42,8 @@ const DEFAULT_CONFIG: AwsCloudProviderConfig = {
 
 /**
  * Build an {@link AwsCloudProvider} whose `getConfig` callback resolves to the
- * given configuration. Pass `null` to simulate "terraform apply hasn't been
- * run yet".
+ * given configuration. Pass `null` to simulate "infrastructure hasn't been
+ * deployed yet".
  */
 function makeProvider(config: AwsCloudProviderConfig | null = DEFAULT_CONFIG): AwsCloudProvider {
   return new AwsCloudProvider(() => config);
@@ -58,10 +58,10 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('startWorkload', () => {
-    it('should throw a "Terraform not applied" error when no config is available', async () => {
+    it('should throw an "Infrastructure not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
       await expect(provider.startWorkload('minecraft', {})).rejects.toThrow(
-        "Terraform not applied. Run 'terraform apply' first.",
+        'Infrastructure not deployed. Run an apply from the IAC page first.',
       );
     });
 
@@ -150,9 +150,9 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('stopWorkload', () => {
-    it('should throw a "Terraform not applied" error when no config is available', async () => {
+    it('should throw an "Infrastructure not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
-      await expect(provider.stopWorkload('minecraft')).rejects.toThrow('Terraform not applied.');
+      await expect(provider.stopWorkload('minecraft')).rejects.toThrow('Infrastructure not deployed.');
     });
 
     it('should throw a "not currently running" error when no task is found', async () => {
@@ -210,7 +210,7 @@ describe('AwsCloudProvider', () => {
       const provider = makeProvider(null);
       await expect(provider.getWorkloadStatus('minecraft')).resolves.toEqual({
         state: 'not_deployed',
-        message: 'Run terraform apply first.',
+        message: 'Run an apply from the IAC page first.',
       });
     });
 

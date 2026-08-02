@@ -203,6 +203,7 @@ export class AwsRunRecordStore implements RunRecordStore {
           ...(record.logS3Key !== undefined ? { logS3Key: record.logS3Key } : {}),
           ...(record.changeSummary !== undefined ? { changeSummary: record.changeSummary } : {}),
           ...(record.engineVersion !== undefined ? { engineVersion: record.engineVersion } : {}),
+          ...(record.partialApply !== undefined ? { partialApply: record.partialApply } : {}),
         },
       }),
     );
@@ -362,6 +363,9 @@ export class AwsRunRecordStore implements RunRecordStore {
     }
     if (item['engineVersion'] !== undefined) {
       record.engineVersion = item['engineVersion'] as string;
+    }
+    if (item['partialApply'] !== undefined) {
+      record.partialApply = item['partialApply'] as boolean;
     }
     return record;
   }

@@ -36,10 +36,11 @@ const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
  * where `getStackOutputs()` resolves to null.
  */
 function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  return {
+  const stub: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
     getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  } as Partial<ConfigService> as ConfigService;
+  };
+  return stub as ConfigService;
 }
 
 /** Build a TfvarsService stub with `invalidateCache` and `getGameServers` pre-wired. */
