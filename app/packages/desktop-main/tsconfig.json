@@ -6,9 +6,5 @@
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"],
-  "references": [
-    { "path": "../shared/tsconfig.json" },
-    { "path": "../cloud-aws/tsconfig.json" },
-    { "path": "../infra/tsconfig.json" }
-  ]
+  "references": [{ "path": "../shared/tsconfig.json" }, { "path": "../cloud-aws/tsconfig.json" }]
 }

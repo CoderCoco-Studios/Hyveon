@@ -32,12 +32,17 @@ export interface TerraformRunsGetPayload {
 }
 
 /**
- * Result of {@link IacRunsController.get}: `found: false` when `runId` is
- * neither the currently held apply lock nor a persisted `PulumiRunRecord` on
- * disk. `found: true` always carries the derived {@link RunDetailStatus};
- * `record` is present only once the run has produced a persisted
- * `PulumiRunRecord` (every status except `running`, since an in-flight run
- * hasn't closed its process yet).
+ * Result of {@link IacRunsController.get}: `found: false` when `runId`
+ * is neither the currently held apply lock nor a persisted
+ * `PulumiRunRecord` on disk. `found: true` always carries the derived
+ * {@link RunDetailStatus}; `record` is present only once the run has produced
+ * a persisted `PulumiRunRecord` (i.e. every status except `running`, since a
+ * run in flight hasn't closed its process yet — see `PulumiRunRecord`'s doc
+ * comment). `record`'s TYPE changed from `TerraformRunRecord` to
+ * `PulumiRunRecord` as part of task 7.10's repoint (the underlying local
+ * `run.json` read moved from `TerraformService.readRunRecord` to
+ * `PulumiService.readRunRecord`, a new task-7.10 method) — the channel name
+ * and the rest of this result's shape are unchanged.
  */
 export type TerraformRunsGetResult =
   | { found: false }
@@ -90,19 +95,28 @@ interface TerraformRunsLogsAck {
 
 /**
  * IPC-only controller for reading the status/detail of a single Pulumi
- * preview/apply/destroy run — no HTTP routes are registered here.
+ * preview/apply/destroy run (issue #108) — no HTTP routes are registered
+ * here.
+ *
+ * Task 7.10 (`migrate-iac-to-pulumi`) repointed this controller from the
+ * deleted `TerraformService` onto `PulumiService` — channel names and
+ * payload/ack shapes are unchanged; only the backing service (and, for
+ * {@link get}, the persisted record's TYPE — see
+ * {@link TerraformRunsGetResult}'s own doc comment) changed.
  *
  * `get()` combines two data sources to derive the run's
  * {@link RunDetailStatus} via the shared, pure `computeRunDetailStatus`
- * helper: `RunService.getCurrentLock()` for a still-running run, and
- * `PulumiService.readRunRecord()` / `PulumiService.hasPlanArtifact()` (the
- * local `<runsDir>/<runId>/run.json` + saved plan artifact) for a finished
- * one.
+ * helper: `RunService.getCurrentLock()` (the in-flight apply lock, #106) for
+ * a still-running run, and `PulumiService.readRunRecord()` /
+ * `PulumiService.hasPlanArtifact()` (the local `<runsDir>/<runId>/run.json`
+ * + saved plan artifact, task 7.10's new `PulumiService` accessors) for a
+ * finished one.
  *
  * `logs()` bridges `PulumiService.streamRunOutput`'s async-generator output
- * onto the fixed `iac.runs.logs.chunk` / `iac.runs.logs.end` side channels,
- * mirroring `IacController.plan`'s streaming shape, so the renderer can
- * watch (or re-attach to) a run's live or persisted output.
+ * (an identical signature to `TerraformService.streamRunOutput` — trivial
+ * swap) onto the fixed `iac.runs.logs.chunk` / `iac.runs.logs.end`
+ * side channels, mirroring `IacController.plan`'s streaming shape, so
+ * the renderer can watch (or re-attach to) a run's live or persisted output.
  */
 @Controller()
 export class IacRunsController implements OnModuleInit {
@@ -113,24 +127,26 @@ export class IacRunsController implements OnModuleInit {
   ) {}
 
   /**
-   * Registers an `ipcMain.handle` bridge for the `iac.runs.logs` channel
-   * after the Nest module initialises, so
-   * `ipcRenderer.invoke('iac.runs.logs', { runId })` in the preload actually
-   * resolves.
+   * Registers an `ipcMain.handle` bridge for the `iac.runs.logs`
+   * channel after the Nest module initialises, so that
+   * `ipcRenderer.invoke('iac.runs.logs', { runId })` in the preload
+   * actually resolves.
    *
-   * `@MessagePattern('iac.runs.logs')` only wires the transport's internal
-   * dispatcher — it does **not** call `ipcMain.handle`, so
+   * `@MessagePattern('iac.runs.logs')` only wires the transport's
+   * internal dispatcher — it does **not** call `ipcMain.handle`, so
    * `ipcRenderer.invoke` would otherwise hang. This hook bridges the gap,
    * mirroring `IacController.onModuleInit`'s handling of
    * `iac.plan`/`iac.apply`/`iac.destroy` — see `SELF_BRIDGED_PATTERNS` in
-   * `../ipc-main-bridge.ts`, which excludes `iac.runs.logs` from the generic
-   * bridge for the same reason: the handler pushes follow-up chunk/end
-   * messages over side channels rather than resolving a single value.
+   * `../ipc-main-bridge.ts`, which excludes `iac.runs.logs` from the
+   * generic bridge for the same reason: the handler pushes follow-up
+   * chunk/end messages over side channels for the duration of a run's output
+   * rather than resolving a single value.
    *
    * Only runs inside a real Electron main process. In plain-Node runtimes
    * (integration test server, Docker, CI) `process.versions.electron` is
    * undefined and importing `electron` would throw, so the bridge is skipped
-   * entirely.
+   * entirely rather than guessing which error means "no Electron" from the
+   * message.
    */
   async onModuleInit(): Promise<void> {
     if (!process.versions.electron) {
@@ -214,8 +230,8 @@ export class IacRunsController implements OnModuleInit {
    * `{ streamId, error }` when it throws (e.g. `runId` doesn't match any
    * known run).
    *
-   * Mirrors `LogsController.streamLogs`'s fire-and-forget streaming shape:
-   * the controller creates its own
+   * Mirrors `LogsController.streamLogs`/`IacController.init`'s
+   * fire-and-forget streaming shape: the controller creates its own
    * `AbortController` per invocation (since `ElectronIPCTransport` passes
    * `{ evt }` as the execution context, with no `signal` injected), and a
    * `'destroyed'` listener on the `WebContents` aborts it — and stops any

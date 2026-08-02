@@ -171,14 +171,16 @@ export class DriftService {
    * (cheap — an in-memory S3 object cache with its own short TTL), NOT
    * {@link ConfigService}'s stack-outputs cache: this method backs
    * `PendingChangesBanner`'s 30-second `GET /api/drift` poll
-   * (`POLL_INTERVAL_MS`), and `ConfigService.getStackOutputs()` is a
-   * genuinely expensive round-trip (Pulumi engine resolution, passphrase, S3
-   * backend) — eagerly invalidating that cache on every poll tick would turn
-   * an idle dashboard into a steady stream of engine-resolution + S3 calls,
-   * and risks the DIY backend's write lock if the "no-create" guarantee on a
-   * passphrase-but-no-real-stack edge case ever misfires (see
-   * `PulumiService.getStackOutputs`'s doc comment). The stack-outputs cache
-   * is invalidated on write instead, not on every read here.
+   * (`POLL_INTERVAL_MS`), and task 7.4 turned `ConfigService.getStackOutputs()`
+   * from a cheap file read into a genuinely expensive round-trip (Pulumi
+   * engine resolution, passphrase, S3 backend) — eagerly invalidating that
+   * cache on every poll tick would turn an idle dashboard into a steady
+   * stream of engine-resolution + S3 calls, and risks the DIY backend's
+   * write lock if the "no-create" guarantee on a passphrase-but-no-real-stack
+   * edge case ever misfires (see `PulumiService.getStackOutputs`'s doc
+   * comment). The stack-outputs cache is invalidated on write instead (by
+   * whichever future dispatch — 7.1/7.2 — persists a successful `up()`), not
+   * on every read here.
    */
   async getDrift(): Promise<DriftReport> {
     this.tfvars.invalidateCache();

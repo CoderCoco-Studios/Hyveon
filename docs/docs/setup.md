@@ -211,9 +211,8 @@ option today — more clouds are planned), choosing (or pasting) AWS
 credentials, running an IAM permission simulation, and bootstrapping the
 AWS resources the root Terraform config needs before its first `apply`:
 
-- The S3 state bucket (`{project_name}-tf-state`) used as the Terraform
-  backend — a DIY S3 backend, so locking lives in the bucket itself (its own
-  prefix) rather than a separate DynamoDB table.
+- The S3 state bucket (`{project_name}-tf-state`) and DynamoDB lock table
+  (`{project_name}-tf-locks`) used as the Terraform backend.
 - The versioned tfvars bucket (`{project_name}-tfvars`, provisioned by the
   `terraform/bootstrap/` module — see
   [Bootstrap the tfvars bucket](#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { PrerequisiteService } from '../services/PrerequisiteService.js';
 import { AwsProfileService } from '../services/AwsProfileService.js';
 import { BootstrapService } from '../services/BootstrapService.js';
 import { IamCheckService } from '../services/IamCheckService.js';
@@ -19,7 +18,7 @@ import { ElectronStoreModule } from './electron-store.module.js';
  */
 @Module({
   imports: [ElectronStoreModule],
-  providers: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
-  exports: [PrerequisiteService, AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
+  providers: [AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
+  exports: [AwsProfileService, BootstrapService, IamCheckService, FirstRunWizardService],
 })
 export class WizardModule {}

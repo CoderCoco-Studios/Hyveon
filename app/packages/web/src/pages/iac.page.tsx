@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle2, Loader2, Play, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import type {
+  ChangeSummary,
   HyveonStreamHandle,
+  OpType,
   RunDetailStatus,
   TerraformPlanPayload,
   TerraformRunChunk,
   TerraformRunRecord,
+  TerraformStaleLockInfo,
 } from '@hyveon/desktop-preload';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -15,8 +18,8 @@ import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ConfirmDialog } from '../components/confirm-dialog.component.js';
 
 /**
- * `location.state` shape the rollback flow (#112) navigates to `/terraform`
- * with, from a confirmed rollback in `/terraform/history` — see
+ * `location.state` shape the rollback flow (#112) navigates to `/iac`
+ * with, from a confirmed rollback in `/iac/history` — see
  * `RollbackAction`. `tfvarsVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent
  * straight through to `hyveon.iac.plan` so the resulting plan's persisted
@@ -51,15 +54,6 @@ function isApprovalExpired(approvedAt: string, now: number): boolean {
   return now >= new Date(approvedAt).getTime() + APPROVAL_WINDOW_MS;
 }
 
-/** Mirrors `PLAN_SUMMARY_PATTERN` in `TerraformService.ts` — scans streamed plan output for the resource-change summary. */
-const PLAN_SUMMARY_PATTERN = /Plan:\s*(\d+) to add,\s*(\d+) to change,\s*(\d+) to destroy\./;
-
-/** Mirrors `APPLY_SUMMARY_PATTERN` in `TerraformService.ts` — scans streamed apply output for the resource-change summary. */
-const APPLY_SUMMARY_PATTERN = /Apply complete!\s*Resources:\s*(\d+) added,\s*(\d+) changed,\s*(\d+) destroyed\./;
-
-/** Mirrors `DESTROY_SUMMARY_PATTERN` in `TerraformService.ts` — scans streamed destroy output for the destroyed-resource count. */
-const DESTROY_SUMMARY_PATTERN = /Destroy complete!\s*Resources:\s*(\d+) destroyed\./;
-
 /**
  * Exact phrase an operator must type into the destroy confirmation dialog
  * before the destructive button enables (issue #307) — the UI's
@@ -67,39 +61,6 @@ const DESTROY_SUMMARY_PATTERN = /Destroy complete!\s*Resources:\s*(\d+) destroye
  * actually trusts (see `TerraformService.assertFreshDestroyConfirmation`).
  */
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
-
-interface ChangeSummary {
-  add: number;
-  change: number;
-  destroy: number;
-}
-
-/** Scans streamed `plan` output chunks for Terraform's `Plan: N to add, N to change, N to destroy.` summary line. */
-function parsePlanSummary(chunks: TerraformRunChunk[]): ChangeSummary | null {
-  for (const chunk of chunks) {
-    const m = PLAN_SUMMARY_PATTERN.exec(chunk.line);
-    if (m) return { add: Number(m[1]), change: Number(m[2]), destroy: Number(m[3]) };
-  }
-  return null;
-}
-
-/** Scans streamed `apply` output chunks for Terraform's `Apply complete! Resources: N added, N changed, N destroyed.` summary line. */
-function parseApplySummary(chunks: TerraformRunChunk[]): ChangeSummary | null {
-  for (const chunk of chunks) {
-    const m = APPLY_SUMMARY_PATTERN.exec(chunk.line);
-    if (m) return { add: Number(m[1]), change: Number(m[2]), destroy: Number(m[3]) };
-  }
-  return null;
-}
-
-/** Scans streamed `destroy` output chunks for Terraform's `Destroy complete! Resources: N destroyed.` summary line. */
-function parseDestroySummary(chunks: TerraformRunChunk[]): number | null {
-  for (const chunk of chunks) {
-    const m = DESTROY_SUMMARY_PATTERN.exec(chunk.line);
-    if (m) return Number(m[1]);
-  }
-  return null;
-}
 
 /** Live state of a single streamed `terraform` run, backed by `hyveon.iac.runs.streamLogs`. */
 interface RunLogState {
@@ -249,19 +210,286 @@ export function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-/** Resource-change summary badges shared by the plan and apply views. */
-function ChangeSummaryBadges({ summary }: { summary: ChangeSummary }) {
+/**
+ * Formats how long ago `lockedAt` was, for the stale-lock banner's "age"
+ * display — mirrors `PulumiLockRecovery.formatLockAge` (desktop-main) field
+ * for field. Duplicated here rather than imported (same reasoning as
+ * {@link APPROVAL_WINDOW_MS}'s duplication above): the renderer bundle has no
+ * reason to depend on `desktop-main`'s source, and this is a small, stable,
+ * purely-cosmetic formatting rule. Deliberately coarse (minutes/hours/days)
+ * — an operator deciding whether a lock is stale cares whether it's "5
+ * minutes old" (plausibly still in progress) vs. "3 days old" (plausibly
+ * abandoned), not second-level precision.
+ */
+function formatLockAge(lockedAt: string, nowMs: number): string {
+  const ms = Math.max(0, nowMs - new Date(lockedAt).getTime());
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'less than a minute ago';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * Shown INSTEAD OF {@link BusyBanner}/{@link ErrorBanner} (task 9.4) when a
+ * plan/apply/destroy submission was rejected because the Pulumi backend is
+ * locked by something this installation cannot prove is its own crashed run
+ * (`ack.staleLock` — see `TerraformPlanAck.staleLock`'s doc comment in
+ * `hyveon-api.ts`). `iac.controller.ts`'s own error-handling never populates
+ * both `conflict` and `staleLock` on the same rejection (each catch branch
+ * `return`s independently), so this banner and `BusyBanner` are always
+ * mutually exclusive for a given submission — this component does not need
+ * to coordinate with `BusyBanner` itself.
+ *
+ * Names the stack and lists every lock holder (username, hostname, pid, and
+ * a human-readable age via {@link formatLockAge}), then offers an explicit
+ * "Clear lock and retry" action gated behind a {@link ConfirmDialog} —
+ * reusing the same shared component the destroy- and rollback-confirmation
+ * flows already use, per this migration's established idiom. The dialog's
+ * copy is deliberately cautionary: clearing a lock that turns out to be a
+ * genuinely active operation elsewhere (not actually stale) risks two Pulumi
+ * updates racing against the same state, which can corrupt it — so the
+ * operator is asked to confirm they recognize (or don't recognize) the
+ * listed hostname/pid as a real in-progress run before proceeding.
+ *
+ * On a confirmed clear, calls `hyveon.iac.lock.clear()`. Success clears the
+ * parent's `staleLock` state via {@link StaleLockBannerProps.onCleared}
+ * (returning the page to its normal "ready to submit" state) and toasts a
+ * confirmation; the operator then retries by clicking the ordinary plan/
+ * apply/destroy button again — this component never resubmits automatically,
+ * matching `PulumiService.clearStaleLock`'s own "does not retry" design.
+ * Failure surfaces the error inline via {@link ErrorBanner} without clearing
+ * the parent's `staleLock` state, so the banner (and its evidence) stays put
+ * for another attempt.
+ */
+interface StaleLockBannerProps {
+  staleLock: TerraformStaleLockInfo;
+  /** Current time in ms (the page's own 30s-ticking clock) — drives {@link formatLockAge}'s "ago" display. */
+  nowMs: number;
+  /** Called once `hyveon.iac.lock.clear()` reports `cleared: true`. */
+  onCleared: () => void;
+}
+
+function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  function handleConfirmClear() {
+    if (!window.hyveon) {
+      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      return;
+    }
+    setClearing(true);
+    setClearError(null);
+    void (async () => {
+      try {
+        const ack = await window.hyveon!.iac.lock.clear();
+        if (ack.cleared) {
+          setConfirmOpen(false);
+          toast.success('Pulumi backend lock cleared — resubmit to retry.');
+          onCleared();
+        } else {
+          setClearError(ack.error ?? 'Could not clear the backend lock.');
+        }
+      } catch (err) {
+        setClearError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setClearing(false);
+      }
+    })();
+  }
+
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <Badge variant="cyan">{summary.add} to add</Badge>
-      <Badge variant="warning">{summary.change} to change</Badge>
-      <Badge variant="destructive">{summary.destroy} to destroy</Badge>
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
+    >
+      <p>
+        <strong>Backend lock in the way.</strong> The Pulumi stack{' '}
+        <code className="font-[var(--font-mono)]">{staleLock.stackName}</code> is locked by something this
+        installation cannot confirm is its own crashed run:
+      </p>
+      {staleLock.locks.length > 0 ? (
+        <ul className="list-disc pl-5">
+          {staleLock.locks.map((lock) => (
+            <li key={lock.lockUrl}>
+              <code className="font-[var(--font-mono)]">
+                {lock.username}@{lock.hostname}
+              </code>{' '}
+              (pid {lock.pid}) — started {formatLockAge(lock.lockedAt, nowMs)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No holder/age evidence was available for this lock.</p>
+      )}
+      <Button
+        onClick={() => setConfirmOpen(true)}
+        variant="secondary"
+        size="sm"
+        className="self-start"
+        disabled={clearing}
+      >
+        {clearing ? <Loader2 className="animate-spin" /> : null}
+        Clear lock and retry
+      </Button>
+      {clearError && <ErrorBanner message={clearError} />}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Clear this Pulumi backend lock?"
+        description={
+          `This runs the equivalent of "pulumi cancel" against the "${staleLock.stackName}" stack, removing ` +
+          'the lock(s) listed above. Only confirm if you are CONFIDENT the listed holder (hostname/pid) is not ' +
+          "a real, currently-running plan/apply/destroy elsewhere — clearing a genuinely active operation's " +
+          'lock lets two Pulumi updates run concurrently, which can corrupt the deployed infrastructure state. ' +
+          'This does not retry your operation for you; resubmit it manually once the lock is cleared.'
+        }
+        onConfirm={handleConfirmClear}
+        confirmLabel={clearing ? 'Clearing…' : 'Clear lock'}
+      />
     </div>
   );
 }
 
 /**
- * Terraform plan/apply route (`/terraform`) — lets an operator trigger
+ * {@link OpType} keys bucketed for display (task 9.1). Each bucket sums to a
+ * single badge rather than rendering one badge per raw `OpType` — most runs
+ * only ever populate a handful of the 15 possible keys, and the replacement
+ * pair (`create-replacement`/`delete-replaced`) plus `import`/
+ * `import-replacement` all read as "a resource came into existence" to an
+ * operator skimming the summary, same for the two delete variants.
+ */
+const CREATE_OPS: readonly OpType[] = ['create', 'create-replacement', 'import', 'import-replacement'];
+const DELETE_OPS: readonly OpType[] = ['delete', 'delete-replaced'];
+/**
+ * The rare, mostly-internal engine ops (refresh bookkeeping, discarded steps,
+ * pending-replace cancellations, plain reads) — summed into a single "other"
+ * badge rather than given their own bucket, per the task 9.1 design
+ * guidance. Omitted entirely from the summary when none of them fired.
+ */
+const OTHER_OPS: readonly OpType[] = [
+  'read',
+  'read-replacement',
+  'refresh',
+  'discard',
+  'discard-replaced',
+  'remove-pending-replace',
+];
+
+/** Sums `summary`'s counts across the given {@link OpType} keys, treating an absent key as 0. */
+function sumOps(summary: ChangeSummary, ops: readonly OpType[]): number {
+  return ops.reduce((total, op) => total + (summary[op] ?? 0), 0);
+}
+
+/**
+ * True when `summary` is absent, or present but every {@link OpType} key on
+ * it is absent/zero. Per `ChangeSummary`'s own TSDoc
+ * (`@hyveon/shared/src/changeSummary.ts`) this means the engine's structured
+ * summary event was never observed for the run (e.g. the process was killed
+ * before it fired) — it must never be read as "no changes happened". A
+ * genuine no-op reports `{ same: N }` for N ≥ 1, which fails this check.
+ *
+ * A stack with zero resources total is the one legitimately ambiguous edge
+ * case: Pulumi would also report `{}` for it, indistinguishable from a
+ * summary that was never observed. This function deliberately treats that
+ * case as "unavailable" too rather than guessing "no changes" — an operator
+ * seeing "summary unavailable" on a genuinely empty stack loses nothing (the
+ * log above still shows the run completed successfully), whereas guessing
+ * "no changes" on a run that actually failed to report anything would be a
+ * false reassurance.
+ */
+function isSummaryUnavailable(summary: ChangeSummary | undefined): boolean {
+  if (!summary) return true;
+  return Object.values(summary).every((count) => !count);
+}
+
+/** True when `summary` reports changes via `same` only — a genuine no-op run, distinct from "unavailable" (see {@link isSummaryUnavailable}). */
+function isNoOpSummary(summary: ChangeSummary): boolean {
+  const { same, ...rest } = summary;
+  return (same ?? 0) > 0 && Object.values(rest).every((count) => !count);
+}
+
+/**
+ * Resource-change summary display shared by the plan, apply, and destroy
+ * sections (task 9.1) — reads the structured {@link ChangeSummary} the
+ * Pulumi engine reports directly off the persisted run record, replacing the
+ * three text-scraping regexes this component used to depend on. Renders one
+ * of three distinct states (task 9.2): "summary unavailable" when the
+ * structured event was never observed, a dedicated no-op message when the
+ * run only reports `same`, or grouped badges for the ops that actually
+ * changed something.
+ *
+ * Exported (task 9.5) so the read-only run-history table and detail view can
+ * reuse this exact three-way distinction instead of reimplementing it.
+ */
+export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | undefined }) {
+  if (isSummaryUnavailable(summary)) {
+    return <span className="text-sm italic text-[var(--color-muted-foreground)]">Change summary unavailable</span>;
+  }
+
+  // Non-null: isSummaryUnavailable(summary) === false only when summary is present.
+  const s = summary!;
+
+  if (isNoOpSummary(s)) {
+    return <Badge variant="secondary">No changes — {s.same} unchanged</Badge>;
+  }
+
+  const creates = sumOps(s, CREATE_OPS);
+  const updates = s.update ?? 0;
+  const replaces = s.replace ?? 0;
+  const deletes = sumOps(s, DELETE_OPS);
+  const other = sumOps(s, OTHER_OPS);
+  const unchanged = s.same ?? 0;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      {creates > 0 && <Badge variant="cyan">{creates} to create</Badge>}
+      {updates > 0 && <Badge variant="warning">{updates} to update</Badge>}
+      {replaces > 0 && <Badge variant="outline">{replaces} to replace</Badge>}
+      {deletes > 0 && <Badge variant="destructive">{deletes} to delete</Badge>}
+      {other > 0 && <Badge variant="default">{other} other</Badge>}
+      {unchanged > 0 && <Badge variant="secondary">{unchanged} unchanged</Badge>}
+    </div>
+  );
+}
+
+/**
+ * Shown instead of the generic apply-failure/-abort banner when
+ * `applyRecord.partialApply` is `true` (task 9.3) — the Pulumi engine
+ * mutated some resources before the apply run failed or was aborted, so the
+ * deployed infrastructure no longer matches the plan that was approved.
+ * Retrying the same apply blindly is unsafe because it's still gated on a
+ * `planHash` computed against state that's now stale; the correct recovery
+ * is a fresh plan against current state. Bundles the "Start over" action
+ * directly into the banner (rather than relying on the generic control
+ * further down the page) so it reads as the guided next step.
+ */
+function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
+    >
+      <p>
+        <strong>Apply stopped partway through.</strong> Some resources were already changed before this run
+        failed or was aborted, so the deployed infrastructure no longer matches the plan you approved.
+        Don&apos;t retry this apply — run a fresh plan against the current state, review it, and apply that
+        new plan instead.
+      </p>
+      <Button onClick={onStartOver} variant="secondary" size="sm" className="self-start">
+        <RotateCcw />
+        Start over
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Terraform plan/apply route (`/iac`) — lets an operator trigger
  * `terraform plan`, watch its live ANSI output, review the resource-change
  * summary, approve the plan, and run the plan-hash-gated `terraform apply`,
  * all over the `hyveon.iac.*` IPC surface (renamed from `hyveon.terraform.*`
@@ -269,7 +497,7 @@ function ChangeSummaryBadges({ summary }: { summary: ChangeSummary }) {
  * BUSY (shared-workspace conflict) and non-conflict submission errors inline
  * rather than failing silently.
  */
-export function TerraformPage() {
+export function IacPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const rollbackState = isRollbackNavState(location.state) ? location.state : null;
@@ -278,6 +506,7 @@ export function TerraformPage() {
 
   const [planRunId, setPlanRunId] = useState<string | null>(null);
   const [planConflict, setPlanConflict] = useState<Conflict | null>(null);
+  const [planStaleLock, setPlanStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
@@ -290,27 +519,27 @@ export function TerraformPage() {
 
   const [applyRunId, setApplyRunId] = useState<string | null>(null);
   const [applyConflict, setApplyConflict] = useState<Conflict | null>(null);
+  const [applyStaleLock, setApplyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [applySubmitError, setApplySubmitError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
   const [applyStatus, setApplyStatus] = useState<RunDetailStatus | null>(null);
+  const [applyRecord, setApplyRecord] = useState<TerraformRunRecord | null>(null);
 
   const [destroyConfirmOpen, setDestroyConfirmOpen] = useState(false);
   const [destroyRunId, setDestroyRunId] = useState<string | null>(null);
   const [destroyConflict, setDestroyConflict] = useState<Conflict | null>(null);
+  const [destroyStaleLock, setDestroyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
   const [destroySubmitError, setDestroySubmitError] = useState<string | null>(null);
   const [destroying, setDestroying] = useState(false);
   const [destroyStatus, setDestroyStatus] = useState<RunDetailStatus | null>(null);
+  const [destroyRecord, setDestroyRecord] = useState<TerraformRunRecord | null>(null);
 
   const [now, setNow] = useState(() => Date.now());
 
   const planLog = useTerraformRunLog(planRunId);
   const applyLog = useTerraformRunLog(applyRunId);
   const destroyLog = useTerraformRunLog(destroyRunId);
-
-  const planSummary = useMemo(() => parsePlanSummary(planLog.chunks), [planLog.chunks]);
-  const applySummary = useMemo(() => parseApplySummary(applyLog.chunks), [applyLog.chunks]);
-  const destroyedCount = useMemo(() => parseDestroySummary(destroyLog.chunks), [destroyLog.chunks]);
 
   // Tick every 30s so the approval-staleness hint stays roughly fresh.
   useEffect(() => {
@@ -344,7 +573,10 @@ export function TerraformPage() {
     void (async () => {
       const result = await window.hyveon!.iac.runs.get(applyRunId);
       if (cancelled) return;
-      if (result.found) setApplyStatus(result.status);
+      if (result.found) {
+        setApplyStatus(result.status);
+        setApplyRecord(result.record ?? null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -357,7 +589,10 @@ export function TerraformPage() {
     void (async () => {
       const result = await window.hyveon!.iac.runs.get(destroyRunId);
       if (cancelled) return;
-      if (result.found) setDestroyStatus(result.status);
+      if (result.found) {
+        setDestroyStatus(result.status);
+        setDestroyRecord(result.record ?? null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -371,6 +606,7 @@ export function TerraformPage() {
     }
     setPlanning(true);
     setPlanConflict(null);
+    setPlanStaleLock(null);
     setPlanSubmitError(null);
     void (async () => {
       try {
@@ -383,8 +619,10 @@ export function TerraformPage() {
           setApproveError(null);
           setApplyRunId(null);
           setApplyStatus(null);
+          setApplyRecord(null);
         } else {
           if (ack.conflict) setPlanConflict(ack.conflict);
+          if (ack.staleLock) setPlanStaleLock(ack.staleLock);
           setPlanSubmitError(ack.error ?? 'terraform plan could not be started.');
         }
       } catch (err) {
@@ -402,7 +640,7 @@ export function TerraformPage() {
   useEffect(() => {
     if (!rollbackState || rollbackConsumedRef.current) return;
     rollbackConsumedRef.current = true;
-    navigate('/terraform', { replace: true, state: null });
+    navigate('/iac', { replace: true, state: null });
     submitPlan({ tfvarsVersionId: rollbackState.tfvarsVersionId, rolledBackFrom: rollbackState.rolledBackFrom });
   }, [navigate, rollbackState, submitPlan]);
 
@@ -431,6 +669,7 @@ export function TerraformPage() {
     if (!window.hyveon || !planRunId || !planRecord?.planHash) return;
     setApplying(true);
     setApplyConflict(null);
+    setApplyStaleLock(null);
     setApplySubmitError(null);
     void (async () => {
       try {
@@ -440,6 +679,7 @@ export function TerraformPage() {
           setApplyStatus(null);
         } else {
           if (ack.conflict) setApplyConflict(ack.conflict);
+          if (ack.staleLock) setApplyStaleLock(ack.staleLock);
           setApplySubmitError(ack.error ?? 'terraform apply could not be started.');
         }
       } catch (err) {
@@ -457,6 +697,7 @@ export function TerraformPage() {
     }
     setDestroying(true);
     setDestroyConflict(null);
+    setDestroyStaleLock(null);
     setDestroySubmitError(null);
     void (async () => {
       try {
@@ -468,6 +709,7 @@ export function TerraformPage() {
           setDestroyStatus(null);
         } else {
           if (ack.conflict) setDestroyConflict(ack.conflict);
+          if (ack.staleLock) setDestroyStaleLock(ack.staleLock);
           setDestroySubmitError(ack.error ?? 'terraform destroy could not be started.');
         }
       } catch (err) {
@@ -486,6 +728,7 @@ export function TerraformPage() {
     setApproveError(null);
     setApplyRunId(null);
     setApplyStatus(null);
+    setApplyRecord(null);
     setApplySubmitError(null);
     setPlanSubmitError(null);
   }, []);
@@ -503,6 +746,15 @@ export function TerraformPage() {
   const planFailed = planStatus === 'failed' || planStatus === 'aborted';
   const approvalExpired = approval ? isApprovalExpired(approval.approvedAt, now) : false;
   const canApply = Boolean(approval) && !approvalExpired && Boolean(planRecord?.planHash) && !applyRunId;
+  const applyFinished = applyStatus !== null;
+  const destroyFinished = destroyStatus !== null;
+  /**
+   * The task 9.3 signal — checked independently of which terminal status
+   * fired (`applyStatus` can be `'failed'` or `'aborted'` and still carry
+   * `partialApply: true`; gating this on `applyStatus === 'failed'` alone
+   * would miss the abort-mid-apply case).
+   */
+  const applyPartial = applyRecord?.partialApply === true;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -514,7 +766,7 @@ export function TerraformPage() {
           </p>
         </div>
         <Link
-          to="/terraform/history"
+          to="/iac/history"
           className="text-sm text-[var(--color-primary)] underline underline-offset-2"
         >
           View history
@@ -527,8 +779,26 @@ export function TerraformPage() {
             {planning ? <Loader2 className="animate-spin" /> : <Play />}
             Run plan
           </Button>
-          {planConflict && <BusyBanner conflict={planConflict} />}
-          {planSubmitError && <ErrorBanner message={planSubmitError} />}
+          {planStaleLock ? (
+            <StaleLockBanner
+              staleLock={planStaleLock}
+              nowMs={now}
+              onCleared={() => {
+                setPlanStaleLock(null);
+                // Otherwise the stale rejection's error text (still sitting
+                // in planSubmitError, never touched by a successful clear)
+                // would reappear the instant the ternary above falls through
+                // to the BusyBanner/ErrorBanner branch — a red "error" banner
+                // for an action that just succeeded (review round 1, I1).
+                setPlanSubmitError(null);
+              }}
+            />
+          ) : (
+            <>
+              {planConflict && <BusyBanner conflict={planConflict} />}
+              {planSubmitError && <ErrorBanner message={planSubmitError} />}
+            </>
+          )}
         </div>
       )}
 
@@ -536,14 +806,14 @@ export function TerraformPage() {
         <section className="flex flex-col gap-3" aria-label="Plan run">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-[var(--color-foreground)]">Plan</h3>
-            {planSummary && <ChangeSummaryBadges summary={planSummary} />}
+            {planFinished && <ChangeSummaryStatus summary={planRecord?.changeSummary} />}
           </div>
 
           {planRecord?.rolledBackFrom && (
             <p className="text-sm text-[var(--color-muted-foreground)]">
               Rollback of{' '}
               <Link
-                to={`/terraform/history/${planRecord.rolledBackFrom}`}
+                to={`/iac/history/${planRecord.rolledBackFrom}`}
                 className="text-[var(--color-primary)] underline underline-offset-2"
               >
                 apply run {planRecord.rolledBackFrom}
@@ -598,8 +868,22 @@ export function TerraformPage() {
                     {applying ? <Loader2 className="animate-spin" /> : <Play />}
                     Apply
                   </Button>
-                  {applyConflict && <BusyBanner conflict={applyConflict} />}
-                  {applySubmitError && <ErrorBanner message={applySubmitError} />}
+                  {applyStaleLock ? (
+                    <StaleLockBanner
+                      staleLock={applyStaleLock}
+                      nowMs={now}
+                      onCleared={() => {
+                        setApplyStaleLock(null);
+                        // See the identical comment on the plan banner above (review round 1, I1).
+                        setApplySubmitError(null);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      {applyConflict && <BusyBanner conflict={applyConflict} />}
+                      {applySubmitError && <ErrorBanner message={applySubmitError} />}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -609,14 +893,16 @@ export function TerraformPage() {
             <section className="flex flex-col gap-3" aria-label="Apply run">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-[var(--color-foreground)]">Apply</h3>
-                {applySummary && <ChangeSummaryBadges summary={applySummary} />}
+                {applyFinished && <ChangeSummaryStatus summary={applyRecord?.changeSummary} />}
               </div>
 
               <AnsiLogViewer chunks={applyLog.chunks} emptyMessage="Waiting for apply output…" />
 
               {applyLog.error && <ErrorBanner message={`Log stream error: ${applyLog.error}`} />}
 
-              {applyStatus === 'failed' || applyStatus === 'aborted' ? (
+              {applyPartial ? (
+                <PartialApplyBanner onStartOver={startOver} />
+              ) : (applyStatus === 'failed' || applyStatus === 'aborted') ? (
                 <ErrorBanner
                   message={`terraform apply ${applyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
                 />
@@ -637,12 +923,18 @@ export function TerraformPage() {
             </section>
           )}
 
-          {(planFailed || applyStatus === 'success' || applyStatus === 'failed' || applyStatus === 'aborted') && (
-            <Button onClick={startOver} variant="secondary" className="self-start">
-              <RotateCcw />
-              Start over
-            </Button>
-          )}
+          {/*
+            The partial-apply banner above already embeds its own "Start
+            over" button (task 9.3) — suppress this generic one in that case
+            so the guided next step isn't duplicated on screen.
+          */}
+          {!applyPartial &&
+            (planFailed || applyStatus === 'success' || applyStatus === 'failed' || applyStatus === 'aborted') && (
+              <Button onClick={startOver} variant="secondary" className="self-start">
+                <RotateCcw />
+                Start over
+              </Button>
+            )}
         </section>
       )}
 
@@ -670,8 +962,22 @@ export function TerraformPage() {
               {destroying ? <Loader2 className="animate-spin" /> : <Trash2 />}
               Destroy infrastructure
             </Button>
-            {destroyConflict && <BusyBanner conflict={destroyConflict} />}
-            {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+            {destroyStaleLock ? (
+              <StaleLockBanner
+                staleLock={destroyStaleLock}
+                nowMs={now}
+                onCleared={() => {
+                  setDestroyStaleLock(null);
+                  // See the identical comment on the plan banner above (review round 1, I1).
+                  setDestroySubmitError(null);
+                }}
+              />
+            ) : (
+              <>
+                {destroyConflict && <BusyBanner conflict={destroyConflict} />}
+                {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+              </>
+            )}
           </div>
         )}
 
@@ -692,7 +998,7 @@ export function TerraformPage() {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold text-[var(--color-foreground)]">Destroy run</h4>
-              {destroyedCount !== null && <Badge variant="destructive">{destroyedCount} destroyed</Badge>}
+              {destroyFinished && <ChangeSummaryStatus summary={destroyRecord?.changeSummary} />}
             </div>
 
             <AnsiLogViewer chunks={destroyLog.chunks} emptyMessage="Waiting for destroy output…" />

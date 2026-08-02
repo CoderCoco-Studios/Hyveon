@@ -1,6 +1,5 @@
 export * from './types.js';
 export * from './errors.js';
-export * from './terraformVersion.js';
 export * from './pulumiVersion.js';
 export * from './iamPolicy.js';
 export * from './wizardSteps.js';
@@ -9,6 +8,7 @@ export * from './deploymentConfig.js';
 export * from './stackOutputs.js';
 export * from './gameServerValidator.js';
 export * from './gamesWrite.js';
+export * from './deploymentSettingsWrite.js';
 export * from './drift.js';
 export * from './audit.js';
 export * from './runs.js';

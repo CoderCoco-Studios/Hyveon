@@ -35,11 +35,10 @@ function buildConfig(overrides: Partial<Omit<GameServer, 'name'>> = {}): Omit<Ga
 /** Build a ConfigService stub with `invalidateCache` and `getStackOutputs` pre-wired. */
 function makeConfig(options: { outputs?: Partial<StackOutputs> | null } = {}): ConfigService {
   const { outputs = { gameNames: [] } } = options;
-  const stub: Partial<ConfigService> = {
+  return {
     invalidateCache: vi.fn(),
     getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  };
-  return stub as ConfigService;
+  } as Partial<ConfigService> as ConfigService;
 }
 
 /**

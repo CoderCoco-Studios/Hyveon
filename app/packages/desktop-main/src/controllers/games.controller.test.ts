@@ -21,11 +21,10 @@ const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
  * where `getStackOutputs()` resolves to null.
  */
 function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  const stub: Partial<ConfigService> = {
+  return {
     invalidateCache: vi.fn(),
     getStackOutputs: vi.fn().mockResolvedValue(outputs),
-  };
-  return stub as ConfigService;
+  } as unknown as ConfigService;
 }
 
 /** Build an EcsService stub with all mutation methods pre-wired to succeed. */

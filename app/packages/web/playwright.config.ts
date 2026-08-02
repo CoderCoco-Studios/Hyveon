@@ -13,14 +13,27 @@ export const electronMain = join(repoRoot, 'out', 'main', 'index.js');
 // instead of `win.loadFile()`. Removing it ensures packaged-renderer smoke
 // tests always exercise the `loadFile()` path even when run from a shell that
 // still has dev-server variables set.
-const { ELECTRON_RENDERER_URL: _rendererUrl, ...inheritedEnv } = process.env as Record<string, string>;
+//
+// `HYVEON_PULUMI_SPIKE*` is stripped for a sharper reason: the whole inherited
+// environment is spread into every `_electron.launch()` below, so a
+// `HYVEON_PULUMI_SPIKE=1` exported in the shell running the suite would reach
+// every launched app and make each spec provision a 344 MB Pulumi engine and run
+// a real `up`. The main process refuses the spike under `HYVEON_TEST_MODE`
+// anyway (see `electron-entry.ts`); this is the other half of that belt.
+const {
+  ELECTRON_RENDERER_URL: _rendererUrl,
+  HYVEON_PULUMI_SPIKE: _pulumiSpike,
+  HYVEON_PULUMI_SPIKE_OUT: _pulumiSpikeOut,
+  HYVEON_PULUMI_SPIKE_QUIT: _pulumiSpikeQuit,
+  ...inheritedEnv
+} = process.env as Record<string, string>;
 
 /**
  * Environment variables injected into every Electron launch during e2e tests.
  *
- * Inherits the current environment (minus `ELECTRON_RENDERER_URL`, stripped
- * above) plus `HYVEON_TEST_MODE=1`, which switches the main process into its
- * test seam.
+ * Inherits the current environment (minus `ELECTRON_RENDERER_URL` and the
+ * `HYVEON_PULUMI_SPIKE*` trio, all stripped above) plus `HYVEON_TEST_MODE=1`,
+ * which switches the main process into its test seam.
  */
 export const electronEnv: Record<string, string> = {
   ...inheritedEnv,

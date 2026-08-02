@@ -23,6 +23,7 @@ import { DriftController } from './controllers/drift.controller.js';
 import { AuditController } from './controllers/audit.controller.js';
 import { IacController } from './controllers/iac.controller.js';
 import { IacRunsController } from './controllers/iac-runs.controller.js';
+import { IacSettingsController } from './controllers/iac-settings.controller.js';
 import { WizardController } from './controllers/wizard.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DriftService } from './services/DriftService.js';
@@ -35,10 +36,18 @@ import { AuditService } from './services/AuditService.js';
  * `PulumiWorkspaceModule`, `PulumiServiceModule`, `WizardModule`,
  * `ElectronStoreModule`) to the IPC controllers.
  *
+ * Task 7.10 (`migrate-iac-to-pulumi`) deleted `TerraformModule`/
+ * `TerraformService.ts` and repointed `IacController`/
+ * `IacRunsController` onto `PulumiService` — `PulumiServiceModule`
+ * replaces `TerraformModule` in this list as the module those two
+ * controllers now depend on directly for their orchestration calls.
+ *
  * `PulumiEngineModule`/`PulumiWorkspaceModule` have no controller of their
- * own yet. They're imported here regardless: both services' construction is
- * synchronous and never throws, so wiring them into the container ahead of
- * their controller costs nothing and exercises the "container builds
+ * own yet — the IPC bridge that surfaces them to the renderer (Settings'
+ * resolved-version display, the wizard's engine-provisioning step) is Phase
+ * 8-10's job. They're imported here regardless: both services' construction
+ * is synchronous and never throws, so wiring them into the container ahead
+ * of their controller costs nothing and exercises the "Container builds
  * without an engine" scenario for real, not just in their own unit tests.
  *
  * `RunRecordModule` is imported directly (not left to arrive transitively
@@ -47,10 +56,13 @@ import { AuditService } from './services/AuditService.js';
  * `RUN_LOCK_SERVICE` from it lazily at runtime via
  * `ModuleRef.get(token, { strict: false })` — a lookup that only succeeds if
  * the token is provided *somewhere* reachable from this root module, with no
- * static `imports:` edge of its own to prove it (see `run-record.module.ts`
- * for why that's a deliberate design). This direct import makes
- * `RunRecordModule`'s presence independent of any other module's own
- * `imports:` list.
+ * static `imports:` edge of its own to prove it (see `run-record.module.ts`'s
+ * doc comment for why that's a deliberate design, not an oversight). This
+ * import makes `RunRecordModule`'s presence independent of any other
+ * module's own `imports:` list — the exact property that mattered when
+ * `TerraformModule` (which also imported `RunRecordModule`) was deleted by
+ * task 7.10: this direct import meant that deletion didn't silently drop
+ * `RunRecordModule` out of the graph too.
  */
 @Module({
   imports: [
@@ -77,6 +89,7 @@ import { AuditService } from './services/AuditService.js';
     AuditController,
     IacController,
     IacRunsController,
+    IacSettingsController,
     WizardController,
   ],
   providers: [

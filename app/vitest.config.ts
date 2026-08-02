@@ -21,10 +21,6 @@ export default defineConfig({
       // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior
       // `npm run build -w @hyveon/cloud-aws`, so its dist/ never exists.
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
-      // Same rationale — desktop-main's PulumiService imports @hyveon/infra
-      // directly, and CI runs `vitest run` without a prior
-      // `npm run build -w @hyveon/infra`, so its dist/ never exists.
-      '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the
       // same imports resolve under Vitest.
@@ -61,7 +57,7 @@ export default defineConfig({
             'packages/**/*.test.{ts,tsx}',
             // Explicitly include desktop-preload specs so they are always discovered.
             'packages/desktop-preload/**/*.test.{ts,tsx}',
-            // Top-level test helpers (e.g. packaging-manifest-pins.test.ts) live outside packages/.
+            // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
             'test/**/*.test.{ts,tsx}',
             // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
             // (outside packages/), so it needs its own explicit include entry.

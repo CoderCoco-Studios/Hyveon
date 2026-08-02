@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
 
 const apiMock = vi.hoisted(() => ({
@@ -19,7 +19,6 @@ vi.mock('../components/DiagnosticsPanel.js', () => ({
 
 const hyveonMock = {
   wizard: {
-    checkPrereqs: vi.fn(),
     getState: vi.fn(),
     saveState: vi.fn(),
     listAwsProfiles: vi.fn(),
@@ -32,19 +31,38 @@ const hyveonMock = {
     complete: vi.fn(),
   },
   iac: {
-    init: vi.fn(),
+    stack: {
+      initialize: vi.fn(),
+    },
+    settings: {
+      get: vi.fn(),
+      update: vi.fn(),
+      engineVersion: vi.fn(),
+    },
   },
+};
+
+/** Default top-level deployment settings the `DeploymentSettingsForm` (task 9.7) loads on mount. */
+const SAMPLE_DEPLOYMENT_SETTINGS = {
+  projectName: 'hyveon',
+  awsRegion: 'us-east-1',
+  vpcCidr: '10.0.0.0/16',
+  hostedZoneName: 'example.com',
+  dnsTtl: 30,
+  watchdogIntervalMinutes: 15,
+  watchdogIdleChecks: 4,
+  watchdogMinPackets: 100,
+  baseAllowedGuilds: [],
+  baseAdminUserIds: [],
+  baseAdminRoleIds: [],
+  discordApplicationId: '',
+  auditTableName: '',
+  runsTableName: '',
 };
 vi.stubGlobal('hyveon', hyveonMock);
 
 import { SettingsPage } from './settings.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
-
-/** Satisfies the prerequisites step so the version row has something to render. */
-const SATISFIED: PrerequisitesReport = {
-  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
-};
 
 /** A single discovered `~/.aws` profile matching the stored Reconfigure state below. */
 const SAMPLE_PROFILES: AwsProfileSummary[] = [{ profileName: 'default', region: 'us-east-1' }];
@@ -58,7 +76,6 @@ describe('SettingsPage', () => {
       watchdog_idle_checks: 4,
       watchdog_min_packets: 100,
     });
-    hyveonMock.wizard.checkPrereqs.mockReset().mockResolvedValue(SATISFIED);
     hyveonMock.wizard.getState
       .mockReset()
       .mockResolvedValue({ wizardCompleted: true, activeCloud: 'aws', aws: { profile: 'default', region: 'us-east-1' } });
@@ -68,14 +85,19 @@ describe('SettingsPage', () => {
     hyveonMock.wizard.bootstrapStateBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.bootstrapConfigurationBucket.mockReset().mockResolvedValue({ status: 'exists' });
     hyveonMock.wizard.simulateIamPermissions.mockReset();
-    hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+    hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
     hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
     hyveonMock.wizard.complete.mockReset().mockResolvedValue({ wizardCompleted: true });
-    hyveonMock.iac.init.mockReset().mockImplementation(
+    hyveonMock.iac.stack.initialize.mockReset().mockImplementation(
       toStreamHandleMock(async function* () {
-        // No chunks needed by default — the Reconfigure tests below just need it to succeed.
+        // No phase events needed by default — the Reconfigure tests below just need it to succeed.
       }),
     );
+    hyveonMock.iac.settings.get
+      .mockReset()
+      .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
+    hyveonMock.iac.settings.update.mockReset();
+    hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
   });
 
   it('should render the Settings heading', () => {
@@ -93,6 +115,12 @@ describe('SettingsPage', () => {
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
   });
 
+  it('should render the General section heading with the deployment-settings form loaded', async () => {
+    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
+  });
+
   it('should render the Diagnostics section heading', () => {
     renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
     expect(screen.getByRole('heading', { name: 'Diagnostics' })).toBeInTheDocument();
@@ -103,16 +131,34 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('diagnostics-panel')).toBeInTheDocument();
   });
 
-  it('should show the resolved Terraform version alongside the pinned minimum', async () => {
-    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
-    expect(await screen.findByText(/detected v1\.9\.0/i)).toBeInTheDocument();
-    expect(screen.getByText(/minimum v1\.5\.0/)).toBeInTheDocument();
-  });
+  describe('Cloud Setup — Pulumi engine version row (task 10.4)', () => {
+    it('should render the resolved engine version and the pinned version once the read resolves', async () => {
+      hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: '3.255.0' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
-  it('should show "Not detected" when the Terraform prerequisite check fails', async () => {
-    hyveonMock.wizard.checkPrereqs.mockRejectedValue(new Error('terraform not on PATH'));
-    renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
-    expect(await screen.findByText(/not detected/i)).toBeInTheDocument();
+      expect(await screen.findByText('Pulumi engine v3.255.0 · pinned to v3.255.0')).toBeInTheDocument();
+    });
+
+    it('should render a distinct "not yet provisioned" state, alongside the pinned version, when resolvedVersion is null', async () => {
+      hyveonMock.iac.settings.engineVersion.mockResolvedValue({ resolvedVersion: null });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Not yet provisioned · pinned to v3.255.0')).toBeInTheDocument();
+    });
+
+    it('should render a distinct error state, not the "not yet provisioned" copy, when the engineVersion read rejects', async () => {
+      hyveonMock.iac.settings.engineVersion.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Unable to determine engine version · pinned to v3.255.0')).toBeInTheDocument();
+      expect(screen.queryByText(/not yet provisioned/i)).not.toBeInTheDocument();
+    });
+
+    it('should still render the Reconfigure button when the engine version row is in its Pulumi Engine section', () => {
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+      expect(screen.getByText('Pulumi Engine')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconfigure$/i })).toBeInTheDocument();
+    });
   });
 
   describe('Reconfigure', () => {
@@ -148,7 +194,7 @@ describe('SettingsPage', () => {
       await userEvent.type(regionInput, 'eu-west-1');
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
-      // bootstrap: leave collapsed, advance to terraform-init and finish.
+      // bootstrap: leave collapsed, advance to stack-init and finish.
       await screen.findByText(/bootstrap aws resources is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await waitFor(() => expect(screen.getByRole('button', { name: /finish setup/i })).toBeEnabled());
@@ -165,12 +211,12 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1);
     });
 
-    it('should commit only the edited step, and rehydrate stored bootstrap resource names into terraform init, when the bootstrap step is left collapsed', async () => {
+    it('should commit only the edited step, and initialize the stack with no renderer-supplied config, when the bootstrap step is left collapsed', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
         activeCloud: 'aws',
         aws: { profile: 'default', region: 'us-east-1' },
-        bootstrap: { stateBucket: 'renamed-tfstate', lockTable: 'renamed-tflock', configurationBucket: 'renamed-tfvars' },
+        bootstrap: { stateBucket: 'renamed-tfstate', configurationBucket: 'renamed-tfvars' },
       });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
@@ -186,13 +232,11 @@ describe('SettingsPage', () => {
 
       await waitFor(() => expect(hyveonMock.wizard.complete).toHaveBeenCalledTimes(1));
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
-      // No second (AbortSignal) argument — cancellation now goes through the
-      // returned HyveonStreamHandle's `cancel()` instead.
-      expect(hyveonMock.iac.init).toHaveBeenCalledWith({
-        bucket: 'renamed-tfstate',
-        region: 'us-east-1',
-        dynamodbTable: 'renamed-tflock',
-      });
+      // `PulumiService.initializeStack` resolves the state bucket/region it
+      // needs internally from already-persisted wizard state — unlike the
+      // deleted `terraform init` call this replaces, the renderer passes it
+      // no config at all.
+      expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith();
     });
 
     it('should not clobber stored config on Finish when the prefill itself fails and nothing was edited', async () => {

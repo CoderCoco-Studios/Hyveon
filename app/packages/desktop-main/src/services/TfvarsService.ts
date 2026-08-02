@@ -56,6 +56,7 @@ import {
   GAME_NAME_PATTERN_DESCRIPTION,
   OptimisticLockError,
   RemoteFileConflictError,
+  withDeploymentConfigDefaults,
 } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
@@ -230,18 +231,15 @@ export class TfvarsService {
 
   /**
    * Reports whether a configuration bucket is currently configured
-   * (`ConfigService.getConfigurationBucket()` resolves a non-empty bucket
-   * name) — i.e. whether setup is complete enough for this service to
-   * read/write real configuration content. Matches the same truthy check
-   * {@link fetchRawConfig}/{@link putRawConfig} use, so this never reports
-   * "configured" for an empty-string bucket that every actual read/write
-   * would then reject. Lets a caller distinguish "unconfigured" from
+   * (`ConfigService.getConfigurationBucket()` resolves non-`null`) — i.e.
+   * whether setup is complete enough for this service to read/write real
+   * configuration content. Lets a caller distinguish "unconfigured" from
    * "configured but genuinely zero games" for wizard-routing purposes,
    * since {@link getGameServers} resolves to `[]` in both cases (its
    * never-reject contract means it can't surface that distinction itself).
    */
   isConfigured(): boolean {
-    return Boolean(this.config.getConfigurationBucket());
+    return this.config.getConfigurationBucket() !== null;
   }
 
   /**
@@ -337,6 +335,84 @@ export class TfvarsService {
   }
 
   /**
+   * Returns every top-level {@link DeploymentConfig} field EXCEPT
+   * `gameServers` (see {@link TopLevelDeploymentSettings}), plus the
+   * `RemoteFileStore` etag to round-trip as {@link updateTopLevelSettings}'s
+   * `expectedVersionId` — mirrors {@link getRawConfig}'s own `{ config, etag }`
+   * shape. Bypasses the in-memory `getGameServers()` cache (like
+   * {@link getRawConfig}) and rejects (rather than swallowing) a missing
+   * object or an unconfigured bucket — task 9.7's Settings form wants to know
+   * immediately if the source is unreadable/unconfigured rather than
+   * silently rendering stale/empty fields.
+   *
+   * Runs the parsed document through {@link withDeploymentConfigDefaults}
+   * before stripping `gameServers` off, so the returned `settings` object
+   * genuinely satisfies its `Omit<DeploymentConfig, 'gameServers'>` type at
+   * RUNTIME, not just at the type-checker level. This matters because
+   * `parseConfigContents()` only validates that the parsed JSON is *an
+   * object* (see its own doc comment) — a stored document that predates a
+   * field (e.g. `baseAllowedGuilds` added after that document was last
+   * written by an older app version) parses successfully with that field
+   * simply absent, and every field the type declares as required
+   * (`string[]`, `number`, ...) would otherwise reach the renderer as
+   * `undefined` — which crashed the Settings form's `.map()` over the
+   * three Discord-ID arrays (task 9.7 review round 1, finding I2) before
+   * this defaulting was added. `withDeploymentConfigDefaults` is a safe,
+   * idempotent no-op on an already-complete document (review round 1
+   * confirmed it has zero other production call sites in this repo before
+   * this fix), and never touches `gameServers` itself — it passes that
+   * field through verbatim (no default value), which is immediately
+   * discarded below anyway.
+   *
+   * @throws {@link ConfigurationNotConfiguredError} when no configuration
+   *   bucket is configured.
+   */
+  async getTopLevelSettings(): Promise<{ settings: Omit<DeploymentConfig, 'gameServers'>; etag?: string }> {
+    const { config: raw, etag } = await this.fetchRawConfig();
+    const defaulted = withDeploymentConfigDefaults(this.parseConfigContents(raw));
+    const { gameServers: _gameServers, ...settings } = defaulted;
+    return { settings, etag };
+  }
+
+  /**
+   * Merges `patch` onto every top-level {@link DeploymentConfig} field
+   * EXCEPT `gameServers` (see {@link TopLevelDeploymentSettings}) and writes
+   * the result back via {@link writeConfig} — see that method's doc for the
+   * conditional-put / `OptimisticLockError` contract. Follows
+   * {@link addGameServer}'s exact shape (read current raw config, apply a
+   * mutation, delegate to {@link writeConfig}) rather than a different
+   * pattern.
+   *
+   * `gameServers` is guaranteed to survive completely untouched: the merge
+   * always takes `gameServers` from the freshly-parsed current document,
+   * never from `patch`, regardless of what `patch` contains at runtime — see
+   * {@link applyTopLevelSettingsPatch}'s doc comment for why this is a
+   * runtime guarantee, not just a compile-time one (`patch` arrives over the
+   * IPC boundary as plain JSON, where TypeScript's `Omit` offers no
+   * protection).
+   *
+   * @param patch - Fields to merge onto the current settings; an omitted
+   *   field keeps its current stored value.
+   * @param expectedVersionId - The etag last read (e.g. via
+   *   {@link getTopLevelSettings}), used as the conditional-put guard; omit
+   *   to write unconditionally. Every real caller (the renderer's settings
+   *   form) always supplies it — see {@link getTopLevelSettings}'s doc
+   *   comment — omission is only supported for parity with
+   *   {@link addGameServer}/{@link updateGameServer}'s own convention.
+   * @returns The written object's new `etag` plus an optional `versionId`
+   *   when the underlying store supports object versioning — see
+   *   {@link writeConfig}/{@link putRawConfig}.
+   * @throws {@link ConfigurationNotConfiguredError} when no configuration
+   *   bucket is configured.
+   */
+  async updateTopLevelSettings(
+    patch: Partial<Omit<DeploymentConfig, 'gameServers'>>,
+    expectedVersionId?: string,
+  ): Promise<{ etag: string; versionId?: string }> {
+    return this.writeConfig(expectedVersionId, (raw) => this.applyTopLevelSettingsPatch(raw, patch));
+  }
+
+  /**
    * Adds a brand-new entry to the `gameServers` map (see issue #96). Reads
    * the current raw config JSON, splices `name` in as a new `gameServers`
    * key, and writes the result back via {@link writeConfig} — see that
@@ -352,7 +428,7 @@ export class TfvarsService {
    * @param config - The new entry's fields (everything but `name`, which is
    *   the map key rather than an object attribute).
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
+   *   used as the conditional-put guard; omit to write unconditionally.
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -382,7 +458,7 @@ export class TfvarsService {
    * @param name - The `gameServers` map key to update.
    * @param config - The entry's new fields (everything but `name`).
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
+   *   used as the conditional-put guard; omit to write unconditionally.
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -411,7 +487,7 @@ export class TfvarsService {
    *
    * @param name - The `gameServers` map key to remove.
    * @param expectedVersionId - The etag last read (e.g. via {@link getRawConfig}),
-   *   used as the conditional-put guard; omit to guard against the version read moments earlier instead (see {@link writeConfig}).
+   *   used as the conditional-put guard; omit to write unconditionally.
    * @returns The written object's new `etag` plus an optional `versionId`
    *   when the underlying store supports object versioning — see
    *   {@link writeConfig}/{@link putRawConfig}.
@@ -455,19 +531,11 @@ export class TfvarsService {
    * {@link fetchRawConfig}, applies `mutate` to it, writes the mutated text
    * back via {@link putRawConfig} (a conditional `RemoteFileStore.put()`),
    * and invalidates the in-memory `getGameServers()` cache so the next read
-   * reflects the write.
-   *
-   * Falls back to the etag {@link fetchRawConfig} just read when the caller
-   * omits `expectedVersionId`, rather than writing unconditionally — two
-   * callers that both omit it (e.g. `GamesWriteService`'s create path, which
-   * has no prior read to base a version on) would otherwise be able to
-   * silently clobber each other's mutation: both read the same document,
-   * each applies a different change, and the later write wins outright with
-   * no conflict ever raised. Using the just-read etag as the guard instead
-   * means a genuine concurrent write between this read and this write still
-   * surfaces as an {@link OptimisticLockError}, while a caller's own
-   * intentionally-empty starting point (this read's etag) still succeeds
-   * normally.
+   * reflects the write. `mutate` running before the write (rather than
+   * concurrently) keeps the conditional-put guard meaningful —
+   * `expectedVersionId` is checked against the store's current etag at write
+   * time, so a conflicting write since `fetchRawConfig` ran is still caught
+   * even though `mutate` itself is synchronous.
    *
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    */
@@ -475,9 +543,9 @@ export class TfvarsService {
     expectedVersionId: string | undefined,
     mutate: (raw: string) => string,
   ): Promise<{ etag: string; versionId?: string }> {
-    const { config: raw, etag } = await this.fetchRawConfig();
+    const { config: raw } = await this.fetchRawConfig();
     const mutated = mutate(raw);
-    const result = await this.putRawConfig(mutated, expectedVersionId ?? etag);
+    const result = await this.putRawConfig(mutated, expectedVersionId);
     this.invalidateCache();
     return result;
   }
@@ -587,6 +655,32 @@ export class TfvarsService {
     const rest = { ...gameServers };
     delete rest[name];
     return this.serializeConfig({ ...parsedConfig, gameServers: rest });
+  }
+
+  /**
+   * Merges `patch` onto `raw`'s top-level fields, with `gameServers` sourced
+   * EXCLUSIVELY from the freshly-parsed current document — never from
+   * `patch` — so the map survives untouched no matter what `patch` contains.
+   *
+   * This is a runtime guarantee, not just a compile-time one:
+   * `updateTopLevelSettings`'s `patch` parameter is typed
+   * `Partial<Omit<DeploymentConfig, 'gameServers'>>`, but that type only
+   * constrains code written against it — `patch` actually arrives from
+   * {@link updateTopLevelSettings}'s caller (ultimately the
+   * `iac.settings.update` IPC handler, fed by a plain-JSON payload crossing
+   * the Electron IPC boundary) with no runtime enforcement that a
+   * `gameServers` key isn't present. Destructuring `gameServers` off `patch`
+   * before spreading it (discarding whatever value was there) and building
+   * the final object's `gameServers` from `config.gameServers` (the current
+   * document) instead makes this impossible to get wrong regardless of what
+   * a misbehaving/future caller sends.
+   */
+  private applyTopLevelSettingsPatch(raw: string, patch: Partial<Omit<DeploymentConfig, 'gameServers'>>): string {
+    const config = this.parseConfigContents(raw);
+    const { gameServers, ...currentSettings } = config;
+    const { gameServers: _ignoredPatchGameServers, ...safePatch } = patch as Partial<DeploymentConfig>;
+
+    return this.serializeConfig({ ...currentSettings, ...safePatch, gameServers });
   }
 
   /**

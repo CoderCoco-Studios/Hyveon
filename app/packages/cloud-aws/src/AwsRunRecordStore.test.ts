@@ -207,27 +207,6 @@ describe('AwsRunRecordStore', () => {
       expect(input.Item).not.toHaveProperty('changeSummary');
     });
 
-    it('should include partialApply on the written item when present on the record', async () => {
-      ddbMock.on(PutCommand).resolves({});
-
-      const store = makeStore();
-      const record = makeRecord({ partialApply: true });
-      await store.putRecord(record);
-
-      const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-      expect(input.Item?.['partialApply']).toBe(true);
-    });
-
-    it('should omit partialApply from the written item when absent on the record', async () => {
-      ddbMock.on(PutCommand).resolves({});
-
-      const store = makeStore();
-      await store.putRecord(makeRecord());
-
-      const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-      expect(input.Item).not.toHaveProperty('partialApply');
-    });
-
     it('should throw a clear error when constructed without a getConfig callback', async () => {
       const store = makeStore(null);
       await expect(store.putRecord(makeRecord())).rejects.toThrow(
@@ -338,28 +317,6 @@ describe('AwsRunRecordStore', () => {
 
       expect(result).toEqual(record);
       expect(result?.changeSummary).toBeUndefined();
-    });
-
-    it('should round-trip partialApply through putRecord/getRecordByRunId when present', async () => {
-      const record = makeRecord({ partialApply: true });
-      ddbMock.on(PutCommand).resolves({});
-      ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...record }] });
-
-      const store = makeStore();
-      await store.putRecord(record);
-      const result = await store.getRecordByRunId('run-123');
-
-      expect(result?.partialApply).toBe(true);
-    });
-
-    it('should deserialize an older record with no partialApply field without error', async () => {
-      const record = makeRecord();
-      ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...record }] });
-
-      const store = makeStore();
-      const result = await store.getRecordByRunId('run-123');
-
-      expect(result?.partialApply).toBeUndefined();
     });
 
     it('should throw a clear error when constructed without a getConfig callback', async () => {

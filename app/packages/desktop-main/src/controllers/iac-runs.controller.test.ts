@@ -49,12 +49,11 @@ function makePulumi(
   record: PulumiRunRecord | null = null,
   planArtifactExists = false,
 ): PulumiService {
-  const stub: Partial<PulumiService> = {
+  return {
     readRunRecord: vi.fn().mockReturnValue(record),
     hasPlanArtifact: vi.fn().mockReturnValue(planArtifactExists),
     streamRunOutput: vi.fn().mockImplementation(async function* () { /* empty */ }),
-  };
-  return stub as PulumiService;
+  } as unknown as PulumiService;
 }
 
 /**

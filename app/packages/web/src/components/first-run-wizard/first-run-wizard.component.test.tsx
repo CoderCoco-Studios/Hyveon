@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AwsProfileSummary, PrerequisitesReport } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
 
 const hyveonMock = {
   wizard: {
-    checkPrereqs: vi.fn(),
     saveState: vi.fn(),
     listAwsProfiles: vi.fn(),
     saveCredentials: vi.fn(),
@@ -18,22 +17,14 @@ const hyveonMock = {
     complete: vi.fn(),
   },
   iac: {
-    init: vi.fn(),
+    stack: {
+      initialize: vi.fn(),
+    },
   },
 };
 vi.stubGlobal('hyveon', hyveonMock);
 
 import { FirstRunWizard } from './first-run-wizard.component.js';
-
-const SATISFIED: PrerequisitesReport = {
-  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
-};
-
-const UNSATISFIED: PrerequisitesReport = {
-  terraform: { found: false },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
-};
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
   { profileName: 'default', region: 'us-east-1' },
@@ -41,7 +32,6 @@ const SAMPLE_PROFILES: AwsProfileSummary[] = [
 ];
 
 beforeEach(() => {
-  hyveonMock.wizard.checkPrereqs.mockReset();
   // Defaulted (not just reset): the bootstrap step's fire-and-forget
   // `wizard.state.save({ bootstrap })` call (see `goNext`) uses a bare
   // `.catch()`, not an awaited try/catch, so an unmocked call (returning
@@ -56,22 +46,19 @@ beforeEach(() => {
   // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
   // effects — present on every render regardless of which step a test cares
   // about — never throw on an unmocked call.
-  hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'prerequisites' });
+  hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
   hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
   hyveonMock.wizard.complete.mockReset();
-  hyveonMock.iac.init.mockReset();
+  hyveonMock.iac.stack.initialize.mockReset();
 });
 
-/** Advances the wizard from the (satisfied) prerequisites step to pick-cloud. */
+/** Renders the wizard, which starts directly on the pick-cloud step (the first step now that prerequisites was removed). */
 async function advanceToPickCloud(): Promise<void> {
-  hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
   render(<FirstRunWizard />);
-  await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
-  await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
   await screen.findByText(/choose the cloud provider/i);
 }
 
-/** Advances the wizard from prerequisites through pick-cloud to the credentials step. */
+/** Advances the wizard from pick-cloud to the credentials step. */
 async function advanceToCredentials(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
@@ -79,7 +66,7 @@ async function advanceToCredentials(): Promise<void> {
   await screen.findByText(/choose the aws credentials/i);
 }
 
-/** Advances the wizard from prerequisites through pick-cloud and credentials (profile path) to the bootstrap step. */
+/** Advances the wizard from pick-cloud and credentials (profile path) to the bootstrap step. */
 async function advanceToBootstrap(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, aws: { profile: 'default', region: 'us-east-1' } });
   await advanceToCredentials();
@@ -89,13 +76,13 @@ async function advanceToBootstrap(): Promise<void> {
   await screen.findByLabelText('Terraform state bucket name');
 }
 
-/** Advances the wizard all the way to the terraform-init step, with both bootstrap resources succeeding. */
-async function advanceToTerraformInit(): Promise<void> {
+/** Advances the wizard all the way to the stack-init step, with both bootstrap resources succeeding. */
+async function advanceToStackInit(): Promise<void> {
   hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
-  hyveonMock.iac.init.mockImplementation(
+  hyveonMock.iac.stack.initialize.mockImplementation(
     toStreamHandleMock(async function* () {
-      // No chunks needed by default — individual tests override this.
+      // No phase events needed by default — individual tests override this.
     }),
   );
   await advanceToBootstrap();
@@ -110,54 +97,14 @@ afterEach(() => {
 });
 
 describe('FirstRunWizard', () => {
-  it('should check prerequisites on mount and render found tools once resolved', async () => {
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-
-    render(<FirstRunWizard />);
-
-    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
-  });
-
-  it('should disable Next while prerequisites are unsatisfied', async () => {
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
-
-    render(<FirstRunWizard />);
-
-    expect(await screen.findByText('Not found')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
-  });
-
-  it('should enable Next once both tools are satisfied', async () => {
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-
-    render(<FirstRunWizard />);
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
-  });
-
-  it('should re-invoke the prerequisite check when Re-check is clicked', async () => {
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(UNSATISFIED);
-
-    render(<FirstRunWizard />);
-    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
-
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-    await userEvent.click(screen.getByRole('button', { name: /re-check/i }));
-
-    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
-  });
-
   it('should disable Back on the first step', async () => {
-    hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
     render(<FirstRunWizard />);
-    await waitFor(() => expect(hyveonMock.wizard.checkPrereqs).toHaveBeenCalledTimes(1));
+    await screen.findByText(/choose the cloud provider/i);
 
     expect(screen.getByRole('button', { name: /back/i })).toBeDisabled();
   });
 
-  it('should advance to the pick-cloud step once prerequisites are satisfied and Next is clicked', async () => {
+  it('should render the pick-cloud step as the first step', async () => {
     await advanceToPickCloud();
     expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
   });
@@ -180,14 +127,6 @@ describe('FirstRunWizard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('disk full');
     // Still on pick-cloud, not advanced further.
     expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
-  });
-
-  it('should allow going back from pick-cloud to prerequisites', async () => {
-    await advanceToPickCloud();
-
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-
-    expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
   });
 
   it('should disable Back while the cloud choice save is pending, to avoid a race with the step transition', async () => {
@@ -452,31 +391,33 @@ describe('FirstRunWizard', () => {
 
       await waitFor(() =>
         expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
-          bootstrap: { stateBucket: 'hyveon-tfstate', lockTable: 'hyveon-tflock', configurationBucket: 'hyveon-tfvars' },
+          bootstrap: { stateBucket: 'hyveon-tfstate', configurationBucket: 'hyveon-tfvars' },
         }),
       );
     });
   });
 
-  describe('terraform-init step', () => {
-    it('should hide the shared Next button once on the terraform-init step', async () => {
-      await advanceToTerraformInit();
+  describe('stack-init step', () => {
+    it('should hide the shared Next button once on the stack-init step', async () => {
+      await advanceToStackInit();
 
       expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
     });
 
     it('should call wizard.complete and invoke onComplete when Finish setup succeeds', async () => {
-      hyveonMock.iac.init.mockImplementation(
+      hyveonMock.iac.stack.initialize.mockImplementation(
         toStreamHandleMock(async function* () {
-          yield { stream: 'stdout', line: 'Terraform has been successfully initialized!' };
+          yield { phase: 'engine', status: 'start' };
+          yield { phase: 'engine', status: 'end' };
+          yield { phase: 'plugins', status: 'start' };
+          yield { phase: 'plugins', status: 'end' };
+          yield { phase: 'operation', status: 'start' };
+          yield { phase: 'operation', status: 'end' };
         }),
       );
       hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       const onComplete = vi.fn();
       render(<FirstRunWizard onComplete={onComplete} />);
-      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
-      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/choose the cloud provider/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/choose the aws credentials/i);
@@ -504,17 +445,15 @@ describe('FirstRunWizard', () => {
   });
 
   describe('resume-on-mount', () => {
-    it('should start at prerequisites when wizard.progress.get resolves to the prerequisites step', async () => {
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'prerequisites' });
+    it('should start at pick-cloud when wizard.progress.get resolves to the pick-cloud step', async () => {
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'pick-cloud' });
 
       render(<FirstRunWizard />);
 
-      expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
+      expect(await screen.findByText(/choose the cloud provider/i)).toBeInTheDocument();
     });
 
     it('should jump straight to the recorded step when wizard.progress.get resolves to a later step', async () => {
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       hyveonMock.wizard.listAwsProfiles.mockResolvedValue(SAMPLE_PROFILES);
       hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'credentials' });
 
@@ -523,28 +462,25 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/choose the aws credentials/i)).toBeInTheDocument();
     });
 
-    it('should stay on prerequisites when wizard.progress.get rejects', async () => {
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
+    it('should stay on pick-cloud when wizard.progress.get rejects', async () => {
       hyveonMock.wizard.getProgress.mockRejectedValue(new Error('state file corrupt'));
 
       render(<FirstRunWizard />);
 
-      expect(await screen.findByText('Found v1.9.0')).toBeInTheDocument();
+      expect(await screen.findByText(/choose the cloud provider/i)).toBeInTheDocument();
     });
 
-    it('should clamp a recorded terraform-init step down to bootstrap, rather than auto-running terraform init on mount', async () => {
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
-      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'terraform-init' });
+    it('should clamp a recorded stack-init step down to bootstrap, rather than auto-initializing the stack on mount', async () => {
+      hyveonMock.wizard.getProgress.mockResolvedValue({ step: 'stack-init' });
 
       render(<FirstRunWizard />);
 
       expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
-      expect(hyveonMock.iac.init).not.toHaveBeenCalled();
+      expect(hyveonMock.iac.stack.initialize).not.toHaveBeenCalled();
     });
 
     it('should not save progress before the resume check has settled, so a fast render never clobbers a resumed step', async () => {
-      hyveonMock.wizard.checkPrereqs.mockResolvedValue(SATISFIED);
       let resolveProgress!: (value: { step: 'credentials' }) => void;
       hyveonMock.wizard.getProgress.mockReturnValue(
         new Promise((resolve) => {
