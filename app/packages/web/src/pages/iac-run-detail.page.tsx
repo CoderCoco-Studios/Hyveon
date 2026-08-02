@@ -167,12 +167,12 @@ function formatTimestamp(iso: string): string {
  * Read-only run-detail route (`/iac/history/:runId`) — shows a single
  * persisted `terraform` run's status and captured log, reusing the live
  * Plan/Apply page's `AnsiLogViewer`/`ErrorBanner`/`ChangeSummaryStatus`
- * components (issue #111; `ChangeSummaryStatus` reuse added by task 9.5).
- * Never offers Approve/Apply controls: every record in history describes a
- * finished (terminal) run — a `RunRecord` is only ever persisted once its
- * subcommand has closed. A record with `partialApply: true` gets a read-only
- * "partial" badge next to its status — unlike the live page's
- * `PartialApplyBanner`, there is no "start over" action on a historical run.
+ * components. Never offers Approve/Apply controls: every record in history
+ * describes a finished (terminal) run — a `RunRecord` is only ever
+ * persisted once its subcommand has closed. A record with
+ * `partialApply: true` gets a read-only "partial" badge next to its status —
+ * unlike the live page's `PartialApplyBanner`, there is no "start over"
+ * action on a historical run.
  */
 export function IacRunDetailPage() {
   const { runId } = useParams<{ runId: string }>();

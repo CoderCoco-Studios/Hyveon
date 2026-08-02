@@ -309,13 +309,10 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    *
    * @remarks
    * Deliberately does not call `wizard.bootstrap.lockTable` — no such
-   * channel exists anymore (task 5.1 removed the main-process handler
-   * entirely: the DIY Pulumi S3 backend locks via objects in the state
-   * bucket, not a DynamoDB table). `lockTable` no longer has a row in
-   * {@link BootstrapStep} either (task 5.5), and (task 10.3) no longer
-   * exists on {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses`
-   * at all — its last remaining (non-bootstrap) use was the deleted
-   * `terraform-init` step's `backendConfig`.
+   * channel exists: the DIY Pulumi S3 backend locks via objects in the
+   * state bucket, not a DynamoDB table. `lockTable` has no row in
+   * {@link BootstrapStep} and no longer exists on
+   * {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses` at all.
    */
   async function runBootstrap() {
     if (!window.hyveon) {

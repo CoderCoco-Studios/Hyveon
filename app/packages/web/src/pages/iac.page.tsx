@@ -233,7 +233,7 @@ function formatLockAge(lockedAt: string, nowMs: number): string {
 }
 
 /**
- * Shown INSTEAD OF {@link BusyBanner}/{@link ErrorBanner} (task 9.4) when a
+ * Shown INSTEAD OF {@link BusyBanner}/{@link ErrorBanner} when a
  * plan/apply/destroy submission was rejected because the Pulumi backend is
  * locked by something this installation cannot prove is its own crashed run
  * (`ack.staleLock` — see `TerraformPlanAck.staleLock`'s doc comment in
@@ -247,8 +247,7 @@ function formatLockAge(lockedAt: string, nowMs: number): string {
  * a human-readable age via {@link formatLockAge}), then offers an explicit
  * "Clear lock and retry" action gated behind a {@link ConfirmDialog} —
  * reusing the same shared component the destroy- and rollback-confirmation
- * flows already use, per this migration's established idiom. The dialog's
- * copy is deliberately cautionary: clearing a lock that turns out to be a
+ * flows use. The dialog's copy is deliberately cautionary: clearing a lock that turns out to be a
  * genuinely active operation elsewhere (not actually stale) risks two Pulumi
  * updates racing against the same state, which can corrupt it — so the
  * operator is asked to confirm they recognize (or don't recognize) the
@@ -356,7 +355,7 @@ function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) 
 }
 
 /**
- * {@link OpType} keys bucketed for display (task 9.1). Each bucket sums to a
+ * {@link OpType} keys bucketed for display. Each bucket sums to a
  * single badge rather than rendering one badge per raw `OpType` — most runs
  * only ever populate a handful of the 15 possible keys, and the replacement
  * pair (`create-replacement`/`delete-replaced`) plus `import`/
@@ -368,8 +367,8 @@ const DELETE_OPS: readonly OpType[] = ['delete', 'delete-replaced'];
 /**
  * The rare, mostly-internal engine ops (refresh bookkeeping, discarded steps,
  * pending-replace cancellations, plain reads) — summed into a single "other"
- * badge rather than given their own bucket, per the task 9.1 design
- * guidance. Omitted entirely from the summary when none of them fired.
+ * badge rather than given their own bucket. Omitted entirely from the
+ * summary when none of them fired.
  */
 const OTHER_OPS: readonly OpType[] = [
   'read',
@@ -415,16 +414,14 @@ function isNoOpSummary(summary: ChangeSummary): boolean {
 
 /**
  * Resource-change summary display shared by the plan, apply, and destroy
- * sections (task 9.1) — reads the structured {@link ChangeSummary} the
- * Pulumi engine reports directly off the persisted run record, replacing the
- * three text-scraping regexes this component used to depend on. Renders one
- * of three distinct states (task 9.2): "summary unavailable" when the
- * structured event was never observed, a dedicated no-op message when the
- * run only reports `same`, or grouped badges for the ops that actually
- * changed something.
+ * sections — reads the structured {@link ChangeSummary} the Pulumi engine
+ * reports directly off the persisted run record. Renders one of three
+ * states: "summary unavailable" when the structured event was never
+ * observed, a dedicated no-op message when the run only reports `same`, or
+ * grouped badges for the ops that actually changed something.
  *
- * Exported (task 9.5) so the read-only run-history table and detail view can
- * reuse this exact three-way distinction instead of reimplementing it.
+ * Exported so the read-only run-history table and detail view can reuse
+ * this exact three-way distinction instead of reimplementing it.
  */
 export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | undefined }) {
   if (isSummaryUnavailable(summary)) {
@@ -459,7 +456,7 @@ export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | unde
 
 /**
  * Shown instead of the generic apply-failure/-abort banner when
- * `applyRecord.partialApply` is `true` (task 9.3) — the Pulumi engine
+ * `applyRecord.partialApply` is `true` — the Pulumi engine
  * mutated some resources before the apply run failed or was aborted, so the
  * deployed infrastructure no longer matches the plan that was approved.
  * Retrying the same apply blindly is unsafe because it's still gated on a
@@ -749,10 +746,11 @@ export function IacPage() {
   const applyFinished = applyStatus !== null;
   const destroyFinished = destroyStatus !== null;
   /**
-   * The task 9.3 signal — checked independently of which terminal status
-   * fired (`applyStatus` can be `'failed'` or `'aborted'` and still carry
-   * `partialApply: true`; gating this on `applyStatus === 'failed'` alone
-   * would miss the abort-mid-apply case).
+   * Whether the apply run mutated resources before failing/aborting —
+   * checked independently of which terminal status fired (`applyStatus` can
+   * be `'failed'` or `'aborted'` and still carry `partialApply: true`;
+   * gating on `applyStatus === 'failed'` alone would miss the
+   * abort-mid-apply case).
    */
   const applyPartial = applyRecord?.partialApply === true;
 
@@ -789,7 +787,7 @@ export function IacPage() {
                 // in planSubmitError, never touched by a successful clear)
                 // would reappear the instant the ternary above falls through
                 // to the BusyBanner/ErrorBanner branch — a red "error" banner
-                // for an action that just succeeded (review round 1, I1).
+                // for an action that just succeeded.
                 setPlanSubmitError(null);
               }}
             />
@@ -874,7 +872,7 @@ export function IacPage() {
                       nowMs={now}
                       onCleared={() => {
                         setApplyStaleLock(null);
-                        // See the identical comment on the plan banner above (review round 1, I1).
+                        // See the identical comment on the plan banner above.
                         setApplySubmitError(null);
                       }}
                     />
@@ -925,8 +923,8 @@ export function IacPage() {
 
           {/*
             The partial-apply banner above already embeds its own "Start
-            over" button (task 9.3) — suppress this generic one in that case
-            so the guided next step isn't duplicated on screen.
+            over" button — suppress this generic one in that case so the
+            guided next step isn't duplicated on screen.
           */}
           {!applyPartial &&
             (planFailed || applyStatus === 'success' || applyStatus === 'failed' || applyStatus === 'aborted') && (
@@ -968,7 +966,7 @@ export function IacPage() {
                 nowMs={now}
                 onCleared={() => {
                   setDestroyStaleLock(null);
-                  // See the identical comment on the plan banner above (review round 1, I1).
+                  // See the identical comment on the plan banner above.
                   setDestroySubmitError(null);
                 }}
               />

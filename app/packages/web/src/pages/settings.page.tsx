@@ -8,27 +8,25 @@ import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.
 import { Button } from '../components/ui/button.component.js';
 
 /**
- * Client-side state for the Cloud Setup section's Pulumi engine version row
- * (task 10.4, `migrate-iac-to-pulumi`) — tracks the `iac.settings.engineVersion`
- * IPC round trip separately from its result so a genuine fetch failure (IPC
- * unavailable, an unexpected main-process error) renders distinct copy from
- * `resolvedVersion: null`, which is a real, expected "not yet provisioned"
- * state (a fresh install that hasn't run the engine yet), not a failure.
+ * Client-side state for the Cloud Setup section's Pulumi engine version row —
+ * tracks the `iac.settings.engineVersion` IPC round trip separately from its
+ * result so a genuine fetch failure (IPC unavailable, an unexpected
+ * main-process error) renders distinct copy from `resolvedVersion: null`,
+ * which is a real, expected "not yet provisioned" state (a fresh install
+ * that hasn't run the engine yet), not a failure.
  *
  *  - `'loading'`: the initial state, before the IPC call has settled.
  *  - `{ status: 'ready', resolvedVersion }`: the call resolved —
  *    `resolvedVersion` is `null` when the engine hasn't been provisioned yet.
  *  - `'error'`: the call itself rejected (or `window.hyveon.iac.settings` is
- *    unavailable) — best-effort, mirrors the removed `checkPrereqs()` row's
- *    own "just fall back" catch handling.
+ *    unavailable) — best-effort fallback.
  */
 type EngineVersionState = 'loading' | { status: 'ready'; resolvedVersion: string | null } | 'error';
 
 /**
  * Renders {@link EngineVersionState} as the Cloud Setup row's detail line,
  * always suffixed with the pinned/target version (`PULUMI_ENGINE_VERSION`)
- * regardless of state — see task 10.4's brief, "always shown, regardless of
- * whether the resolved version is present".
+ * regardless of state.
  */
 function engineVersionLabel(state: EngineVersionState): string {
   const pinned = `pinned to v${PULUMI_ENGINE_VERSION}`;
@@ -41,9 +39,8 @@ function engineVersionLabel(state: EngineVersionState): string {
 
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
- * form (`DeploymentSettingsForm`, task 9.7 of `migrate-iac-to-pulumi`) for
- * every top-level `DeploymentConfig` field except `gameServers`. Per the
- * issue spec, the watchdog panel moves here from the dashboard.
+ * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`
+ * field except `gameServers`.
  *
  * While `reconfiguring` is true, this page renders only
  * {@link FirstRunWizard} in `mode: 'reconfigure'` (#211) — mirroring how
@@ -92,14 +89,10 @@ export function SettingsPage() {
       </div>
 
       {/*
-        Cloud setup section. The version-status row that used to read
-        `window.hyveon.wizard.checkPrereqs()` was removed in task 10.1/10.2
-        of `migrate-iac-to-pulumi` — that channel probed for a host
-        `terraform`/`aws` CLI, which no longer exists now the Pulumi engine
-        is app-managed. Task 10.4 replaces it with a row reporting the
-        resolved Pulumi engine version (`iac.settings.engineVersion`) plus
-        the pinned/target version (`PULUMI_ENGINE_VERSION`) — see
-        `engineVersionLabel` above for the exact copy per state.
+        Cloud setup section: reports the resolved Pulumi engine version
+        (`iac.settings.engineVersion`) alongside the pinned/target version
+        (`PULUMI_ENGINE_VERSION`) — see `engineVersionLabel` above for the
+        exact copy per state.
       */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Cloud Setup</h3>
@@ -114,7 +107,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* General settings: top-level deployment configuration (task 9.7) */}
+      {/* General settings: top-level deployment configuration */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">General</h3>
         <DeploymentSettingsForm />
