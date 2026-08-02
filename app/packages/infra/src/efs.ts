@@ -1,24 +1,20 @@
 /**
- * EFS (persistent game saves) resources — ported from `terraform/aws/main.tf`'s
- * `## EFS (persistent game saves)` block (task 3.2 of `migrate-iac-to-pulumi`):
- * one shared EFS filesystem, its mount targets (one per public subnet), one
- * access point per `(game, volume)` pair (`aws_efs_access_point.game`'s
- * `for_each` over `local.game_volumes`), and one certificate-storage access
- * point per `https: true` game (`aws_efs_access_point.caddy_data`'s
- * `for_each` over `local.https_games`).
+ * EFS (persistent game saves) resources: one shared EFS filesystem, its
+ * mount targets (one per public subnet), one access point per `(game,
+ * volume)` pair, and one certificate-storage access point per `https: true`
+ * game.
  *
- * | HCL address | This file |
+ * | Resource | This file |
  * | --- | --- |
  * | `aws_efs_file_system.saves` | {@link EfsResources.fileSystem} |
- * | `aws_efs_mount_target.saves` (`count = 2`) | {@link EfsResources.mountTargets} |
- * | `aws_efs_access_point.game` (`for_each` over `local.game_volumes`) | {@link EfsResources.gameAccessPoints} |
- * | `aws_efs_access_point.caddy_data` (`for_each` over `local.https_games`) | {@link EfsResources.caddyDataAccessPoints} |
+ * | `aws_efs_mount_target.saves` (one per public subnet) | {@link EfsResources.mountTargets} |
+ * | `aws_efs_access_point.game` (one per `(game, volume)` pair) | {@link EfsResources.gameAccessPoints} |
+ * | `aws_efs_access_point.caddy_data` (one per `https: true` game) | {@link EfsResources.caddyDataAccessPoints} |
  *
- * The `efs` security group (`aws_security_group.efs`) is task 3.4's —
- * `securityGroups.ts` — and is threaded in here by ID only, as
- * {@link DefineEfsArgs.efsSecurityGroupId}. The seeder-sourced ingress rule on
- * that security group and `aws_security_group.efs_seeder` itself are task
- * 3.6's; this file does not touch either.
+ * The `efs` security group is declared in `securityGroups.ts` and threaded in
+ * here by ID only, as {@link DefineEfsArgs.efsSecurityGroupId}. The
+ * seeder-sourced ingress rule on that security group and the seeder security
+ * group itself are declared elsewhere; this file does not touch either.
  */
 
 import * as aws from '@pulumi/aws';
@@ -89,9 +85,8 @@ const ACCESS_POINT_POSIX_ID = 1000;
 
 /**
  * Declares the shared EFS filesystem, its mount targets, and every
- * per-game/per-HTTPS-game access point (task 3.2 of `migrate-iac-to-pulumi`).
- * Must be called from inside the Pulumi inline-program closure, never at
- * module scope.
+ * per-game/per-HTTPS-game access point. Must be called from inside the
+ * Pulumi inline-program closure, never at module scope.
  *
  * @param args - Naming, config, and provider inputs — see {@link DefineEfsArgs}.
  * @returns The declared resources — see {@link EfsResources}.

@@ -1,21 +1,18 @@
 /**
- * DynamoDB tables — ported from `terraform/aws/audit_store.tf`'s
- * `aws_dynamodb_table.audit`, `terraform/aws/runs_store.tf`'s
- * `aws_dynamodb_table.runs`, and `terraform/aws/discord_store.tf`'s
- * `aws_dynamodb_table.discord` (task 3.8 of `migrate-iac-to-pulumi`).
+ * Declares the three DynamoDB tables: `aws_dynamodb_table.audit`,
+ * `aws_dynamodb_table.runs`, and `aws_dynamodb_table.discord`.
  *
- * | HCL address | This file |
+ * | Table | This file |
  * | --- | --- |
  * | `aws_dynamodb_table.discord` | {@link DynamoDbResources.discordTable} |
  * | `aws_dynamodb_table.runs` | {@link DynamoDbResources.runsTable} |
  * | `aws_dynamodb_table.audit` | {@link DynamoDbResources.auditTable} |
  *
  * The Discord table's two seed rows (`aws_dynamodb_table_item.discord_base_config`/
- * `discord_config_seed`) are NOT declared here — they live in `escapes.ts`
- * (task 3.10), which takes {@link DynamoDbResources.discordTable} as an input
- * rather than constructing its own table. See that file's doc for the full
- * "imperative escapes" inventory and why table rows are ported separately
- * from the table itself.
+ * `discord_config_seed`) are NOT declared here — they live in `escapes.ts`,
+ * which takes {@link DynamoDbResources.discordTable} as an input rather than
+ * constructing its own table. See that file's doc for the full "imperative
+ * escapes" inventory.
  *
  * `discordApplicationId`/`baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds`
  * (all consumed by `escapes.ts`, not this file) never touch table
@@ -56,9 +53,7 @@ export interface DefineDynamoDbArgs {
    * Mirrors `DeploymentConfig.auditTableName` (`var.audit_table_name`) — an
    * empty string resolves to `${projectName}-audit`, replicating the HCL's
    * `var.audit_table_name != "" ? var.audit_table_name : "${var.project_name}-audit"`
-   * ternary. `deploymentConfig.ts`'s doc on `auditTableName` explicitly
-   * leaves this resolution to "the infrastructure program (Phase 3)" — this
-   * is that resolution.
+   * ternary. This function is where that resolution happens.
    */
   auditTableName: string;
   /** Mirrors `DeploymentConfig.runsTableName` (`var.runs_table_name`) — same empty-string-resolves-to-default contract as {@link auditTableName}, against `${projectName}-runs`. */
@@ -81,9 +76,9 @@ function resolveTableName(overrideName: string, projectName: string, suffix: str
 }
 
 /**
- * Declares the three DynamoDB tables (task 3.8 of `migrate-iac-to-pulumi`) —
- * see this file's doc for the full HCL→Pulumi address table. Must be called
- * from inside the Pulumi inline-program closure, never at module scope.
+ * Declares the three DynamoDB tables — see this file's doc for the full
+ * table mapping. Must be called from inside the Pulumi inline-program
+ * closure, never at module scope.
  *
  * Every table's Pulumi *logical* name is fixed to `${projectName}-<role>`,
  * deliberately NOT derived from the resolved (possibly operator-overridden)
