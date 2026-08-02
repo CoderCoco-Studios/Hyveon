@@ -542,13 +542,18 @@ describe('TfvarsService', () => {
       });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const entry = {
+        image: 'ryshe/terraria',
+        cpu: 512,
+        memory: 1024,
+        ports: [{ container: 7777, protocol: 'tcp' as const }],
+        volumes: [{ name: 'world', container_path: '/config' }],
+      };
 
-      await expect(service.addGameServer('terraria', { image: 'terraria:latest' })).rejects.toMatchObject({
+      await expect(service.addGameServer('terraria', entry)).rejects.toMatchObject({
         reason: 'structural',
       });
-      await expect(service.addGameServer('terraria', { image: 'terraria:latest' })).rejects.toBeInstanceOf(
-        GameServerEntryError,
-      );
+      await expect(service.addGameServer('terraria', entry)).rejects.toBeInstanceOf(GameServerEntryError);
     });
 
     it('should retry the source once the TTL has elapsed after a failed parse', async () => {
