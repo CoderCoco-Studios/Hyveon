@@ -41,19 +41,16 @@ const DESTROY_CHUNK_CHANNEL = 'iac.destroy.chunk';
 const DESTROY_END_CHANNEL = 'iac.destroy.end';
 
 /**
- * Fixed side-channel {@link IacController.confirmRollback} pushes
- * streamed rollback-plan output on. Added by task 7.10 (`migrate-iac-to-pulumi`):
- * `PulumiService.confirmRollback` (task 7.6) is an `AsyncGenerator` that
- * streams a real plan run internally (the restore-then-plan "one guarded
- * unit" design — see that method's own TSDoc), unlike the pre-migration
- * `TerraformService.confirmRollback`, which only ever did the restore write
- * and resolved a single value. Nothing subscribes to this channel yet — the
- * renderer's `RollbackAction` component (Phase 8/9's job to update) still
- * only awaits `confirmRollback`'s resolved ack (see that method's own TSDoc,
- * "Streaming vs. the renderer's existing one-shot contract") — but the
- * plumbing exists now so a long-running restore+plan isn't a total black box
- * for a future caller that wants to watch it live, mirroring
- * {@link PLAN_CHUNK_CHANNEL}'s shape exactly.
+ * Fixed side-channel {@link IacController.confirmRollback} pushes streamed
+ * rollback-plan output on. `PulumiService.confirmRollback` is an
+ * `AsyncGenerator` that streams a real plan run internally (the
+ * restore-then-plan "one guarded unit" design — see that method's own
+ * TSDoc). Nothing subscribes to this channel yet — the renderer's
+ * `RollbackAction` component still only awaits `confirmRollback`'s resolved
+ * ack (see that method's own TSDoc, "Streaming vs. the renderer's existing
+ * one-shot contract") — but the plumbing exists so a long-running
+ * restore+plan isn't a total black box for a future caller that wants to
+ * watch it live, mirroring {@link PLAN_CHUNK_CHANNEL}'s shape exactly.
  */
 const ROLLBACK_CONFIRM_CHUNK_CHANNEL = 'iac.rollback.confirm.chunk';
 
@@ -97,12 +94,10 @@ interface StackInitializePhaseMessage {
  * `iac.stack.initialize` run finishes. `error` is present only on a failed
  * run.
  *
- * Deliberately carries no separate structured `failedPhase` field (fix
- * round 1: an earlier version of this message did, but it never actually
- * reached the renderer — see {@link IacController.initializeStack}'s own
- * TSDoc, "Why no structured `failedPhase` field", for why that gap turned
- * out to be the right call to keep rather than fix by plumbing it through).
- * `error` already names the failed phase in prose — see
+ * Deliberately carries no separate structured `failedPhase` field — see
+ * {@link IacController.initializeStack}'s own TSDoc, "Why no structured
+ * `failedPhase` field", for why that data can't reliably reach the renderer
+ * over this path. `error` already names the failed phase in prose — see
  * `PulumiStackInitializationError`'s own message format
  * (`PulumiService.ts`) — which is sufficient for the operator-facing error
  * text, and the renderer independently derives the same phase attribution
@@ -190,12 +185,10 @@ interface StaleLockHolder {
  * Attached to an ack or end message when the underlying `PulumiService` call
  * threw `PulumiUnrecognizedLockError` — the backend lock conflict could not
  * be proven to be this installation's own orphaned run, so the operator must
- * confirm before it's cleared. This dispatch (tasks 8.3/8.5) only wires the
- * READ side through — carrying the same holder/age evidence the error itself
- * carries so a future caller has real data to render instead of only
- * `error`'s prose. Task 9.4 ("stale-lock recovery UI with explicit
- * confirmation") is the one that designs the confirmation flow and any
- * "clear the lock" write path; no such channel exists yet.
+ * confirm before it's cleared. Carries the same holder/age evidence the
+ * error itself carries so a caller has real data to render instead of only
+ * `error`'s prose; {@link IacController.clearStaleLock} is the write path
+ * that clears the lock once the operator confirms.
  */
 interface StaleLockInfo {
   stackName: string;
@@ -221,9 +214,8 @@ function serializeStaleLock(err: PulumiUnrecognizedLockError): StaleLockInfo {
 }
 
 /**
- * Result the `iac.lock.clear` IPC channel resolves with (task 9.4,
- * `migrate-iac-to-pulumi`'s "stale-lock recovery UI with explicit
- * confirmation"). `cleared: true` means `PulumiService.clearStaleLock`
+ * Result the `iac.lock.clear` IPC channel resolves with.
+ * `cleared: true` means `PulumiService.clearStaleLock`
  * successfully called `stack.cancel()` against the Pulumi backend — the
  * operator should now resubmit their original plan/apply/destroy via the
  * normal button; this channel never re-attempts it automatically (see that
@@ -310,7 +302,7 @@ interface TerraformRollbackPayload {
  * run, not an apply run, no recorded configuration version id, or no earlier
  * version exists) — `error` is always a human-readable description of why.
  *
- * `diff` is a best-effort addition (task 9.6, `iac-rollback` spec's SHOULD
+ * `diff` is a best-effort addition (the `iac-rollback` spec's SHOULD
  * requirement): populated with `PulumiService.computeRollbackDiff`'s result
  * when `resolved: true` AND the diff could be computed, omitted otherwise —
  * either because resolution itself failed (`resolved: false`) or because the
@@ -368,9 +360,9 @@ interface TerraformRollbackConfirmChunkMessage {
  * identifies the approved `plan` run to apply — also reused, unchanged, as
  * the apply run's own `runId` (see `PulumiService.apply`'s TSDoc, "run id").
  * `planHash` is the caller's expected plan hash, checked against the plan
- * run's stored `planHash` by `PulumiService.apply`'s own self-contained gate
- * (task 7.2) — this controller no longer re-derives or pre-checks any of
- * that itself; see {@link apply}'s own TSDoc.
+ * run's stored `planHash` by `PulumiService.apply`'s own self-contained
+ * gate — this controller does not re-derive or pre-check any of that
+ * itself; see {@link apply}'s own TSDoc.
  *
  * Mirrors `TerraformApplyPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
@@ -468,18 +460,12 @@ interface TerraformDestroyEndMessage {
 
 /**
  * IPC-only Terraform controller. Handles Electron main-process messages via
- * `@MessagePattern` — no HTTP routes are registered here.
- *
- * Task 7.10 (`migrate-iac-to-pulumi`) repointed every orchestration call site
- * in this file from the deleted `TerraformService` onto `PulumiService`
- * (Phase 7's Automation-API-backed replacement). The channel names, payload
- * shapes, and streaming/side-channel bridging pattern below are all
- * unchanged from before that repoint (Phase 8's job, not this one, per the
- * `migrate-iac-to-pulumi` change's own scoping) — what changed is which
- * service backs each handler, and (where the new service's methods are
- * self-contained gates rather than thin CLI wrappers — {@link apply},
- * {@link destroy}) how much pre-flight bookkeeping this controller still
- * needs to do itself. See each method's own TSDoc for the specifics.
+ * `@MessagePattern` — no HTTP routes are registered here. Every
+ * orchestration call site delegates to `PulumiService`, the
+ * Automation-API-backed provisioning engine; where its methods are
+ * self-contained gates rather than thin CLI wrappers ({@link apply},
+ * {@link destroy}), this controller does no extra pre-flight bookkeeping of
+ * its own. See each method's own TSDoc for the specifics.
  *
  * {@link plan} bridges `PulumiService.preview`'s async-generator output onto
  * the fixed `iac.plan.chunk` / `iac.plan.end` side channels, plus
@@ -490,9 +476,9 @@ interface TerraformDestroyEndMessage {
  * automatically — and delegates the actual write to
  * `RunRecordService.approveRun` (see issue #109). {@link apply} mirrors
  * {@link plan}'s streaming/bridging shape, but — since `PulumiService.apply`'s
- * 8-step gate (task 7.2) is entirely self-contained — this controller no
- * longer performs any of the plan-hash/approval/lock pre-checks it used to;
- * it awaits the gate's own outcome (the generator's first `.next()`) before
+ * 8-step gate is entirely self-contained — this controller performs none of
+ * the plan-hash/approval/lock pre-checks itself; it awaits the gate's own
+ * outcome (the generator's first `.next()`) before
  * acking, and only then starts forwarding chunks. {@link destroy} mirrors
  * {@link apply}'s shape a third time, gated behind a short-lived confirmation
  * token minted by {@link mintDestroyToken} (issue #307) instead of a
@@ -509,17 +495,16 @@ export class IacController implements OnModuleInit {
    * `AuditService`/`RunRecordService`/`ConfigService` instances regardless of
    * this TS-level optionality. `runRecord` backs {@link approve}'s
    * `RunRecordService.approveRun` write (unrelated to `PulumiService.apply`'s
-   * own internal plan-record lookup, which no longer goes through this
-   * controller at all — task 7.10). `config` backs {@link output}'s preferred
+   * own internal plan-record lookup, which does not go through this
+   * controller at all). `config` backs {@link output}'s preferred
    * `ConfigService.getStackOutputs()` delegate (falling back to
    * `PulumiService.getStackOutputs()` directly when unavailable — see that
    * method's own TSDoc).
    *
-   * Unlike the pre-migration version of this controller, there is no
-   * `RunService` dependency here any more: `PulumiService.apply`/`.destroy`'s
-   * self-contained gates (task 7.2/7.3) acquire and release the durable apply
-   * lock entirely internally now, so this controller has nothing left to do
-   * with `RunService` directly.
+   * There is no `RunService` dependency here: `PulumiService.apply`/`.destroy`'s
+   * self-contained gates acquire and release the durable apply lock entirely
+   * internally, so this controller has nothing left to do with `RunService`
+   * directly.
    */
   constructor(
     private readonly pulumi: PulumiService,
@@ -571,25 +556,18 @@ export class IacController implements OnModuleInit {
    * pushes follow-up chunk/end messages over side channels for the duration
    * of a long-running run rather than resolving a single value.
    *
-   * `iac.stack.initialize` (task 10.3) was added to this set for the same
-   * reason `iac.plan`/`iac.apply`/`iac.destroy` are: {@link initializeStack}
-   * pushes phase-event/end messages over its own side channels for the
-   * duration of the run rather than resolving a single value — it replaces
-   * the old (pre-7.10) `iac.init` channel's identical streaming shape, not
-   * the never-streaming rejection stub `iac.init` became afterward.
+   * `iac.stack.initialize` is in this set for the same reason
+   * `iac.plan`/`iac.apply`/`iac.destroy` are: {@link initializeStack} pushes
+   * phase-event/end messages over its own side channels for the duration of
+   * the run rather than resolving a single value.
    *
-   * `iac.rollback.confirm` was added to this set in task 7.10 fix
-   * round 1: {@link confirmRollback}'s own `ctx: { evt }` second parameter
-   * has no `@Payload()`/etc. decorator, exactly like `plan`/`apply`/`destroy`
-   * — so leaving it off the generic bridge meant NestJS's `RpcContextCreator`
-   * sized its `initialArgs` array to the one decorated parameter it saw
-   * (`@Payload()` at index 0) and silently dropped `ctx`, which arrived as
-   * `undefined` at runtime. Every real invocation then threw
-   * `TypeError: Cannot read properties of undefined (reading 'evt')` on
-   * {@link confirmRollback}'s first line inside its own `try` — a crash the
-   * unit tests never caught because they all call
-   * `controller.confirmRollback(payload, ctx)` directly, bypassing the
-   * transport layer this bridge exists to fix.
+   * `iac.rollback.confirm` is also in this set: {@link confirmRollback}'s own
+   * `ctx: { evt }` second parameter has no `@Payload()`/etc. decorator,
+   * exactly like `plan`/`apply`/`destroy` — leaving it off the generic bridge
+   * would mean NestJS's `RpcContextCreator` sizes its `initialArgs` array to
+   * the one decorated parameter it sees (`@Payload()` at index 0) and
+   * silently drops `ctx`, which would arrive as `undefined` at runtime and
+   * throw on {@link confirmRollback}'s first line.
    *
    * Only runs inside a real Electron main process. In plain-Node runtimes
    * (integration test server, Docker, CI) `process.versions.electron` is
@@ -630,8 +608,8 @@ export class IacController implements OnModuleInit {
     // `iac.rollback.confirm` streams chunk messages the same way
     // `iac.destroy` does — see `SELF_BRIDGED_PATTERNS` in
     // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
-    // the same reason (task 7.10 fix round 1 — see this method's own TSDoc
-    // for the crash this closes).
+    // the same reason (see this method's own TSDoc for why the undecorated
+    // `ctx` parameter needs manual bridging).
     ipcMain.removeHandler('iac.rollback.confirm');
     ipcMain.handle('iac.rollback.confirm', (evt, payload: TerraformRollbackPayload) =>
       this.confirmRollback(payload, { evt: evt as IpcMainInvokeEvent }),
@@ -647,10 +625,9 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Task 10.3's real replacement for the deleted `iac.init` channel (which
-   * was itself a permanent, documented no-op rejection since task 7.10 —
-   * Pulumi has no `terraform init` analogue; see the deleted `init` method's
-   * former TSDoc in version control for the full history this closes).
+   * Replacement for the `iac.init` channel — Pulumi has no `terraform init`
+   * analogue, so this streams `PulumiService.initializeStack`'s phase-by-phase
+   * provisioning instead of a one-shot init call.
    * Kicks off `PulumiService.initializeStack` and streams its `onPhase`
    * progress back to the renderer — structurally the same shape as
    * {@link plan}/{@link apply}/{@link destroy} (a caller starts a
@@ -664,8 +641,8 @@ export class IacController implements OnModuleInit {
    * produces no `PulumiRunRecord`) and pushes every `onPhase` event on
    * {@link STACK_INIT_CHUNK_CHANNEL} tagged with it, mirroring
    * `IacController.init`'s original fixed-side-channel-plus-streamId shape
-   * (see `hyveon-api.ts`/`preload.ts` — the same pattern task 10.3 reused
-   * for this channel). Checks `getOperationInFlight()` first and, with no
+   * (see `hyveon-api.ts`/`preload.ts` — the same pattern reused for this
+   * channel). Checks `getOperationInFlight()` first and, with no
    * `await` between that check and the call to
    * `this.pulumi.initializeStack(...)`, closes the same TOCTOU gap
    * {@link plan}'s own doc comment explains: `initializeStack`'s own busy
@@ -684,32 +661,19 @@ export class IacController implements OnModuleInit {
    *
    * ## Why no structured `failedPhase` field
    *
-   * An earlier version of this message also carried a structured
-   * `failedPhase?: PulumiProvisioningPhase` field (`err.phase` for a
-   * `PulumiStackInitializationError`) so the renderer could show a
-   * specific, per-phase failure indicator without parsing prose. Removed in
-   * fix round 1 after a code reviewer traced it end to end and found it
-   * never actually reached the renderer: `failedPhase` crosses fine over
-   * THIS channel (a plain `sender.send(...)` IPC message — structured data
-   * clones reliably, same as every other chunk/end payload on this class),
-   * but the renderer only ever learns about a stream's failure via the
-   * preload-internal generator's `throw`, which crosses the
-   * **contextBridge** as a REJECTED promise — and Electron's contextBridge
-   * uses the same structured-clone algorithm Node's own `structuredClone()`
-   * implements, which (empirically verified this fix round, via a plain
-   * `structuredClone()` of a custom `Error` subclass with an extra own
-   * property) preserves only `name`/`message`/`stack` for an `Error`, not
-   * custom own properties like `.phase` — `preload.ts`'s `onEnd` handler
-   * was therefore always going to receive `failedPhase` correctly but have
-   * no reliable way to smuggle it across the LATER contextBridge hop to the
-   * renderer's `for await` catch block. Rather than build a workaround
-   * (e.g. encoding it into the thrown message string and parsing it back
-   * out), this field was removed: the renderer already derives the same
+   * This message deliberately carries no structured
+   * `failedPhase?: PulumiProvisioningPhase` field. `failedPhase` would cross
+   * this side channel fine (a plain `sender.send(...)` IPC message — structured
+   * data clones reliably), but the renderer only learns about a stream's
+   * failure via the preload-internal generator's `throw`, which crosses the
+   * **contextBridge** as a rejected promise — and Electron's contextBridge
+   * uses the same structured-clone algorithm as Node's `structuredClone()`,
+   * which preserves only `name`/`message`/`stack` on an `Error`, not custom
+   * own properties like `.phase`. The renderer instead derives the same
    * phase attribution independently and reliably from the
-   * {@link STACK_INIT_CHUNK_CHANNEL} event stream itself (plain data,
-   * proven to cross correctly, unlike a thrown error's custom properties)
-   * — see `StackInitializationStep`'s own `lastStartedPhase` tracking in
-   * `@hyveon/web`.
+   * {@link STACK_INIT_CHUNK_CHANNEL} event stream itself (plain data, proven
+   * to cross correctly) — see `StackInitializationStep`'s own
+   * `lastStartedPhase` tracking in `@hyveon/web`.
    *
    * Reachable via the Electron IPC transport (`iac.stack.initialize`) — this
    * channel self-bridges (see {@link onModuleInit}'s own TSDoc and
@@ -789,11 +753,10 @@ export class IacController implements OnModuleInit {
    * `PulumiService.preview` as `preMintedRunId`, and the generator's first
    * step is driven synchronously (before anything is awaited) to reserve the
    * shared workspace — `PulumiService.preview`'s own `operationInFlight`
-   * check-and-set runs synchronously, before its own first `await`, exactly
-   * like `TerraformService.plan`'s equivalent guard did before task 7.10's
-   * repoint — so driving `.next()` here, with no `await` between the
-   * `getOperationInFlight()` check above and this call, closes the same
-   * TOCTOU gap that guard existed to close. The `.catch()` below exists
+   * check-and-set runs synchronously, before its own first `await`, so
+   * driving `.next()` here, with no `await` between the
+   * `getOperationInFlight()` check above and this call, closes the TOCTOU gap
+   * a busy-workspace check would otherwise leave open. The `.catch()` below exists
    * solely to mark `firstStep` as "handled" so Node doesn't log an
    * unhandledRejection warning while it sits unawaited during the
    * `audit.record()` call further down — the real handling of whatever it
@@ -912,38 +875,31 @@ export class IacController implements OnModuleInit {
   /**
    * Applies the approved plan run `payload.planRunId` and streams its output
    * back to the renderer — mirrors {@link plan}'s streaming shape, but the
-   * gate structure underneath it is fundamentally different since task 7.10:
-   * `PulumiService.apply`'s 8-step gate (task 7.2) is entirely
-   * self-contained — plan-record lookup, approval/expiry checks, plan-hash
-   * verification (both the stored-hash comparison and the on-disk artifact
-   * re-hash), engine-version check, and the durable apply-lock reservation
-   * (`RunLockService.createRun`, task 7.7's atomic compare-and-set) all
-   * happen INSIDE `PulumiService.apply` itself, not split across this
-   * controller and the service the way `IacController.apply` and
-   * `TerraformService.apply` used to split it.
+   * gate structure underneath it is different: `PulumiService.apply`'s
+   * 8-step gate is entirely self-contained — plan-record lookup,
+   * approval/expiry checks, plan-hash verification (both the stored-hash
+   * comparison and the on-disk artifact re-hash), engine-version check, and
+   * the durable apply-lock reservation (`RunLockService.createRun`'s atomic
+   * compare-and-set) all happen INSIDE `PulumiService.apply` itself.
    *
-   * This means this controller must NOT reintroduce any of that gate's
-   * checks itself (per this dispatch's own scoping ruling — the gate is the
-   * single, authoritative place those checks live now) — it only needs to
-   * know that the gate is entirely synchronous-relative-to-yielding: every
-   * one of `PulumiService.apply`'s 8 steps runs to completion before the
-   * generator's first `yield` (the first real chunk of `stack.up()`'s
+   * This controller must NOT reintroduce any of that gate's checks itself —
+   * the gate is the single, authoritative place those checks live — it only
+   * needs to know that the gate is entirely synchronous-relative-to-yielding:
+   * every one of `PulumiService.apply`'s 8 steps runs to completion before
+   * the generator's first `yield` (the first real chunk of `stack.up()`'s
    * output) ever happens. So the first `.next()` call on the returned
    * generator either REJECTS (any gate-step failure — most importantly
    * `RunLockHeldError`, propagated unwrapped by gate step 8's losing race,
    * mapped below to `conflict: 'up'`; or `PulumiOperationInFlightError`,
    * thrown by the gate's own top-of-function `operationInFlight` busy check,
-   * mapped to `conflict: <its own inFlight value>` — I2, fix round 1: this
-   * cheaper, earlier in-process mutex check needs the exact same `conflict`
-   * treatment as the durable lock race, since the renderer's busy banner
-   * reads `ack.conflict` regardless of which guard refused the submission)
-   * or RESOLVES with the operation genuinely under way. This method exploits
+   * mapped to `conflict: <its own inFlight value>` — this cheaper,
+   * earlier in-process mutex check needs the same `conflict` treatment as
+   * the durable lock race, since the renderer's busy banner reads
+   * `ack.conflict` regardless of which guard refused the submission) or
+   * RESOLVES with the operation genuinely under way. This method exploits
    * that: it `await`s the first `.next()` call BEFORE acking, so
    * `{ started: true, runId }` is only ever returned once the gate has
-   * actually passed — a stronger, more accurate guarantee than the
-   * pre-migration controller's ack ever gave (that version's ack could
-   * resolve `started: true` before some pre-spawn failures were even known,
-   * deferring them to the end channel instead).
+   * actually passed.
    *
    * Validates `payload` first (`planRunId`/`planHash` both non-empty
    * strings) — the only validation this controller still performs itself;
@@ -1006,12 +962,12 @@ export class IacController implements OnModuleInit {
         return { started: false, error: err.message, conflict: 'up' };
       }
       if (err instanceof PulumiOperationInFlightError) {
-        // Mirrors plan()'s pre-flight conflict shape (I2, fix round 1): the
-        // in-process operationInFlight mutex is a cheaper, earlier-checked
-        // guard than the durable RunLockHeldError race above, but a busy
-        // refusal from it must populate `conflict` exactly the same way —
-        // the renderer's busy banner (terraform.page.tsx) reads ack.conflict
-        // regardless of which of the two guards refused the submission.
+        // Mirrors plan()'s pre-flight conflict shape: the in-process
+        // operationInFlight mutex is a cheaper, earlier-checked guard than
+        // the durable RunLockHeldError race above, but a busy refusal from it
+        // must populate `conflict` exactly the same way — the renderer's
+        // busy banner (terraform.page.tsx) reads ack.conflict regardless of
+        // which of the two guards refused the submission.
         logger.error('terraform apply rejected: workspace busy', { planRunId: payload.planRunId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
@@ -1047,10 +1003,9 @@ export class IacController implements OnModuleInit {
     // this now-accepted submission's ack. `game`/`before`/`after` are the
     // fixed values the `game_servers`-shaped audit schema takes for a
     // workspace-wide `apply` action that isn't scoped to a single game. No
-    // `versionId` is attached — unlike before task 7.10, this controller no
-    // longer looks up the plan record itself (that's the gate's job now), so
-    // it has nothing extra worth a second redundant `getByRunId` call purely
-    // for audit metadata.
+    // `versionId` is attached — this controller doesn't look up the plan
+    // record itself (that's the gate's job), so it has nothing extra worth a
+    // second redundant `getByRunId` call purely for audit metadata.
     await this.audit?.record({ action: 'apply', game: '', before: null, after: null });
 
     // Fire-and-forget the streaming loop, mirroring plan()'s shape — starts
@@ -1120,7 +1075,7 @@ export class IacController implements OnModuleInit {
    * of a plan/approval lineage, since a destroy has no preceding plan to
    * inherit a `runId` from.
    *
-   * Like {@link apply}, `PulumiService.destroy`'s gate (task 7.3) is entirely
+   * Like {@link apply}, `PulumiService.destroy`'s gate is entirely
    * self-contained: the `operationInFlight` busy check, config-presence
    * checks, the single-use confirmation-token consumption (synchronous, so a
    * same-token race is decided cleanly without ever touching
@@ -1131,8 +1086,8 @@ export class IacController implements OnModuleInit {
    * `DestroyNotConfirmedError` for a missing/stale/already-consumed token,
    * `RunLockHeldError` for a lost lock race mapped to `conflict: 'destroy'`,
    * or `PulumiOperationInFlightError` for the top-of-function busy check
-   * mapped to `conflict: <its own inFlight value>` — I2, fix round 1, mirrors
-   * {@link apply}'s identical treatment)
+   * mapped to `conflict: <its own inFlight value>`, mirroring {@link apply}'s
+   * identical treatment)
    * resolves `{ started: false, error }` without ever touching
    * {@link activeDestroys} or recording an audit entry, and — critically —
    * without burning a token that a genuinely concurrent, unrelated rejection
@@ -1190,9 +1145,9 @@ export class IacController implements OnModuleInit {
         return { started: false, error: err.message, conflict: 'destroy' };
       }
       if (err instanceof PulumiOperationInFlightError) {
-        // Mirrors apply()'s equivalent branch (I2, fix round 1) — see that
-        // catch block's comment for why the in-process mutex needs the same
-        // `conflict` treatment as the durable RunLockHeldError race above.
+        // Mirrors apply()'s equivalent branch — see that catch block's
+        // comment for why the in-process mutex needs the same `conflict`
+        // treatment as the durable RunLockHeldError race above.
         logger.error('terraform destroy rejected: workspace busy', { runId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
@@ -1268,45 +1223,28 @@ export class IacController implements OnModuleInit {
    * `../ipc-main-bridge.ts` wires `ipcRenderer.invoke('iac.output', ...)`
    * to this handler automatically.
    *
-   * ## Return shape change (task 7.10 decision)
+   * ## Return shape: `StackOutputs`, not a Terraform-tfstate shape
    *
-   * Before task 7.10, this delegated to `TerraformService.output()`, which
-   * ran `terraform output -json` and projected the result through
-   * `projectTfOutputs` into the local, Terraform-tfstate-shaped `TfOutputs`
-   * type. That entire code path depended on a local `terraform.tfstate` file
-   * existing — there is no Pulumi analogue (a Pulumi-orchestrated stack's
-   * state lives in the DIY S3 backend, never as a local file this app reads
-   * directly), so preserving `TfOutputs`'s exact shape here is not possible
-   * without inventing a synthetic mapping with no real backing data. This
-   * method now returns `StackOutputs` (`@hyveon/shared`) instead — the type
+   * There is no local `terraform.tfstate` file to read — a
+   * Pulumi-orchestrated stack's state lives in the DIY S3 backend, never as
+   * a local file this app reads directly — so this method returns
+   * `StackOutputs` (`@hyveon/shared`), the type
    * `ConfigService.getStackOutputs()`/`PulumiService.getStackOutputs()`
-   * already established as the canonical "what a deployed stack looks like"
-   * shape and every OTHER controller in this codebase already returns to the
+   * establishes as the canonical "what a deployed stack looks like" shape
+   * and every OTHER controller in this codebase already returns to the
    * renderer (`GamesController`, `DiscordController`, `CostsController`,
-   * `EnvController`, etc. — task 6.x's migration). Verified this is safe:
-   * nothing in `@hyveon/web`'s production code reads `iac.output`'s
-   * result today (only a screenshot-demo fixture resolves it to `null`), and
-   * the preload/renderer contract is otherwise untouched (Phase 8's job) —
-   * see the `migrate-iac-to-pulumi` change's task 7.10 report for the full
-   * investigation.
+   * `EnvController`, etc.). Nothing in `@hyveon/web`'s production code reads
+   * `iac.output`'s result today (only a screenshot-demo fixture resolves it
+   * to `null`).
    *
-   * ## `force` (task 7.10 decision: kept in the payload, ignored)
+   * ## `force` is accepted but ignored
    *
-   * `payload.force` used to bypass `TerraformService.output()`'s own 60s
-   * in-memory cache and force a fresh `terraform output -json` spawn — most
-   * usefully right after an `apply`/`destroy` completed, where the caller
-   * knows the outputs may have changed. That specific need is now handled
-   * automatically: `PulumiService.apply`/`.destroy` both call
-   * `ConfigService.invalidateCache()` on a successful settlement (task 7.4's
-   * carried-forward cache-invalidation requirement — see those methods' own
-   * TSDoc, "Cache invalidation"), so the next `getStackOutputs()` call after
-   * a real change already misses its cache with no caller-supplied bypass
-   * needed. `force` is kept in {@link TerraformOutputPayload} rather than
-   * removed — a payload-shape change is Phase 8's job, not this dispatch's
-   * (per the `migrate-iac-to-pulumi` change's own scoping), and keeping an
-   * already-optional field that's now a no-op is strictly safer than
-   * dropping it out from under a caller that still sends it — but is
-   * otherwise unused here.
+   * `payload.force` is kept in {@link TerraformOutputPayload} for payload
+   * compatibility but is otherwise unused: `PulumiService.apply`/`.destroy`
+   * both call `ConfigService.invalidateCache()` on a successful settlement
+   * (see those methods' own TSDoc, "Cache invalidation"), so the next
+   * `getStackOutputs()` call after a real change already misses its cache
+   * with no caller-supplied bypass needed.
    *
    * Prefers `ConfigService.getStackOutputs()` (`this.config`, already wired
    * into this controller for other reasons) over calling
@@ -1326,10 +1264,9 @@ export class IacController implements OnModuleInit {
 
   /**
    * Approves a successful `plan` run for a later apply, delegating the
-   * actual write to `RunRecordService.approveRun` (see issue #109). Entirely
-   * unaffected by task 7.10's repoint — this method never called
-   * `TerraformService` before and doesn't call `PulumiService` now; it only
-   * ever touched `RunRecordService`/`AuditService`.
+   * actual write to `RunRecordService.approveRun` (see issue #109). This
+   * method never calls `PulumiService` — it only ever touches
+   * `RunRecordService`/`AuditService`.
    *
    * Validates `payload` first: `planRunId` must be a non-empty string. If
    * validation fails, neither `RunRecordService.approveRun` nor
@@ -1395,9 +1332,7 @@ export class IacController implements OnModuleInit {
   /**
    * Previews the rollback flow's (#112) target configuration version for
    * `payload.applyRunId`, without writing anything — delegates to
-   * `PulumiService.resolveRollbackTarget`, an identical signature and return
-   * shape to the pre-migration `TerraformService.resolveRollbackTarget` this
-   * replaces (trivial swap, task 7.10). Called when the operator clicks
+   * `PulumiService.resolveRollbackTarget`. Called when the operator clicks
    * "Rollback" on an apply row in history, so the confirmation dialog can
    * name the version it would restore before the operator commits to it.
    *
@@ -1406,7 +1341,7 @@ export class IacController implements OnModuleInit {
    * resolves a single value rather than streaming progress.
    *
    * Once the target version is identified, also asks
-   * `PulumiService.computeRollbackDiff` (task 9.6) to summarize how it
+   * `PulumiService.computeRollbackDiff` to summarize how it
    * differs from the current configuration head, so the confirmation
    * dialog isn't opaque. That call is wrapped in its own `try`/`catch` here
    * ON TOP OF `computeRollbackDiff`'s own internal best-effort handling —
@@ -1450,71 +1385,60 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Confirms the rollback flow (#112) for `payload.applyRunId` — the one
-   * genuinely shape-breaking repoint in task 7.10.
+   * Confirms the rollback flow (#112) for `payload.applyRunId`.
    *
    * ## Streaming vs. the renderer's existing one-shot contract
    *
-   * Pre-migration, `TerraformService.confirmRollback` was a plain
-   * `Promise`-returning method that only did the historic-configuration
-   * restore write and returned `{ versionId }`; the renderer's own
-   * `RollbackAction` component then made a SEPARATE, ordinary `iac.plan`
-   * call passing that `versionId` (see `@hyveon/web`'s `terraform.page.tsx`,
-   * `RollbackNavState`) to actually queue a plan against the restored
-   * version. `PulumiService.confirmRollback` (task 7.6) closes exactly the
-   * gap that two-call split left open (see that method's own TSDoc, "The old
-   * `TerraformService` gap this closes") by fusing the restore AND the
-   * follow-up plan into one guarded unit, held under the SAME
-   * `operationInFlight` lock for its entire duration — so it's now an
+   * `PulumiService.confirmRollback` fuses the historic-configuration restore
+   * write and its follow-up plan into one guarded unit, held under a single
+   * `operationInFlight` lock for its entire duration — it's an
    * `AsyncGenerator` that streams a real plan run internally, exactly like
-   * {@link plan} does, not a one-shot `Promise`.
+   * {@link plan} does, not a one-shot `Promise` (see that method's own
+   * TSDoc, "The old `TerraformService` gap this closes").
    *
-   * This method reconciles that with the renderer's still-unchanged (Phase
-   * 8/9's job, not this dispatch's) expectation that `iac.rollback.confirm`
-   * resolves a single `TerraformRollbackConfirmAck` and that a SEPARATE
-   * `iac.plan` call is still what actually queues the plan the
-   * operator watches: it drives `PulumiService.confirmRollback`'s generator
-   * to completion INTERNALLY (via a manual `.next()` loop, mirroring
-   * {@link plan}'s manual-drive shape so `PulumiPreviewResult` — the
-   * generator's return value — is reachable), forwarding every intermediate
-   * chunk on the new {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL} purely as a
-   * forward-compatible bonus (no current subscriber), and only resolves this
-   * method's own `Promise` once the WHOLE restore+plan unit has settled.
+   * The renderer expects `iac.rollback.confirm` to resolve a single
+   * `TerraformRollbackConfirmAck`, with a SEPARATE `iac.plan` call still
+   * queuing the plan the operator watches (see `@hyveon/web`'s
+   * `terraform.page.tsx`, `RollbackNavState`). This method reconciles the
+   * two: it drives `PulumiService.confirmRollback`'s generator to completion
+   * INTERNALLY (via a manual `.next()` loop, mirroring {@link plan}'s
+   * manual-drive shape so `PulumiPreviewResult` — the generator's return
+   * value — is reachable), forwarding every intermediate chunk on the new
+   * {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL} purely as a forward-compatible
+   * bonus (no current subscriber), and only resolves this method's own
+   * `Promise` once the WHOLE restore+plan unit has settled.
    *
    * **Known, accepted consequence, not silently swallowed**: because the
    * renderer's `RollbackAction`/`TerraformPage` still submit a follow-up
-   * `iac.plan` call after a successful `confirmRollback` ack (exactly
-   * as they did before), and `PulumiService.confirmRollback` now ALSO runs a
-   * real plan internally as part of the restore, a successful rollback
-   * produces TWO `PulumiRunRecord`s tagged `rolledBackFrom: applyRunId` — the
-   * one this method's internal generator just completed (whose `runId`
-   * isn't surfaced to the renderer at all today) and the one the renderer's
-   * own subsequent `iac.plan` call starts (which IS what the operator
-   * actually sees and can approve/apply). This is wasteful (a redundant
-   * `pulumi preview` invocation and an orphaned, browsable-but-unreferenced
-   * run-history entry) but not incorrect from the renderer's point of view —
-   * every existing rollback flow still completes successfully end-to-end.
-   * Closing this duplication requires updating the renderer to consume
-   * `confirmRollback`'s already-completed plan directly instead of
-   * re-submitting one — explicitly Phase 8/9's job (this dispatch's
-   * constraints forbid touching the renderer), not solved here.
+   * `iac.plan` call after a successful `confirmRollback` ack, and
+   * `PulumiService.confirmRollback` also runs a real plan internally as part
+   * of the restore, a successful rollback produces TWO `PulumiRunRecord`s
+   * tagged `rolledBackFrom: applyRunId` — the one this method's internal
+   * generator just completed (whose `runId` isn't surfaced to the renderer
+   * at all) and the one the renderer's own subsequent `iac.plan` call starts
+   * (which IS what the operator actually sees and can approve/apply). This
+   * is wasteful (a redundant `pulumi preview` invocation and an orphaned,
+   * browsable-but-unreferenced run-history entry) but not incorrect from the
+   * renderer's point of view — every rollback flow still completes
+   * successfully end-to-end. Closing this duplication requires updating the
+   * renderer to consume `confirmRollback`'s already-completed plan directly
+   * instead of re-submitting one.
    *
    * The restored configuration version id the renderer needs
    * (`TerraformRollbackConfirmAck.versionId`) is NOT a field of
    * `PulumiPreviewResult` (which describes the plan artifact, not the
    * configuration version it ran against) — it's recovered via
-   * `PulumiService.readRunRecord(result.runId)` (task 7.10's own new
-   * accessor) once the generator settles, reading back the
-   * `PulumiRunRecord.tfvarsVersionId` that `PulumiService`'s internal
-   * `previewCore` call persisted for this exact run (guaranteed present:
-   * `previewCore` always records the configuration version id it actually
-   * observed for a successful plan before returning).
+   * `PulumiService.readRunRecord(result.runId)` once the generator settles,
+   * reading back the `PulumiRunRecord.tfvarsVersionId` that `PulumiService`'s
+   * internal `previewCore` call persisted for this exact run (guaranteed
+   * present: `previewCore` always records the configuration version id it
+   * actually observed for a successful plan before returning).
    *
    * Reachable via the Electron IPC transport (`iac.rollback.confirm`).
    * Despite ultimately resolving a single `TerraformRollbackConfirmAck`, this
-   * channel is bridged manually by {@link onModuleInit} (task 7.10 fix round
-   * 1), not by the generic `ipcMain.handle` bridge — see that method's own
-   * TSDoc and `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts` for why: the
+   * channel is bridged manually by {@link onModuleInit}, not by the generic
+   * `ipcMain.handle` bridge — see that method's own TSDoc and
+   * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts` for why: the
    * `ctx: { evt }` second parameter below is undecorated, exactly like
    * {@link plan}/{@link apply}/{@link destroy}, and the generic bridge cannot
    * supply it correctly through NestJS's transport layer.
@@ -1609,9 +1533,9 @@ export class IacController implements OnModuleInit {
 
   /**
    * Clears an unrecognized Pulumi backend lock after the operator has
-   * explicitly confirmed it via the renderer's stale-lock recovery UI (task
-   * 9.4, `migrate-iac-to-pulumi`) — delegates entirely to
-   * `PulumiService.clearStaleLock()`; see that method's own TSDoc for the
+   * explicitly confirmed it via the renderer's stale-lock recovery UI —
+   * delegates entirely to `PulumiService.clearStaleLock()`; see that
+   * method's own TSDoc for the
    * full safety reasoning (why it refuses while another operation is already
    * in flight, why it never re-derives or re-checks whether the lock is
    * actually stale — that judgment call was already made by the operator
