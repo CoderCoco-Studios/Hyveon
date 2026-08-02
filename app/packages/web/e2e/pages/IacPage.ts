@@ -47,12 +47,12 @@ export class IacPage {
     return this.page.getByText(text, { exact: true });
   }
 
-  /** Partial-apply banner (task 9.3) — shown instead of the generic apply-failure banner when `applyRecord.partialApply` is `true`. */
+  /** Partial-apply banner — shown instead of the generic apply-failure banner when `applyRecord.partialApply` is `true`. */
   partialApplyBanner(): Locator {
     return this.page.getByRole('alert').filter({ hasText: 'Apply stopped partway through' });
   }
 
-  /** Stale-lock recovery banner (task 9.4) — shown instead of the BUSY/error banner when a plan/apply/destroy submission reports `ack.staleLock`. */
+  /** Stale-lock recovery banner — shown instead of the BUSY/error banner when a plan/apply/destroy submission reports `ack.staleLock`. */
   staleLockBanner(): Locator {
     return this.page.getByRole('alert').filter({ hasText: 'Backend lock in the way' });
   }

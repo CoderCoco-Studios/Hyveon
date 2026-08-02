@@ -46,9 +46,9 @@ const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 /**
  * Seeds a plan run that streams a raw log line then finishes
  * `awaiting_approval` with `planHash` and a structured `changeSummary` — the
- * page reads the summary off the persisted record (task 9.1), not by
- * scraping the streamed log text, so the log content here is just
- * pass-through display data for `AnsiLogViewer`.
+ * page reads the summary off the persisted record, not by scraping the
+ * streamed log text, so the log content here is just pass-through display
+ * data for `AnsiLogViewer`.
  */
 function seedSuccessfulPlan() {
   hyveonMock.iac.plan.mockResolvedValue({ started: true, runId: PLAN_RUN_ID });
@@ -95,7 +95,7 @@ function seedSuccessfulPlan() {
   });
 }
 
-/** A `TerraformStaleLockInfo`-shaped fixture (task 9.4) for one lock holder, "started" 5 minutes before `now`. */
+/** A `TerraformStaleLockInfo`-shaped fixture for one lock holder, "started" 5 minutes before `now`. */
 function makeStaleLockInfo() {
   return {
     stackName: 'production',
@@ -198,7 +198,7 @@ describe('IacPage', () => {
     expect(alerts.some((el) => el.textContent?.includes('terraform apply'))).toBe(true);
   });
 
-  describe('stale-lock recovery (task 9.4)', () => {
+  describe('stale-lock recovery', () => {
     it('should render the stale-lock banner (naming the stack and every holder) instead of a busy/error banner when plan submission reports staleLock', async () => {
       hyveonMock.iac.plan.mockResolvedValue({
         started: false,
@@ -212,8 +212,8 @@ describe('IacPage', () => {
       expect(await screen.findByText(/production/)).toBeInTheDocument();
       expect(screen.getByText(/alice@alice-laptop/)).toBeInTheDocument();
       expect(screen.getByText(/pid 4242/)).toBeInTheDocument();
-      // formatLockAge's rendered wording (review round 1, M2) — makeStaleLockInfo's
-      // fixture sets lockedAt 5 minutes before "now".
+      // formatLockAge's rendered wording — makeStaleLockInfo's fixture sets
+      // lockedAt 5 minutes before "now".
       expect(screen.getByText(/started 5 minutes ago/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Clear lock and retry/ })).toBeInTheDocument();
       // The raw ack.error prose must not ALSO render via the generic ErrorBanner —
@@ -234,10 +234,10 @@ describe('IacPage', () => {
     });
 
     it('should call hyveon.iac.lock.clear() and return to the idle Run plan state — WITHOUT the stale rejection\'s error banner reappearing — once the operator confirms and the clear succeeds', async () => {
-      // Regression test for review round 1, I1: a successful clear used to
-      // reset only xStaleLock, leaving xSubmitError (still holding the
-      // original rejection's error text) to reappear via the generic
-      // ErrorBanner the instant the ternary fell through. The exact error
+      // A successful clear must reset both xStaleLock and xSubmitError —
+      // resetting only xStaleLock leaves xSubmitError still holding the
+      // original rejection's error text, which reappears via the generic
+      // ErrorBanner the instant the ternary falls through. The exact error
       // text below must be gone from the document after a successful clear,
       // not just the "Clear lock and retry" button.
       const REJECTION_ERROR_TEXT = 'the stack is currently locked by 1 lock(s)';
@@ -260,8 +260,8 @@ describe('IacPage', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText(/Clear lock and retry/)).not.toBeInTheDocument());
       // Back to the ordinary idle state — Run plan is submittable again, matching
-      // PulumiService.clearStaleLock's "does not retry" design (task 9.4) — and
-      // the stale rejection's error text must NOT have reappeared underneath.
+      // PulumiService.clearStaleLock's "does not retry" design — and the stale
+      // rejection's error text must NOT have reappeared underneath.
       expect(screen.getByRole('button', { name: /Run plan/ })).toBeInTheDocument();
       expect(screen.queryByText(REJECTION_ERROR_TEXT)).not.toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -435,7 +435,7 @@ describe('IacPage', () => {
     });
   });
 
-  describe('partial-apply flow (task 9.3)', () => {
+  describe('partial-apply flow', () => {
     /** Drives a plan through approval and into a submitted apply, seeded to end with the given terminal `applyStatus`/`partialApply` flag. */
     async function runApplyToPartialFailure(applyStatus: 'failed' | 'aborted') {
       seedSuccessfulPlan();
