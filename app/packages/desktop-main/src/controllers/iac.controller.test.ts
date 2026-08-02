@@ -918,7 +918,7 @@ describe('IacController', () => {
       // durable RunLockHeldError race above, and must also populate
       // `conflict` — a plain busy-mutex rejection must not fall into the
       // generic branch and lose the field the renderer's busy banner
-      // (terraform.page.tsx) reads.
+      // (iac.page.tsx) reads.
       // eslint-disable-next-line require-yield -- generator must throw before yielding to simulate the top-of-function busy check
       async function* rejectsBusy(): AsyncGenerator<PulumiRunChunk> {
         throw new PulumiOperationInFlightError('preview');

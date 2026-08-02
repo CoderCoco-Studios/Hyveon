@@ -589,7 +589,7 @@ describe('PulumiEngineService.resolve — phase reporting', () => {
     await expect(service.resolve()).resolves.toBeDefined();
   });
 
-  it('should never report a "plugins" or "operation" phase — no code path yet observes either', async () => {
+  it('should never report a "plugins" or "operation" phase from resolve', async () => {
     const service = makeService();
     const onPhase = vi.fn();
 

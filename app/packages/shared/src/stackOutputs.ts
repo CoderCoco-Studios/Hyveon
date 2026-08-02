@@ -1,6 +1,6 @@
 /**
  * Typed contract for the values `PulumiService` (a `@hyveon/desktop-main`
- * service not yet built) reads back off a deployed Pulumi stack, in place of
+ * service) reads back off a deployed Pulumi stack, in place of
  * `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`. This module
  * defines the TYPE ONLY — no reading/parsing logic lives here; `PulumiService`
  * owns turning a stack's `outputs` map into a {@link StackOutputs} value.

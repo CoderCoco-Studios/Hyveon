@@ -37,9 +37,10 @@ export class GamesController {
    * channel is called on every visit to pages that show the games list
    * (Discord config, Logs), so eagerly invalidating that cache here would pay
    * that cost far more often than a fresh deploy could plausibly have
-   * happened. The stack-outputs cache is invalidated on write instead, when
-   * `PulumiService.apply`/`.destroy` persists a successful run, not on every
-   * read here.
+   * happened. The stack-outputs cache is invalidated on write instead — when
+   * `PulumiService.apply`/`.destroy` persists a successful run, or when
+   * `GamesWriteService.successResult()` applies a games.create/update/delete
+   * change — not on every read here.
    *
    * Reachable via the Electron IPC transport (`games.list`).
    */

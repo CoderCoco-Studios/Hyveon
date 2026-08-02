@@ -497,8 +497,10 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * `extends Record<keyof StackOutputs, unknown>` is a genuine compile-time
  * completeness check, not decoration: it fails to build if this interface
  * ever drops a field {@link StackOutputs} declares (or a future
- * {@link StackOutputs} field has no matching entry here), so this type's
- * field-by-field parity with `StackOutputs` can't silently drift.
+ * {@link StackOutputs} field has no matching entry here), so every
+ * `StackOutputs` field is guaranteed a matching entry here — though this
+ * check is one-directional: it doesn't reject an extra field this interface
+ * declares beyond what `StackOutputs` has.
  */
 export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   /** Mirrors {@link StackOutputs.awsRegion} — `terraform/aws/outputs.tf`'s `aws_region` output is a bare `var.aws_region` echo, so this is `config.awsRegion` directly, no resource involved. */

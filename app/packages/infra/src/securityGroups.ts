@@ -132,8 +132,8 @@ export function hasHttpsGame(gameServers: Record<string, GameServerConfig>): boo
 }
 
 /**
- * Declares the `game_servers`, `file_manager`, and `efs` security groups.
- * Must be called from inside the Pulumi inline-program closure (see
+ * Declares the `game_servers`, `file_manager`, `efs`, and conditional
+ * `efs_seeder` security groups. Must be called from inside the Pulumi inline-program closure (see
  * `program.ts`'s {@link createInfraProgram}/`defineAll`), never at module
  * scope.
  *

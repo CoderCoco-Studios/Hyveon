@@ -174,13 +174,13 @@ describe('defineAll', () => {
       ['hyveon-discord-acm-validation', 'hyveon-discord-alias-a', 'hyveon-discord-alias-aaaa'].sort(),
     );
 
-    // The five Lambda functions — FIXTURE_GAME_SERVERS has no file_seeds, so
+    // The four non-per-game Lambda functions — FIXTURE_GAME_SERVERS has no file_seeds, so
     // only the four non-per-game functions are declared here.
     expect(types.filter((type) => type === 'aws:lambda/function:Function')).toHaveLength(4);
     expect(types).toContain('aws:lambda/functionUrl:FunctionUrl');
     expect(types.filter((type) => type === 'aws:cloudwatch/eventRule:EventRule')).toHaveLength(2);
 
-    // The five inline IAM policies (no efs-seeder policy for this fixture).
+    // The four inline IAM policies (no efs-seeder policy for this fixture).
     expect(types.filter((type) => type === 'aws:iam/rolePolicy:RolePolicy')).toHaveLength(4);
 
     // No table item/invocation for this fixture — buildTestDeploymentConfig's

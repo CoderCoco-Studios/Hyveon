@@ -144,7 +144,7 @@ describe('validateDeploymentSettingsPatch', () => {
     );
   });
 
-  describe('wrong-typed values are rejected, never silently skipped', () => {
+  describe('should reject wrong-typed values without silently skipping them', () => {
     it.each(['hostedZoneName', 'projectName', 'awsRegion', 'discordApplicationId', 'auditTableName', 'runsTableName'] as const)(
       'should reject a number for the string field %s instead of silently passing it through',
       (field) => {

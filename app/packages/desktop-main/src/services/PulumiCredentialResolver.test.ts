@@ -126,9 +126,10 @@ describe('resolveCredentialEnvVars — no credential source configured', () => {
  * are not logged" test proves that call (and every other logger call made
  * while resolving a stack with real pasted-key `credentialEnvVars`) never
  * carries the secret values, which is the meaningful place to make this
- * assertion. What is NOT covered by either test file: `PulumiService.preview`/
- * `.up`'s future streaming of real CLI stdout/stderr — scrubbing that stream
- * is the responsibility of whichever code implements it.
+ * assertion. What is NOT covered by either test file: `PulumiService.preview`'s/
+ * `.apply`'s (which calls `stack.up()`) future streaming of real CLI
+ * stdout/stderr — scrubbing that stream is the responsibility of whichever
+ * code implements it.
  */
 
 /**

@@ -10,8 +10,10 @@
  * ## Log-group ownership
  *
  * Every reader of a game's log group is a container in that game's task
- * definition (its two `logConfiguration.options."awslogs-group"` references,
- * one per container) — no Lambda or other resource reads a game's log group.
+ * definition — each contributes its own
+ * `logConfiguration.options."awslogs-group"` reference (one for the game
+ * container, plus one more for the `caddy` sidecar on HTTPS games) — no
+ * Lambda or other resource reads a game's log group.
  * It is declared here, alongside the task definitions that are its only
  * consumer.
  *

@@ -1145,8 +1145,9 @@ export class PulumiService {
    * itself (threaded through to `PulumiEngineService.resolve`) —
    * this method does not fire it directly, only forwards `onPhase` into that
    * call. 'operation' wraps the `stack.refresh()` call: with zero resources
-   * in state, this is trivially a no-op change-wise (and, as the DIY-S3-backend
-   * spike demonstrated, `LocalWorkspace.createOrSelectStack`'s own stack-init
+   * in state, this is trivially a no-op change-wise (and, as the spike
+   * demonstrated against its `file://` backend — it does not exercise the DIY
+   * S3 backend — `LocalWorkspace.createOrSelectStack`'s own stack-init
    * path already durably writes the stack's empty checkpoint to the backend
    * as part of the 'engine' step above — this call is not literally the
    * moment the stack first becomes durable) — but it still exercises the
