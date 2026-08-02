@@ -176,11 +176,11 @@ describe('EcsService', () => {
   });
 
   describe('getStatus', () => {
-    it('should return not_deployed when stack outputs are missing', async () => {
+    it('should return not_deployed when terraform outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const status = await service.getStatus('minecraft');
       expect(status.state).toBe('not_deployed');
-      expect(status.message).toMatch(/run an apply/i);
+      expect(status.message).toMatch(/run apply/i);
     });
 
     it('should return running with public IP and hostname for a RUNNING task', async () => {
@@ -244,11 +244,11 @@ describe('EcsService', () => {
   });
 
   describe('start', () => {
-    it('should return failure if stack outputs are missing', async () => {
+    it('should return failure if terraform outputs are missing', async () => {
       const service = makeService(makeConfig(null), makeEc2());
       const result = await service.start('minecraft');
       expect(result.success).toBe(false);
-      expect(result.message).toMatch(/run an apply/i);
+      expect(result.message).toMatch(/run apply/i);
     });
 
     it('should refuse to start if a task is already running', async () => {

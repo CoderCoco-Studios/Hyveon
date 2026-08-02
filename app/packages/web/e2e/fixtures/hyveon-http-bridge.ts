@@ -96,5 +96,40 @@ export function installHyveonHttpBridge(): void {
         call(`/api/logs/${game}${limit ? `?limit=${limit}` : ''}`),
       stream: async function* () {},
     },
+    // The deployment-settings editor is IPC-only in production with no HTTP
+    // route — same situation as `logs` above. `get()` resolves
+    // a `setup_incomplete` result rather than throwing: `DeploymentSettingsForm`
+    // already renders that outcome as a quiet informational message (not a
+    // red alert), which is the closest honest stand-in this HTTP-less shim
+    // can give for "no real deployment configuration in this test tier". No
+    // chromium spec exercises the settings form's real read/write behaviour
+    // (that's covered by the `web` Vitest project's own component test), so
+    // this stub exists only so `/settings` doesn't render an "IPC bridge not
+    // available" error for a namespace that, from the chromium tier's own
+    // perspective, actually is unavailable.
+    iac: {
+      settings: {
+        get: async () => ({
+          ok: false,
+          code: 'setup_incomplete',
+          message: 'Deployment settings are not available in this test tier (no HTTP route — see hyveon-http-bridge.ts).',
+        }),
+        update: async () => {
+          throw new Error('iac.settings.update has no HTTP route in the chromium e2e tier.');
+        },
+        // Task 10.4's `iac.settings.engineVersion` is IPC-only in production
+        // with no HTTP route — same situation as `get`/`update` above.
+        // `resolvedVersion: null` is a real, valid result shape (Settings'
+        // Cloud Setup row renders it as "not yet provisioned"), so this stub
+        // resolves rather than throws: no chromium spec exercises the engine
+        // version row's real content (that's covered by the `web` Vitest
+        // project's own `settings.page.test.tsx`), but every spec that
+        // merely visits `/settings` needs this call to resolve instead of
+        // throwing `TypeError: settings.engineVersion is not a function`,
+        // which the page's mount effect does not catch — that class of
+        // error is a synchronous throw, not a rejected promise.
+        engineVersion: async () => ({ resolvedVersion: null }),
+      },
+    },
   };
 }

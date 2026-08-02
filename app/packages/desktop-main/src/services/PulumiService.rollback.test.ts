@@ -87,7 +87,6 @@ function makeStore(
   if (opts.stateBucket !== undefined || opts.configurationBucket !== undefined) {
     store.set('bootstrap', {
       stateBucket: opts.stateBucket ?? '',
-      lockTable: '',
       configurationBucket: opts.configurationBucket ?? '',
     });
   }
@@ -359,6 +358,76 @@ describe('PulumiService.resolveRollbackTarget', () => {
   });
 });
 
+describe('PulumiService.computeRollbackDiff', () => {
+  /** A minimal, valid target/current pair with a few deliberate differences, for a happy-path assertion. */
+  const TARGET_CONFIG = { hostedZoneName: 'example.com', dnsTtl: 30, gameServers: { minecraft: { image: 'a' } } };
+  const CURRENT_CONFIG = { hostedZoneName: 'example.com', dnsTtl: 60, gameServers: { palworld: { image: 'b' } } };
+
+  it('should return a diff computed from the target version and the current head', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(CURRENT_CONFIG)), etag: 'e' }),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+
+    expect(diff).toEqual({
+      changedFields: ['dnsTtl'],
+      gameServers: { added: ['palworld'], removed: ['minecraft'], changed: [] },
+    });
+  });
+
+  it('should return undefined without throwing when the target version bytes cannot be read', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockResolvedValue(undefined),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when the current head is missing', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue(undefined),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when the target version JSON is malformed', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode('{not valid json') }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should return undefined without throwing when a fetch rejects', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      getVersion: vi.fn().mockRejectedValue(new Error('network error')),
+    });
+    const service = makeService({ remoteFileStore });
+
+    await expect(service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID)).resolves.toBeUndefined();
+  });
+
+  it('should report zero changes when the target and current configs are structurally identical', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)), etag: 'e' }),
+      getVersion: vi.fn().mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify(TARGET_CONFIG)) }),
+    });
+    const service = makeService({ remoteFileStore });
+
+    const diff = await service.computeRollbackDiff(PRIOR_CONFIG_VERSION_ID);
+
+    expect(diff).toEqual({ changedFields: [], gameServers: { added: [], removed: [], changed: [] } });
+  });
+});
+
 describe('PulumiService.confirmRollback happy path', () => {
   it('should restore the historic bytes byte-for-byte and queue a plan tagged rolledBackFrom', async () => {
     const runRecordPersister = makeRunRecordPersister();
@@ -418,6 +487,32 @@ describe('PulumiService.confirmRollback concurrency guard', () => {
 
     const destroyGen = service.destroy('token-1');
     await expect(destroyGen.next()).rejects.toThrow(/rollback.*already.*running/i);
+  });
+
+  it('should throw synchronously when confirmRollback() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+    // Regression test for a code-reviewer-traced race: initializeStack()
+    // does not set `operationInFlight` (see PulumiService.ts's own
+    // `stackInitInFlight` doc comment for why it's a separate flag), so
+    // confirmRollback() must check `stackInitInFlight` itself or it would
+    // sail straight through its own top-of-function check while
+    // initializeStack() is still running against the same shared local
+    // workspace.
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace: hangingWorkspace });
+
+    const initPromise = service.initializeStack();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID))).rejects.toThrow(
+      /initializeStack.*already running/i,
+    );
+
+    void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 });
 

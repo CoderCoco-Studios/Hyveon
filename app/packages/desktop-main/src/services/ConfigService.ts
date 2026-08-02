@@ -54,7 +54,8 @@ export type ActiveCloud = 'aws';
  *  - `server_config.json` — user-editable watchdog tunables. Path resolved
  *    by {@link ConfigService.getServerConfigPath}.
  *  - The deployed Pulumi stack's outputs — read via {@link getStackOutputs},
- *    a memoised delegate to {@link PulumiService.getStackOutputs}.
+ *    a memoised delegate to {@link PulumiService.getStackOutputs}. Nothing
+ *    reads a local `terraform.tfstate` file under the Pulumi engine.
  *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
  * `getServerConfigPath()` follows a three-tier priority:
@@ -73,10 +74,11 @@ export class ConfigService {
    * bucket name (`bootstrap.configurationBucket`, written by the First-Run
    * Wizard's bootstrap step — see {@link getConfigurationBucket}) and the
    * wizard-configured AWS region (`aws.region`), which {@link getRegion}
-   * reads directly rather than through a deployed stack's outputs (see that
-   * method's doc comment for why). `pulumiService` backs
-   * {@link getStackOutputs} — exposed here rather than requiring every
-   * caller to depend on `PulumiService` directly.
+   * reads directly rather than through a deployed stack's outputs (see
+   * that method's doc comment for why). `pulumiService` backs
+   * {@link getStackOutputs} — see that method's doc comment for why the read
+   * is exposed here rather than requiring every caller to depend on
+   * `PulumiService` directly.
    */
   constructor(
     private readonly electronStore: ElectronStoreService,
@@ -85,14 +87,13 @@ export class ConfigService {
 
   /**
    * Memoised {@link getStackOutputs} result. Several callers (e.g.
-   * `DiscordConfigService.getRedacted()`) read more than one field off the
-   * deployed config via more than one call into this class, and
-   * `getOrCreateStack()` + `stack.outputs()` is a genuinely expensive
-   * round-trip (engine resolution, passphrase, S3 backend) to pay twice for
-   * what should be one read. Stores the in-flight/settled `Promise` itself
-   * (not just its resolved value) so concurrent callers during the first
-   * read coalesce onto the same request rather than each kicking off their
-   * own. A *rejected* promise is deliberately NOT cached (see
+   * `DiscordConfigService.getRedacted()`) read more than one field off "the
+   * deployed config" across more than one call into this class, and
+   * `getOrCreateStack()` + `stack.outputs()` is an expensive round-trip
+   * (engine resolution, passphrase, S3 backend) to pay twice. Stores the
+   * in-flight/settled `Promise` itself (not just its resolved value) so
+   * concurrent callers during the first read coalesce onto the same request.
+   * A *rejected* promise is deliberately NOT cached (see
    * {@link getStackOutputs}) — only a settled `null` ("not deployed") or a
    * real {@link StackOutputs} value are memoised.
    *
@@ -100,12 +101,10 @@ export class ConfigService {
    * caching:** `PulumiService.getStackOutputs()` degrades EVERY failure to a
    * resolved `null` — a transient S3 blip, an expired credential, a
    * keychain hiccup all look identical to "genuinely not deployed" from
-   * here. That's the right contract for callers, but it means a resolved
-   * `null` is not proof of "not deployed". Caching it indefinitely would let
-   * one transient blip wedge the dashboard on "not deployed" forever —
-   * especially since the hot poll paths (`GamesController.listGames`/
-   * `listStatus`, `DriftService.getDrift`) no longer call
-   * {@link invalidateCache} on every tick. See
+   * here. Caching it indefinitely would let one transient blip wedge the
+   * dashboard on "not deployed" forever, especially since the hot poll paths
+   * (`GamesController.listGames`/`listStatus`, `DriftService.getDrift`) do
+   * not call {@link invalidateCache} on every tick. See
    * {@link STACK_OUTPUTS_NULL_TTL_MS} and {@link getStackOutputs} for the
    * TTL mechanics. A resolved {@link StackOutputs} value has no such
    * problem — a successful read really did observe a deployed stack — so it
@@ -123,15 +122,17 @@ export class ConfigService {
   /**
    * How long a resolved `null` from {@link getStackOutputs} stays cached
    * before the next call re-checks, rather than serving the stale `null`
-   * indefinitely — see {@link stackOutputsCache} for why this exists. 20
-   * seconds: short enough that a transient failure self-heals within
-   * roughly one dashboard status-poll cycle (`GAME_STATUS_INTERVAL_MS`,
-   * `@hyveon/web`), long enough that it doesn't reintroduce an expensive
-   * round-trip on every poll tick. Deliberately asymmetric with a genuine
-   * {@link StackOutputs} value, which has no TTL at all — a deployed stack
-   * doesn't need frequent re-verification, but a "not deployed" reading
-   * (which may just be "the last check happened to fail") should keep
-   * retrying.
+   * indefinitely — see {@link stackOutputsCache}'s doc comment for why this
+   * exists. 20 seconds: short enough that a transient failure self-heals
+   * within roughly one dashboard status-poll cycle
+   * (`GAME_STATUS_INTERVAL_MS`, `@hyveon/web`), long enough that it doesn't
+   * reintroduce the "expensive round-trip on every poll tick" cost the
+   * removal of eager `invalidateCache()` calls on the hot paths was meant to
+   * avoid. Deliberately asymmetric with a genuine {@link StackOutputs}
+   * value, which has no TTL at all (see that field's doc comment) — a
+   * deployed stack doesn't need frequent re-verification, but a "not
+   * deployed" reading (which may just be "the last check happened to fail")
+   * should keep retrying.
    */
   private static readonly STACK_OUTPUTS_NULL_TTL_MS = 20_000;
 
@@ -146,19 +147,22 @@ export class ConfigService {
   }
 
   /**
-   * Reads every value the app cares about off the deployed Pulumi stack. A
-   * memoised delegate to {@link PulumiService.getStackOutputs} — see that
+   * Reads every value the app cares about off the deployed Pulumi stack.
+   * Nothing reads a local `terraform.tfstate` file under the Pulumi engine.
+   *
+   * A memoised delegate to {@link PulumiService.getStackOutputs} — see that
    * method's doc comment for the full "never deployed yet degrades to
-   * `null`, never throws" contract. Exposed here (rather than requiring
-   * every caller to take a `PulumiService` constructor dependency) so
-   * callers only need `ConfigService`, mirroring how `ConfigService` also
+   * `null`, never throws, period" contract and how it's implemented. Exposed
+   * here rather than requiring every caller to take a `PulumiService`
+   * constructor dependency directly, mirroring how `ConfigService`
    * re-exposes `ElectronStoreService.get('bootstrap')?.configurationBucket`
-   * as {@link getConfigurationBucket}.
+   * as {@link getConfigurationBucket} instead of making every
+   * configuration-bucket reader depend on `ElectronStoreService` directly.
    *
    * Cached via {@link stackOutputsCache} — see that field's doc comment for
-   * the caching/coalescing behavior and for why a resolved `null`
-   * additionally expires after {@link STACK_OUTPUTS_NULL_TTL_MS} rather than
-   * staying cached forever. Cleared unconditionally (both the value and the
+   * the coalescing behavior and for why a resolved `null` additionally
+   * expires after {@link STACK_OUTPUTS_NULL_TTL_MS} rather than staying
+   * cached forever. Cleared unconditionally (both the value and the
    * null-TTL clock) by {@link invalidateCache}.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
@@ -167,12 +171,14 @@ export class ConfigService {
       Date.now() - this.stackOutputsNullCachedAt >= ConfigService.STACK_OUTPUTS_NULL_TTL_MS;
 
     if (this.stackOutputsCache === undefined || cacheIsStale) {
-      // Clear the stale-null flag BEFORE kicking off the refetch, not after:
-      // otherwise a second concurrent call arriving mid-refetch would see
-      // the old flag/timestamp, compute `cacheIsStale` as `true` again, and
-      // kick off a redundant second refetch instead of coalescing onto this
-      // one. The `.then()` below sets it back to the real value once this
-      // refetch settles.
+      // Clear the stale-null flag BEFORE kicking off the refetch (not just
+      // after it settles): otherwise a second concurrent call arriving while
+      // this refetch is still in flight would see `stackOutputsCacheIsNull`
+      // still `true` with its old (expired) timestamp, compute `cacheIsStale`
+      // as `true` again, and kick off a REDUNDANT second refetch instead of
+      // coalescing onto this one — defeating the whole point of caching the
+      // in-flight promise. The `.then()` below sets it back to the real
+      // value once this refetch actually settles.
       this.stackOutputsCacheIsNull = false;
       const pending = this.pulumiService.getStackOutputs().then(
         (result) => {
@@ -183,9 +189,10 @@ export class ConfigService {
         (err: unknown) => {
           // Don't let a transient failure wedge every subsequent call behind
           // a cached rejection — only a settled `null`/`StackOutputs` value
-          // is worth memoising. In practice `PulumiService.getStackOutputs()`
-          // never rejects (see its own doc comment), so this branch is
-          // defensive.
+          // is worth memoising. (In practice `PulumiService.getStackOutputs()`
+          // itself never rejects — see its own doc comment — so this branch
+          // is defensive: it still holds if a future change to that
+          // contract, or a bug, ever lets a rejection through here.)
           if (this.stackOutputsCache === pending) {
             this.stackOutputsCache = undefined;
           }
@@ -310,7 +317,7 @@ export class ConfigService {
    *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
    *     operator-configured value, submitted by the First-Run Wizard's
    *     bootstrap step (`WizardController.saveState`) and read back via
-   *     `WizardController.getState`. This is the real source of truth.
+   *     `WizardController.getState`.
    *  3. `null` — no backend configured.
    */
   getConfigurationBucket(): string | null {
@@ -333,13 +340,14 @@ export class ConfigService {
    *
    * Prefers the wizard-configured region (`ElectronStoreService`'s
    * `aws.region`, set by the credentials step and used by `BootstrapService`
-   * to create the state bucket itself) over the deployed stack's own output,
-   * since this method has many synchronous callers across the app (SDK
-   * client construction, `cloud-provider.module.ts`'s DI factories) and
-   * {@link getStackOutputs} is async-only. This is also the better source
-   * for this purpose: it's known before anything is ever deployed, and for a
-   * single-region-per-install app the two values can never legitimately
-   * disagree. Falls back to `AWS_DEFAULT_REGION`, then to `us-east-1`.
+   * to create the state bucket itself — see that service's own region
+   * resolution) so the method can stay synchronous, which matters because it
+   * has many synchronous callers across the app (SDK client construction,
+   * `cloud-provider.module.ts`'s DI factories) while {@link getStackOutputs}
+   * is async-only. The wizard-configured region is known before anything is
+   * ever deployed, and for a single-region-per-install app it can never
+   * legitimately disagree with the deployed stack's outputs. Falls back to
+   * `AWS_DEFAULT_REGION`, then to `us-east-1`.
    */
   getRegion(): string {
     return (

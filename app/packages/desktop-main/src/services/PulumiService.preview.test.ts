@@ -83,7 +83,6 @@ function makeStore(
   if (opts.stateBucket !== undefined || opts.configurationBucket !== undefined) {
     store.set('bootstrap', {
       stateBucket: opts.stateBucket ?? '',
-      lockTable: '',
       configurationBucket: opts.configurationBucket ?? '',
     });
   }
@@ -335,6 +334,30 @@ describe('PulumiService.preview spawning and artifact persistence', () => {
 
     const second = service.preview();
     await expect(second.next()).rejects.toThrow(/already.*running/i);
+  });
+
+  it('should throw synchronously when preview() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+    // Regression test for a code-reviewer-traced race: initializeStack()
+    // does not set `operationInFlight` (see PulumiService.ts's own
+    // `stackInitInFlight` doc comment for why it's a separate flag), so
+    // preview() must check `stackInitInFlight` itself or it would sail
+    // straight through this check while initializeStack() is still running
+    // against the same shared local workspace.
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace: hangingWorkspace });
+
+    const initPromise = service.initializeStack();
+    // Let initializeStack()'s synchronous prefix run (reserving stackInitInFlight).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(collectPreviewChunks(service.preview())).rejects.toThrow(/initializeStack.*already running/i);
+
+    void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 });
 

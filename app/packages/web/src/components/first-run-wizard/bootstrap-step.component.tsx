@@ -7,23 +7,10 @@ import { Input } from '@/components/ui/input.component';
 import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.utils.js';
 
 /**
- * The subset of {@link BootstrapResourceKey} this step actually bootstraps
- * and renders an editable row for.
- *
- * @remarks
- * Excludes `lockTable`: nothing has bootstrapped a DynamoDB lock table since
- * task 5.1 removed `BootstrapService.ensureLockTable` and its
- * `wizard.bootstrap.lockTable` IPC channel, so an editable name field for it
- * would have zero effect on what gets created — only on a value
- * `first-run-wizard.component.tsx` still separately feeds to the (still-live,
- * pending-task-10.3-removal) `terraform.init` call. Keeping a row here for a
- * value that does nothing bootstrap-wise would confuse an operator into
- * thinking it configures a resource this step manages; it doesn't.
+ * Human-readable heading for each {@link BootstrapResourceKey} this step
+ * renders an editable row for — every key on that type.
  */
-type VisibleBootstrapResource = Exclude<BootstrapResourceKey, 'lockTable'>;
-
-/** Human-readable heading for each {@link VisibleBootstrapResource}. */
-const RESOURCE_LABELS: Record<VisibleBootstrapResource, string> = {
+const RESOURCE_LABELS: Record<BootstrapResourceKey, string> = {
   stateBucket: 'Terraform state bucket',
   configurationBucket: 'Configuration bucket',
 };
@@ -82,7 +69,7 @@ export function BootstrapStep({
       </p>
 
       <div className="space-y-4">
-        {(Object.keys(RESOURCE_LABELS) as VisibleBootstrapResource[]).map((resource) => (
+        {(Object.keys(RESOURCE_LABELS) as BootstrapResourceKey[]).map((resource) => (
           <ResourceRow
             key={resource}
             resource={resource}
@@ -194,7 +181,7 @@ function ResourceRow({
   onNameChange,
   disabled,
 }: {
-  resource: VisibleBootstrapResource;
+  resource: BootstrapResourceKey;
   name: string;
   status: BootstrapResourceState;
   message?: string;

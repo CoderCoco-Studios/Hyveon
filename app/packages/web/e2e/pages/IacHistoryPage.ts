@@ -1,21 +1,21 @@
 import type { Page, Locator } from '@playwright/test';
 
 /**
- * Page object for the `/terraform/history` route added in issue #111 —
+ * Page object for the `/iac/history` route added in issue #111 —
  * the run-listing table (kind/status filters, cursor-based "Load more") and
- * the read-only run-detail view at `/terraform/history/:runId`.
+ * the read-only run-detail view at `/iac/history/:runId`.
  */
-export class TerraformHistoryPage {
+export class IacHistoryPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to `/terraform/history` directly via URL. */
+  /** Navigate to `/iac/history` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/terraform/history');
+    await this.page.goto('/iac/history');
   }
 
   /** Navigate to a single run's read-only detail view directly via URL. */
   async gotoDetail(runId: string): Promise<void> {
-    await this.page.goto(`/terraform/history/${runId}`);
+    await this.page.goto(`/iac/history/${runId}`);
   }
 
   /** "Run History" page heading — used as a "the page mounted" smoke check. */
@@ -49,7 +49,7 @@ export class TerraformHistoryPage {
 
   /** The `kind` link for a given `runId`, which navigates to that run's detail view. */
   rowLink(runId: string): Locator {
-    return this.page.locator(`a[href="/terraform/history/${runId}"]`);
+    return this.page.locator(`a[href="/iac/history/${runId}"]`);
   }
 
   /** "Load more" pagination button, present only when a further page is available. */
@@ -64,7 +64,7 @@ export class TerraformHistoryPage {
 
   // ── Detail view ──────────────────────────────────────────────────────
 
-  /** "Run detail" page heading on `/terraform/history/:runId`. */
+  /** "Run detail" page heading on `/iac/history/:runId`. */
   detailHeading(): Locator {
     return this.page.getByRole('heading', { name: 'Run detail' });
   }

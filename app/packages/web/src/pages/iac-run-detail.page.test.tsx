@@ -31,7 +31,7 @@ vi.stubGlobal('hyveon', hyveonMock);
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal('fetch', fetchMock);
 
-import { TerraformRunDetailPage } from './terraform-run-detail.page.js';
+import { IacRunDetailPage } from './iac-run-detail.page.js';
 import { renderPage } from '../test-utils/render-page.utils.js';
 
 /** Builds a sample `RunHistoryRecord`, overridable per-test. */
@@ -48,17 +48,17 @@ function makeRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Renders the detail page at `/terraform/history/:runId` for the given route param. */
+/** Renders the detail page at `/iac/history/:runId` for the given route param. */
 function renderDetailPage(runId: string) {
   return renderPage(
     <Routes>
-      <Route path="/terraform/history/:runId" element={<TerraformRunDetailPage />} />
+      <Route path="/iac/history/:runId" element={<IacRunDetailPage />} />
     </Routes>,
-    { initialEntries: [`/terraform/history/${runId}`] },
+    { initialEntries: [`/iac/history/${runId}`] },
   );
 }
 
-describe('TerraformRunDetailPage', () => {
+describe('IacRunDetailPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
@@ -169,7 +169,7 @@ describe('TerraformRunDetailPage', () => {
     renderDetailPage('run-1');
 
     const link = await screen.findByRole('link', { name: /apply run apply-1/ });
-    expect(link).toHaveAttribute('href', '/terraform/history/apply-1');
+    expect(link).toHaveAttribute('href', '/iac/history/apply-1');
   });
 
   it('should not render a rollback tag when the record has no rolledBackFrom', async () => {
@@ -178,5 +178,51 @@ describe('TerraformRunDetailPage', () => {
 
     await screen.findByText('log');
     expect(screen.queryByText(/Rollback of/)).not.toBeInTheDocument();
+  });
+
+  describe('change summary (task 9.5)', () => {
+    it('should render grouped change badges when the record has a populated changeSummary', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ logInline: 'log', changeSummary: { create: 3, update: 1 } })],
+      });
+      renderDetailPage('run-1');
+
+      expect(await screen.findByText('3 to create')).toBeInTheDocument();
+      expect(screen.getByText('1 to update')).toBeInTheDocument();
+    });
+
+    it('should render "Change summary unavailable" when the record has no changeSummary', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+      renderDetailPage('run-1');
+
+      expect(await screen.findByText('Change summary unavailable')).toBeInTheDocument();
+    });
+
+    it('should render a distinct "no changes" state when the record\'s changeSummary reports only unchanged resources', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ logInline: 'log', changeSummary: { same: 5 } })],
+      });
+      renderDetailPage('run-1');
+
+      expect(await screen.findByText('No changes — 5 unchanged')).toBeInTheDocument();
+      expect(screen.queryByText('Change summary unavailable')).not.toBeInTheDocument();
+    });
+
+    it('should render a partial badge when the record has partialApply true', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({
+        records: [makeRecord({ logInline: 'log', partialApply: true })],
+      });
+      renderDetailPage('run-1');
+
+      expect(await screen.findByText('partial')).toBeInTheDocument();
+    });
+
+    it('should not render a partial badge when the record has no partialApply', async () => {
+      hyveonMock.iac.runs.list.mockResolvedValue({ records: [makeRecord({ logInline: 'log' })] });
+      renderDetailPage('run-1');
+
+      await screen.findByText('log');
+      expect(screen.queryByText('partial')).not.toBeInTheDocument();
+    });
   });
 });

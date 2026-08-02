@@ -28,17 +28,17 @@ import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
  * Exported so `AwsModule` can reuse it when constructing the shared
  * `AwsCloudProvider` provider via `useFactory`.
  *
- * Async because `getStackOutputs()` is async; every caller
+ * Async because `getStackOutputs()` is an async read; every caller
  * (`createAwsCloudProvider`'s closure, `AwsCloudProvider`'s own methods that
  * invoke it) is already async or an async generator, so awaiting it needs no
  * NestJS async-factory-provider changes.
  *
  * `region` reads `outputs.awsRegion` — the deployed stack's own region —
- * rather than `ConfigService.getRegion()`'s wizard-configured fallback: the
- * region ECS/EC2/CloudWatch clients actually need to target is wherever the
- * stack was really provisioned, which can drift from the wizard's
- * credentials-step region if `DeploymentConfig.awsRegion` was edited
- * independently.
+ * rather than `ConfigService.getRegion()`'s wizard-configured fallback,
+ * since `outputs` is already guaranteed non-null by this point. The region
+ * ECS/EC2/CloudWatch clients actually need to target is wherever the stack
+ * was really provisioned, which can drift from the wizard's credentials-step
+ * region if `DeploymentConfig.awsRegion` was edited independently.
  */
 export async function buildProviderConfig(config: ConfigService): Promise<AwsCloudProviderConfig | null> {
   const outputs = await config.getStackOutputs();

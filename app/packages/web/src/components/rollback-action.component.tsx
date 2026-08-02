@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import type { DeploymentConfigDiff } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 
@@ -25,7 +26,50 @@ function formatTimestamp(iso: string): string {
 }
 
 /**
- * "Rollback" action for an apply row in `/terraform/history` (issue #112).
+ * Formats a {@link DeploymentConfigDiff} into a single readable sentence
+ * appended to the rollback confirmation dialog's description —
+ * e.g. "3 game servers added (foo, bar, baz), 1 removed (qux), 2 changed
+ * (corn, potato); other settings also changed: awsRegion, dnsTtl." Never
+ * called when `diff` itself is absent — see {@link RollbackAction}'s own
+ * doc comment for the graceful-degradation contract that keeps this
+ * function's caller optional.
+ *
+ * Returns a fixed "No configuration differences detected." sentence when
+ * every field compares equal (the edge case where the resolved target
+ * version happens to be byte-identical to the current head in every
+ * `DeploymentConfig` field) rather than an empty/blank line, so the
+ * confirmation dialog never renders a diff section that looks broken or
+ * unfinished for a legitimately empty diff.
+ */
+function formatDiffSummary(diff: DeploymentConfigDiff): string {
+  const gameServerParts: string[] = [];
+  if (diff.gameServers.added.length > 0) {
+    const n = diff.gameServers.added.length;
+    gameServerParts.push(`${n} game server${n === 1 ? '' : 's'} added (${diff.gameServers.added.join(', ')})`);
+  }
+  if (diff.gameServers.removed.length > 0) {
+    gameServerParts.push(`${diff.gameServers.removed.length} removed (${diff.gameServers.removed.join(', ')})`);
+  }
+  if (diff.gameServers.changed.length > 0) {
+    gameServerParts.push(`${diff.gameServers.changed.length} changed (${diff.gameServers.changed.join(', ')})`);
+  }
+
+  const sentenceParts: string[] = [];
+  if (gameServerParts.length > 0) {
+    sentenceParts.push(gameServerParts.join(', '));
+  }
+  if (diff.changedFields.length > 0) {
+    sentenceParts.push(`other settings also changed: ${diff.changedFields.join(', ')}`);
+  }
+
+  if (sentenceParts.length === 0) {
+    return 'No configuration differences detected.';
+  }
+  return `${sentenceParts.join('; ')}.`;
+}
+
+/**
+ * "Rollback" action for an apply row in `/iac/history` (issue #112).
  * Two-step flow, mirroring the backend's resolve-then-confirm split so
  * nothing is written until the operator has seen the target version:
  *
@@ -35,18 +79,36 @@ function formatTimestamp(iso: string): string {
  * 2. Confirming calls `hyveon.iac.rollback.confirm`, which restores that
  *    version's content as a new head. On success, {@link onRolledBack} fires
  *    with the new version id so the caller can route into the plan/apply
- *    run view with it (see `TerraformPage`'s `RollbackNavState`).
+ *    run view with it (see `IacPage`'s `RollbackNavState`).
  *
  * A failure at either step — including "no earlier version exists" / "the
  * historic version has expired" — is surfaced inline via `role="alert"` and
  * never triggers `onRolledBack`; nothing is written on a resolve failure,
  * and the confirm step's own backend re-resolution means nothing is written
  * on a confirm failure either.
+ *
+ * ## Diff summary
+ *
+ * `iac.rollback.resolve`'s ack may also carry a `diff` — a best-effort
+ * `DeploymentConfigDiff` summarizing how the target version differs from
+ * the current configuration head (`PulumiService.computeRollbackDiff`).
+ * When present, {@link formatDiffSummary} renders it as an extra sentence
+ * appended to the confirmation dialog's description. When absent — the
+ * diff computation degraded for any reason (network error, unparseable
+ * configuration, etc.) — the dialog renders identify-target-only, no diff
+ * line, never a broken/empty diff section. This graceful degradation is
+ * deliberate per the `iac-rollback` spec: "identify the target version" is
+ * a MUST; the diff summary is only a SHOULD-level enhancement layered on
+ * top.
  */
 export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps) {
   const [resolving, setResolving] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [target, setTarget] = useState<{ versionId: string; lastModified: string } | null>(null);
+  const [target, setTarget] = useState<{
+    versionId: string;
+    lastModified: string;
+    diff?: DeploymentConfigDiff;
+  } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +123,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
       try {
         const ack = await window.hyveon!.iac.rollback.resolve({ applyRunId });
         if (ack.resolved && ack.versionId && ack.lastModified) {
-          setTarget({ versionId: ack.versionId, lastModified: ack.lastModified });
+          setTarget({ versionId: ack.versionId, lastModified: ack.lastModified, diff: ack.diff });
           setDialogOpen(true);
         } else {
           setError(ack.error ?? 'Could not resolve a rollback target.');
@@ -113,7 +175,8 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           title="Roll back tfvars?"
           description={
             `This restores tfvars version ${target.versionId} (last modified ${formatTimestamp(target.lastModified)}) ` +
-            'as the new head, then queues a plan against it. The current head is not deleted — history is append-only.'
+            'as the new head, then queues a plan against it. The current head is not deleted — history is append-only.' +
+            (target.diff ? ` ${formatDiffSummary(target.diff)}` : '')
           }
           onConfirm={handleConfirm}
           confirmLabel={confirming ? 'Rolling back…' : 'Roll back'}

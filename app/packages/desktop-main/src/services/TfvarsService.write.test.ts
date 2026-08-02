@@ -26,7 +26,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
-import { OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
+import { DEPLOYMENT_CONFIG_DEFAULTS, OptimisticLockError, RemoteFileConflictError } from '@hyveon/shared';
 
 // Shared mock instances behind both the bare `'fs'` specifier and the
 // `'node:fs'` specifier — Node treats these as distinct module ids, and
@@ -523,26 +523,6 @@ describe('TfvarsService write path', () => {
         service.addGameServer('terraria', NEW_ENTRY_CONFIG, 'etag-stale'),
       ).rejects.toBeInstanceOf(OptimisticLockError);
     });
-
-    it('should guard against a concurrent write even when the caller omits expectedVersionId, using the etag its own read just observed', async () => {
-      // e.g. GamesWriteService's create path, which has no prior read to base
-      // a version on. Without falling back to the read's own etag, this would
-      // write unconditionally and never detect that the remote object
-      // changed underneath it.
-      stubCurrentConfig(remoteFileStore);
-      remoteFileStore.put.mockRejectedValue(
-        new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-1'),
-      );
-
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
-
-      await expect(service.addGameServer('terraria', NEW_ENTRY_CONFIG)).rejects.toBeInstanceOf(
-        OptimisticLockError,
-      );
-      expect(remoteFileStore.put).toHaveBeenCalledWith('deployment-config.json', expect.any(Uint8Array), {
-        ifMatch: 'etag-1',
-      });
-    });
   });
 
   describe('structured lock error', () => {
@@ -602,6 +582,193 @@ describe('TfvarsService write path', () => {
       const lockError = caught as OptimisticLockError;
       expect(lockError.expectedEtag).toBe('etag-stale');
       expect(lockError.currentEtag).toBeUndefined();
+    });
+  });
+
+  describe('getTopLevelSettings / updateTopLevelSettings (task 9.7)', () => {
+    it('should return every top-level field except gameServers, plus the read etag', async () => {
+      stubCurrentConfig(remoteFileStore);
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      const { settings, etag } = await service.getTopLevelSettings();
+
+      const { gameServers: _gameServers, ...expectedSettings } = FIXTURE_CONFIG;
+      expect(settings).toEqual(expectedSettings);
+      expect(settings).not.toHaveProperty('gameServers');
+      expect(etag).toBe('etag-1');
+    });
+
+    it('should reject getTopLevelSettings with ConfigurationNotConfiguredError when no bucket is configured', async () => {
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await expect(service.getTopLevelSettings()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+      expect(remoteFileStore.get).not.toHaveBeenCalled();
+    });
+
+    describe('defaulting a document missing fields (review round 1, finding I2)', () => {
+      /**
+       * A stored document that predates the three base-allowlist array
+       * fields and the numeric watchdog/dnsTtl fields entirely — simulates a
+       * `deployment-config.json` written by an older app version, before
+       * those fields existed. `JSON.stringify` naturally omits `undefined`
+       * properties, so building this fixture as a plain object with those
+       * keys never set (rather than explicitly `undefined`) reproduces
+       * exactly what an old on-disk document looks like.
+       */
+      const CONFIG_MISSING_FIELDS = {
+        projectName: 'hyveon',
+        awsRegion: 'us-east-1',
+        vpcCidr: '10.0.0.0/16',
+        hostedZoneName: 'example.com',
+        discordApplicationId: '',
+        auditTableName: '',
+        runsTableName: '',
+        gameServers: {},
+      };
+      const CONFIG_MISSING_FIELDS_JSON = JSON.stringify(CONFIG_MISSING_FIELDS);
+
+      it('should default the three base-allowlist arrays to [] rather than returning them as undefined', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.baseAllowedGuilds).toEqual([]);
+        expect(settings.baseAdminUserIds).toEqual([]);
+        expect(settings.baseAdminRoleIds).toEqual([]);
+      });
+
+      it('should default the missing numeric fields to their Terraform defaults rather than returning them as undefined', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.dnsTtl).toBe(DEPLOYMENT_CONFIG_DEFAULTS.dnsTtl);
+        expect(settings.watchdogIntervalMinutes).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIntervalMinutes);
+        expect(settings.watchdogIdleChecks).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogIdleChecks);
+        expect(settings.watchdogMinPackets).toBe(DEPLOYMENT_CONFIG_DEFAULTS.watchdogMinPackets);
+      });
+
+      it('should give each call a fresh array reference for the three base-allowlist fields (never a shared mutable default)', async () => {
+        stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const first = await service.getTopLevelSettings();
+        const second = await service.getTopLevelSettings();
+
+        expect(first.settings.baseAllowedGuilds).not.toBe(second.settings.baseAllowedGuilds);
+      });
+
+      it('should leave an already-complete document\'s values untouched (defaulting is a no-op, not a silent overwrite)', async () => {
+        stubCurrentConfig(remoteFileStore);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const { settings } = await service.getTopLevelSettings();
+
+        expect(settings.baseAllowedGuilds).toEqual(FIXTURE_CONFIG.baseAllowedGuilds);
+        expect(settings.dnsTtl).toBe(FIXTURE_CONFIG.dnsTtl);
+        expect(settings.awsRegion).toBe(FIXTURE_CONFIG.awsRegion);
+      });
+    });
+
+    it('should merge a patch onto the current top-level fields, leaving every gameServers entry intact', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const result = await service.updateTopLevelSettings({ dnsTtl: 60, awsRegion: 'eu-west-1' });
+      expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
+
+      expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
+
+      expect(written.dnsTtl).toBe(60);
+      expect(written.awsRegion).toBe('eu-west-1');
+      // Every other top-level field round-trips unchanged.
+      expect(written.projectName).toBe(FIXTURE_CONFIG.projectName);
+      expect(written.hostedZoneName).toBe(FIXTURE_CONFIG.hostedZoneName);
+      // gameServers survives completely untouched.
+      expect(written.gameServers).toEqual(FIXTURE_CONFIG.gameServers);
+    });
+
+    it('should leave gameServers untouched even when a caller sneaks a "gameServers" key into the patch at runtime', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      // `updateTopLevelSettings`'s parameter type excludes `gameServers`, but
+      // that's only a compile-time guarantee — this payload simulates what a
+      // buggy/malicious IPC caller could still send at runtime (the IPC
+      // boundary carries plain JSON, not enforced TypeScript types), proving
+      // the service-level defense (not just the type system) is what
+      // actually protects the map.
+      await service.updateTopLevelSettings({
+        dnsTtl: 90,
+        // @ts-expect-error — simulates a runtime IPC payload that smuggles
+        // `gameServers` past the compile-time parameter type.
+        gameServers: { palworld: { image: 'evil/corrupted-image', cpu: 1, memory: 1, ports: [], volumes: [] } },
+      });
+
+      const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
+      const written = JSON.parse(new TextDecoder().decode(body)) as DeploymentConfig;
+
+      expect(written.dnsTtl).toBe(90);
+      expect(written.gameServers).toEqual(FIXTURE_CONFIG.gameServers);
+      expect(written.gameServers.palworld).not.toEqual(
+        expect.objectContaining({ image: 'evil/corrupted-image' }),
+      );
+    });
+
+    it('should honour expectedVersionId as the conditional-put ifMatch guard', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      await service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-1');
+
+      expect(remoteFileStore.put).toHaveBeenCalledWith('deployment-config.json', expect.any(Uint8Array), {
+        ifMatch: 'etag-1',
+      });
+    });
+
+    it('should throw OptimisticLockError (not a raw RemoteFileConflictError) when the store rejects a conditional put', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockRejectedValue(
+        new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
+      );
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+      await expect(service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-stale')).rejects.toBeInstanceOf(
+        OptimisticLockError,
+      );
+    });
+
+    it('should reject updateTopLevelSettings with ConfigurationNotConfiguredError when no bucket is configured', async () => {
+      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      await expect(service.updateTopLevelSettings({ dnsTtl: 60 })).rejects.toBeInstanceOf(
+        ConfigurationNotConfiguredError,
+      );
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
+    });
+
+    it('should invalidate the in-memory cache so the next getGameServers() re-reads the written content', async () => {
+      stubCurrentConfig(remoteFileStore);
+      remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      await service.getGameServers();
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
+
+      // updateTopLevelSettings's own writeConfig() reads the current config
+      // before mutating it (an extra `get`, unlike restoreRawTfvars's
+      // unconditional-overwrite path above), then the post-write
+      // getGameServers() re-read below issues a third.
+      await service.updateTopLevelSettings({ dnsTtl: 60 });
+      await service.getGameServers();
+
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
     });
   });
 

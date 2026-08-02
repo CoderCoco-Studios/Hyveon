@@ -1,20 +1,20 @@
 import type { Page, Locator } from '@playwright/test';
 
 /**
- * Page object for the `/terraform` route added in issue #110 — plan trigger,
+ * Page object for the `/iac` route added in issue #110 — plan trigger,
  * live ANSI log viewer, resource-change summary, approve gate, and
  * plan-hash-gated apply.
  */
-export class TerraformPage {
+export class IacPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to `/terraform` directly via URL. */
+  /** Navigate to `/iac` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/terraform');
+    await this.page.goto('/iac');
   }
 
   /**
-   * Navigate to `/terraform` by clicking the sidebar link and waiting for the
+   * Navigate to `/iac` by clicking the sidebar link and waiting for the
    * URL to settle. Exact-match, since Playwright's default name match is a
    * case-insensitive substring and other pages link out to
    * "Edit terraform.tfvars" (a GitHub help link), which would otherwise
@@ -22,7 +22,7 @@ export class TerraformPage {
    */
   async gotoViaSidebar(): Promise<void> {
     await this.page.getByRole('link', { name: 'Terraform', exact: true }).click();
-    await this.page.waitForURL('**/terraform');
+    await this.page.waitForURL('**/iac');
   }
 
   // ── Plan ─────────────────────────────────────────────────────────────

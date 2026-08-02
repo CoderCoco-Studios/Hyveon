@@ -110,21 +110,6 @@ describe('runTreatingLeakedPromiseAsSuccess — succeeded then threw (leaked pro
 
     expect(loggerMock.warn).toHaveBeenCalledTimes(1);
   });
-
-  it('should wrap a non-Error rejection whose stringified shape still matches the leak pattern in a real Error', async () => {
-    // isLeakedPromiseError stringifies a non-Error value before pattern-matching
-    // it (see its own doc comment), so a plain string carrying the leak message
-    // shape is classified as a leak too — exercising the `err instanceof Error
-    // ? err : new Error(String(err))` normalization this recovery path needs.
-    const operation = vi.fn().mockRejectedValue(SINGLE_LEAK_MESSAGE);
-    const recoverResult = vi.fn().mockResolvedValue('recovered result');
-
-    const result = await runTreatingLeakedPromiseAsSuccess(operation, recoverResult);
-
-    expect(result).toBe('recovered result');
-    expect(recoverResult.mock.calls[0][0]).toBeInstanceOf(Error);
-    expect((recoverResult.mock.calls[0][0] as Error).message).toBe(SINGLE_LEAK_MESSAGE);
-  });
 });
 
 describe('runTreatingLeakedPromiseAsSuccess — genuine failure', () => {

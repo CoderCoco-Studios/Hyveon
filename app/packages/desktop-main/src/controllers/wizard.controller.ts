@@ -1,6 +1,5 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { PrerequisiteService, type PrerequisitesReport } from '../services/PrerequisiteService.js';
 import {
   AwsProfileService,
   type AwsProfileSummary,
@@ -42,23 +41,17 @@ export interface WizardAwsChoice {
 /**
  * The bootstrap step's last-submitted resource names, as persisted to
  * `ElectronStoreService.bootstrap`. Names are operator-editable, so Settings'
- * Reconfigure flow (#211) needs these on record to run `terraform init`
+ * Reconfigure flow (#211) needs these on record to run bootstrap again
  * against the resources that actually exist rather than
  * `defaultBootstrapResourceNames()`.
  *
  * @remarks
- * `lockTable` no longer names a resource this controller's bootstrap
- * handlers create (task 5.1 removed `ensureLockTable`/`wizard.bootstrap.lockTable`
- * entirely) — it is kept here only because the still-live `terraform.init`
- * IPC call requires a `dynamodbTable` backend-config value, and Settings'
- * Reconfigure flow rehydrates that value from this same field (see
- * `first-run-wizard.component.tsx`'s `backendConfig.dynamodbTable`). Task
- * 10.3 (replacing the Terraform-init step with the Pulumi
- * stack-initialization step) is where this field should finally be dropped.
+ * `PulumiService.initializeStack` resolves its own state bucket/region
+ * internally and needs no lock-table name, so this shape carries no
+ * `lockTable` field — bootstrap doesn't create a lock-table resource.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;
-  lockTable: string;
   configurationBucket: string;
 }
 
@@ -91,7 +84,6 @@ export interface SaveWizardStateInput {
 @Controller()
 export class WizardController {
   constructor(
-    private readonly prerequisites: PrerequisiteService,
     private readonly awsProfiles: AwsProfileService,
     private readonly store: ElectronStoreService,
     private readonly bootstrap: BootstrapService,
@@ -175,12 +167,6 @@ export class WizardController {
     return process.env['HYVEON_TEST_MODE'] === '1';
   }
 
-  /** Detects `terraform` and `aws` on `PATH`, reporting per-tool found/path/version. */
-  @MessagePattern('wizard.prereqs.check')
-  checkPrereqs(): Promise<PrerequisitesReport> {
-    return this.prerequisites.check();
-  }
-
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   @MessagePattern('wizard.aws.listProfiles')
   listAwsProfiles(): Promise<AwsProfileSummary[]> {
@@ -237,7 +223,7 @@ export class WizardController {
     return this.iamCheck.checkPermissions();
   }
 
-  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  /** Returns the last-recorded resumable step, defaulting to `pick-cloud` if unset/corrupt. */
   @MessagePattern('wizard.progress.get')
   getProgress(): Promise<WizardProgress> {
     return this.firstRunWizard.getProgress();

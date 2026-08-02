@@ -269,8 +269,8 @@ describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', (
 });
 
 // ---------------------------------------------------------------------------
-// Lock-ownership records — Task 4.8's ownership-record mechanism
-// (recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts)
+// Lock-ownership records (recordPulumiLockAttempt / clearPulumiLockAttempt /
+// listPulumiLockAttempts)
 // ---------------------------------------------------------------------------
 
 describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts', () => {
@@ -617,5 +617,51 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
     expect(rawFileContents).not.toContain(pulumiPassphrase);
     // Sanity check the file isn't simply empty/unwritten.
     expect(rawFileContents).toContain('region');
+  });
+});
+
+describe('ElectronStoreService — recordOrphanedRollback / getOrphanedRollback / clearOrphanedRollback', () => {
+  let service: ElectronStoreService;
+
+  const makeRecord = () => ({
+    applyRunId: 'run-1',
+    restoredVersionId: 'version-7',
+    failedAt: '2026-01-01T00:00:00.000Z',
+    failureMessage: 'plan creation failed',
+  });
+
+  beforeEach(() => {
+    service = new ElectronStoreService(makeSafeStorage());
+  });
+
+  it('should return undefined from getOrphanedRollback when nothing has been recorded', () => {
+    expect(service.getOrphanedRollback()).toBeUndefined();
+  });
+
+  it('should record and read back an orphaned-rollback marker when no prior pulumi bucket exists', () => {
+    const record = makeRecord();
+    service.recordOrphanedRollback(record);
+    expect(service.getOrphanedRollback()).toEqual(record);
+  });
+
+  it('should preserve other pulumi fields already present when recording an orphaned-rollback marker', () => {
+    service.setPulumiPassphrase('existing-passphrase');
+    const record = makeRecord();
+    service.recordOrphanedRollback(record);
+    expect(service.getOrphanedRollback()).toEqual(record);
+    expect(service.getPulumiPassphrase()).toBe('existing-passphrase');
+  });
+
+  it('should be a no-op when clearing an orphaned-rollback marker that was never recorded', () => {
+    service.clearOrphanedRollback();
+    expect(service.getOrphanedRollback()).toBeUndefined();
+  });
+
+  it('should clear a recorded orphaned-rollback marker while preserving other pulumi fields', () => {
+    service.setPulumiPassphrase('existing-passphrase');
+    service.recordOrphanedRollback(makeRecord());
+    service.clearOrphanedRollback();
+    expect(service.getOrphanedRollback()).toBeUndefined();
+    expect(service.getPulumiPassphrase()).toBe('existing-passphrase');
   });
 });

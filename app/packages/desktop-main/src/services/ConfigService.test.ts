@@ -50,7 +50,7 @@ const mockWrite = vi.mocked(writeFileSync);
 function makeElectronStore(configurationBucket?: string): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (configurationBucket !== undefined) {
-    store.set('bootstrap', { stateBucket: '', lockTable: '', configurationBucket });
+    store.set('bootstrap', { stateBucket: '', configurationBucket });
   }
   return store;
 }
@@ -354,6 +354,47 @@ describe('ConfigService', () => {
       const result = testableService.getServerConfigPath();
       expect(result).toMatch(/server_config\.json$/);
       expect(path.isAbsolute(result)).toBe(true);
+    });
+
+    it('should return the SERVER_CONFIG_PATH env var verbatim when set, without consulting readIsPackaged', () => {
+      process.env['SERVER_CONFIG_PATH'] = '/custom/server_config.json';
+      const isPackagedSpy = vi.spyOn(testableService, 'readIsPackaged');
+      expect(testableService.getServerConfigPath()).toBe('/custom/server_config.json');
+      expect(isPackagedSpy).not.toHaveBeenCalled();
+    });
+
+    it('should return the repo-relative fallback when packaged but readUserDataPath returns null', () => {
+      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
+      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue(null);
+      const result = testableService.getServerConfigPath();
+      expect(result).toMatch(/server_config\.json$/);
+      expect(result).not.toContain('userData');
+    });
+
+    describe('outside an Electron process', () => {
+      it('should return false from readIsPackaged when process.versions.electron is unset', () => {
+        expect(testableService.readIsPackaged()).toBe(false);
+      });
+
+      it('should return null from readUserDataPath when process.versions.electron is unset', () => {
+        expect(testableService.readUserDataPath()).toBeNull();
+      });
+    });
+
+    describe('with process.versions.electron set but the electron module unusable (matches a plain Node test process)', () => {
+      afterEach(() => {
+        delete (process.versions as Record<string, string | undefined>)['electron'];
+      });
+
+      it('should return false from readIsPackaged when requiring "electron" does not yield a usable app object', () => {
+        (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
+        expect(testableService.readIsPackaged()).toBe(false);
+      });
+
+      it('should return null from readUserDataPath when requiring "electron" does not yield a usable app object', () => {
+        (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
+        expect(testableService.readUserDataPath()).toBeNull();
+      });
     });
 
     it('should return the HYVEON_TFVARS_BUCKET env var value when set, even when a configuration bucket is also stored', () => {

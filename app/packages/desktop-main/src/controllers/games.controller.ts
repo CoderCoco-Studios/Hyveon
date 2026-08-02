@@ -31,14 +31,15 @@ export class GamesController {
    * the renderer can distinguish the two states.
    *
    * Invalidates only the `TfvarsService` cache (cheap — an in-memory S3
-   * object cache with its own short TTL), NOT {@link ConfigService}'s
-   * stack-outputs cache: `ConfigService.getStackOutputs()` is a genuinely
-   * expensive round-trip (Pulumi engine resolution, passphrase, S3 backend),
-   * and this channel is called on every visit to pages that show the games
-   * list (Discord config, Logs) — eagerly invalidating that cache here would
-   * pay that cost far more often than a fresh deploy could plausibly have
-   * happened. The stack-outputs cache is invalidated on write instead, not
-   * on every read here.
+   * object cache with its own short TTL), NOT {@link ConfigService}'s stack-
+   * outputs cache. Task 7.4 turned `ConfigService.getStackOutputs()` from a
+   * cheap file read into a genuinely expensive round-trip (Pulumi engine
+   * resolution, passphrase, S3 backend) — this channel is called on every
+   * visit to pages that show the games list (Discord config, Logs), so
+   * eagerly invalidating that cache here would pay that cost far more often
+   * than a fresh deploy could plausibly have happened. The stack-outputs
+   * cache is invalidated on write instead (by whichever future dispatch
+   * — 7.1/7.2 — persists a successful `up()`), not on every read here.
    *
    * Reachable via the Electron IPC transport (`games.list`).
    */

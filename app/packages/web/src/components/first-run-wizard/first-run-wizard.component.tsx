@@ -6,24 +6,22 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Five steps: prerequisites, pick-cloud, credentials, bootstrap, and
- * terraform-init (the last of which runs `terraform init` and finishes the
- * wizard).
+ * Four steps: pick-cloud, credentials, bootstrap, and stack-init (the last
+ * of which initializes the Pulumi stack and finishes the wizard — task
+ * 10.3's replacement for the pre-migration `terraform-init` step, which ran
+ * `terraform init` and has been fully removed).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import type { AwsProfileSummary, IamCheckResult, PrerequisitesReport, TerraformInitConfig } from '@hyveon/desktop-preload';
+import type { AwsProfileSummary, IamCheckResult } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
-import { PrerequisitesStep } from './prerequisites-step.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep, type CredentialMode, type PasteField } from './credentials-step.component.js';
 import { BootstrapStep } from './bootstrap-step.component.js';
-import { TerraformInitStep } from './terraform-init-step.component.js';
+import { StackInitializationStep } from './stack-init-step.component.js';
 import {
   WIZARD_STEPS,
-  arePrerequisitesSatisfied,
   defaultBootstrapResourceNames,
-  reconfigureSteps,
   type BootstrapResourceKey,
   type BootstrapResourceState,
   type WizardStep,
@@ -31,34 +29,33 @@ import {
 
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
-  prerequisites: 'Install prerequisites',
   'pick-cloud': 'Choose your cloud',
   credentials: 'AWS credentials',
   bootstrap: 'Bootstrap AWS resources',
-  'terraform-init': 'Finish setup',
+  'stack-init': 'Finish setup',
 };
 
 /**
  * Steps in this list start collapsed to a completed summary (with an Edit
  * affordance) in `mode: 'reconfigure'`, since Settings only offers
  * Reconfigure once the wizard has already completed once — every one of
- * these already has a real answer on record. `terraform-init` is excluded:
- * it has no standalone "answer" to summarize, and reaching it is itself the
+ * these already has a real answer on record. `stack-init` is excluded: it
+ * has no standalone "answer" to summarize, and reaching it is itself the
  * explicit re-run the operator asked for by clicking through to it.
  */
 const RECONFIGURE_PRE_COMPLETED_STEPS: WizardStep[] = ['pick-cloud', 'credentials', 'bootstrap'];
 
 /** Props for {@link FirstRunWizard}. */
 export interface FirstRunWizardProps {
-  /** Invoked once the terraform-init step's `wizard.complete` call succeeds. */
+  /** Invoked once the stack-init step's `wizard.complete` call succeeds. */
   onComplete?: () => void;
   /**
-   * `'first-run'` (default) gates the whole app and runs all five steps,
+   * `'first-run'` (default) gates the whole app and runs all four steps,
    * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
    * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
-   * launched from Settings) skips `prerequisites`, pre-marks
-   * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
-   * affordance, and buffers *edited* answers locally — a single
+   * launched from Settings) pre-marks `pick-cloud`/`credentials`/`bootstrap`
+   * as completed with a per-step Edit affordance, and buffers *edited*
+   * answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via
    * Edit, commits right before `wizard.complete` runs. A step left collapsed
    * is never included in that call, so Cancel never has anything to undo for
@@ -75,18 +72,13 @@ export interface FirstRunWizardProps {
 }
 
 /**
- * Self-contained first-run wizard: owns its own step index, the
- * prerequisites-check state (report/checking/error), the pick-cloud
+ * Self-contained first-run wizard: owns its own step index, the pick-cloud
  * selection, and the credentials-step state (profile list, mode, selection,
- * paste form). Fetches an initial prerequisites check and AWS profile list
- * on mount.
+ * paste form). Fetches an initial AWS profile list on mount.
  */
 export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: FirstRunWizardProps = {}) {
-  const steps = useMemo(() => (mode === 'reconfigure' ? reconfigureSteps() : WIZARD_STEPS), [mode]);
+  const steps = WIZARD_STEPS;
   const [stepIndex, setStepIndex] = useState(0);
-  const [report, setReport] = useState<PrerequisitesReport | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedCloud, setSelectedCloud] = useState<CloudOption>('aws');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -107,7 +99,6 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const [resourceNames, setResourceNames] = useState(defaultBootstrapResourceNames());
   const [resourceStatuses, setResourceStatuses] = useState<Record<BootstrapResourceKey, BootstrapResourceState>>({
     stateBucket: 'pending',
-    lockTable: 'pending',
     configurationBucket: 'pending',
   });
   const [resourceMessages, setResourceMessages] = useState<Partial<Record<BootstrapResourceKey, string>>>({});
@@ -128,22 +119,28 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // Guards the save-progress effect below until the resume-on-mount effect
   // has settled (resolved or rejected) — otherwise the two effects race to
   // read/write the same file, and if the save ever won that race it would
-  // clobber a real resumed step back down to `prerequisites`. Also used to
+  // clobber a real resumed step back down to `pick-cloud`. Also used to
   // clamp how far resume is allowed to jump (see the resume effect).
   const resumeSettledRef = useRef(false);
 
   // Resume-on-mount: jump straight to the last-recorded step instead of
-  // always restarting at `prerequisites`, so closing and reopening the app
+  // always restarting at `pick-cloud`, so closing and reopening the app
   // mid-flow doesn't lose progress. Any failure (including a missing IPC
   // bridge) leaves `stepIndex` at its default of 0. Clamped to at most the
   // `bootstrap` step: none of this component's answer state (region,
   // selected profile, bootstrap resource names) is itself persisted or
   // rehydrated here, only which step the operator was on — jumping straight
-  // into `terraform-init` would run `terraform init` on mount against a
-  // `backendConfig` built from blank defaults. Resuming to `bootstrap` is
-  // safe by comparison: its IPC calls read the region from the credentials
-  // step's already-persisted `wizard.state.save` call, and worst case the
-  // operator just has to re-click "Bootstrap AWS resources".
+  // into `stack-init` would fire a real `iac.stack.initialize()` call on
+  // mount before the operator has seen or confirmed anything on this visit
+  // (unlike every other step here, `StackInitializationStep` needs no
+  // renderer-supplied config to run — `PulumiService.initializeStack`
+  // resolves the state bucket/region it needs from already-persisted store
+  // state — so there is no "blank defaults" failure mode to worry about
+  // specifically, but auto-running a real write-side operation unattended is
+  // still the wrong resume behavior). Resuming to `bootstrap` is safe by
+  // comparison: its IPC calls read the region from the credentials step's
+  // already-persisted `wizard.state.save` call, and worst case the operator
+  // just has to re-click "Bootstrap AWS resources".
   //
   // Both this effect and the save-progress effect below are `'first-run'`-only:
   // `userData/wizard-state.json` tracks resumable progress through the
@@ -191,12 +188,13 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   // Reconfigure-only: prefills the pick-cloud/credentials/bootstrap answers
   // from the durably-stored `wizard.state.get` so the collapsed step
-  // summaries — and the `terraform-init` step's `backendConfig`, which reads
-  // `resourceNames` regardless of whether the bootstrap step was ever opened
-  // — reflect what's actually configured, not the first-run defaults.
-  // Without this, Reconfigure would always run `terraform init` against
-  // `defaultBootstrapResourceNames()` even when the operator renamed the
-  // bootstrap resources during first run.
+  // summaries reflect what's actually configured, not the first-run
+  // defaults. `StackInitializationStep` itself no longer depends on any of
+  // this prefilled state (unlike the deleted `terraform-init` step's
+  // `backendConfig`, which read `resourceNames` regardless of whether the
+  // bootstrap step was ever opened) — `PulumiService.initializeStack`
+  // resolves the state bucket/region it needs internally — but the collapsed
+  // summaries themselves still need accurate prefilled values.
   //
   // Waits for the `listAwsProfiles` fetch below to settle (`profiles` or
   // `profilesError` set) before applying, rather than firing on mount: the
@@ -238,61 +236,9 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       });
   }, [mode, profiles, profilesError]);
 
-  /**
-   * `dynamodbTable` still reads `resourceNames.lockTable` even though
-   * nothing bootstraps a lock table anymore (task 5.1 removed
-   * `BootstrapService.ensureLockTable`, and the bootstrap step's UI no
-   * longer renders an editable row for it — see `bootstrap-step.component.tsx`).
-   *
-   * This is deliberately NOT dead code: `TerraformController.init` /
-   * `TerraformService.init` still validate `dynamodbTable` as a required
-   * non-empty string and pass it straight through as a real
-   * `-backend-config=dynamodb_table=...` flag to the `terraform init`
-   * process this step still shells out to. Settings' Reconfigure flow also
-   * still rehydrates this value from `WizardBootstrapNames.lockTable` (see
-   * `settings.page.test.tsx`'s "rehydrate stored bootstrap resource names
-   * into terraform init" case). Task 10.3 (replacing the Terraform-init
-   * step with the Pulumi stack-initialization step) is the right place to
-   * remove `dynamodbTable` — and `lockTable` — entirely; until then, this
-   * field must keep flowing through unchanged or the still-live
-   * `terraform init` call breaks.
-   */
-  const backendConfig = useMemo<TerraformInitConfig>(
-    () => ({
-      bucket: resourceNames.stateBucket,
-      region: credentialMode === 'profile' ? region : pasteRegion,
-      dynamodbTable: resourceNames.lockTable,
-    }),
-    [resourceNames, credentialMode, region, pasteRegion],
-  );
-
   function handleFinished() {
     onComplete?.();
   }
-
-  const checkPrereqs = useCallback(async () => {
-    if (!window.hyveon) {
-      setError('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
-    setChecking(true);
-    setError(null);
-    try {
-      const result = await window.hyveon.wizard.checkPrereqs();
-      setReport(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to check prerequisites.');
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // `prerequisites` isn't a Reconfigure step — skip the check entirely
-    // rather than running it for no visible step.
-    if (mode !== 'first-run') return;
-    void checkPrereqs();
-  }, [mode, checkPrereqs]);
 
   useEffect(() => {
     async function fetchProfiles() {
@@ -363,21 +309,17 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    *
    * @remarks
    * Deliberately does not call `wizard.bootstrap.lockTable` — no such
-   * channel exists anymore (task 5.1 removed the main-process handler
-   * entirely: the DIY Pulumi S3 backend locks via objects in the state
-   * bucket, not a DynamoDB table). `lockTable` no longer has a row in
-   * {@link BootstrapStep} either (task 5.5), so `resourceStatuses.lockTable`
-   * simply sits at `'pending'` forever, unrendered and untouched — see
-   * `resourceNames.lockTable`'s remaining (non-bootstrap) use in
-   * {@link backendConfig}.
+   * channel exists: the DIY Pulumi S3 backend locks via objects in the
+   * state bucket, not a DynamoDB table. `lockTable` has no row in
+   * {@link BootstrapStep} and no longer exists on
+   * {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses` at all.
    */
   async function runBootstrap() {
     if (!window.hyveon) {
       const bridgeUnavailable = 'IPC bridge (window.hyveon) is not available in this context.';
-      setResourceStatuses({ stateBucket: 'failed', lockTable: 'failed', configurationBucket: 'failed' });
+      setResourceStatuses({ stateBucket: 'failed', configurationBucket: 'failed' });
       setResourceMessages({
         stateBucket: bridgeUnavailable,
-        lockTable: bridgeUnavailable,
         configurationBucket: bridgeUnavailable,
       });
       return;
@@ -437,10 +379,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
   );
 
-  // Requires a non-empty region in both modes — `backendConfig.region` (fed
-  // to `terraform init` on the final step) is computed straight from
-  // `region`/`pasteRegion` with no other fallback, so an empty region here
-  // would otherwise silently reach `terraform init` as `-backend-config=region=`.
+  // Requires a non-empty region in both modes — this is persisted verbatim
+  // (via `wizard.state.save({ aws: { profile, region } })` in `goNext`
+  // below) into the same `ElectronStoreService.aws.region` field every
+  // `PulumiService` operation — including `initializeStack`, the stack-init
+  // step's own IPC call — reads at call time, so an empty region here would
+  // otherwise silently reach that method as a missing region.
   const credentialsChosen =
     credentialMode === 'profile'
       ? selectedProfileName !== '' && region !== ''
@@ -453,13 +397,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   const advanceDisabled = stepCollapsed
     ? false
-    : step === 'prerequisites'
-      ? !arePrerequisitesSatisfied(report)
-      : step === 'credentials'
-        ? !credentialsChosen
-        : step === 'bootstrap'
-          ? !bootstrapComplete
-          : false;
+    : step === 'credentials'
+      ? !credentialsChosen
+      : step === 'bootstrap'
+        ? !bootstrapComplete
+        : false;
 
   /**
    * Advances past the current step. In `'first-run'` mode, leaving
@@ -469,8 +411,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * has no failure UI — the resource-creation calls it feeds are what
    * actually gate progression). In `'reconfigure'` mode these answers are
    * buffered in local state instead — see {@link commitReconfigureAnswers},
-   * called once from the terraform-init step's Finish button — so a
-   * mid-flow Cancel never has anything to undo.
+   * called once from the stack-init step's Finish button — so a mid-flow
+   * Cancel never has anything to undo.
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
@@ -524,7 +466,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   /**
    * Reconfigure-only: commits whichever answers were actually opened via
-   * Edit in one `wizard.state.save` call, passed to {@link TerraformInitStep}
+   * Edit in one `wizard.state.save` call, passed to {@link StackInitializationStep}
    * as `onBeforeFinish` so it runs right before `wizard.complete` on the
    * Finish click. A step left collapsed (never opened) is omitted from the
    * payload entirely, not sent with its current — possibly still-default,
@@ -573,9 +515,6 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           </p>
         </div>
 
-        {step === 'prerequisites' && (
-          <PrerequisitesStep report={report} checking={checking} error={error} onRecheck={checkPrereqs} />
-        )}
         {step === 'pick-cloud' &&
           (stepCollapsed ? (
             <CompletedStepSummary label={STEP_LABELS['pick-cloud']} onEdit={() => startEdit('pick-cloud')} />
@@ -637,9 +576,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               onRunIamCheck={runIamCheck}
             />
           ))}
-        {step === 'terraform-init' && (
-          <TerraformInitStep
-            backendConfig={backendConfig}
+        {step === 'stack-init' && (
+          <StackInitializationStep
             onFinished={handleFinished}
             onBeforeFinish={mode === 'reconfigure' ? commitReconfigureAnswers : undefined}
           />
@@ -656,7 +594,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               </Button>
             )}
           </div>
-          {step !== 'terraform-init' && (
+          {step !== 'stack-init' && (
             <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>
               Next
             </Button>

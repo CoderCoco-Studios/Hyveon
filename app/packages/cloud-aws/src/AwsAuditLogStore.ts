@@ -36,11 +36,12 @@ export class AwsAuditLogStore implements AuditLogStore {
    *   `process.env` in business logic" guideline.
    *
    *   May return a `Promise`: the table name is sourced from a deployed
-   *   Pulumi stack's async outputs read (`ConfigService.getStackOutputs()`)
-   *   in the real app, via `cloud-provider.module.ts`'s
-   *   `resolveAuditLogStoreConfig`. Every real invocation of this callback
-   *   happens from inside this class's own already-`async` public methods
-   *   below, so awaiting it costs nothing — the closure Nest's
+   *   Pulumi stack's async outputs read
+   *   (`ConfigService.getStackOutputs()`) in the real app, via
+   *   `cloud-provider.module.ts`'s `resolveAuditLogStoreConfig`. Every real
+   *   invocation of this callback happens from inside this class's own
+   *   already-`async` public methods below, so awaiting it costs nothing —
+   *   no NestJS async-factory-provider gymnastics needed; the closure Nest's
    *   (synchronous) `useFactory` passes into the constructor just returns a
    *   `Promise` now instead of a plain value. Existing sync closures (e.g.
    *   this file's own tests) keep working unchanged — `await`ing a
@@ -51,21 +52,12 @@ export class AwsAuditLogStore implements AuditLogStore {
   ) {}
 
   /**
-   * Resolves `getConfig()` exactly once, so `putEntry`/`listEntries` build
-   * their client and table name from the same snapshot rather than two
-   * independent (and possibly inconsistent) reads.
+   * Resolves the configured table name, throwing a clear error instead of
+   * letting an unconfigured table fall through to a malformed DynamoDB
+   * request.
    */
-  private async resolveConfig(): Promise<{ tableName: string; region?: string } | undefined> {
-    return this.getConfig?.();
-  }
-
-  /**
-   * Extracts the table name from an already-resolved config, throwing a
-   * clear error instead of letting an unconfigured table fall through to a
-   * malformed DynamoDB request.
-   */
-  private tableNameFrom(config: { tableName: string; region?: string } | undefined): string {
-    const tableName = config?.tableName;
+  private async getTableName(): Promise<string> {
+    const tableName = (await this.getConfig?.())?.tableName;
     if (!tableName) {
       throw new Error(
         'AwsAuditLogStore: table not configured. Supply a getConfig callback that resolves { tableName }.',
@@ -75,15 +67,15 @@ export class AwsAuditLogStore implements AuditLogStore {
   }
 
   /**
-   * Lazily constructs the DynamoDB document client from an already-resolved
-   * config, recreating it whenever the region differs from the region the
-   * cached client was built with — mirrors `AwsSecretsStore.getClient`'s
+   * Lazily constructs the DynamoDB document client, recreating it whenever
+   * the freshly-resolved region differs from the region the cached client
+   * was built with — mirrors `AwsSecretsStore.getClient`'s
    * rebuild-on-region-change pattern. Region defaults come from the
    * dedicated {@link resolveDefaultAwsRegion} environment accessor rather
    * than reading `process.env` inline.
    */
-  private clientFor(config: { tableName: string; region?: string } | undefined): DynamoDBDocumentClient {
-    const region = config?.region ?? resolveDefaultAwsRegion();
+  private async getClient(): Promise<DynamoDBDocumentClient> {
+    const region = (await this.getConfig?.())?.region ?? resolveDefaultAwsRegion();
 
     if (!this.client || this.clientRegion !== region) {
       this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
@@ -104,10 +96,9 @@ export class AwsAuditLogStore implements AuditLogStore {
    * @param entry - The entry to persist, including its `sk` (see `buildAuditSk`).
    */
   async putEntry(entry: AuditEntry): Promise<void> {
-    const config = await this.resolveConfig();
-    await this.clientFor(config).send(
+    await (await this.getClient()).send(
       new PutCommand({
-        TableName: this.tableNameFrom(config),
+        TableName: await this.getTableName(),
         Item: {
           pk: PARTITION_KEY,
           sk: entry.sk,
@@ -142,10 +133,9 @@ export class AwsAuditLogStore implements AuditLogStore {
    * @returns The requested page of entries plus a cursor for the next page.
    */
   async listEntries(limit: number, before?: string): Promise<AuditPageResult> {
-    const config = await this.resolveConfig();
-    const resp = await this.clientFor(config).send(
+    const resp = await (await this.getClient()).send(
       new QueryCommand({
-        TableName: this.tableNameFrom(config),
+        TableName: await this.getTableName(),
         KeyConditionExpression: before ? 'pk = :pk AND sk < :before' : 'pk = :pk',
         ExpressionAttributeValues: before
           ? { ':pk': PARTITION_KEY, ':before': before }

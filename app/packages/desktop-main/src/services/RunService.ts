@@ -14,7 +14,7 @@
  *   `RunRecordStore.acquireRunLock`/`getRunLock`/`releaseRunLock` (see
  *   `@hyveon/shared/cloud.js`), which makes the lock durable across app
  *   restarts and consistent if more than one desktop-main process is ever
- *   run against the same deploy. When `runsTableName` isn't in the
+ *   run against the same deploy. When `runs_table_name` isn't in the
  *   Terraform outputs yet (table not deployed — the same chicken-and-egg
  *   case `RunRecordService.persist`/`AuditService.record` guard against),
  *   the DynamoDB call is skipped entirely and the in-memory lock alone
@@ -74,12 +74,12 @@ export class RunService {
    * Checks (and, if free, optimistically sets) the in-memory lock
    * synchronously before touching DynamoDB, so a second call issued before
    * this one's first `await` is rejected immediately rather than racing the
-   * network call. If `runsTableName` is configured, the lock is then
+   * network call. If `runs_table_name` is configured, the lock is then
    * mirrored to the DynamoDB-backed apply lock item via
    * `RunRecordStore.acquireRunLock` — if that call rejects with a
    * `RunLockHeldError` (another process holds the durable lock), the
    * in-memory lock this call had provisionally set is rolled back and the
-   * error is re-thrown. When `runsTableName` isn't configured yet (table
+   * error is re-thrown. When `runs_table_name` isn't configured yet (table
    * not deployed), the DynamoDB call is skipped and the in-memory lock
    * alone enforces exclusivity.
    *
@@ -146,7 +146,7 @@ export class RunService {
   /**
    * Releases the apply lock, scoped to `runId` so a caller can never release
    * a lock it doesn't itself hold. Clears the in-memory lock first (only if
-   * it's still held by `runId`), then, when `runsTableName` is configured,
+   * it's still held by `runId`), then, when `runs_table_name` is configured,
    * releases the DynamoDB-backed lock item via `RunRecordStore.releaseRunLock`
    * — both layers no-op rather than throw when `runId` doesn't match the
    * currently held lock.

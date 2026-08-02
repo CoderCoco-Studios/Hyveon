@@ -660,25 +660,23 @@ describe('preload dispatcher', () => {
   });
 
   // -------------------------------------------------------------------------
-  // iac.init
+  // iac.stack.initialize
   // -------------------------------------------------------------------------
 
-  describe('iac.init', () => {
+  describe('iac.stack.initialize', () => {
     /**
-     * Helper to collect all chunks from an `iac.init` {@link HyveonStreamHandle}
-     * into an array.
+     * Helper to collect all phase events from an `iac.stack.initialize`
+     * {@link HyveonStreamHandle} into an array.
      */
-    async function collectChunks(
-      handle: HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>,
-    ): Promise<{ stream: 'stdout' | 'stderr'; line: string }[]> {
-      const chunks: { stream: 'stdout' | 'stderr'; line: string }[] = [];
-      for await (const chunk of handle) {
-        chunks.push(chunk);
+    async function collectEvents(
+      handle: HyveonStreamHandle<{ phase: string; status: string }>,
+    ): Promise<{ phase: string; status: string }[]> {
+      const events: { phase: string; status: string }[] = [];
+      for await (const event of handle) {
+        events.push(event);
       }
-      return chunks;
+      return events;
     }
-
-    const CONFIG = { bucket: 'my-bucket', region: 'us-east-1', dynamodbTable: 'my-lock-table' };
 
     // -----------------------------------------------------------------------
     // Mocked-delegation branch
@@ -691,28 +689,28 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('1');
       });
 
-      it('should delegate to the registered mock iterable instead of ipcRenderer when iac.init is mocked', async () => {
+      it('should delegate to the registered mock iterable instead of ipcRenderer when iac.stack.initialize is mocked', async () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* fakeStream() {
-          yield { stream: 'stdout' as const, line: 'Initializing backend...' };
-          yield { stream: 'stdout' as const, line: 'Terraform has been successfully initialized!' };
+          yield { phase: 'engine' as const, status: 'start' as const };
+          yield { phase: 'engine' as const, status: 'end' as const };
         }
 
         const mockHandler = vi.fn().mockReturnValue(fakeStream());
-        testApi.mock('iac.init', mockHandler);
+        testApi.mock('iac.stack.initialize', mockHandler);
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const chunks = await collectChunks(terraform.init(CONFIG));
+        const events = await collectEvents(iac.stack.initialize());
 
-        expect(mockHandler).toHaveBeenCalledWith(CONFIG, expect.any(AbortSignal));
+        expect(mockHandler).toHaveBeenCalledWith(expect.any(AbortSignal));
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(ipcSend).not.toHaveBeenCalled();
-        expect(chunks).toEqual([
-          { stream: 'stdout', line: 'Initializing backend...' },
-          { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
+        expect(events).toEqual([
+          { phase: 'engine', status: 'start' },
+          { phase: 'engine', status: 'end' },
         ]);
       });
 
@@ -721,15 +719,15 @@ describe('preload dispatcher', () => {
 
         async function* emptyStream() {}
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
-        testApi.mock('iac.init', mockHandler);
+        testApi.mock('iac.stack.initialize', mockHandler);
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const handle = terraform.init(CONFIG);
-        await collectChunks(handle);
+        const handle = iac.stack.initialize();
+        await collectEvents(handle);
 
-        const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
+        const forwardedSignal = mockHandler.mock.calls[0]?.[0] as AbortSignal;
         expect(forwardedSignal.aborted).toBe(false);
 
         handle.cancel();
@@ -741,12 +739,12 @@ describe('preload dispatcher', () => {
         const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
 
         async function* emptyStream() {}
-        testApi.mock('iac.init', vi.fn().mockReturnValue(emptyStream()));
+        testApi.mock('iac.stack.initialize', vi.fn().mockReturnValue(emptyStream()));
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        await collectChunks(terraform.init(CONFIG));
+        await collectEvents(iac.stack.initialize());
 
         expect(ipcOn).not.toHaveBeenCalled();
         expect(ipcOnce).not.toHaveBeenCalled();
@@ -761,12 +759,13 @@ describe('preload dispatcher', () => {
       let bridge: Record<string, unknown>;
 
       /**
-       * `TerraformController.init` mints a per-call `streamId` and tags every
-       * chunk/end payload with it (returning the same id in the invoke ack) so
-       * a second, rejected concurrent call can't cross-terminate this call's
-       * stream. Tests below default to this id when simulating the ack/events.
+       * `IacController.initializeStack` mints a per-call `streamId` and tags
+       * every phase-event/end payload with it (returning the same id in the
+       * invoke ack) so a second, rejected concurrent call can't
+       * cross-terminate this call's stream. Tests below default to this id
+       * when simulating the ack/events.
        */
-      const STREAM_ID = 'sid-terraform-1';
+      const STREAM_ID = 'sid-stack-init-1';
 
       /**
        * Listener signatures captured off `ipcOn.mockImplementation` calls below.
@@ -779,9 +778,9 @@ describe('preload dispatcher', () => {
        */
       type ChunkListener = (
         _evt: unknown,
-        data: { streamId: string; chunk: { stream: string; line: string } },
+        data: { streamId: string; phase: string; status: string },
       ) => void;
-      type EndListener = (_evt: unknown, data: { streamId: string; exitCode: number | null; error?: string }) => void;
+      type EndListener = (_evt: unknown, data: { streamId: string; error?: string }) => void;
 
       beforeEach(async () => {
         // Load with test-mode OFF so no mock registry is active — the real IPC
@@ -789,27 +788,27 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('0');
       });
 
-      it('should attach the chunk/end listeners before calling ipcRenderer.invoke so no early chunk is dropped', async () => {
+      it('should attach the chunk/end listeners before calling ipcRenderer.invoke so no early event is dropped', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
         // Simulate the main process sending an end event synchronously after the
-        // invoke so the generator completes without hanging. `iac.init.end`
+        // invoke so the generator completes without hanging. `iac.stack.initialize.end`
         // is registered via `ipcRenderer.on` (not `.once`), since a foreign
         // (rejected concurrent call's) end event could otherwise arrive first
         // on the same fixed channel and be consumed by a `once` listener.
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.end') {
-            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID, exitCode: 0 }));
+          if (channel === 'iac.stack.initialize.end') {
+            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID }));
           }
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        await collectChunks(terraform.init(CONFIG));
+        await collectEvents(iac.stack.initialize());
 
         // Registration must happen strictly before the invoke call resolves —
-        // otherwise a chunk sent immediately after the main process
+        // otherwise an event sent immediately after the main process
         // acknowledges the call could be dropped.
         const firstOnCallOrder = ipcOn.mock.invocationCallOrder[0];
         const secondOnCallOrder = ipcOn.mock.invocationCallOrder[1];
@@ -819,27 +818,25 @@ describe('preload dispatcher', () => {
         expect(secondOnCallOrder).toBeLessThan(invokeCallOrder);
       });
 
-      it('should invoke iac.init on ipcRenderer with the config and attach chunk/end listeners', async () => {
+      it('should invoke iac.stack.initialize on ipcRenderer with no payload and attach chunk/end listeners', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
-        // Simulate the main process sending an end event synchronously after the
-        // invoke so the generator completes without hanging.
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.end') {
-            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID, exitCode: 0 }));
+          if (channel === 'iac.stack.initialize.end') {
+            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID }));
           }
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const chunks = await collectChunks(terraform.init(CONFIG));
+        const events = await collectEvents(iac.stack.initialize());
 
-        expect(ipcInvoke).toHaveBeenCalledWith('iac.init', CONFIG);
-        expect(chunks).toEqual([]);
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.stack.initialize');
+        expect(events).toEqual([]);
       });
 
-      it('should yield chunks received over the iac.init.chunk IPC channel in order', async () => {
+      it('should yield phase events received over the iac.stack.initialize.chunk IPC channel in order', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
         // Capture the chunk/end listeners so we can fire events after setup.
@@ -852,30 +849,27 @@ describe('preload dispatcher', () => {
         const capturedChunkListener: { current: ChunkListener | null } = { current: null };
         const capturedEndListener: { current: EndListener | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.chunk') capturedChunkListener.current = listener as ChunkListener;
-          if (channel === 'iac.init.end') capturedEndListener.current = listener as EndListener;
+          if (channel === 'iac.stack.initialize.chunk') capturedChunkListener.current = listener as ChunkListener;
+          if (channel === 'iac.stack.initialize.end') capturedEndListener.current = listener as EndListener;
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const collected = collectChunks(terraform.init(CONFIG));
+        const collected = collectEvents(iac.stack.initialize());
 
-        // Fire two chunks then end the stream, all tagged with this call's streamId.
+        // Fire a few phase events then end the stream, all tagged with this call's streamId.
         await Promise.resolve();
         await Promise.resolve();
-        capturedChunkListener.current?.({}, { streamId: STREAM_ID, chunk: { stream: 'stdout', line: 'Initializing backend...' } });
-        capturedChunkListener.current?.({}, {
-          streamId: STREAM_ID,
-          chunk: { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
-        });
-        capturedEndListener.current?.({}, { streamId: STREAM_ID, exitCode: 0 });
+        capturedChunkListener.current?.({}, { streamId: STREAM_ID, phase: 'engine', status: 'start' });
+        capturedChunkListener.current?.({}, { streamId: STREAM_ID, phase: 'engine', status: 'end' });
+        capturedEndListener.current?.({}, { streamId: STREAM_ID });
 
-        const chunks = await collected;
+        const events = await collected;
 
-        expect(chunks).toEqual([
-          { stream: 'stdout', line: 'Initializing backend...' },
-          { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
+        expect(events).toEqual([
+          { phase: 'engine', status: 'start' },
+          { phase: 'engine', status: 'end' },
         ]);
       });
 
@@ -887,87 +881,89 @@ describe('preload dispatcher', () => {
         const capturedChunkListener: { current: ChunkListener | null } = { current: null };
         const capturedEndListener: { current: EndListener | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.chunk') capturedChunkListener.current = listener as ChunkListener;
-          if (channel === 'iac.init.end') capturedEndListener.current = listener as EndListener;
+          if (channel === 'iac.stack.initialize.chunk') capturedChunkListener.current = listener as ChunkListener;
+          if (channel === 'iac.stack.initialize.end') capturedEndListener.current = listener as EndListener;
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const collected = collectChunks(terraform.init(CONFIG));
+        const collected = collectEvents(iac.stack.initialize());
 
         await Promise.resolve();
         await Promise.resolve();
         // A rejected, overlapping call's end event fires first, tagged with a
         // different streamId — must not terminate this stream.
-        capturedEndListener.current?.({}, { streamId: 'sid-other-rejected-call', exitCode: null, error: 'boom' });
-        // Nor should a foreign chunk be yielded into this stream.
-        capturedChunkListener.current?.({}, { streamId: 'sid-other-rejected-call', chunk: { stream: 'stdout', line: 'not mine' } });
+        capturedEndListener.current?.({}, { streamId: 'sid-other-rejected-call', error: 'boom' });
+        // Nor should a foreign event be yielded into this stream.
+        capturedChunkListener.current?.({}, { streamId: 'sid-other-rejected-call', phase: 'engine', status: 'start' });
         // This call's own chunk/end events still resolve the generator normally.
-        capturedChunkListener.current?.({}, { streamId: STREAM_ID, chunk: { stream: 'stdout', line: 'Initializing backend...' } });
-        capturedEndListener.current?.({}, { streamId: STREAM_ID, exitCode: 0 });
+        capturedChunkListener.current?.({}, { streamId: STREAM_ID, phase: 'engine', status: 'start' });
+        capturedEndListener.current?.({}, { streamId: STREAM_ID });
 
-        const chunks = await collected;
+        const events = await collected;
 
-        expect(chunks).toEqual([{ stream: 'stdout', line: 'Initializing backend...' }]);
+        expect(events).toEqual([{ phase: 'engine', status: 'start' }]);
       });
 
-      it('should throw when the iac.init.end event carries an error field', async () => {
+      it('should throw when the iac.stack.initialize.end event carries an error field', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.end') {
+          if (channel === 'iac.stack.initialize.end') {
             Promise.resolve().then(() =>
-              listener({} as unknown, { streamId: STREAM_ID, exitCode: 1, error: 'terraform init exited with code 1' }),
+              listener({} as unknown, { streamId: STREAM_ID, error: 'Pulumi stack initialization failed during the "engine" phase: boom' }),
             );
           }
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
 
-        await expect(collectChunks(terraform.init(CONFIG))).rejects.toThrow('terraform init exited with code 1');
+        await expect(collectEvents(iac.stack.initialize())).rejects.toThrow(
+          'Pulumi stack initialization failed during the "engine" phase: boom',
+        );
       });
 
       it('should throw using the ack error, after cleaning up the listeners, when the invoke resolves with started: false', async () => {
         ipcInvoke.mockResolvedValue({
           started: false,
-          error: 'iac.init requires non-empty bucket, region, and dynamodbTable strings',
+          error: 'stack initialization refused: up is already in flight; wait for it to finish before starting another operation',
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
 
-        await expect(collectChunks(terraform.init(CONFIG))).rejects.toThrow(
-          'iac.init requires non-empty bucket, region, and dynamodbTable strings',
+        await expect(collectEvents(iac.stack.initialize())).rejects.toThrow(
+          'stack initialization refused: up is already in flight; wait for it to finish before starting another operation',
         );
 
-        // Listeners are attached before invoke (so no early chunk is dropped),
+        // Listeners are attached before invoke (so no early event is dropped),
         // but must be torn down once the ack reports the run never started.
-        expect(ipcOn).toHaveBeenCalledWith('iac.init.chunk', expect.any(Function));
-        expect(ipcOn).toHaveBeenCalledWith('iac.init.end', expect.any(Function));
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.chunk', expect.any(Function));
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.end', expect.any(Function));
+        expect(ipcOn).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcOn).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
       it('should remove chunk/end listeners once the stream completes', async () => {
         ipcInvoke.mockResolvedValue({ started: true, streamId: STREAM_ID });
 
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.end') {
-            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID, exitCode: 0 }));
+          if (channel === 'iac.stack.initialize.end') {
+            Promise.resolve().then(() => listener({} as unknown, { streamId: STREAM_ID }));
           }
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        await collectChunks(terraform.init(CONFIG));
+        await collectEvents(iac.stack.initialize());
 
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.chunk', expect.any(Function));
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.end', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
       // -----------------------------------------------------------------------
@@ -975,23 +971,23 @@ describe('preload dispatcher', () => {
       // -----------------------------------------------------------------------
 
       it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const handle = terraform.init(CONFIG);
+        const handle = iac.stack.initialize();
         // Cancelling before the underlying generator has ever run mirrors the
         // old "signal already aborted" scenario: `bridgeStream` mints the
-        // `AbortController` synchronously in `openTerraformInitStream`, but
-        // `streamTerraformInit`'s body (and its `signal.aborted` check) only
+        // `AbortController` synchronously in `openStackInitializeStream`, but
+        // `streamStackInitialize`'s body (and its `signal.aborted` check) only
         // runs once the handle is actually iterated.
         handle.cancel();
 
-        const chunks = await collectChunks(handle);
+        const events = await collectEvents(handle);
 
-        expect(chunks).toEqual([]);
+        expect(events).toEqual([]);
         expect(ipcInvoke).not.toHaveBeenCalled();
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.chunk', expect.any(Function));
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.end', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       });
 
       it('should stop the stream and clean up listeners when cancelled mid-stream', async () => {
@@ -1003,36 +999,36 @@ describe('preload dispatcher', () => {
         // narrowed-to-`null` at the call site below.
         const capturedChunkListener: { current: ChunkListener | null } = { current: null };
         ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-          if (channel === 'iac.init.chunk') capturedChunkListener.current = listener as ChunkListener;
-          // 'iac.init.end' listener is captured but intentionally never
-          // invoked — the stream stays open until cancel() is called.
+          if (channel === 'iac.stack.initialize.chunk') capturedChunkListener.current = listener as ChunkListener;
+          // 'iac.stack.initialize.end' listener is captured but intentionally
+          // never invoked — the stream stays open until cancel() is called.
         });
 
-        const terraform = bridge['iac'] as {
-          init: (config: unknown) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
+        const iac = bridge['iac'] as {
+          stack: { initialize: () => HyveonStreamHandle<{ phase: string; status: string }> };
         };
-        const handle = terraform.init(CONFIG);
+        const handle = iac.stack.initialize();
 
         // Start consuming — it suspends at the inner `await new Promise` once
-        // the ack resolves and no chunk has arrived yet.
+        // the ack resolves and no event has arrived yet.
         const nextPromise = handle.next();
         await Promise.resolve();
         await Promise.resolve();
-        // Deliver one chunk to prove the stream was flowing before cancel().
-        capturedChunkListener.current?.({}, { streamId: STREAM_ID, chunk: { stream: 'stdout', line: 'Initializing backend...' } });
+        // Deliver one event to prove the stream was flowing before cancel().
+        capturedChunkListener.current?.({}, { streamId: STREAM_ID, phase: 'engine', status: 'start' });
         const first = await nextPromise;
-        expect(first).toEqual({ done: false, value: { stream: 'stdout', line: 'Initializing backend...' } });
+        expect(first).toEqual({ done: false, value: { phase: 'engine', status: 'start' } });
 
         // Now cancel — the underlying generator should stop waiting for
-        // further chunks and complete on its own, without the main process
+        // further events and complete on its own, without the main process
         // ever having to be told (there is no per-run cancel side channel
-        // for `iac.init` — see its doc comment).
+        // for `iac.stack.initialize` — see its doc comment).
         handle.cancel();
         const second = await handle.next();
 
         expect(second.done).toBe(true);
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.chunk', expect.any(Function));
-        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.init.end', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.chunk', expect.any(Function));
+        expect(ipcRemoveListener).toHaveBeenCalledWith('iac.stack.initialize.end', expect.any(Function));
       }, 10_000);
     });
   });
@@ -1298,6 +1294,106 @@ describe('preload dispatcher', () => {
         expect(mockHandler).toHaveBeenCalledWith(opts);
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(result).toEqual(ack);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // iac.settings
+  // -------------------------------------------------------------------------
+
+  describe('iac.settings', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke the iac.settings.get channel with no arguments', async () => {
+        const result = { ok: true, settings: { hostedZoneName: 'example.com' }, etag: 'etag-1' };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          get: () => Promise<unknown>;
+        };
+
+        const response = await settings.get();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.get');
+        expect(response).toEqual(result);
+      });
+
+      it('should invoke the iac.settings.update channel with the payload', async () => {
+        const result = {
+          ok: true,
+          settings: { hostedZoneName: 'example.com', dnsTtl: 60 },
+          etag: 'etag-2',
+          versionId: 'v-2',
+        };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          update: (payload: { patch: Record<string, unknown>; expectedVersionId?: string }) => Promise<unknown>;
+        };
+        const payload = { patch: { dnsTtl: 60 }, expectedVersionId: 'etag-1' };
+
+        const response = await settings.update(payload);
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.update', payload);
+        expect(response).toEqual(result);
+      });
+
+      it('should invoke the iac.settings.engineVersion channel with no arguments', async () => {
+        const result = { resolvedVersion: '3.255.0' };
+        ipcInvoke.mockResolvedValue(result);
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          engineVersion: () => Promise<unknown>;
+        };
+
+        const response = await settings.engineVersion();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.settings.engineVersion');
+        expect(response).toEqual(result);
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.settings.update is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const result = { ok: false, code: 'conflict', message: 'stale etag' };
+        const mockHandler = vi.fn().mockResolvedValue(result);
+        testApi.mock('iac.settings.update', mockHandler);
+
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          update: (payload: { patch: Record<string, unknown>; expectedVersionId?: string }) => Promise<unknown>;
+        };
+        const payload = { patch: { dnsTtl: 60 }, expectedVersionId: 'etag-mock' };
+        const response = await settings.update(payload);
+
+        expect(mockHandler).toHaveBeenCalledWith(payload);
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(response).toEqual(result);
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.settings.engineVersion is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const result = { resolvedVersion: null };
+        const mockHandler = vi.fn().mockResolvedValue(result);
+        testApi.mock('iac.settings.engineVersion', mockHandler);
+
+        const settings = (bridge['iac'] as Record<string, unknown>)['settings'] as {
+          engineVersion: () => Promise<unknown>;
+        };
+        const response = await settings.engineVersion();
+
+        expect(mockHandler).toHaveBeenCalledWith();
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(response).toEqual(result);
       });
     });
   });
@@ -1979,7 +2075,8 @@ describe('preload dispatcher', () => {
         const handle = terraformRuns.streamLogs('run-012');
         // Cancelling before the underlying generator has ever run mirrors the
         // old "signal already aborted" scenario — see the equivalent
-        // `iac.init` test for why this works before any IPC round trip.
+        // `iac.stack.initialize` test for why this works before any IPC
+        // round trip.
         handle.cancel();
 
         const chunks = await collectChunks(handle);

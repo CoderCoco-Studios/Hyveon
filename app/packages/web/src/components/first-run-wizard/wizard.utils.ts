@@ -1,65 +1,20 @@
 /**
- * Pure helpers for the first-run wizard shell — step ordering, OS detection
- * for prerequisite install instructions, and the prerequisites-satisfied
- * gate. No React imports, so these are testable independent of any
- * component.
+ * Pure helpers for the first-run wizard shell — step ordering and bootstrap
+ * resource naming. No React imports, so these are testable independent of
+ * any component.
  */
-import type { PrerequisitesReport } from '@hyveon/desktop-preload';
 import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
 
 export { WIZARD_STEPS, type WizardStep };
-
-/** Operating systems the prerequisites step can tailor install instructions for. */
-export type DetectedOs = 'macos' | 'windows' | 'linux' | 'unknown';
-
-/**
- * Detects the operating system from a user-agent string (defaults to
- * `navigator.userAgent`), used to pick which install instructions to show.
- */
-export function detectOs(userAgent: string = navigator.userAgent): DetectedOs {
-  const ua = userAgent.toLowerCase();
-  if (ua.includes('mac os') || ua.includes('macintosh')) return 'macos';
-  if (ua.includes('windows')) return 'windows';
-  if (ua.includes('linux')) return 'linux';
-  return 'unknown';
-}
-
-/**
- * True once both `terraform` and `aws` are found, and terraform's resolved
- * version (when parseable) meets the minimum. An unparseable version
- * (`minimumVersionSatisfied === undefined`) does not block progression —
- * only an explicit `false` does.
- */
-export function arePrerequisitesSatisfied(report: PrerequisitesReport | null): boolean {
-  if (!report) return false;
-  return report.terraform.found && report.terraform.minimumVersionSatisfied !== false && report.aws.found;
-}
-
-/**
- * `WIZARD_STEPS` minus `prerequisites`, for Settings' "Reconfigure" entry
- * point (#211): prerequisite detection isn't repeated once the app is
- * already installed and working, per the wizard-flow spec.
- */
-export function reconfigureSteps(): WizardStep[] {
-  return WIZARD_STEPS.filter((step) => step !== 'prerequisites');
-}
 
 /**
  * A backend bootstrap resource name tracked by the wizard's bootstrap step.
  *
  * @remarks
- * `lockTable` is **not** a resource the bootstrap step creates — nothing
- * has bootstrapped a DynamoDB lock table since task 5.1 removed
- * `BootstrapService.ensureLockTable`, and the bootstrap step renders no row
- * for it (see `bootstrap-step.component.tsx`'s `VisibleBootstrapResource`).
- * The key survives here only because `first-run-wizard.component.tsx`'s
- * `backendConfig.dynamodbTable` still feeds it to the still-live
- * `terraform.init` call, which requires a non-empty string — removing it
- * outright would break that (still-tested) call. Task 10.3 (replacing the
- * Terraform-init step with the Pulumi stack-initialization step) is where
- * `dynamodbTable` — and this key — should finally disappear.
+ * Does not include a lock-table key: nothing bootstraps a DynamoDB lock
+ * table, and the bootstrap step never renders a row for one.
  */
-export type BootstrapResourceKey = 'stateBucket' | 'lockTable' | 'configurationBucket';
+export type BootstrapResourceKey = 'stateBucket' | 'configurationBucket';
 
 /**
  * Client-side status for a single bootstrap resource row. Extends the
@@ -79,7 +34,6 @@ export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exist
 export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<BootstrapResourceKey, string> {
   return {
     stateBucket: `${projectName}-tfstate`,
-    lockTable: `${projectName}-tflock`,
     configurationBucket: `${projectName}-tfvars`,
   };
 }

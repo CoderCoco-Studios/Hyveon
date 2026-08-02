@@ -61,7 +61,7 @@ export default defineConfig({
             'packages/**/*.test.{ts,tsx}',
             // Explicitly include desktop-preload specs so they are always discovered.
             'packages/desktop-preload/**/*.test.{ts,tsx}',
-            // Top-level test helpers (e.g. packaging-manifest-pins.test.ts) live outside packages/.
+            // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
             'test/**/*.test.{ts,tsx}',
             // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
             // (outside packages/), so it needs its own explicit include entry.
@@ -116,6 +116,9 @@ export default defineConfig({
         'packages/desktop-main/src/modules/**',
         // Test-only infrastructure — not production code.
         'packages/desktop-main/src/test-mocks/**',
+        // Spike scaffolding gated behind HYVEON_PULUMI_SPIKE — exercised
+        // manually against a packaged build, not by unit tests.
+        'packages/desktop-main/src/spike/**',
         // Pure type declarations — no executable statements.
         'packages/shared/src/types.ts',
       ],

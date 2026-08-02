@@ -1,12 +1,11 @@
 import 'reflect-metadata';
-import { Test } from '@nestjs/testing';
+import { fileURLToPath } from 'node:url';
+import { NestFactory } from '@nestjs/core';
 import type { INestApplicationContext, Type } from '@nestjs/common';
-import type { StackOutputs } from '@hyveon/shared';
 // Deep imports into @hyveon/desktop-main's compiled `dist/` output. The
 // package has no `exports` map, so subpath resolution is unrestricted;
 // `npm run app:build` must have produced `dist/` before this module loads.
 import { AppModule } from '@hyveon/desktop-main/dist/app.module.js';
-import { PulumiService } from '@hyveon/desktop-main/dist/services/PulumiService.js';
 import { installEcsMock } from '@hyveon/desktop-main/dist/test-mocks/ecs-mock.js';
 import { mockStore } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
 import type { MockResponse } from '@hyveon/desktop-main/dist/test-mocks/mock-store.js';
@@ -18,6 +17,9 @@ import {
   installRemoteFileStoreMock,
   remoteFileStoreMockStore,
 } from '@hyveon/desktop-main/dist/test-mocks/remote-file-store-mock.js';
+
+/** Absolute path to the Terraform state fixture bundled alongside this harness. */
+const DEFAULT_TF_STATE_PATH = fileURLToPath(new URL('./tfstate.fixture.json', import.meta.url));
 
 /** Extracts the parameter tuple of `TController[TMethod]` when it's a function. */
 type HandlerArgs<TController, TMethod extends keyof TController> = TController[TMethod] extends (
@@ -37,11 +39,9 @@ type HandlerResult<TController, TMethod extends keyof TController> = TController
  * In-process IPC test harness for tier-2 integration specs.
  *
  * Built by {@link createIpcHarness}, which compiles the real `AppModule` DI
- * container with `PulumiService` substituted for a scripted stub (see the
- * `orchestrator-integration-coverage` delta spec's "In-process engine stub
- * injected via DI" requirement) — no HTTP listener, no Electron IPC
- * microservice transport, no subprocess, and no real Pulumi engine or AWS
- * call involved. `@MessagePattern`-decorated controller methods (e.g.
+ * container via `NestFactory.createApplicationContext()` — no HTTP listener,
+ * no Electron IPC microservice transport, and no child process involved.
+ * `@MessagePattern`-decorated controller methods (e.g.
  * `GamesController.listGames`) are plain class methods, so {@link dispatch}
  * invokes them directly on the container-resolved instance, exercising the
  * exact same providers (`ConfigService`, `EcsService`, ...) the Electron IPC
@@ -65,10 +65,11 @@ export interface IpcHarness {
 
   /**
    * Resolves `token` directly from the container-built `AppModule` context —
-   * e.g. `harness.get(PulumiService)` — so a spec can drive a service's own
-   * methods directly, while still exercising the exact same instance (and its
-   * injected `RunRecordService`/`ConfigService`/etc.) the IPC transport would
-   * resolve at runtime.
+   * e.g. `harness.get(TerraformService)` — so a spec can drive a service's
+   * own async generators (`plan`/`apply`/`destroy`) or call methods a
+   * controller doesn't expose 1:1, while still exercising the exact same
+   * instance (and its injected `RunRecordService`/`ConfigService`/etc.) the
+   * IPC transport would resolve at runtime.
    */
   get<TProvider>(token: Type<TProvider>): TProvider;
 
@@ -90,58 +91,39 @@ export interface IpcHarness {
 }
 
 /**
- * Builds the scripted `PulumiService` stub substituted into the DI container.
- * `getStackOutputs` resolves `stackOutputs` (`null` mirrors a never-deployed
- * stack, matching `PulumiService`'s own "never throws, degrades to null"
- * contract); `getOperationInFlight` always reports idle. Every other public
- * method is left unimplemented — a spec that calls one gets a standard,
- * immediately obvious `TypeError: ... is not a function` rather than silently
- * hanging or returning `undefined`. Extend this stub (or build a per-spec one
- * and pass it through {@link createIpcHarness}) when a future spec needs to
- * script `preview`/`apply`/`destroy`/`confirmRollback`.
+ * Compiles the in-process IPC test harness.
+ *
+ * Sets `TF_STATE_PATH` to `tfStatePath` (defaulting to the fixture next to
+ * this file — the same fixture the HTTP integration tier uses) so
+ * `ConfigService` resolves tfstate-fixture-driven data instead of requiring a
+ * real Terraform state file, then installs the ECS, run-record DynamoDB, and
+ * configuration-bucket S3 mock interceptors and builds the `AppModule`
+ * application context. The run-record mock's backing store
+ * (`runRecordMockStore`) and the configuration-bucket mock's backing store
+ * (`remoteFileStoreMockStore`) are both reset first so a prior spec's
+ * plan/apply/destroy records, apply lock, and configuration content never
+ * leak into a freshly built context.
+ *
+ * The configuration-bucket mock backs `TfvarsService`/`TerraformService`'s
+ * `RemoteFileStore` reads/writes for specs that configure a bucket (see
+ * `terraform-shim.ts`'s `terraformFixture`, which sets `HYVEON_TFVARS_BUCKET`)
+ * — installing it here unconditionally is inert for every spec that doesn't,
+ * since `AwsRemoteFileStore` throws its own "bucket not configured" error
+ * before ever calling `S3Client.send()` in that case (there is no local-file
+ * configuration fallback).
  */
-function makePulumiServiceStub(stackOutputs: StackOutputs | null): PulumiService {
-  const stub: Partial<PulumiService> = {
-    getStackOutputs: async () => stackOutputs,
-    getOperationInFlight: () => null,
-  };
-  return stub as PulumiService;
-}
+export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PATH): Promise<IpcHarness> {
+  process.env['TF_STATE_PATH'] = tfStatePath;
 
-/**
- * Compiles the in-process IPC test harness. Installs the ECS, run-record
- * DynamoDB, and configuration-bucket S3 mock interceptors, substitutes a
- * scripted `PulumiService` stub (see {@link makePulumiServiceStub}) at its DI
- * seam, and builds the `AppModule` application context via `@nestjs/testing`.
- * The run-record mock's backing store (`runRecordMockStore`) and the
- * configuration-bucket mock's backing store (`remoteFileStoreMockStore`) are
- * both reset first so a prior spec's plan/apply/destroy records, apply lock,
- * and configuration content never leak into a freshly built context.
- *
- * The configuration-bucket mock backs `TfvarsService`'s `RemoteFileStore`
- * reads/writes for specs that configure a bucket — installing it here
- * unconditionally is inert for every spec that doesn't, since
- * `AwsRemoteFileStore` throws its own "bucket not configured" error before
- * ever calling `S3Client.send()` in that case.
- *
- * @param stackOutputs - Scripted return value for `PulumiService.getStackOutputs()`.
- *   Defaults to `null` (never-deployed stack), matching production's default
- *   state; pass a populated {@link StackOutputs} for specs that need a
- *   deployed-stack scenario.
- */
-export async function createIpcHarness(stackOutputs: StackOutputs | null = null): Promise<IpcHarness> {
   installEcsMock();
   runRecordMockStore.reset();
   installRunRecordDynamoMock();
   remoteFileStoreMockStore.reset();
   installRemoteFileStoreMock();
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-    .overrideProvider(PulumiService)
-    .useValue(makePulumiServiceStub(stackOutputs))
-    .compile();
-
-  const context: INestApplicationContext = moduleRef;
+  const context: INestApplicationContext = await NestFactory.createApplicationContext(AppModule, {
+    logger: false,
+  });
 
   return {
     async dispatch<TController extends object, TMethod extends keyof TController>(

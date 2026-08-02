@@ -58,10 +58,10 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('startWorkload', () => {
-    it('should throw an "Infrastructure not deployed" error when no config is available', async () => {
+    it('should throw an "Infrastructure is not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
       await expect(provider.startWorkload('minecraft', {})).rejects.toThrow(
-        'Infrastructure not deployed. Run an apply from the IAC page first.',
+        'Infrastructure is not deployed. Run Apply on the IaC page first.',
       );
     });
 
@@ -150,9 +150,9 @@ describe('AwsCloudProvider', () => {
   });
 
   describe('stopWorkload', () => {
-    it('should throw an "Infrastructure not deployed" error when no config is available', async () => {
+    it('should throw an "Infrastructure is not deployed" error when no config is available', async () => {
       const provider = makeProvider(null);
-      await expect(provider.stopWorkload('minecraft')).rejects.toThrow('Infrastructure not deployed.');
+      await expect(provider.stopWorkload('minecraft')).rejects.toThrow('Infrastructure is not deployed.');
     });
 
     it('should throw a "not currently running" error when no task is found', async () => {
@@ -210,7 +210,7 @@ describe('AwsCloudProvider', () => {
       const provider = makeProvider(null);
       await expect(provider.getWorkloadStatus('minecraft')).resolves.toEqual({
         state: 'not_deployed',
-        message: 'Run an apply from the IAC page first.',
+        message: 'Run Apply on the IaC page first.',
       });
     });
 

@@ -184,12 +184,13 @@ export class AwsCloudProvider implements CloudProvider {
    *   Optional so the class remains constructible with no arguments while
    *   the cost/logs methods are still stubs.
    *
-   *   May return a `Promise`: `EcsService.buildProviderConfig` reads
-   *   `ConfigService.getStackOutputs()`, which is async. Every real
+   *   May return a `Promise`: the real app's `EcsService.buildProviderConfig`
+   *   reads `ConfigService.getStackOutputs()`, which is async. Every real
    *   invocation of this callback happens from inside this class's own
    *   already-`async` methods (or, for `streamWorkloadLogs`, an async
    *   generator), so awaiting it costs nothing — see `AwsAuditLogStore`'s
-   *   identical constructor doc comment for the full reasoning.
+   *   identical constructor doc comment for the full "no async-factory
+   *   gymnastics needed, existing sync closures are unaffected" reasoning.
    * @param logger - Optional sink for errors swallowed by `findRunningTask`
    *   and `getPublicIp` so operators can diagnose ECS/EC2 SDK failures
    *   instead of them silently masquerading as "stopped" / "no IP".
@@ -390,7 +391,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async startWorkload(game: string, _opts: StartOpts): Promise<WorkloadHandle> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError('Infrastructure not deployed. Run an apply from the IAC page first.');
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
     const subnets = subnetIds
@@ -439,7 +440,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async stopWorkload(game: string): Promise<void> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError('Infrastructure not deployed.');
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed.');
 
     const cluster = config.ecsClusterName;
 
@@ -459,7 +460,7 @@ export class AwsCloudProvider implements CloudProvider {
    * Retrieves the current status of a game workload on AWS.
    *
    * Mirrors `EcsService.getStatus`'s state transitions exactly: `not_deployed`
-   * when infrastructure hasn't been deployed, `running` with resolved IP/hostname
+   * when Terraform hasn't been applied, `running` with resolved IP/hostname
    * once the task's ENI is up, `starting` while the task is still
    * provisioning, `stopped` when no task is found, and `error` on failure.
    *
@@ -467,7 +468,7 @@ export class AwsCloudProvider implements CloudProvider {
    */
   async getWorkloadStatus(game: string): Promise<WorkloadStatus> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) return { state: 'not_deployed', message: 'Run an apply from the IAC page first.' };
+    if (!config) return { state: 'not_deployed', message: 'Run Apply on the IaC page first.' };
 
     const { region, ecsClusterName: cluster, domainName: domain } = config;
 
@@ -516,7 +517,7 @@ export class AwsCloudProvider implements CloudProvider {
     pollInterval = 2000,
   ): AsyncGenerator<LogChunk> {
     const config = (await this.getConfig?.()) ?? null;
-    if (!config) throw new WorkloadGuardError('Infrastructure not deployed. Run an apply from the IAC page first.');
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region } = config;
     const logGroup = `/ecs/${game}-server`;
@@ -562,7 +563,7 @@ export class AwsCloudProvider implements CloudProvider {
    * previous `CostsController.estimate` + `CostService.estimateForSpec`
    * behaviour), keyed by game name in `breakdown`, with `total` set to the
    * sum-if-everything-were-running-simultaneously. Returns a zeroed {@link
-   * CostBreakdown} when infrastructure hasn't been deployed (`getConfig` returns
+   * CostBreakdown} when Terraform hasn't been applied (`getConfig` returns
    * nothing) or `config.gameNames` is missing/empty.
    */
   async getCostEstimate(): Promise<CostBreakdown> {
