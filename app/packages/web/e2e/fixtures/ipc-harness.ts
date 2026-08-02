@@ -110,8 +110,7 @@ export interface IpcHarness {
  * — installing it here unconditionally is inert for every spec that doesn't,
  * since `AwsRemoteFileStore` throws its own "bucket not configured" error
  * before ever calling `S3Client.send()` in that case (there is no local-file
- * configuration fallback any more — see the `migrate-iac-to-pulumi` change's
- * Phase 6).
+ * configuration fallback).
  */
 export async function createIpcHarness(tfStatePath: string = DEFAULT_TF_STATE_PATH): Promise<IpcHarness> {
   process.env['TF_STATE_PATH'] = tfStatePath;

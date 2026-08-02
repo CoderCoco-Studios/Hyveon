@@ -35,8 +35,8 @@ export class AwsAuditLogStore implements AuditLogStore {
    *   from `process.env` directly here, per CLAUDE.md's "no raw
    *   `process.env` in business logic" guideline.
    *
-   *   May return a `Promise` (task 7.4, `migrate-iac-to-pulumi`): the table
-   *   name is sourced from a deployed Pulumi stack's async outputs read
+   *   May return a `Promise`: the table name is sourced from a deployed
+   *   Pulumi stack's async outputs read
    *   (`ConfigService.getStackOutputs()`) in the real app, via
    *   `cloud-provider.module.ts`'s `resolveAuditLogStoreConfig`. Every real
    *   invocation of this callback happens from inside this class's own

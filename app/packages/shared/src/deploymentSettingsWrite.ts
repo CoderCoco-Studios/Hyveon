@@ -1,8 +1,8 @@
 /**
  * Request/result payload shapes plus the shared client+server validator for
- * the `iac.settings.get` / `iac.settings.update` IPC channels (task 9.7,
- * `migrate-iac-to-pulumi`) — the deployment-settings editor for every
- * top-level {@link TopLevelDeploymentSettings} field (everything in
+ * the `iac.settings.get` / `iac.settings.update` IPC channels — the
+ * deployment-settings editor for every top-level
+ * {@link TopLevelDeploymentSettings} field (everything in
  * {@link DeploymentConfig} except `gameServers`, which keeps its own
  * dedicated `gamesWrite.ts` surface).
  *
@@ -42,10 +42,10 @@ export interface DeploymentSettingsValidationIssue {
  * a hand-duplicated client-side copy of a server rule once did (see
  * `GAME_NAME_PATTERN`'s own doc comment for that history).
  *
- * Rules (deliberately not exhaustive — see task 9.7's brief, "prevent
- * obviously malformed input from reaching the backend", not a full schema
- * validator — but every rule below REJECTS a wrong-typed value rather than
- * silently passing it through; see "Type safety" below):
+ * Rules (deliberately not exhaustive — this prevents obviously malformed
+ * input from reaching the backend, not a full schema validator — but every
+ * rule below REJECTS a wrong-typed value rather than silently passing it
+ * through; see "Type safety" below):
  *  - `hostedZoneName`, `projectName`, `awsRegion`: must be a string when
  *    present, and non-empty. `hostedZoneName` has no Terraform default and
  *    is required in every real deployment (see its own TSDoc on
@@ -292,9 +292,9 @@ export type DeploymentSettingsWriteResult =
  * comment); an omitted field keeps its current stored value.
  * `expectedVersionId`, when supplied, is checked against the current
  * deployment-config object version and a {@link DeploymentSettingsConflict}
- * is returned on mismatch. The renderer always supplies it (see task 9.7's
- * brief) — it's optional here only because `TfvarsService.updateTopLevelSettings`'s
- * own unconditional-write convention (mirroring `addGameServer`/
+ * is returned on mismatch. The renderer always supplies it — it's optional
+ * here only because `TfvarsService.updateTopLevelSettings`'s own
+ * unconditional-write convention (mirroring `addGameServer`/
  * `updateGameServer`) requires the parameter to stay optional at the type
  * level.
  */
