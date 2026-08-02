@@ -18,8 +18,8 @@ The header reads **Welcome to Hyveon**, with a subtitle showing
 | 1 | Install prerequisites | Checks that `terraform` and the `aws` CLI are on your PATH |
 | 2 | Choose your cloud | Picks the cloud provider (AWS only, today) |
 | 3 | AWS credentials | Picks an AWS profile, or stores pasted access keys |
-| 4 | Bootstrap AWS resources | Creates the S3 state bucket, DynamoDB lock table and S3 tfvars bucket |
-| 5 | Finish setup | Runs `terraform init` against that new backend |
+| 4 | Bootstrap AWS resources | Creates the S3 state bucket and the S3 configuration bucket |
+| 5 | Finish setup | Currently always fails — a known interim state pending this step's replacement for the Pulumi engine |
 
 At the bottom of every step: **Back** (disabled on step 1) and **Next**. Step 5
 has no Next — it has its own **Finish setup** button instead.
@@ -146,21 +146,20 @@ region default to fall back on.
 
 ![The bootstrap step showing three editable resource-name fields with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
 
-> Hyveon needs three AWS resources to manage its Terraform state, plus a
+> Hyveon needs two AWS resources to manage its infrastructure state, plus a
 > permission check against your account. Resource names are editable — the
 > defaults below are usually fine.
 
 | Resource | Default name | What it is |
 |---|---|---|
 | Terraform state bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption |
-| Terraform lock table | `hyveon-tflock` | DynamoDB table, `LockID` hash key, pay-per-request |
-| Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days |
+| Configuration bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days |
 
 These are created with the AWS SDK directly — the wizard does not shell out to
 `terraform` or `aws` for this step.
 
-Press **Bootstrap AWS resources**. All three are created concurrently, so one
-failure does not stop the others. Each row's badge moves independently:
+Press **Bootstrap AWS resources**. Both are created concurrently, so one
+failure does not stop the other. Each row's badge moves independently:
 
 | Badge | Meaning |
 |---|---|
@@ -181,9 +180,8 @@ re-asserted on every run.
 |---|---|
 | `The bucket name "…" is already taken by another AWS account. Choose a different name.` | S3 bucket names are globally unique. Edit the name (failed rows stay editable) and re-run |
 | `Cannot bootstrap AWS resources: no region is configured. Complete the credentials step of the wizard first.` | Go **Back** and finish step 3 |
-| A lock-table timeout | The table did not reach `ACTIVE` within 60 seconds. Re-run |
 
-**What blocks Next:** all three resources must be **Created** or **Already
+**What blocks Next:** both resources must be **Created** or **Already
 exists**.
 
 ### The IAM permission check is advisory
@@ -210,38 +208,18 @@ The full policy, and where to put it, is documented in the
 
 ## Step 5 — Finish setup
 
-![The final wizard step streaming terraform init output into a log viewer, with a Finish setup button below](/img/app/wizard-terraform-init.png)
+> This step is a known interim state under the current Pulumi-engine
+> migration and does not work yet.
 
-> Running `terraform init` against your new backend. This wires Terraform up
-> to the state bucket and lock table from the previous step.
-
-This step **starts automatically on arrival** — there is no Start button. It
-runs:
-
-```bash
-terraform init -input=false -no-color \
-  -backend-config=bucket=<state bucket> \
-  -backend-config=region=<region> \
-  -backend-config=dynamodb_table=<lock table>
-```
-
-Output streams live into the log viewer. While it is empty you see "Waiting
-for terraform init output…".
-
-| Outcome | UI |
-|---|---|
-| Running | Spinner and "Running…" |
-| Success | Green "terraform init complete." |
-| Failure | Red alert with the reason (or "terraform init failed — see the log above for details.") plus a **Retry** button |
-
-**Finish setup** is enabled only once the init succeeds. Clicking it marks
-setup complete and drops you straight onto the dashboard.
-
-If you press **Finish setup** and re-run it later, note that a re-run with an
-identical backend config is skipped rather than re-executed — you will see the
-single line `terraform init skipped: backend config unchanged since the last
-successful init`. Failures are never skipped, so **Retry** always genuinely
-re-runs.
+This step **starts automatically on arrival** and calls the same `iac.init`
+channel the Terraform-era wizard used to run `terraform init` through. The
+Pulumi engine has no equivalent initialization step — `iac.init` is kept
+wired only so this step's payload shape stays unchanged, but it always
+resolves an error ("iac.init is not applicable when using the Pulumi
+engine…") rather than a successful run. **Finish setup** stays disabled,
+since it only enables once the run reports success — so there is currently no
+way to complete the first-run wizard through this step. Replacing it with a
+Pulumi-native finish step is tracked, unimplemented, follow-up work.
 
 ## Resuming an interrupted setup
 
