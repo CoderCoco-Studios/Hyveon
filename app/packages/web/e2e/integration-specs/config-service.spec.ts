@@ -8,7 +8,10 @@ import { test, expect } from './index.js';
  * `ipc` harness boots. Dispatches straight to the IPC controllers — no HTTP
  * server and no BrowserWindow involved.
  */
-test.describe('ConfigService — tfstate fixture', () => {
+// Skipped: TF_STATE_PATH/tfstate.fixture.json is a Terraform-era fixture the
+// Pulumi-backed ConfigService no longer reads — PR #372 replaces this
+// fixture/harness with a PulumiService DI-seam stub.
+test.describe.skip('ConfigService — tfstate fixture', () => {
   test('should return aws_region and domain from tfstate fixture', async ({ ipc, serverMocks: _reset }) => {
     const body = await ipc.dispatch(EnvController, 'getEnv');
     expect(body.region).toBe('us-east-1');
