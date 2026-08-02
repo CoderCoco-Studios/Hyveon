@@ -21,6 +21,10 @@ export default defineConfig({
       // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior
       // `npm run build -w @hyveon/cloud-aws`, so its dist/ never exists.
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
+      // Same rationale — desktop-main's PulumiService imports @hyveon/infra
+      // directly, and CI runs `vitest run` without a prior
+      // `npm run build -w @hyveon/infra`, so its dist/ never exists.
+      '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the
       // same imports resolve under Vitest.
@@ -112,6 +116,9 @@ export default defineConfig({
         'packages/desktop-main/src/modules/**',
         // Test-only infrastructure — not production code.
         'packages/desktop-main/src/test-mocks/**',
+        // Spike scaffolding gated behind HYVEON_PULUMI_SPIKE — exercised
+        // manually against a packaged build, not by unit tests.
+        'packages/desktop-main/src/spike/**',
         // Pure type declarations — no executable statements.
         'packages/shared/src/types.ts',
       ],
