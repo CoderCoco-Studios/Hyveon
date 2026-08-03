@@ -294,5 +294,45 @@ describe('IamCheckService', () => {
       expect(result.origin).toBe('guided');
       expect(result.blocking).toBe(false);
     });
+
+    it('should keep blocking false for a warning result when origin is pasted (a manually pasted key)', async () => {
+      stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
+      const store = makeStore({ profile: 'hyveon-pasted', region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('warning');
+      expect(result.origin).toBe('pasted');
+      expect(result.blocking).toBe(false);
+    });
+
+    it('should keep blocking false for a warning result when origin is profile', async () => {
+      stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
+      const service = new IamCheckService(makeStore({ profile: 'default', region: 'us-west-2' }));
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('warning');
+      expect(result.origin).toBe('profile');
+      expect(result.blocking).toBe(false);
+    });
+
+    it('should keep blocking false when status is missing and origin is none (no credential source configured)', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({
+        EvaluationResults: [{ EvalActionName: 's3:*', EvalDecision: 'explicitDeny' }],
+      });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('missing');
+      expect(result.origin).toBe('none');
+      expect(result.blocking).toBe(false);
+    });
   });
 });
