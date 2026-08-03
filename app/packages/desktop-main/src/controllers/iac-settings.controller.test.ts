@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
-import { ConfigurationNotConfiguredError, TfvarsService } from '../services/TfvarsService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError, TfvarsService } from '../services/TfvarsService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 
 vi.mock('../logger.js', () => ({
@@ -170,6 +170,27 @@ describe('IacSettingsController', () => {
       const result = await new IacSettingsController(tfvars).update(PAYLOAD);
 
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
+    });
+
+    it('should return code: "validation" with one issue per affected field on RunsTableRenameError (final-review round 2, finding 2)', async () => {
+      const tfvars = makeTfvars();
+      vi.mocked(tfvars.updateTopLevelSettings).mockRejectedValue(
+        new RunsTableRenameError('hyveon-runs', 'other-runs', ['projectName', 'runsTableName']),
+      );
+
+      const result = await new IacSettingsController(tfvars).update({
+        patch: { projectName: 'other', runsTableName: 'other-runs' },
+        expectedVersionId: 'etag-1',
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'validation',
+        issues: [
+          { path: 'projectName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
+          { path: 'runsTableName', message: expect.stringMatching(/hyveon-runs.*other-runs/) },
+        ],
+      });
     });
 
     it('should return the catch-all code: "error" for any other failure', async () => {

@@ -45,6 +45,7 @@ import {
   PulumiPassphraseUnavailableError,
 } from './PulumiWorkspaceService.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
+import { AwsPastedCredentialDecryptError } from './awsCredentialSource.js';
 import {
   PulumiOperationAbortedError,
   PulumiOperationEscalatedError,
@@ -739,16 +740,27 @@ export class PulumiService {
    * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
    * other reason to touch.
    *
-   * `initializeStack` refuses to start while {@link operationInFlight} is
    * set (see its own TSDoc, "Workspace mutual exclusion"), and
-   * `preview`/`apply`/`destroy`/`confirmRollback` each refuse to start
-   * while THIS flag is set too, via {@link assertStackInitNotInFlight}. Both
-   * directions are needed: `initializeStack` runs `stack.refresh()` against
-   * the same reused local `workDir`/`Pulumi.<stack>.yaml`/`PULUMI_HOME`
-   * plugin cache every other operation uses, and `preview()` never takes the
-   * durable S3 backend lock (see {@link preview}'s TSDoc, "Does preview take
-   * the backend lock?"), so nothing else guards that shared local-workspace
-   * state while `initializeStack` is running. The REMAINING asymmetry —
+   * `preview`/`apply`/`destroy`/`confirmRollback`/`clearStaleLock` each
+   * refuse to start while THIS flag is set too, via
+   * {@link assertStackInitNotInFlight}. This closes a race reachable via
+   * Settings → Reconfigure → advance to the stack-init step (starts
+   * `initializeStack` in the background) → click Cancel: the step's cleanup
+   * calls the returned stream handle's `cancel()`, which — per
+   * `HyveonStreamHandle`'s own contract — only stops the RENDERER from
+   * consuming further progress, while `initializeStack` itself keeps running
+   * to completion regardless. Without this guard, `clearStaleLock` could
+   * confirm-clear a lock while a legitimate `initializeStack()` refresh was
+   * still genuinely running, cancelling live, correct work instead of a
+   * genuinely stale one; likewise `preview()`/`apply()`/`destroy()`/
+   * `confirmRollback()` would sail straight through their own
+   * `operationInFlight` check (still `null` — `initializeStack` never
+   * touches it) while `stack.refresh()` was still running against the SAME
+   * reused local `workDir`/`Pulumi.<stack>.yaml`/`PULUMI_HOME` plugin cache —
+   * and none of those operations take the durable S3 backend lock either
+   * (see {@link preview}'s TSDoc, "Does preview take the backend lock?"), so
+   * nothing else guards that shared local-workspace state while
+   * `initializeStack` is running. The REMAINING asymmetry —
    * `initializeStack` itself only guards against a second concurrent
    * `initializeStack` call via this same flag, not a fifth
    * `operationInFlight` value the other four could also be checked
@@ -759,24 +771,26 @@ export class PulumiService {
 
   /**
    * Throws a plain `Error` if {@link stackInitInFlight} is set — the shared
-   * guard {@link preview}/{@link apply}/{@link destroy}/{@link confirmRollback}
-   * each call, right alongside their existing {@link operationInFlight}
-   * check, to close the race {@link stackInitInFlight}'s own doc comment
-   * describes. Deliberately a plain `Error`, not
-   * {@link PulumiOperationInFlightError} — that class's `inFlight` field is
-   * typed to the pre-existing four-value union, and widening it to a fifth
-   * `'stack-init'` value is exactly the ripple {@link stackInitInFlight}'s
-   * doc comment explains this guard avoids. A caller submitting through
-   * `IacController` still sees a clear rejection message; it just doesn't
-   * get the specific busy-banner `conflict` treatment
-   * `PulumiOperationInFlightError` triggers there.
+   * guard {@link preview}/{@link apply}/{@link destroy}/
+   * {@link confirmRollback}/{@link clearStaleLock} each call, right alongside
+   * their existing {@link operationInFlight} check, to close the race
+   * {@link stackInitInFlight}'s own doc comment describes. Deliberately a
+   * plain `Error`, not {@link PulumiOperationInFlightError} — that class's
+   * `inFlight` field is typed to the pre-existing four-value union, and
+   * widening it to a fifth `'stack-init'` value is exactly the ripple
+   * {@link stackInitInFlight}'s doc comment explains this guard avoids. A
+   * caller submitting through `IacController` still sees a clear rejection
+   * message; it just doesn't get the specific busy-banner `conflict`
+   * treatment `PulumiOperationInFlightError` triggers there.
    *
    * @param methodName - The calling method's own name, purely for the
    *   thrown message's wording (mirrors `preview`/`confirmRollback`'s
    *   existing inline `operationInFlight` guards, which each hand-write
    *   their own method name into an identically-shaped message).
    */
-  private assertStackInitNotInFlight(methodName: 'preview' | 'apply' | 'destroy' | 'confirmRollback'): void {
+  private assertStackInitNotInFlight(
+    methodName: 'preview' | 'apply' | 'destroy' | 'confirmRollback' | 'clearStaleLock',
+  ): void {
     if (this.stackInitInFlight) {
       throw new Error(
         `PulumiService.${methodName}() cannot run while initializeStack() is already running; wait for ` +
@@ -934,14 +948,24 @@ export class PulumiService {
    * below. See `StackOutputs`'s own doc comment for the "not deployed yet"
    * framing this degrades to.
    *
+   * ## Concurrency guard
+   *
+   * Returns `null` immediately, without touching the shared workspace, while
+   * {@link stackInitInFlight} or {@link operationInFlight} is set — `initializeStack()`
+   * can run `stack.refresh()` and the other operations run `preview`/`up`/`destroy`
+   * against the same on-disk workspace `getOrCreateStack()` would otherwise reuse
+   * concurrently for this read.
+   *
    * ## Never deployed yet: three independent short-circuits, no Pulumi call
    *
-   * A mere outputs *read* must never have the side effect of creating a
-   * stack or generating a fresh secrets passphrase — both of which
-   * {@link PulumiWorkspaceService.getOrCreateStack} would do for a
-   * genuinely-new stack (`stackExists: false`). So this method checks, in
-   * order, for evidence that a stack could possibly exist BEFORE ever
-   * calling into Pulumi, returning `null` immediately if any check fails:
+   * A mere outputs *read* should never need to take the extra `listStacks()`
+   * round-trip {@link PulumiWorkspaceService.getOrCreateStack} performs for a
+   * genuinely-new stack — that round-trip exists to protect passphrase
+   * generation, and a read has no reason to pay
+   * for it when the store already makes "nothing has ever been deployed"
+   * obvious locally. So this method checks, in order, for evidence that a
+   * stack could possibly exist BEFORE ever calling into Pulumi, returning
+   * `null` immediately if any check fails:
    *
    * 1. `bootstrap.stateBucket` is configured — no backend has even been
    *    bootstrapped otherwise (mirrors `PulumiBackendNotBootstrappedError`'s
@@ -949,34 +973,37 @@ export class PulumiService {
    *    even constructs a `PulumiWorkspaceInput`).
    * 2. A secrets passphrase is already stored
    *    (`store.get('pulumi')?.passphrase !== undefined`) — this is exactly
-   *    {@link PulumiWorkspaceService}'s own definition of "an existing
-   *    stack" (see its `resolvePassphrase` doc comment): a passphrase is
-   *    only ever persisted the first time a stack is genuinely created. Its
-   *    absence means either nothing has ever been deployed from this
-   *    install, or a stack exists remotely with no local passphrase record
-   *    (`PulumiPassphraseUnavailableError`'s `'existing-stack-no-local-record'`
-   *    case) — either way, this method degrades to "not deployed" rather
-   *    than risk generating a passphrase that can never decrypt a real
-   *    stack's state.
+   *    the same local-record check
+   *    {@link PulumiWorkspaceService.getOrCreateStack} itself uses to decide
+   *    whether it can skip its own `listStacks()` probe (see
+   *    `PulumiWorkspaceService.resolveStoredPassphrase`'s doc comment): a
+   *    passphrase is only ever persisted the first time a stack is genuinely
+   *    created. Its absence means either nothing has ever been deployed from
+   *    this install, or a stack exists remotely with no local passphrase
+   *    record (`PulumiPassphraseUnavailableError`'s
+   *    `'existing-stack-no-local-record'` case, which
+   *    {@link PulumiWorkspaceService.getOrCreateStack} would now correctly
+   *    detect and refuse rather than misgenerate a passphrase for) — either
+   *    way, this method degrades to "not deployed" rather than pay for the
+   *    round-trip on a mere read.
    * 3. `aws.region` is configured — needed to build the backend URL; absent
    *    only if the wizard's credentials step was never completed, which
    *    implies nothing was ever deployed either.
    *
    * **These three checks are a proxy for "a stack might exist", not a
    * proof.** A destroyed stack, or a passphrase persisted by a failed/
-   * abandoned create attempt (a future `preview`/`up` implementation
-   * could plausibly leave one behind), both leave the store looking exactly
-   * like "existing stack" when the remote stack may not actually be there —
-   * this is a best-effort no-create guarantee, not a proven one. A hot
-   * caller (e.g. a short-interval dashboard poll) relying on this to never
-   * take the backend's write lock should not assume that guarantee is
-   * airtight; a genuinely create-proof read path (e.g. a `listStacks`-based
-   * select-only check) is out of scope here.
+   * abandoned create attempt, both leave the store looking exactly like
+   * "existing stack" when the remote stack may not actually be there — this
+   * is a best-effort no-create guarantee, not a proven one; but the WORST
+   * case if it's ever wrong is an extra `getOrCreateStack` round-trip (which
+   * safely determines the truth itself via `listStacks()`), never a
+   * corrupted passphrase, since {@link PulumiWorkspaceService.getOrCreateStack}
+   * itself never trusts any caller's belief about stack existence at all.
    *
    * Only once all three checks pass does this call
-   * {@link PulumiWorkspaceService.getOrCreateStack} (with `stackExists: true`,
-   * `backendReady: true`, and a no-op `program` — reading `stack.outputs()`
-   * never invokes the program; see below) and `stack.outputs()`, inside a
+   * {@link PulumiWorkspaceService.getOrCreateStack} (with `backendReady: true`
+   * and a no-op `program` — reading `stack.outputs()` never invokes the
+   * program; see below) and `stack.outputs()`, inside a
    * catch-all: ANY failure from either call — `PulumiBackendNotBootstrappedError`,
    * `PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`,
    * engine-resolution failures, or a `CommandError` from the underlying
@@ -1011,6 +1038,14 @@ export class PulumiService {
    * `terraform.tfstate`.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
+    if (this.stackInitInFlight || this.operationInFlight) {
+      logger.warn('PulumiService.getStackOutputs: an operation is in flight, treating as not deployed', {
+        stackInitInFlight: this.stackInitInFlight,
+        operationInFlight: this.operationInFlight,
+      });
+      return null;
+    }
+
     const stateBucket = this.store.get('bootstrap')?.stateBucket;
     if (!stateBucket) {
       return null;
@@ -1033,7 +1068,6 @@ export class PulumiService {
         stateBucket,
         stateBucketRegion,
         backendReady: true,
-        stackExists: true,
       });
       outputs = await stack.outputs();
     } catch (err) {
@@ -1099,8 +1133,10 @@ export class PulumiService {
    * stack this app manages end to end: resolves the engine, constructs (or
    * selects) the Automation API workspace/stack against the operator's S3
    * backend via {@link PulumiWorkspaceService.getOrCreateStack} (generating
-   * a fresh secrets passphrase the first time, per that method's existing
-   * `stackExists` contract), explicitly installs the pinned `@pulumi/aws`
+   * a fresh secrets passphrase the first time this stack is ever created,
+   * verified against the real backend rather than any caller-supplied
+   * belief — see that method's own doc comment, "Call order"), explicitly
+   * installs the pinned `@pulumi/aws`
    * provider plugin, then runs a real (if inert) `pulumi refresh` against
    * the brand-new, zero-resource stack to prove the whole round trip —
    * engine, backend, credentials, and plugin — actually works.
@@ -1247,12 +1283,6 @@ export class PulumiService {
           ),
         );
       }
-      // Mirrors `preview()`/`apply()`'s own identical proxy for "an existing
-      // stack" — see this class's other `stackExists` computations for why a
-      // stored passphrase is the best signal available without an extra
-      // backend round-trip.
-      const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
-
       let stack: Stack;
       try {
         stack = await this.workspace.getOrCreateStack({
@@ -1260,7 +1290,6 @@ export class PulumiService {
           stateBucket,
           stateBucketRegion,
           backendReady: true,
-          stackExists,
           onPhase,
         });
       } catch (err) {
@@ -1364,28 +1393,47 @@ export class PulumiService {
    * it derives its own attribution from
    * which phase's `'start'` never got a matching successful `'end'`).
    *
-   * Classifies by the THROWN ERROR'S OWN TYPE instead, which is
-   * unambiguous regardless of event timing — verified against
+   * Classifies by the THROWN ERROR'S OWN TYPE instead, which is unambiguous
+   * regardless of event timing — verified against
    * `PulumiWorkspaceService.getOrCreateStack`'s actual control flow
-   * (`PulumiWorkspaceService.ts`): every failure that can occur before
-   * `engine.resolve()` settles is one of exactly five typed errors —
-   * {@link PulumiPassphraseUnavailableError} and
-   * `PulumiCredentialsNotConfiguredError` (both resolved/thrown
-   * synchronously-ish BEFORE `engine.resolve()` is ever called), or one of
-   * `PulumiEngineNetworkError`/`PulumiEngineIntegrityError`/
+   * (`PulumiWorkspaceService.ts`): every pre-engine-or-engine failure is one
+   * of exactly six typed errors — {@link PulumiPassphraseUnavailableError},
+   * `PulumiCredentialsNotConfiguredError`, and
+   * `AwsPastedCredentialDecryptError` (all resolved/thrown before or without
+   * ever needing a genuine `LocalWorkspace.createOrSelectStack`/
+   * `Stack.createOrSelect` round-trip against the backend — see below), or
+   * one of `PulumiEngineNetworkError`/`PulumiEngineIntegrityError`/
    * `PulumiEngineCacheWriteError` (thrown BY `engine.resolve()` itself,
    * propagated unwrapped — `getOrCreateStack` does not try/catch that
    * call). Anything else can only have come from the LATER
-   * `LocalWorkspace.createOrSelectStack` call (a bad backend URL, a stale
-   * bucket, or that call's own `PulumiBackendNotBootstrappedError`
-   * backstop-reclassification) — i.e. `engine.resolve()` already succeeded
-   * by the time the failure happened, so it's an `'operation'` failure in
-   * this method's 3-phase UI framing.
+   * `Stack.createOrSelect` call (a bad backend URL, a stale bucket, or that
+   * call's own `PulumiBackendNotBootstrappedError` backstop-reclassification)
+   * — i.e. `engine.resolve()` already succeeded by the time the failure
+   * happened, so it's an `'operation'` failure in this method's 3-phase UI
+   * framing.
+   *
+   * `AwsPastedCredentialDecryptError` belongs in this pre-engine list too:
+   * `resolveCredentialEnvVars` → `resolveAwsCredentialSource` →
+   * `ElectronStoreService.getPastedCredentials` → `SafeStorageService.decrypt`
+   * can throw Electron's own raw decrypt error on a corrupt/foreign
+   * pasted-credentials ciphertext blob, and `awsCredentialSource.ts` wraps
+   * that in this typed class — credential resolution happens strictly
+   * before `engine.resolve()` (see `getOrCreateStack`'s own body), so it is
+   * genuinely a pre-engine failure.
+   *
+   * `PulumiPassphraseUnavailableError`'s `'existing-stack-no-local-record'`
+   * and `'new-stack-keychain-unavailable'` reasons can be thrown after
+   * `engine.resolve()` succeeds, once a genuine `LocalWorkspace` exists to
+   * probe (see {@link PulumiWorkspaceService.getOrCreateStack}'s "Call
+   * order" doc section) — irrelevant here, since this classifier keys on
+   * the thrown error's TYPE, never on which phase happened to be running
+   * when it was thrown.
    */
   private static classifyGetOrCreateStackFailure(err: unknown): 'engine' | 'operation' {
     const isPreEngineOrEngineFailure =
       err instanceof PulumiPassphraseUnavailableError ||
       err instanceof PulumiCredentialsNotConfiguredError ||
+      err instanceof AwsPastedCredentialDecryptError ||
       err instanceof PulumiEngineNetworkError ||
       err instanceof PulumiEngineIntegrityError ||
       err instanceof PulumiEngineCacheWriteError;
@@ -1703,12 +1751,22 @@ export class PulumiService {
     // cancellation path at all on a force-close, leaving the CLI subprocess
     // to run to completion ungoverned while `operationInFlight` is already
     // cleared for a new call.
+    // `onAbort` is named (not an inline anonymous handler) with
+    // `{ once: true }`, plus an unconditional `removeEventListener` in the
+    // outer `finally` below — this method (not `preview()` itself, which
+    // just delegates to it) owns this cancellation shape, mirroring
+    // apply()/destroy()'s identical fix (see either method's own TSDoc,
+    // "Cancellation and abort-listener leak"). Without the explicit
+    // detach, a caller reusing one long-lived `AbortSignal` across many
+    // `preview()`/`confirmRollback()` calls would accumulate one listener
+    // per call.
     const internalController = new AbortController();
+    const onAbort = (): void => internalController.abort();
     if (signal) {
       if (signal.aborted) {
         internalController.abort();
       } else {
-        signal.addEventListener('abort', () => internalController.abort());
+        signal.addEventListener('abort', onAbort, { once: true });
       }
     }
     // Set once `stack.preview()` has actually been invoked (via
@@ -1789,19 +1847,11 @@ export class PulumiService {
             'Complete the bootstrap step before previewing.',
         );
       }
-      // Mirrors `PulumiService.getStackOutputs()`'s own proxy for "an
-      // existing stack": a passphrase is only ever persisted the first time
-      // a stack is genuinely created (see `PulumiWorkspaceService.resolvePassphrase`'s
-      // doc comment) — its presence is the best signal this seam has for
-      // `stackExists` without an extra backend round-trip.
-      const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
-
       const stack = await this.workspace.getOrCreateStack({
         program: createInfraProgram(deploymentConfig, { lambdaBundlesDir: this.getLambdaBundlesDir() }),
         stateBucket,
         stateBucketRegion,
         backendReady: true,
-        stackExists,
       });
 
       if (internalController.signal.aborted) {
@@ -1993,6 +2043,20 @@ export class PulumiService {
       }
       throw outcome.error;
     } finally {
+      // Unconditionally detach the internal-controller abort listener —
+      // `{ once: true }` alone only removes it
+      // once `signal` itself fires; on the overwhelmingly common path (the
+      // caller's signal never aborts across a normal completion), it would
+      // otherwise stay attached for the signal's whole lifetime, so a caller
+      // reusing one long-lived `AbortSignal` across many `preview()`/
+      // `confirmRollback()` calls (both of which delegate here) would
+      // accumulate one listener per call. Mirrors apply()/destroy()'s
+      // identical fix (see either method's own TSDoc, "Cancellation and
+      // abort-listener leak") — safe/idempotent to call even when the
+      // listener already detached itself (a `{ once: true }` listener that
+      // already fired).
+      signal?.removeEventListener('abort', onAbort);
+
       // Covers the force-closed generator case (consumer `break`/`.return()`/
       // `.throw()`): if `stack.preview()` was actually invoked and hasn't
       // settled yet, this generator was torn down while the CLI subprocess
@@ -2384,6 +2448,13 @@ export class PulumiService {
    * deploy, so without it the dashboard would show "not deployed"
    * indefinitely after the first real apply.
    *
+   * Called BEFORE `persistRunRecord`, not after — `persistRunRecord` →
+   * `RunRecordService.persist` reads `runsTableName` off
+   * `ConfigService.getStackOutputs()`, a cache this same
+   * `invalidateCache()` call clears. Invalidating afterward would let this
+   * apply's own run-record write resolve `runsTableName` against PRE-apply
+   * cached outputs — wrong for any apply that itself changes the runs table.
+   *
    * ## Cancellation and abort-listener leak
    *
    * Mirrors {@link preview}'s `internalController`/`operationPromise`
@@ -2629,8 +2700,20 @@ export class PulumiService {
       // `'preview'`/`'destroy'` (never `'up'` from a sibling apply, since
       // `RunService`'s lock is a single global slot — two `createRun` calls
       // can never both succeed while either is still held).
-      if (this.operationInFlight) {
-        const inFlight = this.operationInFlight;
+      // Also re-checks `stackInitInFlight` here, not just `operationInFlight`
+      // (which `initializeStack()` never touches — see that flag's own doc
+      // comment). The reachable race this closes: `apply()` passes its ENTRY check
+      // (both flags clear) → awaits this gate's multi-step async work →
+      // `initializeStack()` starts concurrently (both flags still clear at
+      // that moment) → `stack.refresh()` is now genuinely running → without
+      // this check, `apply()` would sail through to `stack.up()`, running
+      // concurrently with that live `refresh()` against the SAME shared
+      // workDir — a `ConcurrentUpdateError` whose lock-conflict
+      // classification then finds a LIVE, legitimate PID and surfaces to the
+      // operator as a clearable "stale" lock, inviting them to cancel their
+      // own in-progress stack initialization.
+      if (this.operationInFlight || this.stackInitInFlight) {
+        const inFlight = this.operationInFlight ?? 'initializeStack()';
         // Release the durable lock this call just won — nothing has been
         // reserved from the operator's point of view yet (no run record, no
         // active-run buffer, no `startedAt`), so releasing here is the
@@ -2716,15 +2799,11 @@ export class PulumiService {
               'Complete the bootstrap step before applying.',
           );
         }
-        // Mirrors preview()'s identical "an existing stack" proxy.
-        const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
-
         const stack = await this.workspace.getOrCreateStack({
           program: createInfraProgram(deploymentConfig, { lambdaBundlesDir: this.getLambdaBundlesDir() }),
           stateBucket,
           stateBucketRegion,
           backendReady: true,
-          stackExists,
         });
 
         // --- Chunk-streaming setup — identical algorithm to preview() (see that method's TSDoc) ---
@@ -2915,6 +2994,34 @@ export class PulumiService {
       } catch (err) {
         throw new PulumiRunPersistError(runId, PulumiService.toApplyOperationOutcome(outcome), err);
       }
+
+      if (outcome.kind === 'success') {
+        // Cache invalidation (see TSDoc). Best-effort: never let this mask an
+        // otherwise-successful apply.
+        //
+        // Runs BEFORE `persistRunRecord` below, not after: `persistRunRecord`
+        // calls `RunRecordService.persist`, which reads `runsTableName` off
+        // `ConfigService.getStackOutputs()` — a MEMOISED delegate to this
+        // class's own `getStackOutputs()`, cleared only by this same
+        // `invalidateCache()` call. Calling it after `persistRunRecord` would
+        // let this apply's own run-record write resolve `runsTableName`
+        // against whatever was cached BEFORE this apply ran — for any apply
+        // that itself changes the runs table (including the first apply
+        // after a stack recovers from some edge case), that could silently
+        // misdirect or drop the apply's own run-record write. Invalidating
+        // first makes `persistRunRecord`'s read a cache MISS, forcing a
+        // fresh `PulumiService.getStackOutputs()` call that reflects what
+        // THIS apply just deployed.
+        try {
+          this.getConfigCacheInvalidator().invalidateCache();
+        } catch (err) {
+          logger.warn('pulumi apply: failed to invalidate the stack-outputs cache after a successful apply', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       await this.persistRunRecord(
         runId,
         'apply',
@@ -2935,19 +3042,6 @@ export class PulumiService {
       // comment for the liveness bug this specifically
       // avoids.
       lockReleased = true;
-
-      if (outcome.kind === 'success') {
-        // Cache invalidation (see TSDoc). Best-effort: never let this mask an
-        // otherwise-successful apply.
-        try {
-          this.getConfigCacheInvalidator().invalidateCache();
-        } catch (err) {
-          logger.warn('pulumi apply: failed to invalidate the stack-outputs cache after a successful apply', {
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
 
       if (outcome.kind === 'aborted') {
         return undefined;
@@ -3383,9 +3477,11 @@ export class PulumiService {
    *
    * On a successful destroy — and ONLY then — {@link getConfigCacheInvalidator}'s
    * `invalidateCache()` is called, best-effort, mirroring `apply`'s identical
-   * carried-forward requirement: a destroyed stack's
-   * `getStackOutputs()` must stop reporting stale "deployed" data immediately,
-   * not after the next unrelated cache expiry.
+   * requirement: a destroyed stack's `getStackOutputs()` must stop reporting
+   * stale "deployed" data immediately, not after the next unrelated cache
+   * expiry. Called BEFORE `persistRunRecord`, not after — see `apply()`'s
+   * own "Cache invalidation" TSDoc section for the full
+   * `runsTableName`-staleness reasoning, identical here.
    *
    * ## Persistence
    *
@@ -3552,9 +3648,13 @@ export class PulumiService {
       }
 
       // --- Gate step 5: the SAME post-createRun operationInFlight TOCTOU
-      // re-check apply() performs — see this method's TSDoc, "Gate structure". ---
-      if (this.operationInFlight) {
-        const inFlight = this.operationInFlight;
+      // re-check apply() performs — see this method's TSDoc, "Gate structure".
+      // Also re-checks `stackInitInFlight`, mirroring apply()'s identical
+      // check and for the identical reason — `initializeStack()` never
+      // touches `operationInFlight`, so this recheck would otherwise have no
+      // way to see a concurrently-running stack initialization at all. ---
+      if (this.operationInFlight || this.stackInitInFlight) {
+        const inFlight = this.operationInFlight ?? 'initializeStack()';
         try {
           await this.getRunLockService().releaseRun(reservedRunId);
         } catch (err) {
@@ -3593,7 +3693,6 @@ export class PulumiService {
           stateBucket,
           stateBucketRegion,
           backendReady: true,
-          stackExists: true,
         });
 
         // --- Chunk-streaming setup — identical algorithm to preview()/apply() ---
@@ -3766,6 +3865,26 @@ export class PulumiService {
       } catch (err) {
         throw new PulumiRunPersistError(runId, PulumiService.toDestroyOperationOutcome(outcome), err);
       }
+
+      if (outcome.kind === 'success') {
+        // Cache invalidation (see this method's TSDoc, "Cache invalidation").
+        //
+        // Runs BEFORE `persistRunRecord` below, not after — mirrors apply()'s
+        // identical reasoning (see that method's own TSDoc, "Cache
+        // invalidation"): `persistRunRecord` reads `runsTableName` off a
+        // cache this same call clears, so invalidating afterward would let
+        // this destroy's own run-record write resolve against PRE-destroy
+        // cached outputs.
+        try {
+          this.getConfigCacheInvalidator().invalidateCache();
+        } catch (err) {
+          logger.warn('pulumi destroy: failed to invalidate the stack-outputs cache after a successful destroy', {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       await this.persistRunRecord(
         runId,
         'destroy',
@@ -3780,19 +3899,6 @@ export class PulumiService {
       // See lockReleased's own doc comment — persistRunRecord's own
       // RunRecordService.persist has now attempted the release too.
       lockReleased = true;
-
-      if (outcome.kind === 'success') {
-        // Cache invalidation — hard requirement carried forward from task
-        // 7.4's review (see this method's TSDoc, "Cache invalidation").
-        try {
-          this.getConfigCacheInvalidator().invalidateCache();
-        } catch (err) {
-          logger.warn('pulumi destroy: failed to invalidate the stack-outputs cache after a successful destroy', {
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
 
       if (outcome.kind === 'aborted') {
         return undefined;
@@ -4255,7 +4361,7 @@ export class PulumiService {
    * been made — it does not, and cannot, re-derive or re-check the judgment
    * itself.
    *
-   * ## Why refuse under `operationInFlight`
+   * ## Why refuse under `operationInFlight` and `stackInitInFlight`
    *
    * If THIS app instance already has `preview`/`up`/`destroy`/`rollback`
    * running, the backend lock the operator is looking at is (almost
@@ -4270,14 +4376,23 @@ export class PulumiService {
    * to every other caller of that class in this file; a bespoke class here
    * would only duplicate it for no behavioral gain.
    *
+   * The identical reasoning applies to `initializeStack()`, which takes the
+   * SAME durable backend lock around its own `stack.refresh()` call but
+   * never touches {@link operationInFlight} (see {@link stackInitInFlight}'s
+   * own doc comment) — without a separate check, an operator hitting
+   * `PulumiUnrecognizedLockError` while a legitimate stack-init refresh was
+   * still in flight could confirm-clear that lock and cancel their own live,
+   * correct work. Checked via {@link assertStackInitNotInFlight} immediately
+   * after the `operationInFlight` check above.
+   *
    * This is a synchronous, top-of-function check only — unlike `apply()`/
    * `destroy()`, this method never itself sets {@link operationInFlight}
    * (there is no multi-step gate here for a second call to race against), so
-   * a narrow window still exists where a fresh `preview`/`up`/`destroy`
-   * legitimately starts and re-takes the lock between this check and
-   * `stack.cancel()` actually running. That risk is inherent to clearing a
-   * lock at all — including the manual "delete the S3 lock object by hand"
-   * recovery this feature replaces — and is not something a single
+   * a narrow window still exists where a fresh `preview`/`up`/`destroy`/
+   * `initializeStack` legitimately starts and re-takes the lock between this
+   * check and `stack.cancel()` actually running. That risk is inherent to
+   * clearing a lock at all — including the manual "delete the S3 lock object
+   * by hand" recovery this feature replaces — and is not something a single
    * synchronous flag check can fully close; the meaningful safety property
    * this method (and the confirmation dialog in front of it) provides is
    * refusing the *common* case (an operation already running in THIS
@@ -4311,6 +4426,12 @@ export class PulumiService {
    *   {@link assertFreshLockClearConfirmation} before anything else runs.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
    *   `destroy`/`rollback` is already running against this shared workspace.
+   * @throws A plain `Error` (via {@link assertStackInitNotInFlight}) if
+   *   `initializeStack()` is currently running against this shared
+   *   workspace: this method's whole purpose is clearing a lock an operator
+   *   has judged stale, and a genuinely in-progress `initializeStack()`
+   *   refresh is never that, exactly like a genuinely in-progress
+   *   `preview`/`apply`/`destroy` isn't.
    * @throws A descriptive `Error` if the state bucket/region isn't configured
    *   yet, or no Pulumi stack has ever been created for this installation —
    *   mirrors `destroy()`'s identical config-presence checks.
@@ -4324,6 +4445,7 @@ export class PulumiService {
     if (this.operationInFlight) {
       throw new PulumiOperationInFlightError(this.operationInFlight);
     }
+    this.assertStackInitNotInFlight('clearStaleLock');
 
     const stateBucket = this.store.get('bootstrap')?.stateBucket;
     const stateBucketRegion = this.store.get('aws')?.region;
@@ -4351,7 +4473,6 @@ export class PulumiService {
       stateBucket,
       stateBucketRegion,
       backendReady: true,
-      stackExists: true,
     });
 
     try {

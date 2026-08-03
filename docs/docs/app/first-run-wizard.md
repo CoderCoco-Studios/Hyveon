@@ -95,20 +95,25 @@ has no region default to fall back on.
 
 ![The bootstrap step showing two editable resource-name fields with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
 
-> Hyveon needs two AWS resources to manage its Pulumi state, plus a
-> permission check against your account. Resource names are editable — the
-> defaults below are usually fine.
+> Hyveon needs three AWS resources to manage its Pulumi state and run
+> history, plus a permission check against your account. The two bucket
+> names are editable — the defaults below are usually fine.
 
 | Resource | Default name | What it is |
 |---|---|---|
 | State bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption — Pulumi's self-managed backend reads/writes state here directly; there is no separate lock table (the DIY S3 backend locks via objects in this same bucket) |
 | Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days |
+| Run-history table | `hyveon-runs` | DynamoDB table (`pk`/`sk` keys, `status-index` GSI, point-in-time recovery) recording every plan/apply/destroy run — created here, not by Pulumi, so the very first plan/apply cycle of a fresh install has somewhere to record itself before any deploy has ever succeeded. Not name-editable at this step (see below) |
 
 These are created with the AWS SDK directly — the wizard does not shell out to
-any CLI for this step.
+any CLI for this step. The run-history table's name is not operator-editable
+here: unlike the two buckets, it has no `DeploymentConfig` yet to hold a
+custom name override (that only gets configured later, from the Settings
+page), so it always uses the project-name default shown above.
 
-Press **Bootstrap AWS resources**. Both are created concurrently, so one
-failure does not stop the other. Each row's badge moves independently:
+Press **Bootstrap AWS resources**. All three are created concurrently, so a
+failure on one does not stop the others. Each row's badge moves
+independently:
 
 | Badge | Meaning |
 |---|---|
@@ -119,9 +124,10 @@ failure does not stop the other. Each row's badge moves independently:
 | **Failed** | With the error message beneath the row |
 
 Once a resource reaches **Created** or **Already exists**, its name field
-locks. The button relabels itself to **Re-run bootstrap**, which is safe to
-press repeatedly — versioning, encryption and lifecycle settings are
-re-asserted on every run.
+locks (the run-history table's read-only row has no name field to lock, only
+its status badge). The button relabels itself to **Re-run bootstrap**, which
+is safe to press repeatedly — every resource's configuration is re-asserted
+on every run.
 
 **Common failures and how to recover:**
 
@@ -130,8 +136,11 @@ re-asserted on every run.
 | `The bucket name "…" is already taken by another AWS account. Choose a different name.` | S3 bucket names are globally unique. Edit the name (failed rows stay editable) and re-run |
 | `Cannot bootstrap AWS resources: no region is configured. Complete the credentials step of the wizard first.` | Go **Back** and finish step 2 |
 
-**What blocks Next:** both resources must be **Created** or **Already
-exists**.
+**What blocks Next:** only the two S3 buckets must be **Created** or
+**Already exists** — the run-history table's status is informational and
+never gates progression (its own bootstrap failure is still surfaced, and is
+worth resolving before configuring game servers, since `plan`/`approve`
+against that table depend on it existing).
 
 ### The IAM permission check is advisory
 

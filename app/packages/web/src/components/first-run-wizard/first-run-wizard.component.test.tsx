@@ -11,6 +11,8 @@ const hyveonMock = {
     saveCredentials: vi.fn(),
     bootstrapStateBucket: vi.fn(),
     bootstrapConfigurationBucket: vi.fn(),
+    bootstrapDeploymentConfig: vi.fn(),
+    bootstrapRunsTable: vi.fn(),
     simulateIamPermissions: vi.fn(),
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
@@ -42,6 +44,20 @@ beforeEach(() => {
   hyveonMock.wizard.saveCredentials.mockReset();
   hyveonMock.wizard.bootstrapStateBucket.mockReset();
   hyveonMock.wizard.bootstrapConfigurationBucket.mockReset();
+  // Defaulted (not just reset): runBootstrap() chains this call onto a
+  // successful `bootstrapConfigurationBucket` resolution, but it never gates
+  // `bootstrapComplete`/"Next" — an unmocked resolution to `undefined` would
+  // otherwise throw reading `.status` off it in every test that clicks
+  // "Bootstrap AWS resources" with the configuration bucket succeeding,
+  // regardless of whether that test cares about the initial-configuration
+  // seed at all.
+  hyveonMock.wizard.bootstrapDeploymentConfig.mockReset().mockResolvedValue({ status: 'created' });
+  // Defaulted (not just reset): runBootstrap() fires this alongside the two
+  // bucket calls, but it never gates `bootstrapComplete`/"Next" — an
+  // unmocked resolution to `undefined` would otherwise throw reading
+  // `.status` off it in every test that reaches the bootstrap step,
+  // regardless of whether that test cares about the runs table at all.
+  hyveonMock.wizard.bootstrapRunsTable.mockReset().mockResolvedValue({ status: 'created' });
   hyveonMock.wizard.simulateIamPermissions.mockReset();
   // Defaulted (not just reset) so the shell's resume-on-mount/per-step-save
   // effects — present on every render regardless of which step a test cares
@@ -325,6 +341,74 @@ describe('FirstRunWizard', () => {
       // No `wizard.bootstrap.lockTable` channel exists, and this wizard has
       // no client method for it either — there is nothing left to assert
       // was "not called" here beyond the two real calls above.
+    });
+
+    it('should call wizard.bootstrap.runsTable alongside the two bucket calls when the bootstrap button is clicked (bootstrap-deadlock fix)', async () => {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapRunsTable.mockResolvedValue({ status: 'created' });
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.bootstrapRunsTable).toHaveBeenCalledTimes(1));
+      expect(await screen.findByText('Run-history table')).toBeInTheDocument();
+    });
+
+    it('should not block Next when the run-history table bootstrap fails — only the two buckets gate progression', async () => {
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapRunsTable.mockRejectedValue(new Error('AccessDenied creating table'));
+      await advanceToBootstrap();
+
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+      expect(await screen.findByText('AccessDenied creating table')).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+    });
+
+    describe('initial configuration seed (fresh-install-bricking fix)', () => {
+      it('should call wizard.bootstrap.deploymentConfig with the configuration bucket name once the configuration bucket succeeds', async () => {
+        hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+        hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+        hyveonMock.wizard.bootstrapDeploymentConfig.mockResolvedValue({ status: 'created' });
+        await advanceToBootstrap();
+
+        await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+        await waitFor(() =>
+          expect(hyveonMock.wizard.bootstrapDeploymentConfig).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' }),
+        );
+        expect(await screen.findByText('Initial configuration')).toBeInTheDocument();
+      });
+
+      it('should not call wizard.bootstrap.deploymentConfig and should report it failed when the configuration bucket itself fails', async () => {
+        hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+        hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'failed', message: 'bucket taken' });
+        await advanceToBootstrap();
+
+        await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+        await screen.findByText('bucket taken');
+        expect(hyveonMock.wizard.bootstrapDeploymentConfig).not.toHaveBeenCalled();
+        expect(
+          await screen.findByText(
+            'The configuration bucket must be created before its initial configuration can be seeded.',
+          ),
+        ).toBeInTheDocument();
+      });
+
+      it('should not block Next when the initial configuration seed fails — only the two buckets gate progression', async () => {
+        hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+        hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+        hyveonMock.wizard.bootstrapDeploymentConfig.mockRejectedValue(new Error('AccessDenied seeding configuration'));
+        await advanceToBootstrap();
+
+        await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+
+        expect(await screen.findByText('AccessDenied seeding configuration')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      });
     });
 
     it('should enable Next once both resources report created or exists', async () => {

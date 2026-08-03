@@ -154,7 +154,7 @@ describe('DeploymentSettingsForm', () => {
       expect(screen.getByLabelText('Base admin role IDs')).toBeInTheDocument();
     });
 
-    it('should fall back to the Terraform default numeric values, never the literal string "undefined", when numeric fields are absent', async () => {
+    it('should fall back to the deployment-config default numeric values, never the literal string "undefined", when numeric fields are absent', async () => {
       const incompleteSettings = { ...SETTINGS } as Record<string, unknown>;
       delete incompleteSettings['dnsTtl'];
       delete incompleteSettings['watchdogIntervalMinutes'];

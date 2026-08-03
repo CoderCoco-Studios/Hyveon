@@ -48,6 +48,7 @@
  */
 
 import type { GameServerConfig } from './tfvars.js';
+import type { RemoteFileStore } from './cloud.js';
 
 /**
  * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
@@ -182,10 +183,22 @@ export interface DeploymentConfig {
   /**
    * Name of the DynamoDB table holding Pulumi preview/apply run records.
    * Mirrors `runs_table_name` in `terraform/aws/variables.tf`. Terraform
-   * default: `""`, resolved to `"${projectName}-runs"` when empty
-   * (`terraform/aws/runs_store.tf`) — see {@link auditTableName}'s doc for
-   * why {@link withDeploymentConfigDefaults} does not replicate that
-   * resolution.
+   * default: `""`, resolved to `"${projectName}-runs"` when empty — see
+   * {@link auditTableName}'s doc for why {@link withDeploymentConfigDefaults}
+   * does not replicate that resolution.
+   *
+   * @remarks
+   * Unlike {@link auditTableName}, this table is NOT declared as a Pulumi
+   * resource (`@hyveon/infra`'s `dynamodb.ts`) — it is created via the AWS
+   * SDK directly at first-run-wizard bootstrap time, before any
+   * `DeploymentConfig` (and therefore before any Pulumi apply) can exist, so
+   * that the app's own run-history table is never itself gated behind a
+   * `terraform`/Pulumi apply it needs to already exist to record (see the
+   * `migrate-iac-to-pulumi` change's bootstrap-deadlock fix). Use
+   * {@link resolveRunsTableName} to compute this field's effective value —
+   * both `BootstrapService.ensureRunsTable` (desktop-main) and
+   * `@hyveon/infra`'s stack-output computation call it, so the two never
+   * disagree on the table's name.
    */
   runsTableName: string;
 
@@ -286,6 +299,71 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
   auditTableName: '',
   runsTableName: '',
 });
+
+/**
+ * Resolves {@link DeploymentConfig.runsTableName}'s effective table name —
+ * mirrors the retired Terraform variable's own
+ * `var.runs_table_name != "" ? var.runs_table_name : "${var.project_name}-runs"`
+ * ternary (now ported to `@hyveon/infra`'s `dynamodb.ts` for documentation
+ * purposes only — see {@link DeploymentConfig.runsTableName}'s doc for why
+ * that table is no longer Pulumi-managed).
+ *
+ * Exported from `@hyveon/shared` (rather than left as a package-private
+ * helper) because THREE independent call sites must compute the exact same
+ * value without ever forking the ternary:
+ *  - `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`), which
+ *    physically creates the table via the AWS SDK at wizard-bootstrap time,
+ *    before any Pulumi apply has ever run.
+ *  - `@hyveon/infra`'s `program.ts`, which reports this same computed value
+ *    as the `runsTableName` stack output once a real deploy config exists
+ *    (a plain config echo now, not a resource-derived field).
+ *  - `RunRecordService`/`resolveRunRecordStoreConfig` (`@hyveon/desktop-main`),
+ *    via {@link resolvePreApplyRunsTableName}, as the pre-apply fallback when
+ *    no Pulumi stack output is available yet.
+ *
+ * @param projectName - {@link DeploymentConfig.projectName}.
+ * @param runsTableNameOverride - {@link DeploymentConfig.runsTableName} (the
+ *   raw, possibly-empty override).
+ * @returns The resolved table name.
+ */
+export function resolveRunsTableName(projectName: string, runsTableNameOverride: string): string {
+  return runsTableNameOverride !== '' ? runsTableNameOverride : `${projectName}-runs`;
+}
+
+/**
+ * Pre-apply fallback for the runs table's name: reads the persisted
+ * {@link DeploymentConfig} JSON document directly via `remoteFileStore` and
+ * resolves its effective `runsTableName` via {@link resolveRunsTableName} —
+ * without ever consulting a Pulumi stack output. This is what makes the
+ * bootstrap-deadlock fix actually work end to end: a Pulumi stack only ever
+ * reports outputs after its first successful `apply` (see
+ * `PulumiService.getStackOutputs`'s own TSDoc, "Empty outputs also degrades
+ * to null"), but `RunRecordService`'s approve/apply gates run on the very
+ * FIRST plan/apply cycle, before that has ever happened — this function lets
+ * those gates compute the table's deterministic name directly from the
+ * configuration document instead of waiting on a completed deploy.
+ *
+ * Never throws — every failure mode (`CONFIGURATION_OBJECT_KEY` object
+ * doesn't exist yet, malformed JSON, `remoteFileStore.get()` itself
+ * rejects/throws) is treated identically as "the configuration isn't ready
+ * yet", which is exactly the state every one of this function's callers
+ * already degrades gracefully for.
+ *
+ * @param remoteFileStore - The configuration bucket's `RemoteFileStore`
+ *   (already bound to the operator's configured bucket by the caller).
+ * @returns The resolved runs table name, or `undefined` if the configuration
+ *   document isn't readable yet.
+ */
+export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileStore): Promise<string | undefined> {
+  try {
+    const obj = await remoteFileStore.get(CONFIGURATION_OBJECT_KEY);
+    if (!obj) return undefined;
+    const parsed = JSON.parse(new TextDecoder().decode(obj.body)) as Partial<DeploymentConfig>;
+    return resolveRunsTableName(parsed.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName, parsed.runsTableName ?? '');
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Fills in every {@link DeploymentConfig} field that has a Terraform default

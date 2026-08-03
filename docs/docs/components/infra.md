@@ -98,7 +98,7 @@ means the count depends on `config.gameServers`.
 | `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. |
 | `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 5 fixed (task execution, watchdog, followup, interactions, dns-updater) + 1 per game with `file_seeds`. `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 4 fixed + 1 per seeder game. |
 | `lambdas.ts` | The five Lambda functions, their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). |
-| `dynamodb.ts` | The three DynamoDB tables. | `aws.dynamodb.Table` — 3 fixed: Discord state (TTL on `expiresAt`), run history (GSI on `status`/`startedAt`), audit log. All `PAY_PER_REQUEST`. |
+| `dynamodb.ts` | The two DynamoDB tables this program manages. | `aws.dynamodb.Table` — 2 fixed: Discord state (TTL on `expiresAt`), audit log. Both `PAY_PER_REQUEST`. The run-history table is bootstrap-managed, not declared here — see "The runs table invariant" below. |
 | `secrets.ts` | The two Discord Secrets Manager secrets and their create-only placeholder versions. | `aws.secretsmanager.Secret` (2, `recoveryWindowInDays: 0`). `SecretVersion` (2, seeded with a placeholder string and `ignoreChanges: ['secretString']` so the app can edit them afterwards without a redeploy overwriting the value). |
 | `route53.ts` | Hosted-zone lookup **only**. | **Zero Pulumi resources** — one data-source call, `aws.route53.getZoneOutput()`. See the DNS invariant below. |
 | `escapes.ts` | The imperative "escape hatches" that don't fit a declarative resource model: seeding a DynamoDB config row and invoking the EFS-seeder Lambdas. | `aws.dynamodb.TableItem` (0–2, conditional on Discord config being set). `aws.lambda.Invocation` — one per game with `file_seeds`, re-triggered only when that game's seed content hash changes. |
@@ -122,6 +122,34 @@ three static, fixed records in `discordDomain.ts` for the Discord bot's own
 custom subdomain — unrelated to any game, never touched by any Lambda. This
 mirrors the old Terraform stack's one exception to the same rule, so it is
 not a migration regression.
+
+## The runs table invariant — bootstrap-managed, not Pulumi-managed
+
+**The run-history DynamoDB table is not a Pulumi resource.** `RunRecordService`'s
+approve/apply gates need this table to exist on the very FIRST plan/apply
+cycle of a fresh install, before any Pulumi apply has ever succeeded — a
+resource this program provisions cannot satisfy that, since a stack only
+reports outputs (and therefore could only report this table's name) after
+its first successful `apply`.
+
+Instead, `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`) creates
+it directly via `@aws-sdk/client-dynamodb` at first-run-wizard bootstrap
+time, alongside the state/configuration S3 buckets — before any
+`DeploymentConfig` or Pulumi apply exists at all. This is the same pattern
+["The DNS invariant, precisely"](#the-dns-invariant-precisely) above
+describes for per-game DNS records: a resource whose lifecycle genuinely
+can't be gated behind this program's own apply is managed by application
+code instead, never by Pulumi.
+
+`@hyveon/shared`'s `resolveRunsTableName(projectName, runsTableNameOverride)`
+is the single source of truth for the table's deterministic name, called
+from three places that must never disagree: `BootstrapService.ensureRunsTable`
+(the AWS SDK create call), `program.ts`'s `buildStackOutputs` (the
+`runsTableName` stack output — a plain config echo now, not a resource-derived
+`pulumi.Output`, unlike every other table-name output), and
+`RunRecordService`/`resolveRunRecordStoreConfig`'s pre-apply fallback (which
+reads the persisted `DeploymentConfig` directly via `resolvePreApplyRunsTableName`
+when no Pulumi stack output is available yet).
 
 ## Migrating from the old Terraform stack
 

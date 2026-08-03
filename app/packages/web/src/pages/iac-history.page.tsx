@@ -19,7 +19,7 @@ const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this 
 /** `kind` filter options, `'all'` meaning no filter is applied. */
 type KindFilter = TerraformRunKind | 'all';
 
-/** `status` filter options, `'all'` meaning no filter is applied (i.e. the unfiltered `terraform.runs.list` path). */
+/** `status` filter options, `'all'` meaning no filter is applied (i.e. the unfiltered `hyveon.iac.runs.list` path). */
 type StatusFilter = RunHistoryStatus | 'all';
 
 /** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */
@@ -160,7 +160,7 @@ export function IacHistoryPage() {
         <div>
           <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Run History</h2>
           <p className="text-sm text-[var(--color-muted-foreground)]">
-            Past `terraform` plan, apply, and destroy runs.
+            Past plan, apply, and destroy runs.
           </p>
         </div>
         <Link to="/iac" className="text-sm text-[var(--color-primary)] underline underline-offset-2">

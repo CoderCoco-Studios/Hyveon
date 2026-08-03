@@ -1292,6 +1292,11 @@ export interface BootstrapConfigurationBucketInput {
   bucketName: string;
 }
 
+/** Payload accepted by {@link HyveonWizardApi.bootstrapDeploymentConfig}. */
+export interface BootstrapDeploymentConfigInput {
+  bucketName: string;
+}
+
 /** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
@@ -1375,6 +1380,27 @@ export interface HyveonWizardApi {
    * credentials step.
    */
   bootstrapConfigurationBucket: (input: BootstrapConfigurationBucketInput) => Promise<BootstrapResult>;
+  /**
+   * Idempotently seeds the initial `deployment-config.json` document in the
+   * just-created/confirmed configuration bucket, fixing a Critical bootstrap
+   * gap: nothing else ever created that first object, so before this call
+   * existed every Settings save, every Games-page add, and every Pulumi
+   * preview failed outright on a fresh install (`fetchRawConfig` throws when
+   * the object doesn't exist, and every write path calls it first). Takes
+   * the same `bucketName` just passed to {@link bootstrapConfigurationBucket}.
+   */
+  bootstrapDeploymentConfig: (input: BootstrapDeploymentConfigInput) => Promise<BootstrapResult>;
+  /**
+   * Idempotently creates/ensures the run-history DynamoDB table (`pk`/`sk`
+   * keys, `status-index` GSI, point-in-time recovery), fixing a Critical
+   * bootstrap deadlock: this table used to be created by the first Pulumi
+   * apply, which itself needed the table to already exist to record its own
+   * run — see `BootstrapService.ensureRunsTable`'s doc comment for the full
+   * story. Takes no payload — the table's name isn't operator-editable at
+   * this point in the wizard (no `DeploymentConfig` exists yet to hold an
+   * override), so it always uses the project-name default.
+   */
+  bootstrapRunsTable: () => Promise<BootstrapResult>;
   /**
    * Runs the wizard's best-effort IAM permission dry-run against the
    * `HyveonDeployAll` action set (`sts:GetCallerIdentity` +

@@ -58,7 +58,12 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { TfvarsService, GameServerEntryError, ConfigurationNotConfiguredError } from './TfvarsService.js';
+import {
+  TfvarsService,
+  GameServerEntryError,
+  ConfigurationNotConfiguredError,
+  RunsTableRenameError,
+} from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 
 /**
@@ -439,6 +444,7 @@ describe('TfvarsService write path', () => {
 
   describe('restoreRawTfvars (rollback flow, #112)', () => {
     it('should write the supplied config unconditionally (no ifMatch) and return the store put() result', async () => {
+      stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -465,7 +471,20 @@ describe('TfvarsService write path', () => {
       await service.restoreRawTfvars(FIXTURE_JSON);
       await service.getGameServers();
 
-      expect(remoteFileStore.get).toHaveBeenCalledTimes(2);
+      // 3 total: the getGameServers() read above, restoreRawTfvars's own read
+      // of the current document for the runs-table rename guard, and the
+      // cache-invalidated re-read by the getGameServers() call below.
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('should throw RunsTableRenameError and skip the write when the restored document resolves to a different runs-table name', async () => {
+      stubCurrentConfig(remoteFileStore, JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'current-project' }));
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const restoredJson = JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'other-project' });
+
+      await expect(service.restoreRawTfvars(restoredJson)).rejects.toThrow(RunsTableRenameError);
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
   });
 
@@ -768,6 +787,76 @@ describe('TfvarsService write path', () => {
       await service.getGameServers();
 
       expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
+    });
+
+    /**
+     * Final-review round 2, finding 2: `BootstrapService.ensureRunsTable`
+     * physically creates the run-history DynamoDB table exactly once, at
+     * wizard-bootstrap time, under whatever name
+     * `resolveRunsTableName(projectName, runsTableName)` resolves to at that
+     * moment. Every `updateTopLevelSettings` call is, by construction, a
+     * POST-bootstrap edit (Settings is only reachable once setup has
+     * completed) — so a patch that shifts the RESOLVED table name would
+     * silently orphan the already-created table. See
+     * `RunsTableRenameError`'s own doc comment for the full rationale.
+     */
+    describe('runs-table rename guard (final-review round 2, finding 2)', () => {
+      it('should reject a patch that changes projectName in a way that shifts the resolved runs-table name', async () => {
+        stubCurrentConfig(remoteFileStore); // FIXTURE_CONFIG: projectName 'hyveon', runsTableName '' → resolves to 'hyveon-runs'.
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const err = await service.updateTopLevelSettings({ projectName: 'other' }).catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(RunsTableRenameError);
+        expect((err as RunsTableRenameError).fields).toEqual(['projectName']);
+        expect((err as Error).message).toMatch(/hyveon-runs.*other-runs/);
+        expect(remoteFileStore.put).not.toHaveBeenCalled();
+      });
+
+      it('should reject a patch that sets runsTableName to a different explicit override', async () => {
+        stubCurrentConfig(remoteFileStore);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const err = await service.updateTopLevelSettings({ runsTableName: 'custom-runs' }).catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(RunsTableRenameError);
+        expect((err as RunsTableRenameError).fields).toEqual(['runsTableName']);
+        expect(remoteFileStore.put).not.toHaveBeenCalled();
+      });
+
+      it('should report both fields when a combined patch still shifts the resolved name', async () => {
+        stubCurrentConfig(remoteFileStore);
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        const err = await service
+          .updateTopLevelSettings({ projectName: 'other', runsTableName: 'other-runs' })
+          .catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(RunsTableRenameError);
+        expect((err as RunsTableRenameError).fields).toEqual(['projectName', 'runsTableName']);
+      });
+
+      it('should allow a patch that sets runsTableName explicitly to the value it already resolves to (no real rename)', async () => {
+        stubCurrentConfig(remoteFileStore); // resolves to 'hyveon-runs' already.
+        remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        await expect(service.updateTopLevelSettings({ runsTableName: 'hyveon-runs' })).resolves.toEqual({
+          etag: 'etag-2',
+          versionId: undefined,
+        });
+      });
+
+      it('should allow a patch that never touches projectName or runsTableName', async () => {
+        stubCurrentConfig(remoteFileStore);
+        remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
+        const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+
+        await expect(service.updateTopLevelSettings({ dnsTtl: 60 })).resolves.toEqual({
+          etag: 'etag-2',
+          versionId: undefined,
+        });
+      });
     });
   });
 

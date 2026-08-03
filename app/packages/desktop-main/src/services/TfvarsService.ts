@@ -46,13 +46,14 @@
  * regardless of cloud provider.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { CONFIGURATION_OBJECT_KEY } from '@hyveon/shared';
+import { CONFIGURATION_OBJECT_KEY, DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
 import type { DeploymentConfig, GameServer, GameServerConfig, RemoteFileStore } from '@hyveon/shared';
 import {
   GAME_NAME_PATTERN,
   GAME_NAME_PATTERN_DESCRIPTION,
   OptimisticLockError,
   RemoteFileConflictError,
+  resolveRunsTableName,
   withDeploymentConfigDefaults,
 } from '@hyveon/shared';
 import { logger } from '../logger.js';
@@ -146,6 +147,50 @@ export class ConfigurationNotConfiguredError extends Error {
         'deployment configuration. There is no local-file fallback.',
     );
     this.name = 'ConfigurationNotConfiguredError';
+  }
+}
+
+/**
+ * Thrown by {@link TfvarsService.updateTopLevelSettings} when a proposed
+ * patch would change the deployment's EFFECTIVE (resolved) run-history table
+ * name — i.e. `projectName` and/or `runsTableName` shift such that
+ * `resolveRunsTableName(nextProjectName, nextRunsTableNameOverride)` no
+ * longer equals the current document's resolved name.
+ *
+ * @remarks
+ * `BootstrapService.ensureRunsTable` physically creates the run-history
+ * DynamoDB table exactly once, at first-run-wizard bootstrap time, under
+ * whatever name resolves from the config document's state at that moment —
+ * today, always `resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, '')`
+ * (`WizardController.bootstrapRunsTable`'s own doc comment explains why: the
+ * wizard collects no `projectName`/`runsTableName` override of its own).
+ * Every `updateTopLevelSettings` call reachable from the Settings form is
+ * therefore, by construction, a POST-bootstrap edit — Settings is only ever
+ * reachable once setup has completed. Letting `projectName`/`runsTableName`
+ * change after that point would silently point every runs-table resolver
+ * (`resolveRunsTableName` itself, `resolvePreApplyRunsTableName`, the Pulumi
+ * stack output) at a table that was never created under the new name,
+ * leaving `RunRecordService`'s approve/apply gates to fail with a raw,
+ * confusing DynamoDB `ResourceNotFoundException` instead of a clear,
+ * actionable error — this class IS that clear error. `IacSettingsController.update`
+ * catches it and maps it to a `code: 'validation'` result positioned against
+ * exactly the field(s) the caller actually tried to change, so
+ * `deployment-settings-form.component.tsx`'s existing per-field issue
+ * rendering (`messagesForField`) displays it with no UI changes needed.
+ */
+export class RunsTableRenameError extends Error {
+  /** Which patch field(s) actually contributed to the resolved-name change — `'projectName'`, `'runsTableName'`, or both. */
+  readonly fields: Array<'projectName' | 'runsTableName'>;
+
+  constructor(currentTableName: string, nextTableName: string, fields: Array<'projectName' | 'runsTableName'>) {
+    super(
+      `This change would rename the run-history table from "${currentTableName}" to "${nextTableName}" — the ` +
+        'physical DynamoDB table was already created under the original name during the bootstrap wizard step ' +
+        "and can't be renamed automatically. Revert this field, or manually recreate/migrate the DynamoDB table " +
+        'before changing it.',
+    );
+    this.name = 'RunsTableRenameError';
+    this.fields = fields;
   }
 }
 
@@ -322,12 +367,25 @@ export class TfvarsService {
    * {@link getGameServers} cache afterward so the next read reflects the
    * restored content, mirroring {@link writeConfig}.
    *
+   * Also runs {@link assertRunsTableNameStable} against the restored document
+   * before writing — same rename guard {@link updateTopLevelSettings} applies
+   * via {@link applyTopLevelSettingsPatch}, so a rollback can't silently
+   * repoint the config at a runs table {@link BootstrapService.ensureRunsTable}
+   * never created for this install.
+   *
    * @param rawConfig - The exact historic config content to restore.
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
+   * @throws {@link RunsTableRenameError} when the restored document resolves
+   *   to a different runs-table name than the current document.
    */
   async restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
+    const { config: currentRaw } = await this.fetchRawConfig();
+    const { gameServers: _currentGameServers, ...currentSettings } = this.parseConfigContents(currentRaw);
+    const restoredSettings = this.parseConfigContents(rawConfig);
+    this.assertRunsTableNameStable(currentSettings, restoredSettings);
+
     const result = await this.putRawConfig(rawConfig);
     this.invalidateCache();
     return result;
@@ -666,13 +724,60 @@ export class TfvarsService {
    * the final object's `gameServers` from `config.gameServers` (the current
    * document) instead makes this impossible to get wrong regardless of what
    * a misbehaving/future caller sends.
+   *
+   * Also runs {@link assertRunsTableNameStable} against the patch before
+   * applying it — see that method's own doc, and {@link RunsTableRenameError}'s,
+   * for why `projectName`/`runsTableName` are effectively immutable
+   * post-bootstrap identifiers.
    */
   private applyTopLevelSettingsPatch(raw: string, patch: Partial<Omit<DeploymentConfig, 'gameServers'>>): string {
     const config = this.parseConfigContents(raw);
     const { gameServers, ...currentSettings } = config;
     const { gameServers: _ignoredPatchGameServers, ...safePatch } = patch as Partial<DeploymentConfig>;
 
+    this.assertRunsTableNameStable(currentSettings, safePatch);
+
     return this.serializeConfig({ ...currentSettings, ...safePatch, gameServers });
+  }
+
+  /**
+   * Guards against a Settings-form patch orphaning the already-bootstrapped
+   * run-history DynamoDB table — see {@link RunsTableRenameError}'s doc
+   * comment for the full rationale. Compares the resolved run-history table
+   * name (`resolveRunsTableName`, `@hyveon/shared`) before and after applying
+   * `safePatch`'s `projectName`/`runsTableName` fields (falling back to each
+   * field's {@link DEPLOYMENT_CONFIG_DEFAULTS} value when the CURRENT
+   * document predates that field entirely, mirroring
+   * {@link getTopLevelSettings}'s own `withDeploymentConfigDefaults`
+   * defensive-defaulting rationale) and throws {@link RunsTableRenameError}
+   * when the two diverge. A no-op when neither field is present on the
+   * patch, or when the patch happens to resolve to the SAME effective table
+   * name it already had (e.g. explicitly setting `runsTableName` to the
+   * value it would already compute to).
+   */
+  private assertRunsTableNameStable(
+    currentSettings: Omit<DeploymentConfig, 'gameServers'>,
+    safePatch: Partial<DeploymentConfig>,
+  ): void {
+    const currentProjectName = currentSettings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName;
+    const currentRunsTableNameOverride = currentSettings.runsTableName ?? DEPLOYMENT_CONFIG_DEFAULTS.runsTableName;
+
+    const changedFields: Array<'projectName' | 'runsTableName'> = [];
+    if (safePatch.projectName !== undefined && safePatch.projectName !== currentSettings.projectName) {
+      changedFields.push('projectName');
+    }
+    if (safePatch.runsTableName !== undefined && safePatch.runsTableName !== currentSettings.runsTableName) {
+      changedFields.push('runsTableName');
+    }
+    if (changedFields.length === 0) return;
+
+    const currentTableName = resolveRunsTableName(currentProjectName, currentRunsTableNameOverride);
+    const nextProjectName = safePatch.projectName ?? currentProjectName;
+    const nextRunsTableNameOverride = safePatch.runsTableName ?? currentRunsTableNameOverride;
+    const nextTableName = resolveRunsTableName(nextProjectName, nextRunsTableNameOverride);
+    if (nextTableName === currentTableName) return;
+
+    throw new RunsTableRenameError(currentTableName, nextTableName, changedFields);
   }
 
   /**

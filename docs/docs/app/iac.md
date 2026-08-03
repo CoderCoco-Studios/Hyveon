@@ -116,12 +116,11 @@ dashboard** link, plus a toast.
 ## The workspace-busy banner
 
 Only one Pulumi operation can hold the shared workspace at a time — Pulumi's
-own operation names are `preview`/`up`, which this page relabels to the
-familiar `plan`/`apply` terms everywhere except the busy banner itself,
-which currently still reads (a leftover from the pre-migration wording):
+own operation names are `preview`/`up`, which the busy banner relabels to
+the familiar `plan`/`apply` terms:
 
-> Workspace busy — a `terraform plan` run is already in progress. Try again
-> once it finishes.
+> Workspace busy — a `plan` run is already in progress. Try again once it
+> finishes.
 
 It appears under whichever action you attempted (plan, apply or destroy), with
 the raw backend error stacked below it. Wait for the in-flight run to finish

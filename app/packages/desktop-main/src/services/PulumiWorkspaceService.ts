@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,8 +9,12 @@ import { Injectable } from '@nestjs/common';
 // externalized, and `@pulumi/pulumi` is CommonJS with no `exports` map, so the
 // bare directory specifier `@pulumi/pulumi/automation` fails with
 // `ERR_UNSUPPORTED_DIR_IMPORT` in the packaged app.
-import { LocalWorkspace } from '@pulumi/pulumi/automation/index.js';
-import type { LocalWorkspaceOptions, PulumiFn, Stack } from '@pulumi/pulumi/automation/index.js';
+// `Stack` is imported as a VALUE (not type-only) since `resolveNewPassphrase`
+// (see its doc comment) calls `Stack.createOrSelect` directly
+// rather than going through `LocalWorkspace.createOrSelectStack`'s convenience
+// wrapper, so it can query `listStacks()` on the same workspace first.
+import { LocalWorkspace, Stack } from '@pulumi/pulumi/automation/index.js';
+import type { LocalWorkspaceOptions, ProjectSettings, PulumiFn } from '@pulumi/pulumi/automation/index.js';
 import { logger } from '../logger.js';
 import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
@@ -110,10 +114,12 @@ export type PulumiPassphraseUnavailableReason =
   /** A passphrase is stored and the keychain is available, but decrypting it failed (corrupted blob, or encrypted under a different OS user/machine). */
   | 'existing-stack-decrypt-failed'
   /**
-   * The caller reports the remote stack already exists (`stackExists: true`),
-   * but this install has no locally stored passphrase for it at all — e.g.
-   * after a reinstall, a wiped `userData`, or a second machine pointed at the
-   * same state bucket. Generating one here would reach the exact catastrophic
+   * A `workspace.listStacks()` probe (see
+   * {@link PulumiWorkspaceService.resolveNewPassphrase}'s doc comment) found
+   * {@link PULUMI_STACK_NAME} already present in the REAL backend, but this
+   * install has no locally stored passphrase for it at all — e.g. after a
+   * reinstall, a wiped `userData`, or a second machine pointed at the same
+   * state bucket. Generating one here would reach the exact catastrophic
    * outcome the "never regenerate" rule exists to prevent, just via a
    * different route than a corrupted/inaccessible local entry: `createOrSelectStack`
    * would *select* (not create) the existing remote stack — `secretsProvider`
@@ -132,7 +138,8 @@ export type PulumiPassphraseUnavailableReason =
  * so generating a replacement here — rather than throwing — would silently
  * produce a passphrase that can never decrypt that stack's existing secure
  * config/state again. Never thrown after a write; every throw site in
- * {@link PulumiWorkspaceService.resolvePassphrase} happens strictly before
+ * {@link PulumiWorkspaceService.resolveStoredPassphrase}/
+ * {@link PulumiWorkspaceService.resolveNewPassphrase} happens strictly before
  * any store mutation.
  */
 export class PulumiPassphraseUnavailableError extends Error {
@@ -221,23 +228,6 @@ export interface PulumiWorkspaceInput {
    */
   backendReady: boolean;
   /**
-   * Whether the caller believes {@link PULUMI_STACK_NAME} already exists in
-   * the remote backend — independent of whether *this install* has a local
-   * passphrase record for it. Required so {@link resolvePassphrase} can
-   * distinguish "genuinely new stack, safe to generate a passphrase" from
-   * "stack exists remotely, but this install has no local passphrase record
-   * for it" (reinstall, wiped `userData`, a second machine against the same
-   * bucket) — the latter must throw {@link PulumiPassphraseUnavailableError}
-   * with reason `'existing-stack-no-local-record'` rather than silently
-   * generating a passphrase that could never decrypt
-   * the real stack's state. The seam has no verified, spike-tested way to
-   * determine this itself (querying the backend requires the same workspace
-   * construction this method exists to perform), so it is the caller's
-   * responsibility — e.g. via local run-history bookkeeping, or a
-   * `workspace.listStacks()` probe that doesn't require the passphrase.
-   */
-  stackExists: boolean;
-  /**
    * Override for the credential `envVars` this seam merges into the engine
    * environment (named profile via `AWS_PROFILE`, or decrypted pasted keys),
    * normally left **unset**.
@@ -302,9 +292,10 @@ export interface PulumiWorkspaceInput {
  *    accessor pair — this service never calls {@link SafeStorageService}'s
  *    `encrypt`/`decrypt` directly), and "fail loudly, never regenerate for
  *    an existing stack" semantics — covering both a locally-stored-but-
- *    unreadable passphrase and, via the caller-supplied `stackExists` flag,
- *    an existing remote stack with no local record at all (see
- *    {@link resolvePassphrase}).
+ *    unreadable passphrase and an existing remote stack with no local
+ *    record at all, the latter detected via a genuine `workspace.listStacks()`
+ *    probe against the real backend rather than trusted from the caller (see
+ *    {@link resolveStoredPassphrase}/{@link resolveNewPassphrase}).
  *
  * Deliberately does **not** implement `preview`/`up`/`destroy` — those are
  * `PulumiService`'s, which calls {@link getOrCreateStack} and then drives the
@@ -324,35 +315,76 @@ export class PulumiWorkspaceService {
 
   /**
    * Resolves the engine, ensures the stable `pulumiHome`/`workDir`
-   * directories exist, resolves (generating if this is genuinely the first
-   * time, per `input.stackExists`) the secrets passphrase, and calls
-   * `LocalWorkspace.createOrSelectStack` with the bare
-   * {@link PULUMI_STACK_NAME}. Throws {@link PulumiBackendNotBootstrappedError}
-   * if `input.backendReady` is `false` (checked before anything else), or
+   * directories exist, constructs the Automation API workspace, resolves
+   * (generating if this is genuinely the first time — see
+   * {@link resolveNewPassphrase}) the secrets passphrase, and selects or
+   * creates {@link PULUMI_STACK_NAME} on it. Throws
+   * {@link PulumiBackendNotBootstrappedError} if `input.backendReady` is
+   * `false` (checked before anything else), or
    * {@link PulumiPassphraseUnavailableError} if a usable passphrase cannot be
-   * obtained — both happen before any Pulumi invocation. Also throws
-   * `PulumiCredentialsNotConfiguredError` (from `PulumiCredentialResolver.ts`,
-   * via {@link resolveCredentialEnvVars}) when `input.credentialEnvVars` is
-   * omitted and the store has no credential source selected at all — see
+   * obtained. Also throws `PulumiCredentialsNotConfiguredError` (from
+   * `PulumiCredentialResolver.ts`, via {@link resolveCredentialEnvVars}) when
+   * `input.credentialEnvVars` is omitted and the store has no credential
+   * source selected at all — see
    * {@link PulumiWorkspaceInput.credentialEnvVars}'s doc comment for why
    * resolution happens here unconditionally rather than trusting every
-   * future caller to remember to pass it. The SDK call itself is also
-   * wrapped: a failure that looks like a missing bucket (see
+   * future caller to remember to pass it.
+   *
+   * ## Call order
+   *
+   * `stack init` under `--non-interactive` is a hard exit-1 without
+   * `PULUMI_CONFIG_PASSPHRASE` already set, so the passphrase question is
+   * resolved before the engine wherever it can be answered locally. If a
+   * passphrase is already stored, {@link resolveStoredPassphrase} resolves it
+   * immediately, ahead of credentials/engine/backend — the common case for
+   * every operation after this install's stack already exists. If nothing is
+   * stored, `safeStorage.isAvailable()` is still checked immediately (a
+   * purely local precondition), and only the ONE remaining question — does
+   * {@link PULUMI_STACK_NAME} already exist in the REAL backend — is deferred
+   * to {@link resolveNewPassphrase}, since that genuinely needs a constructed
+   * `LocalWorkspace` (built after the engine resolves, since a
+   * `pulumiCommand` is required) to query `listStacks()` against it. This
+   * adds one extra read-only `pulumi stack ls` round-trip, but ONLY on the
+   * "no local passphrase, keychain available" path (first-ever stack
+   * creation, or a reinstall/second-machine pointed at the same state
+   * bucket) — the "this install already created the stack" path never
+   * reaches {@link resolveNewPassphrase} at all, and reuses the SAME
+   * workspace instance for `Stack.createOrSelect`.
+   *
+   * The SDK calls this method makes (`LocalWorkspace.create`,
+   * `workspace.listStacks()`, `Stack.createOrSelect`) are wrapped in a single
+   * try/catch: a failure that looks like a missing bucket (see
    * {@link BUCKET_MISSING_PATTERN}) is re-classified into
    * {@link PulumiBackendNotBootstrappedError} as a backstop for when
    * `backendReady` was wrong, rather than surfacing raw Pulumi/gocloud
-   * stderr to the operator; every other failure propagates unchanged.
+   * stderr to the operator; every other failure (including
+   * {@link PulumiPassphraseUnavailableError}, whose message never matches
+   * that pattern) propagates unchanged.
    */
   async getOrCreateStack(input: PulumiWorkspaceInput): Promise<Stack> {
     if (!input.backendReady) {
       throw new PulumiBackendNotBootstrappedError(input.stateBucket);
     }
 
-    // Passphrase resolution happens before the engine is even resolved:
-    // `stack init` under `--non-interactive` is a hard exit-1 without
-    // `PULUMI_CONFIG_PASSPHRASE` already set, so there is no reasonable order
-    // in which the passphrase can be an afterthought.
-    const passphrase = this.resolvePassphrase(input.stackExists);
+    // Fast path: a passphrase is already stored locally — resolve (or throw
+    // trying to) BEFORE touching credentials, the engine, or the backend at
+    // all, exactly mirroring this method's pre-Finding-1 ordering/behavior
+    // for what is by far the most common call (every operation after this
+    // install's stack already exists).
+    const hasStoredPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
+    let passphrase: string | undefined;
+    if (hasStoredPassphrase) {
+      passphrase = this.resolveStoredPassphrase();
+    } else if (!this.safeStorage.isAvailable()) {
+      // Also checked here, before credentials/engine/backend, rather than
+      // deferred into `resolveNewPassphrase` below: unlike "does the remote
+      // stack already exist" (which genuinely needs a real workspace to ask
+      // the backend), "is the keychain available at all" is a purely local
+      // precondition this seam can check for free — failing fast on it
+      // avoids an unnecessary `listStacks()` round-trip for an operation that
+      // was never going to be able to generate/store a passphrase anyway.
+      throw new PulumiPassphraseUnavailableError('new-stack-keychain-unavailable');
+    }
 
     // Credential resolution is unconditional: `input.credentialEnvVars` is
     // normally unset, so this seam resolves the wizard's selected AWS
@@ -362,6 +394,8 @@ export class PulumiWorkspaceService {
     // credential source selected at all, rather than silently proceeding
     // with no credential vars (which would let the engine fall back to its
     // own default AWS credential chain, exactly what spec.md:100 forbids).
+    // Independent of passphrase resolution, so kept ahead of engine
+    // resolution exactly as before — cheap, and never touches Pulumi itself.
     const credentialEnvVars = input.credentialEnvVars ?? resolveCredentialEnvVars(this.store);
 
     const pulumiCommand = await this.engine.resolve(input.onPhase);
@@ -376,14 +410,18 @@ export class PulumiWorkspaceService {
     // doc comment for why redundancy was chosen over picking one).
     const backendUrl = `s3://${input.stateBucket}?region=${encodeURIComponent(input.stateBucketRegion)}`;
 
+    // Deliberately NO `PULUMI_CONFIG_PASSPHRASE` yet unless the fast path
+    // above already resolved one — see this method's own "Call order" doc
+    // section for why a genuinely new passphrase can only be added once
+    // {@link resolveNewPassphrase} (below) has had a chance to query this
+    // same workspace's `listStacks()`.
     const envVars: LocalWorkspaceOptions['envVars'] = {
       // Resolved credential vars first — see PulumiWorkspaceInput's
       // `credentialEnvVars` doc comment — so a credential source (whether
       // caller-supplied or resolved above) can never accidentally clobber
-      // the backend/passphrase vars this seam is responsible for below.
+      // the backend vars this seam is responsible for below.
       ...credentialEnvVars,
       PULUMI_BACKEND_URL: backendUrl,
-      PULUMI_CONFIG_PASSPHRASE: passphrase,
       PULUMI_SKIP_UPDATE_CHECK: 'true',
       AWS_REGION: input.stateBucketRegion,
     };
@@ -394,13 +432,21 @@ export class PulumiWorkspaceService {
       workDir,
       secretsProvider: 'passphrase',
       envVars,
+      program: input.program,
+      // `LocalWorkspace.createOrSelectStack`'s convenience wrapper used to
+      // default a bare `{ name, runtime: 'nodejs', main: process.cwd() }`
+      // project whenever no `Pulumi.yaml` was found yet (its own internal,
+      // unexported `inlineSourceStackHelper`) — replicated explicitly here
+      // since this method now builds the workspace itself via the lower-level
+      // `LocalWorkspace.create` (see {@link resolveInlineProjectSettings}).
+      projectSettings: this.resolveInlineProjectSettings(workDir),
     };
 
     try {
-      return await LocalWorkspace.createOrSelectStack(
-        { stackName: PULUMI_STACK_NAME, projectName: PULUMI_PROJECT_NAME, program: input.program },
-        opts,
-      );
+      const ws = await LocalWorkspace.create(opts);
+      passphrase ??= await this.resolveNewPassphrase(ws);
+      ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase;
+      return await Stack.createOrSelect(PULUMI_STACK_NAME, ws);
     } catch (err) {
       if (looksLikeMissingBucket(err)) {
         throw new PulumiBackendNotBootstrappedError(input.stateBucket, err);
@@ -410,77 +456,130 @@ export class PulumiWorkspaceService {
   }
 
   /**
-   * Resolves the secrets passphrase for {@link PULUMI_STACK_NAME}: reuses the
-   * stored one if present, generating and persisting a new one only when
-   * none has ever been stored **and** the caller confirms
-   * (`stackExists: false`) this is a genuinely new stack. Never generates a
-   * replacement once a stored entry exists, even if that entry can't
-   * currently be read, and never generates one for a stack the caller says
-   * already exists
-   * remotely even if nothing is stored locally — see
-   * {@link PulumiPassphraseUnavailableError}'s doc comment and the
-   * `'existing-stack-no-local-record'` reason.
-   *
-   * Presence is checked via the raw {@link ElectronStoreService.get} (no
-   * decryption attempted) rather than by calling
-   * {@link ElectronStoreService.getPulumiPassphrase} and checking for
-   * `undefined`, because {@link SafeStorageService.decrypt} does not throw
-   * when the keychain is merely *unavailable* at read time — it silently
-   * returns the raw ciphertext blob unchanged (see that method's own remarks
-   * on write/read-time availability mismatches). Treating that garbage
-   * string as a real passphrase would hand Pulumi a value that cannot
-   * decrypt the stack's actual state, which is exactly the failure this
-   * method exists to prevent. So the keychain's current availability is
-   * checked explicitly before ever attempting the decrypt.
-   *
-   * @param stackExists - `input.stackExists` from {@link getOrCreateStack} —
-   *   see {@link PulumiWorkspaceInput.stackExists}'s doc comment for why this
-   *   must come from the caller rather than being inferred from local state
-   *   alone.
+   * Replicates the Automation API's own `inlineSourceStackHelper`'s
+   * "default the project if `workDir` has no `Pulumi.{yaml,yml,json}` yet"
+   * fallback (that helper is a module-private implementation detail of
+   * `LocalWorkspace.createOrSelectStack`, not exported — see
+   * `@pulumi/pulumi/automation/localWorkspace.js`) — needed because Finding
+   * 1's fix builds the workspace via the lower-level `LocalWorkspace.create`
+   * instead of that convenience wrapper (see {@link getOrCreateStack}'s "Call
+   * order" doc section). Returns `undefined` (leave any existing project
+   * settings file untouched) once `workDir` already has one from a prior
+   * `getOrCreateStack` call against this same stack — `LocalWorkspace`'s
+   * constructor would otherwise unconditionally overwrite it with a fresh
+   * `main: process.cwd()`, which is not guaranteed stable across runs of the
+   * packaged app.
    */
-  private resolvePassphrase(stackExists: boolean): string {
-    const hasStoredPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
-
-    if (hasStoredPassphrase) {
-      if (!this.safeStorage.isAvailable()) {
-        throw new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable');
-      }
-      let passphrase: string | undefined;
-      try {
-        passphrase = this.store.getPulumiPassphrase();
-      } catch (err) {
-        throw new PulumiPassphraseUnavailableError('existing-stack-decrypt-failed', err);
-      }
-      if (passphrase === undefined) {
-        // Defensive: presence was just confirmed above. Treat as
-        // unavailable rather than falling through to the generate-a-new-one
-        // path below, which exists only for the genuinely-new-stack case.
-        throw new PulumiPassphraseUnavailableError(
-          'existing-stack-decrypt-failed',
-          new Error('stored passphrase entry disappeared between presence check and read'),
-        );
-      }
-      return passphrase;
+  private resolveInlineProjectSettings(workDir: string): ProjectSettings | undefined {
+    const hasProjectSettingsFile = ['.yaml', '.yml', '.json'].some((ext) =>
+      existsSync(join(workDir, `Pulumi${ext}`)),
+    );
+    if (hasProjectSettingsFile) {
+      return undefined;
     }
+    return { name: PULUMI_PROJECT_NAME, runtime: 'nodejs', main: process.cwd() };
+  }
 
-    // No passphrase is stored locally. If the caller says the stack already
-    // exists remotely, generating one here would reach the exact outcome
-    // the "never regenerate" rule exists to prevent, just via a route that
-    // doesn't involve a corrupted local entry — see
-    // PulumiPassphraseUnavailableReason's 'existing-stack-no-local-record'
-    // doc comment for the full sequence this refuses to let happen.
-    if (stackExists) {
+  /**
+   * Reads and decrypts the ALREADY-STORED secrets passphrase for
+   * {@link PULUMI_STACK_NAME} — the fast path {@link getOrCreateStack} takes
+   * whenever `this.store.get('pulumi')?.passphrase !== undefined`, entirely
+   * before credentials/engine/backend are ever touched. Never
+   * generates a replacement: a stored entry that can't currently be read
+   * (keychain unavailable, or a decrypt failure) fails loudly instead, per
+   * {@link PulumiPassphraseUnavailableError}'s doc comment — the passphrase
+   * this method returns is the ONLY one that can ever decrypt this stack's
+   * existing secure config/state.
+   *
+   * Presence is checked by the CALLER via the raw
+   * {@link ElectronStoreService.get} (no decryption attempted) rather than by
+   * this method calling {@link ElectronStoreService.getPulumiPassphrase} and
+   * checking for `undefined`, because {@link SafeStorageService.decrypt} does
+   * not throw when the keychain is merely *unavailable* at read time — it
+   * silently returns the raw ciphertext blob unchanged (see that method's own
+   * remarks on write/read-time availability mismatches). Treating that
+   * garbage string as a real passphrase would hand Pulumi a value that
+   * cannot decrypt the stack's actual state, which is exactly the failure
+   * this method exists to prevent. So the keychain's current availability is
+   * checked explicitly before ever attempting the decrypt. Only ever called
+   * when presence has already been confirmed by the caller.
+   */
+  private resolveStoredPassphrase(): string {
+    if (!this.safeStorage.isAvailable()) {
+      throw new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable');
+    }
+    let passphrase: string | undefined;
+    try {
+      passphrase = this.store.getPulumiPassphrase();
+    } catch (err) {
+      throw new PulumiPassphraseUnavailableError('existing-stack-decrypt-failed', err);
+    }
+    if (passphrase === undefined) {
+      // Defensive: the caller already confirmed presence via the raw
+      // ElectronStoreService.get(). Treat as unavailable rather than falling
+      // through to a generate-a-new-one path this method has no access to
+      // (that path exists only for the genuinely-new-stack case — see
+      // {@link resolveNewPassphrase}).
+      throw new PulumiPassphraseUnavailableError(
+        'existing-stack-decrypt-failed',
+        new Error('stored passphrase entry disappeared between presence check and read'),
+      );
+    }
+    return passphrase;
+  }
+
+  /**
+   * Generates and persists a FRESH secrets passphrase for
+   * {@link PULUMI_STACK_NAME} — only ever called by {@link getOrCreateStack}
+   * when `this.store.get('pulumi')?.passphrase === undefined` (no local
+   * record at all) AND the keychain has already been confirmed available
+   * (that purely-local check is made by the caller before this method is
+   * ever reached — see {@link getOrCreateStack}'s own body — since it needs
+   * no workspace/backend round-trip at all). Before generating anything,
+   * queries `ws.listStacks()` against the REAL backend to confirm the stack
+   * doesn't already exist there, and throws
+   * {@link PulumiPassphraseUnavailableError} (reason
+   * `'existing-stack-no-local-record'`) instead of generating if it does.
+   *
+   * ## Why a real backend probe, not a local belief
+   *
+   * Local state (does this install have a stored passphrase?) can never
+   * answer "does the remote stack already exist?" once the local store has
+   * been wiped — a reinstall, or a second machine pointed at the same state
+   * bucket, makes both questions come out the same way even when the remote
+   * stack is real. Generating a fresh passphrase in that situation would
+   * silently overwrite the local record of a passphrase that already
+   * encrypts real remote state, permanently wedging that install (every
+   * subsequent `refresh`/`up` then fails with a raw "incorrect passphrase"
+   * error, and the "never regenerate once stored" policy means the wrong
+   * value is never replaced). `ws` (built by {@link getOrCreateStack} with
+   * the backend URL and credentials already configured, but deliberately no
+   * `PULUMI_CONFIG_PASSPHRASE` yet — `stack ls` never needs to decrypt
+   * anything) is queried via `listStacks()`, which "queries the underlying
+   * backend and may return stacks not present in the workspace as
+   * `Pulumi.<stack>.yaml` files" (the Automation API's own doc comment on
+   * that method) — exactly the ground truth needed here. This adds one
+   * extra read-only round-trip, but ONLY on this "no local passphrase" path
+   * — see {@link getOrCreateStack}'s "Call order" doc section for why the
+   * common (already-has-a-local-passphrase) path never reaches this method
+   * at all.
+   *
+   * @param ws - The `LocalWorkspace` {@link getOrCreateStack} already
+   *   constructed for this call (backend URL, credentials, and
+   *   `secretsProvider` already configured, passphrase not yet set) — reused
+   *   here for the `listStacks()` probe so no second workspace needs to be
+   *   built, and reused again by the caller for `Stack.createOrSelect` once
+   *   this method returns.
+   */
+  private async resolveNewPassphrase(ws: LocalWorkspace): Promise<string> {
+    const summaries = await ws.listStacks();
+    const remoteStackExists = summaries.some((summary) => summary.name === PULUMI_STACK_NAME);
+    if (remoteStackExists) {
       throw new PulumiPassphraseUnavailableError('existing-stack-no-local-record');
     }
 
-    // Genuinely new stack. Mirrors AwsProfileService.savePastedCredentials's
-    // "fail loudly before any write" precedent: check availability
-    // explicitly rather than relying on ElectronStoreService.setPulumiPassphrase's
-    // own transparent degrade-to-plaintext (fine for AWS keys' test/CI
-    // convenience, wrong for a secret that must actually be recoverable).
-    if (!this.safeStorage.isAvailable()) {
-      throw new PulumiPassphraseUnavailableError('new-stack-keychain-unavailable');
-    }
+    // Genuinely new stack, and the keychain is already confirmed available
+    // (checked by the caller before this method was ever reached).
     const generated = this.generatePassphrase();
     this.store.setPulumiPassphrase(generated);
     return generated;

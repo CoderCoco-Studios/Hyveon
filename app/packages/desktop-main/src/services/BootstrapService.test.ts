@@ -5,16 +5,30 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutBucketVersioningCommand,
   PutBucketEncryptionCommand,
   PutBucketLifecycleConfigurationCommand,
+  PutObjectCommand,
   PutPublicAccessBlockCommand,
 } from '@aws-sdk/client-s3';
+import {
+  DynamoDBClient,
+  CreateTableCommand,
+  DescribeTableCommand,
+  UpdateContinuousBackupsCommand,
+  ResourceNotFoundException,
+  ResourceInUseException,
+} from '@aws-sdk/client-dynamodb';
+import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
 import { BootstrapService, BootstrapCredentialsNotConfiguredError } from './BootstrapService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
 const s3Mock = mockClient(S3Client);
+
+/** Typed stand-in for the AWS DynamoDB SDK client, shared across the `ensureRunsTable` tests below. */
+const dynamoMock = mockClient(DynamoDBClient);
 
 /** Build an `ElectronStoreService` stub whose `get('aws')` resolves to the given choice. */
 function makeStore(
@@ -36,6 +50,7 @@ function awsError(name: string): Error {
 
 beforeEach(() => {
   s3Mock.reset();
+  dynamoMock.reset();
 });
 
 describe('BootstrapService', () => {
@@ -330,6 +345,76 @@ describe('BootstrapService', () => {
     });
   });
 
+  /**
+   * Tests for the fresh-install-bricking fix: `ensureDeploymentConfig` seeds
+   * the initial `deployment-config.json` document — before this existed,
+   * nothing anywhere ever created that object, so a fresh install was
+   * completely unusable the moment the wizard finished (every
+   * `TfvarsService` write path reads the document before writing, and that
+   * read threw when the object didn't exist). See this method's own doc
+   * comment for the full rationale, and `TfvarsService.freshInstall.test.ts`
+   * for the genuine end-to-end proof that a seeded document really does let
+   * `updateTopLevelSettings`/`addGameServer` succeed afterward.
+   */
+  describe('ensureDeploymentConfig', () => {
+    it('should seed a minimal valid deployment-config document when none exists yet', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('NotFound'));
+      s3Mock.on(PutObjectCommand).resolves({ ETag: '"etag-1"' });
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'created' });
+      expect(s3Mock.commandCalls(HeadObjectCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-config-bucket',
+        Key: CONFIGURATION_OBJECT_KEY,
+      });
+      const putCall = s3Mock.commandCalls(PutObjectCommand)[0]!.args[0].input;
+      expect(putCall.Bucket).toBe('my-config-bucket');
+      expect(putCall.Key).toBe(CONFIGURATION_OBJECT_KEY);
+      const written = JSON.parse(new TextDecoder().decode(putCall.Body as Uint8Array));
+      expect(written).toEqual(withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} }));
+    });
+
+    it('should report exists (not an error) and skip PutObject when HeadObject confirms the document already exists', async () => {
+      s3Mock.on(HeadObjectCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+
+    it('should report failure with the error message when PutObject fails after HeadObject confirms the object is absent', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('NotFound'));
+      s3Mock.on(PutObjectCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+      const service = new BootstrapService(makeStore(undefined));
+
+      await expect(service.ensureDeploymentConfig('my-config-bucket')).rejects.toThrow(
+        BootstrapCredentialsNotConfiguredError,
+      );
+    });
+
+    it('should report failure rather than seed over the object when HeadObject fails for a reason other than NotFound', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('AccessDenied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'AccessDenied' });
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
+  });
+
   describe('cross-resource failure isolation', () => {
     it('should report the configuration bucket as failed and the state bucket as created independently, when only the configuration bucket\'s public-access-block call fails', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
@@ -385,6 +470,120 @@ describe('BootstrapService', () => {
       expect(configResult).toEqual({ status: 'created' });
       expect(s3Mock.commandCalls(PutBucketVersioningCommand, { Bucket: 'my-config-bucket' })).toHaveLength(1);
       expect(s3Mock.commandCalls(PutPublicAccessBlockCommand, { Bucket: 'my-config-bucket' })).toHaveLength(1);
+    });
+  });
+
+  /**
+   * Tests for the bootstrap-deadlock fix: `ensureRunsTable` creates the
+   * run-history DynamoDB table via the AWS SDK directly, at wizard-bootstrap
+   * time, before any Pulumi apply has ever run — see this method's own doc
+   * comment for the full rationale and `RunRecordService.test.ts`'s
+   * "pre-apply runsTableName fallback" describe block for the service-layer
+   * half of this fix.
+   */
+  describe('ensureRunsTable', () => {
+    it('should create the table with the exact schema dynamodb.ts documents (pk/sk keys, status-index GSI, PAY_PER_REQUEST billing) and enable point-in-time recovery', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock.on(UpdateContinuousBackupsCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'created' });
+      const createInput = dynamoMock.commandCalls(CreateTableCommand)[0]!.args[0].input;
+      expect(createInput.TableName).toBe('hyveon-runs');
+      expect(createInput.BillingMode).toBe('PAY_PER_REQUEST');
+      expect(createInput.KeySchema).toEqual([
+        { AttributeName: 'pk', KeyType: 'HASH' },
+        { AttributeName: 'sk', KeyType: 'RANGE' },
+      ]);
+      expect(createInput.AttributeDefinitions).toEqual([
+        { AttributeName: 'pk', AttributeType: 'S' },
+        { AttributeName: 'sk', AttributeType: 'S' },
+        { AttributeName: 'status', AttributeType: 'S' },
+        { AttributeName: 'startedAt', AttributeType: 'S' },
+      ]);
+      expect(createInput.GlobalSecondaryIndexes).toEqual([
+        {
+          IndexName: 'status-index',
+          KeySchema: [
+            { AttributeName: 'status', KeyType: 'HASH' },
+            { AttributeName: 'startedAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'ALL' },
+        },
+      ]);
+      expect(createInput.Tags).toEqual([
+        { Key: 'Name', Value: 'hyveon-runs' },
+        { Key: 'Project', Value: 'hyveon' },
+      ]);
+      expect(dynamoMock.commandCalls(UpdateContinuousBackupsCommand)[0]!.args[0].input).toEqual({
+        TableName: 'hyveon-runs',
+        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+      });
+    });
+
+    it('should report exists (not an error) and skip CreateTable when DescribeTable confirms the table already exists', async () => {
+      dynamoMock.on(DescribeTableCommand).resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(UpdateContinuousBackupsCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'exists' });
+      expect(dynamoMock.commandCalls(CreateTableCommand)).toHaveLength(0);
+      // Point-in-time recovery is still (re-)applied on the already-exists
+      // path, mirroring ensureStateBucket/ensureConfigurationBucket's
+      // "bring an older resource up to the current standard" precedent.
+      expect(dynamoMock.commandCalls(UpdateContinuousBackupsCommand)).toHaveLength(1);
+    });
+
+    it('should treat a ResourceInUseException race from CreateTable as exists, not a failure', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).rejects(new ResourceInUseException({ message: 'already exists', $metadata: {} }));
+      dynamoMock.on(UpdateContinuousBackupsCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'exists' });
+    });
+
+    it('should report failure with the error message for an unexpected CreateTable error', async () => {
+      dynamoMock.on(DescribeTableCommand).rejects(new ResourceNotFoundException({ message: 'not found', $metadata: {} }));
+      dynamoMock.on(CreateTableCommand).rejects(new Error('network timeout'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'failed', message: 'network timeout' });
+    });
+
+    it('should report failure when point-in-time recovery cannot be enabled after a successful create', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock.on(UpdateContinuousBackupsCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
+      const service = new BootstrapService(makeStore(undefined));
+
+      await expect(service.ensureRunsTable('hyveon-runs')).rejects.toThrow(BootstrapCredentialsNotConfiguredError);
     });
   });
 });

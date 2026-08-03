@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RunRecord, RunRecordStore, StackOutputs } from '@hyveon/shared';
+import type { RemoteFileStore, RunRecord, RunRecordStore, StackOutputs } from '@hyveon/shared';
 import {
   INLINE_LOG_LIMIT_BYTES,
   RunRecordNotFoundError,
@@ -86,14 +86,36 @@ function makeRunService(): RunService {
   return { releaseRun: releaseRunMock } as Partial<RunService> as RunService;
 }
 
-/** Builds a `RunRecordService` with a `ConfigService` stub returning `outputs` and the given (or default) store/run-service stubs. */
+/**
+ * Builds a `RemoteFileStore` stub whose `get()` resolves to a
+ * `DeploymentConfig`-shaped JSON body built from `config` (or `undefined` —
+ * the default — simulating no configuration object persisted yet, mirroring
+ * every pre-existing "runs_table_name not configured" test's assumption that
+ * the pre-apply fallback also has nothing to resolve). Used to prove
+ * `RunRecordService`'s bootstrap-deadlock fallback: when
+ * `ConfigService.getStackOutputs()` has no `runsTableName` (no apply has
+ * ever succeeded), this is the ONLY source `resolveRunsTableName()` can pull
+ * a table name from.
+ */
+function makeRemoteFileStore(config?: { projectName?: string; runsTableName?: string }): RemoteFileStore {
+  return {
+    get: async () =>
+      config === undefined ? undefined : { body: new TextEncoder().encode(JSON.stringify(config)), etag: 'etag-1' },
+    getVersion: () => Promise.reject(new Error('not implemented in fake')),
+    put: () => Promise.reject(new Error('not implemented in fake')),
+    listVersions: () => Promise.reject(new Error('not implemented in fake')),
+  };
+}
+
+/** Builds a `RunRecordService` with a `ConfigService` stub returning `outputs` and the given (or default) store/run-service/remote-file-store stubs. */
 function makeService(
   outputs: StackOutputs | null = TF,
   store: RunRecordStore = makeStore(),
   runService: RunService = makeRunService(),
+  remoteFileStore: RemoteFileStore = makeRemoteFileStore(),
 ): RunRecordService {
   const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
-  return new RunRecordService(config, store, runService);
+  return new RunRecordService(config, store, runService, remoteFileStore);
 }
 
 /** Builds a sample {@link PersistRunRecordParams}, overridable per-test. */
@@ -540,6 +562,128 @@ describe('RunRecordService', () => {
 
       await expect(service.approveRun('run-123', 'alice')).rejects.toThrow(RunRecordNotSuccessfulError);
       expect(putRecordMock).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Proves the specific bootstrap-deadlock sequence the final-review
+   * Critical finding described is now fixed: a fresh install has no Pulumi
+   * stack outputs yet (no apply has EVER succeeded — `getStackOutputs()`
+   * resolves `null`, exactly like `PulumiService.getStackOutputs()`'s own
+   * "empty outputs degrades to null" contract), so every one of these tests
+   * uses `makeService(null, ...)`. What used to be an unconditional dead end
+   * (`RunRecordTableNotConfiguredError`/skipped persistence/`undefined`,
+   * regardless of anything else) now succeeds once a `DeploymentConfig` has
+   * been persisted — which happens BEFORE the runs table is even reachable
+   * via a completed apply, since `BootstrapService.ensureRunsTable` creates
+   * it via the AWS SDK at wizard-bootstrap time, well before any Pulumi
+   * apply ever runs.
+   *
+   * Honest scope note: this is a focused unit test on `RunRecordService`
+   * directly (per the fix brief's option B — a DI-seam stub can't
+   * realistically model "a real Pulumi apply never ran, but the AWS SDK
+   * already created a real DynamoDB table," since the Pulumi engine itself
+   * is unavailable in this test tier). It proves the SERVICE-LAYER gates
+   * (`persist`/`getByRunId`/`listRuns`/`approveRun`) resolve a real table
+   * name and proceed instead of dead-ending — it does NOT exercise a real
+   * DynamoDB table, a real `BootstrapService.ensureRunsTable` AWS SDK call,
+   * or the real Pulumi Automation API. `BootstrapService.test.ts` covers
+   * `ensureRunsTable` itself (mocked AWS SDK) and
+   * `cloud-provider.module.test.ts` covers `resolveRunRecordStoreConfig`'s
+   * identical fallback for the `AwsRunRecordStore` construction path — this
+   * describe block is the third leg proving the gates that were the
+   * ORIGINAL deadlock (`RunRecordTableNotConfiguredError`,
+   * `PulumiPlanRunNotFoundError`'s precondition) no longer trip.
+   */
+  describe('pre-apply runsTableName fallback (bootstrap-deadlock fix)', () => {
+    it('should skip persistence when neither a stack output nor a persisted DeploymentConfig has a runs table name yet (the true pre-bootstrap state)', async () => {
+      const service = makeService(null, undefined, undefined, makeRemoteFileStore(undefined));
+
+      await expect(service.persist(makeParams(), null)).resolves.toBeUndefined();
+
+      expect(putRecordMock).not.toHaveBeenCalled();
+    });
+
+    it('should persist via the resolved deterministic table name once a DeploymentConfig exists, even though no Pulumi apply has ever succeeded', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const remoteFileStore = makeRemoteFileStore({ projectName: 'hyveon', runsTableName: '' });
+      const service = makeService(null, undefined, undefined, remoteFileStore);
+
+      await service.persist(makeParams(), null);
+
+      // The write went through — the fallback resolved SOME table name
+      // rather than short-circuiting to the "not configured" no-op.
+      expect(putRecordMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should look up a previously persisted record via getByRunId using the pre-apply fallback table name', async () => {
+      const record = makeRecord();
+      getRecordByRunIdMock.mockResolvedValue(record);
+      const remoteFileStore = makeRemoteFileStore({ projectName: 'hyveon', runsTableName: '' });
+      const service = makeService(null, undefined, undefined, remoteFileStore);
+
+      const result = await service.getByRunId('run-123');
+
+      expect(result).toBe(record);
+      expect(getRecordByRunIdMock).toHaveBeenCalledWith('run-123');
+    });
+
+    it('should list runs using the pre-apply fallback table name instead of returning an empty page', async () => {
+      listRunsMock.mockResolvedValue({ records: [] });
+      const remoteFileStore = makeRemoteFileStore({ projectName: 'hyveon', runsTableName: '' });
+      const service = makeService(null, undefined, undefined, remoteFileStore);
+
+      await service.listRuns();
+
+      expect(listRunsMock).toHaveBeenCalledWith({ limit: 25 });
+    });
+
+    it('should approve a plan run using the pre-apply fallback table name instead of throwing RunRecordTableNotConfiguredError — the exact gate the bootstrap deadlock tripped', async () => {
+      const record = makeRecord();
+      getRecordByRunIdMock.mockResolvedValue(record);
+      putRecordMock.mockResolvedValue(undefined);
+      const remoteFileStore = makeRemoteFileStore({ projectName: 'hyveon', runsTableName: '' });
+      const service = makeService(null, undefined, undefined, remoteFileStore);
+
+      const result = await service.approveRun('run-123', 'alice');
+
+      expect(putRecordMock).toHaveBeenCalledTimes(1);
+      const persisted = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(persisted.approvedBy).toBe('alice');
+      expect(result).toEqual(persisted);
+    });
+
+    it('should demonstrate the full deadlock-to-fixed sequence: persist skips before bootstrap, then succeeds and approves after bootstrap — with no Pulumi apply ever having run in between', async () => {
+      // Step 1: a genuinely fresh install — no stack outputs, no
+      // DeploymentConfig persisted yet (the wizard's bootstrap step, which
+      // creates the runs table AND lets the operator configure game servers,
+      // hasn't been reached). This is the true pre-bootstrap state.
+      const beforeBootstrap = makeService(null, undefined, undefined, makeRemoteFileStore(undefined));
+      await expect(beforeBootstrap.persist(makeParams({ runId: 'run-before' }), null)).resolves.toBeUndefined();
+      expect(putRecordMock).not.toHaveBeenCalled();
+
+      // Step 2: "bootstrap" has now run (BootstrapService.ensureRunsTable
+      // created the table; the operator has since configured game servers,
+      // persisting a DeploymentConfig) — but STILL no Pulumi apply has ever
+      // succeeded, so getStackOutputs() is still null.
+      putRecordMock.mockResolvedValue(undefined);
+      const afterBootstrap = makeService(
+        null,
+        undefined,
+        undefined,
+        makeRemoteFileStore({ projectName: 'hyveon', runsTableName: '' }),
+      );
+
+      // Plan's record can now be persisted...
+      await afterBootstrap.persist(makeParams({ runId: 'run-after', kind: 'plan' }), null);
+      expect(putRecordMock).toHaveBeenCalledTimes(1);
+
+      // ...and approved — the exact gate `RunRecordService.approveRun`
+      // (and, transitively, `PulumiService.apply`'s own gate via
+      // `getRunRecordPersister().getByRunId`) used to dead-end on forever.
+      getRecordByRunIdMock.mockResolvedValue(makeRecord({ runId: 'run-after', kind: 'plan', status: 'success' }));
+      const approved = await afterBootstrap.approveRun('run-after', 'alice');
+      expect(approved.approvedBy).toBe('alice');
     });
   });
 });

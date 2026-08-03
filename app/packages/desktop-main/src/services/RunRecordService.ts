@@ -24,12 +24,12 @@
  */
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
-import { buildRunSk, deriveRunStatus } from '@hyveon/shared';
-import type { ChangeSummary, RunKind, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
+import { buildRunSk, deriveRunStatus, resolvePreApplyRunsTableName } from '@hyveon/shared';
+import type { ChangeSummary, RemoteFileStore, RunKind, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
-import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
+import { RUN_RECORD_STORE, REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 
 /**
  * Thrown by {@link RunRecordService.approveRun} when the run-history table
@@ -202,7 +202,38 @@ export class RunRecordService {
     private readonly config: ConfigService,
     @Inject(RUN_RECORD_STORE) private readonly store: RunRecordStore,
     private readonly runService: RunService,
+    @Inject(REMOTE_FILE_STORE) private readonly remoteFileStore: RemoteFileStore,
   ) {}
+
+  /**
+   * Resolves the run-history table's name, preferring
+   * `ConfigService.getStackOutputs()`'s `runsTableName` (the deployed
+   * stack's own report, once one exists) and falling back to
+   * `@hyveon/shared`'s `resolvePreApplyRunsTableName` — which reads the
+   * persisted `DeploymentConfig` directly via the injected `RemoteFileStore`
+   * — when no stack output is available yet.
+   *
+   * This fallback is the fix for the bootstrap deadlock this table used to
+   * cause: `getStackOutputs()` only ever reports a value after a stack's
+   * FIRST successful `apply` (see that method's own doc, "empty outputs also
+   * degrades to null"), but every one of this class's public methods needs
+   * to resolve a table name on the very first plan/apply cycle of a fresh
+   * install, before that has ever happened. Since the runs table is now
+   * created via the AWS SDK at wizard-bootstrap time (`BootstrapService.ensureRunsTable`),
+   * before any `DeploymentConfig`/Pulumi apply exists at all, computing its
+   * deterministic name directly from the persisted config is both correct
+   * and available immediately — see `resolvePreApplyRunsTableName`'s own doc
+   * for why this never throws and degrades to `undefined` for every "not
+   * ready yet" case identically to a genuinely-undeployed stack.
+   *
+   * @returns The resolved table name, or `undefined` if neither source has
+   *   one yet (no stack deployed AND no `DeploymentConfig` persisted yet).
+   */
+  private async resolveRunsTableName(): Promise<string | undefined> {
+    const fromStack = (await this.config.getStackOutputs())?.runsTableName;
+    if (fromStack) return fromStack;
+    return resolvePreApplyRunsTableName(this.remoteFileStore);
+  }
 
   /**
    * Builds a {@link RunRecord} from `params` (`status` derived via
@@ -248,7 +279,7 @@ export class RunRecordService {
    */
   async persist(params: PersistRunRecordParams, logFilePath: string | null): Promise<void> {
     try {
-      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      const tableName = await this.resolveRunsTableName();
       if (!tableName) {
         logger.warn('RunRecordService.persist: runs_table_name not configured, skipping run record persistence', {
           runId: params.runId,
@@ -355,7 +386,7 @@ export class RunRecordService {
    *   configured yet).
    */
   async getByRunId(runId: string): Promise<RunRecord | undefined> {
-    const tableName = (await this.config.getStackOutputs())?.runsTableName;
+    const tableName = await this.resolveRunsTableName();
     if (!tableName) {
       logger.warn('RunRecordService.getByRunId: runs_table_name not configured, returning undefined', {
         runId,
@@ -380,7 +411,7 @@ export class RunRecordService {
    * @returns The requested page of records plus a cursor for the next page.
    */
   async listRuns(opts: ListRunsOpts = {}): Promise<RunPageResult> {
-    const tableName = (await this.config.getStackOutputs())?.runsTableName;
+    const tableName = await this.resolveRunsTableName();
     if (!tableName) {
       logger.warn('RunRecordService.listRuns: runs_table_name not configured, returning empty run history page');
       return { records: [] };
@@ -420,7 +451,7 @@ export class RunRecordService {
    * @returns The updated {@link RunRecord}, with `approvedBy`/`approvedAt` set.
    */
   async approveRun(runId: string, approvedBy: string): Promise<RunRecord> {
-    const tableName = (await this.config.getStackOutputs())?.runsTableName;
+    const tableName = await this.resolveRunsTableName();
     if (!tableName) {
       throw new RunRecordTableNotConfiguredError(runId);
     }

@@ -110,7 +110,7 @@ beforeEach(() => {
 });
 
 describe('PulumiService.clearStaleLock', () => {
-  it('should call getOrCreateStack with a no-op program, stackExists: true, and backendReady: true, then call stack.cancel()', async () => {
+  it('should call getOrCreateStack with a no-op program and backendReady: true, then call stack.cancel()', async () => {
     const cancelMock = vi.fn().mockResolvedValue(undefined);
     const workspace = makeWorkspace(cancelMock);
     const service = makeService({ workspace });
@@ -124,7 +124,6 @@ describe('PulumiService.clearStaleLock', () => {
       stateBucket: 'my-state-bucket',
       stateBucketRegion: 'us-east-1',
       backendReady: true,
-      stackExists: true,
     });
     expect(typeof input['program']).toBe('function');
     expect(cancelMock).toHaveBeenCalledTimes(1);
@@ -228,6 +227,35 @@ describe('PulumiService.clearStaleLock', () => {
     resolveDestroy();
     await destroyNext;
     await destroyGen.next();
+  });
+
+  it('should reject with a plain Error, and never call getOrCreateStack, when initializeStack() is already in flight (Finding 2, final review)', async () => {
+    // Before this fix, clearStaleLock() only checked `operationInFlight` —
+    // `initializeStack()` never sets that flag (see PulumiService.ts's own
+    // `stackInitInFlight` doc comment), so an operator could confirm-clear
+    // a lock while a legitimate `initializeStack()` refresh was still
+    // genuinely running, cancelling live, correct work instead of a
+    // genuinely stale one.
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService({ workspace: hangingWorkspace });
+
+    const initPromise = service.initializeStack();
+    await Promise.resolve();
+    await Promise.resolve();
+    // `initializeStack()` itself has already called `getOrCreateStack` once
+    // (and is hanging inside it) — the assertion below is that
+    // `clearStaleLock()` never calls it a SECOND time, not that it was never
+    // called at all.
+    expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+
+    await expect(service.clearStaleLock('placeholder-token')).rejects.toThrow(/initializeStack.*already running/i);
+    expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+
+    void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.
   });
 
   it('should reject with a descriptive Error, and never call getOrCreateStack, when the state bucket / AWS region is not configured', async () => {

@@ -125,6 +125,7 @@ import type {
   SaveWizardStateInput,
   BootstrapStateBucketInput,
   BootstrapConfigurationBucketInput,
+  BootstrapDeploymentConfigInput,
   BootstrapResult,
   IamCheckResult,
   WizardProgress,
@@ -726,6 +727,9 @@ const api: HyveonApi = {
       invoke<BootstrapResult>('wizard.bootstrap.stateBucket', input),
     bootstrapConfigurationBucket: (input: BootstrapConfigurationBucketInput) =>
       invoke<BootstrapResult>('wizard.bootstrap.configurationBucket', input),
+    bootstrapDeploymentConfig: (input: BootstrapDeploymentConfigInput) =>
+      invoke<BootstrapResult>('wizard.bootstrap.deploymentConfig', input),
+    bootstrapRunsTable: () => invoke<BootstrapResult>('wizard.bootstrap.runsTable'),
     simulateIamPermissions: () => invoke<IamCheckResult>('wizard.iam.simulate'),
     getProgress: () => invoke<WizardProgress>('wizard.progress.get'),
     saveProgress: (input: SaveWizardProgressInput) => invoke<void>('wizard.progress.save', input),

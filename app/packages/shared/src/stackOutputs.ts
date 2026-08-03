@@ -86,7 +86,15 @@ export interface StackOutputs {
   /** DynamoDB table holding audit log entries. Mirrors the `audit_table_name` output. */
   auditTableName: string;
 
-  /** DynamoDB table holding Pulumi preview/apply run records. Mirrors the `runs_table_name` output. */
+  /**
+   * DynamoDB table holding Pulumi preview/apply run records. Mirrors the
+   * `runs_table_name` output. Unlike every other field here, this is a plain
+   * config echo (`resolveRunsTableName(projectName, runsTableName)` in
+   * `deploymentConfig.js`), not a value derived from a Pulumi resource — the
+   * runs table itself is bootstrap-managed (created via the AWS SDK before
+   * any apply ever runs), not Pulumi-managed. See `DeploymentConfig.runsTableName`'s
+   * doc for why.
+   */
   runsTableName: string;
 
   /**

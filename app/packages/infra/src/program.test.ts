@@ -50,7 +50,6 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     ...Object.values(result.ecs.logGroups).map((lg) => promiseOf(lg.id)),
     ...Object.values(result.ecs.taskDefinitions).map((td) => promiseOf(td.id)),
     promiseOf(result.dynamoDb.discordTable.id),
-    promiseOf(result.dynamoDb.runsTable.id),
     promiseOf(result.dynamoDb.auditTable.id),
     promiseOf(result.secrets.discordBotTokenSecretVersion.id),
     promiseOf(result.secrets.discordPublicKeySecretVersion.id),
@@ -156,8 +155,9 @@ describe('defineAll', () => {
     expect(types.filter((type) => type === 'aws:ecs/taskDefinition:TaskDefinition')).toHaveLength(4);
     expect(types).not.toContain('aws:ecs/service:Service');
 
-    // DynamoDB tables + Secrets Manager.
-    expect(types.filter((type) => type === 'aws:dynamodb/table:Table')).toHaveLength(3);
+    // DynamoDB tables + Secrets Manager. Only 2 tables (discord + audit) —
+    // the runs table is not Pulumi-managed; see `dynamodb.ts`'s file doc.
+    expect(types.filter((type) => type === 'aws:dynamodb/table:Table')).toHaveLength(2);
     expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(2);
     expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(2);
 
@@ -210,7 +210,9 @@ describe('defineAll', () => {
     expect(names).toContain('hyveon-saves');
     expect(names).toContain('hyveon-cluster');
     expect(names).toContain('hyveon-discord');
-    expect(names).toContain('hyveon-runs');
+    // No 'hyveon-runs' resource any more — the runs table is bootstrap-
+    // managed (AWS SDK), not a Pulumi resource; see `dynamodb.ts`'s file doc.
+    expect(names).not.toContain('hyveon-runs');
     expect(names).toContain('hyveon-audit');
     expect(names).toContain('hyveon-discord-bot-token');
     expect(names).toContain('hyveon-discord-public-key');
@@ -390,7 +392,11 @@ describe('buildStackOutputs', () => {
     expect(outputs.gameNames).toEqual(Object.keys(config.gameServers).sort());
     expect(await promiseOf(outputs.discordTableName)).toBe(await promiseOf(resources.dynamoDb.discordTable.name));
     expect(await promiseOf(outputs.auditTableName)).toBe(await promiseOf(resources.dynamoDb.auditTable.name));
-    expect(await promiseOf(outputs.runsTableName)).toBe(await promiseOf(resources.dynamoDb.runsTable.name));
+    // `runsTableName` is a plain config echo now (the runs table is no
+    // longer a Pulumi resource — see `dynamodb.ts`'s file doc), so it's
+    // compared against the resolved value directly rather than a resource
+    // handle, unlike every other table-name assertion in this test.
+    expect(outputs.runsTableName).toBe(`${config.projectName}-runs`);
     expect(await promiseOf(outputs.discordBotTokenSecretArn)).toBe(await promiseOf(resources.secrets.discordBotTokenSecret.arn));
     expect(await promiseOf(outputs.discordPublicKeySecretArn)).toBe(await promiseOf(resources.secrets.discordPublicKeySecret.arn));
 
@@ -422,7 +428,15 @@ describe('buildStackOutputs', () => {
     const outputs = buildStackOutputs(resources, config);
 
     expect(await promiseOf(outputs.auditTableName)).toBe('hyveon-audit');
-    expect(await promiseOf(outputs.runsTableName)).toBe('hyveon-runs');
+    expect(outputs.runsTableName).toBe('hyveon-runs');
+  });
+
+  it('should resolve runsTableName to the configured override, not the project-prefixed default, when one is set', async () => {
+    const config = buildTestDeploymentConfig({ projectName: 'hyveon', runsTableName: 'custom-runs-table' });
+    const resources = await runDefineAll(config);
+    const outputs = buildStackOutputs(resources, config);
+
+    expect(outputs.runsTableName).toBe('custom-runs-table');
   });
 
   it('should throw when a game name in config.gameServers has no matching efs.gameAccessPoints entry', async () => {

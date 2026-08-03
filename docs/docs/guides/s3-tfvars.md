@@ -67,8 +67,9 @@ state backend.
 A few ways to bootstrap it, in order of convenience:
 
 1. **The desktop app's setup wizard** — bootstraps this bucket for you as
-   part of its bootstrap step (alongside the state bucket; there is no lock
-   table — Pulumi's self-managed S3 backend does not use one — see the
+   part of its bootstrap step (alongside the state bucket and the
+   run-history table; there is no lock table — Pulumi's self-managed S3
+   backend does not use one — see the
    [setup guide](/setup#2-clone-install-and-launch-the-wizard)), directly via
    the AWS SDK.
 

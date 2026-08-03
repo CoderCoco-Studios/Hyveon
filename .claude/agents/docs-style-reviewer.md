@@ -15,8 +15,8 @@ A reviewer who mixes them gets the mandatory ones ignored along with the nits.
 
 - **Broken links.** `onBrokenLinks` and `onBrokenMarkdownLinks` are both `throw` in
   `docs/docusaurus.config.ts`. Internal links are root-relative with **no `/docs`
-  prefix** — `/components/terraform`, not `/docs/components/terraform` and not a
-  relative `../components/terraform.md`. Confirm each link target actually exists.
+  prefix** — `/components/infra`, not `/docs/components/infra` and not a
+  relative `../components/infra.md`. Confirm each link target actually exists.
 - **MDX parse hazards.** `.md` is parsed as MDX, so a bare `{` or `<` outside a
   code fence is an error — `{game}-server`, `Partial<T>`, `<name>` must sit inside
   backticks or a fence.

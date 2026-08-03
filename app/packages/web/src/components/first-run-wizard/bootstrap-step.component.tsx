@@ -29,6 +29,27 @@ export interface BootstrapStepProps {
   onRunBootstrap: () => void;
   /** True while any bootstrap call is in flight. */
   bootstrapping: boolean;
+  /**
+   * Latest known status of the run-history DynamoDB table (the bootstrap-
+   * deadlock fix, `wizard.bootstrap.runsTable`) — rendered as a separate,
+   * read-only row (no editable name field, unlike {@link names}'s two
+   * entries): its name isn't operator-editable at this point in the wizard,
+   * since no `DeploymentConfig` exists yet to hold a `runsTableName`
+   * override.
+   */
+  runsTableStatus: BootstrapResourceState;
+  /** Present when {@link runsTableStatus} is `'failed'`. */
+  runsTableMessage?: string;
+  /**
+   * Latest known status of the initial `deployment-config.json` seed (the
+   * fresh-install-bricking fix, `wizard.bootstrap.deploymentConfig`) —
+   * rendered as a separate, read-only row like {@link runsTableStatus}: it
+   * has no editable name field of its own (it's seeded into whichever
+   * configuration bucket {@link names}`.configurationBucket` names).
+   */
+  deploymentConfigStatus: BootstrapResourceState;
+  /** Present when {@link deploymentConfigStatus} is `'failed'`. */
+  deploymentConfigMessage?: string;
   /** Latest IAM dry-run result, or `null` before the first check runs. */
   iamCheck: IamCheckResult | null;
   /** True while the IAM check is in flight. */
@@ -56,6 +77,10 @@ export function BootstrapStep({
   onNameChange,
   onRunBootstrap,
   bootstrapping,
+  runsTableStatus,
+  runsTableMessage,
+  deploymentConfigStatus,
+  deploymentConfigMessage,
   iamCheck,
   iamChecking,
   iamError,
@@ -64,8 +89,8 @@ export function BootstrapStep({
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Hyveon needs two AWS resources to manage its infrastructure state, plus a permission check against your
-        account. Resource names are editable — the defaults below are usually fine.
+        Hyveon needs three AWS resources to manage its infrastructure state and run history, plus a permission
+        check against your account. The two bucket names are editable — the defaults below are usually fine.
       </p>
 
       <div className="space-y-4">
@@ -80,11 +105,17 @@ export function BootstrapStep({
             disabled={bootstrapping}
           />
         ))}
+        <RunsTableRow status={runsTableStatus} message={runsTableMessage} />
+        <DeploymentConfigRow status={deploymentConfigStatus} message={deploymentConfigMessage} />
       </div>
 
       <Button type="button" onClick={onRunBootstrap} disabled={bootstrapping}>
         {bootstrapping && <Loader2 className="animate-spin" />}
-        {Object.values(statuses).some((s) => s === 'created' || s === 'exists') ? 'Re-run bootstrap' : 'Bootstrap AWS resources'}
+        {[...Object.values(statuses), runsTableStatus, deploymentConfigStatus].some(
+          (s) => s === 'created' || s === 'exists',
+        )
+          ? 'Re-run bootstrap'
+          : 'Bootstrap AWS resources'}
       </Button>
 
       <div className="border-t border-[var(--color-border)] pt-4 space-y-3">
@@ -211,6 +242,60 @@ function ResourceRow({
           Public access blocked
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Renders the run-history table's status row — deliberately NOT a
+ * {@link ResourceRow}: unlike the two S3 buckets, this resource has no
+ * editable name field at this point in the wizard (no `DeploymentConfig`
+ * exists yet to hold a `runsTableName` override — see
+ * `WizardController.bootstrapRunsTable`'s own doc comment for why it always
+ * uses the project-name default). This is the fix for the bootstrap
+ * deadlock: the run-history table used to only ever be created by the first
+ * Pulumi apply, which itself needed the table to already exist to record its
+ * own run.
+ */
+function RunsTableRow({ status, message }: { status: BootstrapResourceState; message?: string }) {
+  const succeeded = status === 'created' || status === 'exists';
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        {succeeded && <CheckCircle2 className="size-4 text-[var(--color-green)]" />}
+        {status === 'creating' && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {status === 'failed' && <XCircle className="size-4 text-[var(--color-red)]" />}
+        <span className="font-medium">Run-history table</span>
+        <StatusBadge status={status} />
+      </div>
+      {status === 'failed' && message && <p className="text-xs text-[var(--color-red)]">{message}</p>}
+    </div>
+  );
+}
+
+/**
+ * Renders the initial `deployment-config.json` seed's status row — the fix
+ * for a Critical bootstrap gap: nothing else ever created that document, so
+ * before this row's underlying `wizard.bootstrap.deploymentConfig` call
+ * existed, a fresh install landed on the dashboard with no way to save
+ * Settings, add a game, or run a Pulumi preview (every one of those reads
+ * the document before writing, and the read threw when it didn't exist).
+ * Deliberately NOT a {@link ResourceRow}, mirroring {@link RunsTableRow}: no
+ * editable name field of its own — it's seeded into whichever configuration
+ * bucket the {@link ResourceRow} above it names.
+ */
+function DeploymentConfigRow({ status, message }: { status: BootstrapResourceState; message?: string }) {
+  const succeeded = status === 'created' || status === 'exists';
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        {succeeded && <CheckCircle2 className="size-4 text-[var(--color-green)]" />}
+        {status === 'creating' && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {status === 'failed' && <XCircle className="size-4 text-[var(--color-red)]" />}
+        <span className="font-medium">Initial configuration</span>
+        <StatusBadge status={status} />
+      </div>
+      {status === 'failed' && message && <p className="text-xs text-[var(--color-red)]">{message}</p>}
     </div>
   );
 }

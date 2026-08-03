@@ -72,8 +72,8 @@ function useWizardCompleted(): boolean | null {
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
  *   - `/logs` → Logs placeholder
- *   - `/iac` → Terraform plan/apply
- *   - `/iac/history` → Terraform run history
+ *   - `/iac` → Infrastructure plan/apply
+ *   - `/iac/history` → Infrastructure run history
  *   - `/iac/history/:runId` → Read-only run detail
  *   - `/settings` → Watchdog + general settings
  *   - `/games` → Games list (read-only settings)
