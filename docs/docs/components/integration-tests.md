@@ -99,6 +99,7 @@ await serverMocks.pushRunTask({
 | `can-run.spec.ts` | Placeholder — skipped until Discord permission enforcement (`canRun()`) is wired into the `ipc` test harness. |
 | `stack-outputs.spec.ts` | `IacController.output` (the `iac.output` channel) returns the scripted `PulumiService.getStackOutputs()` value verbatim, and degrades to `null` — not a throw — for a never-deployed stack. |
 | `pulumi-di-seam.spec.ts` | Proves the DI substitution itself: a scripted, non-UUID-shaped `mintDestroyConfirmationToken()` value round-trips through `IacController.mintDestroyToken`, and `ipc.get(PulumiService)` is reference-equal to `ipc.mocks.pulumi`. |
+| `guided-iam.spec.ts` | Dispatches the five `wizard.guidedIam.*` channels through the real, DI-resolved `WizardController` → `GuidedIamService`, covering template rendering, console-URL fallback, bootstrap-key intake, the full mint→verify→revoke rotation, and the `delete-failed` manual-revoke retry. |
 
 ## PulumiService DI-Seam Stub
 
@@ -155,6 +156,26 @@ Since the mock patches `DynamoDBDocumentClient`'s prototype globally, it also in
 - **Reset per harness** — `createIpcHarness()` calls `remoteFileStoreMockStore.reset()` before installing the mock, so no configuration content or version history leaks from one spec's `AppModule` context into the next.
 - **Currently inert for every spec in the set (tasks 11.1/11.2)** — `GamesController.listGames`/`listStatus` (dispatched by `config-service.spec.ts`/`start-stop.spec.ts`) do call into `TfvarsService`, but none of the specs in this set set `HYVEON_TFVARS_BUCKET`, so `TfvarsService.getGameServers()` catches its own `ConfigurationNotConfiguredError` and returns an empty list before ever reaching `RemoteFileStore`/`S3Client.send()`. Installing the mock unconditionally in `createIpcHarness()` is forward-looking — it exists for `TfvarsService`-content/rollback specs that haven't landed yet.
 
+## Guided-IAM STS/IAM Mock
+
+`guided-iam.spec.ts` is a different shape from the other specs in this
+inventory: it patches `STSClient`/`IAMClient` with `aws-sdk-client-mock`'s
+`mockClient()` **inline, in the spec file itself**, rather than through a
+shared singleton under `app/packages/desktop-main/src/test-mocks/` the way
+the ECS/DynamoDB/S3 mocks above are wired into `createIpcHarness()`. It's a
+fourth AWS-mock family, reset in a spec-local `beforeEach` rather than by the
+harness.
+
+It also has to work around `SafeStorageService.isAvailable()` being `false`
+in this plain-Node Playwright process (there is no real Electron runtime to
+back it, same as a unit test) — without that, `GuidedIamService.rotate()`
+throws `SafeStorageUnavailableError` before ever reaching AWS. The spec's
+`forceKeychainAvailable()` helper overrides the DI-resolved
+`SafeStorageService` singleton's `isAvailable`/`encrypt`/`decrypt` to a
+pass-through, mirroring the same "keychain available, but plaintext storage"
+state `GuidedIamService.test.ts`'s unit tests target, scoped to the fresh
+`AppModule` context `ipc` compiles per test.
+
 ## Design Constraints
 
 - **`workers: 1`, `fullyParallel: false`** — the `MockStore` is an in-process singleton; concurrent tests would corrupt each other's queues.
@@ -208,6 +229,25 @@ users can reach the mock registry.
 
 The `test-mock-registry` module is **not** imported by the preload script or any
 production code; it exists only for jsdom-environment test helpers.
+
+### Alternative pattern: fresh `ElectronApplication` per test
+
+The shared-app + `clearMocks()` pattern above assumes there's a remount lever
+— routed-page specs like `discord.spec.ts` get per-test isolation from
+`DiscordPage.goto()`'s `pushState`/`popstate` dance forcing a fresh mount, not
+from clearing mocks alone. A component that mounts once and never remounts
+has no such lever: `guided-iam-wizard.spec.ts` covers the first-run wizard
+shell, which mounts once outside the router on app boot, so `clearMocks()`
+between tests would leave a prior test's settled state in place with nothing
+to re-drive it.
+
+That spec instead launches a brand-new `ElectronApplication` in `beforeEach`
+and closes it in `afterEach` (the same per-test-launch pattern `logs.spec.ts`
+uses), seeding each fresh app's mocks immediately after `firstWindow()`
+resolves and before the renderer's mount effect can fire. Reach for this
+pattern for any spec targeting a component that mounts once with no
+navigation-driven remount — it's slower than sharing one app, but it's the
+only way to guarantee each test starts from a truly fresh mount.
 
 **Known limitation.** A mock handler registered through `contextBridge` cannot be
 backed by a real async generator — Electron's structured clone across the bridge

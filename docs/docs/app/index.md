@@ -32,7 +32,9 @@ works until Pulumi has a state backend to talk to.
 
 ### 2. Complete the wizard
 
-Four steps: choose your cloud (AWS is the only option today), point the app
+Five steps: choose your cloud (AWS is the only option today), provision AWS
+access (let Hyveon create and rotate a deploy principal via a guided
+CloudFormation flow, or skip straight to your own credentials), point the app
 at an AWS profile or paste access keys, create the two bootstrap resources
 (an S3 state bucket and an S3 tfvars bucket), and finally initialize the
 Pulumi stack against that new backend.

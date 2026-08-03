@@ -137,9 +137,16 @@ Settings page immediately, with no confirmation.
 
 Use it to switch AWS profiles, change region, or re-point the deployment at
 differently-named bootstrap resources. It runs a shortened, pre-filled variant
-of the first-run flow — four steps instead of five, every step collapsed to a
-summary with an **Edit** button, and all your edits buffered into a single
-save when you press **Finish setup**. There is a **Cancel** button throughout.
+of the first-run flow — the same five steps, with Choose your cloud, AWS
+credentials, and Bootstrap AWS resources always collapsed to a summary with an
+**Edit** button. Provision AWS access collapses too, but only conditionally —
+it pre-completes only when your currently-active credential is the exact
+profile guided provisioning produces, and otherwise renders as a live step.
+Edits to Choose your cloud, AWS credentials, and Bootstrap AWS resources are
+buffered into a single save when you press **Finish setup** — Cancel discards
+them. Provision AWS access is different: completing it writes your active
+credential source immediately, not on Finish, so Cancel cannot undo it. There
+is a **Cancel** button throughout regardless.
 
 See [First-run wizard → Reconfigure](/app/first-run-wizard#reconfigure) for
 the full behaviour, including what Cancel can and cannot undo.

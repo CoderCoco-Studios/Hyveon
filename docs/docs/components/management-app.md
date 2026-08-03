@@ -142,9 +142,15 @@ never speaks HTTP to this process.
   it needs at call time via `ModuleRef.get(token, { strict: false })` instead
   of constructor injection.
 - **`WizardModule`** — imports `ElectronStoreModule`; provides
-  `AwsProfileService`, `BootstrapService`, `IamCheckService`, and
-  `FirstRunWizardService` for the first-run setup wizard. `PrerequisiteService`
-  was deleted (task 10.1/10.2) along with the wizard's old prerequisites step.
+  `AwsProfileService`, `BootstrapService`, `IamCheckService`,
+  `FirstRunWizardService`, and `GuidedIamService` for the first-run setup
+  wizard. `GuidedIamService` backs the guided-IAM step: renders the
+  `iam-bootstrap.yaml` CloudFormation template, hands off to the console,
+  intakes the operator-pasted bootstrap key, and performs the mandatory
+  mint-then-revoke rotation onto a freshly-minted key pair — plus a
+  standalone manual-revoke action for the rotation's failure path.
+  `PrerequisiteService` was deleted (task 10.1/10.2) along with the wizard's
+  old prerequisites step.
 - **`ElectronStoreModule`** — provides `SafeStorageService` (OS-keychain
   encryption) and `ElectronStoreService` (the typed `electron-store`
   consumer built on top of it). See
@@ -169,7 +175,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 | `IacController` | `iac.stack.initialize`, `iac.plan`, `iac.apply`, `iac.destroy.mintToken`, `iac.destroy`, `iac.output`, `iac.approve`, `iac.rollback.resolve`, `iac.rollback.confirm`, `iac.lock.clear` | Drives `PulumiService` (Automation API via `LocalWorkspace`, which launches the pinned `@pulumi/pulumi` engine as a child process through `LocalWorkspaceOptions.pulumiCommand` — the app downloads and verifies that engine itself, so no host-installed or PATH-discovered CLI is ever used) for the plan/apply/destroy/rollback pipeline. `iac.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; `iac.lock.clear` recovers a stale Pulumi backend lock. |
 | `IacRunsController` | `iac.runs.get`, `iac.runs.logs`, `iac.runs.list`, `iac.runs.logUrl` | Run history: fetch a record, stream/fetch its log, list/paginate, resolve an offloaded S3 log link. |
 | `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `TfvarsService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. |
-| `WizardController` | first-run wizard channels (AWS profile/credentials, bootstrap, IAM check, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
+| `WizardController` | first-run wizard channels (AWS profile/credentials, bootstrap, IAM check, guided-IAM CloudFormation bootstrap, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 
 ### Key services
 
