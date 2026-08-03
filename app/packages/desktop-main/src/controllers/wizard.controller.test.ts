@@ -53,7 +53,7 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
 }
 
 /** Build an IamCheckService stub whose `checkPermissions()` resolves to the given result. */
-function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckService {
+function makeIamCheck(result: IamCheckResult = { status: 'passed', origin: 'none', blocking: false }): IamCheckService {
   return { checkPermissions: vi.fn().mockResolvedValue(result) } as Partial<IamCheckService> as IamCheckService;
 }
 
@@ -384,28 +384,38 @@ describe('WizardController', () => {
 
   describe('simulateIamPermissions', () => {
     it('should delegate to IamCheckService.checkPermissions and return the result unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'passed' });
+      const iamCheck = makeIamCheck({ status: 'passed', origin: 'profile', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
       expect(iamCheck.checkPermissions).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ status: 'passed' });
+      expect(result).toEqual({ status: 'passed', origin: 'profile', blocking: false });
     });
 
     it('should propagate a missing-permissions result with its policy JSON unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      const iamCheck = makeIamCheck({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      expect(result).toEqual({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
     });
 
     it('should propagate a warning result unchanged rather than throwing', async () => {
-      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied' });
+      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'warning', message: 'access denied' });
+      expect(result).toEqual({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
     });
   });
 

@@ -31,6 +31,7 @@ export type {
   OpType,
   AwsProfileSummary,
   IamCheckResult,
+  IamCheckOrigin,
   WizardState,
   SaveWizardStateInput,
 } from './hyveon-api.js';
