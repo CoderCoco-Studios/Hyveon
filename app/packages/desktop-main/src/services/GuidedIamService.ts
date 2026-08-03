@@ -77,6 +77,24 @@ export class GuidedIamService {
   }
 
   /**
+   * Build the AWS CloudFormation console URL scoped to the given region,
+   * pointing to the "Create stack" page with no pre-filled template URL
+   * (the operator uploads the local rendered template file manually via the
+   * console's "Upload a template file" option, per the spec's rejection of
+   * hosted-template quick-create links).
+   *
+   * Returns the exact URL shape:
+   * `https://<region>.console.aws.amazon.com/cloudformation/home?region=<region>#/stacks/create`
+   *
+   * This method is pure (no side effects, no IO, no external state
+   * dependencies) and is extracted as a separate method so it can be
+   * pinned by tests to reject shape regressions.
+   */
+  buildCloudFormationConsoleUrl(region: string): string {
+    return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`;
+  }
+
+  /**
    * Return `process.resourcesPath` when running inside an Electron packaged app,
    * or `undefined` otherwise. Extracted as a protected method so tests can stub
    * it via `vi.spyOn` without touching `process.resourcesPath` directly.

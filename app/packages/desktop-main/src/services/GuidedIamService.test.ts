@@ -80,6 +80,34 @@ describe('GuidedIamService', () => {
     delete (process.versions as Record<string, string | undefined>)['electron'];
   });
 
+  describe('buildCloudFormationConsoleUrl', () => {
+    it('should construct the exact AWS CloudFormation console URL for us-east-1', () => {
+      const url = service.buildCloudFormationConsoleUrl('us-east-1');
+      expect(url).toBe('https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create');
+    });
+
+    it('should construct the exact AWS CloudFormation console URL for eu-west-2', () => {
+      const url = service.buildCloudFormationConsoleUrl('eu-west-2');
+      expect(url).toBe('https://eu-west-2.console.aws.amazon.com/cloudformation/home?region=eu-west-2#/stacks/create');
+    });
+
+    it('should include the region in both the subdomain and query parameter', () => {
+      const testRegion = 'ap-southeast-1';
+      const url = service.buildCloudFormationConsoleUrl(testRegion);
+      // Verify region appears exactly twice: once in subdomain, once in query string.
+      const regionMatches = url.match(/ap-southeast-1/g);
+      expect(regionMatches).toHaveLength(2);
+      expect(url).toContain(`${testRegion}.console.aws.amazon.com`);
+      expect(url).toContain(`?region=${testRegion}`);
+    });
+
+    it('should not include a templateURL parameter', () => {
+      const url = service.buildCloudFormationConsoleUrl('us-west-2');
+      expect(url).not.toContain('templateURL');
+      expect(url).not.toContain('TemplateURL');
+    });
+  });
+
   describe('renderTemplate', () => {
     it('should throw a clear error when the template cannot be located', () => {
       mockResolveTemplatePath.mockReturnValue(undefined);
