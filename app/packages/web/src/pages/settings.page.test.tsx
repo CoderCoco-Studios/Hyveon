@@ -175,7 +175,7 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
 
       expect(await screen.findByText(/choose your cloud is already configured/i)).toBeInTheDocument();
-      expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
+      expect(screen.getByText(/step 1 of 5/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     });
 
@@ -184,7 +184,11 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
       await screen.findByText(/choose your cloud is already configured/i);
 
-      // pick-cloud: leave collapsed, advance to credentials.
+      // pick-cloud: leave collapsed, advance to credentials. Guided-IAM sits
+      // in between (Group 7 Task 1) but isn't in RECONFIGURE_PRE_COMPLETED_STEPS
+      // and has no component yet, so its blank screen is clicked straight through.
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/provision aws access/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/aws credentials is already configured/i);
 
@@ -225,6 +229,9 @@ describe('SettingsPage', () => {
       await screen.findByText(/choose your cloud is already configured/i);
 
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // Guided-IAM step has no component yet (a later task builds it) — click straight through.
+      await screen.findByText(/provision aws access/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/bootstrap aws resources is already configured/i);
@@ -247,6 +254,9 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
       await screen.findByText(/choose your cloud is already configured/i);
 
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // Guided-IAM step has no component yet (a later task builds it) — click straight through.
+      await screen.findByText(/provision aws access/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));

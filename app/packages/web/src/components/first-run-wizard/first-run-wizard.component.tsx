@@ -30,6 +30,7 @@ import {
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
   'pick-cloud': 'Choose your cloud',
+  'guided-iam': 'Provision AWS access',
   credentials: 'AWS credentials',
   bootstrap: 'Bootstrap AWS resources',
   'stack-init': 'Finish setup',

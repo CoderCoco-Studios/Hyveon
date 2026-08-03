@@ -74,10 +74,18 @@ async function advanceToPickCloud(): Promise<void> {
   await screen.findByText(/choose the cloud provider/i);
 }
 
-/** Advances the wizard from pick-cloud to the credentials step. */
+/**
+ * Advances the wizard from pick-cloud to the credentials step, passing
+ * through the guided-IAM step in between (#Group 7, Task 1) — that step's
+ * component doesn't exist yet (a later task builds it), so this render just
+ * shows the blank step header with an enabled Next button; click straight
+ * through it.
+ */
 async function advanceToCredentials(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
+  await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+  await screen.findByText(/provision aws access/i);
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
   await screen.findByText(/choose the aws credentials/i);
 }
@@ -502,6 +510,9 @@ describe('FirstRunWizard', () => {
       const onComplete = vi.fn();
       render(<FirstRunWizard onComplete={onComplete} />);
       await screen.findByText(/choose the cloud provider/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // Guided-IAM step has no component yet (a later task builds it) — click straight through.
+      await screen.findByText(/provision aws access/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/choose the aws credentials/i);
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');

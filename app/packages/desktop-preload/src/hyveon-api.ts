@@ -1331,7 +1331,7 @@ export interface IamCheckResult {
 }
 
 /** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
-export type WizardStepName = 'pick-cloud' | 'credentials' | 'bootstrap' | 'stack-init';
+export type WizardStepName = 'pick-cloud' | 'guided-iam' | 'credentials' | 'bootstrap' | 'stack-init';
 
 /** Resumable wizard progress persisted to `userData/wizard-state.json`. */
 export interface WizardProgress {
