@@ -221,17 +221,27 @@ class TestableAwsProfileService extends AwsProfileService {
 
 /**
  * Build an `ElectronStoreService` stub for `rotateActiveCredentials` tests.
- * `get('aws')` resolves to `aws`; `getPastedCredentials` resolves to
- * `pastedCredentials` for any profile name (matching
- * `resolveAwsCredentialSource`'s single-active-profile assumption);
- * `setPastedCredentials` is a spy.
+ * `get('aws')` resolves to `aws`; `get('creds')` resolves to a
+ * `creds.aws.<profile>.region` map built from `credsRegionByProfile` (the
+ * plaintext fallback `rotateActiveCredentials` reads when `aws.region` is
+ * missing/empty); `getPastedCredentials` resolves to `pastedCredentials` for
+ * any profile name (matching `resolveAwsCredentialSource`'s
+ * single-active-profile assumption); `setPastedCredentials` is a spy.
  */
 function makeRotationStore(options: {
   aws?: AppStoreSchema['aws'];
   pastedCredentials?: { accessKeyId: string; secretAccessKey: string; region?: string };
+  credsRegionByProfile?: Record<string, string>;
 } = {}): ElectronStoreService {
+  const creds = options.credsRegionByProfile
+    ? { aws: Object.fromEntries(Object.entries(options.credsRegionByProfile).map(([profile, region]) => [profile, { region }])) }
+    : undefined;
   return {
-    get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? options.aws : undefined)),
+    get: vi.fn().mockImplementation((key: string) => {
+      if (key === 'aws') return options.aws;
+      if (key === 'creds') return creds;
+      return undefined;
+    }),
     getPastedCredentials: vi.fn().mockReturnValue(options.pastedCredentials),
     setPastedCredentials: vi.fn(),
   } as Partial<ElectronStoreService> as ElectronStoreService;
@@ -309,6 +319,60 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     await expect(service.rotateActiveCredentials()).rejects.toThrow(UnsupportedCredentialSourceError);
     expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should throw and never call any AWS API when neither aws.region nor the pasted entry has a region', async () => {
+    store = makeRotationStore({
+      aws: { profile: PROFILE },
+      pastedCredentials: { accessKeyId: CURRENT_ACCESS_KEY_ID, secretAccessKey: CURRENT_SECRET },
+    });
+    service = new TestableAwsProfileService(stubSafeStorage(true), store);
+
+    await expect(service.rotateActiveCredentials()).rejects.toThrow(/no region is configured/);
+    expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should fall back to the pasted entry region and succeed when aws.region is missing', async () => {
+    stubCreateAccessKeySuccess();
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    store = makeRotationStore({
+      aws: { profile: PROFILE },
+      pastedCredentials: { accessKeyId: CURRENT_ACCESS_KEY_ID, secretAccessKey: CURRENT_SECRET },
+      credsRegionByProfile: { [PROFILE]: REGION },
+    });
+    service = new TestableAwsProfileService(stubSafeStorage(true), store);
+
+    const result = await service.rotateActiveCredentials();
+
+    expect(result).toEqual({ status: 'complete' });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith(PROFILE, {
+      accessKeyId: NEW_ACCESS_KEY_ID,
+      secretAccessKey: NEW_SECRET,
+      region: REGION,
+    });
+  });
+
+  it('should fall back to the pasted entry region and succeed when aws.region is an empty string', async () => {
+    stubCreateAccessKeySuccess();
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    store = makeRotationStore({
+      aws: { profile: PROFILE, region: '' },
+      pastedCredentials: { accessKeyId: CURRENT_ACCESS_KEY_ID, secretAccessKey: CURRENT_SECRET },
+      credsRegionByProfile: { [PROFILE]: REGION },
+    });
+    service = new TestableAwsProfileService(stubSafeStorage(true), store);
+
+    const result = await service.rotateActiveCredentials();
+
+    expect(result).toEqual({ status: 'complete' });
+    expect(store.setPastedCredentials).toHaveBeenCalledWith(PROFILE, {
+      accessKeyId: NEW_ACCESS_KEY_ID,
+      secretAccessKey: NEW_SECRET,
+      region: REGION,
+    });
   });
 
   it('should perform CreateAccessKey(current client) -> GetCallerIdentity(new client) -> setPastedCredentials -> DeleteAccessKey(old key, new client) in exact order on success', async () => {

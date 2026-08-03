@@ -250,6 +250,17 @@ export class AwsProfileService {
    * Never logs `secretAccessKey` (current or newly minted) — only
    * non-secret access key IDs and step-progress messages.
    *
+   * **Known limitation (deliberate deferral):** same as
+   * {@link GuidedIamService.rotate}'s own documented limitation — newly
+   * created IAM access keys can take a few seconds to propagate across AWS
+   * before `sts:GetCallerIdentity` reliably succeeds for them, so step 3
+   * above can spuriously return `verification-failed` for an otherwise-healthy
+   * key purely due to propagation delay. A bounded retry/backoff around step 3
+   * would mitigate this but needs timing/backoff design validated against real
+   * AWS behavior rather than guessed in unit tests, so it stays a follow-up
+   * here too. The orphan-cleanup documented at step 3 keeps a caller-driven
+   * retry safe in the meantime.
+   *
    * @throws {@link SafeStorageUnavailableError} if the OS keychain is
    *   unavailable — nothing is attempted in that case (step 0).
    * @throws {@link UnsupportedCredentialSourceError} if the active source is
@@ -257,9 +268,11 @@ export class AwsProfileService {
    * @throws {@link AwsPastedCredentialDecryptError} (from
    *   {@link resolveAwsCredentialSource}, step 1) if the stored
    *   pasted-credentials entry can't be decrypted.
-   * @throws `Error` if no region is configured for the active source, or if
-   *   `iam:CreateAccessKey` (step 2) succeeds but its response is missing
-   *   `AccessKeyId`/`SecretAccessKey` — neither is a modeled
+   * @throws `Error` if no region is configured for the active source — checked
+   *   as `aws.region`, falling back to the pasted entry's own `region` (both
+   *   are truthy-checked, since an empty string is as unusable as `undefined`)
+   *   — or if `iam:CreateAccessKey` (step 2) succeeds but its response is
+   *   missing `AccessKeyId`/`SecretAccessKey` — neither is a modeled
    *   {@link AwsProfileRotationResult} branch; nothing has been overwritten
    *   in either case.
    * @throws Raw, unmodeled AWS SDK errors from `iam:CreateAccessKey` (step
@@ -275,7 +288,7 @@ export class AwsProfileService {
       throw new UnsupportedCredentialSourceError(source.kind);
     }
 
-    const region = this.store.get('aws')?.region;
+    const region = this.store.get('aws')?.region || this.store.get('creds')?.aws?.[source.profile]?.region;
     if (!region) {
       throw new Error('Cannot rotate AWS credentials: no region is configured for the active credential source.');
     }
