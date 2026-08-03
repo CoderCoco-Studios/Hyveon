@@ -16,12 +16,18 @@ function stubResourcesPath(value: string | undefined): void {
 }
 
 describe('resolveCloudFormationTemplatePath', () => {
+  const originalResourcesPathDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
+
   beforeEach(() => {
     mockExistsSync.mockReset().mockReturnValue(false);
   });
 
   afterEach(() => {
-    stubResourcesPath(undefined);
+    if (originalResourcesPathDescriptor) {
+      Object.defineProperty(process, 'resourcesPath', originalResourcesPathDescriptor);
+    } else {
+      delete (process as { resourcesPath?: string }).resourcesPath;
+    }
   });
 
   it('should use the packaged template under resourcesPath when it exists', () => {

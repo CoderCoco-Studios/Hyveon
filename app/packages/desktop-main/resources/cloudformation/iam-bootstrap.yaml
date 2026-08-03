@@ -65,10 +65,12 @@ Resources:
   # Retained on stack delete: by the time an operator deletes this stack the
   # app has already rotated/revoked this key via HyveonSelfRotate, so leaving
   # the (already-inert) key behind is safe and avoids a delete failing on a
-  # key CloudFormation no longer believes it owns.
+  # key CloudFormation no longer believes it owns. RetainExceptOnCreate (not
+  # plain Retain) so a failed *initial* stack creation still rolls back
+  # cleanly instead of leaving an orphaned key attached to a rolled-back user.
   HyveonDeployUserAccessKey:
     Type: AWS::IAM::AccessKey
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     Properties:
       UserName: !Ref HyveonDeployUser
 

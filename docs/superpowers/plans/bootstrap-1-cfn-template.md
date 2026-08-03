@@ -123,9 +123,10 @@ it has nothing to do with the deploy policy's source of truth.
   `__HYVEON_DEPLOY_ALL_POLICY_DOCUMENT__` placeholder; `HyveonSelfRotate`
   document via the `__HYVEON_SELF_ROTATE_POLICY_DOCUMENT__` placeholder).
 - `AWS::IAM::User`, name from a `UserName` stack parameter, `Default: hyveon`.
-- `AWS::IAM::AccessKey` for that user, with `DeletionPolicy: Retain` (so a
-  later `DeleteStack` — after the app has already revoked this key — still
-  succeeds).
+- `AWS::IAM::AccessKey` for that user, with `DeletionPolicy: RetainExceptOnCreate`
+  (so a later `DeleteStack` — after the app has already revoked this key —
+  still succeeds, while a failed *initial* stack creation still rolls back
+  cleanly instead of orphaning the key).
 - `Outputs`: user name, `HyveonDeployAll` policy ARN, `AccessKeyId`,
   `SecretAccessKey` (via `!GetAtt`).
 
