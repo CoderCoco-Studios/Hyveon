@@ -89,8 +89,13 @@ export class FirstRunWizardService {
    * runtime type (must be a genuine `boolean`) before writing — mirroring
    * `getProgress`'s own read-side validation, so a malformed/malicious
    * `hasBootstrapKey` (e.g. a pasted access key string) can never even reach
-   * disk, not just get stripped back out on the next read. `guidedIam` never
-   * carries `secretAccessKey`/`accessKeyId` — see
+   * disk, not just get stripped back out on the next read. The object
+   * actually written is rebuilt field-by-field from the validated values
+   * (see the `progress` assignment below), not the caller's `guidedIam`
+   * object verbatim — an excess property on that object (anything beyond
+   * `subState`/`hasBootstrapKey`) is dropped before `JSON.stringify` ever
+   * sees it, not merely stripped back out on the next `getProgress()` read.
+   * `guidedIam` never carries `secretAccessKey`/`accessKeyId` — see
    * {@link WizardProgress.guidedIam}'s own doc comment; `hasBootstrapKey` is
    * a boolean flag only.
    */
@@ -110,7 +115,15 @@ export class FirstRunWizardService {
     }
     const path = this.stateFilePath();
     await mkdir(dirname(path), { recursive: true });
-    const progress: WizardProgress = guidedIam ? { step, guidedIam } : { step };
+    // Rebuilt from only the two known fields — never the caller's
+    // `guidedIam` object spread/passed through verbatim — so an excess
+    // property on a malformed/malicious payload (e.g.
+    // `{ subState, hasBootstrapKey, smuggled: '...' }`, which passes the
+    // enum/type guards above unnoticed) never reaches `JSON.stringify` and
+    // never lands on disk.
+    const progress: WizardProgress = guidedIam
+      ? { step, guidedIam: { subState: guidedIam.subState, hasBootstrapKey: guidedIam.hasBootstrapKey } }
+      : { step };
     await writeFile(path, JSON.stringify(progress), 'utf-8');
   }
 

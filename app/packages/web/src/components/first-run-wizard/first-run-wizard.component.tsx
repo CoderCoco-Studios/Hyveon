@@ -268,10 +268,37 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // shouldn't block the wizard, only degrade resume on the next launch.
   // Gated on `resumeSettledRef` so this can never race the resume effect's
   // own read of the same file (see that effect's comment).
+  //
+  // Includes `guidedIamInitialProgress` in the payload whenever `step` is
+  // `'guided-iam'`, rather than omitting `guidedIam` entirely: this effect
+  // fires the moment the resume-on-mount effect jumps `stepIndex` onto
+  // `guided-iam`, which happens *before* `GuidedIamStep` itself has had a
+  // chance to re-persist anything. Without this, that first save would
+  // rewrite `wizard-state.json` as bare `{ step: 'guided-iam' }`, silently
+  // dropping whatever sub-state (e.g. `rotation-pending`) the operator
+  // resumed with — the CURRENT session still resumes correctly (this
+  // component already received the real value via the `initialProgress`
+  // prop before this effect ran), but a second relaunch with no further
+  // action taken would then land back on a fresh region screen instead of
+  // resuming again. `guidedIamInitialProgress` only ever reflects what
+  // `getProgress()` returned on THIS mount (see that state's own doc
+  // comment) — it is never updated as `GuidedIamStep` advances internally,
+  // so it can go stale relative to `GuidedIamStep`'s own `persistProgress`
+  // calls (which fire at real transition moments with fresh values and are
+  // authoritative). That staleness is harmless here: `step` itself doesn't
+  // change while the operator moves between `GuidedIamStep`'s internal
+  // phases, so this effect does not re-run and does not re-fire a stale
+  // write over a fresher one — it only fires once on entry to (or exit
+  // from) the `guided-iam` step, which is exactly the resume-preserving
+  // write this fix needs.
   useEffect(() => {
     if (mode !== 'first-run' || !window.hyveon || !resumeSettledRef.current) return;
-    window.hyveon.wizard.saveProgress({ step }).catch(() => {});
-  }, [mode, step]);
+    const payload =
+      step === 'guided-iam' && guidedIamInitialProgress
+        ? { step, guidedIam: guidedIamInitialProgress }
+        : { step };
+    window.hyveon.wizard.saveProgress(payload).catch(() => {});
+  }, [mode, step, guidedIamInitialProgress]);
 
   // Guards the reconfigure-prefill effect below so it applies exactly once,
   // never re-running over an operator's in-progress edits once it has fired.

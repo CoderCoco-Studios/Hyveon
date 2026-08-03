@@ -162,6 +162,26 @@ describe('FirstRunWizardService', () => {
       expect(JSON.stringify(written)).not.toMatch(/secretAccessKey|accessKeyId/);
     });
 
+    it('should never write an excess property on the guidedIam payload to disk, even though it passes the enum/type guards unnoticed', async () => {
+      await service.recordStep(
+        'guided-iam',
+        {
+          subState: 'complete',
+          hasBootstrapKey: false,
+          smuggled: 'should-never-reach-disk',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately smuggling an extra field past the compile-time type to exercise the write-side allowlist
+        } as any,
+      );
+
+      const rawContent = readFileSync(statePath, 'utf-8');
+      expect(rawContent).not.toContain('smuggled');
+      expect(rawContent).not.toContain('should-never-reach-disk');
+      expect(JSON.parse(rawContent)).toEqual({
+        step: 'guided-iam',
+        guidedIam: { subState: 'complete', hasBootstrapKey: false },
+      });
+    });
+
     it('should omit guidedIam from the written file when not supplied', async () => {
       await service.recordStep('guided-iam');
 

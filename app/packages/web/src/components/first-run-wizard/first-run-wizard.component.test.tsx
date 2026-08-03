@@ -637,6 +637,31 @@ describe('FirstRunWizard', () => {
 
       await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
     });
+
+    it('should preserve a resumed guided-iam sub-state in its own save-on-change call, rather than wiping it back to undefined', async () => {
+      // Regression test (final-review Finding 1): the shell's save-on-change
+      // effect used to fire `saveProgress({ step })` with NO `guidedIam`
+      // field the instant the resume-on-mount jump landed on `guided-iam`,
+      // silently dropping whatever sub-state was on disk. The CURRENT
+      // session still resumed correctly (this component already received
+      // the real sub-state via `initialProgress` before the effect ran),
+      // but a second relaunch with no further action taken would then land
+      // back on a fresh region screen instead of resuming again.
+      hyveonMock.wizard.getProgress.mockResolvedValue({
+        step: 'guided-iam',
+        guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true },
+      });
+
+      render(<FirstRunWizard />);
+
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() =>
+        expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({
+          step: 'guided-iam',
+          guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true },
+        }),
+      );
+    });
   });
 
   describe('guided-iam step wiring', () => {
