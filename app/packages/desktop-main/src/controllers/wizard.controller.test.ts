@@ -167,6 +167,37 @@ describe('WizardController', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
       expect(pattern).toEqual(['wizard.complete']);
     });
+
+    it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.prepareGuidedIamTemplate);
+      expect(pattern).toEqual(['wizard.guidedIam.prepareTemplate']);
+    });
+
+    it('should register openGuidedIamConsole on the "wizard.guidedIam.openConsole" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.openGuidedIamConsole);
+      expect(pattern).toEqual(['wizard.guidedIam.openConsole']);
+    });
+
+    it('should register submitGuidedIamBootstrapKey on the "wizard.guidedIam.submitBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.submitGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.submitBootstrapKey']);
+    });
+
+    it('should register rotateGuidedIamKey on the "wizard.guidedIam.rotate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.rotateGuidedIamKey);
+      expect(pattern).toEqual(['wizard.guidedIam.rotate']);
+    });
+
+    it('should register revokeGuidedIamBootstrapKey on the "wizard.guidedIam.revokeBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.revokeGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.revokeBootstrapKey']);
+    });
   });
 
   describe('listAwsProfiles', () => {
