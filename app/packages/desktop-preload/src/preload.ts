@@ -130,6 +130,15 @@ import type {
   IamCheckResult,
   WizardProgress,
   SaveWizardProgressInput,
+  RenderedTemplateResult,
+  OpenGuidedIamConsoleInput,
+  OpenConsoleResult,
+  BootstrapKeyIntakeInput,
+  BootstrapKeyIntakeResult,
+  RotationInput,
+  RotationResult,
+  RevokeBootstrapKeyInput,
+  RevokeBootstrapKeyResult,
 } from './hyveon-api.js';
 
 /** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
@@ -734,6 +743,14 @@ const api: HyveonApi = {
     getProgress: () => invoke<WizardProgress>('wizard.progress.get'),
     saveProgress: (input: SaveWizardProgressInput) => invoke<void>('wizard.progress.save', input),
     complete: () => invoke<WizardState>('wizard.complete'),
+    guidedIamPrepareTemplate: () => invoke<RenderedTemplateResult>('wizard.guidedIam.prepareTemplate'),
+    guidedIamOpenConsole: (input: OpenGuidedIamConsoleInput) =>
+      invoke<OpenConsoleResult>('wizard.guidedIam.openConsole', input),
+    guidedIamSubmitBootstrapKey: (input: BootstrapKeyIntakeInput) =>
+      invoke<BootstrapKeyIntakeResult>('wizard.guidedIam.submitBootstrapKey', input),
+    guidedIamRotate: (input: RotationInput) => invoke<RotationResult>('wizard.guidedIam.rotate', input),
+    guidedIamRevokeBootstrapKey: (input: RevokeBootstrapKeyInput) =>
+      invoke<RevokeBootstrapKeyResult>('wizard.guidedIam.revokeBootstrapKey', input),
   },
 
   drift: {
