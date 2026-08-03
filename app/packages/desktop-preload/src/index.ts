@@ -40,6 +40,8 @@ export type {
   SaveWizardProgressInput,
 } from './hyveon-api.js';
 
+export { GUIDED_PROFILE_NAME } from './hyveon-api.js';
+
 declare global {
   interface Window {
     hyveon?: import('./hyveon-api.js').HyveonApi;

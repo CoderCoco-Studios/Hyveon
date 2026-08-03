@@ -1576,6 +1576,18 @@ export interface WizardAwsChoice {
 }
 
 /**
+ * The profile name `GuidedIamService.rotate()` stores in
+ * `WizardAwsChoice.profile` once guided IAM provisioning's mint-then-revoke
+ * rotation completes. Mirrors `GUIDED_PROFILE_NAME` in `GuidedIamService.ts`
+ * — keep in sync. Only reachable from the main process, so `@hyveon/web`
+ * compares `WizardState.aws?.profile`/`SaveWizardStateInput.aws?.profile`
+ * against this constant (rather than the main-process export it mirrors) to
+ * tell guided provisioning apart from a manually picked/pasted profile — a
+ * plain CLI profile or paste-flow entry never lands on this exact name.
+ */
+export const GUIDED_PROFILE_NAME = 'hyveon-guided';
+
+/**
  * The bootstrap step's last-submitted resource names, as persisted to
  * `ElectronStoreService.bootstrap`. Needed so Settings' Reconfigure flow
  * (#211) can rehydrate a non-default name — resource names are
