@@ -142,21 +142,19 @@ export class BootstrapService {
 
   /**
    * Idempotently ensures the versioned configuration S3 bucket exists with a
-   * lifecycle rule expiring noncurrent object versions after 90 days and all
-   * four public-access-block settings enabled.
+   * lifecycle rule expiring noncurrent object versions after 90 days,
+   * default (AES256) server-side encryption, and all four
+   * public-access-block settings enabled.
    *
    * @remarks
    * Matches `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
    * / `aws_s3_bucket_lifecycle_configuration.tfvars` /
+   * `aws_s3_bucket_server_side_encryption_configuration.tfvars` /
    * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
-   * lifecycle, and public-access-block specifically — the resulting bucket is
+   * lifecycle, encryption, and public-access-block — the resulting bucket is
    * the canonical `RemoteFileStore` holding the JSON game-server
-   * configuration. This is *not* full parity with that HCL module: it has no
-   * server-side-encryption resource for this bucket (only
-   * `ensureStateBucket`'s bucket gets SSE), so "behaviourally consistent"
-   * only ever means those three settings, not everything the module does.
-   * `terraform/bootstrap/` still names its bucket for the Terraform-era
-   * `terraform.tfvars` object it once held.
+   * configuration. `terraform/bootstrap/` still names its bucket for the
+   * Terraform-era `terraform.tfvars` object it once held.
    *
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */
@@ -190,6 +188,14 @@ export class BootstrapService {
                 },
               },
             ],
+          },
+        }),
+      );
+      await client.send(
+        new PutBucketEncryptionCommand({
+          Bucket: bucketName,
+          ServerSideEncryptionConfiguration: {
+            Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }],
           },
         }),
       );
