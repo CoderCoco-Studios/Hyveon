@@ -62,7 +62,7 @@ export interface CliArgs {
    * Accepted and threaded through to {@link runBootstrap} for
    * forward-compatibility, but currently inert: its only prior consumer was
    * the "bootstrap an S3-backed tfvars store?" prompt, removed along with
-   * the rest of the tfvars-sync backend (task 12.3/12.4). Every remaining
+   * the rest of the tfvars-sync backend. Every remaining
    * `runBootstrap` prompt (parent repo path, submodule path, project name,
    * AWS region, hosted zone, Discord credentials) always runs interactively
    * regardless of this flag.
@@ -206,8 +206,8 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  * `terraform.tfvars` (HCL-ish text), while the app exclusively reads/writes
  * a different key, `deployment-config.json` (JSON), via `RemoteFileStore`'s
  * conditional-put path (see `TfvarsService`'s doc comment). Nothing anywhere
- * reads the `terraform.tfvars` key anymore now that the Terraform tree
- * (task 12.1) is gone — so these targets were keeping a versioned copy of a
+ * reads the `terraform.tfvars` key anymore now that the Terraform tree is
+ * gone — so these targets were keeping a versioned copy of a
  * file with zero consumers. Per `openspec/specs/desktop-only-operator-
  * surface`'s "No operator-editable configuration files" requirement ("There
  * MUST NOT be a local-file configuration mode"), that dead-key sync isn't
