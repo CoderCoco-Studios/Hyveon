@@ -668,6 +668,28 @@ describe('GuidedIamService', () => {
       expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
     });
 
+    it('should refuse without throwing when the active source is a pasted profile other than the guided one, and never call any IAM command', async () => {
+      store = {
+        get: vi
+          .fn()
+          .mockImplementation((key: string) =>
+            key === 'aws' ? { profile: 'hyveon-pasted', region: REVOKE_INPUT.region } : undefined,
+          ),
+        set: vi.fn(),
+        setPastedCredentials: vi.fn(),
+        getPastedCredentials: vi.fn().mockReturnValue({ accessKeyId: 'AKIAUNRELATED', secretAccessKey: 'unrelated-secret' }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      service = new TestableGuidedIamService(store, safeStorage);
+      const createIamClientSpy = vi.spyOn(service, 'createIamClient');
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result.revoked).toBe(false);
+      expect(result.message).toMatch(/not the rotated guided-provisioning key pair/);
+      expect(createIamClientSpy).not.toHaveBeenCalled();
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+    });
+
     it('should refuse without throwing when the stored pasted-credentials entry cannot be decrypted', async () => {
       const decryptError = new Error('bad ciphertext');
       store = {

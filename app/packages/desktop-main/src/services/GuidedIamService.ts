@@ -491,21 +491,26 @@ export class GuidedIamService {
    * else to pass in.
    *
    * "Usable" here means {@link resolveAwsCredentialSource} resolves to
-   * `kind: 'pasted'` — the only shape carrying explicit
-   * `accessKeyId`/`secretAccessKey` that {@link createIamClient}'s existing
-   * seam (reused as-is here, not duplicated) can consume. `kind: 'none'`
-   * (no credential source configured) and `kind: 'profile'` (a `~/.aws` CLI
-   * profile *name*, not key material — building a client from it needs a
-   * `fromIni`-based path this service has no other need for) both refuse
-   * rather than throw. In the one flow this method exists for, `rotate()`
-   * step 4 always leaves the active source as `kind: 'pasted'` under
-   * {@link GUIDED_PROFILE_NAME}, so encountering `kind: 'profile'` here
-   * would mean the operator changed the active credential source elsewhere
-   * between the `delete-failed` result and this retry — an out-of-scope
-   * edge case for a manual-retry action, not a path worth a second
-   * client-construction mechanism. A decrypt failure on a stored pasted
-   * entry ({@link AwsPastedCredentialDecryptError}) is caught and folded
-   * into the same refusal shape.
+   * `kind: 'pasted'` **with `profile === {@link GUIDED_PROFILE_NAME}`** — the
+   * only shape guaranteed to carry the rotated key's own
+   * `accessKeyId`/`secretAccessKey`, which {@link createIamClient}'s existing
+   * seam (reused as-is here, not duplicated) then consumes. Every other
+   * shape refuses rather than throw: `kind: 'none'` (no credential source
+   * configured); `kind: 'profile'` (a `~/.aws` CLI profile *name*, not key
+   * material — building a client from it needs a `fromIni`-based path this
+   * service has no other need for); and, load-bearing, `kind: 'pasted'`
+   * under any *other* profile name. Without that last check, an operator
+   * who pastes a manual (non-guided) credential set — or switches to one —
+   * between `rotate()`'s `delete-failed` result and triggering this retry
+   * would have this method build an IAM client from *that* unrelated
+   * pasted key and send `iam:DeleteAccessKey` for `input.bootstrapAccessKeyId`
+   * (a value this method takes as-is, sourced from the wizard UI) under it —
+   * silently attempting to delete an access key using credentials that have
+   * nothing to do with the bootstrap flow. Refusing keeps this method's only
+   * side effect scoped to the one credential pair `rotate()` itself just
+   * activated. A decrypt failure on a stored pasted entry
+   * ({@link AwsPastedCredentialDecryptError}) is caught and folded into the
+   * same refusal shape.
    *
    * Never throws: this is a manual-retry UI action invoked from the wizard
    * after a `delete-failed` result, so a crash here would be strictly worse
@@ -528,11 +533,13 @@ export class GuidedIamService {
       return { revoked: false, message };
     }
 
-    if (source.kind !== 'pasted') {
+    if (source.kind !== 'pasted' || source.profile !== GUIDED_PROFILE_NAME) {
       const message =
         source.kind === 'none'
           ? 'No active AWS credential source is configured — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.'
-          : 'The active AWS credential source is a CLI profile, not the rotated key pair — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.';
+          : source.kind === 'profile'
+            ? 'The active AWS credential source is a CLI profile, not the rotated key pair — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.'
+            : 'The active AWS credential source is not the rotated guided-provisioning key pair — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.';
       return { revoked: false, message };
     }
 
