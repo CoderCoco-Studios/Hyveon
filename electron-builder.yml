@@ -187,8 +187,6 @@ files:
   - node_modules/yargs-parser/**
 
 extraResources:
-  - from: terraform/terraform.tfstate
-    to: terraform/aws/terraform.tfstate
   # The window/taskbar icon is set at runtime by electron-entry.ts, which needs
   # a real file on disk — Windows and macOS read theirs from the executable and
   # the app bundle, but Linux does not.

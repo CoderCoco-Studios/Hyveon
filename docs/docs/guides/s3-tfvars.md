@@ -5,6 +5,25 @@ sidebar_position: 5
 
 # S3 tfvars storage
 
+:::caution This capability was removed and this page is stale
+The `tfvars-pull`/`tfvars-push`/`tfvars-diff` Makefile targets, the
+`migrate --to-s3`/`--to-local` CLI subcommand, and the `--s3-tfvars`
+bootstrap flag described below no longer exist (`migrate-iac-to-pulumi`
+change, tasks 12.1/12.3/12.4). The S3 *bucket* this page describes is
+typically the SAME bucket the app's own first-run wizard provisions as its
+configuration bucket (same default name, `${project_name}-tfvars`) — it's
+alive and well. What's dead is the *object key*: this page's tooling
+reads/writes the key `terraform.tfvars` (HCL text), while the app
+exclusively reads/writes a different key, `deployment-config.json`, as JSON,
+managed entirely through the app's first-run wizard and Settings page with
+no operator-editable file involved. Nothing reads the `terraform.tfvars` key
+anymore now that the Terraform tree is gone. `scripts/tfvars-sync.ts` itself
+still exists as a standalone CLI if you want to read/write that dead key by
+hand, but nothing wires it into the generated Makefile anymore. This page is
+a removal/rewrite candidate, not yet scheduled under a tracked task — treat
+everything below as historical context only.
+:::
+
 `terraform.tfvars` holds your hosted zone, Discord credentials, and the
 `game_servers` map — everything a deployment needs but nothing you want to
 lose or hand-edit blind on a second machine. This guide covers the optional
@@ -34,7 +53,7 @@ no `tfvars-sync` commands. It still needs the `{project_name}-tfvars` bucket
 to exist once, though: the root module's `data "aws_s3_bucket" "tfvars"`
 (`terraform/main.tf`) reads it unconditionally on every `terraform
 plan`/`apply`, regardless of `HYVEON_TFVARS_BACKEND`. See
-[Bootstrap the tfvars bucket](/setup#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
+[Bootstrap the tfvars bucket](/setup#2-clone-install-and-launch-the-wizard)
 in the setup guide for the one-time step.
 
 ## Bootstrapping the S3 backend
@@ -48,9 +67,10 @@ state backend.
 A few ways to bootstrap it, in order of convenience:
 
 1. **The desktop app's setup wizard** — bootstraps this bucket for you as
-   part of its bootstrap step (alongside the state bucket and lock table —
-   see the [setup guide](/setup#3-clone-install-and-bootstrap-aws-resources)),
-   directly via the AWS SDK.
+   part of its bootstrap step (alongside the state bucket; there is no lock
+   table — Pulumi's self-managed S3 backend does not use one — see the
+   [setup guide](/setup#2-clone-install-and-launch-the-wizard)), directly via
+   the AWS SDK.
 
 2. **`init-parent.ts bootstrap --s3-tfvars`** — when scaffolding a fresh
    [submodule parent repo](/guides/submodule#quick-start-interactive-scaffolder),
@@ -80,7 +100,7 @@ the root module's `data "aws_s3_bucket" "tfvars"` resolves correctly, and
 versioning is enabled on it — `scripts/tfvars-sync.ts` checks this on every
 run and throws `BucketNotVersionedError` if it isn't.
 
-See [Bootstrap the tfvars bucket](/setup#bootstrap-the-tfvars-bucket-required-before-the-first-terraform-apply)
+See [Bootstrap the tfvars bucket](/setup#2-clone-install-and-launch-the-wizard)
 in the setup guide for the full walkthrough, including IAM permissions.
 
 ## Day-to-day: the `tfvars-sync` CLI

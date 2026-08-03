@@ -33,6 +33,7 @@ Hyveon/
 │       ├── cloud-aws/                   # @hyveon/cloud-aws — AWS impl of the cloud-agnostic contracts
 │       ├── desktop-main/                # @hyveon/desktop-main — Nest.js IPC microservice
 │       ├── desktop-preload/             # @hyveon/desktop-preload — contextBridge preload script
+│       ├── infra/                       # @hyveon/infra — Pulumi Automation API program (all AWS resources)
 │       ├── web/                         # @hyveon/web   — React + Vite dashboard renderer
 │       └── lambda/
 │           ├── interactions/            # esbuild → dist/handler.cjs
@@ -40,57 +41,73 @@ Hyveon/
 │           ├── update-dns/
 │           ├── watchdog/
 │           └── efs-seeder/              # conditional, one function per game with file_seeds
-├── terraform/                           # root composer: backend/providers + module "cloud"
-│   ├── main.tf variables.tf outputs.tf moved.tf
-│   ├── terraform.tfvars.example
-│   └── aws/                             # all AWS infra (the "cloud" module)
-│       ├── main.tf route53.tf watchdog.tf interactions.tf followup.tf
-│       ├── discord_store.tf discord-domain.tf variables.tf outputs.tf versions.tf
-│       ├── audit_store.tf runs_store.tf
-│       └── efs-seeder.tf
 ├── docs/                                # this site
 └── .github/workflows/                   # lint.yml, test.yml, e2e.yml, integration.yml,
                                           # package.yml, docs-build.yml, docusaurus-gh-pages.yml
 ```
 
 The repository **root** `package.json` is the npm-workspaces root — its
-`workspaces` array lists `app`, `app/packages/*`, `app/packages/lambda/*`,
-and `scripts`. One `npm install` at the root installs everything; `app/`
-itself is just one workspace (`@hyveon/app`) among several, not a nested
-workspaces root. Lambdas are built via esbuild to single-file CJS bundles at
-`app/packages/lambda/*/dist/handler.cjs`; Terraform's `archive_file`
-zips them at apply time, so CI and local dev must build them before any
-terraform operation.
+`workspaces` array lists `app`, `app/packages/*`, `app/packages/desktop-preload`,
+`app/packages/lambda/*`, and `scripts`. One `npm install` at the root installs
+everything; `app/` itself is just one workspace (`@hyveon/app`) among several,
+not a nested workspaces root. There is no `terraform/` tree — `app/packages/infra`
+(`@hyveon/infra`) is a Pulumi Automation API program, ordinary TypeScript.
+Lambdas are built via esbuild to single-file CJS bundles at
+`app/packages/lambda/*/dist/handler.cjs`; the infra program's `lambdas.ts`
+reads those bundles as `pulumi.asset.FileAsset`s at apply time, so CI and
+local dev must build them before any apply.
+
+## The infra program, at a glance
+
+`app/packages/infra` is a Pulumi Automation API program — TypeScript, no
+`.tf` files. One function per file, each declaring a slice of the stack;
+`program.ts`'s `defineAll()` calls them in dependency order. Full detail,
+including the exact resource each file declares, is in the
+[infra program reference](/components/infra) — the short version:
+
+| File | Declares |
+|---|---|
+| `network.ts` | VPC, subnets, routing |
+| `securityGroups.ts` | Security groups |
+| `efs.ts` | EFS filesystem + access points |
+| `ecs.ts` | ECS cluster + per-game task definitions (never a Service) |
+| `iam.ts` | IAM roles + policies |
+| `lambdas.ts` | The five Lambda functions, their log groups, EventBridge |
+| `dynamodb.ts` | The three DynamoDB tables |
+| `secrets.ts` | The two Discord secrets |
+| `route53.ts` | Hosted-zone lookup only — **no DNS records** |
+| `escapes.ts` | Discord config seed row + EFS-seeder invocations |
+| `discordDomain.ts` | The Discord bot's CloudFront custom domain (its only Route 53 records) |
+| `program.ts` | Providers + orchestration + stack outputs |
 
 ## Everyday loop
 
 ```bash
 # One-time (from the repo root — a single npm-workspaces tree)
 npm install
-cd terraform && terraform init && cd ..
-# ^ Manual first init. In practice most people never run this by hand — the
-#   in-app first-run wizard (see the setup guide) bootstraps the S3 state
-#   backend and runs `terraform init` for you the first time you launch the
-#   app. Use the command above only if you're skipping the wizard.
+# There is no manual init step — the in-app first-run wizard (see the setup
+# guide) bootstraps the S3 state backend and initializes the Pulumi stack
+# for you the first time you launch the app.
 
-# Electron desktop app in dev mode — HMR on renderer saves, auto-restarts main+preload
-npm run app:dev
+# Electron desktop app — build once, then launch
+# (npm run app:dev / desktop:dev currently crash on launch — see the scripts table below)
+npm run desktop:build
+npm run app:start
 
 # Before pushing
 npm run app:lint && npm run app:test && npm run app:build
-cd terraform && terraform fmt -check -recursive && terraform validate && tflint
 ```
 
 ### Useful scripts (from the repo root)
 
 | Command | What it does |
 |---|---|
-| `npm run app:dev` | Launches the Electron app in dev mode. Runs the `dev` script in the `@hyveon/app` workspace (`electron-vite dev --config ../electron.vite.config.ts`) — it does **not** literally delegate to the root `desktop:dev` script, though both ultimately invoke `electron-vite dev` against the same config, so behaviour is equivalent. |
+| `npm run app:dev` | Launches the Electron app in dev mode. Runs the `dev` script in the `@hyveon/app` workspace (`electron-vite dev --config ../electron.vite.config.ts`) — it does **not** literally delegate to the root `desktop:dev` script, though both ultimately invoke `electron-vite dev` against the same config, so behaviour is equivalent (including the outstanding bug below). |
 | `npm run app:build` | Compiles shared → cloud-aws → desktop-main → web TypeScript. |
-| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. |
+| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. **Currently broken**: `electron-vite dev`'s on-the-fly main-process bundling doesn't tree-shake the way a production `desktop:build` does, so it eagerly resolves several of NestJS's optional lazy-loaded imports (`@nestjs/websockets/socket-module` and similar) that this app never actually uses, and the main process crashes on launch. Use `desktop:build` + `app:start` instead until this is fixed. |
 | `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
 | `npm run desktop:package` | Runs `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
-| `npm run app:build:lambdas` | esbuild every Lambda (including `efs-seeder`) to `dist/handler.cjs`. Required before `terraform apply`. |
+| `npm run app:build:lambdas` | esbuild every Lambda (including `efs-seeder`) to `dist/handler.cjs`. Required before the first infra apply. |
 | `npm run app:start` | Runs the built Electron app (requires `desktop:build` first). |
 | `npm run app:test` | `vitest run` across every workspace. |
 | `npm run app:test:watch` | Same but watch mode. |
@@ -98,8 +115,9 @@ cd terraform && terraform fmt -check -recursive && terraform validate && tflint
 | `npm run app:test:e2e` | Builds `shared` + `cloud-aws`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
 | `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
+| `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package → `scripts`. Required before opening a PR. |
 | `npm run scripts:init-parent` | Runs the interactive submodule-parent-repo scaffolder — see the [submodule guide](/guides/submodule). |
-| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`check`/`migrate`) for the optional S3 tfvars backend — see the [S3 tfvars storage guide](/guides/s3-tfvars). |
+| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`status`/`check`) — legacy tooling that syncs a `terraform.tfvars`-shaped object nothing in the app reads any more (the app exclusively uses `deployment-config.json` in the same bucket). See the [S3 tfvars storage guide](/guides/s3-tfvars). |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
 
 ## Test + naming conventions (short form)
@@ -133,20 +151,30 @@ See `CONTRIBUTING.md` for the full list. Two things that bite people:
 
 Seven workflows live in `.github/workflows/`:
 
-- **`lint.yml`** — ESLint + `tflint` + `terraform fmt -check -recursive` +
-  `terraform validate`. Runs on every push/PR. Node 24.
-- **`test.yml`** — `vitest run` across all workspaces. Node 24.
-- **`e2e.yml`** — the Playwright e2e suite (`chromium` + `electron`
-  projects) against a built app. Node 24.
-- **`integration.yml`** — the tier-2 Playwright integration suite dispatching
-  directly into the Nest.js DI container. Node 24.
-- **`package.yml`** — builds the packaged Electron installer on a
-  Linux/macOS/Windows matrix; runs on every PR and on `v*` tags. Node 24.
-- **`docs-build.yml`** — a docs-only build check (`docs/**` paths); catches
-  broken Docusaurus builds on a PR before merge. Node 24.
-- **`docusaurus-gh-pages.yml`** — publishes this site. Only triggers on
-  `docs/**` and the workflow itself on `main`, plus `workflow_dispatch`.
-  Node 24. To preview doc changes locally, run `cd docs && npm install && npm start`.
+- **`lint.yml`** — two jobs: ESLint (`npm run app:lint`) and a full
+  cross-workspace typecheck (`npm run app:typecheck`). Runs on every
+  push/PR. Node 24. There is no `tflint` job — the `terraform/` tree is
+  gone, and there's no `.tf` code left for it to lint; the infra program is
+  ordinary TypeScript, covered by the same ESLint/typecheck jobs as
+  everything else.
+- **`test.yml`** — `vitest run --coverage` across all workspaces. Node 24.
+- **`e2e.yml`** — `npm run app:test:e2e`, the Playwright tier-1 suite
+  (`chromium` + `electron` projects) against a built app, under `xvfb`.
+  Runs on every push/PR. Node 24.
+- **`integration.yml`** — `npm run app:test:integration`, the tier-2
+  Playwright suite dispatching directly into the Nest.js DI container.
+  Runs on every push/PR. Node 24.
+- **`package.yml`** — builds the packaged Electron installer
+  (`npm run app:build && npm run desktop:package`) on a Linux/macOS/Windows
+  matrix; runs on every PR and on `v*` tags. On a tag push, a second job
+  publishes a **draft** GitHub Release from the built artifacts. Node 24.
+- **`docs-build.yml`** — a docs-only build check (`docs/**` paths, PR only);
+  renders the D2 diagrams then runs `docusaurus build`, catching broken
+  builds before merge. Node 24.
+- **`docusaurus-gh-pages.yml`** — publishes this site: builds the same way
+  as `docs-build.yml`, then deploys to GitHub Pages. Triggers on push to
+  `main` (`docs/**` paths) plus `workflow_dispatch`. Node 24. To preview doc
+  changes locally, run `cd docs && npm install && npm start`.
 
 There is also CodeQL security analysis configured at the org level (see
 `CONTRIBUTING.md`).
@@ -162,25 +190,34 @@ The whole cost-saving argument is that game tasks run via `RunTask` and stop
 with `StopTask`. Adding `aws_ecs_service` anywhere means you pay for a task
 24/7 and defeat the watchdog.
 
-### 2. `game_servers` is the single source of truth
+### 2. `DeploymentConfig.gameServers` is the single source of truth
 
-Every per-game resource — task definition, EFS access point, CloudWatch log
-group, security-group rules, the `GAME_NAMES` env var on four Lambdas
-(interactions, followup, update-dns, watchdog) — is driven by `for_each`
-over `var.game_servers`. Do not hand-write new per-game resources. To add a
-game, a user edits `terraform.tfvars` and that's it.
+It's persisted as the JSON object `deployment-config.json` in the
+operator's S3 configuration bucket, read and written through `TfvarsService`
+(`REMOTE_FILE_STORE`). Every per-game resource — task definition, EFS
+access point, CloudWatch log group, security-group rules, the `GAME_NAMES`
+env var on four Lambdas (interactions, followup, update-dns, watchdog) — is
+produced by a resource-defining function in `app/packages/infra` that loops
+over this map internally (there's no single `for_each`-equivalent loop —
+each file does its own). Do not hand-write new per-game resources. To add a
+game, an operator uses the Games page in the app — that write updates
+`deployment-config.json` only and still requires a separate plan/apply run
+from the Infrastructure page before it deploys; the Games page write is
+never itself sufficient to change AWS. See [Games](/app/games) and the
+[infra program reference](/components/infra).
 
-### 3. DNS is Lambda-managed, not Terraform-managed
+### 3. DNS is Lambda-managed, not infra-program-managed
 
-`route53.tf` has a `data "aws_route53_zone"` and the updater Lambda, but no
-`aws_route53_record` resources for the game hostnames. The update-dns
-Lambda creates and deletes them on ECS task state changes, uniformly for
-every game — including `https = true` ones, which terminate TLS in-task via
-a Caddy sidecar and share the task's public IP. There is no ALB anywhere in
-this stack and no exception to this rule: **no** Route 53 record for **any**
-game is Terraform-managed. (The one Terraform-managed Route 53 record in the
-whole repo, `aws/discord-domain.tf`'s CloudFront ALIAS, fronts the Discord
-bot endpoint — an unrelated, fixed, non-per-game resource — not a game.)
+`route53.ts` declares zero Pulumi resources — only a hosted-zone data-source
+lookup — and no per-game `aws.route53.Record` anywhere. The update-dns
+Lambda creates and deletes game hostnames on ECS task state changes,
+uniformly for every game — including `https = true` ones, which terminate
+TLS in-task via a Caddy sidecar and share the task's public IP. There is no
+ALB anywhere in this stack and no exception to this rule: **no** Route 53
+record for **any** game is infra-program-managed. (The three
+infra-program-managed Route 53 records in the whole repo, in
+`discordDomain.ts`, front the Discord bot's own CloudFront custom domain —
+an unrelated, fixed, non-per-game resource — not a game.)
 
 ### 4. Watchdog state lives in ECS task tags
 
@@ -190,12 +227,12 @@ persistent storage.
 
 ### 5. `AWS_REGION_` has a trailing underscore
 
-Lambda reserves `AWS_REGION`. Terraform sets `AWS_REGION_` on all five
-Lambda functions' env vars; the four core Lambdas (interactions, followup,
-update-dns, watchdog) read `process.env.AWS_REGION_`. `efs-seeder` has the
-same env var set for consistency but never reads it — it makes no AWS SDK
-calls at all (see [Lambdas](/components/lambdas#efs-seeder)). Check every
-Terraform file that sets Lambda env vars and every Lambda handler. The
+Lambda reserves `AWS_REGION`. The infra program's `lambdas.ts` sets
+`AWS_REGION_` on all five Lambda functions' env vars; the four core Lambdas
+(interactions, followup, update-dns, watchdog) read `process.env.AWS_REGION_`.
+`efs-seeder` has the same env var set for consistency but never reads it —
+it makes no AWS SDK calls at all (see [Lambdas](/components/lambdas#efs-seeder)).
+Check `lambdas.ts` and every Lambda handler. The
 shared `ddb/client.ts` has a fallback chain (`AWS_REGION_` → `AWS_REGION` →
 `AWS_DEFAULT_REGION` → `us-east-1`) so shared code works in both the server
 and the Lambdas.
@@ -232,7 +269,7 @@ a ~40-line switch. To add a new command:
 2. Add a case to the switch in `app/packages/lambda/interactions/src/handler.ts`
    and to the followup handler's `event.kind` switch.
 3. Update `actionForCommand()` so `canRun()` gets the right bucket.
-4. Rebuild Lambdas, `terraform apply`, click **Register commands** per guild.
+4. Rebuild Lambdas, apply from the Infrastructure page, click **Register commands** per guild.
 
 ### 10. There is no HTTP surface or bearer token to reintroduce
 
@@ -257,30 +294,37 @@ Every time:
 
 1. `npm run app:build:lambdas` (from the repo root) — esbuild emits
    `app/packages/lambda/*/dist/handler.cjs` for all five Lambda packages.
-2. `cd terraform && terraform apply` — `data "archive_file"` reads each CJS
-   bundle, zips it, and uploads it to the matching `aws_lambda_function`
-   (or, for `efs-seeder`, one per game with `file_seeds`). The function URL
-   (where applicable), IAM role, env vars, and EventBridge rule are all in
-   the matching `.tf` file.
+2. Apply from the app's Infrastructure page — `lambdas.ts` reads each CJS
+   bundle as a `pulumi.asset.FileAsset`, and Pulumi uploads it to the
+   matching `aws.lambda.Function` (or, for `efs-seeder`, one per game with
+   `file_seeds`). The function URL (where applicable), IAM role, env vars,
+   and EventBridge rule are all declared in the same file.
 
-Because the zip hash is derived from the file content, `terraform plan`
-will only report a Lambda change when the bundle bytes actually change.
-You can rebuild freely without generating spurious diffs.
+Because the asset hash is derived from the file content, the plan will only
+report a Lambda change when the bundle bytes actually change. You can
+rebuild freely without generating spurious diffs.
 
-There is no separate CI pipeline for Lambdas — deploys happen from your
-laptop or wherever you run `terraform apply`.
+There is no separate CI pipeline for Lambdas — deploys happen from
+whichever machine has the app running and the AWS credentials configured.
 
-## When you touch Terraform
+## When you touch the infra program
 
+`app/packages/infra` is ordinary TypeScript, covered by the same tooling as
+the rest of the monorepo — there is no separate linter or formatter for it.
 Minimum you owe the reviewer:
 
-- `terraform fmt -recursive` (or `terraform fmt -check -recursive` to
-  verify).
-- `terraform validate`.
-- `tflint` with the AWS ruleset.
-- Run `terraform plan` against a real account and paste the relevant
-  resource changes into the PR description. Seeing new/destroyed
-  resources in the plan output is what actually catches mistakes.
+- `npm run app:lint` and `npm run app:typecheck` clean, same as anywhere
+  else in the repo.
+- A `.test.ts` file next to any `defineX()` function you touch, using the
+  shared `installPulumiMocks()` harness (`testing/pulumiMocks.ts`) — see the
+  existing `*.test.ts` files under `app/packages/infra/src/` for the
+  pattern.
+- Run a plan from the Infrastructure page against a real account (or a
+  disposable AWS account) and paste the relevant resource changes into the
+  PR description. Seeing new/destroyed resources in the plan output is what
+  actually catches mistakes.
+- Keep [`docs/docs/components/infra.md`](/components/infra)'s file/resource
+  table in sync if you add, remove, or change what a file declares.
 
 For anything that touches Lambda IAM, list the exact actions added/removed
 in the PR body — least-privilege roles are easy to silently widen.
@@ -351,15 +395,61 @@ executes it and CI's e2e job never writes to `docs/static/img/app/`.
 
 ## Release / deploy
 
-There is no versioned release. "Deploying" = running `npm run app:build:lambdas`
-then `terraform apply`, and then packaging/running the Electron app
-(`npm run desktop:package`, or `npm run app:build && npm run app:start`)
-from whatever machine holds the AWS credentials.
+There is no versioned release. "Deploying" = running `npm run app:build:lambdas`,
+then plan/approve/apply from the app's Infrastructure page, and then
+packaging/running the Electron app (`npm run desktop:package`, or
+`npm run app:build && npm run app:start`) from whatever machine holds the
+AWS credentials.
 
 If you're wrapping this repo as a submodule inside a private parent repo
-that holds `terraform.tfvars` and state — which is the
-pattern we recommend for anyone running this for real — see the
-[submodule guide](/guides/submodule) for that layout.
+for a pinned version and your own notes — see the
+[submodule guide](/guides/submodule) for that layout. It is no longer a
+secrets-storage pattern; AWS credentials, Discord secrets, and your game
+configuration all live outside the repo (OS keychain, Secrets Manager, and
+S3, respectively).
+
+## Legacy Terraform teardown (one-off)
+
+If you deployed the **old, Terraform-based** version of this stack before
+the `migrate-iac-to-pulumi` change, you must fully tear that stack down
+before running your first Pulumi apply against the same AWS account. This
+is a **one-time migration step**, not an ongoing workflow — once the old
+stack is destroyed and the new one is up, this section no longer applies to
+you.
+
+The Pulumi port reused the old stack's physical resource names verbatim, so
+deploying both at once is not a "mostly fine, minor overlap" situation — it
+ranges from a loud failure to a silent, dangerous double-deployment:
+
+- **Hard collisions (the apply fails outright).** Both stacks would create
+  identically-named DynamoDB tables (`hyveon-discord`, `hyveon-runs`,
+  `hyveon-audit`), Lambda functions (`hyveon-interactions`, `-followup`,
+  `-watchdog`, `-dns-updater`, `-efs-seeder-{game}`), IAM roles, CloudWatch
+  log groups, Secrets Manager secrets, the EFS filesystem's creation token,
+  and the Discord custom domain's CloudFront alias + Route 53 A/AAAA
+  records. AWS rejects the second create for all of these.
+- **Silent adoption (no error, but two states now think they own one
+  resource).** The ECS cluster name, the two EventBridge rules, and the
+  `{game}-server` task-definition family are all upsert-like or
+  revision-versioned — a second stack quietly takes over or appends to the
+  first stack's resource rather than failing. If you later `terraform
+  destroy` the old stack, it deletes the resource out from under the live
+  Pulumi stack.
+- **Don't "fix" the collisions by renaming the project.** Changing the
+  project name sidesteps every failure above, but converts them into a
+  **silent duplicate deployment**: two live `update-dns` Lambdas and two
+  live `watchdog` Lambdas, both reacting to the same ECS task-state events
+  and both writing/deleting the same `{game}.{hostedZoneName}` DNS record —
+  each stack's Lambda fights the other's. This is strictly worse than the
+  loud failures above, because nothing tells you it's happening.
+
+**The correct order is always: destroy the old Terraform stack completely,
+then run your first Pulumi apply.** If you no longer have the old
+`terraform/` tree available to run `terraform destroy` with, tear the
+resources down manually from the AWS console/CLI before proceeding, and
+confirm in particular that the two Discord Secrets Manager secrets are
+actually gone (their zero-day recovery window means the delete completes
+immediately, but a still-pending delete blocks a same-named `CreateSecret`).
 
 ## Useful references
 
@@ -370,4 +460,4 @@ pattern we recommend for anyone running this for real — see the
 - [Architecture](/architecture) —
   component and sequence diagrams.
 - [Component docs](/#component-reference) —
-  deep-dives on terraform, the management app, and the Lambdas.
+  deep-dives on the infra program, the management app, and the Lambdas.

@@ -1,27 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: Public access block on bootstrap-created buckets
+### Requirement: Default encryption on the configuration bucket
 
-Every S3 bucket `BootstrapService` creates — the Terraform state bucket and the tfvars bucket — SHALL have a public access block applied with all four settings enabled (`BlockPublicAcls`, `BlockPublicPolicy`, `IgnorePublicAcls`, `RestrictPublicBuckets`), matching what `terraform/bootstrap/main.tf` applies to the tfvars bucket it creates. The call MUST be idempotent, applying on the `exists` path as well as the `created` path so buckets provisioned before this requirement are brought into line. Failure to apply the block MUST surface as a bootstrap failure rather than being silently ignored.
+The configuration bucket `BootstrapService.ensureConfigurationBucket()` creates SHALL have AES256 default server-side encryption applied (`PutBucketEncryption`), matching what `ensureStateBucket()` already applies to the state bucket. The call MUST be idempotent, applying on the `exists` path as well as the `created` path so a bucket provisioned before this requirement is brought into line. Failure to apply encryption MUST surface as a bootstrap failure rather than being silently ignored.
 
-#### Scenario: New state bucket is blocked from public access
+Public-access-block hardening is **not** part of this requirement — re-verified against the current `BootstrapService.ts`: both `ensureStateBucket()` and `ensureConfigurationBucket()` already call a shared `ensurePublicAccessBlock()` helper unconditionally (all four settings, on both the `created` and `exists` paths), so that hardening already exists for both buckets as a side effect of unrelated `migrate-iac-to-pulumi` work. Encryption is the one asymmetry that remains.
 
-- **WHEN** `ensureStateBucket()` creates a new bucket
-- **THEN** all four public access block settings are enabled on it
+#### Scenario: New configuration bucket is encrypted
 
-#### Scenario: New tfvars bucket is blocked from public access
+- **WHEN** `ensureConfigurationBucket()` creates a new bucket
+- **THEN** AES256 default server-side encryption is enabled on it, matching what `ensureStateBucket()` already does for the state bucket
 
-- **WHEN** `ensureTfvarsBucket()` creates a new bucket
-- **THEN** all four public access block settings are enabled on it, matching the Terraform fallback module
+#### Scenario: Pre-existing configuration bucket brought into line
 
-#### Scenario: Pre-existing bucket brought into line
+- **WHEN** bootstrap runs against a configuration bucket that already exists without default encryption
+- **THEN** encryption is applied and the operation still reports `exists` rather than `created`
 
-- **WHEN** bootstrap runs against a bucket that already exists without a public access block
-- **THEN** the block is applied and the operation still reports `exists` rather than `created`
+#### Scenario: Encryption application fails
 
-#### Scenario: Block application fails
-
-- **WHEN** the `PutPublicAccessBlock` call is denied or errors
+- **WHEN** the `PutBucketEncryption` call is denied or errors
 - **THEN** the bootstrap operation reports `failed` with the underlying error rather than reporting success
 
 ## MODIFIED Requirements
@@ -29,6 +26,8 @@ Every S3 bucket `BootstrapService` creates — the Terraform state bucket and th
 ### Requirement: IAM permission simulation
 
 After credentials are wired, the wizard SHALL run a dry-run via `iam:SimulatePrincipalPolicy` against the calling identity (resolved via `sts:GetCallerIdentity`) for the action set of the `HyveonDeployAll` policy, whose single source of truth is `HYVEON_DEPLOY_ALL_ACTIONS` in `@hyveon/shared`, mirrored in the policy JSON in `docs/docs/setup.md`. Simulation requests MUST be batched to stay within API limits and minimize false positives. Missing actions SHALL be surfaced in the wizard as a "Required IAM JSON" panel containing copy-paste-able policy JSON covering the denied actions. The wizard MUST NEVER attempt to grant permissions itself.
+
+Re-verified against the current `IamCheckService.ts`: the check is purely advisory on every path today (no notion of credential-source origin exists yet), matching `docs/docs/setup.md`'s own description of it as "never blocks you from continuing" — the gating split below is still entirely greenfield, not partially built.
 
 Simulation outcome SHALL gate differently depending on how credentials were obtained. On the guided IAM provisioning path the permission set is known by construction, so the check runs automatically after key rotation and a `missing` result MUST block progression, listing the denied actions with a re-run action — a failure there indicates a real fault such as the wrong account, a partially-failed stack, or a denying service control policy. On the profile-picker and paste paths the check remains advisory and MUST NOT block, since an operator may deliberately be running a narrower policy. Simulation failure (e.g. the caller lacks `iam:SimulatePrincipalPolicy` itself) MUST degrade to a warning with the full checklist shown on every path — it never blocks.
 

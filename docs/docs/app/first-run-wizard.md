@@ -141,7 +141,7 @@ permissions** button (it relabels to **Re-check permissions** afterwards).
 **This check never blocks Next, and it never runs on its own.** You can
 complete the entire wizard without ever pressing it. It exists so you find out
 about a missing IAM action now rather than halfway through your first
-`terraform apply`.
+infrastructure apply.
 
 It resolves your caller identity, then asks IAM to simulate every action in
 the `HyveonDeployAll` policy against your principal. Three outcomes:
