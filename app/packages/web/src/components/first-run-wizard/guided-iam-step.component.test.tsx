@@ -110,6 +110,23 @@ describe('GuidedIamStep', () => {
       }
     });
 
+    it('should show an inline error with a Retry action when rendering the template fails, and succeed on retry', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.wizard.guidedIamPrepareTemplate.mockRejectedValueOnce(new Error('disk full'));
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('disk full');
+      expect(screen.queryByLabelText('Template path')).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+      expect(await screen.findByLabelText('Template path')).toHaveValue('/tmp/iam-bootstrap-rendered.yaml');
+      expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(2);
+    });
+
     it('should open the AWS console and show a success message when opened', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
@@ -143,6 +160,21 @@ describe('GuidedIamStep', () => {
           'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create',
         ),
       ).toBeInTheDocument();
+    });
+
+    it('should surface a console-open error inline without blocking "Continue to key entry"', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.wizard.guidedIamOpenConsole.mockRejectedValue(new Error('failed to launch browser'));
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+      await screen.findByLabelText('Template path');
+
+      await userEvent.click(screen.getByRole('button', { name: /open aws console/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('failed to launch browser');
+      expect(screen.getByRole('button', { name: /continue to key entry/i })).toBeEnabled();
     });
 
     it('should persist awaiting-key-intake and move to the intake form on "Continue to key entry"', async () => {

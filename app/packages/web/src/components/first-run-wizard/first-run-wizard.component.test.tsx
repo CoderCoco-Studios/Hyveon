@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AwsProfileSummary } from '@hyveon/desktop-preload';
+import { GUIDED_PROFILE_NAME, type AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
 
 // Stubs the real `GuidedIamStep` (its own multi-phase flow is covered by
@@ -662,7 +662,7 @@ describe('FirstRunWizard', () => {
     it("should render the credentials step's satisfied summary when GuidedIamStep calls onComplete with a guided profile on record", async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: false,
-        aws: { profile: 'hyveon-guided', region: 'us-east-1' },
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
       });
       await advanceToPickCloud();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -679,7 +679,7 @@ describe('FirstRunWizard', () => {
     it('should fall through to the normal form — never a dead end — when "Switch to a different source" is clicked', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: false,
-        aws: { profile: 'hyveon-guided', region: 'us-east-1' },
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
       });
       await advanceToPickCloud();
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -714,7 +714,7 @@ describe('FirstRunWizard', () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: true,
         activeCloud: 'aws',
-        aws: { profile: 'hyveon-guided', region: 'us-east-1' },
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
       });
       render(<FirstRunWizard mode="reconfigure" />);
       await screen.findByText(/choose your cloud is already configured/i);

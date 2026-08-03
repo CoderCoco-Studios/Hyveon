@@ -71,20 +71,26 @@ export interface FirstRunWizardProps {
   /** Invoked once the stack-init step's `wizard.complete` call succeeds. */
   onComplete?: () => void;
   /**
-   * `'first-run'` (default) gates the whole app and runs all four steps,
-   * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
-   * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
-   * launched from Settings) pre-marks `pick-cloud`/`credentials`/`bootstrap`
-   * as completed with a per-step Edit affordance, and buffers *edited*
-   * answers locally — a single
+   * `'first-run'` (default) gates the whole app and runs all five steps
+   * (including `guided-iam`, `add-one-click-aws-bootstrap`'s one-click AWS
+   * access provisioning step), persisting `pick-cloud`/`credentials`/`bootstrap`
+   * answers immediately via `wizard.state.save` as the operator advances.
+   * `'reconfigure'` (#211, launched from Settings) pre-marks
+   * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
+   * affordance, and buffers *edited* answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via
    * Edit, commits right before `wizard.complete` runs. A step left collapsed
    * is never included in that call, so Cancel never has anything to undo for
-   * it. This covers the durable answer data only, not every side effect: the
-   * credentials step's "paste keys instead" form and the bootstrap step's
-   * "Run bootstrap"/"Check permissions" buttons already perform real,
-   * idempotent IPC calls the moment they're clicked (same as `'first-run'`)
-   * — Cancel doesn't undo those either, it just never points the *active*
+   * it. `guided-iam` is pre-marked too, but conditionally, not unconditionally
+   * like its three siblings above: only when `wizard.state.get()`'s
+   * `aws?.profile` is the exact guided-provisioning profile name (see
+   * `isGuidedProfile` below) — a manually picked profile or pasted key never
+   * pre-completes it, and it renders as a live step in that case. This covers
+   * the durable answer data only, not every side effect: the credentials
+   * step's "paste keys instead" form and the bootstrap step's "Run
+   * bootstrap"/"Check permissions" buttons already perform real, idempotent
+   * IPC calls the moment they're clicked (same as `'first-run'`) — Cancel
+   * doesn't undo those either, it just never points the *active*
    * `aws`/`bootstrap` config at their result.
    */
   mode?: 'first-run' | 'reconfigure';
@@ -343,13 +349,18 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * rotated key is now the active AWS credential. Re-derives
    * {@link guidedCredentials} immediately (rather than waiting for the next
    * mount) so the credentials step it advances into already renders the
-   * satisfied summary, then advances past this step via {@link goNext}. Like
-   * `stack-init-step.component.tsx`'s `onFinished`, this bypasses the shared
-   * footer's Next button entirely — see the footer's `hideNextButton`
+   * satisfied summary, then advances past this step via {@link goNext}.
+   * Awaits {@link refreshGuidedCredentials} before calling {@link goNext} —
+   * firing them concurrently let `goNext` flip `stepIndex` to `credentials`
+   * before `guidedCredentials` had re-derived, so the credentials step
+   * briefly mounted its normal picker/paste form for one frame before
+   * flipping to the satisfied summary. Sequencing them removes that flicker.
+   * Like `stack-init-step.component.tsx`'s `onFinished`, this bypasses the
+   * shared footer's Next button entirely — see the footer's `hideNextButton`
    * computation below for why Next is hidden for this step.
    */
-  function handleGuidedIamComplete() {
-    void refreshGuidedCredentials();
+  async function handleGuidedIamComplete() {
+    await refreshGuidedCredentials();
     void goNext();
   }
 
