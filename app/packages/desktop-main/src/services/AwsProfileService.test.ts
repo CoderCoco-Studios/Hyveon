@@ -285,6 +285,14 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     vi.restoreAllMocks();
   });
 
+  it('should throw SafeStorageUnavailableError and never call any AWS API when the keychain is unavailable', async () => {
+    service = new TestableAwsProfileService(stubSafeStorage(false), store);
+
+    await expect(service.rotateActiveCredentials()).rejects.toThrow(SafeStorageUnavailableError);
+    expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
+    expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
   it('should throw UnsupportedCredentialSourceError and never call any AWS API when the active source is kind: profile', async () => {
     store = makeRotationStore({ aws: { profile: 'my-cli-profile', region: REGION } }); // getPastedCredentials -> undefined
     service = new TestableAwsProfileService(stubSafeStorage(true), store);
@@ -484,6 +492,10 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     await service.rotateActiveCredentials();
 
     const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+    // Guards against this assertion passing vacuously if logging were
+    // removed from the method entirely — the verification-failure branch
+    // must still emit at least a warn call.
+    expect(allCalls.length).toBeGreaterThan(0);
     for (const call of allCalls) {
       const serialized = JSON.stringify(call);
       expect(serialized).not.toContain(CURRENT_SECRET);
@@ -503,6 +515,10 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     await service.rotateActiveCredentials();
 
     const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+    // Guards against this assertion passing vacuously if logging were
+    // removed from the method entirely — the delete-failure branch must
+    // still emit at least a warn call.
+    expect(allCalls.length).toBeGreaterThan(0);
     for (const call of allCalls) {
       const serialized = JSON.stringify(call);
       expect(serialized).not.toContain(CURRENT_SECRET);

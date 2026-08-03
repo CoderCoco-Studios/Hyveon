@@ -73,14 +73,18 @@ export class InvalidPastedCredentialsError extends Error {
  * `kind: 'profile'` source (a real AWS CLI profile the operator manages
  * themselves), and a `kind: 'none'` source means the wizard's credentials
  * step has not run at all. Thrown before any AWS call is made in either
- * case.
+ * case. The remediation clause differs by `kind` — a `'profile'` source
+ * already IS one the operator controls, so telling them to "pick a profile
+ * you control" would be circular; they need to rotate it themselves outside
+ * this app instead.
  */
 export class UnsupportedCredentialSourceError extends Error {
-  constructor() {
-    super(
-      'Rotation is only supported for pasted or guided credential sources — pick a profile you control, ' +
-        'or re-run guided provisioning.',
-    );
+  constructor(kind: 'profile' | 'none') {
+    const remediation =
+      kind === 'profile'
+        ? "rotate that profile's keys yourself via the AWS CLI or console"
+        : "complete the wizard's credentials step, or re-run guided provisioning";
+    super(`Rotation is only supported for pasted or guided credential sources — ${remediation}.`);
     this.name = 'UnsupportedCredentialSourceError';
   }
 }
@@ -195,12 +199,28 @@ export class AwsProfileService {
    * `kind: 'profile'`/`kind: 'none'` are refused.
    *
    * Sequence (load-bearing — do not reorder):
-   * 0. Resolve the active source via {@link resolveAwsCredentialSource}. If
+   * 0. **Keychain gate.** If {@link SafeStorageService.isAvailable} is
+   *    `false`, throws {@link SafeStorageUnavailableError} before making any
+   *    AWS call or resolving anything else — mirrors
+   *    {@link GuidedIamService.rotate}'s own step 0 and
+   *    {@link savePastedCredentials}'s gate, both guarding the exact same
+   *    hazard: `ElectronStoreService.setPastedCredentials` calls
+   *    `SafeStorageService.encrypt` unconditionally, and `encrypt` silently
+   *    degrades to returning plaintext (with only a logged warning, never a
+   *    throw) when the keychain is unavailable. Without this gate, a
+   *    keychain that locks mid-rotation — after step 0's resolve/decrypt of
+   *    the *current* credentials succeeded, but before step 4's
+   *    `setPastedCredentials` call — would silently write the brand-new
+   *    secret access key to the electron-store JSON file in plaintext, and
+   *    step 5 would then delete the old key, leaving the operator's only
+   *    valid credential both leaked to disk and (once the keychain becomes
+   *    available again) undecryptable.
+   * 1. Resolve the active source via {@link resolveAwsCredentialSource}. If
    *    not `kind: 'pasted'`, throws {@link UnsupportedCredentialSourceError}
    *    before any AWS call is made.
-   * 1. `iam:CreateAccessKey` using an IAM client built from the *current*
+   * 2. `iam:CreateAccessKey` using an IAM client built from the *current*
    *    (about-to-be-superseded) key pair.
-   * 2. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
+   * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
    *    client built from the *new* key. On failure, best-effort deletes the
    *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
    *    from the still-valid *current* key — nothing has touched it yet),
@@ -208,42 +228,51 @@ export class AwsProfileService {
    *    overwriting the stored credentials — the previously stored key
    *    remains active and in the keychain. This cleanup is what makes a
    *    caller-driven retry safe: without it, the orphaned new key would stay
-   *    live, and a retry's step 1 would hit IAM's 2-access-key-per-user
+   *    live, and a retry's step 2 would hit IAM's 2-access-key-per-user
    *    limit (`LimitExceededException`). If the cleanup delete itself fails,
    *    that is logged (no secrets) and swallowed — `verification-failed` is
    *    still returned with the *original* verification error, not a
    *    new/different status; a manual console cleanup may be needed in that
    *    case.
-   * 3. Only once verification succeeds:
+   * 4. Only once verification succeeds:
    *    {@link ElectronStoreService.setPastedCredentials} overwrites the
    *    stored entry under the *same* profile name (in-place rotation;
    *    `aws.profile` already points at this profile).
-   * 4. `iam:DeleteAccessKey` on the *old* (now-superseded) key's
+   * 5. `iam:DeleteAccessKey` on the *old* (now-superseded) key's
    *    `AccessKeyId`, using an IAM client built from the *new* key pair
    *    (both keys belong to the same IAM user). On failure, returns
    *    `{ status: 'delete-failed', consoleUrl }` — the new key is already
-   *    stored/active from step 3 and that is **not** rolled back; the
+   *    stored/active from step 4 and that is **not** rolled back; the
    *    operator must revoke the still-live old key manually via
    *    `consoleUrl`. Never reports overall success in this case.
-   * 5. On success, returns `{ status: 'complete' }`.
+   * 6. On success, returns `{ status: 'complete' }`.
    *
    * Never logs `secretAccessKey` (current or newly minted) — only
    * non-secret access key IDs and step-progress messages.
    *
+   * @throws {@link SafeStorageUnavailableError} if the OS keychain is
+   *   unavailable — nothing is attempted in that case (step 0).
    * @throws {@link UnsupportedCredentialSourceError} if the active source is
-   *   not `kind: 'pasted'`.
+   *   not `kind: 'pasted'` (step 1).
+   * @throws {@link AwsPastedCredentialDecryptError} (from
+   *   {@link resolveAwsCredentialSource}, step 1) if the stored
+   *   pasted-credentials entry can't be decrypted.
    * @throws `Error` if no region is configured for the active source, or if
-   *   `iam:CreateAccessKey` (step 1) succeeds but its response is missing
+   *   `iam:CreateAccessKey` (step 2) succeeds but its response is missing
    *   `AccessKeyId`/`SecretAccessKey` — neither is a modeled
    *   {@link AwsProfileRotationResult} branch; nothing has been overwritten
    *   in either case.
    * @throws Raw, unmodeled AWS SDK errors from `iam:CreateAccessKey` (step
-   *   1) itself propagate straight to the caller, which must catch it.
+   *   2) itself propagate straight to the caller, which must catch it.
    */
   async rotateActiveCredentials(): Promise<AwsProfileRotationResult> {
+    if (!this.safeStorage.isAvailable()) {
+      throw new SafeStorageUnavailableError();
+    }
+
     const source = resolveAwsCredentialSource(this.store);
     if (source.kind !== 'pasted') {
-      throw new UnsupportedCredentialSourceError();
+      throw new UnsupportedCredentialSourceError(source.kind);
     }
 
     const region = this.store.get('aws')?.region;
@@ -258,7 +287,7 @@ export class AwsProfileService {
       region,
     });
 
-    // Step 1: mint a new key pair using the current key.
+    // Step 2: mint a new key pair using the current key.
     const createResponse = await currentClient.send(new CreateAccessKeyCommand({}));
     const newKey = createResponse.AccessKey;
     if (!newKey?.AccessKeyId || !newKey.SecretAccessKey) {
@@ -270,7 +299,7 @@ export class AwsProfileService {
     const newAccessKeyId = newKey.AccessKeyId;
     const newSecretAccessKey = newKey.SecretAccessKey;
 
-    // Step 2: verify the new key pair works before relying on it.
+    // Step 3: verify the new key pair works before relying on it.
     try {
       const verifyClient = this.createStsClient({ accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
       await verifyClient.send(new GetCallerIdentityCommand({}));
@@ -282,7 +311,7 @@ export class AwsProfileService {
       });
       // Best-effort cleanup: delete the orphaned new key using the
       // still-untouched current key, so a caller-driven retry (which
-      // re-runs from step 1) doesn't hit IAM's 2-access-key-per-user limit.
+      // re-runs from step 2) doesn't hit IAM's 2-access-key-per-user limit.
       // A failure here does not change the outcome — the original
       // verification error is still what gets returned.
       try {
@@ -297,11 +326,11 @@ export class AwsProfileService {
       return { status: 'verification-failed', error: message };
     }
 
-    // Step 3: verification succeeded — overwrite the stored credentials in place.
+    // Step 4: verification succeeded — overwrite the stored credentials in place.
     this.store.setPastedCredentials(profile, { accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
     logger.info('AwsProfileService.rotateActiveCredentials: stored rotated key in place', { profile });
 
-    // Step 4: revoke the old key using the new key's client.
+    // Step 5: revoke the old key using the new key's client.
     try {
       const newClient = this.createIamClient({ accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
       await newClient.send(new DeleteAccessKeyCommand({ AccessKeyId: currentAccessKeyId }));
@@ -314,7 +343,7 @@ export class AwsProfileService {
       return { status: 'delete-failed', consoleUrl: this.buildIamSecurityCredentialsConsoleUrl() };
     }
 
-    // Step 5: rotation complete.
+    // Step 6: rotation complete.
     logger.info('AwsProfileService.rotateActiveCredentials: rotation complete, old key revoked', {
       oldAccessKeyId: currentAccessKeyId,
     });
