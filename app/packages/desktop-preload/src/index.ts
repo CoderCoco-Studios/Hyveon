@@ -34,6 +34,10 @@ export type {
   IamCheckOrigin,
   WizardState,
   SaveWizardStateInput,
+  WizardStepName,
+  GuidedIamSubState,
+  WizardProgress,
+  SaveWizardProgressInput,
 } from './hyveon-api.js';
 
 declare global {
