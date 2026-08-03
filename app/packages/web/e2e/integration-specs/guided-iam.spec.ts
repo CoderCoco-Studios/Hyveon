@@ -115,6 +115,30 @@ test.describe('Guided IAM bootstrap — wizard.guidedIam.* channels', () => {
       const calls = stsMock.commandCalls(GetCallerIdentityCommand);
       expect(calls).toHaveLength(1);
     });
+
+    test('should propagate the raw AWS error unchanged through the IPC dispatch for an invalid bootstrap key pair', async ({ ipc }) => {
+      // Matches GuidedIamService.intakeBootstrapKey()'s documented contract
+      // (GuidedIamService.ts: "the underlying AWS SDK error propagates
+      // unchanged, never wrapped in a generic 'invalid credentials'
+      // message") — already proven at the service-unit-test tier
+      // (GuidedIamService.test.ts); this proves the same contract still
+      // holds through the full controller/IPC dispatch path, not just a
+      // directly-constructed service instance.
+      const awsError = new Error('The security token included in the request is invalid');
+      awsError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(awsError);
+
+      await expect(
+        ipc.dispatch(WizardController, 'submitGuidedIamBootstrapKey', {
+          accessKeyId: 'AKIAINVALIDTEST',
+          secretAccessKey: 'test-invalid-secret-value',
+          region: 'us-east-1',
+        }),
+      ).rejects.toMatchObject({
+        name: 'InvalidClientTokenId',
+        message: 'The security token included in the request is invalid',
+      });
+    });
   });
 
   test.describe('wizard.guidedIam.rotate', () => {
