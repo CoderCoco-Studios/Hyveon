@@ -136,12 +136,16 @@ const RESUMED_REGION = 'eu-west-1';
  * region field by hand.
  *
  * `wizard.guidedIam.prepareTemplate`/`openConsole` are mocked to reject
- * loudly rather than left unmocked. Per the plan's Global Constraints, an
- * unmocked channel falls through to the real IPC transport and could reach
- * the real `GuidedIamService`. Neither call should ever fire on this resume
- * path — the region/template/console screens must never mount — so
- * rejecting turns an accidental regression into an immediate, loud failure
- * instead of a silent real call.
+ * rather than left unmocked. Per the plan's Global Constraints, an unmocked
+ * channel falls through to the real IPC transport and could reach the real
+ * `GuidedIamService`. Neither call should ever fire on this resume path — the
+ * template screen must never mount — so rejecting closes that hole even
+ * though it is not, by itself, a loud failure: the component catches the
+ * rejection and renders it as inline `templateError` UI
+ * (`guided-iam-step.component.tsx`'s `template`-phase branch), the same as a
+ * real failed render would. The rejection's only job is to guarantee no real
+ * IPC call is possible; the test's own assertions (see the spec below) are
+ * what actually prove the template phase never mounted.
  */
 async function seedGuidedIamRotationPendingResumeMocks(
   win: Page,
@@ -238,20 +242,34 @@ test.describe('guided-IAM wizard step', () => {
     const wizard = new GuidedIamWizardPage(win);
 
     // The resumed mount jumps straight to the key-intake-and-rotate screen —
-    // the region/choice, template, and console screens must never mount.
-    // This is the e2e-level proof of Group 7's fix round: assert both that
-    // the resume banner and intake form are up AND that every other
-    // screen's distinctive elements are absent, not just that the intake
-    // screen eventually appears.
+    // this is the e2e-level proof of Group 7's fix round. The core guarantee
+    // comes from `guidedIamStep`'s render being a mutually-exclusive
+    // `if (phase === X) return (...)` chain: only one phase's markup can ever
+    // be in the DOM at a time, so the positive assertions just below
+    // (`resumedRotationPendingBanner`/`accessKeyIdInput`/`secretAccessKeyInput`,
+    // all `intake`-only) already fail on their own if any other phase
+    // rendered instead. The negative checks add specific, independent proof
+    // for the two phases a regressed resume could plausibly land on instead:
+    // - `region` phase renders `continueWithGuidedSetupButton`/
+    //   `alreadyHaveCredentialsButton` unconditionally (no `templatePath`
+    //   gating), so their absence is a direct, reliable negative.
+    // - `template` phase, if reached, would call the mocked (rejecting)
+    //   `prepareTemplate` and settle into its `templateError` branch, which
+    //   renders `retryTemplateButton` and an `errorAlert` — NOT
+    //   `templatePathInput`/`openConsoleButton`/`continueToKeyEntryButton`,
+    //   which are gated on `templatePath` and can never appear given this
+    //   test's mocks regardless of which phase is mounted. Asserting those
+    //   three would prove nothing; `retryTemplateButton`/`errorAlert` are the
+    //   elements that actually distinguish "template phase, errored" from
+    //   this test's expected clean intake state.
     await expect(wizard.resumedRotationPendingBanner()).toBeVisible();
     await expect(wizard.accessKeyIdInput()).toBeVisible();
     await expect(wizard.secretAccessKeyInput()).toBeVisible();
 
     await expect(wizard.continueWithGuidedSetupButton()).toHaveCount(0);
     await expect(wizard.alreadyHaveCredentialsButton()).toHaveCount(0);
-    await expect(wizard.templatePathInput()).toHaveCount(0);
-    await expect(wizard.openConsoleButton()).toHaveCount(0);
-    await expect(wizard.continueToKeyEntryButton()).toHaveCount(0);
+    await expect(wizard.retryTemplateButton()).toHaveCount(0);
+    await expect(wizard.errorAlert()).toHaveCount(0);
 
     // The intake screen's inline region field starts blank on this path —
     // the mocked `wizard.state.get()` has no recoverable `aws.region` before
