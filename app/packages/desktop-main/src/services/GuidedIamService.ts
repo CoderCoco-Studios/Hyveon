@@ -24,6 +24,17 @@ export interface RenderedTemplateResult {
   path: string;
 }
 
+/** Result of {@link GuidedIamService.openConsole}. */
+export interface OpenConsoleResult {
+  /**
+   * `true` when the operator's default browser was launched successfully.
+   * `false` on any failure (Electron unavailable, or `shell.openExternal`
+   * threw/rejected) — the caller is expected to fall back to displaying the
+   * URL as plain text for the operator to open manually.
+   */
+  opened: boolean;
+}
+
 /**
  * Drives the first-run guided IAM bootstrap flow: renders the
  * `iam-bootstrap.yaml` CloudFormation template shell (Group 1) with the
@@ -92,6 +103,69 @@ export class GuidedIamService {
    */
   buildCloudFormationConsoleUrl(region: string): string {
     return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`;
+  }
+
+  /**
+   * Launch the operator's default browser at `url` (the CloudFormation
+   * console page from {@link buildCloudFormationConsoleUrl}) via Electron's
+   * `shell.openExternal`. This is the first use of `shell.openExternal` in
+   * this codebase, so it follows the same lazy-require Electron-touching
+   * seam every other main-process service uses (see
+   * {@link SafeStorageService}'s `readIsElectron`/`encryptString` pair):
+   * a `process.versions['electron']` guard in {@link readIsElectron}, and
+   * the actual `createRequire` + typed destructure call in
+   * {@link openExternalUrl}, each a separate `protected` method so tests can
+   * stub them without importing the real `electron` module.
+   *
+   * Never throws: `shell.openExternal` returns a `Promise` in real Electron,
+   * so a rejection is awaited inside a `try`/`catch` here rather than left
+   * to reject uncaught. On any failure — Electron unavailable, or
+   * `openExternalUrl` throwing/rejecting for any reason (permissions, no
+   * registered browser handler, etc.) — this resolves to `{ opened: false }`
+   * so the caller (a later group's wizard UI) can fall back to displaying
+   * `url` as plain text for the operator to open manually, per the spec's
+   * "Browser cannot be opened" scenario.
+   *
+   * @param url - The URL to open, typically the result of
+   *   {@link buildCloudFormationConsoleUrl}.
+   */
+  async openConsole(url: string): Promise<OpenConsoleResult> {
+    if (!this.readIsElectron()) {
+      return { opened: false };
+    }
+    try {
+      await this.openExternalUrl(url);
+      return { opened: true };
+    } catch {
+      return { opened: false };
+    }
+  }
+
+  /**
+   * Returns `true` when `process.versions['electron']` is set, indicating
+   * the service is running inside an Electron process. Extracted as a
+   * protected method so tests can stub it via `vi.spyOn` without touching
+   * `process.versions` directly. Mirrors `SafeStorageService.readIsElectron`
+   * exactly.
+   */
+  protected readIsElectron(): boolean {
+    return !!process.versions['electron'];
+  }
+
+  /**
+   * Calls `shell.openExternal(url)` and awaits its result. Only called after
+   * {@link readIsElectron} returns `true`. Extracted as a protected method,
+   * lazily requiring `electron` at call-time, so tests can stub it via
+   * `vi.spyOn` without importing the native `electron` module and so that
+   * importing this file in a plain Node/test context never triggers an
+   * unresolved-module error.
+   *
+   * @param url - The URL to hand to the OS's default browser.
+   */
+  protected async openExternalUrl(url: string): Promise<void> {
+    const _require = createRequire(import.meta.url);
+    const { shell } = _require('electron') as { shell: { openExternal(url: string): Promise<void> } };
+    await shell.openExternal(url);
   }
 
   /**

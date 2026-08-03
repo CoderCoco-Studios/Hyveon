@@ -63,6 +63,14 @@ class TestableGuidedIamService extends GuidedIamService {
   public override getRenderedTemplatePath(): string {
     return super.getRenderedTemplatePath();
   }
+
+  public override readIsElectron(): boolean {
+    return super.readIsElectron();
+  }
+
+  public override openExternalUrl(url: string): Promise<void> {
+    return super.openExternalUrl(url);
+  }
 }
 
 describe('GuidedIamService', () => {
@@ -138,6 +146,47 @@ describe('GuidedIamService', () => {
       // Single-line JSON.stringify output (no `null, 2` pretty-print): the
       // substitution must not introduce any new line breaks.
       expect(rendered.split('\n')).toHaveLength(FIXTURE_TEMPLATE.split('\n').length);
+    });
+  });
+
+  describe('openConsole', () => {
+    const CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create';
+
+    it('should return opened: true when shell.openExternal resolves', async () => {
+      (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
+      vi.spyOn(service, 'openExternalUrl').mockResolvedValue(undefined);
+
+      const result = await service.openConsole(CONSOLE_URL);
+
+      expect(result).toEqual({ opened: true });
+      expect(service.openExternalUrl).toHaveBeenCalledWith(CONSOLE_URL);
+    });
+
+    it('should return opened: false and not throw when shell.openExternal rejects', async () => {
+      (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
+      vi.spyOn(service, 'openExternalUrl').mockRejectedValue(new Error('no registered browser handler'));
+
+      await expect(service.openConsole(CONSOLE_URL)).resolves.toEqual({ opened: false });
+    });
+
+    it('should return opened: false and never call openExternalUrl when process.versions.electron is unset', async () => {
+      const openExternalSpy = vi.spyOn(service, 'openExternalUrl');
+
+      const result = await service.openConsole(CONSOLE_URL);
+
+      expect(result).toEqual({ opened: false });
+      expect(openExternalSpy).not.toHaveBeenCalled();
+    });
+
+    describe('readIsElectron', () => {
+      it('should return false when process.versions.electron is unset', () => {
+        expect(service.readIsElectron()).toBe(false);
+      });
+
+      it('should return true when process.versions.electron is set', () => {
+        (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
+        expect(service.readIsElectron()).toBe(true);
+      });
     });
   });
 
