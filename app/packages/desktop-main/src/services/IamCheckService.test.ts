@@ -4,6 +4,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { IamCheckService } from './IamCheckService.js';
+import { GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
 /** Typed stand-in for the AWS STS SDK client, shared across the tests below. */
@@ -55,7 +56,7 @@ describe('IamCheckService', () => {
 
       const result = await service.checkPermissions();
 
-      expect(result).toEqual({ status: 'passed' });
+      expect(result).toEqual({ status: 'passed', origin: 'none', blocking: false });
     });
 
     it('should return missing with a minimal pasteable policy JSON when some actions are denied', async () => {
@@ -140,7 +141,7 @@ describe('IamCheckService', () => {
 
       const result = await service.checkPermissions();
 
-      expect(result).toEqual({ status: 'warning', message: 'access denied' });
+      expect(result).toEqual({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
       expect(iamMock.commandCalls(SimulatePrincipalPolicyCommand)).toHaveLength(0);
     });
 
@@ -175,8 +176,123 @@ describe('IamCheckService', () => {
 
       const result = await service.checkPermissions();
 
-      expect(result).toEqual({ status: 'passed' });
+      expect(result).toEqual({ status: 'passed', origin: 'pasted', blocking: false });
       expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
+    });
+  });
+
+  describe('origin and blocking', () => {
+    it('should resolve origin as none and blocking as false when no credential source is configured', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.checkPermissions();
+
+      expect(result).toEqual({ status: 'passed', origin: 'none', blocking: false });
+    });
+
+    it('should resolve origin as profile when the stored profile does not resolve to a pasted entry', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ profile: 'default', region: 'us-west-2' }));
+
+      const result = await service.checkPermissions();
+
+      expect(result).toEqual({ status: 'passed', origin: 'profile', blocking: false });
+    });
+
+    it('should resolve origin as pasted when the profile resolves to a manually pasted entry', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const store = makeStore({ profile: 'hyveon-pasted', region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result).toEqual({ status: 'passed', origin: 'pasted', blocking: false });
+    });
+
+    it('should resolve origin as guided when the profile is the guided-provisioned profile name', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const store = makeStore({ profile: GUIDED_PROFILE_NAME, region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result).toEqual({ status: 'passed', origin: 'guided', blocking: false });
+    });
+
+    it('should set blocking to true when status is missing and origin is guided', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({
+        EvaluationResults: [{ EvalActionName: 's3:*', EvalDecision: 'explicitDeny' }],
+      });
+      const store = makeStore({ profile: GUIDED_PROFILE_NAME, region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('missing');
+      expect(result.origin).toBe('guided');
+      expect(result.blocking).toBe(true);
+    });
+
+    it('should keep blocking false when status is missing but origin is pasted (a manually pasted key)', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({
+        EvaluationResults: [{ EvalActionName: 's3:*', EvalDecision: 'explicitDeny' }],
+      });
+      const store = makeStore({ profile: 'hyveon-pasted', region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('missing');
+      expect(result.origin).toBe('pasted');
+      expect(result.blocking).toBe(false);
+    });
+
+    it('should keep blocking false when status is missing but origin is profile', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({
+        EvaluationResults: [{ EvalActionName: 's3:*', EvalDecision: 'explicitDeny' }],
+      });
+      const service = new IamCheckService(makeStore({ profile: 'default', region: 'us-west-2' }));
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('missing');
+      expect(result.origin).toBe('profile');
+      expect(result.blocking).toBe(false);
+    });
+
+    it('should keep blocking false for a warning result even when origin is guided', async () => {
+      stsMock.on(GetCallerIdentityCommand).rejects(new Error('access denied'));
+      const store = makeStore({ profile: GUIDED_PROFILE_NAME, region: 'us-west-2' }, {
+        accessKeyId: 'AKID',
+        secretAccessKey: 'SECRET',
+      });
+      const service = new IamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result.status).toBe('warning');
+      expect(result.origin).toBe('guided');
+      expect(result.blocking).toBe(false);
     });
   });
 });

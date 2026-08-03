@@ -5,6 +5,7 @@ import { fromIni } from '@aws-sdk/credential-providers';
 import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 
 /**
  * Maximum number of action names sent in a single `SimulatePrincipalPolicy`
@@ -14,6 +15,21 @@ const SIMULATE_BATCH_SIZE = 50;
 
 /** Outcome of {@link IamCheckService.checkPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
+
+/**
+ * Which credential source produced an {@link IamCheckResult} — resolved by
+ * {@link IamCheckService.resolveOrigin} from the same
+ * {@link resolveAwsCredentialSource} decision `resolveClientConfig()` already
+ * makes:
+ *
+ * - `'guided'` — a key minted and rotated in by {@link GuidedIamService.rotate}
+ *   (`AwsCredentialSource.kind === 'pasted'` with `profile === GUIDED_PROFILE_NAME`).
+ * - `'pasted'` — a manually pasted key (`kind: 'pasted'`, any other profile name).
+ * - `'profile'` — a real `~/.aws` CLI profile (`kind: 'profile'`).
+ * - `'none'` — no credential source is configured yet (`kind: 'none'`), or the
+ *   source could not be determined (see {@link IamCheckService.resolveOrigin}).
+ */
+export type IamCheckOrigin = 'guided' | 'pasted' | 'profile' | 'none';
 
 /** Result of the wizard's best-effort IAM permission dry-run. */
 export interface IamCheckResult {
@@ -29,6 +45,21 @@ export interface IamCheckResult {
    * `iam:SimulatePrincipalPolicy`).
    */
   message?: string;
+  /** Which credential source produced this result. See {@link IamCheckOrigin}. */
+  origin: IamCheckOrigin;
+  /**
+   * `true` only when `status === 'missing'` AND `origin === 'guided'` — a
+   * denied action against a guided-provisioned (mint-then-rotate) key
+   * indicates a real fault (wrong account, partially-failed CloudFormation
+   * stack, a denying SCP), since that permission set is known by
+   * construction. Every other combination is `false`: `warning` never
+   * blocks regardless of origin (simulation failure degrades to advisory),
+   * and `missing` on a `profile`/`pasted`/`none` origin is advisory too — an
+   * operator may deliberately run a narrower policy on those paths. This is
+   * the single source of truth a caller reads to decide whether to gate
+   * wizard progression; no other field or method exposes that decision.
+   */
+  blocking: boolean;
 }
 
 /**
@@ -51,7 +82,7 @@ export class IamCheckService {
     try {
       callerArn = await this.getCallerArn();
     } catch (err) {
-      return { status: 'warning', message: this.describeError(err) };
+      return { status: 'warning', message: this.describeError(err), origin: this.resolveOrigin(), blocking: false };
     }
 
     const actions = this.actionsToCheck();
@@ -69,13 +100,50 @@ export class IamCheckService {
         }
       }
     } catch (err) {
-      return { status: 'warning', message: this.describeError(err) };
+      return { status: 'warning', message: this.describeError(err), origin: this.resolveOrigin(), blocking: false };
     }
 
+    const origin = this.resolveOrigin();
     if (denied.length === 0) {
-      return { status: 'passed' };
+      return { status: 'passed', origin, blocking: false };
     }
-    return { status: 'missing', policyJson: this.buildPolicyJson(denied) };
+    return { status: 'missing', policyJson: this.buildPolicyJson(denied), origin, blocking: origin === 'guided' };
+  }
+
+  /**
+   * Resolves {@link IamCheckOrigin} for the result {@link checkPermissions}
+   * is about to return. Reuses {@link resolveAwsCredentialSource} — the same
+   * resolution `resolveClientConfig()` already performs against
+   * `this.store` — rather than re-deriving the decision, then classifies a
+   * `'pasted'` source further: a profile name of {@link GUIDED_PROFILE_NAME}
+   * means the key came from {@link GuidedIamService.rotate}, distinguishing
+   * it from a manually pasted key (see `GuidedIamService`'s doc comment on
+   * `GUIDED_PROFILE_NAME` for why it's a distinct name from
+   * `AwsProfileService`'s `DEFAULT_PASTED_PROFILE_NAME`).
+   *
+   * Deliberately swallows a throw from {@link resolveAwsCredentialSource}
+   * (e.g. `AwsPastedCredentialDecryptError` for a corrupt stored
+   * ciphertext) and returns `'none'` rather than propagating: this method is
+   * called from `checkPermissions()`'s `catch` blocks, where the *same*
+   * underlying failure has typically already been caught once (via
+   * `resolveClientConfig()`'s own, uncaught-here call to the same function)
+   * and is already surfacing as that result's `warning` message — re-calling
+   * it here must not throw a second, unhandled error.
+   */
+  private resolveOrigin(): IamCheckOrigin {
+    try {
+      const source = resolveAwsCredentialSource(this.store);
+      switch (source.kind) {
+        case 'none':
+          return 'none';
+        case 'profile':
+          return 'profile';
+        case 'pasted':
+          return source.profile === GUIDED_PROFILE_NAME ? 'guided' : 'pasted';
+      }
+    } catch {
+      return 'none';
+    }
   }
 
   /**
