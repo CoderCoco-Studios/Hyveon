@@ -6,10 +6,19 @@
  * launched against the REAL packaged Electron app (not a jsdom/component-test
  * shortcut).
  *
- * Follows `discord.spec.ts`'s structural pattern: a single `ElectronApplication`
- * shared across the whole describe block (`beforeAll`/`afterAll`), with each
- * test seeding its own `window.hyveon.__test.mock()` handlers via
- * `win.evaluate(...)` and clearing them in `afterEach`.
+ * Each test launches its own fresh `ElectronApplication` in `beforeEach`
+ * (closed in `afterEach`), matching `logs.spec.ts`'s per-test-launch pattern
+ * rather than `discord.spec.ts`'s shared-app one. The wizard shell mounts
+ * once when the app boots and reads `wizard.state.get`/`wizard.progress.get`
+ * exactly once, on that mount — unlike routed pages, there is no
+ * navigation/remount lever (`discord.spec.ts`'s per-test isolation actually
+ * comes from `DiscordPage.goto()`'s `pushState`/`popstate` dance forcing a
+ * fresh mount, not from clearing the mock registry) to make a second test's
+ * fresh mocks actually get re-read against a shared app. A fresh app per test
+ * sidesteps that: there is nothing stale to clear, and each test seeds its
+ * own mocks immediately after that app's own `firstWindow()` resolves and
+ * before its renderer's mount effect can fire, closing the seed-before-mount
+ * race a shared app would otherwise leave open.
  *
  * Every `wizard.guidedIam.*` channel that would otherwise reach the real
  * `GuidedIamService` (and, through it, real AWS SDK clients) is mocked before
@@ -18,30 +27,25 @@
  */
 import { GUIDED_PROFILE_NAME } from '@hyveon/desktop-preload';
 import type { ElectronApplication, Page } from '../fixtures/index.js';
-import { test, expect, _electron, GuidedIamWizardPage, clearElectronMocks } from '../fixtures/index.js';
+import { test, expect, _electron, GuidedIamWizardPage } from '../fixtures/index.js';
 import { electronMain, electronEnv } from '../../playwright.config.js';
 
-// ── Shared Electron application ──────────────────────────────────────────────
+// ── Per-test Electron application ────────────────────────────────────────────
 //
-// A single ElectronApplication is launched once for the whole describe block,
-// matching `discord.spec.ts`. Each test seeds its own IPC mocks, drives the
-// wizard UI, then `clearElectronMocks` in `afterEach` resets the registry so
-// stale handlers never bleed into the next test.
+// A fresh ElectronApplication is launched before every test and closed after
+// it, so each test's seeded mocks back a brand-new mount rather than racing
+// or bleeding into whatever state a prior test's mount already settled into.
 
 let app: ElectronApplication;
 let win: Page;
 
-test.beforeAll(async () => {
+test.beforeEach(async () => {
   app = await _electron.launch({ args: [electronMain], env: electronEnv });
   win = await app.firstWindow();
 });
 
-test.afterAll(async () => {
-  await app.close();
-});
-
 test.afterEach(async () => {
-  await clearElectronMocks(win);
+  await app.close();
 });
 
 /** Region entered in this spec's guided-IAM flow — reused for every region field and echoed back in the post-rotation `wizard.state.get` mock. */
