@@ -1333,14 +1333,30 @@ export interface IamCheckResult {
 /** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
 export type WizardStepName = 'pick-cloud' | 'guided-iam' | 'credentials' | 'bootstrap' | 'stack-init';
 
-/** Resumable wizard progress persisted to `userData/wizard-state.json`. */
+/**
+ * Sub-state of the guided-IAM step's internal flow. Only meaningful when
+ * `step === 'guided-iam'` — a documented convention, not a type-level
+ * constraint. Mirrors `GuidedIamSubState` in `FirstRunWizardService.ts` —
+ * keep in sync.
+ */
+export type GuidedIamSubState = 'not-started' | 'template-written' | 'awaiting-key-intake' | 'rotation-pending' | 'complete';
+
+/** Resumable wizard progress persisted to `userData/wizard-state.json`. Mirrors `WizardProgress` in `FirstRunWizardService.ts` — keep in sync. */
 export interface WizardProgress {
   step: WizardStepName;
+  /** Present only while `step === 'guided-iam'` has ever recorded sub-progress. */
+  guidedIam?: {
+    subState: GuidedIamSubState;
+    /** Whether a bootstrap key was ever submitted this session — never the key itself. */
+    hasBootstrapKey: boolean;
+  };
 }
 
-/** Payload accepted by {@link HyveonWizardApi.saveProgress}. */
+/** Payload accepted by {@link HyveonWizardApi.saveProgress}. Mirrors `SaveWizardProgressInput` in `wizard.controller.ts` — keep in sync. */
 export interface SaveWizardProgressInput {
   step: WizardStepName;
+  /** See {@link WizardProgress.guidedIam}. */
+  guidedIam?: WizardProgress['guidedIam'];
 }
 
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
@@ -1498,9 +1514,17 @@ export interface HyveonWizardApi {
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
    */
   simulateIamPermissions: () => Promise<IamCheckResult>;
-  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  /**
+   * Returns the last-recorded resumable step, defaulting to `pick-cloud` if
+   * unset/corrupt. `guidedIam`, when present, is the guided-IAM step's own
+   * validated sub-progress (see {@link WizardProgress.guidedIam}).
+   */
   getProgress: () => Promise<WizardProgress>;
-  /** Persists the current step so the wizard resumes here if the app closes before completion. */
+  /**
+   * Persists the current step — and, once the guided-IAM step has made
+   * progress, its `guidedIam` sub-state — so the wizard resumes here if the
+   * app closes before completion.
+   */
   saveProgress: (input: SaveWizardProgressInput) => Promise<void>;
   /**
    * Marks the wizard complete (`wizardCompleted: true`), gating the app
