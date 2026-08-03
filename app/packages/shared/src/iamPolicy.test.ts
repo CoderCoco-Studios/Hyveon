@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { HYVEON_DEPLOY_ALL_ACTIONS, HYVEON_DEPLOY_ALL_STATEMENTS, generateHyveonDeployAllPolicy } from './iamPolicy.js';
+import {
+  HYVEON_DEPLOY_ALL_ACTIONS,
+  HYVEON_DEPLOY_ALL_STATEMENTS,
+  generateHyveonDeployAllPolicy,
+  generateHyveonSelfRotatePolicy,
+} from './iamPolicy.js';
+
+/** Default project name used by {@link generateHyveonDeployAllPolicy} when none is passed. */
+const DEFAULT_PROJECT_NAME = 'hyveon';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -13,13 +21,17 @@ const SETUP_DOC_PATH = resolve(__dirname, '../../../../docs/docs/setup.md');
  * Parses the `HyveonDeployAll` policy JSON fenced block out of
  * `docs/docs/setup.md`.
  */
-function parseDocPolicy(): { Statement: Array<{ Sid: string; Action: string | string[] }> } {
+function parseDocPolicy(): {
+  Statement: Array<{ Sid: string; Effect: string; Action: string | string[]; Resource: string | string[] }>;
+} {
   const markdown = readFileSync(SETUP_DOC_PATH, 'utf-8');
   const match = markdown.match(/```json\n([\s\S]*?)\n```/);
   if (!match) {
     throw new Error('Could not find the HyveonDeployAll policy JSON block in docs/docs/setup.md');
   }
-  return JSON.parse(match[1]!) as { Statement: Array<{ Sid: string; Action: string | string[] }> };
+  return JSON.parse(match[1]!) as {
+    Statement: Array<{ Sid: string; Effect: string; Action: string | string[]; Resource: string | string[] }>;
+  };
 }
 
 /**
@@ -47,17 +59,34 @@ function normalizeActions(action: string | readonly string[]): string[] {
 }
 
 /**
- * Extracts `{ Sid, Action }[]` per statement from the `HyveonDeployAll`
- * policy JSON block in `docs/docs/setup.md`, with `Action` normalized to an
- * array in every statement (see {@link normalizeActions}) — the shape needed
- * to compare statement-for-statement, action-for-action against
- * {@link generateHyveonDeployAllPolicy}'s output.
+ * Normalizes an IAM statement's `Resource` field — a bare string (e.g.
+ * `HyveonDeploy`'s `"*"`) or an array — into an array, so per-statement
+ * resource lists can be compared uniformly regardless of which shape either
+ * side used.
  */
-function extractDocStatements(): Array<{ Sid: string; Action: string[] }> {
+function normalizeResource(resource: string | readonly string[]): string[] {
+  return typeof resource === 'string' ? [resource] : [...resource];
+}
+
+/**
+ * Extracts `{ Sid, Effect, Action, Resource }[]` per statement from the
+ * `HyveonDeployAll` policy JSON block in `docs/docs/setup.md`, with `Action`
+ * and `Resource` normalized to arrays (see {@link normalizeActions} and
+ * {@link normalizeResource}) — the shape needed to compare
+ * statement-for-statement, including `Resource` scoping, against
+ * {@link generateHyveonDeployAllPolicy}'s output. The doc's `${project_name}`
+ * notation in `Resource` ARNs is substituted with `projectName` so it can be
+ * compared directly against the generator's concrete ARNs — the doc uses
+ * `${project_name}` as documentation notation, not a literal CloudFormation
+ * intrinsic.
+ */
+function extractDocStatements(projectName: string): Array<{ Sid: string; Effect: string; Action: string[]; Resource: string[] }> {
   const policy = parseDocPolicy();
   return policy.Statement.map((statement) => ({
     Sid: statement.Sid,
+    Effect: statement.Effect,
     Action: normalizeActions(statement.Action),
+    Resource: normalizeResource(statement.Resource).map((arn) => arn.replaceAll('${project_name}', projectName)),
   }));
 }
 
@@ -71,7 +100,7 @@ describe('HYVEON_DEPLOY_ALL_ACTIONS', () => {
 
 describe('generateHyveonDeployAllPolicy', () => {
   it('should match the HyveonDeployAll policy JSON in docs/docs/setup.md Sid-for-Sid and action-for-action', () => {
-    const docStatements = extractDocStatements();
+    const docStatements = extractDocStatements(DEFAULT_PROJECT_NAME);
     const generatedStatements = generateHyveonDeployAllPolicy().Statement.map((statement) => ({
       Sid: statement.Sid,
       Action: normalizeActions(statement.Action),
@@ -83,6 +112,47 @@ describe('generateHyveonDeployAllPolicy', () => {
       expect(statement.Sid).toBe(docStatement.Sid);
       expect(new Set(statement.Action)).toEqual(new Set(docStatement.Action));
     });
+  });
+
+  it('should match the HyveonDeployAll policy JSON in docs/docs/setup.md statement-for-statement, including Effect and Resource', () => {
+    const docStatements = extractDocStatements(DEFAULT_PROJECT_NAME);
+    const generatedStatements = generateHyveonDeployAllPolicy(DEFAULT_PROJECT_NAME).Statement.map((statement) => ({
+      Sid: statement.Sid,
+      Effect: statement.Effect,
+      Action: normalizeActions(statement.Action),
+      Resource: normalizeResource(statement.Resource),
+    }));
+
+    expect(generatedStatements).toHaveLength(docStatements.length);
+    generatedStatements.forEach((statement, index) => {
+      const docStatement = docStatements[index]!;
+      expect(statement.Sid).toBe(docStatement.Sid);
+      expect(statement.Effect).toBe(docStatement.Effect);
+      expect(new Set(statement.Action)).toEqual(new Set(docStatement.Action));
+      expect(new Set(statement.Resource)).toEqual(new Set(docStatement.Resource));
+    });
+  });
+});
+
+describe('generateHyveonSelfRotatePolicy', () => {
+  it('should grant exactly the three self-rotate actions scoped to the UserName parameter via Fn::Sub', () => {
+    const policy = generateHyveonSelfRotatePolicy();
+
+    expect(policy.Version).toBe('2012-10-17');
+    expect(policy.Statement).toHaveLength(1);
+    const [statement] = policy.Statement;
+    expect(statement!.Effect).toBe('Allow');
+    expect(new Set(statement!.Action)).toEqual(
+      new Set(['iam:CreateAccessKey', 'iam:DeleteAccessKey', 'iam:ListAccessKeys']),
+    );
+    expect(statement!.Resource).toEqual({ 'Fn::Sub': 'arn:aws:iam::*:user/${UserName}' });
+  });
+
+  it('should JSON.stringify the Fn::Sub resource as a nested object, not a mangled template string', () => {
+    const json = JSON.stringify(generateHyveonSelfRotatePolicy());
+    const parsed = JSON.parse(json) as { Statement: Array<{ Resource: { 'Fn::Sub': string } }> };
+
+    expect(parsed.Statement[0]!.Resource).toEqual({ 'Fn::Sub': 'arn:aws:iam::*:user/${UserName}' });
   });
 });
 

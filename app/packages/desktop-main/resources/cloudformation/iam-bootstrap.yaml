@@ -21,9 +21,12 @@ Resources:
   # GuidedIamService replaces it with JSON.stringify(generateHyveonDeployAllPolicy(...))
   # (see app/packages/shared/src/iamPolicy.ts) before submitting this template.
   # Keep the token text and its "on its own line" placement exact — it is
-  # matched by literal string search, not regex, and the substituted value is
-  # an indented multi-line JSON string that must stay valid YAML flow syntax
-  # in this position.
+  # matched by literal string search, not regex. The substituted value MUST
+  # be single-line JSON.stringify(...) output (no `null, 2` pretty-printing):
+  # it is inserted inline after `PolicyDocument: `, and a pretty-printed,
+  # multi-line JSON string pasted at that column would NOT be valid YAML
+  # there (continuation lines would land at column 0, breaking the flow
+  # scalar).
   HyveonDeployAllPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:

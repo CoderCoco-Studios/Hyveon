@@ -177,3 +177,48 @@ export function generateHyveonDeployAllPolicy(
     })),
   };
 }
+
+/**
+ * A CloudFormation `Fn::Sub` intrinsic-function object, as it appears when a
+ * policy document built by this module is `JSON.stringify`'d for embedding
+ * in an `AWS::IAM::ManagedPolicy`'s `PolicyDocument` property. CloudFormation
+ * resolves `Fn::Sub` wherever it appears in a resource property, including
+ * inside a JSON-stringified policy document — this is a documented pattern,
+ * not a template-shell-only trick.
+ */
+interface FnSub {
+  readonly 'Fn::Sub': string;
+}
+
+/**
+ * Builds the `HyveonSelfRotate` managed-policy document: a narrow policy,
+ * separate from {@link generateHyveonDeployAllPolicy}'s four statements
+ * (it is not part of {@link HYVEON_DEPLOY_ALL_ACTIONS} or
+ * {@link HYVEON_DEPLOY_ALL_STATEMENTS}, since it has nothing to do with the
+ * deploy policy's source of truth), that lets the Hyveon deploy user rotate
+ * its own access key without a standing `iam:*`-on-all-users grant.
+ *
+ * `Resource` scopes to the created user's own ARN via the CloudFormation
+ * `Fn::Sub` intrinsic (`{ "Fn::Sub": "arn:aws:iam::*:user/${UserName}" }`)
+ * rather than a literal ARN, because the actual user name is only known at
+ * CloudFormation deploy time — it comes from the `UserName` stack parameter
+ * in `iam-bootstrap.yaml` (default `hyveon`, operator-overridable). Used by
+ * the guided IAM bootstrap flow to render the `HyveonSelfRotate`
+ * `AWS::IAM::ManagedPolicy` document for `iam-bootstrap.yaml`.
+ */
+export function generateHyveonSelfRotatePolicy(): {
+  Version: '2012-10-17';
+  Statement: [{ Sid: string; Effect: 'Allow'; Action: readonly string[]; Resource: FnSub }];
+} {
+  return {
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Sid: 'HyveonSelfRotate',
+        Effect: 'Allow',
+        Action: ['iam:CreateAccessKey', 'iam:DeleteAccessKey', 'iam:ListAccessKeys'],
+        Resource: { 'Fn::Sub': 'arn:aws:iam::*:user/${UserName}' },
+      },
+    ],
+  };
+}
