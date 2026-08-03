@@ -44,6 +44,7 @@ function makeStore(existingAws?: AppStoreSchema['aws']): ElectronStoreService {
     get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? existingAws : undefined)),
     set: vi.fn(),
     setPastedCredentials: vi.fn(),
+    deletePastedCredentials: vi.fn(),
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
@@ -497,6 +498,18 @@ describe('GuidedIamService', () => {
       });
     });
 
+    it('should clear the staged pasted-credentials entry once the orphaned-key cleanup delete succeeds', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(store.deletePastedCredentials).toHaveBeenCalledWith(GUIDED_PROFILE_NAME);
+    });
+
     it('should still return verification-failed (not a new status) and not throw when the orphaned-key cleanup delete also fails', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
@@ -510,6 +523,7 @@ describe('GuidedIamService', () => {
 
       expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
       expect(store.set).not.toHaveBeenCalled();
+      expect(store.deletePastedCredentials).not.toHaveBeenCalled();
     });
 
     it('should return delete-failed with a console URL and leave the new key active when DeleteAccessKey fails', async () => {
@@ -570,6 +584,7 @@ describe('GuidedIamService', () => {
       await service.rotate(ROTATION_INPUT);
 
       const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+      expect(allCalls.length).toBeGreaterThan(0);
       for (const call of allCalls) {
         const serialized = JSON.stringify(call);
         expect(serialized).not.toContain(BOOTSTRAP_SECRET);
@@ -589,6 +604,7 @@ describe('GuidedIamService', () => {
       await service.rotate(ROTATION_INPUT);
 
       const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+      expect(allCalls.length).toBeGreaterThan(0);
       for (const call of allCalls) {
         const serialized = JSON.stringify(call);
         expect(serialized).not.toContain(BOOTSTRAP_SECRET);

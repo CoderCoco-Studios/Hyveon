@@ -187,8 +187,16 @@ export class GuidedIamService {
    * This method is pure (no side effects, no IO, no external state
    * dependencies) and is extracted as a separate method so it can be
    * pinned by tests to reject shape regressions.
+   *
+   * @throws `Error` if `region` doesn't match `/^[a-z0-9-]+$/` — a later
+   *   group drives this from an IPC controller fed by the renderer, so
+   *   `region` becomes caller-controlled input rather than a value this
+   *   service always chooses itself.
    */
   buildCloudFormationConsoleUrl(region: string): string {
+    if (!/^[a-z0-9-]+$/.test(region)) {
+      throw new Error(`Invalid AWS region: ${region}`);
+    }
     return `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/create`;
   }
 
@@ -214,10 +222,24 @@ export class GuidedIamService {
    * operator to open manually, per the spec's "Browser cannot be opened"
    * scenario.
    *
+   * Rejects a non-`https:` or unparseable `url` the same way — `{ opened: false, url }`,
+   * never `openExternalUrl` — since a later group drives this from an IPC
+   * controller fed by the renderer, making `url` caller-controlled input
+   * rather than always this service's own {@link buildCloudFormationConsoleUrl} output.
+   *
    * @param url - The URL to open, typically the result of
    *   {@link buildCloudFormationConsoleUrl}.
    */
   async openConsole(url: string): Promise<OpenConsoleResult> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { opened: false, url };
+    }
+    if (parsed.protocol !== 'https:') {
+      return { opened: false, url };
+    }
     if (!this.readIsElectron()) {
       return { opened: false, url };
     }
@@ -285,8 +307,12 @@ export class GuidedIamService {
    *    client built from the *new* key. On failure, best-effort deletes the
    *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
    *    from the still-untouched *bootstrap* key — it still has
-   *    `HyveonSelfRotate` permissions and nothing has touched it yet), then
-   *    returns `{ status: 'verification-failed', error }` without touching
+   *    `HyveonSelfRotate` permissions and nothing has touched it yet) and,
+   *    once that delete succeeds, also clears the entry staged under
+   *    {@link GUIDED_PROFILE_NAME} in step 2
+   *    ({@link ElectronStoreService.deletePastedCredentials}) so the deleted
+   *    key's encrypted material doesn't linger in the store. Then returns
+   *    `{ status: 'verification-failed', error }` without touching
    *    `aws.profile` and without deleting the bootstrap key itself. This
    *    cleanup is what makes "retrying is safe" actually true: without it,
    *    the orphaned new key would stay live, and a retry's step 1 would hit
@@ -295,7 +321,8 @@ export class GuidedIamService {
    *    cleanup delete itself fails, that is logged (no secrets) and
    *    swallowed — `verification-failed` is still returned with the
    *    *original* verification error, not a new/different status; a manual
-   *    console cleanup may be needed in that case.
+   *    console cleanup may be needed in that case, and the staged entry is
+   *    deliberately left in place too (it still matches the live orphan key).
    * 4. Only once verification succeeds: `ElectronStoreService.set('aws', ...)`
    *    with `profile` set to {@link GUIDED_PROFILE_NAME} — the moment the new
    *    key becomes the active credential source (picked up automatically by
@@ -391,6 +418,7 @@ export class GuidedIamService {
       // verification error is still what gets returned.
       try {
         await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newKey.AccessKeyId }));
+        this.store.deletePastedCredentials(GUIDED_PROFILE_NAME);
       } catch (cleanupErr) {
         const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
         logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key after verification failure — may need manual cleanup', {
