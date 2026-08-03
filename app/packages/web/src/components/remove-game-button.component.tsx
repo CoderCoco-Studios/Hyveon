@@ -55,7 +55,7 @@ export function RemoveGameButton({ game }: Props) {
     try {
       const result = await api.deleteGame({ name: game });
       if (result.ok) {
-        toast.success(`${game} removed from terraform.tfvars`);
+        toast.success(`${game} removed from deployment-config.json`);
         navigate('/games');
         return;
       }
