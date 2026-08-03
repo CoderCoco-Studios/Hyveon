@@ -270,9 +270,13 @@ dev:
 }
 
 /**
- * Skeleton tfvars mirroring the shape the now-deleted `terraform.tfvars.example`
- * used to document. We fill in the few things we just asked the user about and
- * leave the rest as commented examples.
+ * Renders a non-consumed legacy reference file mirroring the shape the
+ * now-deleted `terraform.tfvars.example` used to document — nothing in the
+ * app reads this file; it exists only so an operator coming from the old
+ * Terraform-era layout has a familiar-looking starting point to compare
+ * against `deployment-config.json`, which is the actual configuration
+ * source. We fill in the few things we just asked the user about and leave
+ * the rest as commented examples.
  */
 export function renderTfvars(a: Answers): string {
   const discordBlock =
@@ -286,12 +290,13 @@ discord_public_key     = "${a.discordPublicKey}"
 # discord_public_key     = "0123abc..."
 `;
 
-  return `# ${a.projectName} — Terraform variables.
-# Commit this file to your private parent repo. It's a starting point for the
-# values the app's first-run wizard and Settings page ask for — the wrapper
-# Makefile no longer copies it anywhere; the app reads/writes its live
-# deployment configuration itself, in its own versioned S3 configuration
-# bucket, once you've walked through the wizard.
+  return `# ${a.projectName} — LEGACY REFERENCE ONLY, not read by anything.
+# Nothing in the app or the generated Makefile consumes this file — it is
+# provided purely so an operator coming from the old Terraform-era layout has
+# a familiar-looking baseline to compare against. The app's own first-run
+# wizard and Settings page are the actual configuration source, writing
+# deployment-config.json to your versioned S3 configuration bucket. Editing
+# this file has no effect; use the app's UI instead.
 
 aws_region   = "${a.awsRegion}"
 project_name = "${a.projectName}"

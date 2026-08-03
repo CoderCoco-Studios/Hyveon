@@ -215,7 +215,7 @@ function createOpts(callIndex = 0) {
  * Extracts the fake `ws` object `Stack.createOrSelect` was called with for
  * the `callIndex`-th `getOrCreateStack` call (0-based) — carries the FINAL
  * envVars, including `PULUMI_CONFIG_PASSPHRASE`, since this service mutates
- * `ws.envVars` in place after `resolvePassphrase` resolves.
+ * `ws.envVars` in place after the stored or new passphrase resolves.
  */
 function createOrSelectWs(callIndex = 0): FakeWorkspace {
   return createOrSelectMock.mock.calls[callIndex]![1] as FakeWorkspace;

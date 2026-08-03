@@ -403,6 +403,16 @@ describe('BootstrapService', () => {
         BootstrapCredentialsNotConfiguredError,
       );
     });
+
+    it('should report failure rather than seed over the object when HeadObject fails for a reason other than NotFound', async () => {
+      s3Mock.on(HeadObjectCommand).rejects(awsError('AccessDenied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureDeploymentConfig('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'AccessDenied' });
+      expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(0);
+    });
   });
 
   describe('cross-resource failure isolation', () => {

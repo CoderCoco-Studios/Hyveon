@@ -444,6 +444,7 @@ describe('TfvarsService write path', () => {
 
   describe('restoreRawTfvars (rollback flow, #112)', () => {
     it('should write the supplied config unconditionally (no ifMatch) and return the store put() result', async () => {
+      stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
@@ -470,7 +471,20 @@ describe('TfvarsService write path', () => {
       await service.restoreRawTfvars(FIXTURE_JSON);
       await service.getGameServers();
 
-      expect(remoteFileStore.get).toHaveBeenCalledTimes(2);
+      // 3 total: the getGameServers() read above, restoreRawTfvars's own read
+      // of the current document for the runs-table rename guard, and the
+      // cache-invalidated re-read by the getGameServers() call below.
+      expect(remoteFileStore.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('should throw RunsTableRenameError and skip the write when the restored document resolves to a different runs-table name', async () => {
+      stubCurrentConfig(remoteFileStore, JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'current-project' }));
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const restoredJson = JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'other-project' });
+
+      await expect(service.restoreRawTfvars(restoredJson)).rejects.toThrow(RunsTableRenameError);
+      expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
   });
 

@@ -252,7 +252,7 @@ describe('PulumiService.clearStaleLock', () => {
     // called at all.
     expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
 
-    await expect(service.clearStaleLock()).rejects.toThrow(/initializeStack.*already running/i);
+    await expect(service.clearStaleLock('placeholder-token')).rejects.toThrow(/initializeStack.*already running/i);
     expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
 
     void initPromise.catch(() => {}); // Left permanently in flight — never awaited to settle, by design.

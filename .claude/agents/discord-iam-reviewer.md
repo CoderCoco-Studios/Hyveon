@@ -28,7 +28,7 @@ For every change in scope, verify:
 3. **Permission bucket coverage.** If `COMMAND_DESCRIPTORS` gained a new command, `actionForCommand()` returns a non-default bucket and `canRun()` exercises it.
 4. **No global command registration.** All registration calls hit `/applications/{client_id}/guilds/{guild_id}/commands`.
 5. **No secret leaks to the client.** `botTokenSet` / `publicKeySet` shape is preserved; raw values never appear in HTTP responses or logs.
-6. **IAM scope.** Any new AWS action in Lambda code is reflected in `HyveonDeployAll` in `docs/docs/setup.md`, and the policy doesn't grant `*` where a narrower action would do.
+6. **IAM scope.** Any new AWS action used by Lambda code is granted by the matching execution-role policy in `app/packages/infra/src/iam.ts`. Any new deployment action is reflected in `HyveonDeployAll` in `docs/docs/setup.md`. Neither policy grants `*` where a narrower action is sufficient.
 7. **Lambda env-var quirk.** `AWS_REGION_` (trailing underscore) — never plain `AWS_REGION`.
 8. **DynamoDB TTL.** `PENDING#{taskArn}` rows still set `expiresAt` to ~15 min — Discord interaction tokens expire then.
 

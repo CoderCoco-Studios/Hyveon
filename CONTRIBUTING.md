@@ -51,14 +51,15 @@ Pulumi program under `app/packages/infra`, exercised by the same Vitest/ESLint
 commands as the rest of the app):
 
 ```bash
-npm run app:lint         # ESLint over the whole monorepo
-npm run app:typecheck    # tsc --noEmit across every workspace
-npm run app:test         # Vitest across every workspace
-npm run app:build        # shared → cloud-aws → desktop-main → preload → web
+npm run app:lint         # ESLint over app/** (desktop-main, desktop-preload, web) — not the scripts workspace
+npm run app:typecheck    # builds shared/cloud-aws/infra/desktop-preload/desktop-main, then tsc --noEmit over web, every Lambda, and scripts
+npm run app:test         # Vitest over app/** (desktop-main, desktop-preload, web) — not the scripts workspace's own test
+npm run app:build        # shared → infra → cloud-aws → desktop-main → desktop-preload → web
 ```
 
-CI runs all of these (plus `app:test:coverage`) on every PR; running them
-locally first means a faster review loop.
+CI runs `app:lint` and `app:typecheck` as above, plus `app:test:coverage`
+(Vitest with coverage) in place of plain `app:test`; running the local
+commands first still means a faster review loop.
 
 ## What CI checks
 
@@ -70,8 +71,10 @@ locally first means a faster review loop.
   building the packages whose declarations the rest depend on and then
   running `tsc --noEmit` over web, every Lambda package, and scripts.
 - **test** (`.github/workflows/test.yml`) — `npm run app:test:coverage`
-  (Vitest) across every workspace.
-- **CodeQL** — security analysis on JS/TS and Actions.
+  (Vitest) across `app/**`; the `scripts` workspace's own test file isn't
+  part of this run.
+- **CodeQL** — security analysis on JS/TS and Actions, via GitHub's default
+  code-scanning setup rather than a checked-in `.github/workflows` file.
 
 There is no Terraform/tflint CI job — the `terraform/` directory and its
 tflint config were removed as part of the `migrate-iac-to-pulumi` change; the

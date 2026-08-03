@@ -64,7 +64,7 @@ function signatureFor(entries: DriftEntry[]): string {
  * Persistent dashboard banner — "Configuration changed, n changes pending —
  * run plan and apply on the Infrastructure page to deploy". Polls
  * `GET /api/drift` (the `drift.get` IPC channel) every 30s and is visible
- * whenever the report has at least one entry. See issue #101.
+ * whenever the report has at least one entry.
  *
  * - Hidden entirely while no drift is detected, or while the poll fails
  *   (transient IPC/network errors shouldn't flash a broken banner).

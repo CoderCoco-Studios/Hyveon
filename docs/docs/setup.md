@@ -218,7 +218,10 @@ steps, none of them a CLI command:
    noncurrent-version expiry) that holds the JSON configuration object your
    game servers are declared in; and a **run-history table** (default
    `hyveon-runs`) that records every plan/apply/destroy run. All three names
-   are editable. This step also seeds the configuration object with an
+   can be selected during this bootstrap step; the run-history table name
+   cannot change afterward without a migration, since it names an
+   already-created physical table. This step also seeds the configuration
+   object with an
    initial, empty document (`gameServers: {}`, every other field at its
    default) if one doesn't already exist — without this seed, nothing else
    in the app ever creates that first object, so Settings saves, Games-page

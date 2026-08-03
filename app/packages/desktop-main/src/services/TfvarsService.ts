@@ -367,12 +367,25 @@ export class TfvarsService {
    * {@link getGameServers} cache afterward so the next read reflects the
    * restored content, mirroring {@link writeConfig}.
    *
+   * Also runs {@link assertRunsTableNameStable} against the restored document
+   * before writing — same rename guard {@link updateTopLevelSettings} applies
+   * via {@link applyTopLevelSettingsPatch}, so a rollback can't silently
+   * repoint the config at a runs table {@link BootstrapService.ensureRunsTable}
+   * never created for this install.
+   *
    * @param rawConfig - The exact historic config content to restore.
    * @returns The write's `{ etag, versionId }` — see {@link putRawConfig}.
    * @throws {@link ConfigurationNotConfiguredError} when no configuration
    *   bucket is configured.
+   * @throws {@link RunsTableRenameError} when the restored document resolves
+   *   to a different runs-table name than the current document.
    */
   async restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
+    const { config: currentRaw } = await this.fetchRawConfig();
+    const { gameServers: _currentGameServers, ...currentSettings } = this.parseConfigContents(currentRaw);
+    const restoredSettings = this.parseConfigContents(rawConfig);
+    this.assertRunsTableNameStable(currentSettings, restoredSettings);
+
     const result = await this.putRawConfig(rawConfig);
     this.invalidateCache();
     return result;

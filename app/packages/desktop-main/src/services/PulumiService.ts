@@ -948,6 +948,14 @@ export class PulumiService {
    * below. See `StackOutputs`'s own doc comment for the "not deployed yet"
    * framing this degrades to.
    *
+   * ## Concurrency guard
+   *
+   * Returns `null` immediately, without touching the shared workspace, while
+   * {@link stackInitInFlight} or {@link operationInFlight} is set — `initializeStack()`
+   * can run `stack.refresh()` and the other operations run `preview`/`up`/`destroy`
+   * against the same on-disk workspace `getOrCreateStack()` would otherwise reuse
+   * concurrently for this read.
+   *
    * ## Never deployed yet: three independent short-circuits, no Pulumi call
    *
    * A mere outputs *read* should never need to take the extra `listStacks()`
@@ -1030,6 +1038,14 @@ export class PulumiService {
    * `terraform.tfstate`.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
+    if (this.stackInitInFlight || this.operationInFlight) {
+      logger.warn('PulumiService.getStackOutputs: an operation is in flight, treating as not deployed', {
+        stackInitInFlight: this.stackInitInFlight,
+        operationInFlight: this.operationInFlight,
+      });
+      return null;
+    }
+
     const stateBucket = this.store.get('bootstrap')?.stateBucket;
     if (!stateBucket) {
       return null;

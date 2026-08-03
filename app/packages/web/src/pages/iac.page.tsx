@@ -495,10 +495,9 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
  * Infrastructure plan/apply route (`/iac`) — lets an operator trigger a
  * Pulumi plan (preview), watch its live ANSI output, review the
  * resource-change summary, approve the plan, and run the plan-hash-gated
- * apply, all over the `hyveon.iac.*` IPC surface (renamed from
- * `hyveon.terraform.*` by tasks 8.3/8.5; originally shipped by epic #138).
- * Surfaces BUSY (shared-workspace conflict) and non-conflict submission
- * errors inline rather than failing silently.
+ * apply, all over the `hyveon.iac.*` IPC surface. Surfaces BUSY
+ * (shared-workspace conflict) and non-conflict submission errors inline
+ * rather than failing silently.
  */
 export function IacPage() {
   const location = useLocation();

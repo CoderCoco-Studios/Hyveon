@@ -278,20 +278,24 @@ export class BootstrapService {
 
   /**
    * Resolves `true` when {@link CONFIGURATION_OBJECT_KEY} already exists in
-   * `bucketName` and is reachable by the caller's credentials, via
-   * `HeadObject`. Any failure (a genuine "not found" — the object is free to
-   * seed — or anything else, e.g. a transient access denial, or the bucket
-   * itself not existing yet) is treated as "not confirmed to exist" so
-   * {@link ensureDeploymentConfig}'s own `PutObject` still runs and its error
-   * handling takes over from there — mirrors {@link bucketExists}/
-   * {@link runsTableExists}'s identical pre-check convention.
+   * `bucketName`, via `HeadObject`. Unlike {@link bucketExists}/
+   * {@link runsTableExists} — whose fallback action (`CreateBucket`/
+   * `CreateTable`) is a safe no-op against an existing resource — this
+   * method's fallback is `PutObject`, which overwrites. So only a genuine
+   * "not found" is treated as absent; any other failure (transient error, a
+   * permission gap between `HeadObject` and `PutObject`) propagates rather
+   * than risk seeding over an operator's real configuration.
    */
   private async deploymentConfigExists(client: S3Client, bucketName: string): Promise<boolean> {
     try {
       await client.send(new HeadObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }));
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey')) {
+        return false;
+      }
+      throw err;
     }
   }
 

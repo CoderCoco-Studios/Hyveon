@@ -42,7 +42,7 @@ export function DashboardPage() {
   return (
     <>
       <div className="max-w-7xl mx-auto">
-        {/* Pending infrastructure changes banner (issue #101) */}
+        {/* Pending infrastructure changes banner */}
         <PendingChangesBanner />
 
         {/* KPI strip */}

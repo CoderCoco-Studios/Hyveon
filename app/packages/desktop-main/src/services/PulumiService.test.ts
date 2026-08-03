@@ -197,6 +197,23 @@ describe('PulumiService.getStackOutputs', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  it('should return null without touching the shared workspace while initializeStack() is in flight', async () => {
+    const hangingWorkspace = {
+      getOrCreateStack: vi.fn(() => new Promise(() => {
+        // Never resolves — keeps initializeStack() "in flight" for this test.
+      })),
+    } as unknown as PulumiWorkspaceService;
+    const service = makeService(hangingWorkspace, makeStore(FULLY_CONFIGURED));
+
+    void service.initializeStack().catch(() => {});
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+
+    await expect(service.getStackOutputs()).resolves.toBeNull();
+    expect(hangingWorkspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+  });
+
   it('should call getOrCreateStack with backendReady true and the stored bucket/region once fully configured', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
     const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
