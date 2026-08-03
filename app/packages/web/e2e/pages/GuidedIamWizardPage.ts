@@ -98,9 +98,15 @@ export class GuidedIamWizardPage {
     return this.page.getByRole('button', { name: 'Retry' });
   }
 
-  /** The read-only "Template path" input showing the rendered `iam-bootstrap.yaml` path. */
+  /**
+   * The read-only "Template path" input showing the rendered `iam-bootstrap.yaml`
+   * path. Matched with `exact: true` — a substring match against "Template
+   * path" also resolves the adjacent "Copy template path" button (its
+   * `aria-label` contains the same words), which would otherwise violate
+   * Playwright's strict-locator mode.
+   */
   templatePathInput(): Locator {
-    return this.page.getByLabel('Template path');
+    return this.page.getByLabel('Template path', { exact: true });
   }
 
   /** The icon-only "Copy template path" button (identified by its `aria-label`) next to the template path input. */
