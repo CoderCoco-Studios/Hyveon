@@ -141,7 +141,7 @@ describe('IacHistoryPage', () => {
     expect(within(bodyRows[1]!).getByText('—')).toBeInTheDocument();
   });
 
-  describe('change summary (task 9.5)', () => {
+  describe('change summary', () => {
     it('should render grouped change badges for a row with a populated changeSummary', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ changeSummary: { create: 3, update: 1 } })],

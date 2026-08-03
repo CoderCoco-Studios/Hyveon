@@ -92,9 +92,9 @@ export function cidrSubnet(baseCidr: string, newBits: number, netNum: number): s
 /**
  * Declares the VPC, internet gateway, public subnets, route table, and
  * route-table associations — the full `## VPC & Networking` section of
- * `terraform/aws/main.tf` (task 3.1 of `migrate-iac-to-pulumi`). Must be
- * called from inside the Pulumi inline-program closure (see
- * `program.ts`'s {@link createInfraProgram}), never at module scope.
+ * `terraform/aws/main.tf`. Must be called from inside the Pulumi
+ * inline-program closure (see `program.ts`'s {@link createInfraProgram}),
+ * never at module scope.
  *
  * @param args - Naming and provider inputs — see {@link DefineNetworkArgs}.
  * @returns The declared resources — see {@link NetworkResources}.

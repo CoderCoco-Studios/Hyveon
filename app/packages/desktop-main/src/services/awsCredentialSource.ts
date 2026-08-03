@@ -3,10 +3,10 @@ import type { ElectronStoreService } from './ElectronStoreService.js';
 /**
  * The wizard's chosen AWS credential source, resolved from
  * `ElectronStoreService`'s `aws: { region, profile }` selection plus the
- * pasted-credentials map (`creds.aws.<profileName>`) — the exact decision
- * `BootstrapService` and `IamCheckService` each duplicated privately as
- * `resolveClientConfig` before this was extracted (Task 4.5). There is no
- * discriminator field in the store: a stored `profile` name either IS a real
+ * pasted-credentials map (`creds.aws.<profileName>`) — the single shared
+ * decision `BootstrapService` and `IamCheckService` both otherwise need to
+ * make privately as `resolveClientConfig`. There is no discriminator field in
+ * the store: a stored `profile` name either IS a real
  * `~/.aws` profile or a `creds.aws.<profileName>` pasted entry, distinguished
  * only by whether {@link ElectronStoreService.getPastedCredentials} finds a
  * match — the pasted lookup always wins when both could apply, matching the
@@ -25,9 +25,9 @@ export type AwsCredentialSource =
  * selected, without shaping the result for any particular consumer.
  * {@link BootstrapService}/{@link IamCheckService} turn this into an AWS SDK
  * `{ region, credentials }` client config; `PulumiCredentialResolver.ts`
- * (Task 4.5) turns it into engine `envVars`. Both transforms are
- * consumer-specific — this function only makes the *decision* once, so it is
- * never duplicated a third time.
+ * turns it into engine `envVars`. Both transforms are consumer-specific —
+ * this function only makes the *decision* once, so it is never duplicated a
+ * third time.
  *
  * @remarks
  * Deliberately takes no `region` and returns none — `region` is a separate,

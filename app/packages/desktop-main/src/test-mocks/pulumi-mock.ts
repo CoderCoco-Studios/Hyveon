@@ -74,13 +74,12 @@ async function* playScriptedRun<TResult>(
  * **Un-scripted surface.** `initializeStack`/`resolveRollbackTarget`/
  * `computeRollbackDiff`/`confirmRollback`/`clearStaleLock`/`computePlanHash`/
  * `readRunRecord`/`hasPlanArtifact`/`streamRunOutput` have no `script*`
- * setter yet — Phase 11's currently-in-scope specs (task 11.1/11.2) never
- * drive them, so they resolve fixed, harmless placeholder values (mirroring
- * `iac.controller.test.ts`'s `makePulumi()` unit-test stub defaults
- * byte-for-byte where the two overlap). Task 7.11 tracks the follow-up
- * dispatch that will add `script*` setters for these as it builds the
- * Plan/Apply/Destroy gating, ANSI-preservation, and run-record-persistence
- * integration coverage those methods back.
+ * setter yet — no current spec drives them, so they resolve fixed, harmless
+ * placeholder values (mirroring `iac.controller.test.ts`'s `makePulumi()`
+ * unit-test stub defaults byte-for-byte where the two overlap). Adding
+ * `script*` setters for these is follow-up work for whichever spec needs to
+ * exercise Plan/Apply/Destroy gating, ANSI-preservation, or
+ * run-record-persistence integration coverage through them.
  *
  * **Lifecycle.** `createIpcHarness()` constructs one fresh instance per
  * harness (per Playwright test, via the `ipc` fixture) — unlike
@@ -182,42 +181,42 @@ export class PulumiServiceStub {
     return yield* playScriptedRun(this.destroyRun);
   }
 
-  /** @see PulumiService.confirmRollback — empty generator; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.confirmRollback — empty generator; no `script*` setter yet. */
   async *confirmRollback(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
     return yield* playScriptedRun(EMPTY_RUN as ScriptedPulumiRun<PulumiPreviewResult>);
   }
 
-  /** @see PulumiService.resolveRollbackTarget — fixed placeholder; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.resolveRollbackTarget — fixed placeholder; no `script*` setter yet. */
   async resolveRollbackTarget(): Promise<{ versionId: string; lastModified: Date }> {
     return { versionId: 'stub-prior-version', lastModified: new Date(0) };
   }
 
-  /** @see PulumiService.computeRollbackDiff — resolves "no diff available"; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.computeRollbackDiff — resolves "no diff available"; no `script*` setter yet. */
   async computeRollbackDiff(): Promise<DeploymentConfigDiff | undefined> {
     return undefined;
   }
 
-  /** @see PulumiService.clearStaleLock — resolves immediately ("cleared successfully"); no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.clearStaleLock — resolves immediately ("cleared successfully"); no `script*` setter yet. */
   async clearStaleLock(): Promise<void> {
     /* no-op */
   }
 
-  /** @see PulumiService.computePlanHash — fixed placeholder hash; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.computePlanHash — fixed placeholder hash; no `script*` setter yet. */
   computePlanHash(): string {
     return 'stub-plan-hash';
   }
 
-  /** @see PulumiService.readRunRecord — no persisted record; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.readRunRecord — no persisted record; no `script*` setter yet. */
   readRunRecord(): PulumiRunRecord | null {
     return null;
   }
 
-  /** @see PulumiService.hasPlanArtifact — no persisted artifact; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.hasPlanArtifact — no persisted artifact; no `script*` setter yet. */
   hasPlanArtifact(): boolean {
     return false;
   }
 
-  /** @see PulumiService.streamRunOutput — empty generator; no `script*` setter yet (task 7.11). */
+  /** @see PulumiService.streamRunOutput — empty generator; no `script*` setter yet. */
   async *streamRunOutput(): AsyncGenerator<PulumiRunChunk, void> {
     /* empty */
   }

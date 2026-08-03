@@ -115,19 +115,17 @@ export interface RunRecord {
    * — against `PulumiEngineService.getResolvedVersion()`'s own un-prefixed
    * shape (`PulumiService.readEngineVersionFromPlanArtifact` does the
    * stripping). Set only by a `plan`-kind record produced by
-   * `PulumiService.preview` (task 7.1); absent on every `apply`/`destroy`
-   * record and on any record predating this field. A future apply-time gate
-   * (task 7.2) compares this against the currently-resolved engine version
-   * to refuse applying a plan produced by a different engine — see the
-   * `iac-plan-apply-page` spec's "Engine upgraded between plan and apply"
-   * scenario.
+   * `PulumiService.preview`; absent on every `apply`/`destroy` record and on
+   * any record predating this field. The apply-time gate compares this
+   * against the currently-resolved engine version and refuses to apply a
+   * plan produced by a different engine — see the `iac-plan-apply-page`
+   * spec's "Engine upgraded between plan and apply" scenario.
    */
   engineVersion?: string;
   /**
    * `true` only on a `kind: 'apply'` record whose engine invocation did NOT
    * settle as a success — failed OR was aborted — AFTER at least one
-   * resource step had already been applied. A plan-constrained
-   * `PulumiService.apply` (task 7.2, `migrate-iac-to-pulumi`) is not
+   * resource step had already been applied. `PulumiService.apply` is not
    * all-or-nothing, so a divergence detected partway through leaves earlier
    * changes applied. Deliberately additive rather than a fourth
    * {@link RunStatus} value: `RunStatus` is the hash key of the

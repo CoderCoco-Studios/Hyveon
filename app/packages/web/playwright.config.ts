@@ -52,12 +52,11 @@ export const electronEnv: Record<string, string> = {
  *    ElectronApplication.
  *
  * `electron-smoke.spec.ts`, `electron-clean-quit.spec.ts` (the permanent
- * clean-quit guard from the Pulumi migration's task 1.5 spike),
+ * clean-quit guard from the Pulumi automation-API spike),
  * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
  * (migrated in #191), `discord.spec.ts` (migrated in #194),
- * `iac.spec.ts` (new route, issue #110; renamed from `terraform.spec.ts` by
- * task 9.8), and
+ * `iac.spec.ts` (new route, issue #110; renamed from `terraform.spec.ts`), and
  * `streaming-handle-roundtrip.spec.ts` (regression guard for the streaming-IPC
  * contextBridge clone bug — see its own doc comment) are matched only by the
  * `electron` project and ignored by `chromium`; every other spec is the
@@ -73,13 +72,14 @@ const ELECTRON_SPECS = [
   '**/costs.spec.ts',
   '**/logs.spec.ts',
   '**/discord.spec.ts',
-  // Renamed from `terraform.spec.ts` (task 9.8's IPC-channel-name fixup, see
-  // `iac.spec.ts`'s own header comment) — this glob was left stale, which
-  // silently routed the file to the `chromium` project instead. Harmless in
-  // practice (`launchElectron()` calls `_electron.launch()` directly,
-  // independent of which project's `use` config the test nominally runs
-  // under, and `npm run app:test:e2e` always runs both projects together),
-  // but wrong: this IS the Electron-tier `/iac` spec (task 11.3).
+  // Renamed from `terraform.spec.ts` (the IPC channels were renamed from
+  // `terraform.*` to `iac.*`, see `iac.spec.ts`'s own header comment) — this
+  // glob was left stale, which silently routed the file to the `chromium`
+  // project instead. Harmless in practice (`launchElectron()` calls
+  // `_electron.launch()` directly, independent of which project's `use`
+  // config the test nominally runs under, and `npm run app:test:e2e` always
+  // runs both projects together), but wrong: this IS the Electron-tier
+  // `/iac` spec.
   '**/iac.spec.ts',
 ];
 

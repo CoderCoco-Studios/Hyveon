@@ -1,7 +1,6 @@
 /**
- * Unit tests for `PulumiService.clearStaleLock` (task 9.4 of
- * `migrate-iac-to-pulumi` — "stale-lock recovery UI with explicit
- * confirmation"). This is the human-confirmed write path a caller reaches
+ * Unit tests for `PulumiService.clearStaleLock` — the stale-lock recovery
+ * UI's explicit-confirmation write path. This is the human-confirmed path a caller reaches
  * only after `PulumiUnrecognizedLockError` has already told them a backend
  * lock conflict couldn't be proven this installation's own orphaned run, and
  * the renderer's confirmation dialog has required an explicit operator
@@ -10,10 +9,12 @@
  *
  * Mirrors `PulumiService.destroy.test.ts`'s `makeStore`/`makeWorkspace`-style
  * helpers where they apply (this method shares `destroy()`'s "no-op inline
- * program" + config-presence-gate shape), but is far narrower in scope: no
- * streaming, no run persistence, no token gate, no lock-classification
- * retry — this method's own job is exactly "check operationInFlight, check
- * config presence, call stack.cancel(), done".
+ * program" + config-presence-gate shape). Also gated behind the same
+ * confirmation-token pattern `destroy()` uses (`mintLockClearConfirmationToken()`
+ * / `assertFreshLockClearConfirmation()`), so every call below now mints and
+ * passes a token — see the "confirmation token gate" describe block for the
+ * token-specific rejection cases, mirroring `PulumiService.destroy.test.ts`'s
+ * own token-gate tests.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ModuleRef } from '@nestjs/core';
@@ -36,6 +37,7 @@ import {
   PulumiService,
   PulumiOperationInFlightError,
   PulumiLockClearError,
+  LockClearNotConfirmedError,
   RUN_RECORD_PERSISTER,
   RUN_LOCK_SERVICE,
   CONFIG_CACHE_INVALIDATOR,
@@ -112,8 +114,9 @@ describe('PulumiService.clearStaleLock', () => {
     const cancelMock = vi.fn().mockResolvedValue(undefined);
     const workspace = makeWorkspace(cancelMock);
     const service = makeService({ workspace });
+    const token = service.mintLockClearConfirmationToken();
 
-    await service.clearStaleLock();
+    await service.clearStaleLock(token);
 
     expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
     const input = workspace.getOrCreateStack.mock.calls[0]![0] as Record<string, unknown>;
@@ -130,15 +133,17 @@ describe('PulumiService.clearStaleLock', () => {
   it('should resolve (not throw) on a successful cancel', async () => {
     const workspace = makeWorkspace();
     const service = makeService({ workspace });
+    const token = service.mintLockClearConfirmationToken();
 
-    await expect(service.clearStaleLock()).resolves.toBeUndefined();
+    await expect(service.clearStaleLock(token)).resolves.toBeUndefined();
   });
 
-  it('should log a warn line naming both the stack and the resolved initiator on a successful clear (review round 1, M1)', async () => {
+  it('should log a warn line naming both the stack and the resolved initiator on a successful clear', async () => {
     const workspace = makeWorkspace();
     const service = makeService({ workspace });
+    const token = service.mintLockClearConfirmationToken();
 
-    await service.clearStaleLock();
+    await service.clearStaleLock(token);
 
     expect(loggerMock.warn).toHaveBeenCalledWith(
       expect.stringContaining('cleared by explicit operator confirmation'),
@@ -215,8 +220,9 @@ describe('PulumiService.clearStaleLock', () => {
     }
     getOrCreateStack.mockClear();
 
-    await expect(service.clearStaleLock()).rejects.toBeInstanceOf(PulumiOperationInFlightError);
-    await expect(service.clearStaleLock()).rejects.toThrow(/destroy.*already running/i);
+    const lockClearToken = service.mintLockClearConfirmationToken();
+    await expect(service.clearStaleLock(lockClearToken)).rejects.toBeInstanceOf(PulumiOperationInFlightError);
+    await expect(service.clearStaleLock(lockClearToken)).rejects.toThrow(/destroy.*already running/i);
     expect(getOrCreateStack).not.toHaveBeenCalled();
 
     resolveDestroy();
@@ -228,8 +234,9 @@ describe('PulumiService.clearStaleLock', () => {
     const workspace = makeWorkspace();
     const store = makeStore({ passphrase: 'enc-secret' });
     const service = makeService({ workspace, store });
+    const token = service.mintLockClearConfirmationToken();
 
-    await expect(service.clearStaleLock()).rejects.toThrow(/state bucket.*AWS region.*not been configured/i);
+    await expect(service.clearStaleLock(token)).rejects.toThrow(/state bucket.*AWS region.*not been configured/i);
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
@@ -237,8 +244,9 @@ describe('PulumiService.clearStaleLock', () => {
     const workspace = makeWorkspace();
     const store = makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' });
     const service = makeService({ workspace, store });
+    const token = service.mintLockClearConfirmationToken();
 
-    await expect(service.clearStaleLock()).rejects.toThrow(/no Pulumi stack has ever been created/i);
+    await expect(service.clearStaleLock(token)).rejects.toThrow(/no Pulumi stack has ever been created/i);
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
@@ -247,10 +255,11 @@ describe('PulumiService.clearStaleLock', () => {
     const cancelMock = vi.fn().mockRejectedValue(cause);
     const workspace = makeWorkspace(cancelMock);
     const service = makeService({ workspace });
+    const token = service.mintLockClearConfirmationToken();
 
     let caught: unknown;
     try {
-      await service.clearStaleLock();
+      await service.clearStaleLock(token);
     } catch (err) {
       caught = err;
     }
@@ -265,8 +274,10 @@ describe('PulumiService.clearStaleLock', () => {
     const workspace = makeWorkspace(cancelMock);
     const service = makeService({ workspace });
 
-    await service.clearStaleLock();
-    await expect(service.clearStaleLock()).resolves.toBeUndefined();
+    const firstToken = service.mintLockClearConfirmationToken();
+    await service.clearStaleLock(firstToken);
+    const secondToken = service.mintLockClearConfirmationToken();
+    await expect(service.clearStaleLock(secondToken)).resolves.toBeUndefined();
 
     expect(cancelMock).toHaveBeenCalledTimes(2);
   });
@@ -279,9 +290,54 @@ describe('PulumiService.clearStaleLock', () => {
     const workspace = makeWorkspace(cancelMock);
     const service = makeService({ workspace });
 
-    await expect(service.clearStaleLock()).rejects.toBeInstanceOf(PulumiLockClearError);
+    const firstToken = service.mintLockClearConfirmationToken();
+    await expect(service.clearStaleLock(firstToken)).rejects.toBeInstanceOf(PulumiLockClearError);
 
     shouldFail = false;
-    await expect(service.clearStaleLock()).resolves.toBeUndefined();
+    const secondToken = service.mintLockClearConfirmationToken();
+    await expect(service.clearStaleLock(secondToken)).resolves.toBeUndefined();
+  });
+
+  describe('confirmation token gate', () => {
+    it('should reject with LockClearNotConfirmedError, and never call getOrCreateStack, when no token has ever been minted', async () => {
+      const workspace = makeWorkspace();
+      const service = makeService({ workspace });
+
+      await expect(service.clearStaleLock('guessed-token')).rejects.toBeInstanceOf(LockClearNotConfirmedError);
+      expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+    });
+
+    it('should reject with LockClearNotConfirmedError when the supplied token does not match the most recently minted one', async () => {
+      const workspace = makeWorkspace();
+      const service = makeService({ workspace });
+      service.mintLockClearConfirmationToken();
+
+      await expect(service.clearStaleLock('some-other-token')).rejects.toBeInstanceOf(LockClearNotConfirmedError);
+      expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+    });
+
+    it('should reject with LockClearNotConfirmedError when the most recently minted token has expired', async () => {
+      const workspace = makeWorkspace();
+      const service = makeService({ workspace });
+
+      const dateNowSpy = vi.spyOn(Date, 'now');
+      dateNowSpy.mockReturnValueOnce(1_000_000);
+      const token = service.mintLockClearConfirmationToken();
+
+      dateNowSpy.mockReturnValueOnce(1_000_000 + 5 * 60 * 1000 + 1);
+      await expect(service.clearStaleLock(token)).rejects.toBeInstanceOf(LockClearNotConfirmedError);
+      expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+
+      dateNowSpy.mockRestore();
+    });
+
+    it('should consume the token: a second clearStaleLock() call reusing an already-consumed token is rejected', async () => {
+      const workspace = makeWorkspace();
+      const service = makeService({ workspace });
+      const token = service.mintLockClearConfirmationToken();
+
+      await expect(service.clearStaleLock(token)).resolves.toBeUndefined();
+      await expect(service.clearStaleLock(token)).rejects.toBeInstanceOf(LockClearNotConfirmedError);
+    });
   });
 });

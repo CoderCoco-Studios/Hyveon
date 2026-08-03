@@ -189,6 +189,35 @@ describe('RunRecordService', () => {
       expect(record).not.toHaveProperty('logS3Key');
     });
 
+    it('should persist without a log when the captured log file cannot be read', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+      const missingLogPath = join(workDir, 'does-not-exist.log');
+
+      await service.persist(makeParams(), missingLogPath);
+
+      expect(putLogMock).not.toHaveBeenCalled();
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record).not.toHaveProperty('logInline');
+      expect(record).not.toHaveProperty('logS3Key');
+    });
+
+    it('should carry changeSummary, engineVersion, and partialApply onto the record when provided', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+      const changeSummary = { create: 1, update: 0, delete: 0, same: 2 };
+
+      await service.persist(
+        makeParams({ changeSummary, engineVersion: '3.255.0', partialApply: true }),
+        null,
+      );
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.changeSummary).toEqual(changeSummary);
+      expect(record.engineVersion).toBe('3.255.0');
+      expect(record.partialApply).toBe(true);
+    });
+
     it('should build the record sk from startedAt and runId, and derive status from exitCode', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();

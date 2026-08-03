@@ -21,9 +21,9 @@ interface IacMockOptions {
   planHash?: string;
   /**
    * Structured resource-change counts attached to the scripted plan run's
-   * `iac.runs.get` record (task 8.3's `TerraformRunRecord.changeSummary`) —
-   * drives `ChangeSummaryStatus`'s badge rendering. Omitted by default,
-   * matching a run whose structured summary event was never observed.
+   * `iac.runs.get` record (`TerraformRunRecord.changeSummary`) — drives
+   * `ChangeSummaryStatus`'s badge rendering. Omitted by default, matching a
+   * run whose structured summary event was never observed.
    */
   planChangeSummary?: ChangeSummary;
   approveAck?: { approved: boolean; approvedBy?: string; approvedAt?: string; error?: string };
@@ -34,9 +34,9 @@ interface IacMockOptions {
   applyChangeSummary?: ChangeSummary;
   /**
    * `partialApply` flag attached to the scripted apply run's `iac.runs.get`
-   * record (task 8.3's `TerraformRunRecord.partialApply`) — drives
-   * `PartialApplyBanner`'s rendering in place of the generic apply-failure
-   * banner. Omitted by default.
+   * record (`TerraformRunRecord.partialApply`) — drives `PartialApplyBanner`'s
+   * rendering in place of the generic apply-failure banner. Omitted by
+   * default.
    */
   applyPartialApply?: boolean;
 }

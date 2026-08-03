@@ -1,12 +1,9 @@
 /**
  * Secrets Manager secrets for the Discord bot token and application public
- * key — ported from `terraform/aws/discord_store.tf`'s two
- * `aws_secretsmanager_secret` + `aws_secretsmanager_secret_version` pairs
- * (task 3.8 of `migrate-iac-to-pulumi`). The two `aws_secretsmanager_secret_version`
- * resources are also part of task 3.10's "imperative escapes" inventory —
- * per that task's brief, they are implemented HERE, alongside the secrets
- * they version, rather than in `escapes.ts` (see that file's doc for the
- * rest of the escapes inventory).
+ * key. The two `aws_secretsmanager_secret_version` resources are part of
+ * this package's "imperative escapes" inventory, but are implemented HERE,
+ * alongside the secrets they version, rather than in `escapes.ts` (see that
+ * file's doc for the rest of the escapes inventory).
  *
  * | HCL address | This file |
  * | --- | --- |
@@ -65,7 +62,7 @@
  * Manager actually holds — is real Pulumi-engine behavior with no local mock
  * equivalent, and is only ever exercised at a real deploy
  * (`pulumi-infra-program`'s "Preservation is covered by a test" scenario's
- * fuller integration-level case belongs to a later phase's test surface, not
+ * fuller integration-level case belongs to an integration test surface, not
  * this unit-test package).
  */
 
@@ -130,10 +127,9 @@ export const secretResourceOptions = {
 
 /**
  * Declares the two Discord secrets and their create-only placeholder
- * versions (task 3.8 of `migrate-iac-to-pulumi`) — see this file's doc for
- * the full HCL→Pulumi address table and the spec-critical rationale. Must be
- * called from inside the Pulumi inline-program closure, never at module
- * scope.
+ * versions — see this file's doc for the full HCL→Pulumi address table and
+ * the spec-critical rationale. Must be called from inside the Pulumi
+ * inline-program closure, never at module scope.
  *
  * @param args - Naming and provider inputs — see {@link DefineSecretsArgs}.
  * @returns The declared secrets and versions — see {@link SecretsResources}.

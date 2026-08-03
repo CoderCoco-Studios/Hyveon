@@ -11,8 +11,8 @@ import type { GameServerConfig } from './tfvars.js';
  * A fully-populated `https = true` game server entry — every optional field
  * set (`environment`, `connect_message`, `file_seeds` with both `content`
  * and `content_base64` variants) — used to exercise the `https: true` arm of
- * the round-trip test required by task 2.3 (the flag HCL round-tripping
- * previously corrupted).
+ * the round-trip test that guards against the `https` flag failing to
+ * survive a JSON round-trip.
  */
 function buildHttpsGameServer(): GameServerConfig {
   return {

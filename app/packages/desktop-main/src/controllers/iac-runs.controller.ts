@@ -38,11 +38,7 @@ export interface TerraformRunsGetPayload {
  * {@link RunDetailStatus}; `record` is present only once the run has produced
  * a persisted `PulumiRunRecord` (i.e. every status except `running`, since a
  * run in flight hasn't closed its process yet — see `PulumiRunRecord`'s doc
- * comment). `record`'s TYPE changed from `TerraformRunRecord` to
- * `PulumiRunRecord` as part of task 7.10's repoint (the underlying local
- * `run.json` read moved from `TerraformService.readRunRecord` to
- * `PulumiService.readRunRecord`, a new task-7.10 method) — the channel name
- * and the rest of this result's shape are unchanged.
+ * comment), read from the local `run.json` via `PulumiService.readRunRecord`.
  */
 export type TerraformRunsGetResult =
   | { found: false }
@@ -96,27 +92,19 @@ interface TerraformRunsLogsAck {
 /**
  * IPC-only controller for reading the status/detail of a single Pulumi
  * preview/apply/destroy run (issue #108) — no HTTP routes are registered
- * here.
- *
- * Task 7.10 (`migrate-iac-to-pulumi`) repointed this controller from the
- * deleted `TerraformService` onto `PulumiService` — channel names and
- * payload/ack shapes are unchanged; only the backing service (and, for
- * {@link get}, the persisted record's TYPE — see
- * {@link TerraformRunsGetResult}'s own doc comment) changed.
+ * here. Backed by `PulumiService`.
  *
  * `get()` combines two data sources to derive the run's
  * {@link RunDetailStatus} via the shared, pure `computeRunDetailStatus`
  * helper: `RunService.getCurrentLock()` (the in-flight apply lock, #106) for
  * a still-running run, and `PulumiService.readRunRecord()` /
  * `PulumiService.hasPlanArtifact()` (the local `<runsDir>/<runId>/run.json`
- * + saved plan artifact, task 7.10's new `PulumiService` accessors) for a
- * finished one.
+ * + saved plan artifact) for a finished one.
  *
  * `logs()` bridges `PulumiService.streamRunOutput`'s async-generator output
- * (an identical signature to `TerraformService.streamRunOutput` — trivial
- * swap) onto the fixed `iac.runs.logs.chunk` / `iac.runs.logs.end`
- * side channels, mirroring `IacController.plan`'s streaming shape, so
- * the renderer can watch (or re-attach to) a run's live or persisted output.
+ * onto the fixed `iac.runs.logs.chunk` / `iac.runs.logs.end` side channels,
+ * mirroring `IacController.plan`'s streaming shape, so the renderer can
+ * watch (or re-attach to) a run's live or persisted output.
  */
 @Controller()
 export class IacRunsController implements OnModuleInit {

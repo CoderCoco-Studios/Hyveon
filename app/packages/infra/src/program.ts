@@ -1,18 +1,18 @@
 /**
  * The Pulumi inline-program factory — the `@hyveon/infra` package's public
  * entry point (re-exported from `index.ts`). Establishes the pattern every
- * later Phase-3 dispatch (EFS, ECS, IAM, Lambdas, ...) follows: one
+ * resource-area module (EFS, ECS, IAM, Lambdas, ...) follows: one
  * `defineX(...)` module per Terraform-file-shaped resource area, all wired
  * together inside the closure {@link createInfraProgram} returns.
  *
- * ## Resource-inventory audit (task 3.12)
+ * ## Resource-inventory audit
  *
  * This package's `defineAll` (below) is the FULL Pulumi resource graph for
  * the retired `terraform/` tree's 69 `resource` blocks (21 `.tf` files, 2837
- * lines — `design.md`'s own count, independently re-verified below). Every
- * block maps to exactly one entry in the table below: a Pulumi counterpart
- * (file + field on {@link InfraResources}), or an explicit omission with its
- * reason. Zero blocks are unaccounted for.
+ * lines, independently verified below). Every block maps to exactly one
+ * entry in the table below: a Pulumi counterpart (file + field on
+ * {@link InfraResources}), or an explicit omission with its reason. Zero
+ * blocks are unaccounted for.
  *
  * Re-verification command: `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`.
  *
@@ -71,7 +71,7 @@
  * | 51 | `aws_secretsmanager_secret_version.discord_bot_token` | `secrets.discordBotTokenSecretVersion` | |
  * | 52 | `aws_secretsmanager_secret.discord_public_key` | `secrets.discordPublicKeySecret` | |
  * | 53 | `aws_secretsmanager_secret_version.discord_public_key` | `secrets.discordPublicKeySecretVersion` | |
- * | 54 | `terraform_data.discord_register_commands` | **omitted** | Requires the live Discord bot token as an input, which `pulumi-infra-program`'s "no secret material enters the stack" requirement forbids; `DeploymentConfig` has no such field. Permanent, not deferred — the app's existing per-guild "Register commands" UI (`DiscordCommandRegistrar.ts`) is the surviving manual path. See `escapes.ts`'s file doc, "Why `terraform_data.discord_register_commands` has no Pulumi analogue." |
+ * | 54 | `terraform_data.discord_register_commands` | **omitted** | Requires the live Discord bot token as an input, which this program's "no secret material enters the stack" invariant forbids; `DeploymentConfig` has no such field. Permanent, not deferred — the app's existing per-guild "Register commands" UI (`DiscordCommandRegistrar.ts`) is the surviving manual path. See `escapes.ts`'s file doc, "Why `terraform_data.discord_register_commands` has no Pulumi analogue." |
  * | 55 | `aws_dynamodb_table_item.discord_base_config` | `discordTableItems.discordBaseConfigItem` | |
  * | 56 | `aws_dynamodb_table_item.discord_config_seed` | `discordTableItems.discordConfigSeedItem` | |
  * | 57 | `aws_acm_certificate.discord` | `discordDomain.certificate` | |
@@ -82,7 +82,7 @@
  * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
  * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
  * | 64 | `aws_dynamodb_table.runs` | `dynamoDb.runsTable` | |
- * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureTfvarsBucket` over the AWS SDK instead (`migrate-iac-to-pulumi` tasks 5.1–5.6), not into this Pulumi stack. This bucket becomes the operator's CONFIGURATION bucket — task 5.2 renames "tfvars bucket" to "configuration bucket" throughout `BootstrapService`; `design.md`'s "No operator-editable files on disk" decision: "The S3 configuration bucket becomes the only source" — and holds `DeploymentConfig`, THIS PROGRAM'S OWN INPUT (Phase 6), so it must exist and be populated BEFORE `defineAll`/`createInfraProgram` can even be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
+ * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureTfvarsBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
  * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
  * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
  * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
@@ -111,24 +111,22 @@
  *   `Environment` (no Lambda, service, or cost-tooling filters on it) — only
  *   the tag CLAUDE.md documents as load-bearing (AWS Cost-allocation tag
  *   activation) is preserved. `tags` itself was never operator-configurable
- *   and is deliberately excluded from `DeploymentConfig` (task 2.2's
- *   decision) — see {@link DEFAULT_TAGS}'s own doc for the full rationale.
- * - **`applied_game_servers` was `sensitive = true` in the HCL** (`terraform/aws/outputs.tf`,
- *   rationale at `design.md:206–208`), a marking this program's
+ *   and is deliberately excluded from `DeploymentConfig` — see
+ *   {@link DEFAULT_TAGS}'s own doc for the full rationale.
+ * - **`applied_game_servers` was `sensitive = true` in the HCL**
+ *   (`terraform/aws/outputs.tf`), a marking this program's
  *   {@link StackOutputValues.appliedGameServers} does NOT replicate — Pulumi
  *   stack outputs have no per-field sensitivity marking in the
  *   `Record<string, any>` a `PulumiFn` returns (sensitivity is an
  *   `Output`-level property, `pulumi.secret(...)`, not applicable to a plain
- *   config echo like this field). `design.md` characterizes the value as
- *   "ports/images/memory limits", which UNDERSTATES its contents: `GameServerConfig`
- *   (the value's element type) also carries `environment` —
- *   operator-set container environment variables, which may hold values the
- *   operator considers sensitive even though they are not routed through
- *   Secrets Manager. Flagged for Phase 4's task 4.5 ("no key material reaches
- *   streamed output or logs"): Pulumi prints stack outputs by default where
- *   Terraform redacted this one, so whatever surfaces `appliedGameServers`
- *   downstream (`PulumiService`, CLI-equivalent logging, `pulumi up` output)
- *   needs its own redaction — this program cannot provide it at the
+ *   config echo like this field). This matters because `GameServerConfig`
+ *   (the value's element type) carries `environment` — operator-set
+ *   container environment variables, which may hold values the operator
+ *   considers sensitive even though they are not routed through Secrets
+ *   Manager. Pulumi prints stack outputs by default where Terraform
+ *   redacted this one, so whatever surfaces `appliedGameServers` downstream
+ *   (`PulumiService`, CLI-equivalent logging, `pulumi up` output) must apply
+ *   its own redaction — this program cannot provide it at the
  *   `PulumiFn`-return-value layer.
  *
  * Confirmed zero unclaimed resources: every one of the 69 blocks above has
@@ -176,10 +174,10 @@ const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
  * Machine-local inputs {@link defineAll}/{@link createInfraProgram} need
  * that do NOT belong in `DeploymentConfig` (`@hyveon/shared`) — that object
  * is persisted verbatim as JSON in the operator's configuration S3 bucket
- * (Phase 6) and is meant to be portable across whichever machine runs a
- * deploy, whereas a filesystem path is inherently tied to the machine it
- * was resolved on. Modeled as a separate, required second parameter rather
- * than folded into `DeploymentConfig` for exactly that reason.
+ * and is meant to be portable across whichever machine runs a deploy,
+ * whereas a filesystem path is inherently tied to the machine it was
+ * resolved on. Modeled as a separate, required second parameter rather than
+ * folded into `DeploymentConfig` for exactly that reason.
  */
 export interface InfraProgramOptions {
   /**
@@ -188,8 +186,9 @@ export interface InfraProgramOptions {
    * `DefineLambdasArgs.lambdaBundlesDir`, threaded straight through to the
    * `defineLambdas` call inside {@link defineAll}. See `lambdas.ts`'s file
    * doc, "The lambda-bundle path contract", for the full rationale
-   * (including why it has no default anywhere in this package) and what
-   * Phase 7's `PulumiService` must resolve and supply here at runtime.
+   * (including why it has no default anywhere in this package). The caller
+   * — `PulumiService` — must resolve this path and supply it here at
+   * runtime.
    */
   lambdaBundlesDir: string;
 }
@@ -200,9 +199,9 @@ export interface InfraProgramOptions {
  * (`pulumi:providers:aws`) whose region/tags are worth asserting on
  * directly. This is the type `defineAll`'s tests hold real handles against;
  * `createInfraProgram`'s closure also binds this shape to a local variable
- * and passes it straight to {@link buildStackOutputs} (task 3.11) so every
- * stack-output field is derived from a live resource handle rather than
- * re-declared or re-derived.
+ * and passes it straight to {@link buildStackOutputs} so every stack-output
+ * field is derived from a live resource handle rather than re-declared or
+ * re-derived.
  */
 export interface InfraResources {
   /** The AWS provider every resource below is declared against. */
@@ -215,46 +214,44 @@ export interface InfraResources {
    * alias."
    */
   usEast1Provider: aws.Provider;
-  /** Networking resources (task 3.1) — see {@link NetworkResources}. */
+  /** Networking resources — see {@link NetworkResources}. */
   network: NetworkResources;
   /**
-   * Security-group resources (task 3.4), plus the EFS-seeder security group
-   * and its conditional ingress rule on `efs` (task 3.6/3.7's ownership
-   * item, folded into `defineSecurityGroups` — see that file's doc) — see
-   * {@link SecurityGroupResources}.
+   * Security-group resources, plus the EFS-seeder security group and its
+   * conditional ingress rule on `efs` (folded into `defineSecurityGroups` —
+   * see that file's doc) — see {@link SecurityGroupResources}.
    */
   securityGroups: SecurityGroupResources;
-  /** IAM roles + the ECS task-execution managed-policy attachment (task 3.5) — see {@link IamRoleResources}. */
+  /** IAM roles + the ECS task-execution managed-policy attachment — see {@link IamRoleResources}. */
   iamRoles: IamRoleResources;
-  /** EFS resources (task 3.2) — see {@link EfsResources}. */
+  /** EFS resources — see {@link EfsResources}. */
   efs: EfsResources;
-  /** ECS cluster, log groups, and task definitions (task 3.3) — see {@link EcsResources}. */
+  /** ECS cluster, log groups, and task definitions — see {@link EcsResources}. */
   ecs: EcsResources;
-  /** DynamoDB tables (task 3.8) — see {@link DynamoDbResources}. */
+  /** DynamoDB tables — see {@link DynamoDbResources}. */
   dynamoDb: DynamoDbResources;
-  /** Discord Secrets Manager secrets and their create-only placeholder versions (task 3.8) — see {@link SecretsResources}. */
+  /** Discord Secrets Manager secrets and their create-only placeholder versions — see {@link SecretsResources}. */
   secrets: SecretsResources;
-  /** The Route 53 hosted-zone lookup (task 3.9) — see {@link Route53Resources}. No DNS record resource is ever part of this — see `route53.ts`'s file doc. */
+  /** The Route 53 hosted-zone lookup — see {@link Route53Resources}. No DNS record resource is ever part of this — see `route53.ts`'s file doc. */
   route53: Route53Resources;
-  /** The five Lambda functions and their EventBridge/permission wiring (tasks 3.6/3.7) — see {@link LambdaResources}. */
+  /** The five Lambda functions and their EventBridge/permission wiring — see {@link LambdaResources}. */
   lambdas: LambdaResources;
   /**
-   * The five inline IAM policies (task 3.5's other half — see `iam.ts`'s
-   * file doc for why roles and policies are split across two functions) —
-   * see {@link IamPolicyResources}.
+   * The five inline IAM policies (see `iam.ts`'s file doc for why roles and
+   * policies are split across two functions) — see {@link IamPolicyResources}.
    */
   iamPolicies: IamPolicyResources;
-  /** The two conditional Discord DynamoDB seed rows (task 3.10) — see {@link DiscordTableItemResources}. */
+  /** The two conditional Discord DynamoDB seed rows — see {@link DiscordTableItemResources}. */
   discordTableItems: DiscordTableItemResources;
-  /** One `aws.lambda.Invocation` per game with `file_seeds` (task 3.10) — see `escapes.ts`'s `defineEfsSeederInvocations`. */
+  /** One `aws.lambda.Invocation` per game with `file_seeds` — see `escapes.ts`'s `defineEfsSeederInvocations`. */
   efsSeederInvocations: Record<string, aws.lambda.Invocation>;
-  /** The Discord custom-domain resource set (task 3.x, a plan-gap dispatch) — see {@link DiscordDomainResources}. */
+  /** The Discord custom-domain resource set — see {@link DiscordDomainResources}. */
   discordDomain: DiscordDomainResources;
 }
 
 /**
- * Declares every resource this dispatch's phase covers and wires them
- * together: constructs the shared AWS provider, then calls each
+ * Declares every resource this program's infrastructure graph covers and
+ * wires them together: constructs the shared AWS provider, then calls each
  * `defineX(...)` module in dependency order, threading the provider and each
  * module's output into the next. This is the function
  * {@link createInfraProgram}'s closure delegates to — pulled out to a
@@ -264,11 +261,10 @@ export interface InfraResources {
  * having to infer completion from the closure's opaque
  * `Promise<Record<string, any> | void>` return.
  *
- * Every later Phase-3 dispatch (EFS, ECS, IAM, Lambdas, ...) adds its
- * `defineX(...)` call here, in the same pattern: construct/derive whatever
- * inputs it needs from `config` and the resources already returned above it,
- * append its result to the returned object, and extend {@link InfraResources}
- * to match.
+ * Adding a new resource area (EFS, ECS, IAM, Lambdas, ...) follows the same
+ * pattern: construct/derive whatever inputs it needs from `config` and the
+ * resources already returned above it, append its result to the returned
+ * object, and extend {@link InfraResources} to match.
  *
  * The AWS provider is constructed once per call, with its region taken from
  * `config.awsRegion` (never an ambient env var) and {@link DEFAULT_TAGS}
@@ -316,10 +312,10 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     provider,
   });
 
-  // `defineIamRoles(...)` needs nothing from any later task (every role's
-  // trust policy is a static literal) — wired in now because `defineEcs`
-  // below consumes `iamRoles.ecsTaskExecutionRole.arn` for every task
-  // definition's `execution_role_arn`.
+  // `defineIamRoles(...)` needs nothing declared later in this function
+  // (every role's trust policy is a static literal) — wired in now because
+  // `defineEcs` below consumes `iamRoles.ecsTaskExecutionRole.arn` for every
+  // task definition's `execution_role_arn`.
   const iamRoles = defineIamRoles({
     projectName: config.projectName,
     gameServers: config.gameServers,
@@ -350,13 +346,12 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   // least one game declares `file_seeds` (see `securityGroups.ts`'s file
   // doc).
 
-  // ── DynamoDB tables + Secrets Manager secrets (task 3.8) ──────────────────
+  // ── DynamoDB tables + Secrets Manager secrets ──────────────────────────────
   // Neither depends on anything declared above — both need only `config`
   // and `provider` — so they're free to run anywhere in this function; kept
-  // here, right after the resources ported by tasks 3.1–3.7, so every
-  // dispatch that still needs one of their outputs (`defineLambdas`,
-  // `defineIamPolicies`, `defineDiscordTableItems` below) can find it
-  // already in scope.
+  // here so every later call that still needs one of their outputs
+  // (`defineLambdas`, `defineIamPolicies`, `defineDiscordTableItems` below)
+  // can find it already in scope.
   const dynamoDb = defineDynamoDb({
     projectName: config.projectName,
     auditTableName: config.auditTableName,
@@ -369,13 +364,13 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     provider,
   });
 
-  // ── Route 53 hosted-zone lookup (task 3.9) ─────────────────────────────────
+  // ── Route 53 hosted-zone lookup ────────────────────────────────────────────
   const route53 = defineRoute53({
     hostedZoneName: config.hostedZoneName,
     provider,
   });
 
-  // ── The two conditional Discord DynamoDB seed rows (task 3.10) ───────────
+  // ── The two conditional Discord DynamoDB seed rows ─────────────────────────
   // Only needs `dynamoDb.discordTable` (just declared above) plus plain
   // config fields — no dependency on `lambdas`/`iamPolicies` below, unlike
   // `defineEfsSeederInvocations` further down.
@@ -389,11 +384,10 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     discordApplicationId: config.discordApplicationId,
   });
 
-  // ── Lambda functions (tasks 3.6/3.7) ───────────────────────────────────────
+  // ── Lambda functions ────────────────────────────────────────────────────────
   // Every deferred input `lambdas.ts`'s file doc flagged as blocking this
   // wiring is now real: `dynamoDb.discordTable.name`/`secrets.discordPublicKeySecret.arn`
-  // (task 3.8, just declared above) and `route53.zoneId` (task 3.9, just
-  // declared above).
+  // and `route53.zoneId` (both just declared above).
   const lambdas = defineLambdas({
     projectName: config.projectName,
     awsRegion: config.awsRegion,
@@ -417,9 +411,9 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     provider,
   });
 
-  // ── Discord custom domain (task 3.x, plan-gap dispatch) ────────────────────
+  // ── Discord custom domain ───────────────────────────────────────────────────
   // Needs `lambdas.interactionsFunctionUrl.functionUrl` (CloudFront's origin,
-  // just declared above) and `route53.zoneId` (task 3.9). No dependency on
+  // just declared above) and `route53.zoneId`. No dependency on
   // `iamPolicies` below, so this can — and does — run before it.
   const discordDomain = defineDiscordDomain({
     projectName: config.projectName,
@@ -430,11 +424,11 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     usEast1Provider,
   });
 
-  // ── IAM inline policies (task 3.5's other half) ────────────────────────────
-  // Necessarily last among the "core" dispatches: `followupLambdaArn` does
-  // not exist until `defineLambdas` (just above) has created the followup
-  // function — see `iam.ts`'s file doc, "Why this is two functions, not
-  // one", for why no other call order satisfies every dependency.
+  // ── IAM inline policies ─────────────────────────────────────────────────────
+  // Necessarily last among the resource areas above: `followupLambdaArn`
+  // does not exist until `defineLambdas` (just above) has created the
+  // followup function — see `iam.ts`'s file doc, "Why this is two functions,
+  // not one", for why no other call order satisfies every dependency.
   const iamPolicies = defineIamPolicies({
     projectName: config.projectName,
     provider,
@@ -446,10 +440,10 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     hostedZoneId: route53.zoneId,
   });
 
-  // ── Per-game EFS-seeder Lambda invocations (task 3.10) ─────────────────────
+  // ── Per-game EFS-seeder Lambda invocations ──────────────────────────────────
   // Runs last: needs both `lambdas.efsSeederFunctions` (just above) and
-  // `iamPolicies.efsSeederPolicies` (just above) — the latter for its
-  // review-mandated `dependsOn` edge; see `escapes.ts`'s file doc.
+  // `iamPolicies.efsSeederPolicies` (just above) — the latter for the
+  // `dependsOn` edge it requires; see `escapes.ts`'s file doc.
   const efsSeederInvocations = defineEfsSeederInvocations({
     projectName: config.projectName,
     provider,
@@ -479,7 +473,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
 
 /**
  * The stack-output values {@link buildStackOutputs} returns — the same field
- * set as `@hyveon/shared`'s {@link StackOutputs} (Task 2.4), but with every
+ * set as `@hyveon/shared`'s {@link StackOutputs}, but with every
  * resource-derived field left as its live `pulumi.Output<T>` rather than a
  * resolved plain value. This is deliberate, not a shortcut: `createInfraProgram`'s
  * closure returns this object directly as its `PulumiFn` result (see that
@@ -488,9 +482,9 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * `runtime/stack.js`) resolves `Output`/`Promise`/plain values recursively
  * when it registers them as the stack's outputs — pre-resolving here would
  * only discard the dependency edges the engine uses for its own graph
- * tracking, for no benefit. `PulumiService` (Phase 7) reads the resolved
- * plain values back via `stack.outputs()`, which is where a
- * {@link StackOutputs} value is actually materialized.
+ * tracking, for no benefit. `PulumiService` reads the resolved plain values
+ * back via `stack.outputs()`, which is where a {@link StackOutputs} value is
+ * actually materialized.
  *
  * Only four fields are plain (not `Output`-wrapped), because they are
  * already known synchronously from `config` with no resource round-trip
@@ -503,8 +497,10 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * `extends Record<keyof StackOutputs, unknown>` is a genuine compile-time
  * completeness check, not decoration: it fails to build if this interface
  * ever drops a field {@link StackOutputs} declares (or a future
- * {@link StackOutputs} field has no matching entry here), so 3.11's
- * field-by-field parity with Task 2.4's type can't silently drift.
+ * {@link StackOutputs} field has no matching entry here), so every
+ * `StackOutputs` field is guaranteed a matching entry here — though this
+ * check is one-directional: it doesn't reject an extra field this interface
+ * declares beyond what `StackOutputs` has.
  */
 export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   /** Mirrors {@link StackOutputs.awsRegion} — `terraform/aws/outputs.tf`'s `aws_region` output is a bare `var.aws_region` echo, so this is `config.awsRegion` directly, no resource involved. */
@@ -545,13 +541,12 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   discordPublicKeySecretArn: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.interactionsInvokeUrl}. Per `discordDomain.ts`'s
-   * file doc, "Note for task 3.11": `terraform/aws/outputs.tf`'s
-   * `interactions_invoke_url` output resolves to the CUSTOM DOMAIN
-   * (`"https://discord.${var.hosted_zone_name}/"`), NEVER the raw Lambda
-   * Function URL — so this reads `discordDomain.aliasRecord.name` (the
-   * literal `discord.{hostedZoneName}` input we passed that record, not its
-   * AWS-echoed `fqdn`, which would carry a trailing dot), not
-   * `lambdas.interactionsFunctionUrl.functionUrl`.
+   * file doc: `terraform/aws/outputs.tf`'s `interactions_invoke_url` output
+   * resolves to the CUSTOM DOMAIN (`"https://discord.${var.hosted_zone_name}/"`),
+   * NEVER the raw Lambda Function URL — so this reads
+   * `discordDomain.aliasRecord.name` (the literal `discord.{hostedZoneName}`
+   * input we passed that record, not its AWS-echoed `fqdn`, which would
+   * carry a trailing dot), not `lambdas.interactionsFunctionUrl.functionUrl`.
    */
   interactionsInvokeUrl: pulumi.Output<string>;
   /**
@@ -573,7 +568,7 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
  * — see {@link StackOutputValues}'s own doc for the full per-field mapping and
  * why resource-derived fields stay `pulumi.Output`-wrapped rather than
  * pre-resolved. `createInfraProgram`'s closure calls this immediately after
- * `defineAll` and returns the result as-is (Task 3.11).
+ * `defineAll` and returns the result as-is.
  *
  * @param resources - Every resource area {@link defineAll} returned.
  * @param config - The same `DeploymentConfig` {@link defineAll} was called
@@ -635,7 +630,7 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
  * `config` is captured by the returned closure at creation time; it flows in
  * as a plain typed object (`@hyveon/shared`'s {@link DeploymentConfig}), not
  * via `pulumi.Config` — the desktop app reads it from the JSON configuration
- * store (Phase 6 of `migrate-iac-to-pulumi`) and passes it straight in.
+ * store and passes it straight in.
  *
  * Every resource declaration happens inside the returned closure, never at
  * module scope: an inline program's resource lifecycle is scoped to a
@@ -644,45 +639,39 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
  * function's doc for how resource areas are wired together and how every
  * stack-output field is derived.
  *
- * ## Outputs mechanism (Task 3.11 finding)
+ * ## Outputs mechanism
  *
  * The Automation API's inline `PulumiFn` type is
  * `() => Promise<Record<string, any> | void>` (`@pulumi/pulumi/automation`'s
- * `workspace.d.ts`) — a RETURN VALUE, not an `export`-style call (see below:
- * no such API exists in the Node SDK anyway).
- * Confirmed by reading the SDK's own runtime, not assumed from the type
- * alone: `runtime/stack.js`'s `runInPulumiStack(init)` constructs a root
- * `Stack` resource and calls `stack.initialize({ init })`, whose body
- * awaits `args.init()`'s return value, `massage()`s it, then calls
- * `super.registerOutputs(outputs)` on the result — i.e. whatever object
- * this closure returns (the SAME closure the Automation API installs as its
- * gRPC language-runtime callback for both file-based and inline programs) is
+ * `workspace.d.ts`) — a RETURN VALUE, not an `export`-style call. In
+ * `@pulumi/pulumi`'s own runtime, `runtime/stack.js`'s `runInPulumiStack(init)`
+ * constructs a root `Stack` resource and calls `stack.initialize({ init })`,
+ * whose body awaits `args.init()`'s return value, `massage()`s it, then calls
+ * `super.registerOutputs(outputs)` on the result — i.e. whatever object this
+ * closure returns (the SAME closure the Automation API installs as its gRPC
+ * language-runtime callback for both file-based and inline programs) is
  * exactly what becomes the stack's registered outputs, one top-level key per
  * output name. `massage()` recursively resolves `pulumi.Output`, `Promise`,
- * array, and plain-value entries anywhere in that returned tree, so returning
- * `Output`-wrapped fields (as {@link buildStackOutputs} does) is not only
- * valid but preferred — pre-resolving with `await`/`promiseOf` before
- * returning would only strip the dependency edges the engine tracks for
- * preview/diff purposes. There is no `pulumi.export(...)` function to
- * consider as an alternative in the Node.js SDK at all — checked directly
- * (`Object.keys(require('@pulumi/pulumi')).filter(k => /export/i.test(k))`
- * returns `[]`, and no `getExports`/`stackExports`-shaped symbol exists in
- * `runtime/stack.js`); `export const` at a Pulumi program's module top level
- * is the Node idiom for a FILE-BASED program (`cmd/run/run.js` captures a
+ * array, and plain-value entries anywhere in that returned tree, so
+ * returning `Output`-wrapped fields (as {@link buildStackOutputs} does) is
+ * not only valid but preferred — pre-resolving with `await`/`promiseOf`
+ * before returning would only strip the dependency edges the engine tracks
+ * for preview/diff purposes. There is no `pulumi.export(...)` function in
+ * the Node.js SDK: `export const` at a Pulumi program's module top level is
+ * the Node idiom for a FILE-BASED program (`cmd/run/run.js` captures a
  * CommonJS/ESM module's own exports as the stack's outputs), and
  * `pulumi.export(name, value)` is the Python/Go SDKs' idiom, not Node's —
  * neither applies here regardless, since an inline `PulumiFn` closure has no
  * module-scope top level for either mechanism to attach to. The return-value
  * path above is the one, and only, mechanism `LocalWorkspace`'s
- * inline-program `PulumiFn` contract exercises in this SDK. This is the
- * mechanism Phase 4's engine-runtime work (and Phase 7's
- * `PulumiService.stack.outputs()` read-back) can rely on.
+ * inline-program `PulumiFn` contract exercises in this SDK — the mechanism
+ * `PulumiService`'s `stack.outputs()` read-back relies on.
  *
  * @param config - The full deployment configuration to derive infrastructure
  *   from.
  * @param options - Machine-local inputs `DeploymentConfig` deliberately
  *   excludes, e.g. `lambdaBundlesDir` — see {@link InfraProgramOptions}.
- *   Phase 7's `PulumiService` resolves and supplies this at runtime.
+ *   `PulumiService` resolves and supplies this at runtime.
  * @returns A `PulumiFn` suitable for `LocalWorkspace.createOrSelectStack`'s
  *   inline-program `program` option. Resolves to the {@link StackOutputValues}
  *   object {@link buildStackOutputs} built — the Automation API registers it

@@ -1,14 +1,12 @@
 /**
  * Tests for `TfvarsService` — the S3-backed deployment-config reader/parser.
  *
- * The config is plain JSON now (see the `migrate-iac-to-pulumi` change's
- * Phase 6), so fixtures are inline `DeploymentConfig`-shaped objects
- * `JSON.stringify`d — no fixture files needed, unlike the retired HCL
- * fixtures this file used to load from `__fixtures__/*.tfvars` (there's no
- * comment/heredoc complexity to fixture-test with JSON).
+ * The config is plain JSON, so fixtures are inline `DeploymentConfig`-shaped
+ * objects `JSON.stringify`d — no fixture files needed, unlike the retired
+ * HCL fixtures this file used to load from `__fixtures__/*.tfvars` (there's
+ * no comment/heredoc complexity to fixture-test with JSON).
  *
- * There is no local-file fallback any more (Phase 6's "no local configuration
- * fallback" requirement) — every test that used to select "local mode" via a
+ * There is no local-file fallback — every test that used to select "local mode" via a
  * `null` bucket now exercises the "unconfigured" behaviour instead (see the
  * `unconfigured` describe block below), which asserts `fs` is never touched.
  * `fs` stays mocked here purely so that assertion is meaningful — this
@@ -49,7 +47,7 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { TfvarsService, ConfigurationNotConfiguredError } from './TfvarsService.js';
+import { TfvarsService, ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 
@@ -347,6 +345,11 @@ describe('TfvarsService', () => {
       const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
       expect(service.isConfigured()).toBe(true);
     });
+
+    it('should return false when the configuration bucket resolves to an empty string, matching fetchRawConfig/putRawConfig\'s truthiness check', () => {
+      const service = new TfvarsService(makeConfig({ bucket: '' }), remoteFileStore);
+      expect(service.isConfigured()).toBe(false);
+    });
   });
 
   describe('unconfigured (no disk fallback reachable)', () => {
@@ -533,6 +536,27 @@ describe('TfvarsService', () => {
       service.nowMock.mockReturnValue(1_010_000); // 10s later, well within a 30s TTL
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw a structural GameServerEntryError from addGameServer when the config JSON has no gameServers map', async () => {
+      remoteFileStore.get.mockResolvedValue({
+        body: new TextEncoder().encode('{"awsRegion":"us-east-1"}'),
+        etag: 'etag-1',
+      });
+
+      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const entry = {
+        image: 'ryshe/terraria',
+        cpu: 512,
+        memory: 1024,
+        ports: [{ container: 7777, protocol: 'tcp' as const }],
+        volumes: [{ name: 'world', container_path: '/config' }],
+      };
+
+      await expect(service.addGameServer('terraria', entry)).rejects.toMatchObject({
+        reason: 'structural',
+      });
+      await expect(service.addGameServer('terraria', entry)).rejects.toBeInstanceOf(GameServerEntryError);
     });
 
     it('should retry the source once the TTL has elapsed after a failed parse', async () => {

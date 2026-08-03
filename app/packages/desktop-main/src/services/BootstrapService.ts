@@ -16,13 +16,11 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * How many days a noncurrent configuration-bucket object version is retained
- * before expiring — matches the parity baseline that historically lived in
- * the old Terraform-era bootstrap HCL's `aws_s3_bucket_lifecycle_configuration`
- * rule for the (then differently named) `tfvars` bucket; this service uses
- * the same 90-day window for the renamed configuration bucket. That HCL has
- * since been removed (Phase 12 of `migrate-iac-to-pulumi`) — this is now
- * simply what the bucket used to be provisioned by, not a live parity
- * target.
+ * before expiring — matches the baseline in
+ * `terraform/bootstrap/main.tf`'s `aws_s3_bucket_lifecycle_configuration.tfvars`
+ * rule (that module still names the resource for its Terraform-era `tfvars`
+ * object; this service uses the same 90-day window for the renamed
+ * configuration bucket).
  */
 const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
 
@@ -68,7 +66,7 @@ export class BootstrapCredentialsNotConfiguredError extends Error {
  * Deliberately AWS-SDK-direct rather than routed through the cloud-agnostic
  * `RunTask`/`StopTask` contracts in `@hyveon/shared/cloud.ts` — bootstrap is
  * AWS-only setup plumbing, not a steady-state operation any other cloud
- * provider needs to satisfy (see design.md decision 6).
+ * provider needs to satisfy.
  */
 @Injectable()
 export class BootstrapService {
@@ -127,17 +125,17 @@ export class BootstrapService {
    * four public-access-block settings enabled.
    *
    * @remarks
-   * Matches the versioning / lifecycle-configuration / public-access-block
-   * settings the old Terraform-era bootstrap HCL applied to its `tfvars`
-   * bucket (design.md decision 6) — the resulting bucket is the canonical
-   * `RemoteFileStore` holding the JSON game-server configuration. This is
-   * *not* full parity with that HCL module: it has no server-side-encryption
-   * resource for this bucket (only `ensureStateBucket`'s bucket gets SSE, and
-   * the delta spec doesn't ask for it here either), so "behaviourally
-   * consistent" only ever meant those three settings, not everything the
-   * module did. That HCL — which named its bucket for the Terraform-era
-   * `terraform.tfvars` object it once held — has since been removed
-   * (Phase 12 of `migrate-iac-to-pulumi`); this is historical baseline only.
+   * Matches `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
+   * / `aws_s3_bucket_lifecycle_configuration.tfvars` /
+   * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
+   * lifecycle, and public-access-block specifically — the resulting bucket is
+   * the canonical `RemoteFileStore` holding the JSON game-server
+   * configuration. This is *not* full parity with that HCL module: it has no
+   * server-side-encryption resource for this bucket (only
+   * `ensureStateBucket`'s bucket gets SSE), so "behaviourally consistent"
+   * only ever means those three settings, not everything the module does.
+   * `terraform/bootstrap/` still names its bucket for the Terraform-era
+   * `terraform.tfvars` object it once held.
    *
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */
@@ -244,10 +242,10 @@ export class BootstrapService {
   /**
    * Applies all four S3 public-access-block settings (`BlockPublicAcls`,
    * `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`) to
-   * `bucketName`, mirroring the `aws_s3_bucket_public_access_block` resource
-   * the old Terraform-era bootstrap HCL applied to its `tfvars` bucket — a
-   * historical HCL baseline only, since that HCL has since been removed
-   * (Phase 12 of `migrate-iac-to-pulumi`).
+   * `bucketName`, mirroring `terraform/bootstrap/main.tf`'s
+   * `aws_s3_bucket_public_access_block.tfvars` resource — a historical HCL
+   * baseline only, since `terraform/bootstrap/` is deleted as part of Phase
+   * 12 of this change.
    *
    * @remarks
    * Called unconditionally after {@link createBucket} resolves — on both the

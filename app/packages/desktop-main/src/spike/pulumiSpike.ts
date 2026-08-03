@@ -1,5 +1,5 @@
 /**
- * SPIKE SCAFFOLDING — `migrate-iac-to-pulumi` tasks 1.3 and 1.5.
+ * SPIKE SCAFFOLDING.
  *
  * This module exists to answer the single highest-risk question of the
  * Terraform → Pulumi migration: **does a Pulumi Automation API inline program
@@ -16,7 +16,7 @@
  * is downloaded and no AWS credentials are needed.
  *
  * Delete this file, `isPulumiSpikeEnabled()`, and the call site in
- * `electron-entry.ts` once `PulumiEngineService` (Phase 4) supersedes them.
+ * `electron-entry.ts` once `PulumiEngineService` supersedes them.
  *
  * Environment variables (all spike-only, read here rather than in `../env.ts`
  * because they are scaffolding and have no production call site):
@@ -25,7 +25,7 @@
  * |--------------------------------|-----------------------------------------------------|
  * | `HYVEON_PULUMI_SPIKE=1`        | Runs this spike after the window opens.             |
  * | `HYVEON_PULUMI_SPIKE_OUT`      | JSON result path. Defaults under `userData`.         |
- * | `HYVEON_PULUMI_SPIKE_QUIT=1`   | Calls `app.quit()` once results are written (1.5).  |
+ * | `HYVEON_PULUMI_SPIKE_QUIT=1`   | Calls `app.quit()` once results are written.        |
  */
 
 import { app } from 'electron';
@@ -39,14 +39,14 @@ import { SemVer } from 'semver';
 // real Node ESM resolution — and `@pulumi/pulumi` is CommonJS with no
 // `exports` map, which makes the bare directory specifier
 // `@pulumi/pulumi/automation` fail with `ERR_UNSUPPORTED_DIR_IMPORT` in the
-// packaged app (observed during the 1.3 spike). Naming the file directly
+// packaged app. Naming the file directly
 // resolves, and Node's cjs-module-lexer does pick up the star re-exports in
 // `automation/index.js`, so named imports still work.
 import { LocalWorkspace, PulumiCommand } from '@pulumi/pulumi/automation/index.js';
 
 /**
  * Engine version to provision — must match the `@pulumi/pulumi` SDK pin in
- * `package.json`. Phase 4.1 moves this constant into `@hyveon/shared`.
+ * `package.json`.
  */
 const ENGINE_VERSION = '3.255.0';
 
@@ -56,7 +56,7 @@ const SENTINEL = 'HYVEON_PULUMI_SPIKE_SENTINEL';
 /** Throwaway passphrase for the spike's `passphrase` secrets provider. */
 const SPIKE_PASSPHRASE = 'spike-throwaway-passphrase';
 
-/** Bare stack name — the DIY-backend naming rule pinned in `design.md`. */
+/** Bare stack name — no org/project prefix, per the DIY (non-S3) backend's naming rule. */
 const STACK_NAME = 'spike';
 
 /** Project name for the throwaway inline program. */
@@ -97,7 +97,7 @@ interface SpikeResult {
     resolvedPulumiSdk: string;
     resolvedGrpc: string;
   };
-  /** Engine provisioning facts (shared with task 1.2). */
+  /** Engine provisioning facts. */
   engine?: {
     installRoot: string;
     installMs: number;
@@ -182,9 +182,9 @@ export async function runPulumiSpike(): Promise<void> {
       {
         stackName: STACK_NAME,
         projectName: PROJECT_NAME,
-        // The whole lifecycle of an inline program must be contained in the
-        // closure (design.md), so everything the program needs is captured here
-        // and nothing is awaited outside it.
+        // The whole lifecycle of an inline program must be contained in this
+        // closure, so everything the program needs is captured here and
+        // nothing is awaited outside it.
         program: async () => {
           closurePid = process.pid;
           const line = `${SENTINEL} pid=${process.pid} execPath=${process.execPath} moduleUrl=${moduleUrl}`;

@@ -239,7 +239,7 @@ jsdom, `node` collects everything else under `node`.
   not in a separate `__tests__` directory.
 - Mock the API client and any module-level singleton with `vi.mock`.
 - For a component driven by a streaming channel (`logs.stream`,
-  `iac.stack.initialize`, `iac.runs.logs`), back the mock with
+  `iac.stack.initialize`, `iac.runs.streamLogs`), back the mock with
   `toStreamHandleMock()` from `src/test-utils/stream-handle.test-utils.ts`. It
   wraps an ordinary async generator body in the `HyveonStreamHandle` shape the
   real preload bridge returns — including the `cancel()` method components call

@@ -96,8 +96,8 @@ export function installHyveonHttpBridge(): void {
         call(`/api/logs/${game}${limit ? `?limit=${limit}` : ''}`),
       stream: async function* () {},
     },
-    // The deployment-settings editor (task 9.7) is IPC-only in production
-    // with no HTTP route — same situation as `logs` above. `get()` resolves
+    // The deployment-settings editor is IPC-only in production with no HTTP
+    // route — same situation as `logs` above. `get()` resolves
     // a `setup_incomplete` result rather than throwing: `DeploymentSettingsForm`
     // already renders that outcome as a quiet informational message (not a
     // red alert), which is the closest honest stand-in this HTTP-less shim

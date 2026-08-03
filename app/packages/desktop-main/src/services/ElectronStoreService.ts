@@ -29,16 +29,16 @@ export interface PastedAwsCredentials {
 
 /**
  * A single outstanding record of "this installation caused the backend's DIY
- * lock to be taken" — Task 4.8's ownership-record mechanism, per the
- * `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
- * requirement: "The app MUST record the identity of every lock it causes to
- * be taken." Written via {@link ElectronStoreService.recordPulumiLockAttempt}
- * immediately before a `preview`/`up`/`destroy` invocation that could take the
- * lock, and cleared via {@link ElectronStoreService.clearPulumiLockAttempt}
- * once that operation completes *normally* — a record still present later is
- * evidence (not proof by itself; see `PulumiLockRecovery.classifyStackLockConflict`)
- * that this installation's own prior run may have orphaned the lock, e.g. via
- * a crash or the forceful-termination escalation path (Task 4.7).
+ * lock to be taken", per the `pulumi-engine-runtime` delta spec's "Stale
+ * backend lock recovery" requirement: the app must record the identity of
+ * every lock it causes to be taken. Written via
+ * {@link ElectronStoreService.recordPulumiLockAttempt} immediately before a
+ * `preview`/`up`/`destroy` invocation that could take the lock, and cleared
+ * via {@link ElectronStoreService.clearPulumiLockAttempt} once that operation
+ * completes *normally* — a record still present later is evidence (not proof
+ * by itself; see `PulumiLockRecovery.classifyStackLockConflict`) that this
+ * installation's own prior run may have orphaned the lock, e.g. via a crash
+ * or forceful termination.
  *
  * `username`/`hostname` are **not secret** — no encryption via
  * {@link SafeStorageService} is applied to this field, unlike
@@ -66,30 +66,23 @@ export interface PulumiLockOwnershipRecord {
 
 /**
  * A single "the rollback restore succeeded but the follow-up plan did not"
- * marker — task 7.6's compensating-semantics record. `PulumiService.confirmRollback`
- * writes historic configuration bytes back as the configuration object's new
- * head, then immediately runs a plan against that restored version; the
- * governing `iac-rollback` spec requires that if the plan half fails
- * (engine provisioning, network, or persistence), the restore is never left
- * as the head with no plan describing it "silently" — it must be recorded
- * and surfaced. This record IS that durable signal: written via
- * {@link ElectronStoreService.recordOrphanedRollback} in the instant
- * `confirmRollback` catches such a failure, so the orphan is still
- * discoverable (e.g. by a future Phase 8/9 controller/UI) even across an app
- * restart — an in-memory-only field (like `PulumiService`'s own
- * `pendingDestroyConfirmation`) would lose this the moment the process
- * exits, which is exactly the "no controller yet to display it" gap this
- * dispatch needs to bridge without over-building one.
+ * marker. `PulumiService.confirmRollback` writes historic configuration
+ * bytes back as the configuration object's new head, then immediately runs a
+ * plan against that restored version; the governing `iac-rollback` spec
+ * requires that if the plan half fails (engine provisioning, network, or
+ * persistence), the restore is never left as the head with no record of the
+ * failure — it must be surfaced. Written via
+ * {@link ElectronStoreService.recordOrphanedRollback} the instant
+ * `confirmRollback` catches such a failure, so the orphan stays discoverable
+ * across an app restart, unlike an in-memory-only field (e.g.
+ * `PulumiService`'s own `pendingDestroyConfirmation`).
  *
  * Single-slot, like `PulumiService`'s `pendingDestroyConfirmation` — NOT a
  * map keyed by `applyRunId` like {@link PulumiLockOwnershipRecord}'s
- * `lockOwnership`. This orphan-producing failure path is rare by
- * construction (it only fires once a restore has already succeeded and a
- * plan attempt then fails for reasons the restore itself didn't hit), so a
- * single most-recent slot is the minimum durable signal the spec requires;
- * a later dispatch designing the actual operator-facing surface is
- * better-positioned to decide whether multiple concurrent orphans need
- * independent tracking than this backend-only dispatch is.
+ * `lockOwnership`. This failure path only fires once a restore has already
+ * succeeded and a plan attempt then fails for reasons the restore itself
+ * didn't hit, so a single most-recent slot is enough; concurrent orphans are
+ * not independently tracked.
  */
 export interface OrphanedRollbackRecord {
   /** The `runId` of the `apply` run {@link PulumiService.confirmRollback} was rolling back. */
@@ -141,18 +134,9 @@ export interface AppStoreSchema {
    * The bootstrap step's resource names, as last submitted (whether that
    * submission succeeded or is still `pending`/`failed` for a given
    * resource — this just records what the operator asked for). Names are
-   * operator-editable, so without this the Settings "Reconfigure" flow
-   * (#211) would have no way to rehydrate a non-default name and would run
-   * `terraform init` against the wrong bucket/table.
-   *
-   * `lockTable` named this shape until task 10.3: it never described a
-   * bootstrapped resource (task 5.1 removed `ensureLockTable`) and was kept
-   * only because the now-deleted `terraform.init` call required a non-empty
-   * `dynamodbTable` backend-config value, rehydrated from that field on
-   * Reconfigure. Task 10.3 replaced the Terraform-init step with
-   * `PulumiService.initializeStack`, which needs no lock-table name at all
-   * (the DIY S3 backend locks via objects in the state bucket, not a
-   * DynamoDB table) — so the field is gone.
+   * operator-editable, so without this the Settings "Reconfigure" flow would
+   * have no way to rehydrate a non-default name, and `PulumiService` would
+   * resolve the wrong state/configuration bucket.
    */
   bootstrap?: {
     stateBucket: string;
@@ -180,13 +164,13 @@ export interface AppStoreSchema {
     passphrase?: string;
     /**
      * Outstanding lock-ownership records, keyed by a freshly-minted run id —
-     * see {@link PulumiLockOwnershipRecord}'s doc comment and Task 4.8's
+     * see {@link PulumiLockOwnershipRecord}'s doc comment and the
      * `PulumiLockRecovery` module. Not secret — stored in plaintext, unlike
      * `passphrase` above.
      */
     lockOwnership?: Record<string, PulumiLockOwnershipRecord>;
     /**
-     * The most recent unresolved rollback orphan (task 7.6) — see
+     * The most recent unresolved rollback orphan — see
      * {@link OrphanedRollbackRecord}'s doc comment. Not secret — stored in
      * plaintext, unlike `passphrase` above.
      */
@@ -406,13 +390,13 @@ export class ElectronStoreService {
 
   /**
    * Records that an infrastructure operation against `stackName` is about to
-   * invoke the Pulumi engine — Task 4.8's ownership-record mechanism (see
-   * {@link PulumiLockOwnershipRecord}'s doc comment). Must be called
-   * immediately before the SDK invocation that could take the backend's DIY
-   * lock, so a crash or the Task 4.7 forceful-termination escalation path
-   * mid-operation still leaves a record this installation can later prove
-   * against via `PulumiLockRecovery.classifyStackLockConflict`. Merges into
-   * any existing `pulumi.lockOwnership` map rather than overwriting it.
+   * invoke the Pulumi engine (see {@link PulumiLockOwnershipRecord}'s doc
+   * comment). Must be called immediately before the SDK invocation that could
+   * take the backend's DIY lock, so a crash or a forceful-termination
+   * escalation mid-operation still leaves a record this installation can
+   * later prove against via `PulumiLockRecovery.classifyStackLockConflict`.
+   * Merges into any existing `pulumi.lockOwnership` map rather than
+   * overwriting it.
    *
    * @returns The freshly-minted run id. Pass it to
    *   {@link clearPulumiLockAttempt} once the operation completes *normally*
@@ -473,12 +457,12 @@ export class ElectronStoreService {
   }
 
   /**
-   * Records that `PulumiService.confirmRollback` (task 7.6) restored a
-   * historic configuration version as the head but could not complete the
-   * follow-up plan — see {@link OrphanedRollbackRecord}'s doc comment for
-   * why this durable marker exists. Overwrites any existing record
-   * (single-slot — see that interface's doc comment); call immediately after
-   * catching the plan-creation failure, before re-throwing
+   * Records that `PulumiService.confirmRollback` restored a historic
+   * configuration version as the head but could not complete the follow-up
+   * plan — see {@link OrphanedRollbackRecord}'s doc comment for why this
+   * durable marker exists. Overwrites any existing record (single-slot — see
+   * that interface's doc comment); call immediately after catching the
+   * plan-creation failure, before re-throwing
    * `PulumiRollbackPlanFailedError` to the caller.
    */
   recordOrphanedRollback(record: OrphanedRollbackRecord): void {
@@ -488,9 +472,8 @@ export class ElectronStoreService {
 
   /**
    * Reads the current orphaned-rollback marker, if any — see
-   * {@link recordOrphanedRollback}/{@link OrphanedRollbackRecord}. A future
-   * Phase 8/9 controller/UI is the intended reader; nothing in this
-   * dispatch's scope calls this yet.
+   * {@link recordOrphanedRollback}/{@link OrphanedRollbackRecord}. No
+   * controller currently calls this.
    *
    * @returns The most recently recorded {@link OrphanedRollbackRecord}, or
    *   `undefined` if none is outstanding.
@@ -501,11 +484,10 @@ export class ElectronStoreService {
 
   /**
    * Clears the orphaned-rollback marker — call once an operator has
-   * resolved it (e.g. a future Phase 8/9 controller action) or once a
-   * subsequent rollback attempt against the same or a different apply run
-   * supersedes it. A no-op if none is currently recorded. Nothing in this
-   * dispatch's scope calls this yet — see {@link getOrphanedRollback}'s doc
-   * comment.
+   * resolved it, or once a subsequent rollback attempt against the same or a
+   * different apply run supersedes it. A no-op if none is currently
+   * recorded. No controller currently calls this — see
+   * {@link getOrphanedRollback}'s doc comment.
    */
   clearOrphanedRollback(): void {
     const current = this.get('pulumi') ?? {};

@@ -1,9 +1,5 @@
 /**
- * The Discord custom domain — `discord.{hostedZoneName}` — ported from
- * `terraform/aws/discord-domain.tf` (task 3.x, a plan-gap dispatch: the file
- * was discovered during 3.8–3.10 to be unassigned to any task in
- * `tasks.md`'s list; see `route53.ts`'s file doc, "Explicitly out of scope:
- * `terraform/aws/discord-domain.tf`," for that gap's original write-up).
+ * The Discord custom domain — `discord.{hostedZoneName}`.
  *
  * Lambda Function URLs can't be Route 53 ALIAS targets, so the interactions
  * Lambda is fronted by a CloudFront distribution and the custom subdomain
@@ -15,109 +11,54 @@
  *     → Lambda Function URL (HTTPS origin)
  * ```
  *
- * | HCL address | This file |
- * | --- | --- |
- * | `aws_acm_certificate.discord` | {@link DiscordDomainResources.certificate} |
- * | `aws_route53_record.discord_acm_validation` (`for_each`) | {@link DiscordDomainResources.certificateValidationRecord} |
- * | `aws_acm_certificate_validation.discord` | {@link DiscordDomainResources.certificateValidation} |
- * | `aws_cloudfront_distribution.discord` | {@link DiscordDomainResources.distribution} |
- * | `aws_route53_record.discord` | {@link DiscordDomainResources.aliasRecord} |
- * | `aws_route53_record.discord_aaaa` | {@link DiscordDomainResources.aliasRecordAaaa} |
- *
  * ## No conditionality gate
  *
- * Unlike `escapes.ts`'s two DynamoDB table items, this file's whole resource
- * set is UNCONDITIONAL: `discord-domain.tf` has no top-level `count`/
- * `for_each` gate and no HCL variable controls whether any of its six
- * resources exist — they are declared every deploy, mirrored here the same
- * way. There is therefore no `DeploymentConfig` gate field to thread through
- * (checked: no `enable_discord_domain`-shaped variable exists anywhere in
- * `terraform/variables.tf` or `terraform/aws/variables.tf`).
+ * This whole resource set is unconditional — always declared on every
+ * deploy, with no `DeploymentConfig` field that disables it.
  *
- * ## `for_each` over `domain_validation_options` → a single Route 53 record
+ * ## Certificate has a single domain, so validation needs only one record
  *
- * The HCL's `aws_route53_record.discord_acm_validation` uses `for_each` over
- * `aws_acm_certificate.discord.domain_validation_options` — a map keyed by
- * domain name, so it declares one validation record per domain the
- * certificate covers. `aws_acm_certificate.discord` has no
- * `subject_alternative_names` — only `domain_name = local.discord_domain` —
- * so that map is ALWAYS exactly one entry; `for_each` never actually
- * iterates more than once for this specific certificate. This file mirrors
- * that concretely: {@link DiscordDomainResources.certificateValidationRecord}
- * indexes `certificate.domainValidationOptions[0]` directly (the standard
- * Pulumi pattern for a single-domain ACM DNS-validated certificate — see the
- * AWS provider's own `CertificateValidation` example) rather than mapping
- * over a dynamically-sized array inside an `.apply` (a technique Pulumi
- * supports but that produces resources outside the engine's own dependency
- * graph, undesirable for a single-cardinality case that gains nothing from
- * it). If this certificate ever gained `subjectAlternativeNames`, this
- * function would need revisiting — it deliberately does not attempt to
- * generalize past what the retired HCL ever actually needed.
+ * The certificate covers only `discord.{hostedZoneName}` — no subject
+ * alternative names — so ACM's `domainValidationOptions` always has exactly
+ * one entry. {@link DiscordDomainResources.certificateValidationRecord}
+ * indexes `certificate.domainValidationOptions[0]` directly rather than
+ * mapping over the array, which is the standard Pulumi pattern for a
+ * single-domain DNS-validated certificate. If this certificate ever gained
+ * additional domains, this would need to become a `for_each`-style mapping.
  *
- * ## us-east-1 provider alias — ACM certificate + its validation ONLY
+ * ## us-east-1 provider — ACM certificate + its validation ONLY
  *
  * CloudFront requires its ACM certificate to exist in `us-east-1` regardless
- * of the stack's deployment region — `terraform/main.tf`'s aliased provider
- * block (`provider "aws" { alias = "us_east_1" ... }`) comment says so
- * explicitly, and `discord-domain.tf` pins exactly two resources to it:
- * `aws_acm_certificate.discord` and
- * `aws_acm_certificate_validation.discord` (`provider = aws.us_east_1` on
- * both). Every other resource in the HCL file — the validation Route 53
- * record, the CloudFront distribution itself (a global-edge service; its
- * *control-plane* API call can be made from any region), and the two alias
- * Route 53 records — carries no `provider =` line, i.e. the HCL's default
- * (regional) provider. This file's {@link DefineDiscordDomainArgs} takes two
- * separate `aws.Provider` handles for exactly this reason —
+ * of the stack's deployment region. {@link DefineDiscordDomainArgs} takes two
+ * separate `aws.Provider` handles for exactly this reason:
  * {@link DefineDiscordDomainArgs.usEast1Provider} is threaded ONLY into
  * {@link DiscordDomainResources.certificate} and
- * {@link DiscordDomainResources.certificateValidation}'s resource options;
- * every other resource below uses {@link DefineDiscordDomainArgs.provider}
- * (the regional default), exactly matching the HCL's per-resource provider
- * pinning. `program.ts`'s `defineAll` constructs the us-east-1 provider once
- * and passes it here — see that file's doc.
+ * {@link DiscordDomainResources.certificateValidation}; every other resource
+ * below — the validation record, the CloudFront distribution (a global-edge
+ * service whose control-plane API can be called from any region), and the
+ * two alias records — uses {@link DefineDiscordDomainArgs.provider} (the
+ * regional default).
  *
- * ## `create_before_destroy` needs no explicit Pulumi option
+ * ## Certificate replacement needs no explicit Pulumi option
  *
- * The HCL's `aws_acm_certificate.discord` carries
- * `lifecycle { create_before_destroy = true }`. Terraform's own default is
- * destroy-before-create on replacement, so that block opts INTO
- * create-before-destroy. Pulumi's default replacement behavior is the
- * opposite: `deleteBeforeReplace` defaults to `false`, i.e. Pulumi already
- * creates the replacement before deleting the original unless told
- * otherwise. No `CustomResourceOptions` entry is needed to reproduce this
- * HCL block — Pulumi's default already matches it.
+ * Pulumi's default replacement behavior already creates a replacement
+ * resource before deleting the original (`deleteBeforeReplace` defaults to
+ * `false`), so no `CustomResourceOptions` entry is needed on the certificate
+ * to get create-before-destroy semantics.
  *
- * ## IMPORTANT NUANCE — these three Route 53 records do NOT violate the
- * "no per-game DNS records" invariant
+ * ## These three Route 53 records do NOT violate the "no per-game DNS records" invariant
  *
  * CLAUDE.md's invariant ("DNS records are Lambda-managed, never
- * Terraform-managed") and `route53.ts`'s own no-DNS-records assertion are
- * about *per-game* records (`{game}.{hostedZoneName}`), written exclusively
- * by the already-ported update-dns Lambda at runtime (`UPSERT` on `RUNNING`,
- * `DELETE` on `STOPPED`) — a Pulumi-owned record for the same name would
- * fight those writes on every `pulumi up`/refresh. The three records this
- * file declares ({@link DiscordDomainResources.certificateValidationRecord},
+ * Terraform-managed") is about *per-game* records (`{game}.{hostedZoneName}`),
+ * written exclusively by the update-dns Lambda at runtime (`UPSERT` on
+ * `RUNNING`, `DELETE` on `STOPPED`) — a Pulumi-owned record for the same name
+ * would fight those writes on every `pulumi up`/refresh. The three records
+ * this file declares ({@link DiscordDomainResources.certificateValidationRecord},
  * {@link DiscordDomainResources.aliasRecord},
  * {@link DiscordDomainResources.aliasRecordAaaa}) are static infrastructure
  * for the Discord interactions custom domain — fixed at
  * `discord.{hostedZoneName}`, never per-game, never written by any Lambda —
- * so there is no invariant forbidding Pulumi from owning them, and the HCL
- * itself already declared them as plain (non-Lambda-managed) Terraform
- * resources. `program.test.ts`'s `defineAll` spec asserts the FULL expected
- * three-record set by name so a stray per-game record slipping in still
- * fails that test, rather than merely weakening the old "no records at all"
- * assertion.
- *
- * ## Note for task 3.11 (stack outputs)
- *
- * `terraform/aws/outputs.tf`'s `interactions_invoke_url` AND
- * `discord_interactions_url` outputs BOTH resolve to the custom domain
- * (`"https://discord.${var.hosted_zone_name}/"` / the equivalent `local`
- * value) — NEITHER one outputs the raw Lambda Function URL. Whichever stack
- * output(s) task 3.11 declares for these must reference
- * {@link DiscordDomainResources.aliasRecord}'s `name` (or simply the fixed
- * `discord.{hostedZoneName}` string this file already computes) — not
- * `lambdas.ts`'s `LambdaResources.interactionsFunctionUrl.functionUrl`.
+ * so nothing forbids Pulumi from owning them.
  */
 
 import * as aws from '@pulumi/aws';
@@ -135,11 +76,11 @@ const CACHING_DISABLED_POLICY_ID = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
  */
 const ALL_VIEWER_EXCEPT_HOST_HEADER_POLICY_ID = 'b689b0a8-53d0-40ab-baf2-68738e2966ac';
 
-/** Every resource {@link defineDiscordDomain} declares — see this file's doc for the full HCL→Pulumi address table. */
+/** Every resource {@link defineDiscordDomain} declares. */
 export interface DiscordDomainResources {
   /** The us-east-1 ACM certificate for `discord.{hostedZoneName}` (`aws_acm_certificate.discord`). */
   certificate: aws.acm.Certificate;
-  /** The DNS validation record for {@link certificate} (`aws_route53_record.discord_acm_validation`) — see this file's doc, "`for_each` over `domain_validation_options` → a single Route 53 record." */
+  /** The DNS validation record for {@link certificate} (`aws_route53_record.discord_acm_validation`) — see this file's doc, "Certificate has a single domain, so validation needs only one record." */
   certificateValidationRecord: aws.route53.Record;
   /** Blocks on {@link certificateValidationRecord} until ACM confirms the certificate issued (`aws_acm_certificate_validation.discord`). */
   certificateValidation: aws.acm.CertificateValidation;
@@ -167,18 +108,17 @@ export interface DefineDiscordDomainArgs {
    * this file strips the same `https://` prefix and trailing `/` internally.
    */
   interactionsFunctionUrl: pulumi.Input<string>;
-  /** The regional AWS provider — every resource EXCEPT {@link certificate}/{@link certificateValidation} is declared against this (region + default tags). See this file's doc, "us-east-1 provider alias." */
+  /** The regional AWS provider — every resource EXCEPT {@link certificate}/{@link certificateValidation} is declared against this (region + default tags). See this file's doc, "us-east-1 provider — ACM certificate + its validation ONLY." */
   provider: aws.Provider;
-  /** The us-east-1-pinned AWS provider, threaded ONLY into the ACM certificate and its validation — see this file's doc, "us-east-1 provider alias." */
+  /** The us-east-1-pinned AWS provider, threaded ONLY into the ACM certificate and its validation — see this file's doc, "us-east-1 provider — ACM certificate + its validation ONLY." */
   usEast1Provider: aws.Provider;
 }
 
 /**
- * Declares the Discord custom-domain resource set (task 3.x of
- * `migrate-iac-to-pulumi`) — see this file's doc for the full HCL→Pulumi
- * mapping, the `for_each`-collapse rationale, and the us-east-1 provider
- * split. Must be called from inside the Pulumi inline-program closure, never
- * at module scope, and after `lambdas.ts`'s `defineLambdas` (its
+ * Declares the Discord custom-domain resource set — see this file's doc for
+ * the certificate/validation rationale and the us-east-1 provider split.
+ * Must be called from inside the Pulumi inline-program closure, never at
+ * module scope, and after `lambdas.ts`'s `defineLambdas` (its
  * `interactionsFunctionUrl.functionUrl` is a required input here) and
  * `route53.ts`'s `defineRoute53` (its `zoneId`).
  *
@@ -209,8 +149,8 @@ export function defineDiscordDomain(args: DefineDiscordDomainArgs): DiscordDomai
     { provider: usEast1Provider },
   );
 
-  // Exactly one entry — see this file's doc, "`for_each` over
-  // `domain_validation_options` → a single Route 53 record."
+  // Exactly one entry — see this file's doc, "Certificate has a single
+  // domain, so validation needs only one record."
   const domainValidationOption = certificate.domainValidationOptions[0];
 
   const certificateValidationRecord = new aws.route53.Record(

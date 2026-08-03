@@ -8,9 +8,8 @@ import { CONFIGURATION_OBJECT_KEY, type DeploymentConfig } from '@hyveon/shared'
  * seeded as the configuration object's initial content. The fake-terraform
  * binary (`app/test/fake-terraform.mjs`) never reads this content; it exists
  * purely so `TerraformService.plan()`'s `pullVarFile()` (which requires a
- * configuration bucket to be configured — there is no local-file fallback
- * any more, see the `migrate-iac-to-pulumi` change's Phase 6) has a real
- * object to fetch.
+ * configuration bucket to be configured — there is no local-file fallback)
+ * has a real object to fetch.
  */
 const PLACEHOLDER_CONFIG: DeploymentConfig = {
   projectName: 'hyveon-integration-test',

@@ -1,14 +1,10 @@
 /**
  * The structured resource-change summary a Pulumi `preview`/`up` operation
- * reports, replacing the three regexes `terraform.page.tsx` (renamed
- * `iac.page.tsx`, task 9.1) previously used to scrape a human-readable
- * `Plan: N to add, N to change, N to destroy.` line out of streamed
- * `terraform` output. `PulumiService.preview`/`.up` (Phase 7's tasks 7.1/7.2,
- * not yet implemented) populate this from the Automation API's own
- * structured `SummaryEvent.resourceChanges` field
+ * reports. `PulumiService.preview`/`.up` populate this from the Automation
+ * API's own structured `SummaryEvent.resourceChanges` field
  * (`@pulumi/pulumi/automation/events.js`) — never by parsing text — so this
- * type is defined here, ahead of those dispatches, purely as the shape
- * {@link RunRecord.changeSummary} persists.
+ * type is defined here purely as the shape {@link RunRecord.changeSummary}
+ * persists.
  *
  * `OpType`/`ChangeSummary` deliberately duplicate (rather than import)
  * `@pulumi/pulumi/automation`'s own `OpType`/`OpMap` types byte-for-byte
@@ -47,15 +43,15 @@ export type OpType =
  * `SummaryEvent.resourceChanges` (an `OpMap`) — never derived by parsing
  * streamed CLI output text.
  *
- * **Sharp edge (see design.md): `{}` (every key absent/zero) means "the
- * engine's structured summary event was never observed for this run" — e.g.
- * the process was killed, or crashed, before the summary event fired — NOT
- * "this operation made no changes". A genuine no-op run reports
- * `{ same: N }` for the N unchanged resources, which is never an empty
- * object once at least one resource exists in the stack. Every consumer
- * (`RunRecordService`, the run-history UI, the Plan/Apply page, task 9.2)
- * MUST treat an empty/absent {@link ChangeSummary} as "summary unavailable"
- * and render that distinctly from "no changes" — never collapse the two.
+ * **Sharp edge:** `{}` (every key absent/zero) means "the engine's structured
+ * summary event was never observed for this run" — e.g. the process was
+ * killed, or crashed, before the summary event fired — NOT "this operation
+ * made no changes". A genuine no-op run reports `{ same: N }` for the N
+ * unchanged resources, which is never an empty object once at least one
+ * resource exists in the stack. Every consumer (`RunRecordService`, the
+ * run-history UI, the Plan/Apply page) MUST treat an empty/absent
+ * {@link ChangeSummary} as "summary unavailable" and render that distinctly
+ * from "no changes" — never collapse the two.
  */
 export type ChangeSummary = {
   [key in OpType]?: number;

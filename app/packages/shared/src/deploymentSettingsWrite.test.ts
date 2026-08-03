@@ -1,7 +1,7 @@
 /**
- * Tests for {@link validateDeploymentSettingsPatch} (task 9.7,
- * `migrate-iac-to-pulumi`) — the shared client+server validator behind the
- * Settings page's deployment-settings form.
+ * Tests for {@link validateDeploymentSettingsPatch} — the shared
+ * client+server validator behind the Settings page's deployment-settings
+ * form.
  */
 import { describe, it, expect } from 'vitest';
 import { validateDeploymentSettingsPatch } from './deploymentSettingsWrite.js';
@@ -144,7 +144,7 @@ describe('validateDeploymentSettingsPatch', () => {
     );
   });
 
-  describe('wrong-typed values (review round 1, finding I1) — rejected, never silently skipped', () => {
+  describe('should reject wrong-typed values without silently skipping them', () => {
     it.each(['hostedZoneName', 'projectName', 'awsRegion', 'discordApplicationId', 'auditTableName', 'runsTableName'] as const)(
       'should reject a number for the string field %s instead of silently passing it through',
       (field) => {

@@ -45,7 +45,7 @@ type HandlerResult<TController, TMethod extends keyof TController> = TController
  * exact same providers (`ConfigService`, `EcsService`, ...) the Electron IPC
  * transport would route to at runtime — except `PulumiService`, which is
  * substituted for a scriptable {@link PulumiServiceStub} at the DI seam (see
- * {@link createIpcHarness}'s doc comment).
+ * {@link createIpcHarness}'s own doc comment).
  */
 export interface IpcHarness {
   /**
@@ -65,8 +65,8 @@ export interface IpcHarness {
 
   /**
    * Resolves `token` directly from the container-built `AppModule` context —
-   * e.g. `harness.get(TerraformService)` — so a spec can drive a service's
-   * own async generators (`plan`/`apply`/`destroy`) or call methods a
+   * e.g. `harness.get(PulumiService)` — so a spec can drive a service's
+   * own async generators (`preview`/`apply`/`destroy`) or call methods a
    * controller doesn't expose 1:1, while still exercising the exact same
    * instance (and its injected `RunRecordService`/`ConfigService`/etc.) the
    * IPC transport would resolve at runtime.
@@ -111,9 +111,8 @@ export interface IpcHarness {
  * `NestFactory.createApplicationContext()` returns), so it already behaves
  * as a drop-in `INestApplicationContext` (`.get()`, `.close()`, ...) once
  * compiled; no separate "create an application" step is needed.
- * `NestFactory.createApplicationContext()` — this harness's mechanism
- * before task 11.1 — has no override hook at all, so provider substitution
- * requires this builder instead. `pulumiStub` (a fresh
+ * `NestFactory.createApplicationContext()` has no override hook at all, so
+ * provider substitution requires this builder instead. `pulumiStub` (a fresh
  * {@link PulumiServiceStub} per harness) becomes the container's
  * `PulumiService` for every consumer that injects it (`ConfigService`,
  * `IacController`, `IacRunsController`, `DriftService`, ...) — the
@@ -121,10 +120,9 @@ export interface IpcHarness {
  * injected via DI" requirement. No integration spec built through this
  * harness can reach a real Pulumi engine or real AWS through `PulumiService`
  * as a result; specs that need deployed-stack data script
- * `harness.mocks.pulumi` directly instead of relying on a fixture file (this
- * replaced the `TF_STATE_PATH` mechanism, fully inert since task 7.4 — every
- * real consumer already reads `ConfigService.getStackOutputs()`, which now
- * delegates to this stub, not a parsed `terraform.tfstate` file).
+ * `harness.mocks.pulumi` directly instead of relying on a fixture file, since
+ * every real consumer reads `ConfigService.getStackOutputs()`, which
+ * delegates to this stub, not a parsed `terraform.tfstate` file.
  *
  * Also installs the ECS, run-record DynamoDB, and configuration-bucket S3
  * mock interceptors. The run-record mock's backing store
@@ -138,8 +136,7 @@ export interface IpcHarness {
  * unconditionally is inert for every spec that doesn't, since
  * `AwsRemoteFileStore` throws its own "bucket not configured" error before
  * ever calling `S3Client.send()` in that case (there is no local-file
- * configuration fallback any more — see the `migrate-iac-to-pulumi` change's
- * Phase 6).
+ * configuration fallback).
  */
 export async function createIpcHarness(): Promise<IpcHarness> {
   installEcsMock();
