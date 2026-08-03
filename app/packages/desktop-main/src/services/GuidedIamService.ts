@@ -30,16 +30,16 @@ export interface RenderedTemplateResult {
   path: string;
 }
 
-/** Result of {@link GuidedIamService.openConsole}. */
-export interface OpenConsoleResult {
-  /**
-   * `true` when the operator's default browser was launched successfully.
-   * `false` on any failure (Electron unavailable, or `shell.openExternal`
-   * threw/rejected) — the caller is expected to fall back to displaying the
-   * URL as plain text for the operator to open manually.
-   */
-  opened: boolean;
-}
+/**
+ * Result of {@link GuidedIamService.openConsole}. On failure, carries the
+ * console `url` back to the caller — a later group's wizard UI displays it
+ * as plain text so the operator can open it manually, per the spec's
+ * "Browser cannot be opened" scenario. `url` is deliberately absent on the
+ * success branch: the caller already has it (it's the same value it passed
+ * into {@link GuidedIamService.openConsole}) and doesn't need it echoed back
+ * to render a success state.
+ */
+export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
 
 /** Input to {@link GuidedIamService.intakeBootstrapKey}. */
 export interface BootstrapKeyIntakeInput {
@@ -208,23 +208,24 @@ export class GuidedIamService {
    * so a rejection is awaited inside a `try`/`catch` here rather than left
    * to reject uncaught. On any failure — Electron unavailable, or
    * `openExternalUrl` throwing/rejecting for any reason (permissions, no
-   * registered browser handler, etc.) — this resolves to `{ opened: false }`
-   * so the caller (a later group's wizard UI) can fall back to displaying
-   * `url` as plain text for the operator to open manually, per the spec's
-   * "Browser cannot be opened" scenario.
+   * registered browser handler, etc.) — this resolves to
+   * `{ opened: false, url }`, echoing `url` back so the caller (a later
+   * group's wizard UI) can fall back to displaying it as plain text for the
+   * operator to open manually, per the spec's "Browser cannot be opened"
+   * scenario.
    *
    * @param url - The URL to open, typically the result of
    *   {@link buildCloudFormationConsoleUrl}.
    */
   async openConsole(url: string): Promise<OpenConsoleResult> {
     if (!this.readIsElectron()) {
-      return { opened: false };
+      return { opened: false, url };
     }
     try {
       await this.openExternalUrl(url);
       return { opened: true };
     } catch {
-      return { opened: false };
+      return { opened: false, url };
     }
   }
 
@@ -336,6 +337,15 @@ export class GuidedIamService {
    *   response is missing `AccessKeyId`/`SecretAccessKey` — an
    *   unrecoverable, unexpected-shape response rather than a modeled
    *   `RotationResult` branch; nothing has been staged or activated yet.
+   * @throws Raw, unmodeled AWS SDK errors from `iam:CreateAccessKey` (step
+   *   1) itself — e.g. `LimitExceededException` if the account already has
+   *   2 access keys, a realistic scenario after a prior `delete-failed`
+   *   outcome left both the bootstrap and rotated keys live. Unlike step 3's
+   *   `sts:GetCallerIdentity` failure (caught and modeled as
+   *   `verification-failed`) or step 5's `iam:DeleteAccessKey` failure
+   *   (caught and modeled as `delete-failed`), a step 1 failure is not
+   *   caught here at all and propagates straight to the caller, which must
+   *   catch it.
    */
   async rotate(input: RotationInput): Promise<RotationResult> {
     if (!this.safeStorage.isAvailable()) {

@@ -21,7 +21,7 @@ import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@
 import { logger } from '../logger.js';
 import { GuidedIamService, GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 import { SafeStorageUnavailableError } from './AwsProfileService.js';
-import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { AppStoreSchema, ElectronStoreService } from './ElectronStoreService.js';
 import type { SafeStorageService } from './SafeStorageService.js';
 
 /** Typed stand-in for the AWS STS SDK client, shared across the `intakeBootstrapKey`/`rotate` tests below. */
@@ -39,7 +39,7 @@ const mockWrite = vi.mocked(writeFileSync);
  * `existingAws` and whose `setPastedCredentials`/`set` calls are spies —
  * used by `rotate` tests to assert exact call ordering and arguments.
  */
-function makeStore(existingAws?: { profile?: string; region?: string }): ElectronStoreService {
+function makeStore(existingAws?: AppStoreSchema['aws']): ElectronStoreService {
   return {
     get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? existingAws : undefined)),
     set: vi.fn(),
@@ -207,19 +207,19 @@ describe('GuidedIamService', () => {
       expect(service.openExternalUrl).toHaveBeenCalledWith(CONSOLE_URL);
     });
 
-    it('should return opened: false and not throw when shell.openExternal rejects', async () => {
+    it('should return opened: false with the console URL and not throw when shell.openExternal rejects', async () => {
       (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
       vi.spyOn(service, 'openExternalUrl').mockRejectedValue(new Error('no registered browser handler'));
 
-      await expect(service.openConsole(CONSOLE_URL)).resolves.toEqual({ opened: false });
+      await expect(service.openConsole(CONSOLE_URL)).resolves.toEqual({ opened: false, url: CONSOLE_URL });
     });
 
-    it('should return opened: false and never call openExternalUrl when process.versions.electron is unset', async () => {
+    it('should return opened: false with the console URL and never call openExternalUrl when process.versions.electron is unset', async () => {
       const openExternalSpy = vi.spyOn(service, 'openExternalUrl');
 
       const result = await service.openConsole(CONSOLE_URL);
 
-      expect(result).toEqual({ opened: false });
+      expect(result).toEqual({ opened: false, url: CONSOLE_URL });
       expect(openExternalSpy).not.toHaveBeenCalled();
     });
 
@@ -440,12 +440,21 @@ describe('GuidedIamService', () => {
       stubCreateAccessKeySuccess();
       stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
       iamMock.on(DeleteAccessKeyCommand).resolves({});
-      store = makeStore({ profile: 'some-old-profile', region: 'eu-west-1' });
+      // `accessKeyId` is a field `rotate()` never touches (only `profile`/
+      // `region` are overwritten) — seeding it here means this test actually
+      // fails if the `...currentAws` spread in step 4 were removed, unlike
+      // seeding only `profile`/`region`, both of which `rotate()` overwrites
+      // anyway.
+      store = makeStore({ profile: 'some-old-profile', region: 'eu-west-1', accessKeyId: 'encrypted-old-access-key-blob' });
       service = new TestableGuidedIamService(store, safeStorage);
 
       await service.rotate(ROTATION_INPUT);
 
-      expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
+      expect(store.set).toHaveBeenCalledWith('aws', {
+        accessKeyId: 'encrypted-old-access-key-blob',
+        profile: GUIDED_PROFILE_NAME,
+        region: REGION,
+      });
     });
 
     it('should return verification-failed and leave nothing active or the bootstrap key deleted when GetCallerIdentity fails for the new key', async () => {
