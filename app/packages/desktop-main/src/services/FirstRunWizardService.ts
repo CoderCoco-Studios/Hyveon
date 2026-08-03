@@ -84,12 +84,15 @@ export class FirstRunWizardService {
    * and reopened before completion. Both fields' compile-time types are
    * erased at the IPC boundary — the caller in `WizardController.saveProgress`
    * is only as trustworthy as the renderer process — so this validates `step`
-   * against {@link WIZARD_STEPS} and, when supplied, `guidedIam.subState`
-   * against {@link GUIDED_IAM_SUB_STATES} before writing, rather than
-   * silently persisting an unsupported value that `getProgress` would later
-   * discard anyway. `guidedIam` never carries `secretAccessKey`/
-   * `accessKeyId` — see {@link WizardProgress.guidedIam}'s own doc comment;
-   * `hasBootstrapKey` is a boolean flag only.
+   * against {@link WIZARD_STEPS} and, when supplied, both `guidedIam.subState`
+   * against {@link GUIDED_IAM_SUB_STATES} and `guidedIam.hasBootstrapKey`'s
+   * runtime type (must be a genuine `boolean`) before writing — mirroring
+   * `getProgress`'s own read-side validation, so a malformed/malicious
+   * `hasBootstrapKey` (e.g. a pasted access key string) can never even reach
+   * disk, not just get stripped back out on the next read. `guidedIam` never
+   * carries `secretAccessKey`/`accessKeyId` — see
+   * {@link WizardProgress.guidedIam}'s own doc comment; `hasBootstrapKey` is
+   * a boolean flag only.
    */
   async recordStep(step: WizardStepName, guidedIam?: WizardProgress['guidedIam']): Promise<void> {
     if (!WIZARD_STEPS.includes(step)) {
@@ -97,6 +100,13 @@ export class FirstRunWizardService {
     }
     if (guidedIam && !GUIDED_IAM_SUB_STATES.includes(guidedIam.subState)) {
       throw new Error(`Unsupported guided-IAM sub-state: ${String(guidedIam.subState)}`);
+    }
+    // `hasBootstrapKey`'s value is deliberately never echoed into this error
+    // message (unlike `subState` above) — a malformed/malicious IPC payload
+    // could otherwise smuggle secret-shaped material (e.g. a pasted access
+    // key) into a thrown error that a caller might log.
+    if (guidedIam && typeof guidedIam.hasBootstrapKey !== 'boolean') {
+      throw new Error('Unsupported guided-IAM sub-state: hasBootstrapKey must be a boolean');
     }
     const path = this.stateFilePath();
     await mkdir(dirname(path), { recursive: true });

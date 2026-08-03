@@ -175,6 +175,29 @@ describe('FirstRunWizardService', () => {
       ).rejects.toThrow('Unsupported guided-IAM sub-state');
       expect(existsSync(statePath)).toBe(false);
     });
+
+    it('should reject a non-boolean hasBootstrapKey rather than writing it, without echoing the value into the thrown error', async () => {
+      await expect(
+        service.recordStep('guided-iam', {
+          subState: 'complete',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately bypassing the compile-time type to exercise the runtime guard: a malicious/malformed IPC payload could smuggle secret-shaped material here
+          hasBootstrapKey: 'AKIAABCDEFGHIJKLMNOP' as any,
+        }),
+      ).rejects.toThrow(/Unsupported guided-IAM sub-state/);
+      // The rejected value must never be written to disk...
+      expect(existsSync(statePath)).toBe(false);
+      // ...nor echoed into the thrown error message.
+      try {
+        await service.recordStep('guided-iam', {
+          subState: 'complete',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately bypassing the compile-time type to exercise the runtime guard
+          hasBootstrapKey: 'AKIAABCDEFGHIJKLMNOP' as any,
+        });
+        expect.unreachable('recordStep should have thrown');
+      } catch (err) {
+        expect(String(err)).not.toContain('AKIAABCDEFGHIJKLMNOP');
+      }
+    });
   });
 
   describe('complete', () => {
