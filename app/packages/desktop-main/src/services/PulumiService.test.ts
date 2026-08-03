@@ -198,12 +198,12 @@ describe('PulumiService.getStackOutputs', () => {
   });
 
   it('should return null without touching the shared workspace while initializeStack() is in flight', async () => {
-    const hangingWorkspace = {
-      getOrCreateStack: vi.fn(() => new Promise(() => {
+    const hangingWorkspace: Partial<PulumiWorkspaceService> = {
+      getOrCreateStack: vi.fn(() => new Promise<never>(() => {
         // Never resolves — keeps initializeStack() "in flight" for this test.
       })),
-    } as unknown as PulumiWorkspaceService;
-    const service = makeService(hangingWorkspace, makeStore(FULLY_CONFIGURED));
+    };
+    const service = makeService(hangingWorkspace as PulumiWorkspaceService, makeStore(FULLY_CONFIGURED));
 
     void service.initializeStack().catch(() => {});
     await Promise.resolve();
