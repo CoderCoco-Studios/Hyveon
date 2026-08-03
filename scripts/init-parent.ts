@@ -188,8 +188,9 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  *   update → bump the submodule to the tip of `main`. No re-init step
  *            follows it: there is no longer a local Terraform working
  *            directory for a bump to invalidate.
- *   dev    → pull live tfstate into `.make/`, then `npm run app:dev` directly
- *            in the submodule.
+ *   dev    → `npm run app:dev` directly in the submodule. No local state to
+ *            pull — the app reads deployed state via the Pulumi Automation
+ *            API at runtime, not a file on disk.
  *
  * `plan`/`apply` (which used to shell out to `terraform -chdir=$(TF_DIR)
  * plan/apply` directly) are gone entirely — the app's own Plan/Apply page
@@ -227,8 +228,6 @@ export function renderMakefile(a: Pick<Answers, 'submoduleDir' | 'projectName'>)
 
 REPO_ROOT   := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SUBMODULE   := $(REPO_ROOT)/${a.submoduleDir}
-TF_DIR      := $(SUBMODULE)/terraform
-STAMP_DIR   := $(REPO_ROOT)/.make
 
 .PHONY: help setup update dev
 
@@ -241,10 +240,6 @@ help:
 \t@echo "               — see the first-run wizard and the Plan/Apply page)"
 \t@echo "  make update  Pull latest ${a.submoduleDir}/main"
 \t@echo "  make dev     Launch the Hyveon desktop app in dev mode (electron-vite)"
-
-# ── Stamp dir ────────────────────────────────────────────────────────────────
-$(STAMP_DIR):
-\t@mkdir -p $@
 
 # ── One-time setup ───────────────────────────────────────────────────────────
 # Fully self-contained: no external setup.sh, no delegating to a Makefile
@@ -266,13 +261,11 @@ update:
 \t@echo "  git add ${a.submoduleDir} && git commit -m 'chore: bump ${a.submoduleDir}'"
 
 # ── Dev server ───────────────────────────────────────────────────────────────
-# Pull live tfstate into a temp file and point ConfigService at it via
-# TF_STATE_PATH; falls back to null when the backend isn't reachable yet
-# (e.g. before the first apply).
-dev: | $(STAMP_DIR)
-\tterraform -chdir=$(TF_DIR) state pull > $(STAMP_DIR)/tfstate.json 2>/dev/null || echo 'null' > $(STAMP_DIR)/tfstate.json
+# No local state to pull — the app reads deployed state via the Pulumi
+# Automation API at runtime, so this just launches the app.
+dev:
 \trm -f $(SUBMODULE)/app/packages/*/tsconfig*.tsbuildinfo
-\tcd $(SUBMODULE) && TF_STATE_PATH=$(STAMP_DIR)/tfstate.json npm run app:dev
+\tcd $(SUBMODULE) && npm run app:dev
 `;
 }
 

@@ -12,14 +12,6 @@ it, and apply it.
 
 > Plan, review, and apply infrastructure changes directly from the app.
 
-:::note Still labelled "Terraform" in the sidebar
-The app's own sidebar currently labels this nav item **Terraform** even
-though its route is `/iac` and it runs a Pulumi preview/update under the
-hood — a naming leftover from the migration that hasn't been fixed in the
-UI yet. This page uses the underlying Pulumi terms so it stays accurate to
-what actually runs; expect the sidebar wording to catch up in a later pass.
-:::
-
 ![The Infrastructure page with a Run plan button and an empty log viewer waiting for output](/img/app/terraform.png)
 
 The workflow is a strict sequence, and each stage only unlocks the next:
