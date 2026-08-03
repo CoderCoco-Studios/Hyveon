@@ -301,7 +301,8 @@ describe('GuidedIamStep', () => {
         screen.getByRole('link', { name: 'https://console.aws.amazon.com/iam/home#/security_credentials' }),
       ).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /revoke now/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /continue without revoking/i })).toBeInTheDocument();
+      // No bypass: onComplete must not be reachable from this screen except via a successful revoke.
+      expect(screen.queryByRole('button', { name: /continue without revoking/i })).not.toBeInTheDocument();
     });
 
     it('should call onComplete and persist complete when Revoke now succeeds', async () => {
@@ -329,16 +330,15 @@ describe('GuidedIamStep', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     });
 
-    it('should show a message and allow retry when Revoke now fails, without blocking "Continue without revoking"', async () => {
+    it('should show a message and allow retrying Revoke now after a failure, with no other way to reach onComplete', async () => {
       stubHappyPathDefaults();
       hyveonMock.wizard.guidedIamRotate.mockResolvedValue({
         status: 'delete-failed',
         consoleUrl: 'https://console.aws.amazon.com/iam/home#/security_credentials',
       });
-      hyveonMock.wizard.guidedIamRevokeBootstrapKey.mockResolvedValue({
-        revoked: false,
-        message: 'access denied',
-      });
+      hyveonMock.wizard.guidedIamRevokeBootstrapKey
+        .mockResolvedValueOnce({ revoked: false, message: 'access denied' })
+        .mockResolvedValueOnce({ revoked: true });
       const onComplete = vi.fn();
       render(<GuidedIamStep onComplete={onComplete} onSkipToManual={vi.fn()} />);
 
@@ -352,14 +352,18 @@ describe('GuidedIamStep', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent('access denied');
       expect(onComplete).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: /continue without revoking/i })).not.toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: /continue without revoking/i }));
-      expect(onComplete).toHaveBeenCalledTimes(1);
+      // Retry the exact same action — same in-memory bootstrap key — and this time it succeeds.
+      await userEvent.click(screen.getByRole('button', { name: /revoke now/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.guidedIamRevokeBootstrapKey).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     });
   });
 
   describe('resume semantics', () => {
-    it('should resume directly into the intake screen with a banner when subState is rotation-pending', async () => {
+    it('should resume directly into the intake screen with a banner and pre-filled region when a region is recoverable', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false, aws: { region: 'eu-west-1' } });
 
       render(
@@ -372,7 +376,68 @@ describe('GuidedIamStep', () => {
 
       expect(await screen.findByLabelText('Access key ID')).toBeInTheDocument();
       expect(screen.getByText(/previously submitted/i)).toBeInTheDocument();
-      expect(screen.queryByLabelText('AWS region')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('AWS region')).toHaveValue('eu-west-1');
+      // Never the region/choice screen — landing there would regress the persisted sub-state.
+      expect(screen.queryByRole('button', { name: /continue with guided setup/i })).not.toBeInTheDocument();
+    });
+
+    it('should land directly on the intake screen — never the region screen — when rotation-pending resumes with no recoverable region', async () => {
+      // The realistic "operator quit mid-rotation" case: `GuidedIamService.rotate()`
+      // only writes `aws.region` at its step 4, after verification succeeds, so a
+      // quit between intake and rotation settling (or on `verification-failed`)
+      // leaves `aws.region` unset. Falling back to the region/choice screen here
+      // would regress the persisted sub-state back to `not-started` on the next
+      // "Continue with guided setup" click — this must never happen.
+      hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false });
+
+      render(
+        <GuidedIamStep
+          onComplete={vi.fn()}
+          onSkipToManual={vi.fn()}
+          initialProgress={{ subState: 'rotation-pending', hasBootstrapKey: true }}
+        />,
+      );
+
+      expect(await screen.findByLabelText('Access key ID')).toBeInTheDocument();
+      expect(screen.getByText(/previously submitted/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('AWS region')).toHaveValue('');
+      expect(screen.queryByRole('button', { name: /continue with guided setup/i })).not.toBeInTheDocument();
+    });
+
+    it('should let the operator complete rotation after filling in a region that could not be recovered on a rotation-pending resume', async () => {
+      stubHappyPathDefaults();
+      hyveonMock.wizard.getState.mockResolvedValue({ wizardCompleted: false });
+      const onComplete = vi.fn();
+
+      render(
+        <GuidedIamStep
+          onComplete={onComplete}
+          onSkipToManual={vi.fn()}
+          initialProgress={{ subState: 'rotation-pending', hasBootstrapKey: true }}
+        />,
+      );
+
+      await screen.findByLabelText('Access key ID');
+      await userEvent.type(screen.getByLabelText('AWS region'), 'ap-southeast-2');
+      await userEvent.type(screen.getByLabelText('Access key ID'), 'AKIAEXAMPLE');
+      await userEvent.type(screen.getByLabelText('Secret access key'), 'super-secret-value');
+      await userEvent.click(screen.getByRole('button', { name: /validate and rotate key/i }));
+
+      await waitFor(() =>
+        expect(hyveonMock.wizard.guidedIamSubmitBootstrapKey).toHaveBeenCalledWith({
+          accessKeyId: 'AKIAEXAMPLE',
+          secretAccessKey: 'super-secret-value',
+          region: 'ap-southeast-2',
+        }),
+      );
+      await waitFor(() =>
+        expect(hyveonMock.wizard.guidedIamRotate).toHaveBeenCalledWith({
+          bootstrapAccessKeyId: 'AKIAEXAMPLE',
+          bootstrapSecretAccessKey: 'super-secret-value',
+          region: 'ap-southeast-2',
+        }),
+      );
+      await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     });
 
     it('should resume directly into the template screen when subState is template-written', async () => {

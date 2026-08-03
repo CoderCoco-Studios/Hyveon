@@ -32,13 +32,12 @@ export interface GuidedIamStepProps {
   /**
    * Guided provisioning has finished and the rotated key is now the active
    * AWS credential source — fires when `guidedIamRotate()` returns
-   * `{ status: 'complete' }`, when a `delete-failed` bootstrap key is
-   * successfully revoked via {@link Window.hyveon}'s `guidedIamRevokeBootstrapKey`,
-   * or when the operator explicitly chooses to continue past an
-   * unresolved `delete-failed` state (the rotated key is already active
-   * either way — only the stale bootstrap key differs). Like
-   * `stack-init-step.component.tsx`'s `onFinished`, this step owns its own
-   * state machine and does not rely on the wizard shell's shared Next
+   * `{ status: 'complete' }`, or when a `delete-failed` bootstrap key is
+   * successfully revoked via {@link Window.hyveon}'s `guidedIamRevokeBootstrapKey`.
+   * There is no bypass for an unresolved `delete-failed` state: the still-live
+   * bootstrap key must be revoked (or the flow retried) before this fires.
+   * Like `stack-init-step.component.tsx`'s `onFinished`, this step owns its
+   * own state machine and does not rely on the wizard shell's shared Next
    * button to advance.
    */
   onComplete: () => void;
@@ -135,14 +134,22 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
-  /** Guards every post-await `setState` call against firing after unmount, since this component chains several IPC round trips. */
+  /**
+   * Guards every post-await `setState` call against firing after unmount,
+   * since this component chains several IPC round trips. Re-armed to `true`
+   * at the start of the mount effect's setup body (not just the initial
+   * `useRef(true)`) so React StrictMode's simulated
+   * mount→unmount→remount (`main.tsx` wraps the app in `<StrictMode>`) doesn't
+   * leave this permanently `false` after the first, discarded mount's cleanup
+   * flips it — every guard below would otherwise silently bail forever.
+   */
   const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   /**
    * Persists this step's sub-state via `wizard.saveProgress`, per the plan's
@@ -161,12 +168,21 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
 
   // Resolve a resumed screen on mount. Region is never persisted in
   // `WizardProgress.guidedIam` (only `subState`/`hasBootstrapKey` are), so
-  // this falls back to `wizard.state.get()`'s `aws.region` — set by
-  // `GuidedIamService.rotate()` on `awaiting-key-intake`/`rotation-pending`
-  // sub-states reached after a prior rotate attempt activated it, or simply
-  // absent for a fresh `template-written` resume that never got that far.
-  // If no region is recoverable either way, this degrades to the plain
-  // region screen rather than guessing.
+  // this falls back to `wizard.state.get()`'s `aws.region` — but
+  // `GuidedIamService.rotate()` only ever writes `aws.region` at its step 4,
+  // AFTER verification succeeds. For a `rotation-pending` resume — the
+  // "operator quit between intake and rotation settling" scenario this
+  // sub-state exists to make resumable — `aws.region` is almost always still
+  // unset (rotation hadn't reached step 4 yet, or failed verification before
+  // it). A `rotation-pending` resume MUST still land on the intake screen
+  // regardless: falling back to the region/choice screen would regress the
+  // persisted sub-state back to `not-started` on the next "Continue with
+  // guided setup" click, defeating the entire point of this persistence —
+  // see the intake screen's own region field for how a genuinely
+  // unrecoverable region is handled without leaving this phase.
+  // `template-written`/`awaiting-key-intake` resumes have no such
+  // constraint (no bootstrap key is in flight yet), so those alone fall back
+  // to the region screen when no region is recoverable.
   useEffect(() => {
     if (!resuming) return;
     let cancelled = false;
@@ -178,9 +194,20 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
           resumedRegion = state.aws?.region;
         }
       } catch {
-        // Falls through to the "no region recoverable" branch below.
+        // Falls through below with `resumedRegion` left `undefined`.
       }
       if (cancelled || !mountedRef.current) return;
+
+      if (resumedRegion) setRegion(resumedRegion);
+
+      if (initialProgress?.subState === 'rotation-pending') {
+        // Always lands on `intake`, with or without a recovered region — see
+        // this effect's own doc comment.
+        setResumedRotationPending(true);
+        setPhase('intake');
+        setResuming(false);
+        return;
+      }
 
       if (!resumedRegion) {
         setResumedWithoutRegion(true);
@@ -188,13 +215,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
         return;
       }
 
-      setRegion(resumedRegion);
-      if (initialProgress?.subState === 'rotation-pending') {
-        setResumedRotationPending(true);
-        setPhase('intake');
-      } else {
-        setPhase('template');
-      }
+      setPhase('template');
       setResuming(false);
     })();
     return () => {
@@ -277,12 +298,19 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
   }
 
   /**
-   * Drives one `guidedIamRotate()` attempt against `key` and applies its
-   * outcome — called both right after a successful intake and from the
-   * verification-failed retry action, always with the same in-memory key.
+   * Drives one `guidedIamRotate()` attempt against `key`/`rotationRegion` and
+   * applies its outcome — called both right after a successful intake and
+   * from the verification-failed retry action, always with the same
+   * in-memory key. Takes the region as an explicit parameter rather than
+   * reading the `region` state closure directly: `handleSubmitKey` may have
+   * just called `setRegion(...)` moments earlier (e.g. filling in a region
+   * recovered nowhere else, on a `rotation-pending` resume with no
+   * `aws.region` to fall back to), and that state update is not guaranteed
+   * to have committed yet by the time this runs — passing the already-known
+   * value in avoids a stale-closure race.
    */
   const runRotation = useCallback(
-    async (key: BootstrapKeyMaterial) => {
+    async (key: BootstrapKeyMaterial, rotationRegion: string) => {
       if (!window.hyveon) {
         setRotationError(BRIDGE_UNAVAILABLE);
         setPhase('verification-failed');
@@ -292,7 +320,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
         const result = await window.hyveon.wizard.guidedIamRotate({
           bootstrapAccessKeyId: key.accessKeyId,
           bootstrapSecretAccessKey: key.secretAccessKey,
-          region,
+          region: rotationRegion,
         });
         if (!mountedRef.current) return;
         if (result.status === 'complete') {
@@ -317,28 +345,30 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
         setPhase('verification-failed');
       }
     },
-    [region, persistProgress, onComplete],
+    [persistProgress, onComplete],
   );
 
-  /** Validates the pasted bootstrap key pair, then immediately kicks off rotation with it. */
+  /** Validates the region + pasted bootstrap key pair, then immediately kicks off rotation with them. */
   async function handleSubmitKey() {
     if (!window.hyveon) {
       setIntakeError(BRIDGE_UNAVAILABLE);
       return;
     }
+    const trimmedRegion = region.trim();
     const trimmedAccessKeyId = accessKeyId.trim();
     const trimmedSecret = secretAccessKey.trim();
-    if (!trimmedAccessKeyId || !trimmedSecret) {
-      setIntakeError('Enter both the access key ID and secret access key.');
+    if (!trimmedRegion || !trimmedAccessKeyId || !trimmedSecret) {
+      setIntakeError('Enter the AWS region, access key ID, and secret access key.');
       return;
     }
+    setRegion(trimmedRegion);
     setSubmitting(true);
     setIntakeError(null);
     try {
       await window.hyveon.wizard.guidedIamSubmitBootstrapKey({
         accessKeyId: trimmedAccessKeyId,
         secretAccessKey: trimmedSecret,
-        region,
+        region: trimmedRegion,
       });
       if (!mountedRef.current) return;
       const key: BootstrapKeyMaterial = { accessKeyId: trimmedAccessKeyId, secretAccessKey: trimmedSecret };
@@ -349,7 +379,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
       await persistProgress({ subState: 'rotation-pending', hasBootstrapKey: true });
       if (!mountedRef.current) return;
       setPhase('rotating');
-      await runRotation(key);
+      await runRotation(key, trimmedRegion);
     } catch (err) {
       if (!mountedRef.current) return;
       setIntakeError(err instanceof Error ? err.message : 'Failed to validate the bootstrap key.');
@@ -358,12 +388,12 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
     }
   }
 
-  /** Retries rotation from `verification-failed` using the same in-memory bootstrap key — no re-intake needed. */
+  /** Retries rotation from `verification-failed` using the same in-memory bootstrap key and region — no re-intake needed. */
   function handleRetryRotation() {
     if (!bootstrapKey) return;
     setRotationError(null);
     setPhase('rotating');
-    void runRotation(bootstrapKey);
+    void runRotation(bootstrapKey, region);
   }
 
   /** Manual-retry action for `delete-failed`: revokes the still-live bootstrap key without re-running mint/verify. On success this is treated as fully complete, since rotation already activated the new key. */
@@ -553,6 +583,16 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
         </p>
 
         <div className="space-y-2">
+          <Label htmlFor="wizard-guided-iam-intake-region">AWS region</Label>
+          <Input
+            id="wizard-guided-iam-intake-region"
+            value={region}
+            placeholder="us-east-1"
+            onChange={(e) => setRegion(e.target.value)}
+            disabled={phase === 'rotating'}
+          />
+        </div>
+        <div className="space-y-2">
           <Label htmlFor="wizard-guided-iam-access-key-id">Access key ID</Label>
           <Input
             id="wizard-guided-iam-access-key-id"
@@ -639,15 +679,10 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
         </p>
       )}
 
-      <div className="flex gap-2">
-        <Button type="button" variant="outline" onClick={() => void handleRevoke()} disabled={revoking}>
-          {revoking && <Loader2 className="animate-spin" />}
-          Revoke now
-        </Button>
-        <Button type="button" variant="ghost" onClick={onComplete}>
-          Continue without revoking
-        </Button>
-      </div>
+      <Button type="button" variant="outline" onClick={() => void handleRevoke()} disabled={revoking}>
+        {revoking && <Loader2 className="animate-spin" />}
+        Revoke now
+      </Button>
     </div>
   );
 }
