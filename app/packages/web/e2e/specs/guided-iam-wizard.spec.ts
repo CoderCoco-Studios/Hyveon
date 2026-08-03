@@ -1,9 +1,10 @@
 /**
  * Electron e2e coverage for the first-run wizard's guided-IAM step
- * (`guided-iam-step.component.tsx`, `add-one-click-aws-bootstrap`). Task 8.2
- * of `docs/superpowers/plans/bootstrap-8-e2e-coverage.md` — the happy-path
- * guided-setup flow, launched against the REAL packaged Electron app (not a
- * jsdom/component-test shortcut).
+ * (`guided-iam-step.component.tsx`, `add-one-click-aws-bootstrap`). Tasks 8.2
+ * and 8.3 of `docs/superpowers/plans/bootstrap-8-e2e-coverage.md` — the
+ * happy-path guided-setup flow and the rotation-pending resume flow,
+ * launched against the REAL packaged Electron app (not a jsdom/component-test
+ * shortcut).
  *
  * Follows `discord.spec.ts`'s structural pattern: a single `ElectronApplication`
  * shared across the whole describe block (`beforeAll`/`afterAll`), with each
@@ -56,7 +57,7 @@ const FAKE_ACCOUNT_ID = '123456789012';
  * Seeds every IPC channel the happy-path guided-IAM flow touches, in a single
  * `win.evaluate` call: the wizard-shell channels `FirstRunWizard` invokes on
  * every mount (`wizard.state.get`, `wizard.progress.get`, `wizard.progress.save`,
- * `wizard.listAwsProfiles`) plus the four `wizard.guidedIam.*` channels this
+ * `wizard.aws.listProfiles`) plus the four `wizard.guidedIam.*` channels this
  * step's happy path drives.
  *
  * `wizard.state.get` starts by forcing the wizard to show (`wizardCompleted` `false`,
@@ -99,10 +100,83 @@ async function seedGuidedIamHappyPathMocks(
     );
     hyveon.__test.mock('wizard.progress.get', () => Promise.resolve({ step: 'guided-iam' }));
     hyveon.__test.mock('wizard.progress.save', () => Promise.resolve());
-    hyveon.__test.mock('wizard.listAwsProfiles', () => Promise.resolve([]));
+    // Channel is `wizard.aws.listProfiles` (see `preload.ts`'s `wizard.listAwsProfiles()`
+    // binding) — the shell's own profile-list fetch fires unconditionally on
+    // `FirstRunWizard` mount regardless of which step it resumes to, so this
+    // must be mocked even though this step never renders the profile picker.
+    hyveon.__test.mock('wizard.aws.listProfiles', () => Promise.resolve([]));
 
     hyveon.__test.mock('wizard.guidedIam.prepareTemplate', () => Promise.resolve({ path: templatePath }));
     hyveon.__test.mock('wizard.guidedIam.openConsole', () => Promise.resolve({ opened: true }));
+    hyveon.__test.mock('wizard.guidedIam.submitBootstrapKey', () => Promise.resolve({ accountId }));
+    hyveon.__test.mock('wizard.guidedIam.rotate', () => {
+      rotated = true;
+      return Promise.resolve({ status: 'complete' });
+    });
+  }, opts);
+}
+
+/** Region filled into the resume test's intake screen — deliberately distinct from {@link TEST_REGION} so the two tests' fixtures can never be mistaken for shared state. */
+const RESUMED_REGION = 'eu-west-1';
+
+/**
+ * Seeds the IPC channels the rotation-pending RESUME flow drives: the same
+ * wizard-shell channels as {@link seedGuidedIamHappyPathMocks} above, but
+ * `wizard.progress.get` returns a persisted `rotation-pending` sub-state
+ * (`{ step: 'guided-iam', guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true } }`)
+ * instead of a bare `{ step: 'guided-iam' }` — exactly what a real relaunch
+ * would read back from `wizard-state.json` after a prior session's
+ * `submitBootstrapKey` succeeded but quit before rotation settled.
+ *
+ * `wizard.state.get` deliberately omits `aws.region` before rotation
+ * completes: `guided-iam-step.component.tsx`'s own resume-effect comment
+ * notes a `rotation-pending` resume's region is "almost always still unset"
+ * (rotation never reached the step that persists it), so this mirrors that
+ * and lets the spec also exercise re-filling the intake screen's inline
+ * region field by hand.
+ *
+ * `wizard.guidedIam.prepareTemplate`/`openConsole` are mocked to reject
+ * loudly rather than left unmocked. Per the plan's Global Constraints, an
+ * unmocked channel falls through to the real IPC transport and could reach
+ * the real `GuidedIamService`. Neither call should ever fire on this resume
+ * path — the region/template/console screens must never mount — so
+ * rejecting turns an accidental regression into an immediate, loud failure
+ * instead of a silent real call.
+ */
+async function seedGuidedIamRotationPendingResumeMocks(
+  win: Page,
+  opts: { region: string; guidedProfileName: string; accountId: string },
+): Promise<void> {
+  await win.evaluate(({ region, guidedProfileName, accountId }) => {
+    const hyveon = window.hyveon;
+    if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+
+    let rotated = false;
+
+    hyveon.__test.mock('wizard.state.get', () =>
+      Promise.resolve(
+        rotated
+          ? {
+              wizardCompleted: false,
+              activeCloud: 'aws',
+              aws: { profile: guidedProfileName, region },
+              bootstrap: undefined,
+            }
+          : { wizardCompleted: false, activeCloud: undefined, aws: undefined, bootstrap: undefined },
+      ),
+    );
+    hyveon.__test.mock('wizard.progress.get', () =>
+      Promise.resolve({ step: 'guided-iam', guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true } }),
+    );
+    hyveon.__test.mock('wizard.progress.save', () => Promise.resolve());
+    hyveon.__test.mock('wizard.aws.listProfiles', () => Promise.resolve([]));
+
+    hyveon.__test.mock('wizard.guidedIam.prepareTemplate', () =>
+      Promise.reject(new Error('prepareTemplate must not be called when resuming a rotation-pending session')),
+    );
+    hyveon.__test.mock('wizard.guidedIam.openConsole', () =>
+      Promise.reject(new Error('openConsole must not be called when resuming a rotation-pending session')),
+    );
     hyveon.__test.mock('wizard.guidedIam.submitBootstrapKey', () => Promise.resolve({ accountId }));
     hyveon.__test.mock('wizard.guidedIam.rotate', () => {
       rotated = true;
@@ -150,6 +224,49 @@ test.describe('guided-IAM wizard step', () => {
     // advances the wizard past guided-iam onto the credentials step — assert
     // the real rendered "satisfied by guided provisioning" summary, not just
     // the absence of an error.
+    await expect(wizard.satisfiedByGuidedProvisioningSummary()).toBeVisible();
+    await expect(wizard.stepProgressText('AWS credentials')).toBeVisible();
+  });
+
+  test('should resume directly onto the key-intake screen for a persisted rotation-pending session', async () => {
+    await seedGuidedIamRotationPendingResumeMocks(win, {
+      region: RESUMED_REGION,
+      guidedProfileName: GUIDED_PROFILE_NAME,
+      accountId: FAKE_ACCOUNT_ID,
+    });
+
+    const wizard = new GuidedIamWizardPage(win);
+
+    // The resumed mount jumps straight to the key-intake-and-rotate screen —
+    // the region/choice, template, and console screens must never mount.
+    // This is the e2e-level proof of Group 7's fix round: assert both that
+    // the resume banner and intake form are up AND that every other
+    // screen's distinctive elements are absent, not just that the intake
+    // screen eventually appears.
+    await expect(wizard.resumedRotationPendingBanner()).toBeVisible();
+    await expect(wizard.accessKeyIdInput()).toBeVisible();
+    await expect(wizard.secretAccessKeyInput()).toBeVisible();
+
+    await expect(wizard.continueWithGuidedSetupButton()).toHaveCount(0);
+    await expect(wizard.alreadyHaveCredentialsButton()).toHaveCount(0);
+    await expect(wizard.templatePathInput()).toHaveCount(0);
+    await expect(wizard.openConsoleButton()).toHaveCount(0);
+    await expect(wizard.continueToKeyEntryButton()).toHaveCount(0);
+
+    // The intake screen's inline region field starts blank on this path —
+    // the mocked `wizard.state.get()` has no recoverable `aws.region` before
+    // rotation completes (see the helper's own doc comment) — so fill it
+    // before submitting, exercising the resume-path's own region field
+    // rather than the region/choice screen's.
+    await wizard.regionInput().fill(RESUMED_REGION);
+    await wizard.accessKeyIdInput().fill('AKIAFAKERESUMEDKEY');
+    await wizard.secretAccessKeyInput().fill('fake-secret-resumed-key-value');
+    await wizard.submitBootstrapKeyButton().click();
+
+    // Rotation resolves `{ status: 'complete' }` (mocked above), which
+    // advances the resumed session past guided-iam onto the credentials
+    // step, exactly like the happy path — confirming the persisted
+    // sub-state survives a relaunch all the way to a successful finish.
     await expect(wizard.satisfiedByGuidedProvisioningSummary()).toBeVisible();
     await expect(wizard.stepProgressText('AWS credentials')).toBeVisible();
   });
