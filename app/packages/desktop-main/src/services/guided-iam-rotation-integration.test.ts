@@ -1,6 +1,4 @@
 /**
- * Regression test for the `add-one-click-aws-bootstrap` Group 5 plan's
- * "Task 5.4 scoping" claim (`docs/superpowers/plans/bootstrap-5-iam-gate.md`):
  * `GuidedIamService.rotate()` activates the rotated key as the store's
  * active credential source *before* returning `complete`, and
  * `IamCheckService.checkPermissions()` reads that same active source on
@@ -19,6 +17,7 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { GuidedIamService, GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 import { IamCheckService } from './IamCheckService.js';
+import type { AwsCredentialSource } from './awsCredentialSource.js';
 
 /** Typed stand-in for the AWS STS SDK client, shared by both services under test. */
 const stsMock = mockClient(STSClient);
@@ -57,14 +56,14 @@ class InspectableIamCheckService extends IamCheckService {
   /** The `IAMClient` most recently constructed by `checkPermissions()`. */
   lastIamClient?: IAMClient;
 
-  protected override createStsClient(): STSClient {
-    const client = super.createStsClient();
+  protected override createStsClient(region: string, source: AwsCredentialSource): STSClient {
+    const client = super.createStsClient(region, source);
     this.lastStsClient = client;
     return client;
   }
 
-  protected override createIamClient(): IAMClient {
-    const client = super.createIamClient();
+  protected override createIamClient(region: string, source: AwsCredentialSource): IAMClient {
+    const client = super.createIamClient(region, source);
     this.lastIamClient = client;
     return client;
   }

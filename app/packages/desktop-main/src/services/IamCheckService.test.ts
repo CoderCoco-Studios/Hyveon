@@ -6,6 +6,7 @@ import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { IamCheckService } from './IamCheckService.js';
 import { GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { AwsCredentialSource } from './awsCredentialSource.js';
 
 /** Typed stand-in for the AWS STS SDK client, shared across the tests below. */
 const stsMock = mockClient(STSClient);
@@ -35,6 +36,27 @@ class TestableIamCheckService extends IamCheckService {
   protected override actionsToCheck(): readonly string[] {
     return this.actions;
   }
+}
+
+/** Subclass stashing the most recently built IAM client, so a test can inspect which credentials it was actually constructed with. */
+class ClientCapturingIamCheckService extends IamCheckService {
+  lastIamClient?: IAMClient;
+  protected override createIamClient(region: string, source: AwsCredentialSource): IAMClient {
+    const client = super.createIamClient(region, source);
+    this.lastIamClient = client;
+    return client;
+  }
+}
+
+/**
+ * Resolves an AWS SDK v3 client's `config.credentials` provider function to
+ * the plain `{ accessKeyId, secretAccessKey }` it was constructed with —
+ * static credentials are normalized into a memoized async provider rather
+ * than kept as the original plain object.
+ */
+async function resolveCredentials(client: IAMClient): Promise<{ accessKeyId: string; secretAccessKey: string }> {
+  const resolved = await client.config.credentials();
+  return { accessKeyId: resolved.accessKeyId, secretAccessKey: resolved.secretAccessKey };
 }
 
 beforeEach(() => {
@@ -178,6 +200,32 @@ describe('IamCheckService', () => {
 
       expect(result).toEqual({ status: 'passed', origin: 'pasted', blocking: false });
       expect(store.getPastedCredentials).toHaveBeenCalledWith('hyveon-pasted');
+    });
+
+    it('should build the IAM client and resolve origin from the same snapshot as the STS call, even if the store changes in between', async () => {
+      const ORIGINAL_CREDS = { accessKeyId: 'AKID-ORIGINAL', secretAccessKey: 'SECRET-ORIGINAL' };
+      const ROTATED_CREDS = { accessKeyId: 'AKID-ROTATED', secretAccessKey: 'SECRET-ROTATED' };
+      let activePastedCredentials = ORIGINAL_CREDS;
+      const store = {
+        get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? { profile: 'hyveon-pasted', region: 'us-west-2' } : undefined)),
+        getPastedCredentials: vi.fn().mockImplementation(() => activePastedCredentials),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+
+      stsMock.on(GetCallerIdentityCommand).callsFake(() => {
+        // Simulate a concurrent AwsProfileService.rotateActiveCredentials()
+        // completing while this STS call is in flight — the store's pasted
+        // entry for the same profile is now a different key pair.
+        activePastedCredentials = ROTATED_CREDS;
+        return { Arn: 'arn:aws:iam::123456789012:user/hyveon' };
+      });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new ClientCapturingIamCheckService(store);
+
+      const result = await service.checkPermissions();
+
+      expect(result).toEqual({ status: 'passed', origin: 'pasted', blocking: false });
+      const iamCredentials = await resolveCredentials(service.lastIamClient!);
+      expect(iamCredentials).toEqual(ORIGINAL_CREDS);
     });
   });
 
