@@ -15,8 +15,9 @@
  * it is ever invoked — see the Global Constraints section of the plan this
  * spec implements. No real AWS call is possible from this spec.
  */
+import { GUIDED_PROFILE_NAME } from '@hyveon/desktop-preload';
 import type { ElectronApplication, Page } from '../fixtures/index.js';
-import { test, expect, _electron, GuidedIamWizardPage } from '../fixtures/index.js';
+import { test, expect, _electron, GuidedIamWizardPage, clearElectronMocks } from '../fixtures/index.js';
 import { electronMain, electronEnv } from '../../playwright.config.js';
 
 // ── Shared Electron application ──────────────────────────────────────────────
@@ -39,11 +40,7 @@ test.afterAll(async () => {
 });
 
 test.afterEach(async () => {
-  await win.evaluate(() => {
-    const hyveon = window.hyveon;
-    if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-    hyveon.__test.clearMocks();
-  });
+  await clearElectronMocks(win);
 });
 
 /** Region entered in this spec's guided-IAM flow — reused for every region field and echoed back in the post-rotation `wizard.state.get` mock. */
@@ -56,91 +53,74 @@ const FAKE_TEMPLATE_PATH = '/fake/path/iam-bootstrap.yaml';
 const FAKE_ACCOUNT_ID = '123456789012';
 
 /**
- * The exact profile name `GuidedIamService.rotate()` stores once guided
- * provisioning's mint-then-revoke rotation completes (`GUIDED_PROFILE_NAME`
- * in `GuidedIamService.ts`). Duplicated here (rather than imported) because
- * this string only needs to reach `win.evaluate`'s browser-context closure as
- * plain data — the credentials step compares against this exact literal, not
- * against a shared constant, so a hardcoded copy is enough to exercise the
- * real comparison.
- */
-const GUIDED_PROFILE_NAME = 'hyveon-guided';
-
-/**
- * Seeds every IPC channel the wizard shell and the guided-IAM step touch
- * before the operator has done anything: forces the wizard to show
- * (`wizard.state.get` → `wizardCompleted: false`), resumes directly onto the
- * guided-IAM step's region screen (`wizard.progress.get` resolves a
- * `guided-iam` step name with no `guidedIam` sub-state, so `GuidedIamStep`
- * starts fresh rather than resuming into a later screen), and no-ops the two
- * channels `FirstRunWizard` calls on every mount regardless of which step it
- * lands on (`wizard.listAwsProfiles`, `wizard.progress.save`).
+ * Seeds every IPC channel the happy-path guided-IAM flow touches, in a single
+ * `win.evaluate` call: the wizard-shell channels `FirstRunWizard` invokes on
+ * every mount (`wizard.state.get`, `wizard.progress.get`, `wizard.progress.save`,
+ * `wizard.listAwsProfiles`) plus the four `wizard.guidedIam.*` channels this
+ * step's happy path drives.
  *
- * `wizard.state.get` is intentionally stateful: after guided provisioning's
- * rotation completes, the wizard shell re-reads `wizard.state.get()` to
- * decide whether the credentials step should render its "satisfied by guided
- * provisioning" summary (see `first-run-wizard.component.tsx`'s
- * `refreshGuidedCredentials`). Since this spec mocks `wizard.guidedIam.rotate`
- * directly, none of `GuidedIamService`'s real side effects (which would
- * normally persist `aws.profile = GUIDED_PROFILE_NAME` to the store) actually
- * run — so this mock flips its own returned `aws` field to the guided
- * profile itself, the moment the `wizard.guidedIam.rotate` mock (registered
- * separately per test) is invoked with a successful outcome.
+ * `wizard.state.get` starts by forcing the wizard to show (`wizardCompleted` `false`,
+ * no `aws`) and becomes stateful once rotation completes: the wizard
+ * shell re-reads `wizard.state.get()` from `first-run-wizard.component.tsx`'s
+ * `refreshGuidedCredentials()` right after `GuidedIamStep`'s `onComplete`
+ * fires, to decide whether the credentials step renders its "satisfied by
+ * guided provisioning" summary. Since `wizard.guidedIam.rotate` is mocked
+ * directly here, none of `GuidedIamService`'s real store-writing side effects
+ * run — so the `rotate` mock flips a `rotated` flag itself, and `wizard.state.get`
+ * reads that same flag, both declared in this one evaluate's closure so
+ * nothing needs to be smuggled across separate `win.evaluate` calls.
+ *
+ * `wizard.progress.get` resolves `{ step: 'guided-iam' }` with no `guidedIam`
+ * sub-state — this resumes the wizard shell directly onto the guided-IAM step
+ * (skipping `pick-cloud`, out of scope for this group per the plan) while
+ * leaving `GuidedIamStep` itself to start fresh at the region screen.
  */
-async function seedWizardShellMocks(win: Page, region: string): Promise<void> {
-  await win.evaluate(
-    ({ region, guidedProfileName }) => {
-      const hyveon = window.hyveon;
-      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
+async function seedGuidedIamHappyPathMocks(
+  win: Page,
+  opts: { region: string; guidedProfileName: string; templatePath: string; accountId: string },
+): Promise<void> {
+  await win.evaluate(({ region, guidedProfileName, templatePath, accountId }) => {
+    const hyveon = window.hyveon;
+    if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
 
-      let rotated = false;
-      // Exposed so a later `guidedIamRotate` mock (registered per test) can
-      // flip this closure's state once rotation actually completes.
-      (window as unknown as { __markGuidedRotated: () => void }).__markGuidedRotated = () => {
-        rotated = true;
-      };
+    let rotated = false;
 
-      hyveon.__test.mock('wizard.state.get', () =>
-        Promise.resolve(
-          rotated
-            ? {
-                wizardCompleted: false,
-                activeCloud: 'aws',
-                aws: { profile: guidedProfileName, region },
-                bootstrap: undefined,
-              }
-            : { wizardCompleted: false, activeCloud: undefined, aws: undefined, bootstrap: undefined },
-        ),
-      );
-      hyveon.__test.mock('wizard.progress.get', () => Promise.resolve({ step: 'guided-iam' }));
-      hyveon.__test.mock('wizard.progress.save', () => Promise.resolve());
-      hyveon.__test.mock('wizard.listAwsProfiles', () => Promise.resolve([]));
-    },
-    { region, guidedProfileName: GUIDED_PROFILE_NAME },
-  );
+    hyveon.__test.mock('wizard.state.get', () =>
+      Promise.resolve(
+        rotated
+          ? {
+              wizardCompleted: false,
+              activeCloud: 'aws',
+              aws: { profile: guidedProfileName, region },
+              bootstrap: undefined,
+            }
+          : { wizardCompleted: false, activeCloud: undefined, aws: undefined, bootstrap: undefined },
+      ),
+    );
+    hyveon.__test.mock('wizard.progress.get', () => Promise.resolve({ step: 'guided-iam' }));
+    hyveon.__test.mock('wizard.progress.save', () => Promise.resolve());
+    hyveon.__test.mock('wizard.listAwsProfiles', () => Promise.resolve([]));
+
+    hyveon.__test.mock('wizard.guidedIam.prepareTemplate', () => Promise.resolve({ path: templatePath }));
+    hyveon.__test.mock('wizard.guidedIam.openConsole', () => Promise.resolve({ opened: true }));
+    hyveon.__test.mock('wizard.guidedIam.submitBootstrapKey', () => Promise.resolve({ accountId }));
+    hyveon.__test.mock('wizard.guidedIam.rotate', () => {
+      rotated = true;
+      return Promise.resolve({ status: 'complete' });
+    });
+  }, opts);
 }
 
 // ── Specs ──────────────────────────────────────────────────────────────────────
 
 test.describe('guided-IAM wizard step', () => {
   test('should complete the guided-setup happy path and hand off to the satisfied credentials step', async () => {
-    await seedWizardShellMocks(win, TEST_REGION);
-
-    await win.evaluate(
-      ({ path, accountId }) => {
-        const hyveon = window.hyveon;
-        if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-
-        hyveon.__test.mock('wizard.guidedIam.prepareTemplate', () => Promise.resolve({ path }));
-        hyveon.__test.mock('wizard.guidedIam.openConsole', () => Promise.resolve({ opened: true }));
-        hyveon.__test.mock('wizard.guidedIam.submitBootstrapKey', () => Promise.resolve({ accountId }));
-        hyveon.__test.mock('wizard.guidedIam.rotate', () => {
-          (window as unknown as { __markGuidedRotated: () => void }).__markGuidedRotated();
-          return Promise.resolve({ status: 'complete' });
-        });
-      },
-      { path: FAKE_TEMPLATE_PATH, accountId: FAKE_ACCOUNT_ID },
-    );
+    await seedGuidedIamHappyPathMocks(win, {
+      region: TEST_REGION,
+      guidedProfileName: GUIDED_PROFILE_NAME,
+      templatePath: FAKE_TEMPLATE_PATH,
+      accountId: FAKE_ACCOUNT_ID,
+    });
 
     const wizard = new GuidedIamWizardPage(win);
 
