@@ -448,19 +448,59 @@ describe('GuidedIamService', () => {
       expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
     });
 
-    it('should return verification-failed and leave nothing active or deleted when GetCallerIdentity fails for the new key', async () => {
+    it('should return verification-failed and leave nothing active or the bootstrap key deleted when GetCallerIdentity fails for the new key', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
       verifyError.name = 'InvalidClientTokenId';
       stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
 
       const result = await service.rotate(ROTATION_INPUT);
 
       expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
       expect(store.set).not.toHaveBeenCalled();
-      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
       // Staging (step 2) still happened — retrying is safe since it just overwrites the same entry.
       expect(store.setPastedCredentials).toHaveBeenCalledTimes(1);
+    });
+
+    it('should clean up the orphaned new key (not the bootstrap key) using the bootstrap key client when verification fails', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      const createIamClientSpy = vi.spyOn(service, 'createIamClient');
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+      const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
+      expect(deleteCalls).toHaveLength(1);
+      // Targets the orphaned NEW key, never the bootstrap key.
+      expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: NEW_ACCESS_KEY_ID });
+      // Only one IAM client was ever built (step 1's bootstrap client) — the
+      // cleanup delete reuses it rather than building a second one.
+      expect(createIamClientSpy).toHaveBeenCalledTimes(1);
+      expect(createIamClientSpy).toHaveBeenCalledWith({
+        accessKeyId: BOOTSTRAP_ACCESS_KEY_ID,
+        secretAccessKey: BOOTSTRAP_SECRET,
+        region: REGION,
+      });
+    });
+
+    it('should still return verification-failed (not a new status) and not throw when the orphaned-key cleanup delete also fails', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      const cleanupError = new Error('User is not authorized to perform iam:DeleteAccessKey');
+      cleanupError.name = 'AccessDenied';
+      iamMock.on(DeleteAccessKeyCommand).rejects(cleanupError);
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+      expect(store.set).not.toHaveBeenCalled();
     });
 
     it('should return delete-failed with a console URL and leave the new key active when DeleteAccessKey fails', async () => {

@@ -92,9 +92,12 @@ export type RotationResult =
   /**
    * `sts:GetCallerIdentity` failed for the newly minted key. Nothing became
    * active (`ElectronStoreService.set('aws', ...)` was never called) and the
-   * bootstrap key was never deleted — retrying calls {@link GuidedIamService.rotate}
-   * again from the top, which is safe (step 2 just overwrites the same
-   * staging entry).
+   * bootstrap key was never deleted. {@link GuidedIamService.rotate} also
+   * attempts to delete the orphaned new key (using the still-valid bootstrap
+   * key) before returning this branch, so that a caller-driven retry — which
+   * re-runs from step 1 — doesn't collide with IAM's 2-access-key-per-user
+   * limit. That cleanup delete is itself best-effort: see `rotate()`'s doc
+   * comment for what happens if it also fails.
    */
   | { status: 'verification-failed'; error: string }
   /**
@@ -278,10 +281,20 @@ export class GuidedIamService {
    *    {@link GUIDED_PROFILE_NAME}. This alone does **not** make the new key
    *    active — `aws.profile` is untouched at this point.
    * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
-   *    client built from the *new* key. On failure, returns
-   *    `{ status: 'verification-failed', error }` without touching
-   *    `aws.profile` and without deleting the bootstrap key — retrying is
-   *    safe, since step 2 just overwrites the same staging entry.
+   *    client built from the *new* key. On failure, best-effort deletes the
+   *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
+   *    from the still-untouched *bootstrap* key — it still has
+   *    `HyveonSelfRotate` permissions and nothing has touched it yet), then
+   *    returns `{ status: 'verification-failed', error }` without touching
+   *    `aws.profile` and without deleting the bootstrap key itself. This
+   *    cleanup is what makes "retrying is safe" actually true: without it,
+   *    the orphaned new key would stay live, and a retry's step 1 would hit
+   *    IAM's 2-access-key-per-user limit (`LimitExceededException`) since
+   *    the account already has both the bootstrap key and the orphan. If the
+   *    cleanup delete itself fails, that is logged (no secrets) and
+   *    swallowed — `verification-failed` is still returned with the
+   *    *original* verification error, not a new/different status; a manual
+   *    console cleanup may be needed in that case.
    * 4. Only once verification succeeds: `ElectronStoreService.set('aws', ...)`
    *    with `profile` set to {@link GUIDED_PROFILE_NAME} — the moment the new
    *    key becomes the active credential source (picked up automatically by
@@ -299,11 +312,30 @@ export class GuidedIamService {
    * Never logs `secretAccessKey` (bootstrap or newly minted) — only
    * non-secret access key IDs and step-progress messages.
    *
+   * **Known limitation (deliberate deferral):** newly created IAM access
+   * keys can take a few seconds to propagate across AWS before
+   * `sts:GetCallerIdentity` reliably succeeds for them. Step 3 above makes
+   * exactly one verification attempt with no retry/backoff, so a freshly
+   * minted, otherwise-healthy key can spuriously produce
+   * `verification-failed` purely due to propagation delay — not because the
+   * key is actually bad. A bounded retry/backoff around step 3 would
+   * mitigate this, but is intentionally out of scope here: it needs
+   * timing/backoff design validated against real AWS behavior rather than
+   * guessed in unit tests, so it is left as a follow-up rather than bundled
+   * into this task. See the `add-one-click-aws-bootstrap` Group 2 PR
+   * description / this task's report for the reasoning. The cleanup-delete
+   * behavior documented at step 3 keeps a caller-driven retry safe in the
+   * meantime, which is what makes deferring the backoff acceptable for now.
+   *
    * @param input - The validated bootstrap key pair (from
    *   {@link intakeBootstrapKey}) and the region to build every client
    *   against.
    * @throws {@link SafeStorageUnavailableError} if the OS keychain is
    *   unavailable — nothing is attempted in that case.
+   * @throws `Error` if `iam:CreateAccessKey` (step 1) succeeds but its
+   *   response is missing `AccessKeyId`/`SecretAccessKey` — an
+   *   unrecoverable, unexpected-shape response rather than a modeled
+   *   `RotationResult` branch; nothing has been staged or activated yet.
    */
   async rotate(input: RotationInput): Promise<RotationResult> {
     if (!this.safeStorage.isAvailable()) {
@@ -342,6 +374,20 @@ export class GuidedIamService {
         accessKeyId: newKey.AccessKeyId,
         error: message,
       });
+      // Best-effort cleanup: delete the orphaned new key using the
+      // still-untouched bootstrap key, so a caller-driven retry (which
+      // re-runs from step 1) doesn't hit IAM's 2-access-key-per-user limit.
+      // A failure here does not change the outcome — the original
+      // verification error is still what gets returned.
+      try {
+        await bootstrapClient.send(new DeleteAccessKeyCommand({ AccessKeyId: newKey.AccessKeyId }));
+      } catch (cleanupErr) {
+        const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        logger.warn('GuidedIamService.rotate: failed to clean up orphaned new key after verification failure — may need manual cleanup', {
+          accessKeyId: newKey.AccessKeyId,
+          error: cleanupMessage,
+        });
+      }
       return { status: 'verification-failed', error: message };
     }
 
