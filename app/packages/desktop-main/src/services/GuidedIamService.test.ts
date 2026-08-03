@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import { mockClient } from 'aws-sdk-client-mock';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
+import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-sdk/client-iam';
 
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
@@ -17,14 +18,39 @@ vi.mock('../cloudformationTemplate.js', () => ({
 
 import { readFileSync, writeFileSync } from 'fs';
 import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
-import { GuidedIamService } from './GuidedIamService.js';
+import { logger } from '../logger.js';
+import { GuidedIamService, GUIDED_PROFILE_NAME } from './GuidedIamService.js';
+import { SafeStorageUnavailableError } from './AwsProfileService.js';
+import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { SafeStorageService } from './SafeStorageService.js';
 
-/** Typed stand-in for the AWS STS SDK client, shared across the `intakeBootstrapKey` tests below. */
+/** Typed stand-in for the AWS STS SDK client, shared across the `intakeBootstrapKey`/`rotate` tests below. */
 const stsMock = mockClient(STSClient);
+
+/** Typed stand-in for the AWS IAM SDK client, shared across the `rotate` tests below. */
+const iamMock = mockClient(IAMClient);
 
 /** Strongly-typed mock handles for the `fs` module. */
 const mockRead = vi.mocked(readFileSync);
 const mockWrite = vi.mocked(writeFileSync);
+
+/**
+ * Build an `ElectronStoreService` stub whose `get('aws')` resolves to
+ * `existingAws` and whose `setPastedCredentials`/`set` calls are spies —
+ * used by `rotate` tests to assert exact call ordering and arguments.
+ */
+function makeStore(existingAws?: { profile?: string; region?: string }): ElectronStoreService {
+  return {
+    get: vi.fn().mockImplementation((key: string) => (key === 'aws' ? existingAws : undefined)),
+    set: vi.fn(),
+    setPastedCredentials: vi.fn(),
+  } as Partial<ElectronStoreService> as ElectronStoreService;
+}
+
+/** Build a `SafeStorageService` stub whose `isAvailable()` returns `available`. */
+function makeSafeStorage(available: boolean): SafeStorageService {
+  return { isAvailable: vi.fn().mockReturnValue(available) } as Partial<SafeStorageService> as SafeStorageService;
+}
 
 /**
  * Minimal CloudFormation template fixture standing in for the real
@@ -80,17 +106,26 @@ class TestableGuidedIamService extends GuidedIamService {
   public override createStsClient(creds: { accessKeyId: string; secretAccessKey: string; region: string }): STSClient {
     return super.createStsClient(creds);
   }
+
+  public override createIamClient(creds: { accessKeyId: string; secretAccessKey: string; region: string }): IAMClient {
+    return super.createIamClient(creds);
+  }
 }
 
 describe('GuidedIamService', () => {
   let service: TestableGuidedIamService;
+  let store: ElectronStoreService;
+  let safeStorage: SafeStorageService;
 
   beforeEach(() => {
-    service = new TestableGuidedIamService();
+    store = makeStore();
+    safeStorage = makeSafeStorage(true);
+    service = new TestableGuidedIamService(store, safeStorage);
     mockResolveTemplatePath.mockReset();
     mockRead.mockReset();
     mockWrite.mockReset();
     stsMock.reset();
+    iamMock.reset();
   });
 
   afterEach(() => {
@@ -292,6 +327,224 @@ describe('GuidedIamService', () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon-bootstrap' });
 
       await expect(service.intakeBootstrapKey(BOOTSTRAP_INPUT)).rejects.toThrow(/did not return an Account/);
+    });
+  });
+
+  describe('rotate', () => {
+    const BOOTSTRAP_ACCESS_KEY_ID = 'AKIABOOTSTRAPKEY';
+    const BOOTSTRAP_SECRET = 'bootstrap-secret-value-xyz';
+    const NEW_ACCESS_KEY_ID = 'AKIANEWLYMINTEDKEY';
+    const NEW_SECRET = 'newly-minted-secret-value-abc';
+    const REGION = 'us-west-2';
+
+    const ROTATION_INPUT = {
+      bootstrapAccessKeyId: BOOTSTRAP_ACCESS_KEY_ID,
+      bootstrapSecretAccessKey: BOOTSTRAP_SECRET,
+      region: REGION,
+    };
+
+    /** Resolves `iam:CreateAccessKey` with a fresh key pair using the fixture values above. */
+    function stubCreateAccessKeySuccess(): void {
+      iamMock.on(CreateAccessKeyCommand).resolves({
+        AccessKey: {
+          UserName: 'hyveon-bootstrap',
+          AccessKeyId: NEW_ACCESS_KEY_ID,
+          SecretAccessKey: NEW_SECRET,
+          Status: 'Active',
+        },
+      });
+    }
+
+    it('should throw SafeStorageUnavailableError and never call iam:CreateAccessKey when the keychain is unavailable', async () => {
+      safeStorage = makeSafeStorage(false);
+      service = new TestableGuidedIamService(store, safeStorage);
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(SafeStorageUnavailableError);
+      expect(iamMock.commandCalls(CreateAccessKeyCommand)).toHaveLength(0);
+      expect(store.setPastedCredentials).not.toHaveBeenCalled();
+    });
+
+    it('should perform CreateAccessKey -> setPastedCredentials -> GetCallerIdentity(new key) -> store.set(aws) -> DeleteAccessKey(bootstrap key, new client) in exact order on success', async () => {
+      const order: string[] = [];
+      iamMock.on(CreateAccessKeyCommand).callsFake(() => {
+        order.push('CreateAccessKey');
+        return {
+          AccessKey: {
+            UserName: 'hyveon-bootstrap',
+            AccessKeyId: NEW_ACCESS_KEY_ID,
+            SecretAccessKey: NEW_SECRET,
+            Status: 'Active',
+          },
+        };
+      });
+      stsMock.on(GetCallerIdentityCommand).callsFake(() => {
+        order.push('GetCallerIdentity');
+        return { Account: '123456789012' };
+      });
+      iamMock.on(DeleteAccessKeyCommand).callsFake(() => {
+        order.push('DeleteAccessKey');
+        return {};
+      });
+      store = {
+        get: vi.fn().mockReturnValue(undefined),
+        set: vi.fn().mockImplementation(() => order.push('store.set(aws)')),
+        setPastedCredentials: vi.fn().mockImplementation(() => order.push('setPastedCredentials')),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      service = new TestableGuidedIamService(store, safeStorage);
+      const createIamClientSpy = vi.spyOn(service, 'createIamClient');
+      const createStsClientSpy = vi.spyOn(service, 'createStsClient');
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'complete' });
+      expect(order).toEqual([
+        'CreateAccessKey',
+        'setPastedCredentials',
+        'GetCallerIdentity',
+        'store.set(aws)',
+        'DeleteAccessKey',
+      ]);
+
+      // Step 1: IAM client for CreateAccessKey built from the bootstrap key.
+      expect(createIamClientSpy).toHaveBeenNthCalledWith(1, {
+        accessKeyId: BOOTSTRAP_ACCESS_KEY_ID,
+        secretAccessKey: BOOTSTRAP_SECRET,
+        region: REGION,
+      });
+      // Step 2: new key pair staged under GUIDED_PROFILE_NAME.
+      expect(store.setPastedCredentials).toHaveBeenCalledWith(GUIDED_PROFILE_NAME, {
+        accessKeyId: NEW_ACCESS_KEY_ID,
+        secretAccessKey: NEW_SECRET,
+        region: REGION,
+      });
+      // Step 3: STS client for verification built from the NEW key, not the bootstrap key.
+      expect(createStsClientSpy).toHaveBeenCalledWith({
+        accessKeyId: NEW_ACCESS_KEY_ID,
+        secretAccessKey: NEW_SECRET,
+        region: REGION,
+      });
+      // Step 4: activation merges with the existing aws object and sets profile/region.
+      expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
+      // Step 5: IAM client for DeleteAccessKey built from the NEW key, targeting the bootstrap key's AccessKeyId.
+      expect(createIamClientSpy).toHaveBeenNthCalledWith(2, {
+        accessKeyId: NEW_ACCESS_KEY_ID,
+        secretAccessKey: NEW_SECRET,
+        region: REGION,
+      });
+      const deleteCalls = iamMock.commandCalls(DeleteAccessKeyCommand);
+      expect(deleteCalls).toHaveLength(1);
+      expect(deleteCalls[0]!.args[0].input).toEqual({ AccessKeyId: BOOTSTRAP_ACCESS_KEY_ID });
+    });
+
+    it('should preserve other existing aws fields when activating the rotated key', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      store = makeStore({ profile: 'some-old-profile', region: 'eu-west-1' });
+      service = new TestableGuidedIamService(store, safeStorage);
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
+    });
+
+    it('should return verification-failed and leave nothing active or deleted when GetCallerIdentity fails for the new key', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+      expect(store.set).not.toHaveBeenCalled();
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+      // Staging (step 2) still happened — retrying is safe since it just overwrites the same entry.
+      expect(store.setPastedCredentials).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return delete-failed with a console URL and leave the new key active when DeleteAccessKey fails', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      const deleteError = new Error('User is not authorized to perform iam:DeleteAccessKey');
+      deleteError.name = 'AccessDenied';
+      iamMock.on(DeleteAccessKeyCommand).rejects(deleteError);
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({
+        status: 'delete-failed',
+        consoleUrl: expect.stringContaining('security_credentials'),
+      });
+      // The new key was already activated in step 4 and that is NOT rolled back.
+      expect(store.set).toHaveBeenCalledTimes(1);
+      expect(store.set).toHaveBeenCalledWith('aws', { profile: GUIDED_PROFILE_NAME, region: REGION });
+    });
+
+    it('should throw a clear error when CreateAccessKey does not return a usable key pair', async () => {
+      iamMock.on(CreateAccessKeyCommand).resolves({ AccessKey: undefined });
+
+      await expect(service.rotate(ROTATION_INPUT)).rejects.toThrow(/did not return a new access key pair/);
+      expect(store.setPastedCredentials).not.toHaveBeenCalled();
+    });
+
+    it('should never log the bootstrap or newly minted secret access key across a full successful rotation', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      const debugSpy = vi.spyOn(logger, 'debug');
+      const infoSpy = vi.spyOn(logger, 'info');
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const errorSpy = vi.spyOn(logger, 'error');
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'complete' });
+      const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+      expect(allCalls.length).toBeGreaterThan(0);
+      for (const call of allCalls) {
+        const serialized = JSON.stringify(call);
+        expect(serialized).not.toContain(BOOTSTRAP_SECRET);
+        expect(serialized).not.toContain(NEW_SECRET);
+      }
+    });
+
+    it('should never log the bootstrap or newly minted secret access key when verification fails', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('InvalidClientTokenId');
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      const debugSpy = vi.spyOn(logger, 'debug');
+      const infoSpy = vi.spyOn(logger, 'info');
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const errorSpy = vi.spyOn(logger, 'error');
+
+      await service.rotate(ROTATION_INPUT);
+
+      const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+      for (const call of allCalls) {
+        const serialized = JSON.stringify(call);
+        expect(serialized).not.toContain(BOOTSTRAP_SECRET);
+        expect(serialized).not.toContain(NEW_SECRET);
+      }
+    });
+
+    it('should never log the bootstrap or newly minted secret access key when DeleteAccessKey fails', async () => {
+      stubCreateAccessKeySuccess();
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      iamMock.on(DeleteAccessKeyCommand).rejects(new Error('AccessDenied'));
+      const debugSpy = vi.spyOn(logger, 'debug');
+      const infoSpy = vi.spyOn(logger, 'info');
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const errorSpy = vi.spyOn(logger, 'error');
+
+      await service.rotate(ROTATION_INPUT);
+
+      const allCalls = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls];
+      for (const call of allCalls) {
+        const serialized = JSON.stringify(call);
+        expect(serialized).not.toContain(BOOTSTRAP_SECRET);
+        expect(serialized).not.toContain(NEW_SECRET);
+      }
     });
   });
 });
