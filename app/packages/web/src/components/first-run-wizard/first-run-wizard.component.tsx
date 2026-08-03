@@ -330,24 +330,21 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    *
    * @remarks
    * Deliberately does not call `wizard.bootstrap.lockTable` — no such
-   * channel exists anymore (task 5.1 removed the main-process handler
-   * entirely: the DIY Pulumi S3 backend locks via objects in the state
-   * bucket, not a DynamoDB table). `lockTable` no longer has a row in
-   * {@link BootstrapStep} either (task 5.5), and (task 10.3) no longer
-   * exists on {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses`
-   * at all — its last remaining (non-bootstrap) use was the deleted
-   * `terraform-init` step's `backendConfig`.
+   * channel exists: the DIY Pulumi S3 backend locks via objects in the
+   * state bucket, not a DynamoDB table. `lockTable` has no row in
+   * {@link BootstrapStep} and no longer exists on
+   * {@link BootstrapResourceKey}/`resourceNames`/`resourceStatuses` at all.
    *
-   * The run-history table (`wizard.bootstrap.runsTable`, the bootstrap-
-   * deadlock fix) runs alongside the two bucket calls in the same
-   * `Promise.all`, but is tracked via {@link runsTableStatus}/
-   * {@link runsTableMessage} rather than {@link resourceStatuses} — see
-   * those states' own doc comments for why it isn't a {@link BootstrapResourceKey}.
+   * The run-history table (`wizard.bootstrap.runsTable`) runs alongside the
+   * two bucket calls in the same `Promise.all`, but is tracked via
+   * {@link runsTableStatus}/{@link runsTableMessage} rather than
+   * {@link resourceStatuses} — see those states' own doc comments for why it
+   * isn't a {@link BootstrapResourceKey}.
    *
-   * The initial `deployment-config.json` seed (`wizard.bootstrap.deploymentConfig`,
-   * the fresh-install-bricking fix) is NOT run alongside the run-history
-   * table as an independent `Promise.all` entry — it must be seeded into the
-   * configuration bucket, so it only fires once
+   * The initial `deployment-config.json` seed
+   * (`wizard.bootstrap.deploymentConfig`) is NOT run alongside the
+   * run-history table as an independent `Promise.all` entry — it must be
+   * seeded into the configuration bucket, so it only fires once
    * {@link bootstrapConfigurationBucket} itself reports `created`/`exists`,
    * chained onto the same async branch that call runs in below. A
    * configuration-bucket failure (or the bridge being unavailable) reports

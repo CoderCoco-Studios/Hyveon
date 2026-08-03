@@ -98,7 +98,7 @@ means the count depends on `config.gameServers`.
 | `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. |
 | `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 5 fixed (task execution, watchdog, followup, interactions, dns-updater) + 1 per game with `file_seeds`. `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 4 fixed + 1 per seeder game. |
 | `lambdas.ts` | The five Lambda functions, their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). |
-| `dynamodb.ts` | The two DynamoDB tables this program still manages. | `aws.dynamodb.Table` — 2 fixed: Discord state (TTL on `expiresAt`), audit log. Both `PAY_PER_REQUEST`. The run-history table is bootstrap-managed, not declared here — see "The runs table invariant" below. |
+| `dynamodb.ts` | The two DynamoDB tables this program manages. | `aws.dynamodb.Table` — 2 fixed: Discord state (TTL on `expiresAt`), audit log. Both `PAY_PER_REQUEST`. The run-history table is bootstrap-managed, not declared here — see "The runs table invariant" below. |
 | `secrets.ts` | The two Discord Secrets Manager secrets and their create-only placeholder versions. | `aws.secretsmanager.Secret` (2, `recoveryWindowInDays: 0`). `SecretVersion` (2, seeded with a placeholder string and `ignoreChanges: ['secretString']` so the app can edit them afterwards without a redeploy overwriting the value). |
 | `route53.ts` | Hosted-zone lookup **only**. | **Zero Pulumi resources** — one data-source call, `aws.route53.getZoneOutput()`. See the DNS invariant below. |
 | `escapes.ts` | The imperative "escape hatches" that don't fit a declarative resource model: seeding a DynamoDB config row and invoking the EFS-seeder Lambdas. | `aws.dynamodb.TableItem` (0–2, conditional on Discord config being set). `aws.lambda.Invocation` — one per game with `file_seeds`, re-triggered only when that game's seed content hash changes. |
@@ -125,14 +125,12 @@ not a migration regression.
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 
-**The run-history DynamoDB table is not a Pulumi resource.** `dynamodb.ts`
-originally declared it the same way as the Discord/audit tables, but a
-final-review Critical finding (`migrate-iac-to-pulumi`'s bootstrap-deadlock
-fix) removed it: `RunRecordService`'s approve/apply gates need this table to
-exist on the very FIRST plan/apply cycle of a fresh install, before any
-Pulumi apply has ever succeeded — a resource this program provisions cannot
-satisfy that, since a stack only reports outputs (and therefore could only
-report this table's name) after its first successful `apply`.
+**The run-history DynamoDB table is not a Pulumi resource.** `RunRecordService`'s
+approve/apply gates need this table to exist on the very FIRST plan/apply
+cycle of a fresh install, before any Pulumi apply has ever succeeded — a
+resource this program provisions cannot satisfy that, since a stack only
+reports outputs (and therefore could only report this table's name) after
+its first successful `apply`.
 
 Instead, `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`) creates
 it directly via `@aws-sdk/client-dynamodb` at first-run-wizard bootstrap

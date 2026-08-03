@@ -52,14 +52,9 @@ export interface WizardAwsChoice {
  * `defaultBootstrapResourceNames()`.
  *
  * @remarks
- * `lockTable` named this shape until task 10.3: it never described a
- * resource this controller's bootstrap handlers create (task 5.1 removed
- * `ensureLockTable`/`wizard.bootstrap.lockTable` entirely) and was kept only
- * because the now-deleted `terraform.init` IPC call required a
- * `dynamodbTable` backend-config value, rehydrated from that field on
- * Reconfigure. Task 10.3 replaced the Terraform-init step with
- * `PulumiService.initializeStack`, which resolves its own state bucket/region
- * internally and needs no lock-table name at all — so the field is gone.
+ * `PulumiService.initializeStack` resolves its own state bucket/region
+ * internally and needs no lock-table name, so this shape carries no
+ * `lockTable` field — bootstrap doesn't create a lock-table resource.
  */
 export interface WizardBootstrapNames {
   stateBucket: string;

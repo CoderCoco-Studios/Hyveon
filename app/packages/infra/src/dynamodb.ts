@@ -1,21 +1,20 @@
 /**
  * DynamoDB tables — ported from `terraform/aws/audit_store.tf`'s
  * `aws_dynamodb_table.audit` and `terraform/aws/discord_store.tf`'s
- * `aws_dynamodb_table.discord` (task 3.8 of `migrate-iac-to-pulumi`).
+ * `aws_dynamodb_table.discord`.
  *
- * | HCL address | This file |
+ * | Table | This file |
  * | --- | --- |
  * | `aws_dynamodb_table.discord` | {@link DynamoDbResources.discordTable} |
  * | `aws_dynamodb_table.audit` | {@link DynamoDbResources.auditTable} |
  *
  * `aws_dynamodb_table.runs` (`terraform/aws/runs_store.tf`) is deliberately
- * NOT ported here. It was originally declared in this file the same way as
- * the two tables above, but the final-review bootstrap-deadlock fix removed
- * it: `RunRecordService`'s approve/apply gates require this table to exist
- * on the very FIRST plan/apply cycle of a fresh install, before any Pulumi
- * apply has ever succeeded — a table this program provisions can't be relied
- * on that early (see `PulumiService.getStackOutputs`'s "empty outputs
- * degrades to null" doc). It is now created via the AWS SDK directly at
+ * NOT ported here: `RunRecordService`'s approve/apply gates require this
+ * table to exist on the very FIRST plan/apply cycle of a fresh install,
+ * before any Pulumi apply has ever succeeded — a table this program
+ * provisions can't be relied on that early (see
+ * `PulumiService.getStackOutputs`'s "empty outputs degrades to null" doc).
+ * It is instead created via the AWS SDK directly at
  * first-run-wizard bootstrap time (`BootstrapService.ensureRunsTable`,
  * `@hyveon/desktop-main`), mirroring how CLAUDE.md's own invariants already
  * treat DNS records as "Lambda-managed, never Terraform-managed" for the
@@ -33,11 +32,10 @@
  * `iam.ts` grants to three Lambda roles).
  *
  * The Discord table's two seed rows (`aws_dynamodb_table_item.discord_base_config`/
- * `discord_config_seed`) are NOT declared here — they live in `escapes.ts`
- * (task 3.10), which takes {@link DynamoDbResources.discordTable} as an input
- * rather than constructing its own table. See that file's doc for the full
- * "imperative escapes" inventory and why table rows are ported separately
- * from the table itself.
+ * `discord_config_seed`) are NOT declared here — they live in `escapes.ts`,
+ * which takes {@link DynamoDbResources.discordTable} as an input rather than
+ * constructing its own table. See that file's doc for the full "imperative
+ * escapes" inventory.
  *
  * `discordApplicationId`/`baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds`
  * (all consumed by `escapes.ts`, not this file) never touch table
@@ -81,9 +79,7 @@ export interface DefineDynamoDbArgs {
    * Mirrors `DeploymentConfig.auditTableName` (`var.audit_table_name`) — an
    * empty string resolves to `${projectName}-audit`, replicating the HCL's
    * `var.audit_table_name != "" ? var.audit_table_name : "${var.project_name}-audit"`
-   * ternary. `deploymentConfig.ts`'s doc on `auditTableName` explicitly
-   * leaves this resolution to "the infrastructure program (Phase 3)" — this
-   * is that resolution.
+   * ternary. This function is where that resolution happens.
    */
   auditTableName: string;
   /** The regional AWS provider every resource is declared against (region + default tags). */
@@ -110,10 +106,9 @@ function resolveTableName(overrideName: string, projectName: string, suffix: str
 }
 
 /**
- * Declares the two DynamoDB tables this package still manages (task 3.8 of
- * `migrate-iac-to-pulumi`; the runs table was removed by the bootstrap-
- * deadlock fix — see this file's doc) — see this file's doc for the full
- * HCL→Pulumi address table. Must be called from inside the Pulumi
+ * Declares the two DynamoDB tables this package manages (the runs table is
+ * created outside Pulumi — see this file's doc) — see this file's doc for
+ * the full HCL→Pulumi address table. Must be called from inside the Pulumi
  * inline-program closure, never at module scope.
  *
  * Every table's Pulumi *logical* name is fixed to `${projectName}-<role>`,

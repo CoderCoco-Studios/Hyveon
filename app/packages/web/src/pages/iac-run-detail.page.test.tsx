@@ -180,7 +180,7 @@ describe('IacRunDetailPage', () => {
     expect(screen.queryByText(/Rollback of/)).not.toBeInTheDocument();
   });
 
-  describe('change summary (task 9.5)', () => {
+  describe('change summary', () => {
     it('should render grouped change badges when the record has a populated changeSummary', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [makeRecord({ logInline: 'log', changeSummary: { create: 3, update: 1 } })],

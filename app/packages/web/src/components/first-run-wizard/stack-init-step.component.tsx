@@ -58,8 +58,8 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
 }
 
 /**
- * Final step of the first-run wizard (task 10.3): initializes the one Pulumi
- * stack this app manages via `hyveon.iac.stack.initialize()`, rendering a
+ * Final step of the first-run wizard: initializes the one Pulumi stack this
+ * app manages via `hyveon.iac.stack.initialize()`, rendering a
  * 3-step progress checklist (engine resolution → plugin install → stack
  * creation) as `StackInitPhaseEvent`s stream in, rather than the scrolling
  * ANSI log the deleted `terraform init` step rendered — there is no log

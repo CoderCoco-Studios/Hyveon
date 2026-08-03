@@ -209,22 +209,24 @@ steps, none of them a CLI command:
    access key you created in [step 1](#1-create-and-authorise-an-iam-user)
    directly; either way the keys (if pasted) are encrypted with your OS
    keychain, never stored in plaintext.
-3. **Bootstrap AWS resources** — creates two S3 buckets directly via the AWS
-   SDK (no CLI, no Terraform): a **state bucket** (default
-   `hyveon-tfstate`, versioned, AES-256 encrypted) that Pulumi's
-   self-managed S3 backend reads and writes state to, and a
+3. **Bootstrap AWS resources** — creates the state bucket, the
+   configuration bucket, and the run-history table directly via the AWS SDK
+   (no CLI, no Terraform, and none of the three is Pulumi-managed): a
+   **state bucket** (default `hyveon-tfstate`, versioned, AES-256 encrypted)
+   that Pulumi's self-managed S3 backend reads and writes state to; a
    **configuration bucket** (default `hyveon-tfvars`, versioned, 90-day
    noncurrent-version expiry) that holds the JSON configuration object your
-   game servers are declared in. Both names are editable. This step also
-   seeds that configuration object with an initial, empty document
-   (`gameServers: {}`, every other field at its Terraform-parity default) if
-   one doesn't already exist — without this seed, nothing else in the app
-   ever creates that first object, so Settings saves, Games-page adds, and
-   Pulumi previews would otherwise fail immediately after the wizard
-   finishes. Finally, this step has an advisory **IAM permission check** — it
-   simulates the `HyveonDeployAll` policy's actions against your credentials
-   and tells you exactly which are missing, but never blocks you from
-   continuing.
+   game servers are declared in; and a **run-history table** (default
+   `hyveon-runs`) that records every plan/apply/destroy run. All three names
+   are editable. This step also seeds the configuration object with an
+   initial, empty document (`gameServers: {}`, every other field at its
+   default) if one doesn't already exist — without this seed, nothing else
+   in the app ever creates that first object, so Settings saves, Games-page
+   adds, and Pulumi previews would otherwise fail immediately after the
+   wizard finishes. Finally, this step has an advisory **IAM permission
+   check** — it simulates the `HyveonDeployAll` policy's actions against
+   your credentials and tells you exactly which are missing, but never
+   blocks you from continuing.
 4. **Finish setup** — resolves and installs the pinned Pulumi engine,
    installs the AWS provider plugin, and initializes the Pulumi stack
    against the bucket you just created. Runs automatically on arrival; no

@@ -39,8 +39,8 @@ Each field has a `?` icon with a tooltip explaining it.
 
 Below the fields, a derived line updates live as you type:
 
-> Auto-shutdown after 60 minutes idle (15 min × 4 checks). Update Terraform
-> vars to change the Lambda schedule.
+> Auto-shutdown after 60 minutes idle (15 min × 4 checks). Update deployment
+> settings to change the Lambda schedule.
 
 The formula is simply **interval × idle checks**. With the defaults, a server
 with no players stops an hour after the last packet.
@@ -86,22 +86,23 @@ window.`
 **These fields tune the app's stored configuration. The watchdog Lambda does
 not read that configuration.**
 
-The Lambda gets all three values from Terraform: its EventBridge schedule is
-generated as `rate(<interval> minutes)` at apply time, and the idle-check and
-packet thresholds are baked into its environment variables. Both come from
-your Terraform variables, not from the app's settings file.
+The Lambda gets all three values from the deployment configuration: its
+EventBridge schedule is generated as `rate(<interval> minutes)` at apply time,
+and the idle-check and packet thresholds are baked into its environment
+variables. Both come from the top-level deployment settings
+(`deployment-config.json`), not from this panel's local settings file.
 
 So pressing **Save** writes a local file and shows a success toast while
 changing nothing in AWS. The panel says as much in its own footnote — *"Update
-Terraform vars to change the Lambda schedule."*
+deployment settings to change the Lambda schedule."*
 
-**To actually change the watchdog:** set `watchdog_interval_minutes`,
-`watchdog_idle_checks` and `watchdog_min_packets` in `terraform.tfvars` (see
-the [infra program reference](/components/infra)), then run a plan and apply
-from the [Infrastructure](/app/iac) page.
+**To actually change the watchdog:** set the watchdog fields in
+[Settings → General](#general) (see the
+[infra program reference](/components/infra)), then run a plan and apply from
+the [Infrastructure](/app/iac) page.
 
-There is no indication in the UI when the saved values and the applied
-Terraform values disagree, so keep them in sync by hand.
+There is no indication in the UI when the values saved here and the applied
+deployment settings disagree, so keep them in sync by hand.
 :::
 
 ## Cloud Setup

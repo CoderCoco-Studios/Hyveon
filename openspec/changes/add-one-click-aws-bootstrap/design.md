@@ -67,6 +67,7 @@ Rationale: hosting buys the operator exactly one saved file-picker interaction, 
 The template creates:
 
 - `AWS::IAM::ManagedPolicy` — document generated at build time from `HYVEON_DEPLOY_ALL_ACTIONS`, reproducing the real current four-statement structure documented in `docs/docs/setup.md`: `HyveonDeploy` (wildcard service grants, `Resource: "*"`), `HyveonIAM` (scoped to `arn:aws:iam::*:role/hyveon-*` and `.../policy/hyveon-*`), `HyveonConfigurationBucket` (scoped to `${project_name}-tfvars` and its `/*`), and `HyveonStateBucket` (scoped to `${project_name}-tfstate` and its `/*` — `s3:ListBucket`/`GetObject`/`PutObject`/`DeleteObject` plus `PutBucketVersioning`/`PutEncryptionConfiguration`/`PutBucketPublicAccessBlock`; **no DynamoDB action of any kind**, since Pulumi's self-managed S3 backend has no lock table — confirmed no `ensureLockTable`/lock-table identifier survives anywhere in the codebase).
+- A second, narrower `AWS::IAM::ManagedPolicy` — `HyveonSelfRotate`, scoped to `arn:aws:iam::*:user/${UserName}` (the same stack parameter naming the created user), granting exactly `iam:CreateAccessKey`, `iam:DeleteAccessKey`, `iam:ListAccessKeys` — the permissions Decision 3's mint-then-revoke rotation needs against the principal the stack itself creates. Not part of `HYVEON_DEPLOY_ALL_ACTIONS`: ordinary deploy principals (profile or pasted-key paths) never rotate their own key, so this permission belongs only to the bootstrap principal the template generates.
 - `AWS::IAM::User` — name taken from a stack parameter, defaulting to `hyveon`.
 - `AWS::IAM::AccessKey` — with `DeletionPolicy: Retain`.
 - Outputs: user name, policy ARN, `AccessKeyId`, and `SecretAccessKey` via `!GetAtt`.
@@ -105,7 +106,7 @@ Scope note: this covers only the buckets `BootstrapService` creates. Tightening 
 - **CloudFormation stack creation fails partway** → The permission gate catches it. Report the stack's failure reason by name and offer delete-and-retry rather than a generic error.
 - **AWS changes the CloudFormation console URL shape or the create-stack flow** → The console URL is constructed in one place in `GuidedIamService` with a unit test pinning its shape, so a fix is one function.
 - **Generated policy drifts from the doc** → `iamPolicy.test.ts` already locks `HYVEON_DEPLOY_ALL_ACTIONS` against `docs/docs/setup.md`; extend it to also assert the generated CloudFormation policy document's four statements match the same source, action-for-action and Sid-for-Sid.
-- **Operator picks the wrong region in the console** → The console URL carries the region selected in the wizard, and the post-rotation `sts:GetCallerIdentity` plus permission gate confirm account and region before bootstrap proceeds.
+- **Operator picks the wrong region in the console** → The console URL carries the region selected in the wizard. Neither `sts:GetCallerIdentity` (account/identity only, no region) nor `iam:SimulatePrincipalPolicy` (policy evaluation only) can confirm which region the stack actually landed in — the post-rotation gate uses a region-scoped `cloudformation:DescribeStacks` call against the selected region to confirm the stack exists there before bootstrap proceeds.
 
 ## Migration Plan
 
@@ -115,7 +116,7 @@ There is no data migration; every existing install already has working credentia
 2. The configuration-bucket encryption fix (Decision 5) is independent and can land at any point — it has no UI dependency.
 3. `docs/docs/setup.md` and `docs/docs/app/first-run-wizard.md` are rewritten last, once the flow is verifiable end to end, retaining the manual IAM steps under an explicit "manual fallback" heading.
 
-**Reconfigure mode:** the guided-IAM step is added to `RECONFIGURE_PRE_COMPLETED_STEPS` alongside `pick-cloud`/`credentials`/`bootstrap` (an existing install already has a deploy principal, so the step renders collapsed with an "Edit" affordance rather than being removed from the step list entirely — there is no separate `reconfigureSteps()` function; reconfigure mode reuses the same `WIZARD_STEPS` array with a pre-completed-set overlay).
+**Reconfigure mode:** the guided-IAM step is added to `RECONFIGURE_PRE_COMPLETED_STEPS` alongside `pick-cloud`/`credentials`/`bootstrap` — but pre-completion is gated on persisted evidence that guided provisioning actually ran (a stored deploy-principal record, not merely "credentials are currently configured"); the profile-picker and paste paths leave no such record and must not pre-complete this step. There is no separate `reconfigureSteps()` function; reconfigure mode reuses the same `WIZARD_STEPS` array with a pre-completed-set overlay, and the guided-IAM entry in that overlay is conditional rather than unconditional like its three siblings.
 
 **Rollback:** the guided step is additive. Removing it leaves the profile-picker and paste paths exactly as they are today.
 

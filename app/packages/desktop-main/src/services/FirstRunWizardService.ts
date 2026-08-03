@@ -18,9 +18,8 @@ export interface WizardProgress {
 const DEFAULT_PROGRESS: WizardProgress = { step: 'pick-cloud' };
 
 /**
- * Owns the first-run wizard's resumable step-progress file (see
- * `openspec/changes/add-first-run-wizard/design.md` decision 4 —
- * `userData/state.json`, corrupt/missing state starts at step 1). Durable
+ * Owns the first-run wizard's resumable step-progress file
+ * (`userData/state.json`; corrupt or missing state starts at step 1). Durable
  * *answers* (`activeCloud`, `aws`, `wizardCompleted`) live in
  * `ElectronStoreService`; this service only tracks *which step* the
  * operator was on, so a wizard interrupted mid-flow resumes there instead of

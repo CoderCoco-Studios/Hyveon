@@ -23,24 +23,23 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   a single value, so the generic bridge handles it.
  * - `iac.rollback.confirm`: bridged manually by the same controller for
  *   the same reason as `iac.plan`/`iac.apply`/`iac.destroy`
- *   — `PulumiService.confirmRollback` (task 7.6) is an `AsyncGenerator` that
- *   streams a real plan run internally, and `IacController.confirmRollback`
- *   forwards each chunk over its own side channel for the duration of that
- *   run before resolving (task 7.10 fix round 1: this channel was originally
- *   left off this set, which silently dropped the undecorated `ctx` parameter
- *   NestJS's `RpcContextCreator` never sized its `initialArgs` array for,
- *   crashing every real invocation with a "Cannot read properties of
- *   undefined (reading 'evt')" TypeError — see the fix-round-1 report for the
- *   full root cause).
+ *   — `PulumiService.confirmRollback` is an `AsyncGenerator` that streams a
+ *   real plan run internally, and `IacController.confirmRollback` forwards
+ *   each chunk over its own side channel for the duration of that run
+ *   before resolving. This channel must stay in this set: NestJS's
+ *   `RpcContextCreator` never sizes its `initialArgs` array for the
+ *   undecorated `ctx` parameter the generic bridge would pass, so leaving
+ *   it off silently drops `ctx` and crashes every invocation with a
+ *   "Cannot read properties of undefined (reading 'evt')" TypeError.
  * - `iac.runs.logs`: bridged manually by `IacRunsController`
  *   because the handler streams a run's live/replayed output over a side
  *   channel derived from a `streamId` it mints itself, the same
  *   self-bridging pattern `iac.plan`/`logs.stream` use — see
  *   `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
- * - `iac.stack.initialize`: bridged manually by `IacController` (task
- *   10.3, replacing the deleted `iac.init` channel) for the same reason as
- *   `iac.plan` — it streams `PulumiService.initializeStack`'s `onPhase`
- *   progress over a side channel for the duration of a long-running run.
+ * - `iac.stack.initialize`: bridged manually by `IacController`, replacing
+ *   the deleted `iac.init` channel, for the same reason as `iac.plan` — it
+ *   streams `PulumiService.initializeStack`'s `onPhase` progress over a
+ *   side channel for the duration of a long-running run.
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',

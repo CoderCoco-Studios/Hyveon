@@ -202,7 +202,7 @@ describe('IacSettingsController', () => {
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
 
-    it('should return the catch-all code: "error" (never throw) for a malformed payload envelope (review round 1, M2)', async () => {
+    it('should return the catch-all code: "error" (never throw) for a malformed payload envelope', async () => {
       const tfvars = makeTfvars();
 
       // `payload.patch` absent entirely — nothing upstream of this handler

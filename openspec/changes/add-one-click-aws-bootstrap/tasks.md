@@ -49,7 +49,7 @@
 ## 7. Wizard UI
 
 - [ ] 7.1 Add the guided-IAM step to `WIZARD_STEPS` in `app/packages/shared/src/wizardSteps.ts`, positioned between `pick-cloud` and `credentials`
-- [ ] 7.2 Update `wizard.utils.ts` / `first-run-wizard.component.tsx` — including `RECONFIGURE_PRE_COMPLETED_STEPS` — to add the guided-IAM step so it renders pre-completed (with an "Edit" affordance) in reconfigure mode, since an existing install already has a deploy principal
+- [ ] 7.2 Update `wizard.utils.ts` / `first-run-wizard.component.tsx` — including `RECONFIGURE_PRE_COMPLETED_STEPS` — to add the guided-IAM step so it renders pre-completed (with an "Edit" affordance) in reconfigure mode, gated on a persisted deploy-principal record rather than on credentials merely being configured
 - [ ] 7.3 Build `guided-iam-step.component.tsx`: guided path as default with an "I already have credentials" alternative, template path with copy and reveal actions, console-open action, key intake form, rotation progress, and the distinct rotation failure states
 - [ ] 7.4 Render the credentials step as satisfied (resolved principal + region, with a switch-source affordance) when guided provisioning already established a source
 - [ ] 7.5 Persist rotation-pending state through `FirstRunWizardService` so a relaunch resumes into the rotation step

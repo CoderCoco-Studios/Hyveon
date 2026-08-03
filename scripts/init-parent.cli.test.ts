@@ -1,12 +1,10 @@
 /**
- * Vitest CLI spec for init-parent.ts's `bootstrap` flow (issue #89, later
- * simplified by the `migrate-iac-to-pulumi` change's task 12.3/12.4 — see
- * that task's report for why `migrate --to-s3`/`--to-local` and the
- * `--s3-tfvars` flag were removed rather than ported: the S3 bucket they
- * synced is the SAME bucket the app's own first-run wizard provisions, but
- * under a different, now-unread object key (`terraform.tfvars`, vs. the
- * app's own JSON `deployment-config.json` key) — nothing reads that key
- * anymore now that the Terraform tree (task 12.1) is gone.
+ * Vitest CLI spec for init-parent.ts's `bootstrap` flow (issue #89). The
+ * `migrate --to-s3`/`--to-local` subcommand and the `--s3-tfvars` flag were
+ * removed: the S3 bucket they synced is the SAME bucket the app's own
+ * first-run wizard provisions, but under a different, now-unread object key
+ * (`terraform.tfvars`, vs. the app's own JSON `deployment-config.json` key)
+ * — nothing reads that key anymore now that the Terraform tree is gone.
  *
  * `node:readline/promises` is mocked so no real interactive prompts happen.
  * `renderMakefile`/`renderTfvars`/etc.'s own render-shape checks live in

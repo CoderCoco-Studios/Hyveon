@@ -1,14 +1,14 @@
 /**
- * Unit tests for Task 4.9's leaked-promise-handling primitives, covering
- * design.md's "Leaked-promise check throws on the success path" risk: a
- * successful Pulumi operation must not be reported as a failure merely
- * because the inline program left a dangling promise.
+ * Unit tests for the leaked-promise-handling primitives: a successful
+ * Pulumi operation must not be reported as a failure merely because the
+ * inline program left a dangling promise.
  *
  * Constructs the exact message shape `debuggable.leakedPromises()`
- * (`node_modules/@pulumi/pulumi/runtime/debuggable.js`) produces, verified
- * during this task's investigation, rather than a hand-waved approximation.
+ * (`node_modules/@pulumi/pulumi/runtime/debuggable.js`) produces, rather
+ * than a hand-waved approximation.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { createRequire } from 'node:module';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -16,6 +16,19 @@ const { loggerMock } = vi.hoisted(() => ({
 vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import { isLeakedPromiseError, runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
+
+// `debuggable.leakedPromises()`/its backing `state.getStore()` are exported at
+// runtime from `@pulumi/pulumi/runtime/*.js` but marked `@internal` in the
+// SDK's own source — there is no public, stable alternative signal to key off
+// instead of this message text (verified during PR review). Loading these two
+// untyped internals lets the compatibility test below call the real SDK
+// function rather than only asserting against a hand-built string.
+const debuggableInternals = createRequire(import.meta.url)('@pulumi/pulumi/runtime/debuggable.js') as {
+  leakedPromises: () => [Set<unknown>, string];
+};
+const stateInternals = createRequire(import.meta.url)('@pulumi/pulumi/runtime/state.js') as {
+  getStore: () => { leakCandidates: Set<unknown> };
+};
 
 /** The exact message shape `debuggable.leakedPromises()` builds for a single leaked promise. */
 const SINGLE_LEAK_MESSAGE =
@@ -45,6 +58,21 @@ describe('isLeakedPromiseError', () => {
 
   it('should return false for a non-Error thrown value', () => {
     expect(isLeakedPromiseError('just a string')).toBe(false);
+  });
+});
+
+describe('isLeakedPromiseError — compatibility with the installed @pulumi/pulumi SDK', () => {
+  it('should classify the message the real, installed debuggable.leakedPromises() produces (regression for a future SDK upgrade silently changing the wording)', () => {
+    const store = stateInternals.getStore();
+    const originalCandidates = store.leakCandidates;
+    store.leakCandidates = new Set([Promise.resolve()]);
+
+    try {
+      const [, message] = debuggableInternals.leakedPromises();
+      expect(isLeakedPromiseError(new Error(message))).toBe(true);
+    } finally {
+      store.leakCandidates = originalCandidates;
+    }
   });
 });
 

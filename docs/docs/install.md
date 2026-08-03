@@ -62,5 +62,5 @@ chmod +x Hyveon-*.AppImage
 ## What's next
 
 Once installed, launch Hyveon and follow the first-run wizard to connect your
-AWS account — see [step 6 of the setup guide](./setup.md#5-run-the-management-app)
+AWS account — see [step 5 of the setup guide](./setup.md#5-run-the-management-app)
 if you'd rather run from source in dev mode instead.

@@ -1,8 +1,6 @@
 /**
  * Unit tests for `PulumiWorkspaceService` — the Automation API
- * workspace/backend/passphrase seam (Tasks 4.3/4.4), including Finding 1's
- * fix (final whole-branch review): `getOrCreateStack` no longer takes a
- * caller-supplied `stackExists` belief at all — it builds the real
+ * workspace/backend/passphrase seam. `getOrCreateStack` builds the real
  * `LocalWorkspace` itself and, only when no LOCAL passphrase record exists,
  * asks that workspace's own `listStacks()` whether the stack already exists
  * in the REAL backend before ever generating a fresh passphrase.
@@ -18,23 +16,22 @@
  * `ElectronStoreService.test.ts`'s round-trip helper) rather than left
  * un-stubbed, because the real implementation would otherwise require the
  * native `electron` module once `isAvailable()` is mocked `true`. Only
- * `PulumiEngineService` (whose own resolution is Task 4.1/4.2's concern,
- * already covered by its own test file) and the Pulumi SDK itself are
- * module-mocked.
+ * `PulumiEngineService` (whose own resolution is already covered by its own
+ * test file) and the Pulumi SDK itself are module-mocked.
  *
- * ## Mocking `LocalWorkspace.create` / `Stack.createOrSelect` (Finding 1)
+ * ## Mocking `LocalWorkspace.create` / `Stack.createOrSelect`
  *
- * `getOrCreateStack` now builds the workspace itself via the lower-level
+ * `getOrCreateStack` builds the workspace itself via the lower-level
  * `LocalWorkspace.create(opts)`, then (only when no local passphrase is
  * stored) calls `ws.listStacks()` on it, then calls `Stack.createOrSelect`
  * with that same instance — rather than the single convenience
- * `LocalWorkspace.createOrSelectStack(args, opts)` call earlier revisions of
- * this file mocked. `createMock` (mocking `LocalWorkspace.create`) resolves
- * with a fake, mutable `ws` object carrying its own `envVars` (a shallow
- * copy of `opts.envVars`, mirroring the real SDK's constructor) and a
- * `listStacks` mock — so the production code's
- * `ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase` mutation is
- * observable via the SAME object `createOrSelectMock` is later called with.
+ * `LocalWorkspace.createOrSelectStack(args, opts)` call. `createMock`
+ * (mocking `LocalWorkspace.create`) resolves with a fake, mutable `ws`
+ * object carrying its own `envVars` (a shallow copy of `opts.envVars`,
+ * mirroring the real SDK's constructor) and a `listStacks` mock — so the
+ * production code's `ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase`
+ * mutation is observable via the SAME object `createOrSelectMock` is later
+ * called with.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -81,7 +78,7 @@ import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from '.
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
 
 /** Fake `Stack` the mocked `Stack.createOrSelect` resolves with. */
-const FAKE_STACK = { name: PULUMI_STACK_NAME } as unknown as Stack;
+const FAKE_STACK = { name: PULUMI_STACK_NAME } as Partial<Stack> as Stack;
 
 /** No-op inline program — never actually invoked, since the SDK call is mocked. */
 const FAKE_PROGRAM: PulumiFn = async () => ({});
@@ -125,7 +122,8 @@ class TestablePulumiWorkspaceService extends PulumiWorkspaceService {
 
 /** Builds a `PulumiEngineService` stub whose `resolve()` resolves with `FAKE_COMMAND`. */
 function stubEngine(): PulumiEngineService {
-  return { resolve: vi.fn().mockResolvedValue(FAKE_COMMAND) } as unknown as PulumiEngineService;
+  const engine: Partial<PulumiEngineService> = { resolve: vi.fn().mockResolvedValue(FAKE_COMMAND) };
+  return engine as PulumiEngineService;
 }
 
 /**
@@ -303,7 +301,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — workDir/pulumiHome stabili
     expect(mkdirSyncMock).toHaveBeenCalledWith(WORK_DIR, { recursive: true });
   });
 
-  it('should not grow the number of distinct workspace directories across many repeated operations (Task 4.10)', async () => {
+  it('should not grow the number of distinct workspace directories across many repeated operations', async () => {
     const { service } = makeService();
     // Large enough that "one leaked directory per call" would be obvious
     // against a stable count, but small enough to stay fast — simulates many
@@ -664,7 +662,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an 
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override extension point (Task 4.5)', () => {
+describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override extension point', () => {
   it('should merge credentialEnvVars into the engine environment', async () => {
     const { service } = makeService();
 
@@ -704,16 +702,15 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentialEnvVars override
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credential resolver (Task 4.5)', () => {
+describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credential resolver', () => {
   it('should pass a named-profile selection all the way through into the final envVars, including the exclusivity clear', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
     const { service } = makeService({ safeStorage, store });
 
-    // This is the literal "wire the resolver's output into credentialEnvVars"
-    // Task 4.5 asks for — resolveCredentialEnvVars is the real function a
-    // future caller (Phase 7) will use, not a hand-built test fixture.
+    // Wires the resolver's output into credentialEnvVars — resolveCredentialEnvVars
+    // is the real function a caller uses, not a hand-built test fixture.
     await service.getOrCreateStack(baseInput({ credentialEnvVars: resolveCredentialEnvVars(store) }));
 
     const opts = createOpts();
@@ -740,11 +737,10 @@ describe('PulumiWorkspaceService.getOrCreateStack — wired to the real credenti
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is unconditional, not opt-in (fix round 1)', () => {
+describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is unconditional, not opt-in', () => {
   /**
-   * Regression tests for the gap the fix-round review found: prior to this
-   * round, `resolveCredentialEnvVars` had no production call site at all —
-   * every test (and every real future caller) had to remember to call it
+   * Regression tests for `resolveCredentialEnvVars` having no production call
+   * site: every test (and every real future caller) had to remember to call it
    * and pass the result through `input.credentialEnvVars`, so a caller that
    * simply forgot would silently get a stack with no credential vars and no
    * clears, exactly the "engine falls back to its own default chain" outcome
@@ -757,9 +753,8 @@ describe('PulumiWorkspaceService.getOrCreateStack — credential resolution is u
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
     const { service } = makeService({ safeStorage, store });
 
-    // No credentialEnvVars anywhere in this input — the literal shape of a
-    // caller (e.g. a future Phase 7 PulumiService) that never learned about
-    // the extension point at all.
+    // No credentialEnvVars anywhere in this input — the shape of a caller
+    // that never learned about the extension point at all.
     await service.getOrCreateStack(baseInput());
 
     const opts = createOpts();
@@ -831,7 +826,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentials are not logged
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding (Task 4.6)', () => {
+describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () => {
   it('should forward input.onPhase to PulumiEngineService.resolve unchanged', async () => {
     const { service, engine } = makeService();
     const onPhase = vi.fn();

@@ -19,26 +19,23 @@ import { ConfigurationNotConfiguredError, RunsTableRenameError, TfvarsService } 
 import { PulumiEngineService } from '../services/PulumiEngineService.js';
 
 /**
- * IPC-only controller for task 9.7's (`migrate-iac-to-pulumi`) deployment-
- * settings editor — reads and writes every top-level `DeploymentConfig`
- * field EXCEPT `gameServers` (that map keeps its own dedicated
- * `GamesController`/`GamesWriteService` flow, untouched here). Every
- * handler is bound to an IPC channel via `@MessagePattern` / `@Payload` — no
- * HTTP routes are registered here. Mirrors `ConfigController`'s minimal
- * shape (business logic inline in the controller, no dedicated write-service
- * class) rather than `GamesController`'s heavier `GamesWriteService`
- * delegation — this surface has no audit-log requirement and a much smaller
- * error-mapping surface, so a separate service class would be pure
- * ceremony.
+ * IPC-only controller for the deployment-settings editor — reads and writes
+ * every top-level `DeploymentConfig` field EXCEPT `gameServers` (that map
+ * keeps its own dedicated `GamesController`/`GamesWriteService` flow,
+ * untouched here). Every handler is bound to an IPC channel via
+ * `@MessagePattern` / `@Payload` — no HTTP routes are registered here.
+ * Mirrors `ConfigController`'s minimal shape (business logic inline in the
+ * controller, no dedicated write-service class) rather than
+ * `GamesController`'s heavier `GamesWriteService` delegation — this surface
+ * has no audit-log requirement and a much smaller error-mapping surface, so
+ * a separate service class would be pure ceremony.
  *
- * Task 10.4 added {@link engineVersion}, reusing this controller rather than
- * `IacController`: `AppModule`'s own doc comment already earmarked "Settings'
- * resolved-version display" as this controller's job, and every other
- * handler here is exactly this — Settings-page-flavored, read/write status
- * for the Cloud Setup section — whereas `IacController` is scoped to
- * plan/apply/destroy orchestration and its `PulumiEngineService` reference
- * (via `PulumiService`) is purely internal to the apply gate, never surfaced
- * on its own channel.
+ * {@link engineVersion} also lives here rather than on `IacController`: it
+ * is Settings-page-flavored, read/write status for the Cloud Setup section,
+ * exactly like every other handler on this controller — whereas
+ * `IacController` is scoped to plan/apply/destroy orchestration and its
+ * `PulumiEngineService` reference (via `PulumiService`) is purely internal
+ * to the apply gate, never surfaced on its own channel.
  */
 @Controller()
 export class IacSettingsController {
@@ -106,7 +103,7 @@ export class IacSettingsController {
    *    catch-all `{ code: 'error' }`.
    *
    * The {@link validateDeploymentSettingsPatch} call lives INSIDE the `try`
-   * block (review round 1, M2) rather than before it — a malformed envelope
+   * block rather than before it — a malformed envelope
    * (`payload` or `payload.patch` absent/wrong-shaped, which nothing upstream
    * of this handler guarantees against on the IPC boundary) would otherwise
    * throw a raw, unstructured error out of this handler instead of returning
@@ -158,7 +155,7 @@ export class IacSettingsController {
 
   /**
    * Returns the resolved Pulumi engine version — `PulumiEngineService.getResolvedVersion()`
-   * verbatim — for Settings' Cloud Setup version row (task 10.4). `resolvedVersion: null`
+   * verbatim — for Settings' Cloud Setup version row. `resolvedVersion: null`
    * is a real, expected "not yet provisioned" state (including while a first
    * resolution is still in flight), not an error: unlike {@link get}/
    * {@link update}, this handler has no failure branch to map, since the

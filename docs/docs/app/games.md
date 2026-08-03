@@ -250,8 +250,8 @@ changed from here.
 
 Above the save button:
 
-> Saving only updates `terraform.tfvars` — visit **Infrastructure** to apply
-> this change to the live server.
+> Saving only updates `deployment-config.json` — visit **Infrastructure** to
+> apply this change to the live server.
 
 **Save changes** writes the versioned JSON configuration object
 (`deployment-config.json`, in your S3 configuration bucket) and returns you

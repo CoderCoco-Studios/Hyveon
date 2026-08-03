@@ -1,11 +1,9 @@
 /**
- * Unit tests for `PulumiService.initializeStack` (task 10.3 of
- * `migrate-iac-to-pulumi` — the wizard's real replacement for the deleted
- * `terraform init` step). Added in fix round 1 after a code reviewer
- * correctly flagged that this method shipped with zero dedicated tests —
- * exactly what let the `'engine'`-vs-`'operation'` mis-attribution bug (see
- * the `should tag an engine-resolution failure as 'engine', not 'operation'`
- * case below) ship undetected.
+ * Unit tests for `PulumiService.initializeStack` — the wizard's real
+ * replacement for the deleted `terraform init` step, including the
+ * `'engine'`-vs-`'operation'` failure-tag distinction covered by the
+ * `should tag an engine-resolution failure as 'engine', not 'operation'`
+ * case below.
  *
  * Mirrors `PulumiService.clearStaleLock.test.ts`'s `makeStore`/`makeWorkspace`/
  * `makeEngine`/`makeModuleRef`-style helpers — this method shares
@@ -195,7 +193,7 @@ describe('PulumiService.initializeStack', () => {
       expect(refresh).toHaveBeenCalledTimes(1);
     });
 
-    it('should record a Pulumi lock attempt immediately before stack.refresh() and clear it once refresh settles (fix round 1, I-5) — success case', async () => {
+    it('should record a Pulumi lock attempt immediately before stack.refresh() and clear it once refresh settles — success case', async () => {
       const store = makeNewStackStore();
       const recordSpy = vi.spyOn(store, 'recordPulumiLockAttempt');
       const clearSpy = vi.spyOn(store, 'clearPulumiLockAttempt');
@@ -258,7 +256,7 @@ describe('PulumiService.initializeStack', () => {
   });
 
   describe('error attribution', () => {
-    it("should tag an engine-resolution failure as 'engine', not 'operation' — regression test for the fix-round-1 mis-attribution bug", async () => {
+    it("should tag an engine-resolution failure as 'engine', not 'operation'", async () => {
       // PulumiEngineService.resolve fires ('engine', 'end') on BOTH success
       // AND rejection — makeWorkspace() reproduces that exact real behaviour
       // (fires the engine start/end pair unconditionally, then rejects).

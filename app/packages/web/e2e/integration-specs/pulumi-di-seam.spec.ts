@@ -3,11 +3,10 @@ import { PulumiService } from '@hyveon/desktop-main/dist/services/PulumiService.
 import { test, expect } from './index.js';
 
 /**
- * Verifies the `orchestrator-integration-coverage` delta spec's "In-process
- * engine stub injected via DI" requirement's two DI-seam scenarios —
- * distinct from (and narrower than) the Plan/Apply/Destroy gating, ANSI-
- * preservation, and run-record-persistence coverage tracked as follow-up
- * work under task 7.11: this file only proves the DI substitution itself
+ * Verifies the "In-process engine stub injected via DI" requirement's two
+ * DI-seam scenarios — distinct from (and narrower than) the Plan/Apply/
+ * Destroy gating, ANSI-preservation, and run-record-persistence coverage
+ * exercised elsewhere: this file only proves the DI substitution itself
  * works, not the full engine-operation surface built on top of it.
  */
 test.describe('PulumiService — DI-seam substitution', () => {

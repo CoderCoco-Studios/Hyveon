@@ -17,19 +17,18 @@ export class IacPage {
    * Navigate to `/iac` by clicking the sidebar link and waiting for the URL
    * to settle. Scoped to the `<nav aria-label="Main navigation">` landmark
    * (`app-layout.component.tsx`) rather than an unscoped `getByRole('link')`
-   * lookup: an exact-match name alone isn't enough to disambiguate any more
-   * — the dashboard's `NoGamesCard` empty state (rendered by default in
-   * test mode, which starts with no games configured) ALSO renders a link
-   * whose text is the exact string "Infrastructure"
-   * (`dashboard.page.tsx`'s `NoGamesCard`), so an unscoped exact-match
-   * lookup matches two elements and Playwright throws a strict-mode
-   * violation. Scoping to the nav landmark first is what actually
-   * disambiguates now; the desktop sidebar's `<nav>` is the only one visible
-   * in the accessibility tree in the default (mobile drawer closed) state —
-   * `app-layout.component.tsx` renders a second, identically-labeled `<nav>`
-   * for the mobile drawer, but it's `aria-hidden`/`display: none` while
-   * closed, so `getByRole('navigation', ...)` still resolves to exactly one
-   * match here.
+   * lookup: an exact-match name alone isn't enough to disambiguate — the
+   * dashboard's `NoGamesCard` empty state (rendered by default in test
+   * mode, which starts with no games configured) ALSO renders a link whose
+   * text is the exact string "Infrastructure" (`dashboard.page.tsx`'s
+   * `NoGamesCard`), so an unscoped exact-match lookup matches two elements
+   * and Playwright throws a strict-mode violation. Scoping to the nav
+   * landmark first is what disambiguates; the desktop sidebar's `<nav>` is
+   * the only one visible in the accessibility tree in the default (mobile
+   * drawer closed) state — `app-layout.component.tsx` renders a second,
+   * identically-labeled `<nav>` for the mobile drawer, but it's
+   * `aria-hidden`/`display: none` while closed, so
+   * `getByRole('navigation', ...)` still resolves to exactly one match here.
    */
   async gotoViaSidebar(): Promise<void> {
     await this.page
@@ -61,12 +60,12 @@ export class IacPage {
     return this.page.getByText(text, { exact: true });
   }
 
-  /** Partial-apply banner (task 9.3) — shown instead of the generic apply-failure banner when `applyRecord.partialApply` is `true`. */
+  /** Partial-apply banner — shown instead of the generic apply-failure banner when `applyRecord.partialApply` is `true`. */
   partialApplyBanner(): Locator {
     return this.page.getByRole('alert').filter({ hasText: 'Apply stopped partway through' });
   }
 
-  /** Stale-lock recovery banner (task 9.4) — shown instead of the BUSY/error banner when a plan/apply/destroy submission reports `ack.staleLock`. */
+  /** Stale-lock recovery banner — shown instead of the BUSY/error banner when a plan/apply/destroy submission reports `ack.staleLock`. */
   staleLockBanner(): Locator {
     return this.page.getByRole('alert').filter({ hasText: 'Backend lock in the way' });
   }

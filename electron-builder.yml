@@ -192,6 +192,18 @@ extraResources:
   # the app bundle, but Linux does not.
   - from: build/icon.png
     to: icon.png
+  # PulumiService.getLambdaBundlesDir() resolves these to <resourcesPath>/lambda
+  # in a packaged app — must stay in sync with the five @hyveon/lambda-* packages.
+  - from: app/packages/lambda/interactions/dist
+    to: lambda/interactions/dist
+  - from: app/packages/lambda/followup/dist
+    to: lambda/followup/dist
+  - from: app/packages/lambda/update-dns/dist
+    to: lambda/update-dns/dist
+  - from: app/packages/lambda/watchdog/dist
+    to: lambda/watchdog/dist
+  - from: app/packages/lambda/efs-seeder/dist
+    to: lambda/efs-seeder/dist
 
 # Icon assets are generated from build/icon.svg by `npm run icons:generate` and
 # committed, so packaging never has to rasterise anything. build/ is also

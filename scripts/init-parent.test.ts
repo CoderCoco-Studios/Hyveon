@@ -25,8 +25,8 @@ const expect = (label: string, ok: boolean): void => {
 
 const mk = renderMakefile(a);
 expect('Makefile sets SUBMODULE', mk.includes('SUBMODULE   := $(REPO_ROOT)/Hyveon'));
-expect('Makefile has dev target with state pull', mk.includes('terraform -chdir=$(TF_DIR) state pull'));
-expect('Makefile dev target runs npm run app:dev directly in the submodule', mk.includes('cd $(SUBMODULE) && TF_STATE_PATH=$(STAMP_DIR)/tfstate.json npm run app:dev'));
+expect('Makefile dev target does NOT shell out to terraform', !mk.includes('terraform'));
+expect('Makefile dev target runs npm run app:dev directly in the submodule', mk.includes('cd $(SUBMODULE) && npm run app:dev'));
 expect('Makefile uses bash shell', mk.startsWith('SHELL      := /usr/bin/env bash'));
 
 // ── No more .env / API_TOKEN / setup.sh delegation ──────────────────────────

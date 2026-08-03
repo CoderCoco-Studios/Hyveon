@@ -338,10 +338,9 @@ describe('FirstRunWizard', () => {
         expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
       );
       expect(hyveonMock.wizard.bootstrapConfigurationBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
-      // No `wizard.bootstrap.lockTable` channel exists anymore (task 5.1
-      // removed the main-process handler entirely) and this wizard has no
-      // client method for it either (task 5.5) — there is nothing left to
-      // assert was "not called" here beyond the two real calls above.
+      // No `wizard.bootstrap.lockTable` channel exists, and this wizard has
+      // no client method for it either — there is nothing left to assert
+      // was "not called" here beyond the two real calls above.
     });
 
     it('should call wizard.bootstrap.runsTable alongside the two bucket calls when the bootstrap button is clicked (bootstrap-deadlock fix)', async () => {

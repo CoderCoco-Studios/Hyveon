@@ -55,7 +55,7 @@ export function RemoveGameButton({ game }: Props) {
     try {
       const result = await api.deleteGame({ name: game });
       if (result.ok) {
-        toast.success(`${game} removed from the configuration`);
+        toast.success(`${game} removed from deployment-config.json`);
         navigate('/games');
         return;
       }
@@ -80,9 +80,9 @@ export function RemoveGameButton({ game }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {game}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes the <code className="font-[var(--font-mono)] text-xs">{game}</code> entry from
-              the configuration object. The deployed AWS resources stay live until an operator applies the
-              change from the{' '}
+              This deletes the <code className="font-[var(--font-mono)] text-xs">{game}</code> entry from{' '}
+              <code className="font-[var(--font-mono)] text-xs">deployment-config.json</code>. The deployed AWS
+              resources stay live until an operator applies the change from the{' '}
               <Link to="/iac" className="underline underline-offset-2">
                 Infrastructure
               </Link>{' '}

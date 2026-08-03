@@ -1,5 +1,5 @@
 /**
- * Unit tests for `PulumiService.destroy` (task 7.3 of `migrate-iac-to-pulumi`)
+ * Unit tests for `PulumiService.destroy`
  * — the token-gated infrastructure destruction operation, replacing
  * `TerraformController.destroy` + `TerraformService.destroy`'s split
  * lock/token gate with one self-contained method (mirrors `apply`'s own
@@ -245,7 +245,7 @@ beforeEach(() => {
 });
 
 describe('PulumiService.destroy concurrency guard', () => {
-  it('should throw synchronously when destroy() is called while initializeStack() is already in flight (fix round 1, I-5)', async () => {
+  it('should throw synchronously when destroy() is called while initializeStack() is already in flight', async () => {
     // Regression test for a code-reviewer-traced race: initializeStack()
     // does not set `operationInFlight` (see PulumiService.ts's own
     // `stackInitInFlight` doc comment for why it's a separate flag), so

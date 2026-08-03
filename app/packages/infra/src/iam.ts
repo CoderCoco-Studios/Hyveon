@@ -1,18 +1,15 @@
 /**
- * IAM roles and inline policies — ported from `terraform/aws/main.tf`'s
- * `## IAM` block (the ECS task-execution role and its managed-policy
- * attachment) plus every per-Lambda role/policy pair scattered across
- * `terraform/aws/{followup,interactions,route53,watchdog,efs-seeder}.tf`
- * (task 3.5 of `migrate-iac-to-pulumi`). Every `aws_iam_*` resource in the
- * HCL lives here, even the ones whose *consumers* (the EFS filesystem, the
- * Lambda functions themselves, the DynamoDB table, the Secrets Manager
- * secret, the Route 53 hosted-zone lookup) are ported by later dispatches —
- * see {@link DefineIamPoliciesArgs}'s doc for how those forward references
- * are threaded.
+ * IAM roles and inline policies — the ECS task-execution role and its
+ * managed-policy attachment, plus every per-Lambda role/policy pair
+ * (watchdog, followup, interactions, DNS-updater, per-game EFS-seeder).
+ * Every IAM role and inline policy this package needs lives here, even
+ * though the resources they grant access to (the EFS filesystem, the Lambda
+ * functions themselves, the DynamoDB table, the Secrets Manager secret, the
+ * Route 53 hosted-zone lookup) are declared elsewhere — see
+ * {@link DefineIamPoliciesArgs}'s doc for how those forward references are
+ * threaded.
  *
- * Six roles, five inline policies, one managed-policy attachment — matching
- * the task-3.5 brief's inventory exactly (confirmed by grepping the HCL for
- * `resource "aws_iam_`, no discrepancy found):
+ * Six roles, five inline policies, one managed-policy attachment:
  *
  * | HCL address | This file |
  * | --- | --- |
@@ -31,30 +28,23 @@
  *
  * ## Why this is two functions, not one
  *
- * The HCL has no cycle: `aws_lambda_function.followup` (followup.tf)
- * consumes `aws_iam_role.followup_lambda.arn`, while
- * `aws_iam_role_policy.interactions_lambda` (interactions.tf) separately
- * consumes `aws_lambda_function.followup.arn` — role and policy are
- * independent graph nodes, and Terraform's declarative evaluation doesn't
- * care which "file" they live in. An earlier version of this module fused
- * every role AND every policy into one eagerly-evaluated `defineIam(...)`
- * call, which collapsed both nodes into one: that function would have to
- * run *before* `defineLambdas` (task 3.6, which needs role ARNs to create
- * the Lambda functions) while simultaneously *requiring* a Lambda ARN
- * (`followupLambdaArn`) as an input — no call order satisfies both, so the
- * deferred-parameter contract was unsatisfiable as written.
+ * Role and policy declaration can't collapse into a single eagerly-evaluated
+ * function: the followup Lambda's role must exist *before* `defineLambdas`
+ * runs (it needs the role's ARN to create the Lambda function), while the
+ * interactions Lambda's inline policy needs the followup Lambda's ARN back
+ * (to grant it `lambda:InvokeFunction`) — no single call, run once, can
+ * satisfy both directions.
  *
  * Splitting into {@link defineIamRoles} (the six roles + the managed-policy
- * attachment — needs nothing from any later task) and
+ * attachment — needs nothing from any later step) and
  * {@link defineIamPolicies} (the five inline policies — needs the roles
- * back, plus every deferred ARN) mirrors the HCL's own separation and
- * restores a satisfiable order: `defineIamRoles()` → `defineLambdas()`
- * (using `roles.followupLambdaRole.arn` etc.) → `defineIamPolicies()`
- * (using the roles plus the now-real `followupLambdaArn` from the Lambda
- * step, and the DynamoDB/EFS/Secrets/Route53 ARNs `dynamodb.ts`/`efs.ts`/
- * `secrets.ts`/`route53.ts` supply). `program.ts`'s `defineAll` calls both
- * functions in exactly this order — see its file doc for the full call
- * sequence across every resource area.
+ * back, plus every deferred ARN) resolves this: `defineIamRoles()` →
+ * `defineLambdas()` (using `roles.followupLambdaRole.arn` etc.) →
+ * `defineIamPolicies()` (using the roles plus the now-real
+ * `followupLambdaArn` from the Lambda step, and the DynamoDB/EFS/Secrets/
+ * Route53 ARNs `dynamodb.ts`/`efs.ts`/`secrets.ts`/`route53.ts` supply).
+ * `program.ts`'s `defineAll` calls both functions in exactly this order —
+ * see its file doc for the full call sequence across every resource area.
  */
 
 import * as aws from '@pulumi/aws';
@@ -251,12 +241,11 @@ function logStatement(): { Effect: string; Action: string[]; Resource: string } 
 }
 
 /**
- * Declares every IAM role and the managed-policy attachment ported from the
- * HCL (task 3.5 of `migrate-iac-to-pulumi`) — see this file's doc for the
- * full HCL→Pulumi address table and why roles and policies are split across
- * two functions. Needs nothing from any later dispatch (every role's trust
- * policy is a static literal). Must be called from inside the Pulumi
- * inline-program closure, never at module scope.
+ * Declares every IAM role and the managed-policy attachment — see this
+ * file's doc for the full address table and why roles and policies are
+ * split across two functions. Needs nothing from any later step (every
+ * role's trust policy is a static literal). Must be called from inside the
+ * Pulumi inline-program closure, never at module scope.
  *
  * @param args - Naming, config, and provider inputs — see
  *   {@link DefineIamRolesArgs}.
@@ -332,11 +321,10 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
 }
 
 /**
- * Declares every inline policy ported from the HCL (task 3.5 of
- * `migrate-iac-to-pulumi`) — see this file's doc for the full HCL→Pulumi
- * address table and why roles and policies are split across two functions.
- * Must run after {@link defineIamRoles} (its `roles` argument) and, in a
- * live `defineAll` wiring, after `defineLambdas` (task 3.6) has supplied
+ * Declares every inline policy — see this file's doc for the full address
+ * table and why roles and policies are split across two functions. Must run
+ * after {@link defineIamRoles} (its `roles` argument) and, in a live
+ * `defineAll` wiring, after `defineLambdas` has supplied
  * `args.followupLambdaArn` — see {@link DefineIamPoliciesArgs}'s doc. Must
  * be called from inside the Pulumi inline-program closure, never at module
  * scope.
@@ -381,7 +369,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
       role: roles.followupLambdaRole.id,
       // `iam:PassRole` targets the ECS task-execution role from `roles`
       // (live, same-program reference) — the DynamoDB grant targets the
-      // `discord` table (deferred, task 3.8) — hence `pulumi.jsonStringify`
+      // `discord` table (a deferred ARN) — hence `pulumi.jsonStringify`
       // rather than a plain `JSON.stringify`, to resolve both Output-typed
       // ARNs into the final JSON string.
       policy: pulumi.jsonStringify({

@@ -27,7 +27,7 @@ function formatTimestamp(iso: string): string {
 
 /**
  * Formats a {@link DeploymentConfigDiff} into a single readable sentence
- * appended to the rollback confirmation dialog's description (task 9.6) —
+ * appended to the rollback confirmation dialog's description —
  * e.g. "3 game servers added (foo, bar, baz), 1 removed (qux), 2 changed
  * (corn, potato); other settings also changed: awsRegion, dnsTtl." Never
  * called when `diff` itself is absent — see {@link RollbackAction}'s own
@@ -87,7 +87,7 @@ function formatDiffSummary(diff: DeploymentConfigDiff): string {
  * and the confirm step's own backend re-resolution means nothing is written
  * on a confirm failure either.
  *
- * ## Diff summary (task 9.6)
+ * ## Diff summary
  *
  * `iac.rollback.resolve`'s ack may also carry a `diff` — a best-effort
  * `DeploymentConfigDiff` summarizing how the target version differs from
@@ -95,11 +95,11 @@ function formatDiffSummary(diff: DeploymentConfigDiff): string {
  * When present, {@link formatDiffSummary} renders it as an extra sentence
  * appended to the confirmation dialog's description. When absent — the
  * diff computation degraded for any reason (network error, unparseable
- * configuration, etc.) — the dialog renders EXACTLY as it did before this
- * task: identify-target-only, no diff line, never a broken/empty diff
- * section. This graceful degradation is deliberate per the `iac-rollback`
- * spec: "identify the target version" is a MUST; the diff summary is only
- * a SHOULD-level enhancement layered on top.
+ * configuration, etc.) — the dialog renders identify-target-only, no diff
+ * line, never a broken/empty diff section. This graceful degradation is
+ * deliberate per the `iac-rollback` spec: "identify the target version" is
+ * a MUST; the diff summary is only a SHOULD-level enhancement layered on
+ * top.
  */
 export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps) {
   const [resolving, setResolving] = useState(false);

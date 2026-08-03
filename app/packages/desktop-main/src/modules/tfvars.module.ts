@@ -17,8 +17,8 @@ import { TFVARS_SERVICE } from '../services/PulumiService.js';
  *
  * Also binds `TFVARS_SERVICE` (`PulumiService.ts`'s narrow DI token for the
  * slice of `TfvarsService.restoreRawTfvars`'s surface
- * `PulumiService.confirmRollback` depends on — task 7.6, see that token's
- * own doc comment) to the real `TfvarsService` singleton via `useExisting`,
+ * `PulumiService.confirmRollback` depends on — see that token's own doc
+ * comment) to the real `TfvarsService` singleton via `useExisting`,
  * and exports it — mirrors `run-record.module.ts`'s identical
  * `RUN_RECORD_PERSISTER`/`RUN_LOCK_SERVICE` bindings. This module is already
  * imported directly by `app.module.ts` (and by `terraform.module.ts`), so

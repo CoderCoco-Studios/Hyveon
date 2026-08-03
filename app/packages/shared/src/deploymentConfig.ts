@@ -1,8 +1,7 @@
 /**
- * Typed configuration model replacing `terraform.tfvars` as the app's
- * configuration source of truth (see the `migrate-iac-to-pulumi` OpenSpec
- * change). This is a NEW canonical model, not a mirror of the Terraform HCL
- * shape:
+ * Typed configuration model that replaces `terraform.tfvars` as the app's
+ * configuration source of truth. This is a NEW canonical model, not a mirror
+ * of the Terraform HCL shape:
  *
  *  - Field names are idiomatic TS `camelCase` rather than HCL `snake_case`,
  *    EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
@@ -14,16 +13,16 @@
  *    rather than forking a parallel `camelCase` copy.
  *  - The model is plain data — every field is JSON-serializable (`string`,
  *    `number`, `boolean`, array, or plain object; no `Date`, `Map`, `Set`, or
- *    class instance) — because Phase 6 of the migration persists it verbatim
- *    as a JSON object in the operator's configuration S3 bucket, and the
- *    Pulumi program (Phase 3) reads it directly to derive resources.
- *  - It intentionally excludes every secret input. `discord_bot_token` and
- *    `discord_public_key` (`terraform/variables.tf`) are DROPPED, not
- *    ported — see the design doc's "Keep secrets out of the stack" decision.
- *    The app's `DiscordConfigService` already writes those two values to AWS
- *    Secrets Manager directly over the SDK, and the standing rule is that no
- *    secret is ever sent to the renderer or persisted outside Secrets
- *    Manager; giving them a home in this model would reopen that route.
+ *    class instance) — because it is persisted verbatim as a JSON object in
+ *    the operator's configuration S3 bucket, and the Pulumi program reads it
+ *    directly to derive resources.
+ *  - It intentionally excludes every secret input, to keep secrets out of the
+ *    stack. `discord_bot_token` and `discord_public_key`
+ *    (`terraform/variables.tf`) are DROPPED, not ported: the app's
+ *    `DiscordConfigService` already writes those two values to AWS Secrets
+ *    Manager directly over the SDK, and the standing rule is that no secret
+ *    is ever sent to the renderer or persisted outside Secrets Manager;
+ *    giving them a home in this model would reopen that route.
  *
  * Field inventory: every field below (other than `gameServers`, whose
  * per-entry shape mirrors `terraform/variables.tf`'s `game_servers` object
@@ -39,8 +38,8 @@
  *    support lands.
  *  - `tfvars_bucket_name` — names the S3 bucket this very configuration
  *    object is expected to live in. Storing it *inside* the object it
- *    locates would be circular; Phase 6 (config store) resolves the bucket
- *    name through its own mechanism instead.
+ *    locates would be circular; the config store resolves the bucket name
+ *    through its own mechanism instead.
  *  - `tags` — applied via the root provider's `default_tags` block, never
  *    threaded through `module "cloud"` (`terraform/main.tf` does not pass it
  *    down); a resource-tagging concern for the Pulumi program to own
@@ -56,13 +55,8 @@ import type { RemoteFileStore } from './cloud.js';
  * inside the operator's configuration bucket. Shared by `TfvarsService`
  * (desktop-main) and `TerraformService`'s rollback flow (#112) — both derive
  * the object key from this single constant rather than a filesystem path's
- * `basename()`, which was the pre-`migrate-iac-to-pulumi` mechanism
- * (`ConfigService.getTfvarsPath()`, retired alongside local-file mode; see
- * Phase 6, "Configuration persisted as versioned JSON"). Deriving the key
- * from a path was never more than an accident of the local-file-mode
- * implementation — an env-var override to that path (`TFVARS_PATH`) could
- * silently change the S3 key a deployment used, which this constant makes
- * impossible.
+ * `basename()`. A fixed constant means an env-var override to a local path
+ * can never silently change the S3 key a deployment uses.
  */
 export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 
@@ -70,8 +64,8 @@ export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
  * Full deployment configuration: the top-level settings the Pulumi program
  * derives shared infrastructure from, plus the per-game map it iterates to
  * derive per-game resources. Persisted verbatim as JSON in the operator's
- * configuration S3 bucket (Phase 6) and edited via the renderer's Settings
- * and Games forms.
+ * configuration S3 bucket and edited via the renderer's Settings and Games
+ * forms.
  */
 export interface DeploymentConfig {
   /**
@@ -181,8 +175,8 @@ export interface DeploymentConfig {
    * does NOT replicate that project-name-dependent computed default; it
    * leaves an omitted value as the literal empty string, matching the
    * Terraform variable's own default, and leaves resolving `""` to the
-   * computed table name to the infrastructure program (Phase 3), the same
-   * place Terraform itself did it.
+   * computed table name to the infrastructure program, the same place
+   * Terraform itself did it.
    */
   auditTableName: string;
 
@@ -227,8 +221,8 @@ export interface DeploymentConfig {
 
 /**
  * Every top-level {@link DeploymentConfig} field EXCEPT `gameServers` — the
- * exact slice task 9.7 (`migrate-iac-to-pulumi`) lets the operator edit from
- * the Settings page's new deployment-settings form, via
+ * exact slice the operator edits from the Settings page's
+ * deployment-settings form, via
  * `TfvarsService.getTopLevelSettings`/`updateTopLevelSettings`
  * (`@hyveon/desktop-main`) and the `iac.settings.get`/`iac.settings.update`
  * IPC channels. Deliberately excludes `gameServers` — that map has its own
@@ -236,8 +230,7 @@ export interface DeploymentConfig {
  * `games.delete`) and is never touched by the settings form.
  *
  * Re-exported from `@hyveon/desktop-preload/hyveon-api` rather than
- * hand-duplicated there — matches task 8.3's `ChangeSummary` re-export
- * precedent (see that file's own doc comment for the full rationale).
+ * hand-duplicated there, matching `ChangeSummary`'s re-export pattern.
  */
 export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
 
@@ -428,9 +421,9 @@ type DeploymentConfigScalarField = keyof Omit<DeploymentConfig, 'gameServers'>;
 
 /**
  * Structural, best-effort summary of how one {@link DeploymentConfig}
- * differs from another — built for the `iac-rollback` confirmation dialog
- * (task 9.6 of `migrate-iac-to-pulumi`) so an operator rolling back to a
- * historic configuration version sees more than an opaque version id: which
+ * differs from another — built for the `iac-rollback` confirmation dialog, so
+ * an operator rolling back to a historic configuration version sees more
+ * than an opaque version id: which
  * top-level settings changed, and which game servers were added, removed, or
  * changed. Deliberately NOT a rich/recursive diff — no per-field before/after
  * values, no nested-path granularity within a single `gameServers` entry.
@@ -514,12 +507,11 @@ function valuesDiffer(a: unknown, b: unknown): boolean {
 
 /**
  * Compares two parsed {@link DeploymentConfig} objects and returns a
- * structural summary of how they differ — the `iac-rollback` confirmation
- * dialog's best-effort "SHOULD summarize how the target configuration
- * differs from the current one" enhancement (task 9.6). Pure and
- * synchronous: takes two already-parsed configs, does no I/O, and never
- * throws for any two well-formed {@link DeploymentConfig} values (every
- * field it reads is optional-safe — see {@link valuesDiffer}).
+ * structural summary of how they differ, for the `iac-rollback` confirmation
+ * dialog. Pure and synchronous: takes two already-parsed configs, does no
+ * I/O, and never throws for any two well-formed {@link DeploymentConfig}
+ * values (every field it reads is optional-safe — see
+ * {@link valuesDiffer}).
  *
  * ## Scope
  *

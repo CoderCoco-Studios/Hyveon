@@ -129,7 +129,7 @@ describe('DeploymentSettingsForm', () => {
     });
   });
 
-  describe('defensive defaulting for an incomplete settings object (review round 1, finding I2)', () => {
+  describe('defensive defaulting for an incomplete settings object', () => {
     it('should render without crashing when the three base-allowlist arrays are absent from the fetched settings', async () => {
       // Simulates a stored document that predates these fields — the
       // backend now defaults them too (TfvarsService.getTopLevelSettings),
@@ -289,7 +289,7 @@ describe('DeploymentSettingsForm', () => {
       expect(await screen.findByText('IPC transport failed')).toBeInTheDocument();
     });
 
-    it('should refuse to save and never call iac.settings.update when the loaded settings carried no etag (review round 1, M1)', async () => {
+    it('should refuse to save and never call iac.settings.update when the loaded settings carried no etag', async () => {
       hyveonMock.iac.settings.get.mockResolvedValue({ ok: true, settings: SETTINGS, etag: undefined });
       render(<DeploymentSettingsForm />);
       await screen.findByLabelText('Hosted zone name');

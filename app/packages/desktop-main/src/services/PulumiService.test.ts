@@ -80,8 +80,8 @@ function makeStore(opts: {
   }
   if (opts.passphrase !== undefined) {
     // Bypass the encrypted accessor pair — presence is checked via the raw
-    // `get('pulumi')?.passphrase !== undefined` idiom this dispatch's
-    // `getStackOutputs` uses, so a plaintext placeholder is enough; nothing
+    // `get('pulumi')?.passphrase !== undefined` idiom `PulumiService` uses as
+    // its `stackExists` proxy, so a plaintext placeholder is enough; nothing
     // in this file ever calls `getPulumiPassphrase()` to decrypt it.
     store.set('pulumi', { passphrase: opts.passphrase });
   }
@@ -92,7 +92,7 @@ function makeStore(opts: {
 }
 
 /**
- * Stub `ModuleRef` — task 7.1's `preview()` resolves `RUN_RECORD_PERSISTER`/
+ * Stub `ModuleRef` — `preview()` resolves `RUN_RECORD_PERSISTER`/
  * `REMOTE_FILE_STORE` lazily via `ModuleRef.get(token, { strict: false })`
  * (see `PulumiService.ts`'s `getRunRecordPersister`/`getRemoteFileStore` and
  * `pulumi-service.module.ts`'s doc comment for why this isn't a normal
@@ -106,7 +106,7 @@ function makeModuleRef(): ModuleRef {
 }
 
 /**
- * Stub `PulumiEngineService` — task 7.2's `apply()` gate depends on
+ * Stub `PulumiEngineService` — `apply()`'s gate depends on
  * `resolve()`/`getResolvedVersion()`. None of `getStackOutputs()`'s existing
  * tests ever reach `apply()`, so both methods throwing is intentional — it
  * proves a test that unexpectedly exercises the engine-version gate fails

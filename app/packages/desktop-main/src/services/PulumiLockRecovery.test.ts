@@ -1,6 +1,6 @@
 /**
- * Unit tests for Task 4.8's stale-backend-lock-recovery primitives, covering
- * the `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
+ * Unit tests for the stale-backend-lock-recovery primitives, covering the
+ * `pulumi-engine-runtime` delta spec's "Stale backend lock recovery"
  * requirement's four scenarios: "Force-terminated run reclaims its own
  * lock", "Unrecognised lock requires confirmation with evidence", "Another
  * machine's active lock is not presented as stale", and "In-app concurrency
@@ -8,10 +8,10 @@
  * describe block below explaining why this module never even sees that
  * case, so it is argued in prose/TSDoc rather than exercised by a test).
  *
- * Also covers the fix-round findings: a live same-machine lock must never be
- * classified as reclaimable regardless of identity match, ownership records
- * must be pruned after a bounded age, and evidence used to justify a reclaim
- * must be consumed (cleared) rather than reusable.
+ * Also covers: a live same-machine lock must never be classified as
+ * reclaimable regardless of identity match, ownership records must be
+ * pruned after a bounded age, and evidence used to justify a reclaim must
+ * be consumed (cleared) rather than reusable.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'node:module';
@@ -91,6 +91,7 @@ function makeStore(records: (PulumiLockOwnershipRecord & { runId: string })[]): 
   } as Partial<ElectronStoreService> as ElectronStoreService & { clearPulumiLockAttempt: ReturnType<typeof vi.fn> };
 }
 
+/** Builds a fresh `PulumiLockOwnershipRecord` for stack `production` under {@link IDENTITY}, with per-test overrides. */
 function makeRecord(
   overrides: Partial<PulumiLockOwnershipRecord & { runId: string }> = {},
 ): PulumiLockOwnershipRecord & { runId: string } {
@@ -399,6 +400,22 @@ describe("classifyStackLockConflict — another machine's active lock is not pre
     const stderr = diyLockStderr([
       { pid: 4242, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:30:00Z' },
       { pid: 999, username: 'other-user', hostname: 'other-machine', lockedAt: '2024-01-15T10:31:00Z' },
+    ]);
+    const err = realSdkErrorFromStderr(stderr);
+
+    const result = classifyStackLockConflict(err, store, 'production', IDENTITY, new Date('2024-01-15T10:35:00Z'));
+
+    expect(result.kind).toBe('requires-confirmation');
+  });
+});
+
+describe('classifyStackLockConflict — one ownership record cannot prove two locks', () => {
+  it('should return "requires-confirmation" when two dead same-machine locks share only one fresh record', () => {
+    mockPidDead();
+    const store = makeStore([makeRecord({ runId: 'run-1', startedAt: '2024-01-15T10:29:00Z' })]);
+    const stderr = diyLockStderr([
+      { pid: 4242, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:30:00Z' },
+      { pid: 4243, username: 'chris', hostname: 'dev-machine', lockedAt: '2024-01-15T10:31:00Z' },
     ]);
     const err = realSdkErrorFromStderr(stderr);
 

@@ -12,14 +12,6 @@ it, and apply it.
 
 > Plan, review, and apply infrastructure changes directly from the app.
 
-:::note Still labelled "Terraform" in the sidebar
-The app's own sidebar currently labels this nav item **Terraform** even
-though its route is `/iac` and it runs a Pulumi preview/update under the
-hood — a naming leftover from the migration that hasn't been fixed in the
-UI yet. This page uses the underlying Pulumi terms so it stays accurate to
-what actually runs; expect the sidebar wording to catch up in a later pass.
-:::
-
 ![The Infrastructure page with a Run plan button and an empty log viewer waiting for output](/img/app/terraform.png)
 
 The workflow is a strict sequence, and each stage only unlocks the next:
@@ -124,12 +116,11 @@ dashboard** link, plus a toast.
 ## The workspace-busy banner
 
 Only one Pulumi operation can hold the shared workspace at a time — Pulumi's
-own operation names are `preview`/`up`, which this page relabels to the
-familiar `plan`/`apply` terms everywhere except the busy banner itself,
-which currently still reads (a leftover from the pre-migration wording):
+own operation names are `preview`/`up`, which the busy banner relabels to
+the familiar `plan`/`apply` terms:
 
-> Workspace busy — a `terraform plan` run is already in progress. Try again
-> once it finishes.
+> Workspace busy — a `plan` run is already in progress. Try again once it
+> finishes.
 
 It appears under whichever action you attempted (plan, apply or destroy), with
 the raw backend error stacked below it. Wait for the in-flight run to finish
