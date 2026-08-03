@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
 import { resolveCloudFormationTemplatePath } from '../cloudformationTemplate.js';
 
@@ -33,6 +34,22 @@ export interface OpenConsoleResult {
    * URL as plain text for the operator to open manually.
    */
   opened: boolean;
+}
+
+/** Input to {@link GuidedIamService.intakeBootstrapKey}. */
+export interface BootstrapKeyIntakeInput {
+  /** Access key ID the operator pasted from the CloudFormation stack outputs. */
+  accessKeyId: string;
+  /** Secret access key the operator pasted from the CloudFormation stack outputs. */
+  secretAccessKey: string;
+  /** Region to validate the key pair against. */
+  region: string;
+}
+
+/** Result of {@link GuidedIamService.intakeBootstrapKey}. */
+export interface BootstrapKeyIntakeResult {
+  /** AWS account ID resolved from `sts:GetCallerIdentity`. */
+  accountId: string;
 }
 
 /**
@@ -139,6 +156,61 @@ export class GuidedIamService {
     } catch {
       return { opened: false };
     }
+  }
+
+  /**
+   * Validate an operator-submitted bootstrap access key pair by calling
+   * `sts:GetCallerIdentity` with it, returning the resolved AWS account ID
+   * on success.
+   *
+   * Unlike {@link IamCheckService} or `BootstrapService`, which build their
+   * AWS clients from the wizard's already-established credential source
+   * (`ElectronStoreService.get('aws')`, resolved via
+   * `resolveAwsCredentialSource`), this method builds the `STSClient`
+   * directly from `input` — this service runs *before* any credential
+   * source exists; `input` is the operator's just-pasted bootstrap key, not
+   * yet stored anywhere. See {@link createStsClient}.
+   *
+   * On success, returns `{ accountId }` taken directly from the response's
+   * `Account` field — simpler than `IamCheckService`'s ARN-parsing, which
+   * exists only because `SimulatePrincipalPolicy`'s `PolicySourceArn`
+   * parameter accepts an ARN and nothing else; that need doesn't apply
+   * here. Throws a clear error if `Account` is unexpectedly absent from an
+   * otherwise-successful response.
+   *
+   * On failure, the underlying AWS SDK error propagates unchanged (never
+   * wrapped in a generic "invalid credentials" message) — the caller needs
+   * the real error to explain the failure to the operator.
+   *
+   * Persists nothing: this method's only job is validation.
+   *
+   * @param input - The pasted bootstrap key pair and the region to validate
+   *   it against.
+   */
+  async intakeBootstrapKey(input: BootstrapKeyIntakeInput): Promise<BootstrapKeyIntakeResult> {
+    const client = this.createStsClient(input);
+    const response = await client.send(new GetCallerIdentityCommand({}));
+    if (!response.Account) {
+      throw new Error('sts:GetCallerIdentity did not return an Account for the submitted bootstrap key.');
+    }
+    return { accountId: response.Account };
+  }
+
+  /**
+   * Build an `STSClient` directly from an explicit credential/region tuple.
+   * Deliberately does **not** read `ElectronStoreService` or use
+   * `fromIni`/`resolveAwsCredentialSource` — those resolve the wizard's
+   * already-established credential source, which does not exist yet at the
+   * point this service runs. Extracted as a protected seam so tests can
+   * stub it with `aws-sdk-client-mock`.
+   *
+   * @param creds - Explicit access key ID, secret access key, and region.
+   */
+  protected createStsClient(creds: { accessKeyId: string; secretAccessKey: string; region: string }): STSClient {
+    return new STSClient({
+      region: creds.region,
+      credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
+    });
   }
 
   /**

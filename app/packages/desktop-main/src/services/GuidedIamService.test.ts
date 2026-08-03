@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
+import { mockClient } from 'aws-sdk-client-mock';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
@@ -16,6 +18,9 @@ vi.mock('../cloudformationTemplate.js', () => ({
 import { readFileSync, writeFileSync } from 'fs';
 import { generateHyveonDeployAllPolicy, generateHyveonSelfRotatePolicy } from '@hyveon/shared';
 import { GuidedIamService } from './GuidedIamService.js';
+
+/** Typed stand-in for the AWS STS SDK client, shared across the `intakeBootstrapKey` tests below. */
+const stsMock = mockClient(STSClient);
 
 /** Strongly-typed mock handles for the `fs` module. */
 const mockRead = vi.mocked(readFileSync);
@@ -71,6 +76,10 @@ class TestableGuidedIamService extends GuidedIamService {
   public override openExternalUrl(url: string): Promise<void> {
     return super.openExternalUrl(url);
   }
+
+  public override createStsClient(creds: { accessKeyId: string; secretAccessKey: string; region: string }): STSClient {
+    return super.createStsClient(creds);
+  }
 }
 
 describe('GuidedIamService', () => {
@@ -81,6 +90,7 @@ describe('GuidedIamService', () => {
     mockResolveTemplatePath.mockReset();
     mockRead.mockReset();
     mockWrite.mockReset();
+    stsMock.reset();
   });
 
   afterEach(() => {
@@ -235,6 +245,53 @@ describe('GuidedIamService', () => {
         (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
         expect(service.readUserDataPath()).toBeNull();
       });
+    });
+  });
+
+  describe('intakeBootstrapKey', () => {
+    const BOOTSTRAP_INPUT = {
+      accessKeyId: 'AKIABOOTSTRAPKEY',
+      secretAccessKey: 'super-secret-bootstrap-value',
+      region: 'us-west-2',
+    };
+
+    it('should return the resolved account ID for a valid bootstrap key pair', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({
+        Account: '123456789012',
+        Arn: 'arn:aws:iam::123456789012:user/hyveon-bootstrap',
+      });
+
+      const result = await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
+
+      expect(result).toEqual({ accountId: '123456789012' });
+      const calls = stsMock.commandCalls(GetCallerIdentityCommand);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('should build the STS client directly from the submitted credentials and region, not from ElectronStoreService', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+      const createStsClientSpy = vi.spyOn(service, 'createStsClient');
+
+      await service.intakeBootstrapKey(BOOTSTRAP_INPUT);
+
+      expect(createStsClientSpy).toHaveBeenCalledWith(BOOTSTRAP_INPUT);
+    });
+
+    it('should propagate the original AWS error unchanged when the bootstrap key is invalid', async () => {
+      const awsError = new Error('The security token included in the request is invalid');
+      awsError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(awsError);
+
+      await expect(service.intakeBootstrapKey(BOOTSTRAP_INPUT)).rejects.toMatchObject({
+        name: 'InvalidClientTokenId',
+        message: 'The security token included in the request is invalid',
+      });
+    });
+
+    it('should throw a clear error when a successful response is missing the Account field', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon-bootstrap' });
+
+      await expect(service.intakeBootstrapKey(BOOTSTRAP_INPUT)).rejects.toThrow(/did not return an Account/);
     });
   });
 });

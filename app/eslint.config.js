@@ -144,6 +144,8 @@ export default tseslint.config(
       'packages/desktop-main/src/services/BootstrapService.test.ts',
       'packages/desktop-main/src/services/IamCheckService.ts',
       'packages/desktop-main/src/services/IamCheckService.test.ts',
+      'packages/desktop-main/src/services/GuidedIamService.ts',
+      'packages/desktop-main/src/services/GuidedIamService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
       'packages/desktop-main/src/test-mocks/remote-file-store-mock.ts',
