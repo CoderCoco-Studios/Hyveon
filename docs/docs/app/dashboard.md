@@ -51,7 +51,7 @@ a medium one, one on a narrow one.
 | **RUNNING** | An ECS task is running and healthy |
 | **STARTING** | `RunTask` has been issued; the task has not reached `RUNNING` yet |
 | **STOPPED** | No task running. This is the normal resting state |
-| **NOT DEPLOYED** | Declared in `terraform.tfvars`, but no task definition exists in AWS yet — run a Terraform apply |
+| **NOT DEPLOYED** | No infrastructure has been deployed yet — the Pulumi stack has no outputs. Run apply on the [Infrastructure](/app/iac) page |
 | **ERROR** | The task or its status lookup failed |
 
 Every state change is also announced to screen readers, e.g. "minecraft server
@@ -166,19 +166,21 @@ Things worth knowing:
   while it is up. Stop it as soon as you are done.
 - Startup takes roughly 30 seconds; the modal polls every 5 seconds while the
   task is transitioning and stops polling once it settles.
-- If Terraform has not been applied you get `Terraform not applied. Run
-  'terraform apply' first.` in the status line.
+- If infrastructure has not been deployed you get `Infrastructure not
+  deployed. Deploy first.` in the status line.
 
 Dismiss the modal with **Close**, by clicking the backdrop, or by pressing
 `Escape`.
 
 ## The pending-changes banner
 
-When `terraform.tfvars` contains changes that have not been applied to AWS, an
-orange banner appears at the top of the dashboard:
+When the declared game server configuration (`deployment-config.json`) has
+changes that have not been applied to AWS, an orange banner appears at the top
+of the dashboard:
 
-> tfvars edited, 3 changes pending — run `make apply` to materialize (1 to
-> create, 0 to delete, 2 to update)  **View pending**
+> Configuration changed, 3 changes pending — run plan and apply on the
+> Infrastructure page to deploy (1 to create, 0 to delete, 2 to update)
+> **View pending**
 
 **View pending** links to the [Games](/app/games) page. The banner is checked
 every 30 seconds.
@@ -194,7 +196,7 @@ set of pending changes*, not to a simple "hide" flag. Concretely:
   survives moving between screens.
 - The banner **comes back** as soon as the pending set changes — a new game
   edited, one removed, different fields touched.
-- If a Terraform apply clears the drift entirely, the stored dismissal is
+- If a Pulumi apply clears the drift entirely, the stored dismissal is
   wiped, so if the same change reappears later you are told about it again.
 - Restarting or reloading the app clears the dismissal.
 
@@ -213,7 +215,7 @@ address works.
 | Situation | What you see |
 |---|---|
 | Before the first status poll returns | `Loading servers…` |
-| No games declared or deployed | A card headed **No games deployed**, explaining that servers are provisioned via Terraform, with links to the setup guide and the `terraform.tfvars.example` file |
+| No games declared or deployed | A card headed **No games deployed**, explaining that you declare a game on the [Games](/app/games) page, then run a plan and apply from [Infrastructure](/app/iac) to create its ECS task definition, EFS volume, and CloudWatch log group — with links to the setup guide and to add a game |
 | Filter matches nothing | `No games match "abc".` |
 
 If the very first status poll *fails*, the page stays on `Loading servers…` —

@@ -44,11 +44,18 @@ one per non-zero count:
 |---|---|
 | `N to create` | cyan |
 | `N to update` | amber |
+| `N to replace` | outline (bordered, no fill) |
 | `N to delete` | red |
+| `N other` | purple (the app's primary colour) |
+| `N unchanged` | grey |
 
 These come from Pulumi's own resource-change counts, not a parsed text
-line. If nothing changed, no badges appear at all — read the log body in
-that case.
+line. There is no truly blank state: if the structured change-summary event
+was never observed for the run (or every op count, including `unchanged`,
+is zero) you see the italic fallback `Change summary unavailable` instead of
+badges; if Pulumi reports changes but every one of them is `unchanged`, you
+see a single grey `No changes — N unchanged` badge instead of the create/
+update/replace/delete/other row.
 
 The same badges are reused for the Apply section, reflecting the counts
 from the actual update.
@@ -112,6 +119,23 @@ On success you get a green panel reading **Apply complete.** with a **View
 dashboard** link, plus a toast.
 
 ![The Infrastructure page after a successful apply, showing streamed apply output in the log viewer, the resources-added change summary, and a green Apply complete banner with a View dashboard link](/img/app/terraform-apply.png)
+
+### A failed or aborted apply
+
+An ordinary apply failure or abort shows a red banner: `Apply failed — see
+the log above for details.` (or `was aborted` for an abort).
+
+If the run also mutated some resources before it failed or was aborted —
+Pulumi's engine reports this as `partialApply` on the run record — you get a
+different, more specific banner instead: **Apply stopped partway through.**
+Its point is that the deployed infrastructure no longer matches the plan
+you approved, so retrying that same apply is unsafe. The `planHash` check
+only proves the plan artifact and configuration are unchanged since
+approval — it says nothing about whether resources were already mutated by
+a prior attempt. The banner deliberately offers no retry action, only a
+**Start over** button, guiding you to run a fresh plan against current
+state instead. The same `partial` badge appears next to the run's status in
+[run history](#run-history).
 
 ## The workspace-busy banner
 
@@ -199,7 +223,8 @@ The **View history** link in the page header opens `/iac/history`.
 | Column | Contents |
 |---|---|
 | **Kind** | `Plan`, `Apply` or `Destroy`, linked to the run's detail page. Rollback-triggered plans carry an extra cyan `rollback` badge |
-| **Status** | `Success` (green), `Failed` (red) or `Aborted` (grey) |
+| **Status** | `Success` (green), `Failed` (red) or `Aborted` (grey). An apply that mutated resources before failing/aborting carries an extra amber `partial` badge — see [A failed or aborted apply](#a-failed-or-aborted-apply) |
+| **Changes** | The same [change-summary badges](#the-change-summary-badges) shown on the run itself (plan, apply, and destroy alike) — `Change summary unavailable`, a grey `No changes — N unchanged` badge, or the create/update/replace/delete/other/unchanged row |
 | **Started** | Local timestamp |
 | **Completed** | Local timestamp |
 | **Approver** | The OS username that approved it, or `—` |
