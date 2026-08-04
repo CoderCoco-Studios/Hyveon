@@ -164,7 +164,6 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 | Controller | Representative channels | Purpose |
 |---|---|---|
 | `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `TfvarsService`. Invalidates `TfvarsService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. |
-| `ConfigController` | `config.get`, `config.update` | Read/write watchdog knobs in `server_config.json`. **Local-only** — these values are not read by the deployed watchdog Lambda; the Lambda's actual `watchdog_interval_minutes`/`watchdog_idle_checks`/`watchdog_min_packets` come from `DeploymentConfig` (`deployment-config.json`), edited via [Settings → General](/app/settings#general) and applied via `pulumi up`. |
 | `CostsController` | `costs.estimate`, `costs.actual` | Per-game Fargate estimates; Cost Explorer actuals filtered on the `SERVICE` dimension (ECS + Fargate) — account-wide, **not** scoped by the `Project` tag. See [Costs](/app/costs#activate-the-project-cost-allocation-tag). |
 | `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. `files.start` seeds a random per-launch password (bcrypt-hashed into the container's `--password` flag), returns the one-time plaintext credential in its response, and creates an EventBridge Scheduler one-time schedule that auto-stops the task after 2 hours; `files.stop` cancels that schedule. |
@@ -238,7 +237,6 @@ everywhere, not `console.log`.
 | Name | Default | Purpose |
 |---|---|---|
 | `AWS_DEFAULT_REGION` | — | AWS SDK region hint, read by `ConfigService.readEnvRegion()`. |
-| `SERVER_CONFIG_PATH` | — | Overrides the resolved path to `server_config.json` (the watchdog-knob store): (1) this env var, (2) `<userData>` when packaged, (3) dev-fallback `<APP_ROOT>/server_config.json`. |
 | `TFVARS_CACHE_TTL_MS` | `30000` | In-memory cache TTL for `TfvarsService`'s parsed configuration. Falls back to the default when unset, empty, non-numeric, or non-positive. |
 | `RUNS_DIR_PATH` | `<userData>/runs` | Directory `PulumiService` writes per-run plan/apply artifacts under. |
 | `HYVEON_TFVARS_BUCKET` | — | Dev/CI override for the S3 configuration bucket name `TfvarsService`/`PulumiService` read/write against — wins over the operator-configured value. Not how the packaged app resolves the bucket in normal use; see [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice) below for the real resolution order. |
@@ -407,7 +405,7 @@ dashboard screen. `app.component.tsx` declares:
 | `/logs` | Live log viewer | [`/app/logs`](/app/logs) |
 | `/costs` | Cost estimates and actuals | [`/app/costs`](/app/costs) |
 | `/audit` | Audit log entries | [`/app/audit`](/app/audit) |
-| `/settings` | Watchdog knobs, cloud setup, diagnostics | [`/app/settings`](/app/settings) |
+| `/settings` | Watchdog summary, deployment settings, cloud setup, diagnostics | [`/app/settings`](/app/settings) |
 | — | First-run setup wizard, shown in place of the router until `wizardCompleted` | [`/app/first-run-wizard`](/app/first-run-wizard) |
 
 For what each screen looks like and how to use it, start at

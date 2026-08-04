@@ -48,10 +48,6 @@ function makeHyveonMock() {
     env: {
       get: vi.fn().mockResolvedValue({ region: 'us-east-1', domain: 'example.com', environment: 'dev' }),
     },
-    config: {
-      get: vi.fn().mockResolvedValue({ watchdog_interval_minutes: 5, watchdog_idle_checks: 3, watchdog_min_packets: 100 }),
-      update: vi.fn().mockResolvedValue({ success: true, config: { watchdog_interval_minutes: 5, watchdog_idle_checks: 3, watchdog_min_packets: 100 } }),
-    },
     diagnostics: {
       tail: vi.fn().mockResolvedValue({ lines: [] }),
       path: vi.fn().mockResolvedValue({ path: '/var/log/today.log' }),
@@ -106,17 +102,6 @@ describe('IPC bridge delegation', () => {
   it('should delegate api.stop() to window.hyveon.games.stop() with the game id', async () => {
     await api.stop('palworld');
     expect(hyveon.games.stop).toHaveBeenCalledWith('palworld');
-  });
-
-  it('should delegate api.config() to window.hyveon.config.get()', async () => {
-    await api.config();
-    expect(hyveon.config.get).toHaveBeenCalledOnce();
-  });
-
-  it('should delegate api.saveConfig() to window.hyveon.config.update() with the config', async () => {
-    const cfg = { watchdog_interval_minutes: 10, watchdog_idle_checks: 4, watchdog_min_packets: 50 };
-    await api.saveConfig(cfg);
-    expect(hyveon.config.update).toHaveBeenCalledWith(cfg);
   });
 
   it('should delegate api.costsEstimate() to window.hyveon.costs.estimate()', async () => {

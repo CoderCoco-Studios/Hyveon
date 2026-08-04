@@ -717,15 +717,6 @@ const api: HyveonApi = {
     get: () => invoke('env.get'),
   },
 
-  config: {
-    get: () => invoke('config.get'),
-    update: (body: {
-      watchdog_interval_minutes?: number;
-      watchdog_idle_checks?: number;
-      watchdog_min_packets?: number;
-    }) => invoke('config.update', body),
-  },
-
   wizard: {
     listAwsProfiles: () => invoke<AwsProfileSummary[]>('wizard.aws.listProfiles'),
     saveCredentials: (input: SavePastedCredentialsInput) =>

@@ -271,19 +271,6 @@ export interface EnvInfo {
   environment: string;
 }
 
-/** Watchdog tuning knobs persisted in server_config.json. */
-export interface WatchdogConfig {
-  watchdog_interval_minutes: number;
-  watchdog_idle_checks: number;
-  watchdog_min_packets: number;
-}
-
-/** Result of a watchdog config update. */
-export interface WatchdogConfigResult {
-  success: true;
-  config: WatchdogConfig;
-}
-
 /**
  * Single TCP/UDP port a game server container listens on.
  *
@@ -1260,18 +1247,6 @@ export interface HyveonEnvApi {
   get: () => Promise<EnvInfo>;
 }
 
-/** Watchdog configuration stored in server_config.json. */
-export interface HyveonConfigApi {
-  /** Returns the current watchdog config (interval, idle-check count, min packets). */
-  get: () => Promise<WatchdogConfig>;
-  /** Partially updates the watchdog config on disk. */
-  update: (body: {
-    watchdog_interval_minutes?: number;
-    watchdog_idle_checks?: number;
-    watchdog_min_packets?: number;
-  }) => Promise<WatchdogConfigResult>;
-}
-
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
  * `~/.aws/config`. Never carries key material.
@@ -2053,8 +2028,6 @@ export interface HyveonApi {
   discord: HyveonDiscordApi;
   /** Environment metadata: region, domain, and environment label for UI display. */
   env: HyveonEnvApi;
-  /** Watchdog configuration stored in server_config.json. */
-  config: HyveonConfigApi;
   /** First-run wizard endpoints: prerequisite detection, credentials, cloud bootstrap. */
   wizard: HyveonWizardApi;
   /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */

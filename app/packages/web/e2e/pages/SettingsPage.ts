@@ -12,8 +12,11 @@ export class SettingsPage {
     await this.page.goto('/settings');
   }
 
-  /** Save button in the Watchdog Configuration panel. */
-  saveWatchdogButton(): Locator {
-    return this.page.getByRole('button', { name: 'Save' });
+  /**
+   * The Watchdog Configuration panel's pointer to the General section's
+   * "Watchdog tuning" fields — the panel itself is read-only (#348).
+   */
+  watchdogGeneralPointer(): Locator {
+    return this.page.getByText(/configured in the/i);
   }
 }

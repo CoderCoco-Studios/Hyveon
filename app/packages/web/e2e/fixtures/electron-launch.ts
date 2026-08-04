@@ -23,7 +23,6 @@ import {
   ENV_DATA,
   STOPPED_GAME,
   COST_DATA,
-  WATCHDOG_CONFIG,
   CONFIGURED_DISCORD_CONFIG,
   makeActualCosts,
 } from './game-data.js';
@@ -33,7 +32,6 @@ import type {
   CostEstimates,
   ActualCosts,
   EnvInfo,
-  WatchdogConfig,
   DiscordConfigRedacted,
 } from './index.js';
 import type { ElectronApplication } from 'playwright-core';
@@ -100,7 +98,6 @@ export async function launchElectron(): Promise<ElectronHandle> {
  * - `games.start`     → `ActionResult`
  * - `games.stop`      → `ActionResult`
  * - `discord.getConfig` → `DiscordConfigRedacted`
- * - `config.get`      → `WatchdogConfig`
  *
  * @param win  - The Playwright `Page` for the Electron renderer window.
  * @param opts - Per-spec overrides; uses the same defaults as `stubApis`.
@@ -109,7 +106,6 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
   const statuses: GameStatus[] = opts.statuses ?? [STOPPED_GAME];
   const costs: CostEstimates = opts.costs ?? COST_DATA;
   const env: EnvInfo = opts.env ?? ENV_DATA;
-  const config: WatchdogConfig = opts.config ?? WATCHDOG_CONFIG;
   const startResult: ActionResult = opts.startResult ?? { success: true, message: 'Started' };
   const discord: DiscordConfigRedacted = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
   // `opts.games` (shared with the chromium-tier `stubApis`) may hold plain
@@ -137,7 +133,6 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       costEstimates,
       startRes,
       discordConfig,
-      watchdogConfig,
       actualCostsMap,
     }: {
       envData: EnvInfo;
@@ -146,7 +141,6 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       costEstimates: CostEstimates;
       startRes: ActionResult;
       discordConfig: DiscordConfigRedacted;
-      watchdogConfig: WatchdogConfig;
       actualCostsMap: Record<string, ActualCosts>;
     }) => {
       const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
@@ -165,7 +159,6 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       hyveon.__test.mock('games.start', () => Promise.resolve(startRes));
       hyveon.__test.mock('games.stop', () => Promise.resolve({ success: true, message: 'Stopped' }));
       hyveon.__test.mock('discord.getConfig', () => Promise.resolve(discordConfig));
-      hyveon.__test.mock('config.get', () => Promise.resolve(watchdogConfig));
     },
     {
       envData: env,
@@ -174,7 +167,6 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       costEstimates: costs,
       startRes: startResult,
       discordConfig: discord,
-      watchdogConfig: config,
       // Pre-compute the costs.actual responses for the query windows the Costs
       // page uses (7 and 14 days) so the callback in the browser can do a
       // synchronous map lookup without calling back into Node.

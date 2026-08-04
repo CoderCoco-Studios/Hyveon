@@ -68,10 +68,6 @@ export function installHyveonHttpBridge(): void {
         call(`/api/discord/permissions/${game}`, withBody('PUT', body)),
       deletePermission: (game: string) => del(`/api/discord/permissions/${game}`),
     },
-    config: {
-      get: () => call('/api/config'),
-      update: (body: unknown) => call('/api/config', withBody('POST', body)),
-    },
     drift: {
       get: () => call('/api/drift'),
     },
