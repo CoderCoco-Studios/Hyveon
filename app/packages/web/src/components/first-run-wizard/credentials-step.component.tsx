@@ -40,6 +40,27 @@ export interface CredentialsStepProps {
   pasteError: string | null;
   /** Set once the paste flow has successfully saved — the profile name it saved under. */
   pastedProfileName: string | null;
+
+  /**
+   * Set by the shell when it detects `wizard.state.get()`'s `aws?.profile`
+   * equals `GUIDED_PROFILE_NAME` (the guided-IAM step, #Group 7, already
+   * provisioned and activated a rotated credential) — renders a satisfied
+   * summary of `principal`/`region` instead of the normal profile-picker/
+   * paste form. `principal` is deliberately not an AWS account ID: nothing
+   * in this flow surfaces one, so the shell passes a generic descriptive
+   * label (e.g. `"AWS account (guided setup)"`) instead of inventing new IPC
+   * plumbing to fetch one.
+   */
+  satisfiedByGuidedProvisioning?: { principal: string; region: string };
+  /**
+   * Clears {@link satisfiedByGuidedProvisioning}, falling through to the
+   * normal picker/paste form — the escape hatch off the satisfied summary.
+   * Parent-controlled (the shell owns whether the satisfied prop is set at
+   * all), matching {@link CompletedStepSummary}'s Edit-affordance pattern
+   * one level up, but living inside this step component instead of
+   * replacing it wholesale, since the normal form must still be reachable.
+   */
+  onSwitchSource: () => void;
 }
 
 /**
@@ -48,7 +69,10 @@ export interface CredentialsStepProps {
  * directly (encrypted via the safeStorage flow from #197). Purely
  * presentational — the parent wizard shell owns all state, the
  * `listAwsProfiles`/`saveCredentials` IPC calls, and persisting the final
- * choice via `wizard.state.save` when the operator advances.
+ * choice via `wizard.state.save` when the operator advances. The one
+ * exception is {@link CredentialsStepProps.satisfiedByGuidedProvisioning}:
+ * when set, this renders a satisfied summary in place of the normal form
+ * entirely, still purely from props the shell computed.
  */
 export function CredentialsStep({
   mode,
@@ -68,7 +92,28 @@ export function CredentialsStep({
   pasteSaving,
   pasteError,
   pastedProfileName,
+  satisfiedByGuidedProvisioning,
+  onSwitchSource,
 }: CredentialsStepProps) {
+  if (satisfiedByGuidedProvisioning) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm text-muted-foreground">
+          Hyveon already provisioned and activated AWS credentials during guided setup.
+        </p>
+        <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4">
+          <span className="flex items-center gap-2 text-sm text-[var(--color-green)]">
+            <CheckCircle2 className="size-4" />
+            {satisfiedByGuidedProvisioning.principal} · {satisfiedByGuidedProvisioning.region}
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={onSwitchSource}>
+            Switch to a different source
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">

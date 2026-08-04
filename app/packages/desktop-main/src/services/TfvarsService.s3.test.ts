@@ -21,36 +21,45 @@ import { mockClient } from 'aws-sdk-client-mock';
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- test-only: exercises the real AwsRemoteFileStore against a mocked S3Client (see file header).
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { AwsRemoteFileStore } from '@hyveon/cloud-aws';
+import type { DeploymentConfig } from '@hyveon/shared';
 import { TfvarsService } from './TfvarsService.js';
 import type { ConfigService } from './ConfigService.js';
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
 const s3Mock = mockClient(S3Client);
 
-/** A minimal, valid `terraform.tfvars` fixture defining a single game server. */
-const FIXTURE_TFVARS = `
-aws_region   = "us-east-1"
-project_name = "hyveon"
+/** A minimal, valid deployment config defining a single game server. */
+const FIXTURE_CONFIG: DeploymentConfig = {
+  projectName: 'hyveon',
+  awsRegion: 'us-east-1',
+  vpcCidr: '10.0.0.0/16',
+  hostedZoneName: 'example.com',
+  dnsTtl: 30,
+  watchdogIntervalMinutes: 15,
+  watchdogIdleChecks: 4,
+  watchdogMinPackets: 100,
+  baseAllowedGuilds: [],
+  baseAdminUserIds: [],
+  baseAdminRoleIds: [],
+  discordApplicationId: '',
+  auditTableName: '',
+  runsTableName: '',
+  gameServers: {
+    palworld: {
+      image: 'thijsvanloef/palworld-server-docker:latest',
+      cpu: 2048,
+      memory: 8192,
+      ports: [{ container: 8211, protocol: 'udp' }],
+      environment: [{ name: 'PLAYERS', value: '16' }],
+      volumes: [{ name: 'saves', container_path: '/palworld' }],
+      https: false,
+      connect_message: 'Connect to {host}:{port}',
+    },
+  },
+};
 
-game_servers = {
-  palworld = {
-    image  = "thijsvanloef/palworld-server-docker:latest"
-    cpu    = 2048
-    memory = 8192
-    ports = [
-      { container = 8211,  protocol = "udp" },
-    ]
-    environment = [
-      { name = "PLAYERS", value = "16" },
-    ]
-    volumes = [
-      { name = "saves", container_path = "/palworld" },
-    ]
-    https           = false
-    connect_message = "Connect to {host}:{port}"
-  }
-}
-`;
+/** {@link FIXTURE_CONFIG} serialized exactly as `TfvarsService` would write/read it. */
+const FIXTURE_JSON = JSON.stringify(FIXTURE_CONFIG, null, 2) + '\n';
 
 /** Builds a fake S3 `Body` stream whose `transformToByteArray()` resolves to the given bytes. */
 function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint8Array> } {
@@ -59,13 +68,13 @@ function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint
 
 /**
  * Builds a `ConfigService` stub exposing just the methods `TfvarsService`
- * reads: a configured S3 bucket (selecting S3 mode) and a tfvars path whose
- * basename becomes the S3 object key.
+ * reads: a configured S3 bucket. The S3 object key is always the fixed
+ * `CONFIGURATION_OBJECT_KEY` constant (`'deployment-config.json'`) — no
+ * longer derived from any path.
  */
-function makeConfig(opts: { bucket: string; path?: string }): ConfigService {
+function makeConfig(opts: { bucket: string }): ConfigService {
   const stub: Partial<ConfigService> = {
-    getTfvarsBucket: () => opts.bucket,
-    getTfvarsPath: () => opts.path ?? '/repo/terraform/terraform.tfvars',
+    getConfigurationBucket: () => opts.bucket,
     readEnvTfvarsCacheTtlMs: () => 30000,
   };
   return stub as ConfigService;
@@ -76,15 +85,15 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
     s3Mock.reset();
   });
 
-  it('should issue a GetObjectCommand for the tfvars basename against the configured bucket', async () => {
+  it('should issue a GetObjectCommand for the config basename against the configured bucket', async () => {
     s3Mock.on(GetObjectCommand).resolves({
-      Body: fakeBody(new TextEncoder().encode(FIXTURE_TFVARS)) as never,
+      Body: fakeBody(new TextEncoder().encode(FIXTURE_JSON)) as never,
       ETag: '"etag-1"',
     });
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
     const service = new TfvarsService(
-      makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/terraform.tfvars' }),
+      makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
 
@@ -107,7 +116,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
     expect(s3Mock.commandCalls(GetObjectCommand)).toHaveLength(1);
     const input = s3Mock.commandCalls(GetObjectCommand)[0]!.args[0].input;
     expect(input.Bucket).toBe('my-tfvars-bucket');
-    expect(input.Key).toBe('terraform.tfvars');
+    expect(input.Key).toBe('deployment-config.json');
   });
 
   it('should return an empty array and not throw when the S3 object does not exist', async () => {
@@ -122,7 +131,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
 
   it("should propagate the S3 PutObjectCommand response's VersionId through updateGameServer's return value", async () => {
     s3Mock.on(GetObjectCommand).resolves({
-      Body: fakeBody(new TextEncoder().encode(FIXTURE_TFVARS)) as never,
+      Body: fakeBody(new TextEncoder().encode(FIXTURE_JSON)) as never,
       ETag: '"etag-1"',
     });
     s3Mock.on(PutObjectCommand).resolves({
@@ -132,7 +141,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
     const service = new TfvarsService(
-      makeConfig({ bucket: 'my-tfvars-bucket', path: '/repo/terraform/terraform.tfvars' }),
+      makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
 

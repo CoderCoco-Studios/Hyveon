@@ -34,7 +34,8 @@ export class DiscordController {
   @MessagePattern('discord.getConfig')
   async getConfig() {
     const redacted = await this.discord.getRedacted();
-    return { ...redacted, interactionsEndpointUrl: this.config.getTfOutputs()?.interactions_invoke_url ?? null };
+    const outputs = await this.config.getStackOutputs();
+    return { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null };
   }
 
   /**
@@ -63,9 +64,10 @@ export class DiscordController {
     });
     if (!ok) throw new BadRequestException({ success: false, error: 'invalid credentials' });
     const redacted = await this.discord.getRedacted();
+    const outputs = await this.config.getStackOutputs();
     return {
       success: true,
-      config: { ...redacted, interactionsEndpointUrl: this.config.getTfOutputs()?.interactions_invoke_url ?? null },
+      config: { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null },
     };
   }
 

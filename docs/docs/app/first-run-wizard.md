@@ -7,7 +7,7 @@ sidebar_position: 2
 
 The first time you launch Hyveon, the app replaces its entire window with a
 five-step setup wizard. There is no sidebar, no dashboard, and no way to skip
-it — until the wizard finishes, the app has no Terraform state backend to talk
+it — until the wizard finishes, the app has no Pulumi state backend to talk
 to and nothing else would work.
 
 The header reads **Welcome to Hyveon**, with a subtitle showing
@@ -15,66 +15,18 @@ The header reads **Welcome to Hyveon**, with a subtitle showing
 
 | # | Step | What it does |
 |---|---|---|
-| 1 | Install prerequisites | Checks that `terraform` and the `aws` CLI are on your PATH |
-| 2 | Choose your cloud | Picks the cloud provider (AWS only, today) |
-| 3 | AWS credentials | Picks an AWS profile, or stores pasted access keys |
-| 4 | Bootstrap AWS resources | Creates the S3 state bucket, DynamoDB lock table and S3 tfvars bucket |
-| 5 | Finish setup | Runs `terraform init` against that new backend |
+| 1 | Choose your cloud | Picks the cloud provider (AWS only, today) |
+| 2 | Provision AWS access | Optionally has Hyveon create and rotate an AWS deploy principal for you via a guided CloudFormation flow, or lets you skip straight to supplying your own credentials |
+| 3 | AWS credentials | Picks an AWS profile, or stores pasted access keys — skipped over automatically if step 2's guided flow already established a credential |
+| 4 | Bootstrap AWS resources | Creates the S3 state bucket and S3 tfvars bucket |
+| 5 | Finish setup | Initializes the Pulumi stack against that new backend |
 
 At the bottom of every step: **Back** (disabled on step 1) and **Next**. Step 5
-has no Next — it has its own **Finish setup** button instead.
+has no Next — it has its own **Finish setup** button instead. Step 2 also has
+no shared Next button of its own (see that step's walkthrough below) except
+when Reconfigure has collapsed it to an already-completed summary.
 
-## Step 1 — Install prerequisites
-
-![The first wizard step listing Terraform and AWS CLI with detection badges, install instructions for the current operating system, and a Re-check button](/img/app/wizard-prerequisites.png)
-
-> Hyveon needs `terraform` and the `aws` CLI on your PATH before it can
-> bootstrap your AWS account. Install any missing tool below, then select
-> Re-check.
-
-The app locates each binary (`which` on macOS/Linux, `where.exe` on Windows)
-and asks it for its version. Each probe has a 10-second timeout.
-
-| Tool | Version command | Minimum |
-|---|---|---|
-| Terraform | `terraform version -json` | **1.5.0** |
-| AWS CLI | `aws --version` | none — presence only |
-
-Each row shows one of:
-
-| State | Badge | Extra UI |
-|---|---|---|
-| Found and satisfies the minimum | green **Found v1.9.5** | — |
-| Found but below the minimum | amber **Found v1.4.2** | "Version 1.4.2 is below the minimum supported version. Please upgrade." plus install instructions |
-| Not found | red **Not found** | Install instructions for your OS plus an **Install guide** link |
-| Still checking | **Checking…** | — |
-
-Install instructions are OS-specific and are only shown when a tool is missing
-or out of date. On macOS:
-
-```bash
-brew tap hashicorp/tap && brew install hashicorp/tap/terraform
-brew install awscli
-```
-
-On Windows, Terraform's instruction is:
-
-```bash
-winget install Hashicorp.Terraform
-```
-
-Linux users are pointed at their distro's package manager or the vendor
-install guide.
-
-**What blocks Next:** Terraform must be found and must not be *explicitly*
-below the minimum; the AWS CLI must be found. A Terraform build whose version
-string cannot be parsed is allowed through rather than blocking you.
-
-**If the check itself fails** (rather than a tool being missing), a red alert
-appears with the error message. Install what is missing, then press
-**Re-check** — nothing is cached, so every press genuinely re-probes.
-
-## Step 2 — Choose your cloud
+## Step 1 — Choose your cloud
 
 ![The cloud selection step showing a single Amazon Web Services option, pre-selected, with a note that more clouds are coming](/img/app/wizard-pick-cloud.png)
 
@@ -87,13 +39,108 @@ reads "More clouds are coming in a future release."
 Nothing blocks Next. Clicking it saves your choice; if that save fails, an
 error appears and you stay on the step so nothing silently drifts.
 
+## Step 2 — Provision AWS access
+
+There is no screenshot for this step yet — it ships in this branch but
+`npm run docs:screenshots` has not been re-run against it.
+
+> Hyveon can provision the AWS access it needs for you, or you can supply your
+> own credentials.
+
+This step drives its own advancement rather than using the shared **Next**
+button — the button is hidden for the entire step, except when Reconfigure
+has collapsed it to a completed summary (see [Reconfigure](#reconfigure)
+below).
+
+### The initial choice
+
+An AWS region field, plus two buttons:
+
+- **Continue with guided setup** (the default path) — requires a non-empty
+  region, then moves to the template screen.
+- **I already have credentials** — skips straight to the credentials step
+  (step 3) doing nothing else; no progress is recorded for this path since
+  there is nothing to resume into.
+
+### Guided setup: template and console handoff
+
+Choosing guided setup renders `iam-bootstrap.yaml`, a CloudFormation template
+that provisions a dedicated deploy-principal IAM user, to a path under the
+app's `userData` directory, and shows:
+
+| Element | Notes |
+|---|---|
+| **Template path** | Read-only field with an icon-only copy button, labelled `Copy template path` for screen readers (no visible text) |
+| **Open AWS Console** | Opens the region-scoped CloudFormation "Create stack" console page in your default browser. If it can't launch a browser, the URL is shown as selectable text instead |
+| **Continue to key entry** | Appears once the template is written; advances to the intake screen |
+
+There is no "reveal in file manager" action here — only the copy-path button.
+Upload the file yourself using "Upload a template file" on the console page,
+then come back for the access key the stack outputs.
+
+### Key intake and rotation
+
+Paste the **Access key ID** and **Secret access key** from the CloudFormation
+stack's outputs and press **Validate and rotate key**. Hyveon then, in order:
+
+1. Verifies the pasted key with `sts:GetCallerIdentity`.
+2. Mints a brand-new access key for the same IAM user.
+3. Stores the new key in your OS keychain.
+4. Verifies the *new* key.
+5. Deletes the original (bootstrap) key.
+
+The secret you pasted is held in memory only for this sequence — it is never
+written to disk or logged.
+
+### Two ways rotation can fail
+
+| State | What you see | Recovery |
+|---|---|---|
+| **Verification failed** | An error message and a **Retry rotation** button | Retrying reuses the same in-memory bootstrap key — no need to re-paste anything |
+| **Deletion failed** | An amber warning that the new key is already active but the bootstrap key is too, a direct IAM console link, and a **Revoke now** button | The new key is already your active credential; this state only needs the leftover bootstrap key cleaned up. Pressing **Revoke now** finishes the step the same as a clean rotation |
+
+### Resuming mid-flow
+
+If you quit while a bootstrap key had been submitted but rotation had not
+settled, relaunching resumes directly onto the key-intake screen with a
+banner:
+
+> A bootstrap key was previously submitted, but rotation didn't finish before
+> Hyveon closed. Re-enter the access key ID and secret access key from your
+> CloudFormation stack's outputs to retry.
+
+This resume *always* lands on the intake screen, whether or not a region was
+recoverable from previously-persisted settings — the intake screen has its
+own editable region field for exactly that case. This is deliberate: falling
+back to the region screen instead would silently regress your persisted
+progress back to square one the next time you clicked "Continue with guided
+setup."
+
+Quitting at the template or console-handoff point instead resumes onto the
+template screen, recovering your region from previously-persisted settings;
+if none is recoverable, *this* resume lands back on the region screen with a
+note asking you to re-enter it — there is no in-flight bootstrap key yet at
+this point, so nothing is lost by starting the region/choice screen over.
+Unlike the resume caveat below (which only restores the wizard's *step
+pointer*), this step's own progress persistence is granular enough to resume
+into the exact sub-screen you left — not just "this step in general."
+
 ## Step 3 — AWS credentials
 
 ![The credentials step with the Use an existing profile mode selected, a profile dropdown and a region field](/img/app/wizard-credentials.png)
 
 > Choose the AWS credentials Hyveon will use to manage your game servers.
 
-Two modes, chosen with a pair of toggle buttons.
+If step 2's guided setup already established a credential, this step skips
+its normal form entirely and shows a resolved summary instead:
+
+> ✓ AWS account (guided setup) · `<region>`
+
+with a **Switch to a different source** button that falls back to the normal
+picker/paste form below — nothing from guided setup is discarded by pressing
+it, it only changes which source your *active* configuration points at.
+
+Otherwise, two modes, chosen with a pair of toggle buttons.
 
 ### Use an existing profile (default)
 
@@ -139,28 +186,32 @@ back to plaintext:
 - **Paste mode**: **Save credentials** must have succeeded *and* the region
   must be non-empty.
 
-The region is mandatory in both modes because the Terraform S3 backend has no
-region default to fall back on.
+The region is mandatory in both modes because Pulumi's self-managed S3 backend
+has no region default to fall back on.
 
 ## Step 4 — Bootstrap AWS resources
 
-![The bootstrap step showing three editable resource-name fields with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
+![The bootstrap step showing two editable resource-name fields with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
 
-> Hyveon needs three AWS resources to manage its Terraform state, plus a
-> permission check against your account. Resource names are editable — the
-> defaults below are usually fine.
+> Hyveon needs three AWS resources to manage its Pulumi state and run
+> history, plus a permission check against your account. The two bucket
+> names are editable — the defaults below are usually fine.
 
 | Resource | Default name | What it is |
 |---|---|---|
-| Terraform state bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption |
-| Terraform lock table | `hyveon-tflock` | DynamoDB table, `LockID` hash key, pay-per-request |
-| Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days |
+| State bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption — Pulumi's self-managed backend reads/writes state here directly; there is no separate lock table (the DIY S3 backend locks via objects in this same bucket) |
+| Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days, AES256 encryption |
+| Run-history table | `hyveon-runs` | DynamoDB table (`pk`/`sk` keys, `status-index` GSI, point-in-time recovery) recording every plan/apply/destroy run — created here, not by Pulumi, so the very first plan/apply cycle of a fresh install has somewhere to record itself before any deploy has ever succeeded. Not name-editable at this step (see below) |
 
 These are created with the AWS SDK directly — the wizard does not shell out to
-`terraform` or `aws` for this step.
+any CLI for this step. The run-history table's name is not operator-editable
+here: unlike the two buckets, it has no `DeploymentConfig` yet to hold a
+custom name override (that only gets configured later, from the Settings
+page), so it always uses the project-name default shown above.
 
-Press **Bootstrap AWS resources**. All three are created concurrently, so one
-failure does not stop the others. Each row's badge moves independently:
+Press **Bootstrap AWS resources**. All three are created concurrently, so a
+failure on one does not stop the others. Each row's badge moves
+independently:
 
 | Badge | Meaning |
 |---|---|
@@ -171,9 +222,10 @@ failure does not stop the others. Each row's badge moves independently:
 | **Failed** | With the error message beneath the row |
 
 Once a resource reaches **Created** or **Already exists**, its name field
-locks. The button relabels itself to **Re-run bootstrap**, which is safe to
-press repeatedly — versioning, encryption and lifecycle settings are
-re-asserted on every run.
+locks (the run-history table's read-only row has no name field to lock, only
+its status badge). The button relabels itself to **Re-run bootstrap**, which
+is safe to press repeatedly — every resource's configuration is re-asserted
+on every run.
 
 **Common failures and how to recover:**
 
@@ -181,10 +233,12 @@ re-asserted on every run.
 |---|---|
 | `The bucket name "…" is already taken by another AWS account. Choose a different name.` | S3 bucket names are globally unique. Edit the name (failed rows stay editable) and re-run |
 | `Cannot bootstrap AWS resources: no region is configured. Complete the credentials step of the wizard first.` | Go **Back** and finish step 3 |
-| A lock-table timeout | The table did not reach `ACTIVE` within 60 seconds. Re-run |
 
-**What blocks Next:** all three resources must be **Created** or **Already
-exists**.
+**What blocks Next:** only the two S3 buckets must be **Created** or
+**Already exists** — the run-history table's status is informational and
+never gates progression (its own bootstrap failure is still surfaced, and is
+worth resolving before configuring game servers, since `plan`/`approve`
+against that table depend on it existing).
 
 ### The IAM permission check is advisory
 
@@ -194,7 +248,7 @@ permissions** button (it relabels to **Re-check permissions** afterwards).
 **This check never blocks Next, and it never runs on its own.** You can
 complete the entire wizard without ever pressing it. It exists so you find out
 about a missing IAM action now rather than halfway through your first
-`terraform apply`.
+infrastructure apply.
 
 It resolves your caller identity, then asks IAM to simulate every action in
 the `HyveonDeployAll` policy against your principal. Three outcomes:
@@ -210,38 +264,35 @@ The full policy, and where to put it, is documented in the
 
 ## Step 5 — Finish setup
 
-![The final wizard step streaming terraform init output into a log viewer, with a Finish setup button below](/img/app/wizard-terraform-init.png)
+![The final wizard step showing a three-item checklist — engine resolution, provider plugins, stack creation — with a Finish setup button below](/img/app/wizard-stack-init.png)
 
-> Running `terraform init` against your new backend. This wires Terraform up
-> to the state bucket and lock table from the previous step.
+> Initializing your Pulumi stack. This resolves the deployment engine,
+> installs the required provider plugins, and creates the stack against your
+> new backend.
 
 This step **starts automatically on arrival** — there is no Start button. It
-runs:
+calls `PulumiService.initializeStack`, which needs no configuration from
+earlier steps — it resolves the state bucket and region it needs from what
+you already entered — and reports progress as three phases, rendered as a
+checklist rather than a scrolling log (there is no `terraform init`-style
+process output to show here):
 
-```bash
-terraform init -input=false -no-color \
-  -backend-config=bucket=<state bucket> \
-  -backend-config=region=<region> \
-  -backend-config=dynamodb_table=<lock table>
-```
+| Phase | What it does |
+|---|---|
+| **Resolving the Pulumi engine** | Downloads and verifies the pinned Pulumi CLI engine on first use, and constructs the Automation API workspace against your S3 backend — generating a fresh secrets passphrase the first time |
+| **Installing provider plugins** | Explicitly installs the `@pulumi/aws` provider plugin your deployment will need |
+| **Creating the stack** | Runs a `pulumi refresh` against the brand-new, still-empty stack to prove the whole round trip — engine, backend, credentials, and plugin — actually works |
 
-Output streams live into the log viewer. While it is empty you see "Waiting
-for terraform init output…".
+Each phase shows a pending circle, then a spinner, then a checkmark (or an ✕
+if it failed).
 
 | Outcome | UI |
 |---|---|
-| Running | Spinner and "Running…" |
-| Success | Green "terraform init complete." |
-| Failure | Red alert with the reason (or "terraform init failed — see the log above for details.") plus a **Retry** button |
+| Success | Green "Stack initialization complete." |
+| Failure | Red alert naming which phase failed and why, plus a **Retry** button |
 
-**Finish setup** is enabled only once the init succeeds. Clicking it marks
+**Finish setup** is enabled only once every phase succeeds. Clicking it marks
 setup complete and drops you straight onto the dashboard.
-
-If you press **Finish setup** and re-run it later, note that a re-run with an
-identical backend config is skipped rather than re-executed — you will see the
-single line `terraform init skipped: backend config unchanged since the last
-successful init`. Failures are never skipped, so **Retry** always genuinely
-re-runs.
 
 ## Resuming an interrupted setup
 
@@ -249,12 +300,14 @@ Progress is saved on **every step change**, so closing the app mid-wizard is
 safe. On relaunch you land back on the step you were on.
 
 One deliberate exception: **you never resume directly into step 5**. If you
-quit while `terraform init` was running, the app puts you back on step 4
-(Bootstrap AWS resources) instead. Step 5 builds its backend configuration
-from the answers held in the wizard's live state, and those answers are not
-rehydrated on relaunch — resuming into it would run `terraform init` against
-blank defaults. Landing on step 4 is safe because it reads your region from
-the stored settings, and the worst case is that you press **Re-run bootstrap**
+quit while stack initialization was running, the app puts you back on step 4
+(Bootstrap AWS resources) instead. Step 5 needs no renderer-supplied
+configuration to run — it resolves the state bucket and region it needs from
+already-persisted settings — but jumping straight to it on relaunch would
+still fire a real, write-side stack-initialization call before you have seen
+or confirmed anything on this visit, so the app clamps the jump at step 4
+regardless. Landing on step 4 is safe because it reads your region from the
+stored settings, and the worst case is that you press **Re-run bootstrap**
 once more.
 
 Two other resume caveats worth knowing:
@@ -262,6 +315,9 @@ Two other resume caveats worth knowing:
 - Only the *step pointer* is restored. Your region, selected profile and
   bootstrap resource names all fall back to their defaults on relaunch, even
   though they were saved. (The Reconfigure flow below *does* restore them.)
+  Step 2 (Provision AWS access) is the one exception — see that step's own
+  "Resuming mid-flow" section above, since guided setup persists more than
+  just the step pointer.
 - If saving progress fails, you simply start from step 1 next time. Nothing
   breaks.
 
@@ -271,16 +327,16 @@ Finishing the wizard deletes the resume file.
 
 The same wizard is reachable later from **Settings → Cloud Setup →
 Reconfigure**. Use it to switch AWS profiles, change region, or re-point
-Terraform at differently-named bootstrap resources.
+Pulumi at differently-named bootstrap resources.
 
-It behaves differently in four ways.
+It behaves differently in a few ways. The header reads **Reconfigure Hyveon**
+— otherwise the step count and numbering (`Step 1 of 5` through `Step 5 of
+5`) are identical to first-run.
 
-**It has four steps, not five.** The prerequisites check is dropped entirely —
-if you are running the app, you already have the tools. The header reads
-**Reconfigure Hyveon** and the steps are renumbered `Step 1 of 4` through
-`Step 4 of 4`.
-
-**Every step starts collapsed.** Instead of a form you see a summary box:
+**Most steps start collapsed.** Choose your cloud, AWS credentials, and
+Bootstrap AWS resources always start collapsed to a summary box, since
+Reconfigure is only reachable once the wizard has completed once and every
+one of them already has a real answer on record:
 
 > ✓ AWS credentials is already configured.  **[Edit]**
 
@@ -288,11 +344,23 @@ Press **Edit** to expand that step's real form. Steps you never expand stay
 collapsed all the way through. (There is no way to re-collapse a step once
 expanded — press **Cancel** and start again if you change your mind.)
 
+**Provision AWS access starts collapsed only conditionally.** Unlike its
+three siblings above, this step is pre-marked completed only when your
+currently-active AWS credential is the exact profile guided provisioning
+produces. A profile you picked manually, or keys you pasted, never
+pre-completes it — in that case it renders as a live step, offering guided
+setup or "I already have credentials" the same as first-run. Finish setup
+(step 5) is never pre-completed or collapsed either way — it has no
+standalone "answer" to summarize, and reaching it is itself the explicit
+re-run you asked for by clicking through to it.
+
 **Your existing answers are pre-filled.** Unlike the first-run flow, the
 Reconfigure wizard reads your stored settings back: your cloud, your profile
-and region, and your bootstrap resource names. This matters for the final
-step, because it means `terraform init` targets your actual bucket and lock
-table rather than the defaults.
+and region, and your bootstrap resource names — so the collapsed step
+summaries reflect what's actually configured, not first-run defaults. The
+final step itself needs none of this prefilled state (it resolves its own
+state bucket/region internally, the same way it does on first run) — the
+prefill only feeds the earlier steps' summaries and editable forms.
 
 **All edits are buffered into a single save on Finish.** Advancing between
 steps persists nothing. Only when you press **Finish setup** are your changes
@@ -305,4 +373,15 @@ One thing Cancel cannot undo: the **Save credentials** and **Bootstrap AWS
 resources** buttons perform real work the moment you click them, exactly as in
 the first-run flow. If you saved a pasted key it is still in your keychain,
 and if you created an S3 bucket it still exists. Cancel only prevents your
-*active* configuration from being pointed at them.
+*active* configuration from being pointed at them — since neither of those
+two steps writes anything until `commitReconfigureAnswers` fires on Finish,
+Cancel skipping that call is what "prevents" means here. Editing a collapsed
+Provision AWS access step is the same story, only more consequential and,
+unlike its two siblings, **not reversible by Cancel at all**: opening it and
+running guided setup creates a real CloudFormation stack and rotates a real
+AWS access key the moment you click through them, and the moment rotation's
+verification succeeds, the rotated key is written as your active AWS
+credential source directly — not through Reconfigure's buffered-save
+mechanism, which only covers the other steps' answers. Cancelling afterwards
+does not revert that credential switch, and does not delete the stack or
+un-rotate the key either — all of it remains exactly as it is.

@@ -7,7 +7,9 @@ export type {
   TerraformRunChunk,
   TerraformRunKind,
   TerraformRunRecord,
-  TerraformInitConfig,
+  StackInitPhase,
+  StackInitPhaseStatus,
+  StackInitPhaseEvent,
   RunDetailStatus,
   TerraformRunsGetResult,
   TerraformRunsListOpts,
@@ -15,6 +17,8 @@ export type {
   RunHistoryPageResult,
   RunHistoryStatus,
   TerraformPlanAck,
+  TerraformStaleLockHolder,
+  TerraformStaleLockInfo,
   TerraformPlanPayload,
   TerraformApplyPayload,
   TerraformApproveAck,
@@ -22,14 +26,21 @@ export type {
   TerraformDestroyMintAck,
   TerraformRollbackResolveAck,
   TerraformRollbackConfirmAck,
-  PrerequisiteCheckResult,
-  TerraformPrerequisiteCheckResult,
-  PrerequisitesReport,
+  TerraformLockClearAck,
+  ChangeSummary,
+  OpType,
   AwsProfileSummary,
   IamCheckResult,
+  IamCheckOrigin,
   WizardState,
   SaveWizardStateInput,
+  WizardStepName,
+  GuidedIamSubState,
+  WizardProgress,
+  SaveWizardProgressInput,
 } from './hyveon-api.js';
+
+export { GUIDED_PROFILE_NAME } from './hyveon-api.js';
 
 declare global {
   interface Window {

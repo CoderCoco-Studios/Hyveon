@@ -144,8 +144,25 @@ export default tseslint.config(
       'packages/desktop-main/src/services/BootstrapService.test.ts',
       'packages/desktop-main/src/services/IamCheckService.ts',
       'packages/desktop-main/src/services/IamCheckService.test.ts',
+      'packages/desktop-main/src/services/GuidedIamService.ts',
+      'packages/desktop-main/src/services/GuidedIamService.test.ts',
+      // Rotation-integration regression test composing both services above
+      // against a shared store — same AWS-SDK-direct reasoning applies.
+      'packages/desktop-main/src/services/guided-iam-rotation-integration.test.ts',
+      // AwsProfileService.rotateActiveCredentials builds STS/IAM clients from
+      // explicit credential parameters, same reasoning as GuidedIamService
+      // above — see add-one-click-aws-bootstrap Group 3.
+      'packages/desktop-main/src/services/AwsProfileService.ts',
+      'packages/desktop-main/src/services/AwsProfileService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
+      'packages/desktop-main/src/test-mocks/remote-file-store-mock.ts',
+      // Tier-2 integration spec for the wizard.guidedIam.* IPC channels
+      // (add-one-click-aws-bootstrap Group 6): mocks the same STS/IAM SDK
+      // calls GuidedIamService.ts makes directly (see that exception above)
+      // via aws-sdk-client-mock, since no MockStore/DI-seam stub exists for
+      // STS/IAM at this tier — same AWS-SDK-direct reasoning applies here.
+      'packages/web/e2e/integration-specs/guided-iam.spec.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': ['error', {

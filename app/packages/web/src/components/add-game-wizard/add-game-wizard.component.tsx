@@ -179,7 +179,9 @@ export function AddGameWizard() {
       if (!openRef.current) return;
 
       if (result.ok) {
-        toast.success(`${payload.name} created`);
+        toast.success(`${payload.name} created`, {
+          description: 'Run plan and apply on the Infrastructure page to deploy it.',
+        });
         handleOpenChange(false);
         navigate(`/games/${payload.name}`);
         return;
@@ -195,6 +197,7 @@ export function AddGameWizard() {
         }
         case 'conflict':
         case 'not_found':
+        case 'setup_incomplete':
         case 'error':
           setSubmitError(result.message);
           setStepIndex(WIZARD_STEPS.length - 1);

@@ -1,6 +1,6 @@
 ---
 name: docs-coverage-auditor
-description: Use this agent to check that a change updated every piece of documentation it was obliged to update — the right docs/docs/** pages, the components index, the CLAUDE.md routing table, OpenSpec sync, and the five-file Terraform variable checklist. Dispatch before opening a PR, or in parallel with docs-accuracy-auditor and docs-style-reviewer after drafting docs. Read-only; returns a punch list of gaps, not prose feedback.
+description: Use this agent to check that a change updated every piece of documentation it was obliged to update — the right docs/docs/** pages, the components index, the CLAUDE.md routing table, OpenSpec sync, and the deployment-config-field checklist. Dispatch before opening a PR, or in parallel with docs-accuracy-auditor and docs-style-reviewer after drafting docs. Read-only; returns a punch list of gaps, not prose feedback.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -25,7 +25,7 @@ close.
 
    | Changed | Owner page |
    |---------|-----------|
-   | `terraform/**` | `docs/docs/components/terraform.md` (+ `setup.md` if operator-facing) |
+   | `app/packages/infra/**` | `docs/docs/components/infra.md` (+ `setup.md` if operator-facing) |
    | `app/packages/lambda/**` | `docs/docs/components/lambdas.md` |
    | `app/packages/{desktop-main,desktop-preload,web,cloud-aws,shared}/**` | `docs/docs/components/management-app.md` |
    | `app/packages/web/src/pages/**` and wizard components | the matching operator walkthrough under `docs/docs/app/` |
@@ -45,11 +45,16 @@ close.
      or the change archived, so `openspec/specs/**` matches reality. Look for an
      `openspec/changes/<change>/` directory in the diff whose specs were never
      folded in.
-   - **Terraform variables** added or removed must touch all five: root
-     `terraform/variables.tf` **and** `terraform/aws/variables.tf` (except `tags`,
-     root-only), `terraform/main.tf` module block,
-     `terraform/terraform.tfvars.example`, `docs/docs/components/terraform.md`
-     variables table, and any affected step in `docs/docs/setup.md`.
+   - **`DeploymentConfig`/`GameServerConfig` fields** added or removed (in
+     `app/packages/shared/src/deploymentConfig.ts` / `tfvars.ts`) must touch, as
+     applicable: the relevant `defineX()` consumer in `app/packages/infra`, the
+     add/edit-game wizard in `@hyveon/web` if the field is operator-editable,
+     and `docs/docs/components/infra.md`'s file/resource table if the field
+     changes what gets provisioned. There is no five-file Terraform-variable
+     checklist any more — that mechanism (`terraform/variables.tf` +
+     `terraform/aws/variables.tf` + the `module "cloud"` passthrough +
+     `terraform.tfvars.example` + the components doc) no longer exists; see
+     CLAUDE.md's "Before opening a PR" section for the current list.
 4. Distinguish a genuine gap from a non-obligation. A refactor with no
    reader-visible consequence needs no docs change — say that explicitly rather
    than manufacturing work.

@@ -10,7 +10,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname as osHostname, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import type Store from 'electron-store';
 
@@ -205,6 +205,141 @@ describe('ElectronStoreService — setSecretAccessKey / getSecretAccessKey', () 
 
   it('should return undefined for secretAccessKey when not stored', () => {
     expect(service.getSecretAccessKey()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Passphrase field — setPulumiPassphrase / getPulumiPassphrase
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', () => {
+  let service: ElectronStoreService;
+  let safeStorage: SafeStorageService;
+
+  beforeEach(() => {
+    safeStorage = makeSafeStorage();
+    service = new ElectronStoreService(safeStorage);
+    vi.clearAllMocks();
+  });
+
+  it('should encrypt the passphrase before storing', () => {
+    vi.spyOn(safeStorage, 'encrypt').mockReturnValue('enc-passphrase');
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+
+    expect(safeStorage.encrypt).toHaveBeenCalledWith('super-secret-passphrase');
+    const stored = service.get('pulumi');
+    expect(stored?.passphrase).toBe('enc-passphrase');
+  });
+
+  it('should decrypt the passphrase when reading', () => {
+    service.set('pulumi', { passphrase: 'enc-passphrase' });
+    vi.spyOn(safeStorage, 'decrypt').mockReturnValue('super-secret-passphrase');
+
+    const result = service.getPulumiPassphrase();
+
+    expect(safeStorage.decrypt).toHaveBeenCalledWith('enc-passphrase');
+    expect(result).toBe('super-secret-passphrase');
+  });
+
+  it('should return undefined for the passphrase when not stored', () => {
+    expect(service.getPulumiPassphrase()).toBeUndefined();
+  });
+
+  it('should preserve other fields already stored under pulumi when writing the passphrase', () => {
+    service.set('pulumi', {});
+    vi.spyOn(safeStorage, 'encrypt').mockReturnValue('enc-passphrase');
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+
+    expect(service.get('pulumi')).toEqual({ passphrase: 'enc-passphrase' });
+  });
+
+  it('should round-trip the passphrase through encrypt/decrypt', () => {
+    vi.spyOn(safeStorage, 'encrypt').mockImplementation((plaintext: string) => `enc-${plaintext}`);
+    vi.spyOn(safeStorage, 'decrypt').mockImplementation((ciphertext: string) =>
+      ciphertext.startsWith('enc-') ? ciphertext.slice(4) : ciphertext,
+    );
+
+    service.setPulumiPassphrase('super-secret-passphrase');
+    const result = service.getPulumiPassphrase();
+
+    expect(result).toBe('super-secret-passphrase');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lock-ownership records (recordPulumiLockAttempt / clearPulumiLockAttempt /
+// listPulumiLockAttempts)
+// ---------------------------------------------------------------------------
+
+describe('ElectronStoreService — recordPulumiLockAttempt / clearPulumiLockAttempt / listPulumiLockAttempts', () => {
+  let service: ElectronStoreService;
+
+  beforeEach(() => {
+    service = new ElectronStoreService(makeSafeStorage());
+  });
+
+  it('should record an outstanding attempt with this machine identity and a fresh run id', () => {
+    const runId = service.recordPulumiLockAttempt('production');
+
+    expect(typeof runId).toBe('string');
+    expect(runId.length).toBeGreaterThan(0);
+    const [record] = service.listPulumiLockAttempts('production');
+    expect(record).toMatchObject({
+      runId,
+      stackName: 'production',
+      username: userInfo().username,
+      hostname: osHostname(),
+    });
+    expect(new Date(record.startedAt).toString()).not.toBe('Invalid Date');
+  });
+
+  it('should return a distinct run id for each call and keep both records', () => {
+    const runId1 = service.recordPulumiLockAttempt('production');
+    const runId2 = service.recordPulumiLockAttempt('production');
+
+    expect(runId1).not.toBe(runId2);
+    expect(service.listPulumiLockAttempts('production')).toHaveLength(2);
+  });
+
+  it('should scope listPulumiLockAttempts to the given stack name', () => {
+    service.recordPulumiLockAttempt('production');
+    service.recordPulumiLockAttempt('staging');
+
+    expect(service.listPulumiLockAttempts('production')).toHaveLength(1);
+    expect(service.listPulumiLockAttempts('staging')).toHaveLength(1);
+  });
+
+  it('should return an empty array when nothing has ever been recorded', () => {
+    expect(service.listPulumiLockAttempts('production')).toEqual([]);
+  });
+
+  it('should remove only the cleared record, leaving other outstanding records intact', () => {
+    const runId1 = service.recordPulumiLockAttempt('production');
+    const runId2 = service.recordPulumiLockAttempt('production');
+
+    service.clearPulumiLockAttempt(runId1);
+
+    const remaining = service.listPulumiLockAttempts('production');
+    expect(remaining).toHaveLength(1);
+    expect(service.get('pulumi')?.lockOwnership?.[runId1]).toBeUndefined();
+    expect(service.get('pulumi')?.lockOwnership?.[runId2]).toBeDefined();
+  });
+
+  it('should be a no-op when clearing a run id that was never recorded', () => {
+    expect(() => service.clearPulumiLockAttempt('never-recorded')).not.toThrow();
+    expect(service.listPulumiLockAttempts('production')).toEqual([]);
+  });
+
+  it('should not disturb the stored passphrase when recording or clearing a lock attempt', () => {
+    service.setPulumiPassphrase('super-secret-passphrase');
+    const before = service.get('pulumi')?.passphrase;
+
+    const runId = service.recordPulumiLockAttempt('production');
+    service.clearPulumiLockAttempt(runId);
+
+    expect(service.get('pulumi')?.passphrase).toBe(before);
   });
 });
 
@@ -465,6 +600,7 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
     const service = new ElectronStoreService(safeStorage);
     const secretAccessKeyId = 'AKIASENSITIVEEXAMPLE';
     const secretAccessKey = 'super-secret-plaintext-value';
+    const pulumiPassphrase = 'super-secret-pulumi-passphrase';
 
     service.setSecretAccessKeyId(secretAccessKeyId);
     service.setSecretAccessKey(secretAccessKey);
@@ -473,11 +609,59 @@ describe('ElectronStoreService — persisted file contains no plaintext key mate
       secretAccessKey,
       region: 'us-east-1',
     });
+    service.setPulumiPassphrase(pulumiPassphrase);
 
     const rawFileContents = readFileSync(filePath, 'utf-8');
     expect(rawFileContents).not.toContain(secretAccessKeyId);
     expect(rawFileContents).not.toContain(secretAccessKey);
+    expect(rawFileContents).not.toContain(pulumiPassphrase);
     // Sanity check the file isn't simply empty/unwritten.
     expect(rawFileContents).toContain('region');
+  });
+});
+
+describe('ElectronStoreService — recordOrphanedRollback / getOrphanedRollback / clearOrphanedRollback', () => {
+  let service: ElectronStoreService;
+
+  const makeRecord = () => ({
+    applyRunId: 'run-1',
+    restoredVersionId: 'version-7',
+    failedAt: '2026-01-01T00:00:00.000Z',
+    failureMessage: 'plan creation failed',
+  });
+
+  beforeEach(() => {
+    service = new ElectronStoreService(makeSafeStorage());
+  });
+
+  it('should return undefined from getOrphanedRollback when nothing has been recorded', () => {
+    expect(service.getOrphanedRollback()).toBeUndefined();
+  });
+
+  it('should record and read back an orphaned-rollback marker when no prior pulumi bucket exists', () => {
+    const record = makeRecord();
+    service.recordOrphanedRollback(record);
+    expect(service.getOrphanedRollback()).toEqual(record);
+  });
+
+  it('should preserve other pulumi fields already present when recording an orphaned-rollback marker', () => {
+    service.setPulumiPassphrase('existing-passphrase');
+    const record = makeRecord();
+    service.recordOrphanedRollback(record);
+    expect(service.getOrphanedRollback()).toEqual(record);
+    expect(service.getPulumiPassphrase()).toBe('existing-passphrase');
+  });
+
+  it('should be a no-op when clearing an orphaned-rollback marker that was never recorded', () => {
+    service.clearOrphanedRollback();
+    expect(service.getOrphanedRollback()).toBeUndefined();
+  });
+
+  it('should clear a recorded orphaned-rollback marker while preserving other pulumi fields', () => {
+    service.setPulumiPassphrase('existing-passphrase');
+    service.recordOrphanedRollback(makeRecord());
+    service.clearOrphanedRollback();
+    expect(service.getOrphanedRollback()).toBeUndefined();
+    expect(service.getPulumiPassphrase()).toBe('existing-passphrase');
   });
 });

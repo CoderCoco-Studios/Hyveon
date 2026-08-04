@@ -25,13 +25,13 @@ interface Props {
  * Destructive "Remove game" button for a single declared `game_servers`
  * entry. Modeled on the type-to-confirm pattern in `ConfirmDialog`, but built
  * directly on the AlertDialog primitives so the dialog body can also surface
- * the `terraform.tfvars` / `make tf-apply` hint next to the type-to-confirm
+ * the configuration-object / plan-apply hint next to the type-to-confirm
  * input — `ConfirmDialog`'s `description` prop is plain text and can't carry
  * that richer content.
  *
- * `api.deleteGame` only rewrites `terraform.tfvars` — it does NOT run
- * `terraform apply`, so the underlying AWS resources (task definition, EFS
- * access point, security group rules, etc.) stay live until an operator
+ * `api.deleteGame` only rewrites the JSON `DeploymentConfig` object — it does
+ * NOT run a Pulumi apply, so the underlying AWS resources (task definition,
+ * EFS access point, security group rules, etc.) stay live until an operator
  * applies the change. The dialog calls this out explicitly so the action
  * isn't mistaken for a full teardown.
  *
@@ -55,7 +55,7 @@ export function RemoveGameButton({ game }: Props) {
     try {
       const result = await api.deleteGame({ name: game });
       if (result.ok) {
-        toast.success(`${game} removed from terraform.tfvars`);
+        toast.success(`${game} removed from deployment-config.json`);
         navigate('/games');
         return;
       }
@@ -81,10 +81,10 @@ export function RemoveGameButton({ game }: Props) {
             <AlertDialogTitle>Remove {game}?</AlertDialogTitle>
             <AlertDialogDescription>
               This deletes the <code className="font-[var(--font-mono)] text-xs">{game}</code> entry from{' '}
-              <code className="font-[var(--font-mono)] text-xs">terraform.tfvars</code>. The deployed AWS
+              <code className="font-[var(--font-mono)] text-xs">deployment-config.json</code>. The deployed AWS
               resources stay live until an operator applies the change from the{' '}
-              <Link to="/terraform" className="underline underline-offset-2">
-                Terraform
+              <Link to="/iac" className="underline underline-offset-2">
+                Infrastructure
               </Link>{' '}
               page.
             </AlertDialogDescription>

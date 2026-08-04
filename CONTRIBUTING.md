@@ -16,7 +16,7 @@ fixed after merge. The title MUST follow Conventional Commits:
 - `<type>` is one of: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`,
   `build`, `ci`, `style`.
 - `<scope>` is optional and identifies the area (`app`, `server`, `web`,
-  `watchdog`, `terraform`, `lambda`, etc.).
+  `watchdog`, `infra`, `lambda`, etc.).
 - `<imperative summary>` reads like a command: "add", "fix", "remove" — not
   "added", "adding", or "this PR adds".
 - Keep the whole subject under ~70 characters. Put details in the PR body.
@@ -45,35 +45,41 @@ Conventional Commits style, that's fine — see the format above.
 
 ## Local checks before opening a PR
 
-From `app/`:
+From the repo root (a single npm-workspaces tree — there is no separate
+`terraform/` directory to run tooling from any more; infrastructure is a
+Pulumi program under `app/packages/infra`, exercised by the same Vitest/ESLint
+commands as the rest of the app):
 
 ```bash
-npm run lint        # ESLint over the whole monorepo
-npm test            # Vitest across every workspace
-npm run build       # shared → server → web
+npm run app:lint         # ESLint over app/** (desktop-main, desktop-preload, web) — not the scripts workspace
+npm run app:typecheck    # builds shared/cloud-aws/infra/desktop-preload/desktop-main, then tsc --noEmit over web, every Lambda, and scripts
+npm run app:test         # Vitest over app/** (desktop-main, desktop-preload, web) — not the scripts workspace's own test
+npm run app:build        # shared → infra → cloud-aws → desktop-main → desktop-preload → web
 ```
 
-From `terraform/`:
-
-```bash
-terraform fmt -check -recursive
-terraform validate
-tflint --init       # one-time per machine
-tflint
-```
-
-CI runs all of these on every PR; running them locally first means a faster
-review loop.
+CI runs `app:lint` and `app:typecheck` as above, plus `app:test:coverage`
+(Vitest with coverage) in place of plain `app:test`; running the local
+commands first still means a faster review loop.
 
 ## What CI checks
 
-- **eslint** — flat config at `app/eslint.config.js`, recommended TypeScript /
-  React / React-hooks presets plus `eslint-plugin-jsdoc` (require docs on
-  public symbols) and `eslint-plugin-tsdoc` (TSDoc syntax).
-- **tflint** — recommended preset + AWS ruleset, config at
-  `terraform/.tflint.hcl`.
-- **test** — `vitest run` across every workspace.
-- **CodeQL** — security analysis on JS/TS and Actions.
+- **eslint** (`.github/workflows/lint.yml`) — flat config at
+  `app/eslint.config.js`, recommended TypeScript / React / React-hooks presets
+  plus `eslint-plugin-jsdoc` (require docs on public symbols) and
+  `eslint-plugin-tsdoc` (TSDoc syntax).
+- **typecheck** (`.github/workflows/lint.yml`) — `npm run app:typecheck`,
+  building the packages whose declarations the rest depend on and then
+  running `tsc --noEmit` over web, every Lambda package, and scripts.
+- **test** (`.github/workflows/test.yml`) — `npm run app:test:coverage`
+  (Vitest) across `app/**`; the `scripts` workspace's own test file isn't
+  part of this run.
+- **CodeQL** — security analysis on JS/TS and Actions, via GitHub's default
+  code-scanning setup rather than a checked-in `.github/workflows` file.
+
+There is no Terraform/tflint CI job — the `terraform/` directory and its
+tflint config were removed as part of the `migrate-iac-to-pulumi` change; the
+Pulumi program under `app/packages/infra` is typechecked and unit-tested
+alongside the rest of the app instead.
 
 ## Code conventions
 
@@ -81,9 +87,9 @@ The detailed code/test conventions live in
 [`CLAUDE.md`](./CLAUDE.md#code--test-conventions) — read that for things like
 test naming (`it('should …')`), TSDoc style, and the no-`as unknown as T`
 rule. Also check the architecture section there before changing anything in
-`terraform/` or the Lambda packages, since several behaviours look removable
-but are load-bearing (DNS being Lambda-managed, watchdog state in ECS tags,
-the `AWS_REGION_` env var quirk, etc.).
+`app/packages/infra` or the Lambda packages, since several behaviours look
+removable but are load-bearing (DNS being Lambda-managed, watchdog state in
+ECS tags, the `AWS_REGION_` env var quirk, etc.).
 
 ## PR review
 

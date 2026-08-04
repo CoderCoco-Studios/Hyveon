@@ -1,3 +1,5 @@
+import type { ChangeSummary } from './changeSummary.js';
+
 /**
  * Which `terraform` subcommand a {@link RunRecord} describes. Mirrors the
  * subset of `TerraformService`'s public surface that produces a run worth
@@ -90,6 +92,57 @@ export interface RunRecord {
    * other run.
    */
   rolledBackFrom?: string;
+  /**
+   * The structured resource-change summary this run's `preview`/`up`
+   * reported, sourced verbatim from the Automation API's `SummaryEvent` —
+   * see {@link ChangeSummary}'s doc comment for the "`{}` means summary
+   * missed, not no changes" sharp edge every reader of this field must
+   * respect. Optional so older records (persisted before this field existed,
+   * and every `destroy` record, which has no comparable summary) remain
+   * readable without a migration: absence means "no summary was ever
+   * recorded for this run" (a pre-existing record, or a run kind that
+   * doesn't produce one), which reads identically to "summary event
+   * missed" — both are "nothing to show", just for different reasons.
+   * `RunRecordService`/`AwsRunRecordStore`'s read path must not assume this
+   * field's presence.
+   */
+  changeSummary?: ChangeSummary;
+  /**
+   * The Pulumi engine version stamped into this run's saved plan artifact
+   * (`plan.json`'s top-level `manifest.version`, e.g. `"v3.255.0"`), with any
+   * leading `v` stripped before storage (`"3.255.0"`) so it's directly
+   * comparable — a bare string equality, no caller-side normalization needed
+   * — against `PulumiEngineService.getResolvedVersion()`'s own un-prefixed
+   * shape (`PulumiService.readEngineVersionFromPlanArtifact` does the
+   * stripping). Set only by a `plan`-kind record produced by
+   * `PulumiService.preview`; absent on every `apply`/`destroy` record and on
+   * any record predating this field. The apply-time gate compares this
+   * against the currently-resolved engine version and refuses to apply a
+   * plan produced by a different engine — see the `iac-plan-apply-page`
+   * spec's "Engine upgraded between plan and apply" scenario.
+   */
+  engineVersion?: string;
+  /**
+   * `true` only on a `kind: 'apply'` record whose engine invocation did NOT
+   * settle as a success — failed OR was aborted — AFTER at least one
+   * resource step had already been applied. `PulumiService.apply` is not
+   * all-or-nothing, so a divergence detected partway through leaves earlier
+   * changes applied. Deliberately additive rather than a fourth
+   * {@link RunStatus} value: `RunStatus` is the hash key of the
+   * `status-index` DynamoDB GSI, so widening its value set is a bigger,
+   * infra-affecting change a run-terminal-state distinction alone doesn't
+   * justify.
+   *
+   * **Independent of which non-`'success'` `status` the run settled with —
+   * check this field directly, never `status === 'failed' && partialApply`.**
+   * This is `true` on a `status: 'failed'` record exactly as often as on a
+   * `status: 'aborted'` one (the operator cancelling mid-apply — arguably
+   * the single most likely real-world way this system ends up partway
+   * through). Gating the check behind `status === 'failed'` first silently
+   * misses every cancelled-mid-apply partial. Absent (never `false`) on
+   * every non-partial record, including every `status: 'success'` record.
+   */
+  partialApply?: boolean;
 }
 
 /**

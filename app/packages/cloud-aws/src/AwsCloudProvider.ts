@@ -178,17 +178,30 @@ export class AwsCloudProvider implements CloudProvider {
   private readonly gameLocks = new Map<string, Promise<unknown>>();
 
   /**
-   * @param getConfig - Resolves the current Terraform-derived configuration
-   *   on every call. Returns `null`/`undefined` before `terraform apply` has
-   *   run — mirrors `ConfigService.getTfOutputs()` returning `null`. Optional
-   *   so the class remains constructible with no arguments while the
-   *   cost/logs methods are still stubs.
+   * @param getConfig - Resolves the current stack-derived configuration on
+   *   every call. Returns `null`/`undefined` before anything has been
+   *   deployed — mirrors `ConfigService.getStackOutputs()` returning `null`.
+   *   Optional so the class remains constructible with no arguments while
+   *   the cost/logs methods are still stubs.
+   *
+   *   May return a `Promise`: the real app's `EcsService.buildProviderConfig`
+   *   reads `ConfigService.getStackOutputs()`, which is async. Every real
+   *   invocation of this callback happens from inside this class's own
+   *   already-`async` methods (or, for `streamWorkloadLogs`, an async
+   *   generator), so awaiting it costs nothing — see `AwsAuditLogStore`'s
+   *   identical constructor doc comment for the full "no async-factory
+   *   gymnastics needed, existing sync closures are unaffected" reasoning.
    * @param logger - Optional sink for errors swallowed by `findRunningTask`
    *   and `getPublicIp` so operators can diagnose ECS/EC2 SDK failures
    *   instead of them silently masquerading as "stopped" / "no IP".
    */
   constructor(
-    private readonly getConfig?: () => AwsCloudProviderConfig | null | undefined,
+    private readonly getConfig?: () => (
+      | AwsCloudProviderConfig
+      | null
+      | undefined
+      | Promise<AwsCloudProviderConfig | null | undefined>
+    ),
     private readonly logger?: AwsCloudProviderLogger,
   ) {}
 
@@ -377,8 +390,8 @@ export class AwsCloudProvider implements CloudProvider {
    * @returns A handle whose `workloadId` is the launched task's ARN.
    */
   async startWorkload(game: string, _opts: StartOpts): Promise<WorkloadHandle> {
-    const config = this.getConfig?.() ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    const config = (await this.getConfig?.()) ?? null;
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
     const subnets = subnetIds
@@ -426,8 +439,8 @@ export class AwsCloudProvider implements CloudProvider {
    * @param game - The game identifier to stop.
    */
   async stopWorkload(game: string): Promise<void> {
-    const config = this.getConfig?.() ?? null;
-    if (!config) throw new WorkloadGuardError('Terraform not applied.');
+    const config = (await this.getConfig?.()) ?? null;
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed.');
 
     const cluster = config.ecsClusterName;
 
@@ -454,8 +467,8 @@ export class AwsCloudProvider implements CloudProvider {
    * @param game - The game identifier to query.
    */
   async getWorkloadStatus(game: string): Promise<WorkloadStatus> {
-    const config = this.getConfig?.() ?? null;
-    if (!config) return { state: 'not_deployed', message: 'Run terraform apply first.' };
+    const config = (await this.getConfig?.()) ?? null;
+    if (!config) return { state: 'not_deployed', message: 'Run Apply on the IaC page first.' };
 
     const { region, ecsClusterName: cluster, domainName: domain } = config;
 
@@ -503,8 +516,8 @@ export class AwsCloudProvider implements CloudProvider {
     signal: AbortSignal,
     pollInterval = 2000,
   ): AsyncGenerator<LogChunk> {
-    const config = this.getConfig?.() ?? null;
-    if (!config) throw new WorkloadGuardError("Terraform not applied. Run 'terraform apply' first.");
+    const config = (await this.getConfig?.()) ?? null;
+    if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
     const { region } = config;
     const logGroup = `/ecs/${game}-server`;
@@ -554,7 +567,7 @@ export class AwsCloudProvider implements CloudProvider {
    * nothing) or `config.gameNames` is missing/empty.
    */
   async getCostEstimate(): Promise<CostBreakdown> {
-    const config = this.getConfig?.() ?? null;
+    const config = (await this.getConfig?.()) ?? null;
     const gameNames = config?.gameNames;
     if (!config || !gameNames?.length) {
       return { total: 0, currency: 'USD', breakdown: {} };

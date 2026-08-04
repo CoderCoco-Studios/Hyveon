@@ -1,30 +1,31 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { GamesController } from './games.controller.js';
-import type { ConfigService, TfOutputs } from '../services/ConfigService.js';
+import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { GamesWriteService } from '../services/GamesWriteService.js';
 import type { TfvarsService } from '../services/TfvarsService.js';
-import type { GameServer, GameWriteResult } from '@hyveon/shared';
+import type { GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-/** Minimal TfOutputs for games-controller tests. */
-const DEFAULT_OUTPUTS: Partial<TfOutputs> = {
-  game_names: ['minecraft', 'palworld'],
+/** Minimal StackOutputs for games-controller tests. */
+const DEFAULT_OUTPUTS: Partial<StackOutputs> = {
+  gameNames: ['minecraft', 'palworld'],
 };
 
 /**
- * Build a ConfigService stub. Pass `null` to simulate a pre-apply state
- * where `getTfOutputs()` returns null.
+ * Build a ConfigService stub. Pass `null` to simulate a pre-deploy state
+ * where `getStackOutputs()` resolves to null.
  */
-function makeConfig(outputs: Partial<TfOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
-  return {
+function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): ConfigService {
+  const stub: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
-  } as unknown as ConfigService;
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
+  };
+  return stub as ConfigService;
 }
 
 /** Build an EcsService stub with all mutation methods pre-wired to succeed. */
@@ -131,10 +132,10 @@ describe('GamesController', () => {
   });
 
   describe('listGames', () => {
-    it('should invalidate the tfstate cache before reading game names', async () => {
+    it('should NOT invalidate the stack-outputs cache — this channel is called on every games-list page visit, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would pay that cost far more often than a fresh deploy could plausibly have happened', async () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeTfvars(), makeGamesWrite()).listGames();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before reading game names', async () => {
@@ -177,10 +178,10 @@ describe('GamesController', () => {
   });
 
   describe('listStatus', () => {
-    it('should invalidate cache before querying ECS', async () => {
+    it('should NOT invalidate the stack-outputs cache — this channel backs the dashboard 20-second status poller, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
       await new GamesController(config, makeEcs(), makeTfvars(), makeGamesWrite()).listStatus();
-      expect(config.invalidateCache).toHaveBeenCalledOnce();
+      expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the TfvarsService cache before querying ECS', async () => {

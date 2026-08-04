@@ -113,7 +113,7 @@ export class RunService {
     // happened yet), so a concurrent caller sees it immediately.
     this.currentLock = lock;
 
-    const tableName = this.config.getTfOutputs()?.runs_table_name;
+    const tableName = (await this.config.getStackOutputs())?.runsTableName;
     if (tableName) {
       try {
         await this.store.acquireRunLock(lock);
@@ -159,7 +159,7 @@ export class RunService {
       this.currentLock = null;
     }
 
-    const tableName = this.config.getTfOutputs()?.runs_table_name;
+    const tableName = (await this.config.getStackOutputs())?.runsTableName;
     if (tableName) {
       try {
         await this.store.releaseRunLock(runId);

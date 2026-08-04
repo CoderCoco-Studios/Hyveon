@@ -22,10 +22,12 @@ Install everything from the root:
 npm install
 ```
 
-Dev mode (`npm run app:dev`) launches the full Electron app with hot-reload
-on renderer saves; electron-vite serves the renderer for HMR purposes only —
-it is not a network API surface. See the [setup guide](/setup) for the
-packaged-installer build.
+Dev mode (`npm run app:dev`/`desktop:dev`) is meant to launch the full
+Electron app with hot-reload on renderer saves; electron-vite serves the
+renderer for HMR purposes only, never as a network API surface. It's
+currently broken (see the [maintainer guide](/guides/maintainer)'s scripts
+table) — use `npm run desktop:build && npm run app:start` instead. See the
+[setup guide](/setup) for the packaged-installer build.
 
 ## `@hyveon/shared`
 
@@ -44,7 +46,7 @@ types and permission logic.
 | `ddb/client.ts` | Lazy DynamoDB DocumentClient. Region fallback: `AWS_REGION_` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`. |
 | `ddb/configStore.ts` | `getDiscordConfig()` / `putDiscordConfig()` for the `CONFIG#discord` row. |
 | `ddb/pendingStore.ts` | `getPending()` / `putPending()` / `deletePending()` for `PENDING#{taskArn}`. `putPending()` sets `expiresAt = now + 15 minutes` so DDB TTL reaps stale rows. |
-| `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises Terraform's `"placeholder"` seed as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. |
+| `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. |
 
 **Invariants**: `canRun()` lives in exactly one place; the four slash
 commands are JSON descriptors, not classes; secrets' raw values never
@@ -75,14 +77,19 @@ never speaks HTTP to this process.
 ### Module graph
 
 - **`AppModule`** — root. Imports `AwsModule`, `DiscordModule`,
-  `TfvarsModule`, `TerraformModule`, `WizardModule`, and
-  `ElectronStoreModule`. Also directly provides a handful of
+  `TfvarsModule`, `RunRecordModule`, `PulumiEngineModule`,
+  `PulumiWorkspaceModule`, `PulumiServiceModule`, `WizardModule`, and
+  `ElectronStoreModule` (nine imports; `ConfigModule` and
+  `CloudProviderModule` are **not** direct imports — they arrive
+  transitively through `AwsModule`/`TfvarsModule`/`RunRecordModule`, each of
+  which imports both). Also directly provides a handful of
   controller-adjacent services that don't warrant their own module
   (`DiagnosticsService`, `DriftService`, `GamesWriteService`,
   `AuditService`) plus the `DIAGNOSTICS_LOG_DIR` token.
-- **`ConfigModule`** — standalone module providing just `ConfigService`, the
-  `terraform.tfstate`-backed configuration reader. Extracted on its own so
-  every other feature module can depend on it without pulling in `AwsModule`.
+- **`ConfigModule`** — imports `ElectronStoreModule` and `PulumiServiceModule`
+  (so `ConfigService` can inject `PulumiService`); provides just
+  `ConfigService`. Extracted on its own so every other feature module can
+  depend on it without pulling in `AwsModule`.
 - **`CloudProviderModule`** — imports `ConfigModule`. Binds six
   cloud-agnostic contracts (from `@hyveon/shared/cloud.js`) to concrete
   `@hyveon/cloud-aws` implementations via `useFactory` providers keyed off
@@ -108,15 +115,42 @@ never speaks HTTP to this process.
   `DiscordConfigService` and `DiscordCommandRegistrar`. No discord.js,
   no gateway — the bot is two Lambdas plus Discord's REST API.
 - **`TfvarsModule`** — imports `ConfigModule` and `CloudProviderModule`
-  (for the `REMOTE_FILE_STORE` token in S3 mode); provides `TfvarsService`,
-  the local-vs-S3 `terraform.tfvars` reader/parser.
-- **`TerraformModule`** — imports `ConfigModule`, `CloudProviderModule`
-  (for `REMOTE_FILE_STORE` and `RUN_RECORD_STORE`), and `TfvarsModule`
-  (for the rollback flow); provides `TerraformService`, `RunService`
-  (the apply-lock guard), and `RunRecordService` (run-history persistence).
+  (for the `REMOTE_FILE_STORE` token); provides `TfvarsService`, the
+  S3-backed deployment-config JSON reader/parser. There is no local-file
+  fallback — see [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice)
+  below.
+- **`RunRecordModule`** — imports `ConfigModule` and `CloudProviderModule`;
+  provides `RunService` (the in-memory + DynamoDB apply lock guarding
+  plan/apply/destroy submissions) and `RunRecordService` (run-history
+  persistence), bound to the narrow `RUN_LOCK_SERVICE`/`RUN_RECORD_PERSISTER`
+  DI tokens that `PulumiService` resolves lazily.
+- **`PulumiEngineModule`** — imports nothing; provides `PulumiEngineService`,
+  which resolves and provisions the pinned Pulumi CLI engine into an
+  app-owned directory (never `~/.pulumi`, never `PATH`) without requiring
+  the operator to install anything.
+- **`PulumiWorkspaceModule`** — imports `PulumiEngineModule` and
+  `ElectronStoreModule`; provides `PulumiWorkspaceService`, the Automation
+  API `LocalWorkspace`/S3-backend/secrets-passphrase seam behind
+  `getOrCreateStack()`.
+- **`PulumiServiceModule`** — imports `PulumiWorkspaceModule`,
+  `PulumiEngineModule`, and `ElectronStoreModule`; provides `PulumiService`,
+  the plan/apply/destroy/rollback + `getStackOutputs()` engine service that
+  replaced `TerraformService`. It deliberately does **not** import
+  `RunRecordModule`, `CloudProviderModule`, or `TfvarsModule` — those would
+  close a native-ESM module cycle through `ConfigModule` — so `PulumiService`
+  resolves `RUN_RECORD_PERSISTER`, `REMOTE_FILE_STORE`, and the `TfvarsService`
+  it needs at call time via `ModuleRef.get(token, { strict: false })` instead
+  of constructor injection.
 - **`WizardModule`** — imports `ElectronStoreModule`; provides
-  `PrerequisiteService`, `AwsProfileService`, `BootstrapService`,
-  `IamCheckService`, `FirstRunWizardService` for the first-run setup wizard.
+  `AwsProfileService`, `BootstrapService`, `IamCheckService`,
+  `FirstRunWizardService`, and `GuidedIamService` for the first-run setup
+  wizard. `GuidedIamService` backs the guided-IAM step: renders the
+  `iam-bootstrap.yaml` CloudFormation template, hands off to the console,
+  intakes the operator-pasted bootstrap key, and performs the mandatory
+  mint-then-revoke rotation onto a freshly-minted key pair — plus a
+  standalone manual-revoke action for the rotation's failure path.
+  `PrerequisiteService` was deleted (`migrate-iac-to-pulumi` change, tasks
+  10.1/10.2) along with the wizard's old prerequisites step.
 - **`ElectronStoreModule`** — provides `SafeStorageService` (OS-keychain
   encryption) and `ElectronStoreService` (the typed `electron-store`
   consumer built on top of it). See
@@ -131,33 +165,35 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 
 | Controller | Representative channels | Purpose |
 |---|---|---|
-| `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `game_servers` config entries. Invalidates `ConfigService`'s tfstate cache on list/status reads so fresh applies are picked up without restarting. |
-| `ConfigController` | `config.get`, `config.update` | Read/write watchdog knobs in `server_config.json`. Takes effect on next `terraform apply` (the values are baked into Lambda env). |
+| `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `TfvarsService`. Invalidates `TfvarsService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. |
+| `ConfigController` | `config.get`, `config.update` | Read/write watchdog knobs in `server_config.json`. **Local-only** — these values are not read by the deployed watchdog Lambda; the Lambda's actual `watchdog_interval_minutes`/`watchdog_idle_checks`/`watchdog_min_packets` come from `DeploymentConfig` (`deployment-config.json`), edited via [Settings → General](/app/settings#general) and applied via `pulumi up`. |
 | `CostsController` | `costs.estimate`, `costs.actual` | Per-game Fargate estimates; Cost Explorer actuals filtered on the `SERVICE` dimension (ECS + Fargate) — account-wide, **not** scoped by the `Project` tag. See [Costs](/app/costs#activate-the-project-cost-allocation-tag). |
 | `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. |
 | `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
 | `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. |
-| `TerraformController`, `TerraformRunsController` | `terraform.init`, `terraform.plan`, `terraform.apply`, `terraform.destroy.mintToken`, `terraform.destroy`, `terraform.output`, `terraform.approve`, `terraform.rollback.resolve`, `terraform.rollback.confirm`, `terraform.runs.*` | Drives `terraform` as a child process for the apply pipeline; `terraform.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; run history is recorded for the apply-history view. |
-| `WizardController` | first-run wizard channels (prerequisites, AWS profile/credentials, bootstrap, IAM check, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
+| `IacController` | `iac.stack.initialize`, `iac.plan`, `iac.apply`, `iac.destroy.mintToken`, `iac.destroy`, `iac.output`, `iac.approve`, `iac.rollback.resolve`, `iac.rollback.confirm`, `iac.lock.clear` | Drives `PulumiService` (Automation API via `LocalWorkspace`, which launches the pinned `@pulumi/pulumi` engine as a child process through `LocalWorkspaceOptions.pulumiCommand` — the app downloads and verifies that engine itself, so no host-installed or PATH-discovered CLI is ever used) for the plan/apply/destroy/rollback pipeline. `iac.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; `iac.lock.clear` recovers a stale Pulumi backend lock. |
+| `IacRunsController` | `iac.runs.get`, `iac.runs.logs`, `iac.runs.list`, `iac.runs.logUrl` | Run history: fetch a record, stream/fetch its log, list/paginate, resolve an offloaded S3 log link. |
+| `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `TfvarsService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. |
+| `WizardController` | first-run wizard channels (AWS profile/credentials, bootstrap, IAM check, guided-IAM CloudFormation bootstrap, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 
 ### Key services
 
-- **`ConfigService`** — single place that parses `terraform.tfstate` into a
-  `TfOutputs` object (cluster ARN, subnets, SGs, EFS access points, game
-  names, hosted zone, Discord table + secret ARNs, interactions URL).
-  Caches in-memory; `invalidateCache()` is called by the games controller
-  on list/status so a new `terraform apply` is picked up without an app
-  restart. `getTfStatePath()` resolution order: (1) `TF_STATE_PATH` env var,
-  if set; (2) when running as a packaged Electron app
-  (`app.isPackaged`), `<resourcesPath>/terraform/aws/terraform.tfstate`;
-  (3) dev/test fallback — the repo-root `terraform/terraform.tfstate`. A
-  missing or unparsable state file degrades to `null` rather than throwing,
-  so the dashboard can still render pre-apply. Several other paths
-  (`getServerConfigPath()`, `getTfvarsPath()`, the Terraform composer root)
-  follow the same env-var → packaged-resourcesPath → dev-fallback shape —
-  see the [environment variables](#env-vars) table below for each one's
-  specific env var name.
+- **`ConfigService`** — no longer parses any state file off disk. Its
+  `getStackOutputs()` is a memoised delegate to `PulumiService.getStackOutputs()`,
+  which reads the deployed Pulumi stack's outputs (`StackOutputs` from
+  `@hyveon/shared` — cluster ARN, subnets, security groups, EFS access
+  points, game names, hosted zone, Discord table + secret ARNs, interactions
+  URL) via the Automation API against the S3 backend, not a local
+  `terraform.tfstate`. The in-flight promise is cached so concurrent callers
+  coalesce; a resolved `null` (infra not yet deployed) expires after 20 s, a
+  resolved value is cached until `invalidateCache()` — called by the games
+  controller on list/status so a fresh `pulumi up` is picked up without an
+  app restart. The old `getTfOutputs()`/`getTfStatePath()`/`TF_STATE_PATH`
+  path was removed as dead code — nothing reads a local tfstate file under
+  the Pulumi engine. `getConfigurationBucket()` (the configuration S3 bucket
+  name) is a different, unrelated resolution path — see
+  [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice) below.
 - **`DiscordConfigService`** — persistence facade over DynamoDB
   (`CONFIG#discord`) + Secrets Manager. Concurrent reads are coalesced via
   an inflight-promise pattern. `getRedacted()` returns
@@ -204,13 +240,10 @@ everywhere, not `console.log`.
 | Name | Default | Purpose |
 |---|---|---|
 | `AWS_DEFAULT_REGION` | — | AWS SDK region hint, read by `ConfigService.readEnvRegion()`. |
-| `TF_STATE_PATH` | — | Overrides the resolved path to `terraform.tfstate` (see `ConfigService.getTfStatePath()` resolution order above). |
-| `TF_DIR` | — | Overrides the Terraform composer root (`terraform/`, not `terraform/aws/`) that `TerraformService` spawns the `terraform` binary in. |
-| `SERVER_CONFIG_PATH` | — | Overrides the resolved path to `server_config.json` (the watchdog-knob store). Same env → packaged → dev-fallback resolution shape as `TF_STATE_PATH`. |
-| `TFVARS_PATH` | — | Overrides the resolved path to the local fallback copy of `terraform.tfvars`, used when no S3 tfvars backend is configured. |
-| `TFVARS_CACHE_TTL_MS` | `30000` | In-memory cache TTL for `TfvarsService`'s parsed tfvars. Falls back to the default when unset, empty, non-numeric, or non-positive. |
-| `RUNS_DIR_PATH` | `<tmpdir>/hyveon-runs` | Directory `TerraformService` writes per-run plan/apply artifacts under. |
-| `HYVEON_TFVARS_BUCKET` | — | Overrides the S3 bucket name `TfvarsService` reads/writes tfvars against in S3 mode. Falls back to walking up from `process.cwd()` for a `.hyveon/tfvars-bucket` marker file (mirrors `scripts/tfvars-sync.ts`'s `findBucketMarker()`), then `null` (local mode). |
+| `SERVER_CONFIG_PATH` | — | Overrides the resolved path to `server_config.json` (the watchdog-knob store): (1) this env var, (2) `<userData>` when packaged, (3) dev-fallback `<APP_ROOT>/server_config.json`. |
+| `TFVARS_CACHE_TTL_MS` | `30000` | In-memory cache TTL for `TfvarsService`'s parsed configuration. Falls back to the default when unset, empty, non-numeric, or non-positive. |
+| `RUNS_DIR_PATH` | `<userData>/runs` | Directory `PulumiService` writes per-run plan/apply artifacts under. |
+| `HYVEON_TFVARS_BUCKET` | — | Dev/CI override for the S3 configuration bucket name `TfvarsService`/`PulumiService` read/write against — wins over the operator-configured value. Not how the packaged app resolves the bucket in normal use; see [`TfvarsModule` / `TfvarsService`](#tfvarsmodule--tfvarsservice) below for the real resolution order. |
 | `NODE_ENV` | — | `'production'` selects Winston's JSON-lines log format over the dev colourised format; read in `logger.ts`. |
 | `DIAGNOSTICS_LOG_DIR` | `os.tmpdir()` | Outside Electron only — the directory `DiagnosticsController`'s log-tail reads from. Inside Electron this is always `<userData>/logs` regardless of the env var. |
 | `HYVEON_TEST_MODE` | — | `'1'` enables the `window.hyveon.__test` mock-IPC seam in the preload script for Playwright's `electron` e2e project — see [`@hyveon/desktop-preload`](#hyveondesktop-preload) below. Absent (the default) in packaged/production builds. |
@@ -237,9 +270,9 @@ Two services, both provided by `ElectronStoreModule`:
   with an identical public API, so reads/writes just don't persist across
   process restarts in tests/CI. Its `AppStoreSchema` holds
   `wizardCompleted`, the selected `activeCloud`/AWS profile/region, the
-  bootstrap step's last-submitted resource names (state bucket, lock table,
-  tfvars bucket — so Settings' "Reconfigure" flow can rehydrate a non-default
-  name), and pasted-credentials profiles keyed by profile name. Every secret
+  bootstrap step's last-submitted resource names (state bucket, tfvars
+  bucket — so Settings' "Reconfigure" flow can rehydrate a non-default name),
+  and pasted-credentials profiles keyed by profile name. Every secret
   field (`aws.accessKeyId`, `aws.secretAccessKey`,
   `creds.aws.<profile>.accessKeyId`/`secretAccessKey`) is encrypted via
   `SafeStorageService` on write and decrypted on the dedicated getter — there
@@ -250,18 +283,34 @@ Two services, both provided by `ElectronStoreModule`:
 
 ### `TfvarsModule` / `TfvarsService`
 
-`TfvarsService` is the local-vs-S3 `terraform.tfvars` reader/parser backing
-the Games page's declared-config view, the add/edit/remove game flows, and
-drift detection. Source resolution mirrors `ConfigService.getTfvarsBucket()`
-— when `ConfigService` reports an S3 backend configured (`HYVEON_TFVARS_BUCKET`
-env var, or a `.hyveon/tfvars-bucket` marker file found by walking up from
-`process.cwd()`), reads/writes go through the injected `REMOTE_FILE_STORE`
-token; otherwise they hit `ConfigService.getTfvarsPath()` on local disk.
-Parsed results are cached in-memory for `TFVARS_CACHE_TTL_MS` (default
-30 s) so repeated reads (e.g. drift checks) don't re-parse HCL on every
-call; `invalidateCache()` is called after any write. See the
-[S3 tfvars storage guide](/guides/s3-tfvars) for the local-vs-S3 tradeoff
-this mirrors.
+`TfvarsService` is the S3-backed deployment-config JSON reader/parser
+backing the Games page's declared-config view, the add/edit/remove game
+flows, and drift detection — see `openspec/specs/desktop-only-operator-surface`'s
+"No operator-editable configuration files" requirement. There is no
+local-file fallback: `ConfigService.getConfigurationBucket()` resolves the
+configured S3 bucket (the `HYVEON_TFVARS_BUCKET` env var as a dev/CI
+override, otherwise `ElectronStoreService`'s `bootstrap.configurationBucket`
+— the value the First-Run Wizard's bootstrap step persisted), and every
+read/write goes through the injected `REMOTE_FILE_STORE` token keyed by the
+fixed `CONFIGURATION_OBJECT_KEY` constant (`@hyveon/shared`,
+`'deployment-config.json'`). When no bucket is configured,
+`getGameServers()` resolves to `[]` (never rejects — its `isConfigured()`
+method lets a caller distinguish "unconfigured" from "genuinely zero games"),
+while the write paths and `getRawConfig()` throw a typed
+`ConfigurationNotConfiguredError`. Parsed results are cached in-memory for
+`TFVARS_CACHE_TTL_MS` (default 30 s) so repeated reads (e.g. drift checks)
+don't re-fetch from S3 on every call; `invalidateCache()` is called after any
+write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see the
+[S3 tfvars storage guide](/guides/s3-tfvars)) is a separate, maintainer-facing
+CLI concern — it does not share this resolution mechanism.
+
+`getTopLevelSettings()`/`updateTopLevelSettings()` are the top-level-field
+counterpart to `addGameServer()`/`updateGameServer()`/`removeGameServer()` —
+same conditional-put/`OptimisticLockError` contract, but merging a patch onto
+every field except `gameServers` (which `updateTopLevelSettings()` always
+takes from the freshly-read document, never from the caller's patch, even if
+a caller's payload contains a `gameServers` key at runtime). Backs the
+`IacSettingsController` row above.
 
 ### Drift detection
 
@@ -269,24 +318,25 @@ this mirrors.
 IPC channel and the [`/app/dashboard`](/app/dashboard) and
 [`/app/games`](/app/games) pages' drift indicators) computes the difference
 between the **declared** game-server config (`TfvarsService.getGameServers()`
-— what's in `terraform.tfvars` right now) and the **applied** config
-(`ConfigService.getTfOutputs()?.applied_game_servers` — what Terraform last
-actually applied). Per game, the pure `computeDrift()` function classifies:
+— what's in the configuration bucket's `deployment-config.json` right now)
+and the **applied** config (`ConfigService.getStackOutputs()`'s
+`appliedGameServers` field — what the Pulumi stack last actually applied).
+Per game, the pure `computeDrift()` function classifies:
 
 - **`pending_create`** — declared but not yet in the deployed set.
 - **`pending_delete`** — deployed but no longer declared.
 - **`config_drift`** — declared and deployed, but `image`/`cpu`/`memory`/
   `ports`/`volumes` differ from what was last applied, with `changedFields`
   listing exactly which. `ports`/`volumes` comparisons are order-insensitive
-  (canonicalized before comparing), since HCL/JSON key order isn't
-  guaranteed stable and reordering entries in tfvars isn't a real config
+  (canonicalized before comparing), since JSON key order isn't guaranteed
+  stable and reordering entries in the configuration isn't a real config
   change.
 - Games matching on every compared field produce no entry — the report only
   lists what's out of sync.
 
-`getDrift()` invalidates both the tfstate cache and the `TfvarsService`
-cache first, so a fresh `terraform apply` or tfvars edit is reflected
-without an app restart.
+`getDrift()` invalidates both `ConfigService`'s cached stack outputs and the
+`TfvarsService` cache first, so a fresh Pulumi apply or configuration edit is
+reflected without an app restart.
 
 ## `@hyveon/cloud-aws`
 
@@ -354,7 +404,7 @@ dashboard screen. `app.component.tsx` declares:
 |---|---|---|
 | `/` | Dashboard — game cards, KPI strip, start/stop | [`/app/dashboard`](/app/dashboard) |
 | `/games`, `/games/:name` | Games list + game detail | [`/app/games`](/app/games) |
-| `/terraform`, `/terraform/history`, `/terraform/history/:runId` | Plan/apply/destroy, run history, run detail | [`/app/terraform`](/app/terraform) |
+| `/iac`, `/iac/history`, `/iac/history/:runId` | Plan/apply/destroy, run history, run detail | [`/app/iac`](/app/iac) |
 | `/discord` | Discord bot credentials, guilds, admins, per-game permissions | [`/app/discord`](/app/discord) |
 | `/logs` | Live log viewer | [`/app/logs`](/app/logs) |
 | `/costs` | Cost estimates and actuals | [`/app/costs`](/app/costs) |

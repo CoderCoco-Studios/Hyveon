@@ -51,7 +51,7 @@ export {
   VALID_USER_ID,
   SAMPLE_LOG_LINES,
 } from './game-data.js';
-export { AppLayout, DashboardPage, CostsPage, DiscordPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
+export { AppLayout, DashboardPage, CostsPage, DiscordPage, GuidedIamWizardPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
 
 /** Per-spec overrides for the default `/api/*` stubs registered by `stubApis`. */
 export interface StubOptions {

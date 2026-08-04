@@ -21,6 +21,15 @@ export default defineConfig({
       // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior
       // `npm run build -w @hyveon/cloud-aws`, so its dist/ never exists.
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
+      // Same rationale — desktop-main's PulumiService imports @hyveon/infra
+      // directly, and CI runs `vitest run` without a prior
+      // `npm run build -w @hyveon/infra`, so its dist/ never exists.
+      '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
+      // Same rationale — @hyveon/web imports value exports (not just types,
+      // e.g. GUIDED_PROFILE_NAME) from @hyveon/desktop-preload, and CI runs
+      // `vitest run` without a prior `npm run build -w @hyveon/desktop-preload`,
+      // so its dist/ never exists.
+      '@hyveon/desktop-preload': resolve(__dirname, 'packages/desktop-preload/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the
       // same imports resolve under Vitest.
@@ -57,7 +66,7 @@ export default defineConfig({
             'packages/**/*.test.{ts,tsx}',
             // Explicitly include desktop-preload specs so they are always discovered.
             'packages/desktop-preload/**/*.test.{ts,tsx}',
-            // Top-level test helpers (e.g. fake-terraform.mjs) live outside packages/.
+            // Top-level test helpers (e.g. packaging-manifest-pins.test.ts) live outside packages/.
             'test/**/*.test.{ts,tsx}',
             // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
             // (outside packages/), so it needs its own explicit include entry.
@@ -112,6 +121,9 @@ export default defineConfig({
         'packages/desktop-main/src/modules/**',
         // Test-only infrastructure — not production code.
         'packages/desktop-main/src/test-mocks/**',
+        // Spike scaffolding gated behind HYVEON_PULUMI_SPIKE — exercised
+        // manually against a packaged build, not by unit tests.
+        'packages/desktop-main/src/spike/**',
         // Pure type declarations — no executable statements.
         'packages/shared/src/types.ts',
       ],

@@ -4,7 +4,8 @@ import { BadRequestException } from '@nestjs/common';
 import { DiscordController } from './discord.controller.js';
 import type { DiscordConfigService, DiscordAction } from '../services/DiscordConfigService.js';
 import type { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
-import type { ConfigService, TfOutputs } from '../services/ConfigService.js';
+import type { ConfigService } from '../services/ConfigService.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -64,8 +65,8 @@ function makeRegistrar(): DiscordCommandRegistrar {
  */
 function makeConfig(invokeUrl: string | null = 'https://xyz.lambda-url.us-east-1.on.aws/'): ConfigService {
   return {
-    getTfOutputs: vi.fn().mockReturnValue(
-      invokeUrl !== null ? ({ interactions_invoke_url: invokeUrl } as Partial<TfOutputs>) : null,
+    getStackOutputs: vi.fn().mockResolvedValue(
+      invokeUrl !== null ? ({ interactionsInvokeUrl: invokeUrl } as Partial<StackOutputs>) : null,
     ),
   } as unknown as ConfigService;
 }

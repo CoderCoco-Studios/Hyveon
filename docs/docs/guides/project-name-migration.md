@@ -370,13 +370,11 @@ data is frequently incomplete. Come back the day after the apply and confirm:
 ## Related documentation updates
 
 A `project_name` migration usually also requires touching these files in the
-same change — see the "Checklist for Terraform variable changes" section in
-the repo's `CLAUDE.md` for the general case:
+same change — see the "Deployment-config fields" section in the repo's
+`CLAUDE.md` for the general case:
 
 - `CLAUDE.md`'s `Project=<value>` reference in the cost-allocation comment.
-- `terraform/terraform.tfvars.example`'s `project_name` example value.
-- `docs/docs/components/terraform.md`'s variables table, if the default
-  changed.
+- `docs/docs/components/infra.md`, if the default changed.
 - `docs/docs/setup.md`, anywhere it references the IAM ARN prefixes or
   default `project_name` value (e.g. the `hyveon-*` IAM resource patterns,
-  the `{project_name}-tfvars`/`{project_name}-tf-state` bucket names).
+  the `{project_name}-configuration`/`{project_name}-tfstate` bucket names).

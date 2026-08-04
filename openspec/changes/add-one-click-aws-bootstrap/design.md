@@ -1,40 +1,34 @@
 ## Context
 
-Hyveon's first-run wizard already covers prerequisites, cloud selection, credential intake, state-bucket/lock-table bootstrap, and `terraform init`. What it does not cover is everything that has to happen *before* the wizard can authenticate at all: creating an IAM principal with the `HyveonDeployAll` permission set, and populating `terraform/terraform.tfvars`. Both are documented as manual console/editor work in `docs/docs/setup.md`.
+Hyveon's first-run wizard already covers prerequisites, cloud selection, credential intake, state-bucket/configuration-bucket bootstrap, and `pulumi stack init` against the self-managed S3 backend. What it does not cover is everything that has to happen *before* the wizard can authenticate at all: creating an IAM principal with the `HyveonDeployAll` permission set. That is still documented as manual console work in `docs/docs/setup.md`.
 
 The hard constraint shaping this design is that **an app with no credentials cannot create credentials**. There is no AWS API that authenticates as the root user; root sign-in is a console-only, MFA-gated human action, and AWS blocks root access keys on newly created accounts. Any "auto setup" therefore has to bounce through a browser session the human already owns. The question is only how much work happens on the human's side of that bounce.
 
 Existing pieces this design builds on:
 
-- `app/packages/shared/src/iamPolicy.ts` — `HYVEON_DEPLOY_ALL_ACTIONS`, already the single source of truth for the deploy policy and already assertion-locked against `docs/docs/setup.md` by `iamPolicy.test.ts`.
-- `app/packages/desktop-main/src/services/IamCheckService.ts` — batched `iam:SimulatePrincipalPolicy` over those actions.
-- `app/packages/desktop-main/src/services/AwsProfileService.ts` + `SafeStorageService` — profile discovery and keychain-encrypted storage of pasted keys, which hard-fails rather than writing plaintext.
-- `app/packages/desktop-main/src/services/BootstrapService.ts` — SDK-only, idempotent `created`/`exists`/`failed` resource creation.
-- `TfvarsService` (`app/packages/desktop-main/src/services/TfvarsService.ts`) — already reads and writes `terraform.tfvars`, but only for the `game_servers` map. Writes are **byte-preserving HCL surgery** via `hclSurgeon.ts` (`locateEntry` / `locateMapBody` / `cutEntry` / `replaceEntry`) and `hclEmit.ts` (`emitGameServerEntry`); the file is never regenerated from a parsed model, so everything outside the edited entry survives byte-for-byte. `@cdktf/hcl2json` is used for reading only. Supports a local-file mode and an S3 mode (`RemoteFileStore`) with etag optimistic locking (`OptimisticLockError`).
-- `app/packages/shared/src/tfvars.ts` — typed model for a `game_servers` **entry** only. No top-level variable is modelled anywhere.
-- `app/packages/shared/src/gameServerValidator.ts` — Zod schema plus business rules (Fargate CPU/memory pairing, absolute container paths, HTTPS port constraints, sibling port collisions), already wired into `GamesWriteService` and the add-game wizard.
-- Full `game_servers` CRUD UI already exists (`add-game-wizard/`, `edit-game-form/`, rollback and pending-changes components).
-- `@cdktf/hcl2json` — already a dependency, already externalised from the Electron bundle (re-bundling it reintroduces a known Electron quit-hang).
+- `app/packages/shared/src/iamPolicy.ts` — `HYVEON_DEPLOY_ALL_ACTIONS`, the single flattened, deduplicated source of truth for the deploy policy's action set, already assertion-locked against `docs/docs/setup.md` by `iamPolicy.test.ts`. It is a flat list used for `iam:SimulatePrincipalPolicy`, not a per-statement structure — the four-statement shape (`HyveonDeploy` / `HyveonIAM` / `HyveonConfigurationBucket` / `HyveonStateBucket`) exists today only as hand-written JSON in `docs/docs/setup.md`; no code encodes that structure yet, which is exactly the gap the CloudFormation generator fills.
+- `app/packages/desktop-main/src/services/IamCheckService.ts` — batched `iam:SimulatePrincipalPolicy` over `HYVEON_DEPLOY_ALL_ACTIONS`, purely advisory today (confirmed against the current source: every result — `passed`/`missing`/`warning` — is non-blocking, matching `docs/docs/setup.md`'s own "never blocks you from continuing").
+- `app/packages/desktop-main/src/services/AwsProfileService.ts` + `SafeStorageService` — profile discovery (`listProfiles()`) and keychain-encrypted storage of pasted keys (`savePastedCredentials()`), which hard-fails rather than writing plaintext. Confirmed: no rotation method exists today, so the mint-then-revoke rotation this change adds is genuinely new work, not an extension of something partially built.
+- `app/packages/desktop-main/src/services/BootstrapService.ts` — SDK-only, idempotent `created`/`exists`/`failed` resource creation for the state bucket and the configuration bucket. Confirmed against the current source: both `ensureStateBucket()` and `ensureConfigurationBucket()` already call a shared `ensurePublicAccessBlock()` helper (all four block settings) unconditionally after `createBucket()` resolves, on both the fresh-create and already-exists paths — the public-access-block gap the earlier draft of this change targeted is **already closed**, as a side effect of unrelated `migrate-iac-to-pulumi` work. The one asymmetry that remains: `ensureStateBucket()` also calls `PutBucketEncryption` (AES256), `ensureConfigurationBucket()` does not.
+- `app/packages/shared/src/wizardSteps.ts` — `WIZARD_STEPS = ['pick-cloud', 'credentials', 'bootstrap', 'stack-init']`, the single source of truth for step ordering, shared between the renderer (`wizard.utils.ts`) and the main process (`FirstRunWizardService`).
+- Reconfigure mode is a `mode: 'reconfigure'` prop on the same `FirstRunWizard` component (not a separate step list) — steps in `RECONFIGURE_PRE_COMPLETED_STEPS` (`first-run-wizard.component.tsx`) render collapsed/pre-satisfied with an "Edit" affordance; today that set is `['pick-cloud', 'credentials', 'bootstrap']`, leaving `stack-init` always re-run.
 
-The tfvars gap is therefore much narrower than "the app should own tfvars": per-game editing is done. What remains hand-edited is the **top-level** variable set — `project_name`, `aws_region`, `hosted_zone_name`, and the watchdog knobs — which `docs/docs/setup.md` step 4 still instructs the operator to type into a file.
+Credential plumbing for the infrastructure engine itself is **out of scope for this change and already fully solved**: `PulumiWorkspaceService.getOrCreateStack()` unconditionally resolves `input.credentialEnvVars ?? resolveCredentialEnvVars(this.store)`, and `PulumiCredentialResolver.resolveCredentialEnvVars()` reads the wizard's active credential source (profile → `AWS_PROFILE`; pasted/guided → `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) and throws `PulumiCredentialsNotConfiguredError` when none is set — there is no ambient-chain fallback to guard against. Whatever credential guided provisioning ends up storing as the active source, the engine already picks it up with zero additional plumbing.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- An operator with nothing but an AWS account and its console sign-in reaches `terraform apply` without opening a text editor, the IAM console's policy editor, or `docs/docs/setup.md`.
-- The permission set CloudFormation creates is generated from `HYVEON_DEPLOY_ALL_ACTIONS`, so it cannot drift from what `IamCheckService` verifies.
+- An operator with nothing but an AWS account and its console sign-in reaches a bootstrapped Pulumi backend without opening the IAM console's policy editor or `docs/docs/setup.md`.
+- The permission set CloudFormation creates is generated from `HYVEON_DEPLOY_ALL_ACTIONS` and the real four-statement shape, so it cannot drift from what `IamCheckService` verifies or what `docs/docs/setup.md` documents.
 - No long-lived secret that the app depends on is ever readable from CloudFormation stack history after the wizard completes.
-- Terraform variables are editable from the app both during first run and afterwards, with the same typed model behind both.
-- The credentials the operator chooses actually reach the `terraform` subprocess.
 
 **Non-Goals:**
 
 - IAM Identity Center / SSO device-authorization login. It presupposes Identity Center behind AWS Organizations, which is itself manual setup.
 - Programmatic use of root credentials, in any form.
 - AWS account creation and Route 53 hosted zone creation.
-- Replacing or reworking the existing `game_servers` read/write path, its CRUD UI, or `gameServerValidator`. All of that already works and is extended, not touched.
-- A general-purpose HCL serializer. Writes stay byte-preserving splices.
+- Any change to how the infrastructure engine (`PulumiService`/`PulumiWorkspaceService`) resolves credentials — already solved, independent of this change.
 - Multi-account or cross-account role assumption.
 
 ## Decisions
@@ -66,11 +60,14 @@ The AWS API reference for `CreateStack` is explicit: `TemplateURL` "must point t
 
 Rationale: hosting buys the operator exactly one saved file-picker interaction, once, and charges the project a piece of permanently-online public infrastructure tied to a maintainer's personal AWS account, whose failure breaks setup for every new user. The upload flow has to exist regardless as the offline and fallback path, so hosting would be pure addition on top of code that already works. Deliberately **not** built, and no build-time constant or dead branch is carried in anticipation of it — if this is revisited later, the branch is small enough to add then.
 
+**Template file location:** `app/packages/desktop-main/resources/cloudformation/iam-bootstrap.yaml`, packaged via `electron-builder.yml`'s `extraResources` (the same mechanism that already ships `build/icon.png` for the Linux window/taskbar icon). Rejected `app/packages/shared/` as the home for the raw template asset: `shared` today ships pure TypeScript only — no binary/static asset ever needs to survive its build step into `out/` or into a packaged app, and adding that plumbing (a bundler copy step, an `extraResources` entry reaching into a different package's source tree) would be new infrastructure with no other consumer. Colocating the template under the `desktop-main` package that owns `GuidedIamService` — its only reader, in both dev and packaged runs — keeps the asset next to its one caller and reuses the packaging mechanism the icon assets already exercise.
+
 ### Decision 3: The template creates a user with an access key, and the app immediately rotates it
 
 The template creates:
 
-- `AWS::IAM::ManagedPolicy` — document generated at build time from `HYVEON_DEPLOY_ALL_ACTIONS`, preserving the existing `HyveonDeploy` / `HyveonIAM` / `HyveonTfvarsBucket` statement structure.
+- `AWS::IAM::ManagedPolicy` — document generated at build time from `HYVEON_DEPLOY_ALL_ACTIONS`, reproducing the real current four-statement structure documented in `docs/docs/setup.md`: `HyveonDeploy` (wildcard service grants, `Resource: "*"`), `HyveonIAM` (scoped to `arn:aws:iam::*:role/hyveon-*` and `.../policy/hyveon-*`), `HyveonConfigurationBucket` (scoped to `${project_name}-tfvars` and its `/*`), and `HyveonStateBucket` (scoped to `${project_name}-tfstate` and its `/*` — `s3:ListBucket`/`GetObject`/`PutObject`/`DeleteObject` plus `PutBucketVersioning`/`PutEncryptionConfiguration`/`PutBucketPublicAccessBlock`; **no DynamoDB action of any kind**, since Pulumi's self-managed S3 backend has no lock table — confirmed no `ensureLockTable`/lock-table identifier survives anywhere in the codebase).
+- A second, narrower `AWS::IAM::ManagedPolicy` — `HyveonSelfRotate`, scoped to `arn:aws:iam::*:user/${UserName}` (the same stack parameter naming the created user), granting exactly `iam:CreateAccessKey`, `iam:DeleteAccessKey`, `iam:ListAccessKeys` — the permissions Decision 3's mint-then-revoke rotation needs against the principal the stack itself creates. Not part of `HYVEON_DEPLOY_ALL_ACTIONS`: ordinary deploy principals (profile or pasted-key paths) never rotate their own key, so this permission belongs only to the bootstrap principal the template generates.
 - `AWS::IAM::User` — name taken from a stack parameter, defaulting to `hyveon`.
 - `AWS::IAM::AccessKey` — with `DeletionPolicy: Retain`.
 - Outputs: user name, policy ARN, `AccessKeyId`, and `SecretAccessKey` via `!GetAtt`.
@@ -89,42 +86,15 @@ Ordering note: rotation must run *before* the IAM permission gate, so that the c
 
 ### Decision 4: `IamCheckService` becomes a gate, not an advisory check
 
-Today the bootstrap step's "Check permissions" is non-blocking. After guided provisioning the permission set is known by construction, so a simulation failure means something concrete went wrong — wrong account, partially-failed stack, an SCP denying actions. The check runs automatically after rotation, and a `missing` result blocks progress with the specific denied actions listed and a re-run action.
+Today the bootstrap step's "Check permissions" is non-blocking on every path (confirmed against the current source — there is no notion of credential-source origin in `IamCheckService` today, since guided provisioning doesn't exist yet). After guided provisioning the permission set is known by construction, so a simulation failure means something concrete went wrong — wrong account, partially-failed stack, an SCP denying actions. The check runs automatically after rotation, and a `missing` result blocks progress with the specific denied actions listed and a re-run action.
 
 It stays non-blocking on the manual and profile-picker paths, where an operator may deliberately be running a narrower policy. Warnings (simulation itself unavailable, e.g. `iam:SimulatePrincipalPolicy` denied) never block on any path.
 
-### Decision 5: Extend the existing `TfvarsService` surgery approach to top-level variables
+### Decision 5: Close the remaining configuration-bucket encryption gap here
 
-`TfvarsService` already solves this problem correctly for `game_servers`, and the existing approach is better than regenerating the file from a model: writes locate the exact byte range of the target and splice it, so comments, ordering, and formatting everywhere else survive untouched. Regenerating from a parsed model would lose all of that, and `@cdktf/hcl2json` has no serializer to make a faithful round trip possible anyway.
+`BootstrapService.ensureStateBucket()` and `ensureConfigurationBucket()` both already call the shared `ensurePublicAccessBlock()` helper unconditionally, so the public-access-block gap an earlier draft of this change targeted is already closed — confirmed by reading the current source, not assumed. One asymmetry remains: `ensureStateBucket()` also enables AES256 default encryption via `PutBucketEncryption`; `ensureConfigurationBucket()` does not, despite holding the same class of configuration data (the versioned `deployment-config.json` object).
 
-**Chosen:** extend, do not replace.
-
-- **Model:** add a top-level variable model to `app/packages/shared/src/tfvars.ts` alongside the existing `GameServer` types — `project_name`, `aws_region`, `hosted_zone_name`, and the watchdog knobs. The `game_servers` model stays exactly as it is.
-- **Read:** a `getTopLevelVars()` sibling to the existing `getGameServers()`, reusing the same `fetchRawTfvars()` source resolution (S3 mode when `ConfigService.getTfvarsBucket()` is set, local file otherwise) and the same TTL cache.
-- **Write:** a `setTopLevelVar()` / `setTopLevelVars()` sibling to `addGameServer()` / `updateGameServer()`, extending `hclSurgeon.ts` with attribute-level locate-and-replace (the existing helpers target map entries) and `hclEmit.ts` with scalar attribute emission. Insert-if-absent must append in a deterministic position rather than anywhere.
-- **Safety:** reuse what already exists — S3 mode keeps its etag optimistic locking and `OptimisticLockError`; both modes route through the existing `writeTfvars()` / `putRawTfvars()` path so there is exactly one write path.
-
-**Deliberately not carried over from the earlier draft:** a passthrough bag for unknown keys (unnecessary — byte-preserving surgery never drops anything), a `# Managed by Hyveon` header (the file is not managed wholesale), a `terraform.tfvars.bak` copy on every write in S3 mode (object versioning already provides history), and any "comments will be lost" confirmation (they will not be lost).
-
-**One genuine gap worth closing:** local mode is an unguarded `writeFileSync` with no versioning and no locking, where S3 mode has both. A `.bak` copy immediately before the splice, in local mode only, gives local operators a single-step undo without touching the S3 path's semantics.
-
-Alternative considered: a general HCL writer that regenerates the whole file from a complete model. Rejected — it discards the byte-preservation property the current implementation deliberately bought, and would regress per-game editing that already works.
-
-### Decision 6: Terraform subprocess credentials come from the resolved chain, exported as env
-
-`TerraformService.spawnAndStream()` currently calls `spawn(binaryPath, args, { cwd })` with no `env`, so the child inherits the Electron process environment and resolves credentials via the ambient default chain — not the profile or pasted keys the wizard selected. An operator on the pasted-keys path therefore has credentials that work for bootstrap and IAM simulation but not for `terraform apply`.
-
-**Chosen:** a single `resolveTerraformEnv()` helper that returns `{ ...process.env, AWS_REGION, ... }` plus either `AWS_PROFILE` (profile path) or `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (pasted and guided paths, read from the keychain at spawn time), and is applied by every terraform invocation.
-
-Alternative considered: writing a managed profile into `~/.aws/credentials` and always passing `AWS_PROFILE`. Rejected — it puts plaintext secrets on disk, which the existing `SafeStorageService` design deliberately refuses to do.
-
-Secrets must never appear in the streamed terraform logs; the existing log sanitiser needs to cover the new env values.
-
-### Decision 7: Close the state-bucket public-access-block gap here
-
-`BootstrapService.ensureStateBucket()` and `ensureTfvarsBucket()` create buckets with versioning and AES256 encryption but never call `PutPublicAccessBlock`, while `terraform/bootstrap/main.tf` — the manual fallback that creates the same tfvars bucket — does set all four block settings. The SDK path is therefore strictly weaker than the Terraform path it mirrors, and it is the path every wizard user takes.
-
-**Chosen:** fix it in this change rather than filing it separately. This change is the one that makes guided setup the default route to bucket creation, so shipping it would otherwise widen the blast radius of the very flow being introduced. The fix is a single additional idempotent SDK call per bucket, mirroring the four settings the Terraform module already uses, and it needs no coordination with anything else here.
+**Chosen:** add the same idempotent `PutBucketEncryption` call to `ensureConfigurationBucket()`, applied on the `exists` path as well as `created` (matching the existing `ensurePublicAccessBlock()` pattern) so a bucket created before this change is brought into line the next time bootstrap runs against it.
 
 Scope note: this covers only the buckets `BootstrapService` creates. Tightening the `HyveonDeploy` IAM statement is explicitly a separate change (see Open Questions).
 
@@ -134,35 +104,31 @@ Scope note: this covers only the buckets `BootstrapService` creates. Tightening 
 - **Operator abandons the wizard between stack creation and rotation** → The bootstrap key stays live and exposed in Outputs. The wizard's resumable progress state records "rotation pending" and the next launch resumes into the rotation step rather than skipping past it; the step also offers an explicit "revoke bootstrap key" action.
 - **Rotation partially fails (new key created, old key delete denied)** → Verify the new key with `sts:GetCallerIdentity` *before* deleting the old one, and surface an explicit "bootstrap key still active — revoke it manually" warning with the direct console link if the delete fails. Never leave the operator believing rotation succeeded when it did not.
 - **CloudFormation stack creation fails partway** → The permission gate catches it. Report the stack's failure reason by name and offer delete-and-retry rather than a generic error.
-- **Attribute-level HCL surgery corrupts the file** → The existing surgeon targets map entries; top-level scalar attributes are a new locate-and-splice case (quoting, heredocs, inline comments trailing an attribute, an attribute absent entirely). Cover each with fixture-driven tests before wiring any UI, and reuse the existing `restoreRawTfvars()` rollback path on failure.
-- **Local-mode write has no versioning or locking, unlike S3 mode** → Add a `.bak` copy immediately before the splice in local mode only, leaving S3 mode's etag optimistic locking untouched.
-- **Concurrent edits in S3 mode** → Already handled by the existing `ifMatch` etag check surfacing `OptimisticLockError`; the new top-level write path must route through the same `writeTfvars()` so it inherits that rather than bypassing it.
-- **`@cdktf/hcl2json` re-bundled into the Electron main bundle** → Reintroduces the known quit-hang that made every Electron e2e teardown time out. The rollup `external` entry and electron-builder `files` entry must stay; worth an explicit check in the task list.
 - **AWS changes the CloudFormation console URL shape or the create-stack flow** → The console URL is constructed in one place in `GuidedIamService` with a unit test pinning its shape, so a fix is one function.
-- **Generated policy drifts from the doc** → `iamPolicy.test.ts` already locks `HYVEON_DEPLOY_ALL_ACTIONS` against `docs/docs/setup.md`; extend it to also assert the generated CloudFormation policy document matches the same source.
-- **Operator picks the wrong region in the console** → The console URL carries the region selected in the wizard, and the post-rotation `sts:GetCallerIdentity` plus permission gate confirm account and region before bootstrap proceeds.
+- **Generated policy drifts from the doc** → `iamPolicy.test.ts` already locks `HYVEON_DEPLOY_ALL_ACTIONS` against `docs/docs/setup.md`; extend it to also assert the generated CloudFormation policy document's four statements match the same source, action-for-action and Sid-for-Sid.
+- **Operator picks the wrong region in the console** → The console URL carries the region selected in the wizard. Neither `sts:GetCallerIdentity` (account/identity only, no region) nor `iam:SimulatePrincipalPolicy` (policy evaluation only) can confirm which region the stack actually landed in — the post-rotation gate uses a region-scoped `cloudformation:DescribeStacks` call against the selected region to confirm the stack exists there before bootstrap proceeds.
 
 ## Migration Plan
 
 There is no data migration; every existing install already has working credentials.
 
-1. `TfvarsService` and the terraform-env fix land first — both are independently useful and carry no UI dependency.
-2. The CloudFormation template plus `GuidedIamService` land next, behind the new wizard step, with the existing profile-picker and paste paths untouched as fallbacks.
-3. `docs/docs/setup.md` is rewritten last, once the flow is verifiable end to end, retaining the manual IAM steps under an explicit "manual fallback" heading.
+1. The CloudFormation template plus `GuidedIamService` land first, behind the new wizard step, with the existing profile-picker and paste paths untouched as fallbacks.
+2. The configuration-bucket encryption fix (Decision 5) is independent and can land at any point — it has no UI dependency.
+3. `docs/docs/setup.md` and `docs/docs/app/first-run-wizard.md` are rewritten last, once the flow is verifiable end to end, retaining the manual IAM steps under an explicit "manual fallback" heading.
 
-**Reconfigure mode:** the guided-IAM step is omitted from `reconfigureSteps()` (an existing install already has a principal); the deployment-settings step is included, since editing tfvars after first run is a primary use case.
+**Reconfigure mode:** the guided-IAM step is added to `RECONFIGURE_PRE_COMPLETED_STEPS` alongside `pick-cloud`/`credentials`/`bootstrap` — but pre-completion is gated on persisted evidence that guided provisioning actually ran (a stored deploy-principal record, not merely "credentials are currently configured"); the profile-picker and paste paths leave no such record and must not pre-complete this step. There is no separate `reconfigureSteps()` function; reconfigure mode reuses the same `WIZARD_STEPS` array with a pre-completed-set overlay, and the guided-IAM entry in that overlay is conditional rather than unconditional like its three siblings.
 
-**Rollback:** the guided step is additive. Removing it leaves the profile-picker and paste paths exactly as they are today. The terraform-env change is the only behavioural change to an existing path and is independently revertable.
+**Rollback:** the guided step is additive. Removing it leaves the profile-picker and paste paths exactly as they are today.
 
 ## Resolved Questions
 
 These were open during design and are now decided. Recorded here so the reasoning is not re-litigated during implementation.
 
-### Does the CloudFormation stack also create the Terraform state bucket and lock table?
+### Does the CloudFormation stack also create the Pulumi state bucket?
 
-**No.** The stack provisions IAM only; `BootstrapService` remains the single implementation of the state bucket, lock table, and tfvars bucket.
+**No.** The stack provisions IAM only; `BootstrapService` remains the single implementation of the state bucket and configuration bucket.
 
-Folding them in would save the operator one wizard step, once, and cost three things. Operators who skip guided provisioning still need `BootstrapService`, so its logic would have to exist in both places and would drift. The Terraform state bucket would become a child of a stack with a Delete button, and losing that bucket means Terraform no longer knows what infrastructure exists — recoverable only by importing every resource by hand. And the three resource names are operator-editable in the bootstrap step today, which as stack parameters would have to be fixed at stack-creation time, before that step is reached.
+Folding it in would save the operator one wizard step, once, and cost three things. Operators who skip guided provisioning still need `BootstrapService`, so its logic would have to exist in both places and would drift. The Pulumi state bucket would become a child of a stack with a Delete button, and losing that bucket means Pulumi no longer knows what infrastructure exists — recoverable only by importing every resource by hand. And the bucket names are operator-editable in the bootstrap step today, which as stack parameters would have to be fixed at stack-creation time, before that step is reached.
 
 ### Does the release pipeline publish the template to a public S3 object for a one-click link?
 
@@ -170,11 +136,11 @@ Folding them in would save the operator one wizard step, once, and cost three th
 
 ### Is the `HyveonDeploy` IAM statement tightened here?
 
-**No — deferred to its own change.** The generated policy reproduces today's `HYVEON_DEPLOY_ALL_ACTIONS` exactly.
+**No — deferred to its own change.** The generated policy reproduces today's `HYVEON_DEPLOY_ALL_ACTIONS` and four-statement shape exactly.
 
-Two of the policy's three statements are already scoped: `HyveonIAM` is limited to `arn:aws:iam::*:role/hyveon-*` and `.../policy/hyveon-*`, and `HyveonTfvarsBucket` is limited to the tfvars bucket. The third, `HyveonDeploy`, grants wildcard actions across thirteen services (`ecs:*`, `ec2:*`, `s3:*`, `lambda:*`, `dynamodb:*`, `secretsmanager:*`, `route53:*`, `logs:*`, `cloudwatch:*`, `events:*`, `cloudfront:*`, `ce:*`, `elasticfilesystem:*`) on `Resource: "*"`.
+Three of the policy's four statements are already scoped: `HyveonIAM` is limited to `arn:aws:iam::*:role/hyveon-*` and `.../policy/hyveon-*`, `HyveonConfigurationBucket` is limited to the two configuration-bucket ARNs, and `HyveonStateBucket` is limited to the two state-bucket ARNs. The fourth, `HyveonDeploy`, grants wildcard actions across roughly a dozen services (`ecs:*`, `elasticfilesystem:*`, `ec2:*`, `lambda:*`, `logs:*`, `cloudwatch:*`, `events:*`, `route53:*`, `ce:*`, `dynamodb:*`, `secretsmanager:*`, `s3:*`, `cloudfront:*`, `acm:*`) on `Resource: "*"`.
 
-That is a real and significant exposure — the deploy key can read any secret, delete any bucket, and terminate any instance in the account — and tightening it is the largest security improvement available in this area. It is nonetheless a separate change because the work is not "swap `*` for an ARN": it requires enumerating the specific actions the Terraform module needs across all thirteen services, several of which (most `ec2:Describe*`, all of Cost Explorer, much of CloudFront) have no resource-level permission support and must stay at `*`. The only reliable verification is repeated `terraform apply` runs against a real account until denials stop appearing, which is a comparable body of work to this entire change. Bundling them would mean a mid-apply `AccessDenied` could be caused by either the new policy or the new setup flow, with no way to tell which.
+That is a real and significant exposure — the deploy key can read any secret, delete any bucket, and terminate any instance in the account — and tightening it is the largest security improvement available in this area. It is nonetheless a separate change because the work is not "swap `*` for an ARN": it requires enumerating the specific actions the infrastructure program needs across every wildcard service, several of which (most `ec2:Describe*`, all of Cost Explorer, much of CloudFront) have no resource-level permission support and must stay at `*`. The only reliable verification is repeated `pulumi up` runs against a real account until denials stop appearing, which is a comparable body of work to this entire change. Bundling them would mean a mid-apply `AccessDenied` could be caused by either the new policy or the new setup flow, with no way to tell which.
 
 Note for that follow-up: tightening does **not** break existing installs. `IamCheckService` simulates the caller's actual attached policy, and a wider policy still passes a narrower simulation — so an operator on today's `Resource: "*"` policy continues to pass the permission gate unchanged.
 

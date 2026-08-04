@@ -22,6 +22,42 @@
 import { z } from 'zod';
 import type { GameServer, GameServerPort } from './tfvars.js';
 
+/**
+ * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
+ * JSON object key AND as a component of every AWS-side identifier the Pulumi
+ * program derives from it — the strictest of which is the per-game DNS label
+ * (`${game}.${hostedZoneName}`, used by the ECS task's Caddy sidecar and the
+ * DNS-update Lambda's Route 53 record name): RFC 1123 requires a DNS label to
+ * be lowercase alphanumeric with hyphens allowed only between other
+ * characters, never leading or trailing.
+ *
+ * Exported from here (rather than duplicated) so the server-side write path
+ * (`TfvarsService.assertValidGameName`, `@hyveon/desktop-main`) and the web
+ * wizard's client-side validation (`checkName`, `wizard-form.utils.ts`) can
+ * never drift out of sync the way they briefly did — mirrors the same
+ * single-source-of-truth pattern {@link checkConnectMessagePlaceholders}
+ * already establishes for `connect_message` placeholder validation.
+ *
+ * The 32-character cap leaves headroom under the tightest fixed downstream
+ * budget — the Lambda function name / IAM role name limit (64 characters)
+ * shared by the `${projectName}-efs-seeder-<game>[-policy]` naming scheme
+ * (`app/packages/infra/src/lambdas.ts`, `iam.ts`) — for any reasonable
+ * `projectName`; neither call site has access to the configured
+ * `projectName` to compute an exact per-deployment budget, so 32 is a
+ * deliberately conservative fixed constant rather than a tight bound.
+ *
+ * Only enforced when *creating* a brand-new name — an already-declared
+ * game's name is immutable (renaming is a delete+recreate) and must never be
+ * re-validated against this pattern on read/update/delete, so a legacy name
+ * that predates this rule (e.g. an HCL-era name containing an underscore)
+ * keeps working indefinitely.
+ */
+export const GAME_NAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
+
+/** Human-readable description of {@link GAME_NAME_PATTERN}, reused verbatim in both the server-side and client-side validation-issue messages so the two never phrase the same rule differently. */
+export const GAME_NAME_PATTERN_DESCRIPTION =
+  'a lowercase alphanumeric DNS-safe label (letters, digits, and internal hyphens only, 1-32 characters, no leading/trailing hyphen)';
+
 /** Zod schema mirroring {@link GameServerPort}. */
 export const gameServerPortSchema = z.object({
   container: z.number(),
