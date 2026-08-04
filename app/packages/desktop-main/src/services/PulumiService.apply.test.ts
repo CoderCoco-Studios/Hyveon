@@ -485,6 +485,82 @@ describe('PulumiService.apply streaming and structured changeSummary', () => {
   });
 });
 
+describe('PulumiService.apply environment redaction', () => {
+  /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
+  const SECRET_VALUE = 'sup3rSecretValue';
+
+  /** `RemoteFileStore` override whose configuration object has one game server with `SECRET_VALUE` as an environment value. */
+  function makeRemoteFileStoreWithSecretEnv(): ReturnType<typeof makeRemoteFileStore> {
+    return makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value: SECRET_VALUE }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+      listVersions: vi.fn().mockResolvedValue([{ versionId: CONFIG_VERSION_ID, lastModified: new Date('2026-01-01') }]),
+    });
+  }
+
+  it('should redact an operator-set environment value from streamed stdout chunks', async () => {
+    const remoteFileStore = makeRemoteFileStoreWithSecretEnv();
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.(`applying RCON_PASSWORD=${SECRET_VALUE}\n`);
+      return { stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'applying RCON_PASSWORD=***REDACTED***' }]);
+    expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
+  });
+
+  it('should redact the same environment value from the persisted pulumi.log transcript', async () => {
+    const remoteFileStore = makeRemoteFileStoreWithSecretEnv();
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.(`applying RCON_PASSWORD=${SECRET_VALUE}\n`);
+      return { stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    const logCall = writeFileSyncMock.mock.calls.find(
+      (call): call is [string, string] => typeof call[0] === 'string' && call[0].includes('pulumi.log'),
+    );
+    expect(logCall?.[1]).toContain('***REDACTED***');
+    expect(logCall?.[1]).not.toContain(SECRET_VALUE);
+  });
+
+  it('should not redact environment values shorter than the minimum redactable length, to avoid false-positive redaction noise', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'EULA', value: '1' }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+      listVersions: vi.fn().mockResolvedValue([{ versionId: CONFIG_VERSION_ID, lastModified: new Date('2026-01-01') }]),
+    });
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.('resource count: 1 of 1\n');
+      return { stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'resource count: 1 of 1' }]);
+  });
+});
+
 describe('PulumiService.apply partial-apply detection', () => {
   it('should throw PulumiUpError (not PulumiPartialApplyError) when stack.up() fails before any mutating resource step completes', async () => {
     const workspace = makeWorkspace(async (opts) => {

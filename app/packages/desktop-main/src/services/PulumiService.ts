@@ -69,6 +69,21 @@ const _dirname = dirname(fileURLToPath(import.meta.url));
 const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
 
 /**
+ * Fixed placeholder substituted for every redacted game-server environment
+ * value in Pulumi run-log output — see
+ * {@link PulumiService.redactEnvironmentValues}.
+ */
+const ENV_REDACTION_PLACEHOLDER = '***REDACTED***';
+
+/**
+ * Minimum length an environment variable value must have to be redacted
+ * from Pulumi run-log output. Values shorter than this (e.g. `"1"`,
+ * `"on"`) recur constantly in unrelated engine output — redacting them
+ * would mangle far more of the log than it protects.
+ */
+const MIN_REDACTABLE_ENV_VALUE_LENGTH = 4;
+
+/**
  * DI token for {@link RunRecordPersister} — the narrow slice of
  * `RunRecordService`'s public surface {@link PulumiService.preview} depends
  * on. Bound to the real `RunRecordService` singleton via `useExisting` in
@@ -1441,6 +1456,57 @@ export class PulumiService {
   }
 
   /**
+   * Collects every operator-set game-server environment variable value out
+   * of `deploymentConfig.gameServers`, for scrubbing from Pulumi's streamed
+   * stdout/stderr before it is logged (see {@link redactEnvironmentValues}).
+   *
+   * @remarks
+   * Values shorter than {@link MIN_REDACTABLE_ENV_VALUE_LENGTH} are dropped
+   * from the set — a 1-3 character value (e.g. `"1"`, `"true"`'s prefix, an
+   * empty string) is common in unrelated engine output and would produce
+   * false-positive redactions that mangle the log rather than protect
+   * anything.
+   * @param deploymentConfig - The deployment configuration the in-flight
+   *   `preview`/`up` operation was built from.
+   * @returns The set of distinct, sufficiently long environment values to
+   *   redact.
+   */
+  private static buildEnvironmentRedactionSet(deploymentConfig: DeploymentConfig): Set<string> {
+    return new Set(
+      Object.values(deploymentConfig.gameServers)
+        .flatMap((game) => game.environment ?? [])
+        .map((entry) => entry.value)
+        .filter((value) => value.length >= MIN_REDACTABLE_ENV_VALUE_LENGTH),
+    );
+  }
+
+  /**
+   * Replaces every occurrence of every value in `redactedValues` within
+   * `line` with {@link ENV_REDACTION_PLACEHOLDER}.
+   *
+   * @remarks
+   * This is the only guard between an operator's plaintext container
+   * environment values (e.g. an RCON password or API key set on a game
+   * server) and the persisted `pulumi.log` / streamed run output — Pulumi's
+   * own console output legitimately prints stack outputs, which include
+   * {@link DeploymentConfig.gameServers}' `environment` values verbatim via
+   * `appliedGameServers` (`program.ts`). This deliberately redacts ALL
+   * values unconditionally rather than only ones an operator marks
+   * sensitive — `GameServerConfig` has no per-key sensitivity marker today.
+   * @param line - A single streamed line of Pulumi stdout/stderr.
+   * @param redactedValues - The value set built by
+   *   {@link buildEnvironmentRedactionSet}.
+   * @returns `line` with every redacted value replaced.
+   */
+  private static redactEnvironmentValues(line: string, redactedValues: Set<string>): string {
+    let redacted = line;
+    for (const value of redactedValues) {
+      redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
+    }
+    return redacted;
+  }
+
+  /**
    * Runs `pulumi preview` against the current deployment configuration,
    * yielding a {@link PulumiRunChunk} per line of stdout/stderr as the
    * operation produces it, and resolving to a {@link PulumiPreviewResult}
@@ -1832,6 +1898,7 @@ export class PulumiService {
       // always resolves a var-file path before `plan()`'s own `startedAt` is set.
       const observedConfigVersionId = head.versionId;
       const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
+      const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
 
       if (internalController.signal.aborted) {
         // Aborted while reading the configuration — end cleanly before ever
@@ -1874,7 +1941,10 @@ export class PulumiService {
         wake = null;
       };
       const push = (chunk: PulumiRunChunk): void => {
-        queue.push(chunk);
+        // Redact operator-set environment values before this chunk reaches
+        // any sink (recordRunChunk, the persisted pulumi.log, or a live
+        // streamRunOutput subscriber) — see redactEnvironmentValues's TSDoc.
+        queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
         notify();
       };
       const handleData = (stream: 'stdout' | 'stderr', data: string): void => {
@@ -2790,6 +2860,7 @@ export class PulumiService {
           throw new Error(`Configuration object "${key}" not found in S3 bucket "${bucket}".`);
         }
         const deploymentConfig = JSON.parse(new TextDecoder().decode(obj.body)) as DeploymentConfig;
+        const redactedEnvironmentValues = PulumiService.buildEnvironmentRedactionSet(deploymentConfig);
 
         const stateBucket = this.store.get('bootstrap')?.stateBucket;
         const stateBucketRegion = this.store.get('aws')?.region;
@@ -2815,7 +2886,10 @@ export class PulumiService {
           wake = null;
         };
         const push = (chunk: PulumiRunChunk): void => {
-          queue.push(chunk);
+          // Redact operator-set environment values before this chunk reaches
+          // any sink (recordRunChunk, the persisted pulumi.log, or a live
+          // streamRunOutput subscriber) — see redactEnvironmentValues's TSDoc.
+          queue.push({ ...chunk, line: PulumiService.redactEnvironmentValues(chunk.line, redactedEnvironmentValues) });
           notify();
         };
         const handleData = (stream: 'stdout' | 'stderr', data: string): void => {

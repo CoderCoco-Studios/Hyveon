@@ -32,6 +32,15 @@ re-previewing. Output streams into the log viewer live (`Waiting for plan
 output…` until the first line arrives). The viewer auto-scrolls unless you
 scroll up, and re-pins when you scroll back to the bottom.
 
+Any operator-set game-server environment variable value (from the
+[Games](/app/games) page's per-server environment editor) is redacted to
+`***REDACTED***` before it reaches this log viewer or the persisted
+`pulumi.log` file — Pulumi's own console output legitimately echoes stack
+outputs, which include those values verbatim, so `PulumiService` scrubs
+every sufficiently long value out of the streamed text first. This applies
+identically during **Apply** below. The same values remain visible in
+plaintext on the Games page itself, where you set them.
+
 Only one Pulumi operation can run at a time. If something else is already
 running, the plan is refused — see [Workspace busy](#the-workspace-busy-banner).
 
