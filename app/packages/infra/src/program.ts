@@ -437,6 +437,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     discordPublicKeySecretArn: secrets.discordPublicKeySecret.arn,
     followupLambdaArn: lambdas.followupFunction.arn,
     hostedZoneId: route53.zoneId,
+    ecsClusterName: ecs.cluster.name,
   });
 
   // ── Per-game EFS-seeder Lambda invocations ──────────────────────────────────
@@ -563,6 +564,10 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   discordBotTokenSecretArn: pulumi.Output<string>;
   /** Mirrors {@link StackOutputs.discordPublicKeySecretArn} — `secrets.discordPublicKeySecret.arn`. */
   discordPublicKeySecretArn: pulumi.Output<string>;
+  /** Mirrors {@link StackOutputs.fileBrowserCredentialSecretArn} — `secrets.fileBrowserCredentialSecret.arn`. */
+  fileBrowserCredentialSecretArn: pulumi.Output<string>;
+  /** Mirrors {@link StackOutputs.fileBrowserSchedulerRoleArn} — `iamRoles.fileBrowserSchedulerRole.arn`. */
+  fileBrowserSchedulerRoleArn: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.interactionsInvokeUrl}. Per `discordDomain.ts`'s
    * file doc: `terraform/aws/outputs.tf`'s `interactions_invoke_url` output
@@ -639,6 +644,8 @@ export function buildStackOutputs(resources: InfraResources, config: DeploymentC
     runsTableName: resolveRunsTableName(config.projectName, config.runsTableName),
     discordBotTokenSecretArn: resources.secrets.discordBotTokenSecret.arn,
     discordPublicKeySecretArn: resources.secrets.discordPublicKeySecret.arn,
+    fileBrowserCredentialSecretArn: resources.secrets.fileBrowserCredentialSecret.arn,
+    fileBrowserSchedulerRoleArn: resources.iamRoles.fileBrowserSchedulerRole.arn,
     interactionsInvokeUrl: discordCustomDomainUrl,
     discordInteractionsUrl: discordCustomDomainUrl,
     appliedGameServers: config.gameServers,

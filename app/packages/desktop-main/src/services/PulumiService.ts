@@ -1144,6 +1144,8 @@ export class PulumiService {
       runsTableName: get('runsTableName', ''),
       discordBotTokenSecretArn: get('discordBotTokenSecretArn', ''),
       discordPublicKeySecretArn: get('discordPublicKeySecretArn', ''),
+      fileBrowserCredentialSecretArn: get('fileBrowserCredentialSecretArn', ''),
+      fileBrowserSchedulerRoleArn: get('fileBrowserSchedulerRoleArn', ''),
       interactionsInvokeUrl: get('interactionsInvokeUrl', null),
       discordInteractionsUrl: get('discordInteractionsUrl', null),
       appliedGameServers: get('appliedGameServers', null),

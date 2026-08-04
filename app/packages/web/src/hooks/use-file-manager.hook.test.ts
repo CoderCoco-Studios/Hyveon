@@ -34,6 +34,7 @@ describe('useFileManager', () => {
       expect(result.current.activeGame).toBeNull();
       expect(result.current.status).toBeNull();
       expect(result.current.message).toBe('');
+      expect(result.current.credentials).toBeNull();
     });
   });
 
@@ -114,6 +115,52 @@ describe('useFileManager', () => {
       await act(async () => result.current.start());
 
       expect(result.current.message).toBe('Cluster at capacity');
+    });
+
+    it('should store the one-time credentials from a successful start', async () => {
+      apiMock.filesMgrStart.mockResolvedValue({
+        success: true,
+        message: 'ok',
+        credentials: { username: 'admin', password: 'abc123' },
+      });
+      const { result } = renderHook(() => useFileManager());
+
+      act(() => result.current.open('minecraft'));
+      await waitFor(() => expect(result.current.status).toBeTruthy());
+
+      await act(async () => result.current.start());
+
+      expect(result.current.credentials).toEqual({ username: 'admin', password: 'abc123' });
+    });
+
+    it('should not store credentials when start fails', async () => {
+      apiMock.filesMgrStart.mockResolvedValue({ success: false, message: 'nope' });
+      const { result } = renderHook(() => useFileManager());
+
+      act(() => result.current.open('minecraft'));
+      await waitFor(() => expect(result.current.status).toBeTruthy());
+
+      await act(async () => result.current.start());
+
+      expect(result.current.credentials).toBeNull();
+    });
+
+    it('should clear stored credentials when the modal is closed', async () => {
+      apiMock.filesMgrStart.mockResolvedValue({
+        success: true,
+        message: 'ok',
+        credentials: { username: 'admin', password: 'abc123' },
+      });
+      const { result } = renderHook(() => useFileManager());
+
+      act(() => result.current.open('minecraft'));
+      await waitFor(() => expect(result.current.status).toBeTruthy());
+      await act(async () => result.current.start());
+      expect(result.current.credentials).not.toBeNull();
+
+      act(() => result.current.close());
+
+      expect(result.current.credentials).toBeNull();
     });
   });
 

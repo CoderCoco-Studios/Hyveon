@@ -82,6 +82,7 @@ the IAM user by hand instead:
         "logs:*",
         "cloudwatch:*",
         "events:*",
+        "scheduler:*",
         "route53:*",
         "ce:*",
         "dynamodb:*",
@@ -190,6 +191,7 @@ Two permission areas are **not** covered by any AWS managed policy and are
 explicitly included above to avoid `AccessDenied` during an apply:
 
 - **EventBridge tag operations** — the AWS provider tags EventBridge rules on creation, which requires `events:TagResource`, `events:UntagResource`, and `events:ListTagsForResource`. `events:*` above already grants these — if you tighten the policy later, keep those three actions in.
+- **EventBridge Scheduler** — the FileBrowser helper's auto-stop schedule is a one-time `scheduler.amazonaws.com` schedule, a distinct service (and IAM action prefix) from the `events:*` EventBridge rules above. `scheduler:*` grants `scheduler:CreateSchedule`/`scheduler:DeleteSchedule`; `iam:*` (scoped to `hyveon-*` roles in `HyveonIAM`) covers the `iam:PassRole` the app needs to hand the schedule its execution role.
 - **CloudFront** — the Discord interactions endpoint is fronted by a CloudFront distribution. `cloudfront:*` above covers creation, updates, tagging, and deletion of distributions.
 - **ACM (Certificate Manager)** — CloudFront's custom domain (`discord.{hosted_zone_name}`) needs a DNS-validated ACM certificate, always provisioned in `us-east-1` regardless of your chosen region. This needs `acm:RequestCertificate`, `acm:DescribeCertificate`, `acm:AddTagsToCertificate`, and `acm:DeleteCertificate` at minimum; `acm:*` above covers all of it. ACM certificate ARNs aren't predictable before creation (unlike the project-prefixed IAM roles/policies in `HyveonIAM`), so this is scoped like `cloudfront:*`/`route53:*` above — `Resource: "*"` within the `HyveonDeploy` statement, not a separate ARN-scoped statement.
 

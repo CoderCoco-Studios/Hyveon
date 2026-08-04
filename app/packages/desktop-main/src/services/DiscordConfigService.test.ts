@@ -45,6 +45,8 @@ const TF: StackOutputs = {
   runsTableName: '',
   discordBotTokenSecretArn: 'arn:bot-token',
   discordPublicKeySecretArn: 'arn:public-key',
+  fileBrowserCredentialSecretArn: 'arn:filebrowser-credential',
+  fileBrowserSchedulerRoleArn: 'arn:filebrowser-scheduler-role',
   interactionsInvokeUrl: 'https://url',
   discordInteractionsUrl: null,
   appliedGameServers: null,

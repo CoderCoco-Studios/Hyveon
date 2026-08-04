@@ -25,6 +25,8 @@
  * | `aws_iam_role_policy.dns_updater_lambda` | {@link IamPolicyResources.dnsUpdaterLambdaPolicy} |
  * | `aws_iam_role.efs_seeder` (`for_each`) | {@link IamRoleResources.efsSeederRoles} |
  * | `aws_iam_role_policy.efs_seeder` (`for_each`) | {@link IamPolicyResources.efsSeederPolicies} |
+ * | *(no HCL analogue — added post-migration)* | {@link IamRoleResources.fileBrowserSchedulerRole} |
+ * | *(no HCL analogue — added post-migration)* | {@link IamPolicyResources.fileBrowserSchedulerPolicy} |
  *
  * ## Why this is two functions, not one
  *
@@ -70,6 +72,12 @@ export interface IamRoleResources {
    * {@link gamesWithFileSeeds} key (`aws_iam_role.efs_seeder`'s `for_each`).
    */
   efsSeederRoles: Record<string, aws.iam.Role>;
+  /**
+   * Role EventBridge Scheduler assumes to invoke `ecs:StopTask` for the
+   * FileBrowser helper's one-time auto-stop schedule — trust-scoped to
+   * `scheduler.amazonaws.com`, no HCL analogue (added post-migration).
+   */
+  fileBrowserSchedulerRole: aws.iam.Role;
 }
 
 /** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full HCL→Pulumi address table. */
@@ -88,6 +96,12 @@ export interface IamPolicyResources {
    * `for_each`).
    */
   efsSeederPolicies: Record<string, aws.iam.RolePolicy>;
+  /**
+   * {@link IamRoleResources.fileBrowserSchedulerRole}'s inline policy —
+   * grants `ecs:StopTask` scoped to tasks in the deployed ECS cluster only.
+   * No HCL analogue (added post-migration).
+   */
+  fileBrowserSchedulerPolicy: aws.iam.RolePolicy;
 }
 
 /**
@@ -176,6 +190,15 @@ export interface DefineIamPoliciesArgs {
    * `program.ts`'s `defineAll` passes `route53.zoneId`.
    */
   hostedZoneId: pulumi.Input<string>;
+  /**
+   * `aws_ecs_cluster.main.name` — scopes
+   * {@link IamPolicyResources.fileBrowserSchedulerPolicy}'s `ecs:StopTask`
+   * grant to `arn:aws:ecs:*:*:task/${ecsClusterName}/*` rather than every
+   * task in the account. Threaded here as a required parameter because
+   * `ecs.ts`'s `defineEcs` owns that cluster; `program.ts`'s `defineAll`
+   * passes `ecs.cluster.name`.
+   */
+  ecsClusterName: pulumi.Input<string>;
 }
 
 /**
@@ -309,6 +332,13 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     );
   }
 
+  // ── FileBrowser auto-stop scheduler role (no HCL analogue) ────────────────
+  const fileBrowserSchedulerRole = new aws.iam.Role(
+    `${projectName}-filebrowser-scheduler`,
+    { name: `${projectName}-filebrowser-scheduler`, assumeRolePolicy: assumeRolePolicyForService('scheduler.amazonaws.com') },
+    opts,
+  );
+
   return {
     ecsTaskExecutionRole,
     ecsTaskExecutionPolicyAttachment,
@@ -317,6 +347,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     interactionsLambdaRole,
     dnsUpdaterLambdaRole,
     efsSeederRoles,
+    fileBrowserSchedulerRole,
   };
 }
 
@@ -334,8 +365,17 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
  * @returns The declared policies — see {@link IamPolicyResources}.
  */
 export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResources {
-  const { projectName, provider, roles, efsFileSystemArn, dynamodbDiscordTableArn, discordPublicKeySecretArn, followupLambdaArn, hostedZoneId } =
-    args;
+  const {
+    projectName,
+    provider,
+    roles,
+    efsFileSystemArn,
+    dynamodbDiscordTableArn,
+    discordPublicKeySecretArn,
+    followupLambdaArn,
+    hostedZoneId,
+    ecsClusterName,
+  } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
   // ── Watchdog Lambda policy (watchdog.tf) — no external ARN dependency ─────
@@ -463,5 +503,36 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     );
   }
 
-  return { watchdogLambdaPolicy, followupLambdaPolicy, interactionsLambdaPolicy, dnsUpdaterLambdaPolicy, efsSeederPolicies };
+  // ── FileBrowser auto-stop scheduler policy (no HCL analogue) ──────────────
+  // `ecs:StopTask` scoped to tasks in the deployed cluster only — tighter
+  // than the watchdog/followup policies' `Resource: '*'` above, since this
+  // role's only job is stopping one task EventBridge Scheduler was told to
+  // stop, never listing or describing anything else in the account.
+  const fileBrowserSchedulerPolicy = new aws.iam.RolePolicy(
+    `${projectName}-filebrowser-scheduler-policy`,
+    {
+      name: `${projectName}-filebrowser-scheduler-policy`,
+      role: roles.fileBrowserSchedulerRole.id,
+      policy: pulumi.jsonStringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['ecs:StopTask'],
+            Resource: pulumi.interpolate`arn:aws:ecs:*:*:task/${ecsClusterName}/*`,
+          },
+        ],
+      }),
+    },
+    opts,
+  );
+
+  return {
+    watchdogLambdaPolicy,
+    followupLambdaPolicy,
+    interactionsLambdaPolicy,
+    dnsUpdaterLambdaPolicy,
+    efsSeederPolicies,
+    fileBrowserSchedulerPolicy,
+  };
 }

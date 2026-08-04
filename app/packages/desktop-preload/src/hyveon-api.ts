@@ -185,11 +185,19 @@ export interface FileMgrStatus {
   taskArn?: string;
 }
 
+/** The plaintext credential a FileBrowser launch was just seeded with — shown to the operator exactly once, in {@link FileMgrResult.credentials}. */
+export interface FileMgrCredentials {
+  username: string;
+  password: string;
+}
+
 /** Result of a file-manager start or stop operation. */
 export interface FileMgrResult {
   success: boolean;
   message: string;
   taskArn?: string;
+  /** Only present on a successful start — the one-time plaintext credential for this launch. Never present on a stop result. */
+  credentials?: FileMgrCredentials;
 }
 
 /** Admin user/role ID lists. */
