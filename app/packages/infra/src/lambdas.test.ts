@@ -211,7 +211,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.name).toBe('hyveon-followup');
       expect(fn.inputs.role).toBe(await promiseOf(roles.followupLambdaRole.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
-      expect(fn.inputs.runtime).toBe('nodejs20.x');
+      expect(fn.inputs.runtime).toBe('nodejs24.x');
       expect(fn.inputs.timeout).toBe(60);
       expect(fn.inputs.memorySize).toBe(256);
       expect(fn.inputs.tags).toEqual({ Name: 'hyveon-followup' });
@@ -273,7 +273,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.name).toBe('hyveon-interactions');
       expect(fn.inputs.role).toBe(await promiseOf(roles.interactionsLambdaRole.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
-      expect(fn.inputs.runtime).toBe('nodejs20.x');
+      expect(fn.inputs.runtime).toBe('nodejs24.x');
       expect(fn.inputs.timeout).toBe(10);
       expect(fn.inputs.memorySize).toBe(256);
       expect(await promiseOf(result.interactionsFunction.name)).toBe('hyveon-interactions');
@@ -533,7 +533,7 @@ describe('defineLambdas', () => {
       const fn = findByNameAndType(mocks.resources, 'hyveon-efs-seeder-echo', 'aws:lambda/function:Function');
       expect(fn.inputs.role).toBe(await promiseOf(roles.efsSeederRoles.echo.arn));
       expect(fn.inputs.handler).toBe('handler.handler');
-      expect(fn.inputs.runtime).toBe('nodejs20.x');
+      expect(fn.inputs.runtime).toBe('nodejs24.x');
       expect(fn.inputs.timeout).toBe(60);
       expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
 
