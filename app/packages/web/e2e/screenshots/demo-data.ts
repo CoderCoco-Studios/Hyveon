@@ -671,6 +671,13 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
             completedAt: '2026-07-26T11:58:42.000Z',
             exitCode: 0,
             planHash: 'demo-plan-hash-1',
+            // Structured resource-change summary — see `ChangeSummary`'s
+            // TSDoc (`@hyveon/shared/src/changeSummary.ts`): the UI reads
+            // this directly (`ChangeSummaryStatus` in `iac.page.tsx`), never
+            // by parsing `DEMO_TERRAFORM_PLAN_CHUNKS`'s streamed text, even
+            // though the two are kept in the same 1 create / 1 update shape
+            // so the log and the badges tell one consistent story.
+            changeSummary: { create: 1, update: 1 },
           },
         });
       }
@@ -684,6 +691,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
             startedAt: '2026-07-26T12:01:00.000Z',
             completedAt: '2026-07-26T12:03:12.000Z',
             exitCode: 0,
+            changeSummary: { create: 1, update: 1 },
           },
         });
       }
@@ -712,16 +720,16 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
 
 /**
  * Seeds every `wizard.*` (and `iac.stack.initialize`) IPC channel used
- * across all four first-run-wizard steps, plus `wizard.state.get` set to
+ * across all five first-run-wizard steps, plus `wizard.state.get` set to
  * `{ wizardCompleted: false }` so `app.component.tsx` renders
  * `<FirstRunWizard>` instead of the normal router.
  *
  * `resumeStep` seeds `wizard.progress.get`'s `{ step }` response, which the
  * wizard shell uses on mount to jump directly to `'pick-cloud'`,
- * `'credentials'`, or `'bootstrap'` (resuming past `'stack-init'` is
- * intentionally clamped to `'bootstrap'` by the app itself — see
- * `first-run-wizard.component.tsx`'s resume-on-mount effect — so
- * `capture.spec.ts` always reaches step 4 via one `Next` click from a
+ * `'guided-iam'`, `'credentials'`, or `'bootstrap'` (resuming past
+ * `'stack-init'` is intentionally clamped to `'bootstrap'` by the app itself
+ * — see `first-run-wizard.component.tsx`'s resume-on-mount effect — so
+ * `capture.spec.ts` always reaches step 5 via one `Next` click from a
  * bootstrap-complete state, never via a direct resume jump).
  *
  * Like {@link seedDemo}, registers via `win.addInitScript(...)` (not
@@ -742,6 +750,8 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     iamPassed: { status: 'passed', origin: 'profile', blocking: false } as IamCheckResult,
     wizardState: { wizardCompleted: false } as WizardState,
     stackInitEvents: DEMO_STACK_INIT_EVENTS,
+    /** Fixed showroom path for the rendered `iam-bootstrap.yaml` — matches `DEMO_DIAGNOSTICS_TAIL`'s `diagnosticsPath` convention rather than a real on-disk path. */
+    guidedIamTemplatePath: '/home/hyveon/.config/Hyveon/iam-bootstrap/iam-bootstrap-2026-07-26.yaml',
   };
 
   await win.addInitScript((d) => {
@@ -777,6 +787,11 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     mock('wizard.bootstrap.configurationBucket', () => Promise.resolve(d.bootstrapExists));
     mock('wizard.iam.simulate', () => Promise.resolve(d.iamPassed));
     mock('wizard.complete', () => Promise.resolve({ wizardCompleted: true }));
+    // `GuidedIamStep`'s template screen — mocked so the harness never shells
+    // out to the real `GuidedIamService.prepareTemplate()` (which renders
+    // and writes an actual `iam-bootstrap.yaml` to disk under a real,
+    // machine-specific path).
+    mock('wizard.guidedIam.prepareTemplate', () => Promise.resolve({ path: d.guidedIamTemplatePath }));
     // Streams a full engine/plugins/operation phase sequence to completion —
     // see `seedDemo`'s TSDoc for why this is a plain-object iterable rather
     // than a real `async function*`. `StackInitializationStep` reaches its

@@ -41,8 +41,7 @@ error appears and you stay on the step so nothing silently drifts.
 
 ## Step 2 — Provision AWS access
 
-There is no screenshot for this step yet — it ships in this branch but
-`npm run docs:screenshots` has not been re-run against it.
+![The guided AWS access step showing a rendered CloudFormation template path with a copy button, an Open AWS Console action, and a Continue to key entry button](/img/app/wizard-guided-iam.png)
 
 > Hyveon can provision the AWS access it needs for you, or you can supply your
 > own credentials.
@@ -191,7 +190,7 @@ has no region default to fall back on.
 
 ## Step 4 — Bootstrap AWS resources
 
-![The bootstrap step showing two editable resource-name fields with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
+![The bootstrap step showing two editable resource-name fields plus two read-only status rows for the run-history table and deployment-config seed, all with status badges, a Bootstrap AWS resources button, and an IAM permission check section](/img/app/wizard-bootstrap.png)
 
 > Hyveon needs three AWS resources to manage its Pulumi state and run
 > history, plus a permission check against your account. The two bucket
