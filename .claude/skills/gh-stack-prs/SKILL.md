@@ -36,13 +36,19 @@ subsequent branch is `gh stack`'s job, not a new worktree.
 
 ```bash
 # One worktree, based on main, holding the whole stack:
-git worktree add .worktrees/<stack-name> -b <stack-name>-scratch main
+git worktree add --detach .worktrees/<stack-name> main
 cd .worktrees/<stack-name>
 ```
 
-(`EnterWorktree` with a `name` works equally well here since the base is just `main`
-— use whichever is available. The throwaway `-scratch` branch is discarded once
-`gh stack init` creates the real group-1 branch below.)
+`--detach` instead of `-b <some-throwaway-branch>`: `gh stack init` (next step) creates
+the real group-1 branch and checks it out for you, so a named starting branch would
+just be an orphaned ref to remember to clean up later. Detached HEAD needs no cleanup —
+confirmed by running `gh stack init` from one, which works identically to running it
+from a named branch.
+
+(`EnterWorktree` with a `name` also works here since the base is just `main` — use
+whichever is available. If it doesn't support `--detach`, a throwaway branch works too,
+just remember to `git branch -D` it after `gh stack init` below.)
 
 ## Lifecycle
 
@@ -69,13 +75,16 @@ first PR gets review feedback).
 
 ### 3. Work one group at a time
 
-You're now on `<group-1-branch>`. Make the group's changes, then either commit
-normally (`git add`, `git commit`) or let `add`/the next `gh stack add` stage-and-commit
-for you:
+You're now on `<group-1-branch>`. Make the group's changes, stage them, and commit
+normally:
 
 ```bash
+git add <files>
 git commit -m "feat(infra): <group 1's actual change>"
 ```
+
+(`gh stack add`'s `-A`/`-u` flags can stage-and-commit in one step too — see step 5 —
+but plain `git add`/`git commit` works here since you're not also creating a branch.)
 
 Run this repo's full pre-PR gate **before opening this group's PR** — pr-stacking.md
 is explicit that a later group inheriting a broken earlier group compounds the
@@ -126,8 +135,13 @@ stacks, without having to fake it by delaying `git push`.
 ### 5. Add the next group and repeat
 
 ```bash
-gh stack add <group-2-branch> -m "feat(infra): <group 2's actual change>"
+gh stack add <group-2-branch> -A -m "feat(infra): <group 2's actual change>"
 ```
+
+`-A` (or `-u` to stage tracked-file changes only) is not optional here unless you've
+already run `git add` yourself — confirmed by testing: `gh stack add <branch> -m msg`
+with nothing staged fails outright with `nothing to commit; stage changes first or use
+-A/-u`, it does not silently create an empty branch.
 
 Puts you on a new branch based on the current top of the stack. Repeat steps 3-4 for
 each group. `gh stack view` (or `--short`/`--json`) shows the whole stack's branches
@@ -208,3 +222,9 @@ worktree teardown (`ExitWorktree`, or `git worktree remove` if you used a plain
   available to drive the TUI.
 - Small, self-contained changes still don't need any of this — pr-stacking.md's
   exception for a typical bug fix or one-file change applies exactly as written.
+- **`gh stack add` on a branch that has zero commits of its own doesn't create a new
+  layer** — it commits onto the branch you're already on instead, with a warning
+  (`Branch <name> has no prior commits — adding your commit here instead of creating a
+  new branch`). This can't happen if you follow step 3-then-5 in order (group N always
+  has at least one commit before you `add` group N+1), but running `add` twice in a row
+  out of habit won't do what you expect.
