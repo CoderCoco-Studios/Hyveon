@@ -37,6 +37,8 @@ export const DEFAULT_STACK_OUTPUTS: StackOutputs = {
   runsTableName: 'test-runs-table',
   discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret/test/discord/bot-token',
   discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret/test/discord/public-key',
+  fileBrowserCredentialSecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret/test/filebrowser/credential',
+  fileBrowserSchedulerRoleArn: 'arn:aws:iam::123456789012:role/test-filebrowser-scheduler',
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,

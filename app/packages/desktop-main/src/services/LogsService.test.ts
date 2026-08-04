@@ -42,6 +42,8 @@ const STACK_OUTPUTS: StackOutputs = {
   runsTableName: 'runs-table',
   discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
   discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
+  fileBrowserCredentialSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
+  fileBrowserSchedulerRoleArn: 'arn:aws:iam::123:role/filebrowser-scheduler',
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,

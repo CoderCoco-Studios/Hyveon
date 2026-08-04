@@ -1370,6 +1370,8 @@ describe('IacController', () => {
       runsTableName: 'runs-table',
       discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot',
       discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:pubkey',
+      fileBrowserCredentialSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
+      fileBrowserSchedulerRoleArn: 'arn:aws:iam::123:role/filebrowser-scheduler',
       interactionsInvokeUrl: null,
       discordInteractionsUrl: null,
       appliedGameServers: null,

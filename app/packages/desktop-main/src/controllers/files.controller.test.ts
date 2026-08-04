@@ -43,6 +43,17 @@ describe('FilesController', () => {
       const result = await new FilesController(makeFiles()).start('minecraft');
       expect(result).toMatchObject({ success: true, message: 'Task launched' });
     });
+
+    it('should pass through the one-time credentials FileManagerService.start returns', async () => {
+      const files = makeFiles();
+      vi.mocked(files.start).mockResolvedValue({
+        success: true,
+        message: 'Task launched',
+        credentials: { username: 'admin', password: 'abc123' },
+      });
+      const result = await new FilesController(files).start('minecraft');
+      expect(result).toMatchObject({ credentials: { username: 'admin', password: 'abc123' } });
+    });
   });
 
   describe('stop', () => {

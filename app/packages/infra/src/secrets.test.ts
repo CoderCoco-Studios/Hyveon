@@ -11,6 +11,8 @@ async function runDefineSecrets(args: Parameters<typeof defineSecrets>[0]): Prom
     promiseOf(result.discordBotTokenSecretVersion.id),
     promiseOf(result.discordPublicKeySecret.id),
     promiseOf(result.discordPublicKeySecretVersion.id),
+    promiseOf(result.fileBrowserCredentialSecret.id),
+    promiseOf(result.fileBrowserCredentialSecretVersion.id),
   ]);
   return result;
 }
@@ -75,7 +77,7 @@ describe('defineSecrets', () => {
     );
   });
 
-  it('should create both secret versions with the literal placeholder string, never a real credential', async () => {
+  it('should create every secret version with the literal placeholder string, never a real credential', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecrets({ projectName: 'hyveon', provider });
 
@@ -87,6 +89,20 @@ describe('defineSecrets', () => {
     const publicKeyVersion = findByName(mocks.resources, 'hyveon-discord-public-key-version');
     expect(unwrapSecretString(publicKeyVersion.inputs.secretString)).toBe('placeholder');
     expect(publicKeyVersion.inputs.secretId).toBe(await promiseOf(result.discordPublicKeySecret.id));
+
+    const fileBrowserCredentialVersion = findByName(mocks.resources, 'hyveon-filebrowser-credential-version');
+    expect(unwrapSecretString(fileBrowserCredentialVersion.inputs.secretString)).toBe('placeholder');
+    expect(fileBrowserCredentialVersion.inputs.secretId).toBe(await promiseOf(result.fileBrowserCredentialSecret.id));
+  });
+
+  it('should declare the FileBrowser credential secret at ${projectName}/filebrowser/credential with a 0-day recovery window', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    await runDefineSecrets({ projectName: 'hyveon', provider });
+
+    const secret = findByName(mocks.resources, 'hyveon-filebrowser-credential');
+    expect(secret.type).toBe('aws:secretsmanager/secret:Secret');
+    expect(secret.inputs.name).toBe('hyveon/filebrowser/credential');
+    expect(secret.inputs.recoveryWindowInDays).toBe(0);
   });
 
   it('should accept no field anywhere in its arguments capable of carrying a real secret value', () => {
@@ -122,9 +138,10 @@ describe('defineSecrets', () => {
 
     await runDefineSecrets({ projectName: 'hyveon', provider });
 
-    expect(forVersionSpy).toHaveBeenCalledTimes(2);
+    expect(forVersionSpy).toHaveBeenCalledTimes(3);
     expect(forVersionSpy).toHaveBeenNthCalledWith(1, provider);
     expect(forVersionSpy).toHaveBeenNthCalledWith(2, provider);
+    expect(forVersionSpy).toHaveBeenNthCalledWith(3, provider);
     for (const call of forVersionSpy.mock.results) {
       expect(call.value).toEqual({ provider, ignoreChanges: ['secretString'] });
     }

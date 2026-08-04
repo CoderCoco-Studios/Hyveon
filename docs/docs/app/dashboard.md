@@ -162,13 +162,28 @@ The status line tracks the helper:
 Once launched, all browsing, uploading, downloading, renaming and deleting
 happens in FileBrowser's own web UI, not in Hyveon.
 
+**Login.** Each launch generates a random password, bcrypt-hashes it, and
+starts the container with that hash instead of `--noauth` — FileBrowser
+enforces a real login instead of being wide open on its public port. The
+modal shows the username (`admin`) and the one-time plaintext password inline
+next to the connection link, right after a successful **Launch** — copy it
+now, since Hyveon never displays it again (a fresh, different password is
+generated on every launch, including a re-launch of the same game).
+
 Things worth knowing:
 
 - Only **one helper per game** can run at a time.
-- **There is no auto-shutdown.** The helper task runs — and bills — until you
-  press **Stop**. Do not leave it up.
-- The helper runs with authentication disabled and its port exposed publicly
-  while it is up. Stop it as soon as you are done.
+- **The helper auto-stops after 2 hours** if you don't stop it yourself — an
+  EventBridge Scheduler one-time schedule calls `ecs:StopTask` directly the
+  moment the task starts. Pressing **Stop** cancels that schedule too, so
+  stopping early doesn't leave a stale auto-stop behind. This exists because
+  the watchdog Lambda's idle-shutdown logic only ever looks at `{game}-server`
+  tasks, never the FileBrowser helper's `filemgr-*` ones — a forgotten session
+  used to run (and bill) indefinitely.
+- The helper's port is still reachable from the whole internet while it is
+  up — only the auth gap is closed here, not the exposure. Narrowing the
+  security group to the operator's own IP is a known, separately-tracked
+  follow-up.
 - Startup takes roughly 30 seconds; the modal polls every 5 seconds while the
   task is transitioning and stops polling once it settles.
 - If infrastructure has not been deployed you get `Infrastructure not

@@ -42,6 +42,7 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     promiseOf(result.iamRoles.followupLambdaRole.id),
     promiseOf(result.iamRoles.interactionsLambdaRole.id),
     promiseOf(result.iamRoles.dnsUpdaterLambdaRole.id),
+    promiseOf(result.iamRoles.fileBrowserSchedulerRole.id),
     ...Object.values(result.iamRoles.efsSeederRoles).map((role) => promiseOf(role.id)),
     ...result.efs.mountTargets.map((target) => promiseOf(target.id)),
     ...Object.values(result.efs.gameAccessPoints).map((ap) => promiseOf(ap.id)),
@@ -53,6 +54,7 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     promiseOf(result.dynamoDb.auditTable.id),
     promiseOf(result.secrets.discordBotTokenSecretVersion.id),
     promiseOf(result.secrets.discordPublicKeySecretVersion.id),
+    promiseOf(result.secrets.fileBrowserCredentialSecretVersion.id),
     promiseOf(result.route53.zoneId),
     promiseOf(result.lambdas.interactionsFunctionUrl.id),
     promiseOf(result.lambdas.followupFunction.id),
@@ -63,6 +65,7 @@ async function runDefineAll(config: Parameters<typeof defineAll>[0]): Promise<Re
     promiseOf(result.iamPolicies.followupLambdaPolicy.id),
     promiseOf(result.iamPolicies.interactionsLambdaPolicy.id),
     promiseOf(result.iamPolicies.dnsUpdaterLambdaPolicy.id),
+    promiseOf(result.iamPolicies.fileBrowserSchedulerPolicy.id),
     ...Object.values(result.iamPolicies.efsSeederPolicies).map((policy) => promiseOf(policy.id)),
     ...(result.discordTableItems.discordBaseConfigItem ? [promiseOf(result.discordTableItems.discordBaseConfigItem.id)] : []),
     ...(result.discordTableItems.discordConfigSeedItem ? [promiseOf(result.discordTableItems.discordConfigSeedItem.id)] : []),
@@ -118,6 +121,8 @@ describe('createInfraProgram', () => {
         'runsTableName',
         'discordBotTokenSecretArn',
         'discordPublicKeySecretArn',
+        'fileBrowserCredentialSecretArn',
+        'fileBrowserSchedulerRoleArn',
         'interactionsInvokeUrl',
         'discordInteractionsUrl',
         'appliedGameServers',
@@ -158,8 +163,11 @@ describe('defineAll', () => {
     // DynamoDB tables + Secrets Manager. Only 2 tables (discord + audit) —
     // the runs table is not Pulumi-managed; see `dynamodb.ts`'s file doc.
     expect(types.filter((type) => type === 'aws:dynamodb/table:Table')).toHaveLength(2);
-    expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(2);
-    expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(2);
+    // 3: the two Discord secrets plus the FileBrowser helper's shared,
+    // per-launch credential-hash secret (no HCL analogue — see `secrets.ts`'s
+    // file doc, "The FileBrowser credential secret").
+    expect(types.filter((type) => type === 'aws:secretsmanager/secret:Secret')).toHaveLength(3);
+    expect(types.filter((type) => type === 'aws:secretsmanager/secretVersion:SecretVersion')).toHaveLength(3);
 
     // `route53.zone` lookup itself is a pure data-source — no resource.
     // `discordDomain` DOES declare Route 53 records (the ACM DNS-validation
@@ -180,8 +188,10 @@ describe('defineAll', () => {
     expect(types).toContain('aws:lambda/functionUrl:FunctionUrl');
     expect(types.filter((type) => type === 'aws:cloudwatch/eventRule:EventRule')).toHaveLength(2);
 
-    // The four inline IAM policies (no efs-seeder policy for this fixture).
-    expect(types.filter((type) => type === 'aws:iam/rolePolicy:RolePolicy')).toHaveLength(4);
+    // The four fixed inline IAM policies plus the FileBrowser scheduler
+    // policy (no efs-seeder policy for this fixture, since FIXTURE_GAME_SERVERS
+    // declares no file_seeds).
+    expect(types.filter((type) => type === 'aws:iam/rolePolicy:RolePolicy')).toHaveLength(5);
 
     // No table item/invocation for this fixture — buildTestDeploymentConfig's
     // defaults have empty base-allowlist/admin arrays, an empty discordApplicationId,
@@ -216,6 +226,8 @@ describe('defineAll', () => {
     expect(names).toContain('hyveon-audit');
     expect(names).toContain('hyveon-discord-bot-token');
     expect(names).toContain('hyveon-discord-public-key');
+    expect(names).toContain('hyveon-filebrowser-credential');
+    expect(names).toContain('hyveon-filebrowser-scheduler');
     expect(names).toContain('hyveon-interactions');
     expect(names).toContain('hyveon-followup');
     expect(names).toContain('hyveon-watchdog');
@@ -260,6 +272,19 @@ describe('defineAll', () => {
       Effect: 'Allow',
       Action: ['route53:ChangeResourceRecordSets', 'route53:ListResourceRecordSets', 'route53:GetChange'],
       Resource: [`arn:aws:route53:::hostedzone/${zoneId}`, 'arn:aws:route53:::change/*'],
+    });
+  });
+
+  it('should scope the FileBrowser scheduler policy to the real ECS cluster name', async () => {
+    const result = await runDefineAll(buildTestDeploymentConfig({ projectName: 'hyveon' }));
+
+    const clusterName = await promiseOf(result.ecs.cluster.name);
+    const policy = mocks.resources.find((resource) => resource.name === 'hyveon-filebrowser-scheduler-policy');
+    const statements = (JSON.parse(policy?.inputs.policy as string) as { Statement: Array<Record<string, unknown>> }).Statement;
+    expect(statements).toContainEqual({
+      Effect: 'Allow',
+      Action: ['ecs:StopTask'],
+      Resource: `arn:aws:ecs:*:*:task/${clusterName}/*`,
     });
   });
 
@@ -399,6 +424,8 @@ describe('buildStackOutputs', () => {
     expect(outputs.runsTableName).toBe(`${config.projectName}-runs`);
     expect(await promiseOf(outputs.discordBotTokenSecretArn)).toBe(await promiseOf(resources.secrets.discordBotTokenSecret.arn));
     expect(await promiseOf(outputs.discordPublicKeySecretArn)).toBe(await promiseOf(resources.secrets.discordPublicKeySecret.arn));
+    expect(await promiseOf(outputs.fileBrowserCredentialSecretArn)).toBe(await promiseOf(resources.secrets.fileBrowserCredentialSecret.arn));
+    expect(await promiseOf(outputs.fileBrowserSchedulerRoleArn)).toBe(await promiseOf(resources.iamRoles.fileBrowserSchedulerRole.arn));
 
     const expectedCustomDomainUrl = `https://${await promiseOf(resources.discordDomain.aliasRecord.name)}/`;
     expect(await promiseOf(outputs.interactionsInvokeUrl)).toBe(expectedCustomDomainUrl);

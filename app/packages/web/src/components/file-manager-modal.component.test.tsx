@@ -68,6 +68,29 @@ describe('FileManagerModal', () => {
     expect(link).toHaveAttribute('href', 'http://10.0.0.5:8080');
   });
 
+  it('should not show a credentials block when no credentials are provided', () => {
+    renderModal({ state: 'running', url: 'http://10.0.0.5:8080' });
+
+    expect(screen.queryByText(/Login \(shown once/)).not.toBeInTheDocument();
+  });
+
+  it('should show the one-time username/password inline when credentials are provided', () => {
+    const cbs = callbacks();
+    render(
+      <FileManagerModal
+        game="minecraft"
+        status={{ game: 'minecraft', state: 'running', url: 'http://10.0.0.5:8080' }}
+        message=""
+        credentials={{ username: 'admin', password: 'S3cr3t-pw' }}
+        {...cbs}
+      />,
+    );
+
+    expect(screen.getByText(/Login \(shown once/)).toBeInTheDocument();
+    expect(screen.getByText('admin')).toBeInTheDocument();
+    expect(screen.getByText('S3cr3t-pw')).toBeInTheDocument();
+  });
+
   it('should disable Launch and enable Stop while running', () => {
     renderModal({ state: 'running', url: 'http://10.0.0.5:8080' });
 
