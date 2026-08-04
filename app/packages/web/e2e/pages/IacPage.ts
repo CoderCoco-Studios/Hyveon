@@ -40,9 +40,14 @@ export class IacPage {
 
   // ── Plan ─────────────────────────────────────────────────────────────
 
-  /** "Infrastructure" page heading — used as a "the page mounted" smoke check. */
+  /**
+   * "Infrastructure" page heading — used as a "the page mounted" smoke
+   * check. `exact: true` disambiguates from the "Destroy infrastructure"
+   * section heading, whose accessible name otherwise substring-matches
+   * "Infrastructure" too.
+   */
   heading(): Locator {
-    return this.page.getByRole('heading', { name: 'Infrastructure' });
+    return this.page.getByRole('heading', { name: 'Infrastructure', exact: true });
   }
 
   /** Trigger that submits `hyveon.iac.plan()`. */

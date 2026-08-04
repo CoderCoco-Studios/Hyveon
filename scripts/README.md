@@ -1,86 +1,8 @@
 # scripts/
 
 Helper scripts for `Hyveon`. These are intentionally **not** part
-of the `app/` workspace — they exist to be run from a *parent* repo that
-vendors `Hyveon` as a git submodule, before any of the app's
-dependencies have been installed.
-
-## `init-parent.ts`
-
-Interactive scaffolder for the [private parent + submodule deployment
-pattern](https://codercoco.github.io/Hyveon/guides/submodule/). It generates
-a self-contained `Makefile`, `terraform.tfvars`, and `.gitignore` in your
-parent repo, wired to three wrapper Make targets (`setup`, `update`, `dev`).
-The generated Makefile never shells out to a script or another Makefile
-inside the submodule, and it does not orchestrate any infrastructure step —
-no backend bootstrap, no `terraform`/Pulumi init/plan/apply. The app's own
-first-run wizard and its Plan/Apply page do that directly, from the packaged
-Electron app, via the AWS SDK and the Pulumi Automation API (see the
-`migrate-iac-to-pulumi` OpenSpec change). Earlier revisions of this script
-also had a `migrate --to-s3`/`--to-local` subcommand and a `--s3-tfvars`
-bootstrap flag for switching a parent repo between a local `terraform.tfvars`
-file and a maintainer-synced S3 copy of it; both were removed (task 12.3/
-12.4). That S3 bucket (`${project_name}-tfvars` by default) is still very
-much alive — it's the SAME bucket the app's own first-run wizard provisions
-as its configuration bucket — but the *object key* those targets synced,
-`terraform.tfvars`, has no consumers left now that the Terraform tree is
-gone: the app exclusively reads/writes a different key,
-`deployment-config.json`, as JSON. There was nothing left worth syncing.
-
-### Usage
-
-```bash
-init-parent.ts [--force] [--yes]            Interactive bootstrap
-```
-
-From the parent (private) repo root, after adding the submodule:
-
-```bash
-git submodule add https://github.com/CoderCoco/Hyveon.git
-(cd Hyveon/scripts && npm install)
-node --import tsx Hyveon/scripts/init-parent.ts
-# or, equivalently:
-npx --prefix Hyveon/scripts tsx Hyveon/scripts/init-parent.ts
-```
-
-An optional leading `bootstrap` token is accepted (and ignored) for
-backwards compatibility with older invocations that spelled it out
-explicitly — there is only one flow now. Only a genuinely unrecognized first
-token (one that isn't `bootstrap` or a `--` flag) exits `1` with
-`Unknown subcommand "<token>"`.
-
-### Flags
-
-- `--force` — overwrite existing files instead of skipping them.
-- `--yes` — accepted but currently inert. Its only prior effect was
-  pre-answering the "bootstrap an S3-backed tfvars store?" prompt, removed
-  along with the rest of the tfvars-sync backend (task 12.3/12.4). Kept for
-  forward-compatibility; every remaining prompt (parent repo path, submodule
-  path, project name, AWS region, hosted zone, Discord credentials) always
-  runs interactively.
-
-An unrecognized subcommand or an unrecognized flag prints a usage error to
-stderr and exits `1`.
-
-From inside this repo's own workspace (e.g. while developing the scaffolder
-itself), the `scripts:init-parent` npm script is an equivalent way to invoke
-it — pass flags after `--`:
-
-```bash
-npm run scripts:init-parent -- --force
-```
-
-`init-parent.ts` never reads or modifies anything inside the submodule, and
-is safe to re-run; without `--force` it leaves existing files alone.
-
-### Requirements
-
-- Node.js 24+ (the same minimum the rest of the project enforces).
-- `git` on `$PATH` (used to detect `.gitmodules` and to run `make setup`/
-  `make update`'s submodule commands).
-- Windows users should run this under WSL or Git Bash — the generated
-  `Makefile` uses `bash` and `cp`, which mirrors standard Unix shell
-  expectations.
+of the `app/` workspace — they're standalone CLIs runnable before any of the
+app's dependencies have been installed.
 
 ## `tfvars-sync.ts`
 

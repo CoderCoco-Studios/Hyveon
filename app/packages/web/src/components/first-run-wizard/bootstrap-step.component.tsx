@@ -11,7 +11,7 @@ import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.util
  * renders an editable row for — every key on that type.
  */
 const RESOURCE_LABELS: Record<BootstrapResourceKey, string> = {
-  stateBucket: 'Terraform state bucket',
+  stateBucket: 'State bucket',
   configurationBucket: 'Configuration bucket',
 };
 
