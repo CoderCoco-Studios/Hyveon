@@ -77,12 +77,12 @@ test.describe('dashboard', () => {
     await expect(dashboard.emptyConfiguredMessage()).toBeVisible();
   });
 
-  test('should show setup guide and terraform.tfvars CTAs in the no-games card', async () => {
+  test('should show setup guide and add-a-game CTAs in the no-games card', async () => {
     await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
     await expect(dashboard.setupGuideLink()).toBeVisible();
-    await expect(dashboard.tfvarsLink()).toBeVisible();
+    await expect(dashboard.addGameLink()).toBeVisible();
   });
 
   test('should fire games.start IPC channel when Start is clicked', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BootstrapStep } from './bootstrap-step.component.js';
 import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.utils.js';
@@ -7,14 +7,12 @@ import type { IamCheckResult } from '@hyveon/desktop-preload';
 
 const NAMES: Record<BootstrapResourceKey, string> = {
   stateBucket: 'hyveon-tfstate',
-  lockTable: 'hyveon-tflock',
-  tfvarsBucket: 'hyveon-tfvars',
+  configurationBucket: 'hyveon-tfvars',
 };
 
 const PENDING: Record<BootstrapResourceKey, BootstrapResourceState> = {
   stateBucket: 'pending',
-  lockTable: 'pending',
-  tfvarsBucket: 'pending',
+  configurationBucket: 'pending',
 };
 
 /** Renders `BootstrapStep` with sensible defaults, letting each test override just what it cares about. */
@@ -27,6 +25,8 @@ function renderStep(overrides: Partial<Parameters<typeof BootstrapStep>[0]> = {}
       onNameChange={vi.fn()}
       onRunBootstrap={vi.fn()}
       bootstrapping={false}
+      runsTableStatus="pending"
+      deploymentConfigStatus="pending"
       iamCheck={null}
       iamChecking={false}
       iamError={null}
@@ -41,11 +41,10 @@ afterEach(() => {
 });
 
 describe('BootstrapStep', () => {
-  it('should render all three resource rows with their names', () => {
+  it('should render the two bootstrapped resource rows with their names', () => {
     renderStep();
     expect(screen.getByLabelText('Terraform state bucket name')).toHaveValue('hyveon-tfstate');
-    expect(screen.getByLabelText('Terraform lock table name')).toHaveValue('hyveon-tflock');
-    expect(screen.getByLabelText('Tfvars bucket name')).toHaveValue('hyveon-tfvars');
+    expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-tfvars');
   });
 
   it('should call onNameChange when a resource name field is edited', async () => {
@@ -74,10 +73,95 @@ describe('BootstrapStep', () => {
     expect(screen.getByText('Bucket name already taken')).toBeInTheDocument();
   });
 
+  it('should render the public-access-block outcome once a resource is created or already exists', () => {
+    renderStep({ statuses: { ...PENDING, stateBucket: 'created', configurationBucket: 'exists' } });
+
+    expect(screen.getAllByText('Public access blocked')).toHaveLength(2);
+  });
+
+  it('should not render the public-access-block outcome for a pending, creating, or failed resource', () => {
+    renderStep({
+      statuses: { ...PENDING, stateBucket: 'creating', configurationBucket: 'failed' },
+      messages: { configurationBucket: 'access denied' },
+    });
+
+    expect(screen.queryByText('Public access blocked')).not.toBeInTheDocument();
+  });
+
+  it('should report a failed resource without masking its sibling — one row shows failed, the other shows created independently', () => {
+    renderStep({
+      statuses: { ...PENDING, stateBucket: 'created', configurationBucket: 'failed' },
+      messages: { configurationBucket: 'access denied applying public-access-block' },
+    });
+
+    // The failing resource: failure badge + message, no success indication.
+    const configRow = screen.getByLabelText('Configuration bucket name').closest('div')!;
+    expect(within(configRow).getByText('Failed')).toBeInTheDocument();
+    expect(within(configRow).getByText('access denied applying public-access-block')).toBeInTheDocument();
+    expect(within(configRow).queryByText('Public access blocked')).not.toBeInTheDocument();
+
+    // The sibling resource: fully succeeded, unaffected by the other's failure.
+    const stateRow = screen.getByLabelText('Terraform state bucket name').closest('div')!;
+    expect(within(stateRow).getByText('Created')).toBeInTheDocument();
+    expect(within(stateRow).getByText('Public access blocked')).toBeInTheDocument();
+    expect(within(stateRow).queryByText('access denied applying public-access-block')).not.toBeInTheDocument();
+  });
+
   it('should disable name fields and the bootstrap button while bootstrapping', () => {
     renderStep({ bootstrapping: true });
     expect(screen.getByLabelText('Terraform state bucket name')).toBeDisabled();
     expect(screen.getByRole('button', { name: /bootstrap aws resources/i })).toBeDisabled();
+  });
+
+  describe('run-history table row (bootstrap-deadlock fix)', () => {
+    it('should render the run-history table row alongside the two bucket rows', () => {
+      renderStep();
+      expect(screen.getByText('Run-history table')).toBeInTheDocument();
+    });
+
+    it('should show a failure message when runsTableStatus is failed', () => {
+      renderStep({ runsTableStatus: 'failed', runsTableMessage: 'AccessDenied creating table' });
+      expect(screen.getByText('AccessDenied creating table')).toBeInTheDocument();
+    });
+
+    it('should render the created status badge for the run-history table independently of the two bucket statuses', () => {
+      renderStep({ runsTableStatus: 'created' });
+      const runsRow = screen.getByText('Run-history table').closest('div')!;
+      expect(within(runsRow).getByText('Created')).toBeInTheDocument();
+    });
+
+    it('should say "Re-run bootstrap" once the run-history table alone has reached created/exists, even with both buckets still pending', () => {
+      renderStep({ runsTableStatus: 'exists' });
+      expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('initial configuration row (fresh-install-bricking fix)', () => {
+    it('should render the initial configuration row alongside the two bucket rows and the run-history table row', () => {
+      renderStep();
+      expect(screen.getByText('Initial configuration')).toBeInTheDocument();
+    });
+
+    it('should show a failure message when deploymentConfigStatus is failed', () => {
+      renderStep({
+        deploymentConfigStatus: 'failed',
+        deploymentConfigMessage: 'The configuration bucket must be created before its initial configuration can be seeded.',
+      });
+      expect(
+        screen.getByText('The configuration bucket must be created before its initial configuration can be seeded.'),
+      ).toBeInTheDocument();
+    });
+
+    it('should render the created status badge for the initial configuration independently of the other rows', () => {
+      renderStep({ deploymentConfigStatus: 'created' });
+      const row = screen.getByText('Initial configuration').closest('div')!;
+      expect(within(row).getByText('Created')).toBeInTheDocument();
+    });
+
+    it('should say "Re-run bootstrap" once the initial configuration alone has reached created/exists, even with both buckets and the run-history table still pending', () => {
+      renderStep({ deploymentConfigStatus: 'exists' });
+      expect(screen.getByRole('button', { name: /re-run bootstrap/i })).toBeInTheDocument();
+    });
   });
 
   it('should call onRunIamCheck when the IAM check button is clicked', async () => {
@@ -91,7 +175,7 @@ describe('BootstrapStep', () => {
 
   describe('IAM panel states', () => {
     it('should render a passed message when the check reports passed', () => {
-      const passed: IamCheckResult = { status: 'passed' };
+      const passed: IamCheckResult = { status: 'passed', origin: 'profile', blocking: false };
       renderStep({ iamCheck: passed });
       expect(screen.getByText(/all required permissions are present/i)).toBeInTheDocument();
     });
@@ -100,6 +184,8 @@ describe('BootstrapStep', () => {
       const missing: IamCheckResult = {
         status: 'missing',
         policyJson: '{\n  "Version": "2012-10-17"\n}',
+        origin: 'guided',
+        blocking: true,
       };
       renderStep({ iamCheck: missing });
       expect(screen.getByText(/some permissions are missing/i)).toBeInTheDocument();
@@ -109,7 +195,12 @@ describe('BootstrapStep', () => {
     it('should copy the policy JSON to the clipboard when the copy button is clicked', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.assign(navigator, { clipboard: { writeText } });
-      const missing: IamCheckResult = { status: 'missing', policyJson: '{"Version":"2012-10-17"}' };
+      const missing: IamCheckResult = {
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      };
       renderStep({ iamCheck: missing });
 
       await userEvent.click(screen.getByRole('button', { name: /copy required iam json/i }));
@@ -118,7 +209,12 @@ describe('BootstrapStep', () => {
     });
 
     it('should render the warning message and full action checklist when simulation itself fails', () => {
-      const warning: IamCheckResult = { status: 'warning', message: 'iam:SimulatePrincipalPolicy not permitted' };
+      const warning: IamCheckResult = {
+        status: 'warning',
+        message: 'iam:SimulatePrincipalPolicy not permitted',
+        origin: 'none',
+        blocking: false,
+      };
       renderStep({ iamCheck: warning });
       expect(screen.getByText('iam:SimulatePrincipalPolicy not permitted')).toBeInTheDocument();
       expect(screen.getByText('ecs:*')).toBeInTheDocument();

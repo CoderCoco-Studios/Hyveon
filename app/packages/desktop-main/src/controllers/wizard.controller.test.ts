@@ -1,28 +1,18 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { WizardController } from './wizard.controller.js';
-import type { PrerequisiteService, PrerequisitesReport } from '../services/PrerequisiteService.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
 import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
 import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
-
-const SATISFIED_REPORT: PrerequisitesReport = {
-  terraform: { found: true, path: '/usr/local/bin/terraform', version: '1.9.0', minimumVersionSatisfied: true },
-  aws: { found: true, path: '/usr/local/bin/aws', version: '2.15.30' },
-};
+import type { GuidedIamService } from '../services/GuidedIamService.js';
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
   { profileName: 'default', region: 'us-east-1' },
   { profileName: 'dev', region: 'us-west-2' },
 ];
-
-/** Build a PrerequisiteService stub whose `check()` resolves to the given report. */
-function makePrerequisites(report: PrerequisitesReport = SATISFIED_REPORT): PrerequisiteService {
-  return { check: vi.fn().mockResolvedValue(report) } as Partial<PrerequisiteService> as PrerequisiteService;
-}
 
 /** Build an AwsProfileService stub whose `listProfiles()` resolves to the given profiles. */
 function makeAwsProfiles(profiles: AwsProfileSummary[] = SAMPLE_PROFILES): AwsProfileService {
@@ -42,7 +32,7 @@ function makeStore(
     wizardCompleted?: boolean;
     activeCloud?: 'aws';
     aws?: { profile?: string; region?: string };
-    bootstrap?: { stateBucket: string; lockTable: string; tfvarsBucket: string };
+    bootstrap?: { stateBucket: string; configurationBucket: string };
   } = {},
 ): ElectronStoreService {
   const data: Record<string, unknown> = { ...seed };
@@ -58,18 +48,18 @@ function makeStore(
 function makeBootstrap(result: BootstrapResult = { status: 'created' }): BootstrapService {
   return {
     ensureStateBucket: vi.fn().mockResolvedValue(result),
-    ensureLockTable: vi.fn().mockResolvedValue(result),
-    ensureTfvarsBucket: vi.fn().mockResolvedValue(result),
+    ensureConfigurationBucket: vi.fn().mockResolvedValue(result),
+    ensureRunsTable: vi.fn().mockResolvedValue(result),
   } as Partial<BootstrapService> as BootstrapService;
 }
 
 /** Build an IamCheckService stub whose `checkPermissions()` resolves to the given result. */
-function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckService {
+function makeIamCheck(result: IamCheckResult = { status: 'passed', origin: 'none', blocking: false }): IamCheckService {
   return { checkPermissions: vi.fn().mockResolvedValue(result) } as Partial<IamCheckService> as IamCheckService;
 }
 
 /** Build a FirstRunWizardService stub whose `getProgress()` resolves to the given progress. */
-function makeFirstRunWizard(progress: WizardProgress = { step: 'prerequisites' }): FirstRunWizardService {
+function makeFirstRunWizard(progress: WizardProgress = { step: 'pick-cloud' }): FirstRunWizardService {
   const service: Partial<FirstRunWizardService> = {
     getProgress: vi.fn().mockResolvedValue(progress),
     recordStep: vi.fn().mockResolvedValue(undefined),
@@ -78,22 +68,39 @@ function makeFirstRunWizard(progress: WizardProgress = { step: 'prerequisites' }
   return service as FirstRunWizardService;
 }
 
+/**
+ * Build a `GuidedIamService` stub. This controller's `GuidedIamService`
+ * handlers are wiring-only pass-throughs, proven by Task 3's tier-2
+ * integration specs rather than unit tests here — this stub exists only so
+ * `makeController` can satisfy the constructor's now-five dependencies.
+ */
+function makeGuidedIam(): GuidedIamService {
+  return {
+    renderTemplate: vi.fn(),
+    buildCloudFormationConsoleUrl: vi.fn(),
+    openConsole: vi.fn(),
+    intakeBootstrapKey: vi.fn(),
+    rotate: vi.fn(),
+    revokeBootstrapKey: vi.fn(),
+  } as Partial<GuidedIamService> as GuidedIamService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
-  prerequisites?: PrerequisiteService;
   awsProfiles?: AwsProfileService;
   store?: ElectronStoreService;
   bootstrap?: BootstrapService;
   iamCheck?: IamCheckService;
   firstRunWizard?: FirstRunWizardService;
+  guidedIam?: GuidedIamService;
 } = {}): WizardController {
   return new WizardController(
-    overrides.prerequisites ?? makePrerequisites(),
     overrides.awsProfiles ?? makeAwsProfiles(),
     overrides.store ?? makeStore(),
     overrides.bootstrap ?? makeBootstrap(),
     overrides.iamCheck ?? makeIamCheck(),
     overrides.firstRunWizard ?? makeFirstRunWizard(),
+    overrides.guidedIam ?? makeGuidedIam(),
   );
 }
 
@@ -106,11 +113,6 @@ const PATTERN_METADATA_KEY = 'microservices:pattern';
 
 describe('WizardController', () => {
   describe('@MessagePattern channel names', () => {
-    it('should register checkPrereqs on the "wizard.prereqs.check" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.checkPrereqs);
-      expect(pattern).toEqual(['wizard.prereqs.check']);
-    });
-
     it('should register listAwsProfiles on the "wizard.aws.listProfiles" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.listAwsProfiles);
       expect(pattern).toEqual(['wizard.aws.listProfiles']);
@@ -136,14 +138,14 @@ describe('WizardController', () => {
       expect(pattern).toEqual(['wizard.bootstrap.stateBucket']);
     });
 
-    it('should register bootstrapLockTable on the "wizard.bootstrap.lockTable" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapLockTable);
-      expect(pattern).toEqual(['wizard.bootstrap.lockTable']);
+    it('should register bootstrapConfigurationBucket on the "wizard.bootstrap.configurationBucket" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapConfigurationBucket);
+      expect(pattern).toEqual(['wizard.bootstrap.configurationBucket']);
     });
 
-    it('should register bootstrapTfvarsBucket on the "wizard.bootstrap.tfvarsBucket" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapTfvarsBucket);
-      expect(pattern).toEqual(['wizard.bootstrap.tfvarsBucket']);
+    it('should register bootstrapRunsTable on the "wizard.bootstrap.runsTable" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.bootstrapRunsTable);
+      expect(pattern).toEqual(['wizard.bootstrap.runsTable']);
     });
 
     it('should register simulateIamPermissions on the "wizard.iam.simulate" IPC channel', () => {
@@ -165,20 +167,36 @@ describe('WizardController', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
       expect(pattern).toEqual(['wizard.complete']);
     });
-  });
 
-  describe('checkPrereqs', () => {
-    it('should return the report produced by PrerequisiteService.check', async () => {
-      const prerequisites = makePrerequisites();
-      const result = await makeController({ prerequisites }).checkPrereqs();
-      expect(result).toEqual(SATISFIED_REPORT);
-      expect(prerequisites.check).toHaveBeenCalledTimes(1);
+    it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.prepareGuidedIamTemplate);
+      expect(pattern).toEqual(['wizard.guidedIam.prepareTemplate']);
     });
 
-    it('should propagate a report with a missing tool unchanged', async () => {
-      const report: PrerequisitesReport = { terraform: { found: false }, aws: { found: false } };
-      const result = await makeController({ prerequisites: makePrerequisites(report) }).checkPrereqs();
-      expect(result).toEqual(report);
+    it('should register openGuidedIamConsole on the "wizard.guidedIam.openConsole" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.openGuidedIamConsole);
+      expect(pattern).toEqual(['wizard.guidedIam.openConsole']);
+    });
+
+    it('should register submitGuidedIamBootstrapKey on the "wizard.guidedIam.submitBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.submitGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.submitBootstrapKey']);
+    });
+
+    it('should register rotateGuidedIamKey on the "wizard.guidedIam.rotate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.rotateGuidedIamKey);
+      expect(pattern).toEqual(['wizard.guidedIam.rotate']);
+    });
+
+    it('should register revokeGuidedIamBootstrapKey on the "wizard.guidedIam.revokeBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.revokeGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.revokeBootstrapKey']);
     });
   });
 
@@ -263,7 +281,7 @@ describe('WizardController', () => {
     });
 
     it('should include the stored bootstrap resource names when present', () => {
-      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+      const bootstrap = { stateBucket: 'my-tfstate', configurationBucket: 'my-tfvars' };
       const store = makeStore({ wizardCompleted: true, bootstrap });
       const result = makeController({ store }).getState();
       expect(result).toEqual({ wizardCompleted: true, activeCloud: undefined, bootstrap });
@@ -336,7 +354,7 @@ describe('WizardController', () => {
     it('should persist the bootstrap resource names and return them in the updated state', () => {
       const store = makeStore({ wizardCompleted: true });
       const controller = makeController({ store });
-      const bootstrap = { stateBucket: 'my-tfstate', lockTable: 'my-tflock', tfvarsBucket: 'my-tfvars' };
+      const bootstrap = { stateBucket: 'my-tfstate', configurationBucket: 'my-tfvars' };
 
       const result = controller.saveState({ bootstrap });
 
@@ -347,10 +365,10 @@ describe('WizardController', () => {
     it('should replace the stored bootstrap resource names wholesale rather than merging', () => {
       const store = makeStore({
         wizardCompleted: true,
-        bootstrap: { stateBucket: 'old-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' },
+        bootstrap: { stateBucket: 'old-tfstate', configurationBucket: 'old-tfvars' },
       });
       const controller = makeController({ store });
-      const bootstrap = { stateBucket: 'new-tfstate', lockTable: 'old-tflock', tfvarsBucket: 'old-tfvars' };
+      const bootstrap = { stateBucket: 'new-tfstate', configurationBucket: 'old-tfvars' };
 
       controller.saveState({ bootstrap });
 
@@ -377,39 +395,39 @@ describe('WizardController', () => {
     });
   });
 
-  describe('bootstrapLockTable', () => {
-    it('should delegate to BootstrapService.ensureLockTable with the given table name', async () => {
+  describe('bootstrapConfigurationBucket', () => {
+    it('should delegate to BootstrapService.ensureConfigurationBucket with the given bucket name', async () => {
       const bootstrap = makeBootstrap({ status: 'created' });
 
-      const result = await makeController({ bootstrap }).bootstrapLockTable({ tableName: 'my-lock-table' });
+      const result = await makeController({ bootstrap }).bootstrapConfigurationBucket({ bucketName: 'my-config-bucket' });
 
-      expect(bootstrap.ensureLockTable).toHaveBeenCalledWith('my-lock-table');
+      expect(bootstrap.ensureConfigurationBucket).toHaveBeenCalledWith('my-config-bucket');
       expect(result).toEqual({ status: 'created' });
     });
 
     it('should propagate a failed result unchanged rather than throwing', async () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
-      const result = await makeController({ bootstrap }).bootstrapLockTable({ tableName: 'my-lock-table' });
+      const result = await makeController({ bootstrap }).bootstrapConfigurationBucket({ bucketName: 'my-config-bucket' });
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
   });
 
-  describe('bootstrapTfvarsBucket', () => {
-    it('should delegate to BootstrapService.ensureTfvarsBucket with the given bucket name', async () => {
+  describe('bootstrapRunsTable', () => {
+    it('should delegate to BootstrapService.ensureRunsTable with the default project-prefixed table name', async () => {
       const bootstrap = makeBootstrap({ status: 'created' });
 
-      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
+      const result = await makeController({ bootstrap }).bootstrapRunsTable();
 
-      expect(bootstrap.ensureTfvarsBucket).toHaveBeenCalledWith('my-tfvars-bucket');
+      expect(bootstrap.ensureRunsTable).toHaveBeenCalledWith('hyveon-runs');
       expect(result).toEqual({ status: 'created' });
     });
 
     it('should propagate a failed result unchanged rather than throwing', async () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'access denied' });
 
-      const result = await makeController({ bootstrap }).bootstrapTfvarsBucket({ bucketName: 'my-tfvars-bucket' });
+      const result = await makeController({ bootstrap }).bootstrapRunsTable();
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
@@ -417,28 +435,38 @@ describe('WizardController', () => {
 
   describe('simulateIamPermissions', () => {
     it('should delegate to IamCheckService.checkPermissions and return the result unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'passed' });
+      const iamCheck = makeIamCheck({ status: 'passed', origin: 'profile', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
       expect(iamCheck.checkPermissions).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ status: 'passed' });
+      expect(result).toEqual({ status: 'passed', origin: 'profile', blocking: false });
     });
 
     it('should propagate a missing-permissions result with its policy JSON unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      const iamCheck = makeIamCheck({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      expect(result).toEqual({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
     });
 
     it('should propagate a warning result unchanged rather than throwing', async () => {
-      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied' });
+      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'warning', message: 'access denied' });
+      expect(result).toEqual({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
     });
   });
 
@@ -458,7 +486,16 @@ describe('WizardController', () => {
 
       await makeController({ firstRunWizard }).saveProgress({ step: 'credentials' });
 
-      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials');
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials', undefined);
+    });
+
+    it('should pass through a guidedIam sub-state payload to FirstRunWizardService.recordStep', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const guidedIam = { subState: 'rotation-pending' as const, hasBootstrapKey: true };
+
+      await makeController({ firstRunWizard }).saveProgress({ step: 'guided-iam', guidedIam });
+
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('guided-iam', guidedIam);
     });
   });
 

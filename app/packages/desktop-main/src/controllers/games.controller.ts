@@ -25,39 +25,51 @@ export class GamesController {
   /**
    * Lists games merged from the declared view (`terraform.tfvars`
    * `game_servers` map, via {@link TfvarsService}) and the deployed view
-   * (`terraform.tfstate` `game_names` output, via {@link ConfigService}) —
+   * (the deployed stack's `gameNames` output, via {@link ConfigService}) —
    * see {@link mergeGameLists}. This surfaces games that are declared but not
    * yet applied (`declared: true, deployed: false`) alongside live games, so
-   * the renderer can distinguish the two states. Invalidates the tfstate
-   * cache and the `TfvarsService` cache first so a fresh `terraform apply` /
-   * tfvars edit shows up without having to restart the server.
+   * the renderer can distinguish the two states.
+   *
+   * Invalidates only the `TfvarsService` cache (cheap — an in-memory S3
+   * object cache with its own short TTL), NOT {@link ConfigService}'s stack-
+   * outputs cache. `ConfigService.getStackOutputs()` is a genuinely expensive
+   * round-trip (Pulumi engine resolution, passphrase, S3 backend), and this
+   * channel is called on every visit to pages that show the games list
+   * (Discord config, Logs), so eagerly invalidating that cache here would pay
+   * that cost far more often than a fresh deploy could plausibly have
+   * happened. The stack-outputs cache is invalidated on write instead — when
+   * `PulumiService.apply`/`.destroy` persists a successful run, or when
+   * `GamesWriteService.successResult()` applies a games.create/update/delete
+   * change — not on every read here.
    *
    * Reachable via the Electron IPC transport (`games.list`).
    */
   @MessagePattern('games.list')
   async listGames(): Promise<{ games: GameListEntry[] }> {
-    this.config.invalidateCache();
     this.tfvars.invalidateCache();
     const declared = await this.tfvars.getGameServers();
-    const outputs = this.config.getTfOutputs();
-    return { games: mergeGameLists(declared, outputs?.game_names ?? []) };
+    const outputs = await this.config.getStackOutputs();
+    return { games: mergeGameLists(declared, outputs?.gameNames ?? []) };
   }
 
   /**
-   * Returns the current ECS status of every game in parallel. Also
-   * invalidates the tfstate cache and the `TfvarsService` cache — this is
-   * the natural place to pick up newly-added games when called from the
-   * Electron renderer.
+   * Returns the current ECS status of every game in parallel.
+   *
+   * Invalidates only the `TfvarsService` cache, NOT {@link ConfigService}'s
+   * stack-outputs cache — this channel backs the dashboard's 20-second
+   * status poller (`GAME_STATUS_INTERVAL_MS`), so eagerly invalidating a
+   * cache that now fronts an expensive Pulumi round-trip would turn an idle
+   * dashboard into a steady stream of engine-resolution + S3 calls. See
+   * {@link listGames}'s doc comment for the full rationale — identical here.
    *
    * Reachable via the Electron IPC transport (`games.status`).
    */
   @MessagePattern('games.status')
   async listStatus() {
-    this.config.invalidateCache();
     this.tfvars.invalidateCache();
-    const outputs = this.config.getTfOutputs();
+    const outputs = await this.config.getStackOutputs();
     if (!outputs) return [];
-    return Promise.all(outputs.game_names.map((g) => this.ecs.getStatus(g)));
+    return Promise.all(outputs.gameNames.map((g) => this.ecs.getStatus(g)));
   }
 
   /**

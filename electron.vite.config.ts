@@ -31,21 +31,82 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: r('app/packages/desktop-main/src/electron-entry.ts'),
-        // `@cdktf/hcl2json` must stay external (loaded from node_modules at
-        // runtime), never bundled, for two reasons:
-        //  1. Its wasm bridge reads `main.wasm.gz` relative to its own module
-        //     file (`join(__dirname, '..', 'main.wasm.gz')`). Bundled, that
-        //     resolves to `out/main.wasm.gz`, which doesn't exist — the read
-        //     rejects and every later `parse()` call awaits a `ready` flag
-        //     that never flips, so `games.list` would hang forever.
-        //  2. The bundled copy of its Go `wasm_exec` glue runs module-scope
-        //     side effects at app startup that prevent Electron from ever
-        //     quitting — `app.close()` in Playwright's electron project then
-        //     hangs until the worker teardown timeout, failing every spec.
-        // The external package also keeps the patch-package fix
-        // (patches/@cdktf+hcl2json+0.21.0.patch) in effect. electron-builder.yml
-        // packages the module (and its transitive deps) into the installer.
-        external: ['@cdktf/hcl2json'],
+        // `@pulumi/pulumi` and `@pulumi/aws` must stay external (loaded from
+        // node_modules at runtime), never bundled: `@pulumi/pulumi` pulls in
+        // `@grpc/grpc-js`, which owns sockets, and bundling either package
+        // (60 MB / 15 MB unpacked) risks an "Electron never quits" failure —
+        // a module-scope side effect or an open socket surviving into the
+        // renderer's `app.close()` path, hanging Playwright's electron
+        // project until the worker teardown timeout, failing every spec (see
+        // the retired `@cdktf/hcl2json` externalization this repo carried
+        // before the `migrate-iac-to-pulumi` change removed that dependency
+        // entirely — the exact failure mode this precedent guards against).
+        // electron-builder.yml ships both packages (and their transitive
+        // deps) unpacked.
+        // The Pulumi entries are regexes, not bare strings, because Rollup's
+        // `external` array matches import ids *exactly*: the string
+        // `'@pulumi/pulumi'` leaves `import ... from '@pulumi/pulumi/automation'`
+        // — the subpath the Automation API is actually imported through — fully
+        // bundled. That produced a 15 MB `pulumiSpike` chunk, i.e. the exact
+        // "bundled SDK owns sockets" hazard the externalization exists to avoid.
+        //
+        // Two mechanisms now cover these two packages, and the overlap is
+        // deliberate:
+        //  - `externalizeDepsPlugin()` externalizes every root package.json
+        //    `dependencies` entry, adding both the bare name and a
+        //    `^(name1|name2)/.+` subpath regex. The root manifest declares these
+        //    two packages (electron-builder only copies node_modules belonging
+        //    to the app manifest's production dependency tree, and the `files`
+        //    whitelist can narrow that set but never add to it), so the plugin
+        //    covers them — including subpaths. When the root manifest had no
+        //    `dependencies` at all, the plugin externalized *nothing*, which is
+        //    why the exact-match string was the only rule in force and the
+        //    subpath got bundled.
+        //  - this array, which is authoritative regardless of what the root
+        //    manifest happens to list — and is the *only* rule covering `semver`
+        //    below, which is not a root dependency.
+        //
+        // The `out/main` bundle is checked after every `desktop:build` by
+        // build/verify-main-bundle-externals.mjs, which fails the build if any
+        // of these packages' source is found inlined. The 15 MB chunk above was
+        // invisible to lint, typecheck, the unit suite and the e2e suite alike.
+        //
+        // `semver` must be external for the same reason, one level down.
+        // `PulumiCommand.install()` takes its `version` as a `semver.SemVer`
+        // instance and internally calls `semver.gt(opts.version, …)`, which
+        // `instanceof`-checks the argument against *its own* copy of the class.
+        // With `semver` bundled, the instance we construct comes from the
+        // Rollup-inlined copy while the check runs in the external
+        // `node_modules/semver`, so the two classes never match and `install()`
+        // dies with `Invalid version. Must be a string. Got type "object"`.
+        // Externalizing it leaves exactly one `semver` at runtime. There is a single `semver` in the runtime
+        // dependency tree (7.7.4 at the root; the nested 5.x/6.x copies all
+        // belong to devDependencies), so this cannot resolve to a second
+        // version.
+        // `@nestjs/common`'s `ValidationPipe` lazily `require()`s `class-validator`
+        // and `class-transformer` inside its constructor — genuinely dead code
+        // here, since nothing in `@hyveon/desktop-main` ever instantiates
+        // `ValidationPipe`. Both are optional peer deps of `@nestjs/common`,
+        // and both are now real (unused) dependencies of `@hyveon/desktop-main`
+        // — the same treatment `@grpc/proto-loader` gets above, for the same
+        // reason: this build's `output.format: 'es'` means Rollup emits a
+        // top-level ESM `import` for every externalized specifier, and ESM
+        // imports resolve eagerly at Node's module-load time regardless of
+        // whether the binding is ever used — unlike the lazy `require()` Node
+        // itself would run if this were plain CommonJS. An externalized but
+        // uninstalled package therefore crashes the main process before any
+        // window opens (`desktop:dev` reproduced this: `electron-vite dev`'s
+        // on-the-fly SSR build reaches this code path even though a full
+        // production `desktop:build` did not, because dev mode doesn't
+        // tree-shake the same way). Installing the real packages — rather
+        // than only listing them here — is what actually fixes it.
+        external: [
+          /^@pulumi\/pulumi(\/.*)?$/,
+          /^@pulumi\/aws(\/.*)?$/,
+          'semver',
+          'class-validator',
+          'class-transformer',
+        ],
         output: {
           format: 'es',
           entryFileNames: 'index.js',

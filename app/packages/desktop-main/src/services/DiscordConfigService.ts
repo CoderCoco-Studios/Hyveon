@@ -74,22 +74,22 @@ export class DiscordConfigService {
     @Inject(SECRETS_STORE) private readonly secrets: SecretsStore,
   ) {}
 
-  /** Resolve the DDB table name from Terraform outputs; throws if not deployed yet. */
-  private tableName(): string {
-    const t = this.config.getTfOutputs()?.discord_table_name;
-    if (!t) throw new Error('discord_table_name not in Terraform outputs — apply Terraform first.');
+  /** Resolve the DDB table name from the deployed stack's outputs; throws if not deployed yet. */
+  private async tableName(): Promise<string> {
+    const t = (await this.config.getStackOutputs())?.discordTableName;
+    if (!t) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
     return t;
   }
 
-  private botTokenSecretArn(): string {
-    const a = this.config.getTfOutputs()?.discord_bot_token_secret_arn;
-    if (!a) throw new Error('discord_bot_token_secret_arn not in Terraform outputs.');
+  private async botTokenSecretArn(): Promise<string> {
+    const a = (await this.config.getStackOutputs())?.discordBotTokenSecretArn;
+    if (!a) throw new Error('discordBotTokenSecretArn not in the deployed stack outputs.');
     return a;
   }
 
-  private publicKeySecretArn(): string {
-    const a = this.config.getTfOutputs()?.discord_public_key_secret_arn;
-    if (!a) throw new Error('discord_public_key_secret_arn not in Terraform outputs.');
+  private async publicKeySecretArn(): Promise<string> {
+    const a = (await this.config.getStackOutputs())?.discordPublicKeySecretArn;
+    if (!a) throw new Error('discordPublicKeySecretArn not in the deployed stack outputs.');
     return a;
   }
 
@@ -99,7 +99,7 @@ export class DiscordConfigService {
     if (this.inflight) return this.inflight;
     this.inflight = (async () => {
       try {
-        const cfg = await getDiscordConfig(this.tableName());
+        const cfg = await getDiscordConfig(await this.tableName());
         this.cache = cfg;
         return cfg;
       } catch (err) {
@@ -124,7 +124,7 @@ export class DiscordConfigService {
     if (this.baseInflight) return this.baseInflight;
     this.baseInflight = (async () => {
       try {
-        const tableName = this.config.getTfOutputs()?.discord_table_name;
+        const tableName = (await this.config.getStackOutputs())?.discordTableName;
         if (!tableName) return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
         const base = await getBaseDiscordConfig(tableName);
         this.baseCache = base;
@@ -140,7 +140,7 @@ export class DiscordConfigService {
   }
 
   private async save(cfg: DiscordConfig): Promise<void> {
-    await putDiscordConfig(this.tableName(), cfg);
+    await putDiscordConfig(await this.tableName(), cfg);
     this.cache = cfg;
     logger.info('Discord config saved', {
       allowedGuilds: cfg.allowedGuilds.length,
@@ -160,7 +160,7 @@ export class DiscordConfigService {
 
   /** Bot token from Secrets Manager (used by the slash-command registrar). `null` if unset. */
   async getEffectiveToken(): Promise<string | null> {
-    const token = await this.secrets.get(this.botTokenSecretArn());
+    const token = await this.secrets.get(await this.botTokenSecretArn());
     return token ?? null;
   }
 
@@ -169,11 +169,11 @@ export class DiscordConfigService {
     const [cfg, base, botToken, publicKey] = await Promise.all([
       this.load(),
       this.loadBase(),
-      this.secrets.get(this.botTokenSecretArn()).catch((err: unknown) => {
+      this.secrets.get(await this.botTokenSecretArn()).catch((err: unknown) => {
         logger.error('Failed to read Discord bot token from Secrets Manager', { err });
         return undefined;
       }),
-      this.secrets.get(this.publicKeySecretArn()).catch((err: unknown) => {
+      this.secrets.get(await this.publicKeySecretArn()).catch((err: unknown) => {
         logger.error('Failed to read Discord public key from Secrets Manager', { err });
         return undefined;
       }),
@@ -211,10 +211,10 @@ export class DiscordConfigService {
     }
     const writes: Promise<void>[] = [];
     if (typeof params.botToken === 'string' && params.botToken.length > 0) {
-      writes.push(this.secrets.put(this.botTokenSecretArn(), params.botToken));
+      writes.push(this.secrets.put(await this.botTokenSecretArn(), params.botToken));
     }
     if (typeof params.publicKey === 'string' && params.publicKey.length > 0) {
-      writes.push(this.secrets.put(this.publicKeySecretArn(), params.publicKey));
+      writes.push(this.secrets.put(await this.publicKeySecretArn(), params.publicKey));
     }
     if (writes.length) {
       await Promise.all(writes);

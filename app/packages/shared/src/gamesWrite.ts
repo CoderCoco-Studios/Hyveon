@@ -49,7 +49,22 @@ export interface GameWriteNotFound {
   message: string;
 }
 
-/** Catch-all failure for errors that aren't a conflict, validation failure, or not-found (e.g. filesystem I/O). */
+/**
+ * No configuration bucket is configured — the operator has not finished (or
+ * has somehow un-finished) the First-Run Wizard's bootstrap step. Distinct
+ * from {@link GameWriteFailure} so a caller can route the operator toward
+ * setup instead of showing a generic "something went wrong" message (see
+ * `TfvarsService.ConfigurationNotConfiguredError` in `desktop-main`, thrown
+ * by every `TfvarsService` write method when
+ * `ConfigService.getConfigurationBucket()` resolves `null`).
+ */
+export interface GameWriteSetupIncomplete {
+  ok: false;
+  code: 'setup_incomplete';
+  message: string;
+}
+
+/** Catch-all failure for errors that aren't a conflict, validation failure, not-found, or setup-incomplete (e.g. an unexpected S3 error). */
 export interface GameWriteFailure {
   ok: false;
   code: 'error';
@@ -66,6 +81,7 @@ export type GameWriteResult =
   | GameWriteConflict
   | GameWriteValidationFailure
   | GameWriteNotFound
+  | GameWriteSetupIncomplete
   | GameWriteFailure;
 
 /**

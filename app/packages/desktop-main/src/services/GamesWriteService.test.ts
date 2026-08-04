@@ -4,13 +4,13 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import type { GameServer } from '@hyveon/shared';
+import type { GameServer, StackOutputs } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
-import type { ConfigService, TfOutputs } from './ConfigService.js';
+import type { ConfigService } from './ConfigService.js';
 import type { TfvarsService } from './TfvarsService.js';
-import { HclSurgeonError } from './hclSurgeon.js';
+import { ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
 import { logger } from '../logger.js';
 
 /** Minimal, valid `GameServer` fixture matching the Fargate cpu/memory pairing table. */
@@ -32,13 +32,12 @@ function buildConfig(overrides: Partial<Omit<GameServer, 'name'>> = {}): Omit<Ga
   return config;
 }
 
-/** Build a ConfigService stub with `invalidateCache`, `getTfOutputs`, and `getTfvarsBucket` pre-wired. */
-function makeConfig(options: { outputs?: Partial<TfOutputs> | null; bucket?: string | null } = {}): ConfigService {
-  const { outputs = { game_names: [] }, bucket = null } = options;
+/** Build a ConfigService stub with `invalidateCache` and `getStackOutputs` pre-wired. */
+function makeConfig(options: { outputs?: Partial<StackOutputs> | null } = {}): ConfigService {
+  const { outputs = { gameNames: [] } } = options;
   return {
     invalidateCache: vi.fn(),
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
-    getTfvarsBucket: vi.fn().mockReturnValue(bucket),
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
   } as Partial<ConfigService> as ConfigService;
 }
 
@@ -74,7 +73,7 @@ describe('GamesWriteService', () => {
   describe('createGame', () => {
     it('should write the new entry and return the updated game plus the refreshed games list on success', async () => {
       const tfvars = makeTfvars();
-      const config = makeConfig({ outputs: { game_names: ['minecraft'] } });
+      const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
       const audit = makeAudit();
       const service = new GamesWriteService(config, tfvars, audit);
 
@@ -107,16 +106,8 @@ describe('GamesWriteService', () => {
       });
     });
 
-    it('should emit a structured audit log entry noting local mode when no tfvars bucket is configured', async () => {
-      const service = new GamesWriteService(makeConfig({ bucket: null }), makeTfvars(), makeAudit());
-
-      await service.createGame({ name: 'ark', config: buildConfig() });
-
-      expect(logger.info).toHaveBeenCalledWith('Game server write', { action: 'create', game: 'ark', mode: 'local' });
-    });
-
-    it('should emit a structured audit log entry noting s3 mode when a tfvars bucket is configured', async () => {
-      const service = new GamesWriteService(makeConfig({ bucket: 'my-bucket' }), makeTfvars(), makeAudit());
+    it('should emit a structured audit log entry noting s3 mode (the only mode; there is no local-file fallback)', async () => {
+      const service = new GamesWriteService(makeConfig(), makeTfvars(), makeAudit());
 
       await service.createGame({ name: 'ark', config: buildConfig() });
 
@@ -161,8 +152,8 @@ describe('GamesWriteService', () => {
       tfvars.addGameServer = vi
         .fn()
         .mockRejectedValue(
-          new HclSurgeonError(
-            'Entry "ark" already exists in "game_servers" — use updateGameServer() instead.',
+          new GameServerEntryError(
+            'Entry "ark" already exists in "gameServers" — use updateGameServer() instead.',
             'duplicate-name',
           ),
         );
@@ -198,9 +189,9 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a catch-all error result (not a name-validation issue) without recording an audit entry when addGameServer() throws a structural HclSurgeonError', async () => {
+    it('should return a catch-all error result (not a name-validation issue) without recording an audit entry when addGameServer() throws a structural GameServerEntryError', async () => {
       const tfvars = makeTfvars();
-      const structuralError = new HclSurgeonError('"game_servers" map not found in tfvars source.');
+      const structuralError = new GameServerEntryError('"gameServers" map not found in the deployment config JSON.', 'structural');
       tfvars.addGameServer = vi.fn().mockRejectedValue(structuralError);
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
@@ -216,12 +207,32 @@ describe('GamesWriteService', () => {
       expect(loggerErrorSpy).toHaveBeenCalledWith('Game server write failed', { err: structuralError });
       expect(audit.record).not.toHaveBeenCalled();
     });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when addGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars();
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.addGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.createGame({ name: 'ark', config: buildConfig() });
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'setup_incomplete',
+        message: notConfiguredError.message,
+      });
+      // Pinned distinctly from the generic catch-all so a caller can tell
+      // "setup incomplete" apart from an ordinary unexpected failure.
+      expect(result).not.toMatchObject({ code: 'error' });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateGame', () => {
     it('should write the updated entry and return the updated game plus the refreshed games list on success', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const config = makeConfig({ outputs: { game_names: ['minecraft'] } });
+      const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
       const service = new GamesWriteService(config, tfvars, makeAudit());
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
 
@@ -290,9 +301,9 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a not_found result without recording an audit entry when the target game does not exist in game_servers', async () => {
+    it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      tfvars.updateGameServer = vi.fn().mockRejectedValue(new HclSurgeonError('Entry "ark" not found in "game_servers".'));
+      tfvars.updateGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
 
@@ -304,12 +315,26 @@ describe('GamesWriteService', () => {
       expect(result).toEqual({ ok: false, code: 'not_found', message: expect.stringContaining('not found') });
       expect(audit.record).not.toHaveBeenCalled();
     });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when updateGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.updateGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.updateGame({ name: 'minecraft', config: buildConfig() });
+
+      expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: notConfiguredError.message });
+      expect(result).not.toMatchObject({ code: 'error' });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteGame', () => {
     it('should remove the entry and return the refreshed games list without a game field on success', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const config = makeConfig({ outputs: { game_names: [] } });
+      const config = makeConfig({ outputs: { gameNames: [] } });
       const service = new GamesWriteService(config, tfvars, makeAudit());
 
       const result = await service.deleteGame({ name: 'minecraft', expectedVersionId: 'v1' });
@@ -342,7 +367,7 @@ describe('GamesWriteService', () => {
 
     it('should emit a structured audit log entry with the game name even though no game object is returned', async () => {
       const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const service = new GamesWriteService(makeConfig({ bucket: 'my-bucket' }), tfvars, makeAudit());
+      const service = new GamesWriteService(makeConfig(), tfvars, makeAudit());
 
       await service.deleteGame({ name: 'minecraft' });
 
@@ -366,15 +391,29 @@ describe('GamesWriteService', () => {
       expect(audit.record).not.toHaveBeenCalled();
     });
 
-    it('should return a not_found result without recording an audit entry when the target game does not exist in game_servers', async () => {
+    it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
       const tfvars = makeTfvars([]);
-      tfvars.removeGameServer = vi.fn().mockRejectedValue(new HclSurgeonError('Entry "ark" not found in "game_servers".'));
+      tfvars.removeGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
       const service = new GamesWriteService(makeConfig(), tfvars, audit);
 
       const result = await service.deleteGame({ name: 'ark' });
 
       expect(result).toEqual({ ok: false, code: 'not_found', message: expect.stringContaining('not found') });
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when removeGameServer() throws ConfigurationNotConfiguredError', async () => {
+      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const notConfiguredError = new ConfigurationNotConfiguredError();
+      tfvars.removeGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+
+      const result = await service.deleteGame({ name: 'minecraft' });
+
+      expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: notConfiguredError.message });
+      expect(result).not.toMatchObject({ code: 'error' });
       expect(audit.record).not.toHaveBeenCalled();
     });
   });

@@ -3,8 +3,8 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
 
 /**
  * Regression spec for the streaming-IPC contextBridge clone bug: every
- * bridged streaming channel (`logs.stream`, `terraform.init`,
- * `terraform.runs.streamLogs`) used to return a raw `AsyncGenerator` from the
+ * bridged streaming channel (`logs.stream`, `iac.stack.initialize`,
+ * `iac.runs.streamLogs`) used to return a raw `AsyncGenerator` from the
  * preload script. `contextBridge.exposeInMainWorld` structured-clones every
  * value crossing the isolated-world boundary, and an `AsyncGenerator` isn't
  * cloneable — calling any of these three methods from the renderer threw
@@ -32,7 +32,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  * its own, separate crossing to make — the mock handler itself lives in the
  * renderer (registered via `win.evaluate`) and is invoked *from* preload via
  * a reverse proxy, so whatever it returns has to cross renderer→preload
- * before `streamLogs`/`streamTerraformInit`/`streamTerraformRunLogs` can
+ * before `streamLogs`/`streamStackInitialize`/`streamTerraformRunLogs` can
  * `yield*` it — and a raw `AsyncGenerator` doesn't survive that crossing
  * either, for the same underlying reason. That reverse-direction mock
  * limitation is a pre-existing property of the `__test.mock` convenience
@@ -40,7 +40,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  * by the fix), so every mock below is written as a plain-object iterable to
  * stay clear of it. What's actually under test — never bypassed or mocked —
  * is the `HyveonStreamHandle` wrapping `openLogsStream` /
- * `openTerraformInitStream` / `openTerraformRunLogsStream` return from the
+ * `openStackInitializeStream` / `openTerraformRunLogsStream` return from the
  * real preload script, and their trip across the real `contextBridge` back
  * to this renderer. This mirrors `electron-ipc-roundtrip.spec.ts`'s own use
  * of `electronEnv` (which sets `HYVEON_TEST_MODE=1`) while still calling
@@ -90,7 +90,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
     }
   });
 
-  test('should stream chunks from window.hyveon.terraform.init() without a clone error', async () => {
+  test('should stream phase events from window.hyveon.iac.stack.initialize() without a clone error', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -99,15 +99,17 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
-          terraform: {
-            init: (config: unknown) => AsyncIterable<{ stream: string; line: string }> & { cancel: () => void };
+          iac: {
+            stack: {
+              initialize: () => AsyncIterable<{ phase: string; status: string }> & { cancel: () => void };
+            };
           };
         };
 
-        hyveon.__test.mock('terraform.init', () => {
+        hyveon.__test.mock('iac.stack.initialize', () => {
           const queued = [
-            { stream: 'stdout', line: 'Initializing the backend...' },
-            { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
+            { phase: 'engine', status: 'start' },
+            { phase: 'engine', status: 'end' },
           ];
           let index = 0;
           return {
@@ -121,8 +123,8 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         });
 
-        const handle = hyveon.terraform.init({ bucket: 'b', region: 'us-east-1', dynamodbTable: 't' });
-        const chunks: { stream: string; line: string }[] = [];
+        const handle = hyveon.iac.stack.initialize();
+        const chunks: { phase: string; status: string }[] = [];
         for await (const chunk of handle) {
           chunks.push(chunk);
         }
@@ -130,8 +132,8 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       });
 
       expect(result.chunks).toEqual([
-        { stream: 'stdout', line: 'Initializing the backend...' },
-        { stream: 'stdout', line: 'Terraform has been successfully initialized!' },
+        { phase: 'engine', status: 'start' },
+        { phase: 'engine', status: 'end' },
       ]);
       expect(result.hasCancel).toBe(true);
     } finally {
@@ -139,7 +141,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
     }
   });
 
-  test('should stream chunks from window.hyveon.terraform.runs.streamLogs() without a clone error', async () => {
+  test('should stream chunks from window.hyveon.iac.runs.streamLogs() without a clone error', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -148,7 +150,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
       const result = await win.evaluate(async () => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
-          terraform: {
+          iac: {
             runs: {
               streamLogs: (
                 runId: string,
@@ -157,7 +159,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         };
 
-        hyveon.__test.mock('terraform.runs.logs', () => {
+        hyveon.__test.mock('iac.runs.logs', () => {
           const queued = [{ stream: 'stdout', line: 'Refreshing state...' }];
           let index = 0;
           return {
@@ -171,7 +173,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
           };
         });
 
-        const handle = hyveon.terraform.runs.streamLogs('run-123');
+        const handle = hyveon.iac.runs.streamLogs('run-123');
         const chunks: { stream: string; line: string }[] = [];
         for await (const chunk of handle) {
           chunks.push(chunk);
@@ -188,7 +190,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
 
   /**
    * `cancel()`'s full functional behaviour (it aborts the handle's internal
-   * `AbortController`, which drives `streamLogs`/`streamTerraformInit`/
+   * `AbortController`, which drives `streamLogs`/`streamStackInitialize`/
    * `streamTerraformRunLogs`'s own `signal.aborted` checks and
    * `signal.addEventListener('abort', …)` listeners) is exercised
    * deterministically in `preload.test.ts`, entirely within the preload

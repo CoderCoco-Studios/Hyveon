@@ -96,9 +96,17 @@ export class AwsRunRecordStore implements RunRecordStore {
    *   back to {@link resolveDefaultAwsRegion} — never read from
    *   `process.env` directly here, per CLAUDE.md's "no raw `process.env`
    *   in business logic" guideline.
+   *
+   *   May return a `Promise` — see `AwsAuditLogStore`'s identical constructor
+   *   doc comment for why this is safe (every real invocation happens inside
+   *   this class's own already-`async` methods) and why existing sync
+   *   closures are unaffected.
    */
   constructor(
-    private readonly getConfig?: () => { tableName: string; bucket: string; region?: string },
+    private readonly getConfig?: () => (
+      | { tableName: string; bucket: string; region?: string }
+      | Promise<{ tableName: string; bucket: string; region?: string }>
+    ),
   ) {}
 
   /**
@@ -106,8 +114,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * letting an unconfigured table fall through to a malformed DynamoDB
    * request.
    */
-  private getTableName(): string {
-    const tableName = this.getConfig?.()?.tableName;
+  private async getTableName(): Promise<string> {
+    const tableName = (await this.getConfig?.())?.tableName;
     if (!tableName) {
       throw new Error(
         'AwsRunRecordStore: table not configured. Supply a getConfig callback that resolves { tableName }.',
@@ -120,8 +128,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * Resolves the configured bucket name, throwing a clear error instead of
    * letting an unconfigured bucket fall through to a malformed S3 request.
    */
-  private getBucketName(): string {
-    const bucket = this.getConfig?.()?.bucket;
+  private async getBucketName(): Promise<string> {
+    const bucket = (await this.getConfig?.())?.bucket;
     if (!bucket) {
       throw new Error(
         'AwsRunRecordStore: bucket not configured. Supply a getConfig callback that resolves { bucket }.',
@@ -134,8 +142,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * Resolves the region to build clients with, falling back to
    * {@link resolveDefaultAwsRegion} when `getConfig` omits one.
    */
-  private getRegion(): string {
-    return this.getConfig?.()?.region ?? resolveDefaultAwsRegion();
+  private async getRegion(): Promise<string> {
+    return (await this.getConfig?.())?.region ?? resolveDefaultAwsRegion();
   }
 
   /**
@@ -144,8 +152,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * was built with — mirrors `AwsAuditLogStore.getClient`'s
    * rebuild-on-region-change pattern.
    */
-  private getDynamoClient(): DynamoDBDocumentClient {
-    const region = this.getRegion();
+  private async getDynamoClient(): Promise<DynamoDBDocumentClient> {
+    const region = await this.getRegion();
     if (!this.dynamoClient || this.dynamoClientRegion !== region) {
       this.dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
       this.dynamoClientRegion = region;
@@ -159,8 +167,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * built with — same rebuild-on-region-change pattern as
    * {@link getDynamoClient}.
    */
-  private getS3Client(): S3Client {
-    const region = this.getRegion();
+  private async getS3Client(): Promise<S3Client> {
+    const region = await this.getRegion();
     if (!this.s3Client || this.s3ClientRegion !== region) {
       this.s3Client = new S3Client({ region });
       this.s3ClientRegion = region;
@@ -174,9 +182,9 @@ export class AwsRunRecordStore implements RunRecordStore {
    * @param record - The record to persist, including its `sk` (see `buildRunSk`).
    */
   async putRecord(record: RunRecord): Promise<void> {
-    await this.getDynamoClient().send(
+    await (await this.getDynamoClient()).send(
       new PutCommand({
-        TableName: this.getTableName(),
+        TableName: await this.getTableName(),
         Item: {
           pk: PARTITION_KEY,
           sk: record.sk,
@@ -193,6 +201,8 @@ export class AwsRunRecordStore implements RunRecordStore {
           ...(record.rolledBackFrom !== undefined ? { rolledBackFrom: record.rolledBackFrom } : {}),
           ...(record.logInline !== undefined ? { logInline: record.logInline } : {}),
           ...(record.logS3Key !== undefined ? { logS3Key: record.logS3Key } : {}),
+          ...(record.changeSummary !== undefined ? { changeSummary: record.changeSummary } : {}),
+          ...(record.engineVersion !== undefined ? { engineVersion: record.engineVersion } : {}),
         },
       }),
     );
@@ -220,9 +230,9 @@ export class AwsRunRecordStore implements RunRecordStore {
   async getRecordByRunId(runId: string): Promise<RunRecord | undefined> {
     let exclusiveStartKey: Record<string, unknown> | undefined;
     do {
-      const result = await this.getDynamoClient().send(
+      const result = await (await this.getDynamoClient()).send(
         new QueryCommand({
-          TableName: this.getTableName(),
+          TableName: await this.getTableName(),
           KeyConditionExpression: 'pk = :pk',
           FilterExpression: 'runId = :runId',
           ExpressionAttributeValues: { ':pk': PARTITION_KEY, ':runId': runId },
@@ -278,9 +288,9 @@ export class AwsRunRecordStore implements RunRecordStore {
   async listRuns(opts: { limit: number; before?: string; status?: RunStatus }): Promise<RunPageResult> {
     const { limit, before, status } = opts;
     const resp = status
-      ? await this.getDynamoClient().send(
+      ? await (await this.getDynamoClient()).send(
           new QueryCommand({
-            TableName: this.getTableName(),
+            TableName: await this.getTableName(),
             IndexName: STATUS_INDEX_NAME,
             KeyConditionExpression: 'status = :status',
             ExpressionAttributeValues: { ':status': status },
@@ -291,9 +301,9 @@ export class AwsRunRecordStore implements RunRecordStore {
             Limit: limit,
           }),
         )
-      : await this.getDynamoClient().send(
+      : await (await this.getDynamoClient()).send(
           new QueryCommand({
-            TableName: this.getTableName(),
+            TableName: await this.getTableName(),
             KeyConditionExpression: before ? 'pk = :pk AND sk < :before' : 'pk = :pk',
             ExpressionAttributeValues: before
               ? { ':pk': PARTITION_KEY, ':before': before }
@@ -347,6 +357,12 @@ export class AwsRunRecordStore implements RunRecordStore {
     if (item['logS3Key'] !== undefined) {
       record.logS3Key = item['logS3Key'] as string;
     }
+    if (item['changeSummary'] !== undefined) {
+      record.changeSummary = item['changeSummary'] as RunRecord['changeSummary'];
+    }
+    if (item['engineVersion'] !== undefined) {
+      record.engineVersion = item['engineVersion'] as string;
+    }
     return record;
   }
 
@@ -360,8 +376,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    */
   async putLog(runId: string, body: Uint8Array): Promise<string> {
     const key = buildLogKey(runId);
-    await this.getS3Client().send(
-      new PutObjectCommand({ Bucket: this.getBucketName(), Key: key, Body: body }),
+    await (await this.getS3Client()).send(
+      new PutObjectCommand({ Bucket: await this.getBucketName(), Key: key, Body: body }),
     );
     return key;
   }
@@ -379,8 +395,8 @@ export class AwsRunRecordStore implements RunRecordStore {
     logKey: string,
     expiresInSeconds: number = DEFAULT_PRESIGNED_URL_EXPIRY_SECONDS,
   ): Promise<string> {
-    const command = new GetObjectCommand({ Bucket: this.getBucketName(), Key: logKey });
-    return getSignedUrl(this.getS3Client(), command, { expiresIn: expiresInSeconds });
+    const command = new GetObjectCommand({ Bucket: await this.getBucketName(), Key: logKey });
+    return getSignedUrl(await this.getS3Client(), command, { expiresIn: expiresInSeconds });
   }
 
   /**
@@ -398,9 +414,9 @@ export class AwsRunRecordStore implements RunRecordStore {
    */
   async acquireRunLock(lock: RunLock): Promise<void> {
     try {
-      await this.getDynamoClient().send(
+      await (await this.getDynamoClient()).send(
         new PutCommand({
-          TableName: this.getTableName(),
+          TableName: await this.getTableName(),
           Item: {
             pk: LOCK_PK,
             sk: LOCK_SK,
@@ -431,9 +447,9 @@ export class AwsRunRecordStore implements RunRecordStore {
    *   holds the lock.
    */
   async getRunLock(): Promise<RunLock | undefined> {
-    const result = await this.getDynamoClient().send(
+    const result = await (await this.getDynamoClient()).send(
       new GetCommand({
-        TableName: this.getTableName(),
+        TableName: await this.getTableName(),
         Key: { pk: LOCK_PK, sk: LOCK_SK },
       }),
     );
@@ -461,9 +477,9 @@ export class AwsRunRecordStore implements RunRecordStore {
    */
   async releaseRunLock(runId: string): Promise<void> {
     try {
-      await this.getDynamoClient().send(
+      await (await this.getDynamoClient()).send(
         new DeleteCommand({
-          TableName: this.getTableName(),
+          TableName: await this.getTableName(),
           Key: { pk: LOCK_PK, sk: LOCK_SK },
           ConditionExpression: 'runId = :runId',
           ExpressionAttributeValues: { ':runId': runId },

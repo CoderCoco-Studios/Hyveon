@@ -5,9 +5,9 @@ import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
 import { DiscordPage } from './pages/discord.page.js';
 import { LogsPage } from './pages/logs.page.js';
-import { TerraformPage } from './pages/terraform.page.js';
-import { TerraformHistoryPage } from './pages/terraform-history.page.js';
-import { TerraformRunDetailPage } from './pages/terraform-run-detail.page.js';
+import { IacPage } from './pages/iac.page.js';
+import { IacHistoryPage } from './pages/iac-history.page.js';
+import { IacRunDetailPage } from './pages/iac-run-detail.page.js';
 import { SettingsPage } from './pages/settings.page.js';
 import { GamesPage } from './pages/games.page.js';
 import { GameDetailPage } from './pages/game-detail.page.js';
@@ -64,7 +64,7 @@ function useWizardCompleted(): boolean | null {
  * Gates the whole app behind the first-run wizard: while
  * `wizardCompleted` is `false`, renders only {@link FirstRunWizard} (no
  * routing, no polling providers — there's nothing to poll before AWS is
- * bootstrapped). The wizard's terraform-init step calls `onComplete` once
+ * bootstrapped). The wizard's stack-init step calls `onComplete` once
  * `wizard.complete` succeeds, which flips this component straight to the
  * routed dashboard shell below without waiting on another `wizard.state.get`
  * round-trip. Once complete, renders the routed dashboard shell:
@@ -72,9 +72,9 @@ function useWizardCompleted(): boolean | null {
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
  *   - `/logs` → Logs placeholder
- *   - `/terraform` → Terraform plan/apply
- *   - `/terraform/history` → Terraform run history
- *   - `/terraform/history/:runId` → Read-only run detail
+ *   - `/iac` → Infrastructure plan/apply
+ *   - `/iac/history` → Infrastructure run history
+ *   - `/iac/history/:runId` → Read-only run detail
  *   - `/settings` → Watchdog + general settings
  *   - `/games` → Games list (read-only settings)
  *   - `/games/:name` → Per-game settings detail (read-only)
@@ -102,9 +102,9 @@ export default function App() {
               <Route path="/costs" element={<CostsPage />} />
               <Route path="/discord" element={<DiscordPage />} />
               <Route path="/logs" element={<LogsPage />} />
-              <Route path="/terraform" element={<TerraformPage />} />
-              <Route path="/terraform/history" element={<TerraformHistoryPage />} />
-              <Route path="/terraform/history/:runId" element={<TerraformRunDetailPage />} />
+              <Route path="/iac" element={<IacPage />} />
+              <Route path="/iac/history" element={<IacHistoryPage />} />
+              <Route path="/iac/history/:runId" element={<IacRunDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/games" element={<GamesPage />} />
               <Route path="/games/:name" element={<GameDetailPage />} />

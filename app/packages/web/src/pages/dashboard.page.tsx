@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Search, Server, ExternalLink } from 'lucide-react';
 import { useGameStatus } from '../polling/game-status-provider.component.js';
 import { useFileManager } from '../hooks/use-file-manager.hook.js';
@@ -41,7 +42,7 @@ export function DashboardPage() {
   return (
     <>
       <div className="max-w-7xl mx-auto">
-        {/* Pending Terraform changes banner (issue #101) */}
+        {/* Pending infrastructure changes banner */}
         <PendingChangesBanner />
 
         {/* KPI strip */}
@@ -118,11 +119,15 @@ function NoGamesCard() {
           <CardTitle>No games deployed</CardTitle>
         </div>
         <CardDescription>
-          Game servers are provisioned via Terraform. Each entry in{' '}
-          <code className="font-mono text-xs bg-[var(--color-surface-2)] px-1 py-0.5 rounded">
-            terraform.tfvars
-          </code>{' '}
-          creates an ECS task definition, EFS volume, and CloudWatch log group automatically.
+          Declare a game on the{' '}
+          <Link to="/games" className="underline underline-offset-2">
+            Games
+          </Link>{' '}
+          page, then run a plan and apply from{' '}
+          <Link to="/iac" className="underline underline-offset-2">
+            Infrastructure
+          </Link>{' '}
+          to create its ECS task definition, EFS volume, and CloudWatch log group.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-4">
@@ -135,15 +140,12 @@ function NoGamesCard() {
           Open setup guide
           <ExternalLink className="size-3.5" />
         </a>
-        <a
-          href="https://github.com/CoderCoco/Hyveon/blob/main/terraform/terraform.tfvars.example"
-          target="_blank"
-          rel="noreferrer"
+        <Link
+          to="/games"
           className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
         >
-          Edit <code className="font-mono text-xs">terraform.tfvars</code>
-          <ExternalLink className="size-3.5" />
-        </a>
+          Add a game
+        </Link>
       </CardContent>
     </Card>
   );

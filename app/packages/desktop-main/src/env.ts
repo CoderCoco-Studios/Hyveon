@@ -20,3 +20,26 @@ export function isTestMode(): boolean {
 export function electronRendererUrl(): string | undefined {
   return process.env.ELECTRON_RENDERER_URL;
 }
+
+/**
+ * SPIKE SCAFFOLDING — a leftover early prototype for validating the Pulumi
+ * Automation API, now superseded by `PulumiEngineService`.
+ *
+ * Returns `true` when `HYVEON_PULUMI_SPIKE=1` is set, which makes the Electron
+ * entry-point dynamically import and run `spike/pulumiSpike.ts`. The gate is
+ * deliberately a cheap env read in this module rather than a static import of
+ * the spike itself, so that neither the ~60 MB `@pulumi/pulumi` module graph
+ * nor `@grpc/grpc-js` is loaded unless the spike is explicitly asked for.
+ *
+ * This flag alone is not the whole condition: the call site also requires
+ * `!isTestMode()`, because Playwright launches inherit the ambient environment
+ * and an exported `HYVEON_PULUMI_SPIKE=1` would otherwise turn every e2e spec
+ * into a 344 MB engine download.
+ *
+ * Delete this function, `spike/pulumiSpike.ts`, and the call site in
+ * `electron-entry.ts` — `PulumiEngineService` now covers what this spike was
+ * validating.
+ */
+export function isPulumiSpikeEnabled(): boolean {
+  return process.env.HYVEON_PULUMI_SPIKE === '1';
+}

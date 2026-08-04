@@ -52,11 +52,11 @@ export class FileManagerService {
    * resolve the public URL if it's running.
    */
   async getStatus(game: string): Promise<FileMgrStatus> {
-    const outputs = this.config.getTfOutputs();
+    const outputs = await this.config.getStackOutputs();
     if (!outputs) return { game, state: 'not_deployed' };
 
     const tasks = await this.ecs.listTasksByStartedBy(
-      outputs.ecs_cluster_name,
+      outputs.ecsClusterName,
       this.startedByKey(game),
     );
 
@@ -81,24 +81,24 @@ export class FileManagerService {
    * Refuses to start a second task if one is already running.
    */
   async start(game: string): Promise<FileMgrResult> {
-    const outputs = this.config.getTfOutputs();
+    const outputs = await this.config.getStackOutputs();
     if (!outputs) {
-      return { success: false, message: "Terraform not applied. Run 'terraform apply' first." };
+      return { success: false, message: "Infrastructure not deployed. Deploy first." };
     }
 
-    const apId = outputs.efs_access_points[game];
+    const apId = outputs.efsAccessPoints[game];
     if (!apId) {
-      logger.error('No EFS access point for game', { game, available: outputs.efs_access_points });
+      logger.error('No EFS access point for game', { game, available: outputs.efsAccessPoints });
       return { success: false, message: `No EFS access point found for '${game}'.` };
     }
 
-    const filemgrSg = outputs.file_manager_security_group_id;
+    const filemgrSg = outputs.fileManagerSecurityGroupId;
     if (!filemgrSg) {
-      return { success: false, message: 'file_manager_security_group_id not in Terraform outputs. Run terraform apply.' };
+      return { success: false, message: 'fileManagerSecurityGroupId not in the deployed stack outputs. Deploy first.' };
     }
 
     // Guard: don't start if already running
-    const existing = await this.ecs.listTasksByStartedBy(outputs.ecs_cluster_name, this.startedByKey(game));
+    const existing = await this.ecs.listTasksByStartedBy(outputs.ecsClusterName, this.startedByKey(game));
     if (existing.length) {
       return { success: false, message: `File manager for '${game}' is already running.` };
     }
@@ -130,7 +130,7 @@ export class FileManagerService {
         {
           name: 'game-data',
           efsVolumeConfiguration: {
-            fileSystemId: outputs.efs_file_system_id,
+            fileSystemId: outputs.efsFileSystemId,
             transitEncryption: 'ENABLED',
             authorizationConfig: { accessPointId: apId, iam: 'DISABLED' },
           },
@@ -170,11 +170,11 @@ export class FileManagerService {
       return { success: false, message: `Failed to register FileBrowser task definition for '${game}'. Check server logs.` };
     }
 
-    const subnets = outputs.subnet_ids.split(',').map((s) => s.trim()).filter(Boolean);
+    const subnets = outputs.subnetIds;
     logger.info('Launching FileBrowser task', { game, subnets, sg: filemgrSg });
 
     const result = await this.ecs.runTask({
-      cluster: outputs.ecs_cluster_name,
+      cluster: outputs.ecsClusterName,
       taskDefinition: family,
       count: 1,
       launchType: 'FARGATE',
@@ -204,11 +204,11 @@ export class FileManagerService {
    * registered across restarts.
    */
   async stop(game: string): Promise<FileMgrResult> {
-    const outputs = this.config.getTfOutputs();
-    if (!outputs) return { success: false, message: 'Terraform not applied.' };
+    const outputs = await this.config.getStackOutputs();
+    if (!outputs) return { success: false, message: 'Infrastructure not deployed.' };
 
     const tasks = await this.ecs.listTasksByStartedBy(
-      outputs.ecs_cluster_name,
+      outputs.ecsClusterName,
       this.startedByKey(game),
     );
 
@@ -219,7 +219,7 @@ export class FileManagerService {
     const task = tasks[0] as Task;
     logger.info('Stopping file manager', { game, taskArn: task.taskArn });
     try {
-      await this.ecs.stopTask(outputs.ecs_cluster_name, task.taskArn!, 'Stopped via management app');
+      await this.ecs.stopTask(outputs.ecsClusterName, task.taskArn!, 'Stopped via management app');
       return { success: true, message: `File manager for '${game}' is stopping.` };
     } catch (err) {
       logger.error('Failed to stop file manager', { err, game });

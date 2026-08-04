@@ -7,9 +7,9 @@
  */
 import * as os from 'node:os';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuditLogStore, AuditPageResult, GameServer } from '@hyveon/shared';
+import type { AuditLogStore, AuditPageResult, GameServer, StackOutputs } from '@hyveon/shared';
 import { AuditService } from './AuditService.js';
-import { ConfigService, type TfOutputs } from './ConfigService.js';
+import { ConfigService } from './ConfigService.js';
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os');
@@ -19,24 +19,27 @@ vi.mock('node:os', async () => {
   };
 });
 
-/** Minimal `TfOutputs` stub exposing just `audit_table_name`. */
-const TF: TfOutputs = {
-  aws_region: 'us-east-1',
-  ecs_cluster_name: '',
-  ecs_cluster_arn: '',
-  subnet_ids: '',
-  security_group_id: '',
-  file_manager_security_group_id: '',
-  efs_file_system_id: '',
-  efs_access_points: {},
-  domain_name: '',
-  game_names: [],
-  discord_table_name: '',
-  audit_table_name: 'test-audit',
-  discord_bot_token_secret_arn: '',
-  discord_public_key_secret_arn: '',
-  interactions_invoke_url: null,
-} as TfOutputs;
+/** Minimal `StackOutputs` stub exposing just `auditTableName`. */
+const TF: StackOutputs = {
+  awsRegion: 'us-east-1',
+  ecsClusterName: '',
+  ecsClusterArn: '',
+  subnetIds: [],
+  securityGroupId: '',
+  fileManagerSecurityGroupId: '',
+  efsFileSystemId: '',
+  efsAccessPoints: {},
+  domainName: '',
+  gameNames: [],
+  discordTableName: '',
+  auditTableName: 'test-audit',
+  runsTableName: '',
+  discordBotTokenSecretArn: '',
+  discordPublicKeySecretArn: '',
+  interactionsInvokeUrl: null,
+  discordInteractionsUrl: null,
+  appliedGameServers: null,
+};
 
 /** Minimal valid `GameServer` fixture used to populate `before`/`after`. */
 const sampleGameServer: GameServer = {
@@ -57,8 +60,8 @@ function makeStore(): AuditLogStore {
 }
 
 /** Builds an `AuditService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
-function makeService(outputs: TfOutputs | null = TF, store: AuditLogStore = makeStore()): AuditService {
-  const config = { getTfOutputs: () => outputs } as Partial<ConfigService> as ConfigService;
+function makeService(outputs: StackOutputs | null = TF, store: AuditLogStore = makeStore()): AuditService {
+  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new AuditService(config, store);
 }
 

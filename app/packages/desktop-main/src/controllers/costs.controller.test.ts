@@ -1,9 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { CostsController } from './costs.controller.js';
-import type { ConfigService, TfOutputs } from '../services/ConfigService.js';
+import type { ConfigService } from '../services/ConfigService.js';
 import type { CostService } from '../services/CostService.js';
 import type { EcsService } from '../services/EcsService.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -18,10 +19,10 @@ const MOCK_ESTIMATE = {
   costPerMonth4hpd: 60,
 };
 
-/** Build a ConfigService stub with a minimal set of Terraform outputs. */
-function makeConfig(outputs: Partial<TfOutputs> | null = { game_names: ['minecraft'] }): ConfigService {
+/** Build a ConfigService stub with a minimal set of stack outputs. */
+function makeConfig(outputs: Partial<StackOutputs> | null = { gameNames: ['minecraft'] }): ConfigService {
   return {
-    getTfOutputs: vi.fn().mockReturnValue(outputs),
+    getStackOutputs: vi.fn().mockResolvedValue(outputs),
   } as unknown as ConfigService;
 }
 
@@ -87,7 +88,7 @@ describe('CostsController', () => {
     });
 
     it('should sum costPerHour across all games for totalPerHourIfAllOn', async () => {
-      const config = makeConfig({ game_names: ['minecraft', 'palworld'] });
+      const config = makeConfig({ gameNames: ['minecraft', 'palworld'] });
       const costs = makeCosts();
       vi.mocked(costs.estimateForSpec).mockReturnValue({ ...MOCK_ESTIMATE, costPerHour: 0.25 });
       const result = await new CostsController(config, costs, makeEcs()).estimate();
@@ -96,7 +97,7 @@ describe('CostsController', () => {
     });
 
     it('should include an estimate entry for each game', async () => {
-      const config = makeConfig({ game_names: ['minecraft', 'palworld'] });
+      const config = makeConfig({ gameNames: ['minecraft', 'palworld'] });
       const result = await new CostsController(config, makeCosts(), makeEcs()).estimate();
       expect(Object.keys(result.games)).toEqual(['minecraft', 'palworld']);
     });

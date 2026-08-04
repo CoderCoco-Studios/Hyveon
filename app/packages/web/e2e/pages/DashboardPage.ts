@@ -78,9 +78,9 @@ export class DashboardPage {
     return this.page.getByRole('link', { name: /open setup guide/i });
   }
 
-  /** "Edit terraform.tfvars" CTA link inside the no-games card. */
-  tfvarsLink(): Locator {
-    return this.page.getByRole('link', { name: /terraform\.tfvars/i });
+  /** "Add a game" CTA link inside the no-games card, routing to `/games`. */
+  addGameLink(): Locator {
+    return this.page.getByRole('link', { name: /add a game/i });
   }
 
   /** Empty-state when the search input filters out every card. */
@@ -126,7 +126,7 @@ export class DashboardPage {
 
   /** The `PendingChangesBanner` container (`role="status"`), when it's visible. */
   pendingChangesBanner(): Locator {
-    return this.page.getByRole('status').filter({ hasText: 'tfvars edited' });
+    return this.page.getByRole('status').filter({ hasText: 'Configuration changed' });
   }
 
   /** "View pending" link inside the banner, which routes to `/games`. */

@@ -134,15 +134,49 @@ describe('registerIpcMainBridges', () => {
     expect(mockIpcMainHandle).toHaveBeenCalledWith('logs.get', expect.any(Function));
   });
 
-  it('should skip "terraform.init" entirely, leaving it to bridge itself', async () => {
-    expect(SELF_BRIDGED_PATTERNS.has('terraform.init')).toBe(true);
+  it('should skip "iac.plan" entirely, leaving it to bridge itself', async () => {
+    expect(SELF_BRIDGED_PATTERNS.has('iac.plan')).toBe(true);
 
-    const { transport } = makeTransport(['terraform.init', 'games.list']);
+    const { transport } = makeTransport(['iac.plan', 'games.list']);
 
     await registerIpcMainBridges(transport);
 
-    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('terraform.init');
-    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('terraform.init', expect.any(Function));
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.plan');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.plan', expect.any(Function));
+    // The sibling pattern on the same map is still bridged normally.
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
+  it('should skip "iac.rollback.confirm" entirely, leaving it to bridge itself', async () => {
+    // "iac.rollback.confirm" must stay in SELF_BRIDGED_PATTERNS: IacController.confirmRollback
+    // takes an undecorated `ctx` second parameter exactly like iac.plan/apply/destroy — routing
+    // it through the generic bridge would silently drop `ctx`, crashing every real invocation.
+    // See ipc-main-bridge.ts's own doc comment for the full root cause.
+    expect(SELF_BRIDGED_PATTERNS.has('iac.rollback.confirm')).toBe(true);
+
+    const { transport } = makeTransport(['iac.rollback.confirm', 'games.list']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.rollback.confirm');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.rollback.confirm', expect.any(Function));
+    // The sibling pattern on the same map is still bridged normally.
+    expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
+    expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));
+  });
+
+  it('should skip "iac.stack.initialize" entirely, leaving it to bridge itself', async () => {
+    // IacController.initializeStack streams `onPhase` progress over its own
+    // side channels, exactly like `iac.plan`, so it must self-bridge too.
+    expect(SELF_BRIDGED_PATTERNS.has('iac.stack.initialize')).toBe(true);
+
+    const { transport } = makeTransport(['iac.stack.initialize', 'games.list']);
+
+    await registerIpcMainBridges(transport);
+
+    expect(mockIpcMainRemoveHandler).not.toHaveBeenCalledWith('iac.stack.initialize');
+    expect(mockIpcMainHandle).not.toHaveBeenCalledWith('iac.stack.initialize', expect.any(Function));
     // The sibling pattern on the same map is still bridged normally.
     expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('games.list');
     expect(mockIpcMainHandle).toHaveBeenCalledWith('games.list', expect.any(Function));

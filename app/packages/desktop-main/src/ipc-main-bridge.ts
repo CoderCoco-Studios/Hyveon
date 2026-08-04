@@ -10,34 +10,45 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   the handler needs to push follow-up chunk/end messages over side channels
  *   derived from a `streamId` it mints itself — see
  *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
- * - `terraform.init`: bridged manually by its own controller because the
- *   handler streams progress events over a side channel for the duration of
- *   a long-running `terraform init` invocation, the same self-bridging
- *   pattern `logs.stream` uses.
- * - `terraform.plan`: bridged manually by the same controller for the same
- *   reason as `terraform.init` — it streams `terraform plan` progress over a
- *   side channel for the duration of a long-running run.
- * - `terraform.apply`: bridged manually by the same controller for the same
- *   reason as `terraform.plan` — it streams `terraform apply` progress over a
+ * - `iac.plan`: bridged manually by its controller because it streams
+ *   `pulumi preview` progress over a side channel for the duration of a
+ *   long-running run, the same self-bridging pattern `logs.stream` uses.
+ * - `iac.apply`: bridged manually by the same controller for the same
+ *   reason as `iac.plan` — it streams `terraform apply` progress over a
  *   side channel for the duration of a long-running run (see #109).
- * - `terraform.destroy`: bridged manually by the same controller for the
- *   same reason as `terraform.apply` — it streams `terraform destroy`
+ * - `iac.destroy`: bridged manually by the same controller for the
+ *   same reason as `iac.apply` — it streams `terraform destroy`
  *   progress over a side channel for the duration of a long-running run (see
- *   #307). `terraform.destroy.mintToken` is *not* in this set — it resolves
+ *   #307). `iac.destroy.mintToken` is *not* in this set — it resolves
  *   a single value, so the generic bridge handles it.
- * - `terraform.runs.logs`: bridged manually by `TerraformRunsController`
+ * - `iac.rollback.confirm`: bridged manually by the same controller for
+ *   the same reason as `iac.plan`/`iac.apply`/`iac.destroy`
+ *   — `PulumiService.confirmRollback` is an `AsyncGenerator` that streams a
+ *   real plan run internally, and `IacController.confirmRollback` forwards
+ *   each chunk over its own side channel for the duration of that run
+ *   before resolving. This channel must stay in this set: NestJS's
+ *   `RpcContextCreator` never sizes its `initialArgs` array for the
+ *   undecorated `ctx` parameter the generic bridge would pass, so leaving
+ *   it off silently drops `ctx` and crashes every invocation with a
+ *   "Cannot read properties of undefined (reading 'evt')" TypeError.
+ * - `iac.runs.logs`: bridged manually by `IacRunsController`
  *   because the handler streams a run's live/replayed output over a side
  *   channel derived from a `streamId` it mints itself, the same
- *   self-bridging pattern `terraform.init`/`terraform.plan` use — see
- *   `app/packages/desktop-main/src/controllers/terraform-runs.controller.ts`.
+ *   self-bridging pattern `iac.plan`/`logs.stream` use — see
+ *   `app/packages/desktop-main/src/controllers/iac-runs.controller.ts`.
+ * - `iac.stack.initialize`: bridged manually by `IacController`, replacing
+ *   the deleted `iac.init` channel, for the same reason as `iac.plan` — it
+ *   streams `PulumiService.initializeStack`'s `onPhase` progress over a
+ *   side channel for the duration of a long-running run.
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
-  'terraform.init',
-  'terraform.plan',
-  'terraform.apply',
-  'terraform.destroy',
-  'terraform.runs.logs',
+  'iac.plan',
+  'iac.apply',
+  'iac.destroy',
+  'iac.rollback.confirm',
+  'iac.runs.logs',
+  'iac.stack.initialize',
 ]);
 
 /**

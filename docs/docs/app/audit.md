@@ -9,34 +9,34 @@ The Audit screen (route `/audit`) is the record of who changed what.
 
 > Who changed which game's configuration, and what changed.
 
-![The Audit log table listing timestamped entries with actor, coloured action badges, game name and tfvars version, with one row expanded to show side-by-side before and after JSON](/img/app/audit.png)
+![The Audit log table listing timestamped entries with actor, coloured action badges, game name and config version, with one row expanded to show side-by-side before and after JSON](/img/app/audit.png)
 
 ## What generates entries
 
 Two kinds of thing are recorded: **game configuration writes**, and
-**Terraform workspace operations**.
+**Infrastructure workspace operations**.
 
 | Action | Written when | Game | Before/after |
 |---|---|---|---|
 | `add` | A game is created from the [Add game wizard](/app/games#adding-a-game) | The game | `null` → the new config |
 | `edit` | A game is saved from the edit form | The game | Old config → new config |
 | `remove` | A game is removed | The game | Old config → `null` |
-| `plan` | A `terraform plan` run actually starts | *(blank)* | Both `null` |
+| `plan` | A Pulumi preview run actually starts | *(blank)* | Both `null` |
 | `approve` | A plan is approved | *(blank)* | Both `null` |
-| `apply` | A `terraform apply` run starts | *(blank)* | Both `null` |
-| `destroy` | A `terraform destroy` run starts | *(blank)* | Both `null` |
-| `rollback` | A tfvars rollback is confirmed | *(blank)* | Both `null` |
+| `apply` | A Pulumi update (`pulumi up`) run starts | *(blank)* | Both `null` |
+| `destroy` | A Pulumi destroy run starts | *(blank)* | Both `null` |
+| `rollback` | A configuration rollback is confirmed | *(blank)* | Both `null` |
 
-Note that the Terraform entries are written when a run **starts**, not when it
+Note that the Infrastructure entries are written when a run **starts**, not when it
 succeeds. An `apply` entry means an apply was launched; check
-[run history](/app/terraform#run-history) for whether it worked.
+[run history](/app/iac#run-history) for whether it worked.
 
-The four Terraform actions and `rollback` have no associated game, so their
+The four Infrastructure actions and `rollback` have no associated game, so their
 Game cell is empty and both diff panes read `null`.
 
 **What is not recorded:** starting and stopping game servers, Discord
 configuration changes, watchdog settings, and anything done outside the app
-(editing `terraform.tfvars` by hand, running `terraform` from a terminal, or
+(editing `deployment-config.json` by hand, running the Pulumi CLI directly, or
 changing things in the AWS console).
 
 ## The table
@@ -48,9 +48,9 @@ The card is titled **Recent changes**.
 | *(unlabelled)* | The expand/collapse chevron |
 | **Timestamp** | Local date and time |
 | **Actor** | Who made the change |
-| **Action** | A colour-coded badge. The three game-configuration actions read as `add` green, `edit` amber, `remove` red. The five Terraform actions are coloured by how much they change: `plan` and `approve` are both cyan (neither touches infrastructure), `apply` is amber alongside `edit` (it mutates), `destroy` is red alongside `remove` (both tear down real resources), and `rollback` is muted grey |
+| **Action** | A colour-coded badge. The three game-configuration actions read as `add` green, `edit` amber, `remove` red. The five Infrastructure actions are coloured by how much they change: `plan` and `approve` are both cyan (neither touches infrastructure), `apply` is amber alongside `edit` (it mutates), `destroy` is red alongside `remove` (both tear down real resources), and `rollback` is muted grey |
 | **Game** | The affected game, or blank for workspace-wide actions |
-| **Version** | The `terraform.tfvars` version this write produced, or `—` |
+| **Version** | The `deployment-config.json` S3 object version this write produced, or `—` |
 
 Newest entries first.
 
@@ -63,14 +63,12 @@ will not distinguish people.
 
 ### About the Version column
 
-This is the S3 object version ID of `terraform.tfvars` produced by the write.
-It ties an audit entry to an exact file state, and it is what the
-[rollback](/app/terraform#rollback) feature resolves against.
+This is the S3 object version ID of `deployment-config.json` produced by the
+write. It ties an audit entry to an exact file state, and it is what the
+[rollback](/app/iac#rollback) feature resolves against.
 
-It requires the S3 tfvars backend with versioning enabled — see
-[S3 tfvars storage](/guides/s3-tfvars). **If you keep `terraform.tfvars` on the
-local filesystem, this column is em-dashes for every row**, because there is
-no version to record.
+It requires the S3 configuration bucket to have versioning enabled, which
+`BootstrapService` turns on by default when it provisions the bucket.
 
 `approve` entries never carry a version. `plan` and `apply` carry one only if
 the run recorded it. `rollback` always carries the version it restored.

@@ -33,11 +33,49 @@ function makeProps(overrides: Partial<CredentialsStepProps> = {}): CredentialsSt
     pasteSaving: false,
     pasteError: null,
     pastedProfileName: null,
+    onSwitchSource: vi.fn(),
     ...overrides,
   };
 }
 
 describe('CredentialsStep', () => {
+  describe('satisfied by guided provisioning', () => {
+    it('should render the satisfied summary instead of the normal form when satisfiedByGuidedProvisioning is set', () => {
+      render(
+        <CredentialsStep
+          {...makeProps({ satisfiedByGuidedProvisioning: { principal: 'AWS account (guided setup)', region: 'us-east-1' } })}
+        />,
+      );
+
+      expect(screen.getByText(/AWS account \(guided setup\)/)).toBeInTheDocument();
+      expect(screen.getByText(/us-east-1/)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /paste keys instead/i })).not.toBeInTheDocument();
+    });
+
+    it('should call onSwitchSource when the escape hatch is clicked, so the satisfied summary is never a dead end', async () => {
+      const onSwitchSource = vi.fn();
+      render(
+        <CredentialsStep
+          {...makeProps({
+            satisfiedByGuidedProvisioning: { principal: 'AWS account (guided setup)', region: 'us-east-1' },
+            onSwitchSource,
+          })}
+        />,
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: /switch to a different source/i }));
+
+      expect(onSwitchSource).toHaveBeenCalledTimes(1);
+    });
+
+    it('should render the normal profile-picker form when satisfiedByGuidedProvisioning is unset', () => {
+      render(<CredentialsStep {...makeProps()} />);
+
+      expect(screen.getByLabelText('Profile')).toBeInTheDocument();
+      expect(screen.queryByText(/switch to a different source/i)).not.toBeInTheDocument();
+    });
+  });
   describe('profile mode', () => {
     it('should populate the dropdown with the discovered profiles', () => {
       render(<CredentialsStep {...makeProps()} />);

@@ -2,12 +2,17 @@
 
 ### Requirement: CloudFormation template generated from the shared action set
 
-The app SHALL ship a CloudFormation template that provisions the deploy principal: an `AWS::IAM::ManagedPolicy`, an `AWS::IAM::User` whose name comes from a stack parameter defaulting to `hyveon`, and an `AWS::IAM::AccessKey` carrying `DeletionPolicy: Retain`. The managed policy document MUST be generated from `HYVEON_DEPLOY_ALL_ACTIONS` in `@hyveon/shared`, preserving the `HyveonDeploy`, `HyveonIAM`, and `HyveonTfvarsBucket` statement structure, so the provisioned permissions cannot drift from the set `IamCheckService` verifies. The generated document MUST reproduce that action set exactly, neither narrowing nor widening it — tightening the policy is a separate change. The template SHALL expose the user name, policy ARN, access key ID, and secret access key as stack outputs.
+The app SHALL ship a CloudFormation template that provisions the deploy principal: an `AWS::IAM::ManagedPolicy`, an `AWS::IAM::User` whose name comes from a stack parameter defaulting to `hyveon`, and an `AWS::IAM::AccessKey` carrying `DeletionPolicy: Retain`. The managed policy document MUST be generated from `HYVEON_DEPLOY_ALL_ACTIONS` in `@hyveon/shared`, reproducing the real current four-statement structure documented in `docs/docs/setup.md` — `HyveonDeploy`, `HyveonIAM`, `HyveonConfigurationBucket`, and `HyveonStateBucket` — so the provisioned permissions cannot drift from the set `IamCheckService` verifies. `HyveonStateBucket`'s action set MUST be exactly the actions Pulumi's self-managed S3 state backend needs (`s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`, scoped to the state bucket and its objects) and MUST NOT include any DynamoDB action — Pulumi's DIY S3 backend has no lock table, unlike the project's earlier Terraform backend. The generated document MUST reproduce the action set exactly, neither narrowing nor widening it — tightening the policy is a separate change. The template MUST also generate a separate, narrower managed policy (`HyveonSelfRotate`) scoped to the created user's own ARN, granting only `iam:CreateAccessKey`, `iam:DeleteAccessKey`, and `iam:ListAccessKeys` — the permissions the mandatory rotation below requires — distinct from `HYVEON_DEPLOY_ALL_ACTIONS`, which MUST NOT be widened to include them. The template SHALL expose the user name, policy ARN, access key ID, and secret access key as stack outputs.
 
 #### Scenario: Generated policy matches the shared source of truth
 
 - **WHEN** the template's managed policy document is generated
-- **THEN** its action list is exactly `HYVEON_DEPLOY_ALL_ACTIONS`, with no action present in one and absent from the other
+- **THEN** its four statements match `docs/docs/setup.md`'s policy JSON exactly, Sid-for-Sid and action-for-action, with no action present in one and absent from the other
+
+#### Scenario: State-bucket statement has no DynamoDB action
+
+- **WHEN** the template's managed policy document is generated
+- **THEN** the `HyveonStateBucket` statement's action list contains only S3 actions, and no `dynamodb:*` action or lock-table-specific action appears anywhere in the generated document
 
 #### Scenario: Access key survives stack deletion
 
@@ -21,12 +26,12 @@ The app SHALL ship a CloudFormation template that provisions the deploy principa
 
 ### Requirement: Console handoff for stack creation
 
-The guided provisioning step SHALL write the rendered template to a known path under the app's `userData` directory and open the AWS CloudFormation "Create stack" console page in the operator's default browser, scoped to the region selected earlier in the wizard. The step MUST display the written file path with a copy-path action and a reveal-in-file-manager action, and instruct the operator to choose "Upload a template file". The console URL SHALL be constructed in exactly one place so its shape can be pinned by a unit test. The app MUST NOT require or request the operator's root credentials at any point; the console session is the operator's own and no credential from it reaches the app.
+The guided provisioning step SHALL write the rendered template to a known path under the app's `userData` directory and open the AWS CloudFormation "Create stack" console page in the operator's default browser, scoped to the region selected earlier in the wizard. The step MUST display the written file path with a copy-path action, and instruct the operator to choose "Upload a template file". A reveal-in-file-manager action is NOT required — no main-process IPC for revealing a file in the OS file manager exists in this codebase, and building that surface was judged out of scope for the wizard-UI work; the operator navigates to the printed path manually. The console URL SHALL be constructed in exactly one place so its shape can be pinned by a unit test. The app MUST NOT require or request the operator's root credentials at any point; the console session is the operator's own and no credential from it reaches the app.
 
 #### Scenario: Template written and console opened
 
 - **WHEN** the operator starts guided provisioning with a region already selected
-- **THEN** the template file is written to `userData`, the CloudFormation create-stack console page opens in the default browser scoped to that region, and the step shows the file path with copy and reveal actions
+- **THEN** the template file is written to `userData`, the CloudFormation create-stack console page opens in the default browser scoped to that region, and the step shows the file path with a copy-path action
 
 #### Scenario: Browser cannot be opened
 

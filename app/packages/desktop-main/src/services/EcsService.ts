@@ -22,22 +22,34 @@ import { Ec2Service } from './Ec2Service.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
- * Maps `ConfigService`'s Terraform-outputs shape onto the narrow config
- * {@link AwsCloudProvider} expects. Returns `null` before `terraform apply`
- * has run, mirroring `ConfigService.getTfOutputs()` returning `null`.
+ * Maps `ConfigService`'s stack-outputs shape onto the narrow config
+ * {@link AwsCloudProvider} expects. Returns `null` before anything has been
+ * deployed, mirroring `ConfigService.getStackOutputs()` returning `null`.
  * Exported so `AwsModule` can reuse it when constructing the shared
  * `AwsCloudProvider` provider via `useFactory`.
+ *
+ * Async because `getStackOutputs()` is an async read; every caller
+ * (`createAwsCloudProvider`'s closure, `AwsCloudProvider`'s own methods that
+ * invoke it) is already async or an async generator, so awaiting it needs no
+ * NestJS async-factory-provider changes.
+ *
+ * `region` reads `outputs.awsRegion` — the deployed stack's own region —
+ * rather than `ConfigService.getRegion()`'s wizard-configured fallback,
+ * since `outputs` is already guaranteed non-null by this point. The region
+ * ECS/EC2/CloudWatch clients actually need to target is wherever the stack
+ * was really provisioned, which can drift from the wizard's credentials-step
+ * region if `DeploymentConfig.awsRegion` was edited independently.
  */
-export function buildProviderConfig(config: ConfigService): AwsCloudProviderConfig | null {
-  const outputs = config.getTfOutputs();
+export async function buildProviderConfig(config: ConfigService): Promise<AwsCloudProviderConfig | null> {
+  const outputs = await config.getStackOutputs();
   if (!outputs) return null;
   return {
-    region: config.getRegion(),
-    ecsClusterName: outputs.ecs_cluster_name,
-    subnetIds: outputs.subnet_ids,
-    securityGroupId: outputs.security_group_id,
-    domainName: outputs.domain_name,
-    gameNames: outputs.game_names,
+    region: outputs.awsRegion,
+    ecsClusterName: outputs.ecsClusterName,
+    subnetIds: outputs.subnetIds.join(','),
+    securityGroupId: outputs.securityGroupId,
+    domainName: outputs.domainName,
+    gameNames: outputs.gameNames,
   };
 }
 

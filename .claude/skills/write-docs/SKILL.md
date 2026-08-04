@@ -37,7 +37,7 @@ Map changed paths to the pages that own them:
 
 | Changed | Page that must be updated |
 |---------|---------------------------|
-| `terraform/**` | `docs/docs/components/terraform.md`; `docs/docs/setup.md` too if an operator must configure it |
+| `app/packages/infra/**` | `docs/docs/components/infra.md`; `docs/docs/setup.md` too if an operator must configure it |
 | `app/packages/lambda/**` | `docs/docs/components/lambdas.md` |
 | `app/packages/{desktop-main,desktop-preload,web,cloud-aws,shared}/**` | `docs/docs/components/management-app.md` |
 | A renderer page or its controls (`app/packages/web/src/pages/**`, wizard components) | the matching page under `docs/docs/app/` — these are the operator-facing walkthroughs, and they embed the generated screenshots |
@@ -126,7 +126,7 @@ check that catches a broken link, and `onBrokenLinks` is `throw`.
   from `sidebar_position`, and a new directory needs a `_category_.json` with
   `label`, `position`, and a `link` to its index doc.
 - **Internal links are root-relative without a `/docs` prefix** —
-  `[Terraform](/components/terraform)`. `routeBasePath` is `/` and `baseUrl`
+  `[Infra program](/components/infra)`. `routeBasePath` is `/` and `baseUrl`
   (`/Hyveon/`) is applied automatically. `onBrokenLinks` and
   `onBrokenMarkdownLinks` are both `throw`, so a wrong link fails the build.
 - **Voice**: second person, present tense, concrete. Match the page you are

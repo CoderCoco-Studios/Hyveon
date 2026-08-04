@@ -32,10 +32,10 @@ function Field({ label, value }: { label: string; value: string }) {
  *   - Not found — `:name` doesn't match any entry in the merged list
  *     (neither declared nor deployed). Shows a "no such game" message.
  *   - Ghost — entry exists (`deployed: true`) but has no `config`, i.e. the
- *     game is live in `terraform.tfstate` but has no entry in
- *     `terraform.tfvars` anymore. Only the header + drift chip render; there
- *     is no declared configuration to show.
- *   - Fully declared — `config` is present. Renders every tfvars field:
+ *     game is still live in AWS but has no entry in the JSON configuration
+ *     object anymore. Only the header + drift chip render; there is no
+ *     declared configuration to show.
+ *   - Fully declared — `config` is present. Renders every declared field:
  *     image, CPU/memory, HTTPS flag, ports, volumes, environment variables
  *     (if any), file seeds (collapsed, if any), and the connect message (if
  *     set).
@@ -126,11 +126,8 @@ export function GameDetailPage() {
             {!config && (
               <CardContent>
                 <p className="text-sm text-[var(--color-muted-foreground)]">
-                  This game is deployed but has no entry in{' '}
-                  <code className="font-mono text-xs bg-[var(--color-surface-2)] px-1 py-0.5 rounded">
-                    terraform.tfvars
-                  </code>{' '}
-                  — there is no declared configuration to show.
+                  This game is deployed but has no entry in the configuration object — there is no declared
+                  configuration to show.
                 </p>
               </CardContent>
             )}
