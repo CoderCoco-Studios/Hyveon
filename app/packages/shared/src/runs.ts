@@ -141,6 +141,17 @@ export interface RunRecord {
    * through). Gating the check behind `status === 'failed'` first silently
    * misses every cancelled-mid-apply partial. Absent (never `false`) on
    * every non-partial record, including every `status: 'success'` record.
+   *
+   * Also `true` on the durable pre-flight marker record
+   * `RunRecordService.writePreflightMarker` writes BEFORE `stack.up()` is
+   * ever called (issue #399) — speculatively, before any resource step has
+   * actually run, since whether one WILL run before the attempt settles is
+   * genuinely unknown at that point and the retry-safety gate this field
+   * feeds must fail closed rather than assume the best. That marker shares
+   * its `sk` with the eventual settlement record `RunRecordService.persist`
+   * writes for the same attempt, so a successful settlement overwrites it in
+   * place; if the settlement write itself fails, the marker's `true` value
+   * is what's left on record, correctly blocking a blind retry.
    */
   partialApply?: boolean;
 }

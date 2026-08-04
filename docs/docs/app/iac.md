@@ -137,6 +137,21 @@ a prior attempt. The banner deliberately offers no retry action, only a
 state instead. The same `partial` badge appears next to the run's status in
 [run history](#run-history).
 
+This isn't only a UI nicety — the backend refuses the retry too, even if
+someone tried to replay the same plan run's id directly. Before `stack.up()`
+is ever called, `PulumiService.apply` writes a durable, in-doubt marker
+record for the attempt (`kind: apply`, `partialApply: true`), so an apply
+attempt for that plan is on record from the moment the durable lock is
+acquired, not only once the run settles. If the attempt finishes cleanly,
+the settlement write overwrites the marker in place; if it doesn't — a
+partial apply, or even the settlement write itself failing to persist — the
+marker (or whatever the settlement did record) is what's left, and it always
+carries `partialApply: true` for the id in question. The apply gate checks
+that flag on every submission and refuses a second `apply()` call against the
+same plan run's id outright, before touching Pulumi again — a fresh
+`preview()` against current state is the only way forward from there,
+matching what the banner already tells you to do.
+
 ## The workspace-busy banner
 
 Only one Pulumi operation can hold the shared workspace at a time — Pulumi's
