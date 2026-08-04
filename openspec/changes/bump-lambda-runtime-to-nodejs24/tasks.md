@@ -1,15 +1,15 @@
 ## 1. Runtime and build target
 
-- [ ] 1.1 Change `LAMBDA_RUNTIME` from `'nodejs20.x'` to `'nodejs24.x'` in `app/packages/infra/src/lambdas.ts`
-- [ ] 1.2 Change `target: 'node20'` to `'node24'` in all five `app/packages/lambda/*/esbuild.config.mjs`
-- [ ] 1.3 Update the three `'nodejs20.x'` assertions in `app/packages/infra/src/lambdas.test.ts` to `'nodejs24.x'`
-- [ ] 1.4 Grep the repo for remaining `nodejs20`/`node20` references and update any documentation that states the Lambda runtime version
+- [x] 1.1 Change `LAMBDA_RUNTIME` from `'nodejs20.x'` to `'nodejs24.x'` in `app/packages/infra/src/lambdas.ts`
+- [x] 1.2 Change `target: 'node20'` to `'node24'` in all five `app/packages/lambda/*/esbuild.config.mjs`
+- [x] 1.3 Update the three `'nodejs20.x'` assertions in `app/packages/infra/src/lambdas.test.ts` to `'nodejs24.x'`
+- [x] 1.4 Grep the repo for remaining `nodejs20`/`node20` references and update any documentation that states the Lambda runtime version
 
 ## 2. Static verification
 
-- [ ] 2.1 Run `npm run app:build:lambdas` and confirm all five `dist/handler.cjs` bundles are produced — the infra program's Lambda resources read this output directory
-- [ ] 2.2 Run `npm run app:typecheck` and confirm clean
-- [ ] 2.3 Run `npm run app:test` and confirm the updated `lambdas.test.ts` assertions pass
+- [x] 2.1 Run `npm run app:build:lambdas` and confirm all five `dist/handler.cjs` bundles are produced — the infra program's Lambda resources read this output directory
+- [x] 2.2 Run `npm run app:typecheck` and confirm clean
+- [x] 2.3 Run `npm run app:test` and confirm the updated `lambdas.test.ts` assertions pass
 
 ## 3. Preview review (gate)
 
