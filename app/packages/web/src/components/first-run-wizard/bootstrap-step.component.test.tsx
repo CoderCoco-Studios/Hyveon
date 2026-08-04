@@ -43,7 +43,7 @@ afterEach(() => {
 describe('BootstrapStep', () => {
   it('should render the two bootstrapped resource rows with their names', () => {
     renderStep();
-    expect(screen.getByLabelText('Terraform state bucket name')).toHaveValue('hyveon-tfstate');
+    expect(screen.getByLabelText('State bucket name')).toHaveValue('hyveon-tfstate');
     expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-tfvars');
   });
 
@@ -51,7 +51,7 @@ describe('BootstrapStep', () => {
     const onNameChange = vi.fn();
     renderStep({ onNameChange });
 
-    await userEvent.type(screen.getByLabelText('Terraform state bucket name'), 'x');
+    await userEvent.type(screen.getByLabelText('State bucket name'), 'x');
 
     expect(onNameChange).toHaveBeenCalledWith('stateBucket', expect.any(String));
   });
@@ -101,7 +101,7 @@ describe('BootstrapStep', () => {
     expect(within(configRow).queryByText('Public access blocked')).not.toBeInTheDocument();
 
     // The sibling resource: fully succeeded, unaffected by the other's failure.
-    const stateRow = screen.getByLabelText('Terraform state bucket name').closest('div')!;
+    const stateRow = screen.getByLabelText('State bucket name').closest('div')!;
     expect(within(stateRow).getByText('Created')).toBeInTheDocument();
     expect(within(stateRow).getByText('Public access blocked')).toBeInTheDocument();
     expect(within(stateRow).queryByText('access denied applying public-access-block')).not.toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('BootstrapStep', () => {
 
   it('should disable name fields and the bootstrap button while bootstrapping', () => {
     renderStep({ bootstrapping: true });
-    expect(screen.getByLabelText('Terraform state bucket name')).toBeDisabled();
+    expect(screen.getByLabelText('State bucket name')).toBeDisabled();
     expect(screen.getByRole('button', { name: /bootstrap aws resources/i })).toBeDisabled();
   });
 

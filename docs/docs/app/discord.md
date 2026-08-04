@@ -204,8 +204,9 @@ They live in a base-config DynamoDB record (the `BASE#discord` row) that the
 infra program (re)writes on every apply; the app only ever reads it. Even if
 the request were forced through, the server refuses it:
 
-> Guild `…` is in the Terraform base config and cannot be removed via the UI.
-> Edit base_allowed_guilds in tfvars and re-apply Terraform.
+> Guild `…` is in the base config and cannot be removed via the UI. Edit
+> "Base allowed guild IDs" on the Settings page and re-apply from the
+> Infrastructure page.
 
 Base-config guilds *can* still be registered — the restriction is on
 removal only.
