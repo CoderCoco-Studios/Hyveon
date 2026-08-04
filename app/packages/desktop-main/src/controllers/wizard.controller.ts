@@ -40,6 +40,8 @@ export interface BootstrapDeploymentConfigInput {
 /** Payload accepted by {@link WizardController.saveProgress}. */
 export interface SaveWizardProgressInput {
   step: WizardStepName;
+  /** See {@link WizardProgress.guidedIam}. */
+  guidedIam?: WizardProgress['guidedIam'];
 }
 
 /** Payload accepted by {@link WizardController.openGuidedIamConsole}. */
@@ -287,10 +289,14 @@ export class WizardController {
     return this.firstRunWizard.getProgress();
   }
 
-  /** Persists the current step so the wizard resumes here if the app closes before completion. */
+  /**
+   * Persists the current step — and, once the guided-IAM step has made
+   * progress, its `guidedIam` sub-state — so the wizard resumes here if the
+   * app closes before completion.
+   */
   @MessagePattern('wizard.progress.save')
   saveProgress(@Payload() body: SaveWizardProgressInput): Promise<void> {
-    return this.firstRunWizard.recordStep(body.step);
+    return this.firstRunWizard.recordStep(body.step, body.guidedIam);
   }
 
   /**

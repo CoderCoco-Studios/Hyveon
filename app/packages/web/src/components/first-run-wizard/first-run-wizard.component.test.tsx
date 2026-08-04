@@ -1,11 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AwsProfileSummary } from '@hyveon/desktop-preload';
+import { GUIDED_PROFILE_NAME, type AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
+
+// Stubs the real `GuidedIamStep` (its own multi-phase flow is covered by
+// `guided-iam-step.component.test.tsx`) with a minimal component exposing
+// its `onComplete`/`onSkipToManual` callbacks as buttons — this file only
+// needs to verify the shell wires them correctly (advancing `stepIndex`,
+// re-deriving the credentials step's satisfied prop), not re-drive the
+// guided-provisioning flow itself.
+vi.mock('./guided-iam-step.component.js', () => ({
+  GuidedIamStep: ({ onComplete, onSkipToManual }: { onComplete: () => void; onSkipToManual: () => void }) => (
+    <div>
+      <span>guided-iam-step-stub</span>
+      <button type="button" onClick={onComplete}>
+        stub-complete
+      </button>
+      <button type="button" onClick={onSkipToManual}>
+        stub-skip
+      </button>
+    </div>
+  ),
+}));
 
 const hyveonMock = {
   wizard: {
+    getState: vi.fn(),
     saveState: vi.fn(),
     listAwsProfiles: vi.fn(),
     saveCredentials: vi.fn(),
@@ -17,6 +38,15 @@ const hyveonMock = {
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
     complete: vi.fn(),
+    // Guided-IAM step (Group 7, Task 4): only exercised by tests that don't
+    // click straight through via "I already have credentials" — the shared
+    // `advanceToCredentials()` helper below skips guided provisioning
+    // entirely, so most describe blocks never call these.
+    guidedIamPrepareTemplate: vi.fn(),
+    guidedIamOpenConsole: vi.fn(),
+    guidedIamSubmitBootstrapKey: vi.fn(),
+    guidedIamRotate: vi.fn(),
+    guidedIamRevokeBootstrapKey: vi.fn(),
   },
   iac: {
     stack: {
@@ -65,6 +95,18 @@ beforeEach(() => {
   hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
   hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
   hyveonMock.wizard.complete.mockReset();
+  // Defaulted (not just reset): the shell's `refreshGuidedCredentials`
+  // effect calls this on every mount to decide the credentials step's
+  // `satisfiedByGuidedProvisioning` prop — an unmocked call would otherwise
+  // throw reading `.aws` off `undefined`. No test in this file's default
+  // path has a guided profile on record, so the normal credentials form
+  // renders unless a test overrides this.
+  hyveonMock.wizard.getState.mockReset().mockResolvedValue({ wizardCompleted: false });
+  hyveonMock.wizard.guidedIamPrepareTemplate.mockReset();
+  hyveonMock.wizard.guidedIamOpenConsole.mockReset();
+  hyveonMock.wizard.guidedIamSubmitBootstrapKey.mockReset();
+  hyveonMock.wizard.guidedIamRotate.mockReset();
+  hyveonMock.wizard.guidedIamRevokeBootstrapKey.mockReset();
   hyveonMock.iac.stack.initialize.mockReset();
 });
 
@@ -74,11 +116,24 @@ async function advanceToPickCloud(): Promise<void> {
   await screen.findByText(/choose the cloud provider/i);
 }
 
-/** Advances the wizard from pick-cloud to the credentials step. */
+/**
+ * Advances the wizard from pick-cloud to the credentials step, passing
+ * through the guided-IAM step in between (#Group 7, Task 4) via the stubbed
+ * `GuidedIamStep`'s `onSkipToManual` button ("I already have credentials",
+ * in the real component) — the guided-provisioning path itself has its own
+ * dedicated `guided-iam-step.component.test.tsx`, and this file's own
+ * "guided-iam step wiring" describe block below exercises the real
+ * `onComplete`/`onSkipToManual` wiring directly; every other describe block
+ * only cares about what happens from the credentials step onward, so
+ * skipping straight past the stub here keeps those tests focused on their
+ * own step.
+ */
 async function advanceToCredentials(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+  await screen.findByText(/provision aws access/i);
+  await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
   await screen.findByText(/choose the aws credentials/i);
 }
 
@@ -503,6 +558,8 @@ describe('FirstRunWizard', () => {
       render(<FirstRunWizard onComplete={onComplete} />);
       await screen.findByText(/choose the cloud provider/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/provision aws access/i);
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
       await screen.findByText(/choose the aws credentials/i);
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -579,6 +636,150 @@ describe('FirstRunWizard', () => {
       resolveProgress({ step: 'credentials' });
 
       await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'credentials' }));
+    });
+
+    it('should preserve a resumed guided-iam sub-state in its own save-on-change call, rather than wiping it back to undefined', async () => {
+      // Regression test (final-review Finding 1): the shell's save-on-change
+      // effect used to fire `saveProgress({ step })` with NO `guidedIam`
+      // field the instant the resume-on-mount jump landed on `guided-iam`,
+      // silently dropping whatever sub-state was on disk. The CURRENT
+      // session still resumed correctly (this component already received
+      // the real sub-state via `initialProgress` before the effect ran),
+      // but a second relaunch with no further action taken would then land
+      // back on a fresh region screen instead of resuming again.
+      hyveonMock.wizard.getProgress.mockResolvedValue({
+        step: 'guided-iam',
+        guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true },
+      });
+
+      render(<FirstRunWizard />);
+
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() =>
+        expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({
+          step: 'guided-iam',
+          guidedIam: { subState: 'rotation-pending', hasBootstrapKey: true },
+        }),
+      );
+    });
+  });
+
+  describe('guided-iam step wiring', () => {
+    it('should render GuidedIamStep after pick-cloud, hiding the shared Next button', async () => {
+      await advanceToPickCloud();
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      expect(await screen.findByText('guided-iam-step-stub')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
+    });
+
+    it('should advance to the normal credentials form when GuidedIamStep calls onSkipToManual', async () => {
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+
+      expect(await screen.findByText(/choose the aws credentials/i)).toBeInTheDocument();
+    });
+
+    it('should not resurrect a stale guided-iam sub-state on the save effect after Back navigation past the step', async () => {
+      // Regression test: a mount-time guided-iam sub-state used to stay in
+      // `guidedIamInitialProgress` forever, even after the step's own exit
+      // handlers fired — so re-entering `guided-iam` via Back re-ran the
+      // save-on-change effect with that stale value, overwriting whatever
+      // GuidedIamStep itself had persisted since.
+      hyveonMock.wizard.getProgress.mockResolvedValue({
+        step: 'guided-iam',
+        guidedIam: { subState: 'awaiting-key-intake', hasBootstrapKey: false },
+      });
+      render(<FirstRunWizard />);
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() =>
+        expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({
+          step: 'guided-iam',
+          guidedIam: { subState: 'awaiting-key-intake', hasBootstrapKey: false },
+        }),
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/choose the aws credentials/i);
+      hyveonMock.wizard.saveProgress.mockClear();
+
+      await userEvent.click(screen.getByRole('button', { name: /back/i }));
+
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'guided-iam' }));
+      expect(hyveonMock.wizard.saveProgress).not.toHaveBeenCalledWith(
+        expect.objectContaining({ guidedIam: expect.anything() }),
+      );
+    });
+
+    it("should render the credentials step's satisfied summary when GuidedIamStep calls onComplete with a guided profile on record", async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: false,
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+      });
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+
+      await userEvent.click(screen.getByRole('button', { name: /stub-complete/i }));
+
+      expect(await screen.findByText(/already provisioned and activated aws credentials/i)).toBeInTheDocument();
+      expect(screen.getByText(/AWS account \(guided setup\)/)).toBeInTheDocument();
+      expect(screen.getByText(/us-east-1/)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
+    });
+
+    it('should fall through to the normal form — never a dead end — when "Switch to a different source" is clicked', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: false,
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+      });
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-complete/i }));
+      await screen.findByText(/already provisioned/i);
+
+      await userEvent.click(screen.getByRole('button', { name: /switch to a different source/i }));
+
+      expect(await screen.findByText(/choose the aws credentials/i)).toBeInTheDocument();
+      expect(screen.queryByText(/already provisioned/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('reconfigure mode — guided-iam pre-completion', () => {
+    it('should NOT pre-complete guided-iam without evidence of guided provisioning', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+      render(<FirstRunWizard mode="reconfigure" />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      expect(await screen.findByText('guided-iam-step-stub')).toBeInTheDocument();
+    });
+
+    it("should pre-complete guided-iam when wizard.state.get's aws.profile is the guided profile", async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+      });
+      render(<FirstRunWizard mode="reconfigure" />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      expect(await screen.findByText(/provision aws access is already configured/i)).toBeInTheDocument();
     });
   });
 });

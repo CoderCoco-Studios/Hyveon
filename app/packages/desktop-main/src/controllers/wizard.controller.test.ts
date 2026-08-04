@@ -486,7 +486,16 @@ describe('WizardController', () => {
 
       await makeController({ firstRunWizard }).saveProgress({ step: 'credentials' });
 
-      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials');
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials', undefined);
+    });
+
+    it('should pass through a guidedIam sub-state payload to FirstRunWizardService.recordStep', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const guidedIam = { subState: 'rotation-pending' as const, hasBootstrapKey: true };
+
+      await makeController({ firstRunWizard }).saveProgress({ step: 'guided-iam', guidedIam });
+
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('guided-iam', guidedIam);
     });
   });
 
