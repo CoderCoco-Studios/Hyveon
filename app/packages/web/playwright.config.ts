@@ -56,11 +56,12 @@ export const electronEnv: Record<string, string> = {
  * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
  * (migrated in #191), `discord.spec.ts` (migrated in #194),
- * `iac.spec.ts` (new route, issue #110; renamed from `terraform.spec.ts`), and
+ * `iac.spec.ts` (new route, issue #110; renamed from `terraform.spec.ts`),
  * `streaming-handle-roundtrip.spec.ts` (regression guard for the streaming-IPC
- * contextBridge clone bug — see its own doc comment) are matched only by the
- * `electron` project and ignored by `chromium`; every other spec is the
- * reverse.
+ * contextBridge clone bug — see its own doc comment), and
+ * `guided-iam-wizard.spec.ts` (`add-one-click-aws-bootstrap`'s guided-IAM
+ * wizard step, Group 8) are matched only by the `electron` project and
+ * ignored by `chromium`; every other spec is the reverse.
  */
 const ELECTRON_SPECS = [
   '**/electron-smoke.spec.ts',
@@ -81,6 +82,7 @@ const ELECTRON_SPECS = [
   // runs both projects together), but wrong: this IS the Electron-tier
   // `/iac` spec.
   '**/iac.spec.ts',
+  '**/guided-iam-wizard.spec.ts',
 ];
 
 export default defineConfig({

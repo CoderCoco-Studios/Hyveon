@@ -6,7 +6,7 @@
  * resumed from `userData/wizard-state.json`). Keeping one copy here avoids
  * the two packages drifting out of sync.
  */
-export const WIZARD_STEPS = ['pick-cloud', 'credentials', 'bootstrap', 'stack-init'] as const;
+export const WIZARD_STEPS = ['pick-cloud', 'guided-iam', 'credentials', 'bootstrap', 'stack-init'] as const;
 
 /** A single step in {@link WIZARD_STEPS}. */
 export type WizardStep = (typeof WIZARD_STEPS)[number];

@@ -175,7 +175,7 @@ describe('BootstrapStep', () => {
 
   describe('IAM panel states', () => {
     it('should render a passed message when the check reports passed', () => {
-      const passed: IamCheckResult = { status: 'passed' };
+      const passed: IamCheckResult = { status: 'passed', origin: 'profile', blocking: false };
       renderStep({ iamCheck: passed });
       expect(screen.getByText(/all required permissions are present/i)).toBeInTheDocument();
     });
@@ -184,6 +184,8 @@ describe('BootstrapStep', () => {
       const missing: IamCheckResult = {
         status: 'missing',
         policyJson: '{\n  "Version": "2012-10-17"\n}',
+        origin: 'guided',
+        blocking: true,
       };
       renderStep({ iamCheck: missing });
       expect(screen.getByText(/some permissions are missing/i)).toBeInTheDocument();
@@ -193,7 +195,12 @@ describe('BootstrapStep', () => {
     it('should copy the policy JSON to the clipboard when the copy button is clicked', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.assign(navigator, { clipboard: { writeText } });
-      const missing: IamCheckResult = { status: 'missing', policyJson: '{"Version":"2012-10-17"}' };
+      const missing: IamCheckResult = {
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      };
       renderStep({ iamCheck: missing });
 
       await userEvent.click(screen.getByRole('button', { name: /copy required iam json/i }));
@@ -202,7 +209,12 @@ describe('BootstrapStep', () => {
     });
 
     it('should render the warning message and full action checklist when simulation itself fails', () => {
-      const warning: IamCheckResult = { status: 'warning', message: 'iam:SimulatePrincipalPolicy not permitted' };
+      const warning: IamCheckResult = {
+        status: 'warning',
+        message: 'iam:SimulatePrincipalPolicy not permitted',
+        origin: 'none',
+        blocking: false,
+      };
       renderStep({ iamCheck: warning });
       expect(screen.getByText('iam:SimulatePrincipalPolicy not permitted')).toBeInTheDocument();
       expect(screen.getByText('ecs:*')).toBeInTheDocument();

@@ -26,12 +26,12 @@ The app SHALL ship a CloudFormation template that provisions the deploy principa
 
 ### Requirement: Console handoff for stack creation
 
-The guided provisioning step SHALL write the rendered template to a known path under the app's `userData` directory and open the AWS CloudFormation "Create stack" console page in the operator's default browser, scoped to the region selected earlier in the wizard. The step MUST display the written file path with a copy-path action and a reveal-in-file-manager action, and instruct the operator to choose "Upload a template file". The console URL SHALL be constructed in exactly one place so its shape can be pinned by a unit test. The app MUST NOT require or request the operator's root credentials at any point; the console session is the operator's own and no credential from it reaches the app.
+The guided provisioning step SHALL write the rendered template to a known path under the app's `userData` directory and open the AWS CloudFormation "Create stack" console page in the operator's default browser, scoped to the region selected earlier in the wizard. The step MUST display the written file path with a copy-path action, and instruct the operator to choose "Upload a template file". A reveal-in-file-manager action is NOT required — no main-process IPC for revealing a file in the OS file manager exists in this codebase, and building that surface was judged out of scope for the wizard-UI work; the operator navigates to the printed path manually. The console URL SHALL be constructed in exactly one place so its shape can be pinned by a unit test. The app MUST NOT require or request the operator's root credentials at any point; the console session is the operator's own and no credential from it reaches the app.
 
 #### Scenario: Template written and console opened
 
 - **WHEN** the operator starts guided provisioning with a region already selected
-- **THEN** the template file is written to `userData`, the CloudFormation create-stack console page opens in the default browser scoped to that region, and the step shows the file path with copy and reveal actions
+- **THEN** the template file is written to `userData`, the CloudFormation create-stack console page opens in the default browser scoped to that region, and the step shows the file path with a copy-path action
 
 #### Scenario: Browser cannot be opened
 

@@ -12,6 +12,7 @@ terraform/**/.terraform.lock.hcl
 
 # App runtime
 app/server_config.json
+app/.iam-bootstrap-dev
 
 # Node.js
 node_modules/

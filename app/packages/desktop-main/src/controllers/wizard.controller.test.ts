@@ -7,6 +7,7 @@ import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
+import type { GuidedIamService } from '../services/GuidedIamService.js';
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
   { profileName: 'default', region: 'us-east-1' },
@@ -53,7 +54,7 @@ function makeBootstrap(result: BootstrapResult = { status: 'created' }): Bootstr
 }
 
 /** Build an IamCheckService stub whose `checkPermissions()` resolves to the given result. */
-function makeIamCheck(result: IamCheckResult = { status: 'passed' }): IamCheckService {
+function makeIamCheck(result: IamCheckResult = { status: 'passed', origin: 'none', blocking: false }): IamCheckService {
   return { checkPermissions: vi.fn().mockResolvedValue(result) } as Partial<IamCheckService> as IamCheckService;
 }
 
@@ -67,6 +68,23 @@ function makeFirstRunWizard(progress: WizardProgress = { step: 'pick-cloud' }): 
   return service as FirstRunWizardService;
 }
 
+/**
+ * Build a `GuidedIamService` stub. This controller's `GuidedIamService`
+ * handlers are wiring-only pass-throughs, proven by Task 3's tier-2
+ * integration specs rather than unit tests here — this stub exists only so
+ * `makeController` can satisfy the constructor's now-five dependencies.
+ */
+function makeGuidedIam(): GuidedIamService {
+  return {
+    renderTemplate: vi.fn(),
+    buildCloudFormationConsoleUrl: vi.fn(),
+    openConsole: vi.fn(),
+    intakeBootstrapKey: vi.fn(),
+    rotate: vi.fn(),
+    revokeBootstrapKey: vi.fn(),
+  } as Partial<GuidedIamService> as GuidedIamService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
   awsProfiles?: AwsProfileService;
@@ -74,6 +92,7 @@ function makeController(overrides: {
   bootstrap?: BootstrapService;
   iamCheck?: IamCheckService;
   firstRunWizard?: FirstRunWizardService;
+  guidedIam?: GuidedIamService;
 } = {}): WizardController {
   return new WizardController(
     overrides.awsProfiles ?? makeAwsProfiles(),
@@ -81,6 +100,7 @@ function makeController(overrides: {
     overrides.bootstrap ?? makeBootstrap(),
     overrides.iamCheck ?? makeIamCheck(),
     overrides.firstRunWizard ?? makeFirstRunWizard(),
+    overrides.guidedIam ?? makeGuidedIam(),
   );
 }
 
@@ -146,6 +166,37 @@ describe('WizardController', () => {
     it('should register complete on the "wizard.complete" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
       expect(pattern).toEqual(['wizard.complete']);
+    });
+
+    it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.prepareGuidedIamTemplate);
+      expect(pattern).toEqual(['wizard.guidedIam.prepareTemplate']);
+    });
+
+    it('should register openGuidedIamConsole on the "wizard.guidedIam.openConsole" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.openGuidedIamConsole);
+      expect(pattern).toEqual(['wizard.guidedIam.openConsole']);
+    });
+
+    it('should register submitGuidedIamBootstrapKey on the "wizard.guidedIam.submitBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.submitGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.submitBootstrapKey']);
+    });
+
+    it('should register rotateGuidedIamKey on the "wizard.guidedIam.rotate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.rotateGuidedIamKey);
+      expect(pattern).toEqual(['wizard.guidedIam.rotate']);
+    });
+
+    it('should register revokeGuidedIamBootstrapKey on the "wizard.guidedIam.revokeBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.revokeGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.revokeBootstrapKey']);
     });
   });
 
@@ -384,28 +435,38 @@ describe('WizardController', () => {
 
   describe('simulateIamPermissions', () => {
     it('should delegate to IamCheckService.checkPermissions and return the result unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'passed' });
+      const iamCheck = makeIamCheck({ status: 'passed', origin: 'profile', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
       expect(iamCheck.checkPermissions).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ status: 'passed' });
+      expect(result).toEqual({ status: 'passed', origin: 'profile', blocking: false });
     });
 
     it('should propagate a missing-permissions result with its policy JSON unchanged', async () => {
-      const iamCheck = makeIamCheck({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      const iamCheck = makeIamCheck({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'missing', policyJson: '{"Version":"2012-10-17"}' });
+      expect(result).toEqual({
+        status: 'missing',
+        policyJson: '{"Version":"2012-10-17"}',
+        origin: 'guided',
+        blocking: true,
+      });
     });
 
     it('should propagate a warning result unchanged rather than throwing', async () => {
-      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied' });
+      const iamCheck = makeIamCheck({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
 
       const result = await makeController({ iamCheck }).simulateIamPermissions();
 
-      expect(result).toEqual({ status: 'warning', message: 'access denied' });
+      expect(result).toEqual({ status: 'warning', message: 'access denied', origin: 'none', blocking: false });
     });
   });
 
@@ -425,7 +486,16 @@ describe('WizardController', () => {
 
       await makeController({ firstRunWizard }).saveProgress({ step: 'credentials' });
 
-      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials');
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('credentials', undefined);
+    });
+
+    it('should pass through a guidedIam sub-state payload to FirstRunWizardService.recordStep', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const guidedIam = { subState: 'rotation-pending' as const, hasBootstrapKey: true };
+
+      await makeController({ firstRunWizard }).saveProgress({ step: 'guided-iam', guidedIam });
+
+      expect(firstRunWizard.recordStep).toHaveBeenCalledWith('guided-iam', guidedIam);
     });
   });
 

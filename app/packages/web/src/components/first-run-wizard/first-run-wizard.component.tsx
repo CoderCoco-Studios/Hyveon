@@ -6,18 +6,21 @@
  * before the dashboard is usable, so `app.component.tsx` renders it in place
  * of the normal routed layout while `wizardCompleted` is `false`.
  *
- * Four steps: pick-cloud, credentials, bootstrap, and stack-init (the last
- * of which initializes the Pulumi stack and finishes the wizard — task
- * 10.3's replacement for the pre-migration `terraform-init` step, which ran
+ * Five steps: pick-cloud, guided-iam (`add-one-click-aws-bootstrap`'s
+ * one-click AWS access provisioning, inserted between pick-cloud and
+ * credentials), credentials, bootstrap, and stack-init (the last of which
+ * initializes the Pulumi stack and finishes the wizard — task 10.3's
+ * replacement for the pre-migration `terraform-init` step, which ran
  * `terraform init` and has been fully removed).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import type { AwsProfileSummary, IamCheckResult } from '@hyveon/desktop-preload';
+import { GUIDED_PROFILE_NAME, type AwsProfileSummary, type IamCheckResult, type WizardProgress } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep, type CredentialMode, type PasteField } from './credentials-step.component.js';
 import { BootstrapStep } from './bootstrap-step.component.js';
+import { GuidedIamStep } from './guided-iam-step.component.js';
 import { StackInitializationStep } from './stack-init-step.component.js';
 import {
   WIZARD_STEPS,
@@ -30,6 +33,7 @@ import {
 /** Human-readable heading for each {@link WizardStep}. */
 const STEP_LABELS: Record<WizardStep, string> = {
   'pick-cloud': 'Choose your cloud',
+  'guided-iam': 'Provision AWS access',
   credentials: 'AWS credentials',
   bootstrap: 'Bootstrap AWS resources',
   'stack-init': 'Finish setup',
@@ -45,25 +49,48 @@ const STEP_LABELS: Record<WizardStep, string> = {
  */
 const RECONFIGURE_PRE_COMPLETED_STEPS: WizardStep[] = ['pick-cloud', 'credentials', 'bootstrap'];
 
+/**
+ * True when `profile` is the exact profile name `GuidedIamService.rotate()`
+ * stores once the guided-IAM step's mint-then-revoke rotation completes —
+ * the sole signal (per the spec) that guided provisioning, rather than a
+ * manually picked `~/.aws` profile or pasted key, produced the active AWS
+ * credential. `guided-iam` is deliberately NOT added to
+ * {@link RECONFIGURE_PRE_COMPLETED_STEPS} above: unlike its three
+ * unconditional siblings, it only counts as pre-completed when this check
+ * passes (see the reconfigure-prefill effect below). Also backs the
+ * credentials step's `satisfiedByGuidedProvisioning` prop (see
+ * `guidedCredentials` state below) — shared here so neither call site
+ * duplicates the literal `'hyveon-guided'` comparison independently.
+ */
+function isGuidedProfile(profile: string | undefined): boolean {
+  return profile === GUIDED_PROFILE_NAME;
+}
+
 /** Props for {@link FirstRunWizard}. */
 export interface FirstRunWizardProps {
   /** Invoked once the stack-init step's `wizard.complete` call succeeds. */
   onComplete?: () => void;
   /**
-   * `'first-run'` (default) gates the whole app and runs all four steps,
-   * persisting `pick-cloud`/`credentials`/`bootstrap` answers immediately via
-   * `wizard.state.save` as the operator advances. `'reconfigure'` (#211,
-   * launched from Settings) pre-marks `pick-cloud`/`credentials`/`bootstrap`
-   * as completed with a per-step Edit affordance, and buffers *edited*
-   * answers locally — a single
+   * `'first-run'` (default) gates the whole app and runs all five steps
+   * (including `guided-iam`, `add-one-click-aws-bootstrap`'s one-click AWS
+   * access provisioning step), persisting `pick-cloud`/`credentials`/`bootstrap`
+   * answers immediately via `wizard.state.save` as the operator advances.
+   * `'reconfigure'` (#211, launched from Settings) pre-marks
+   * `pick-cloud`/`credentials`/`bootstrap` as completed with a per-step Edit
+   * affordance, and buffers *edited* answers locally — a single
    * `wizard.state.save` call, containing only the steps actually opened via
    * Edit, commits right before `wizard.complete` runs. A step left collapsed
    * is never included in that call, so Cancel never has anything to undo for
-   * it. This covers the durable answer data only, not every side effect: the
-   * credentials step's "paste keys instead" form and the bootstrap step's
-   * "Run bootstrap"/"Check permissions" buttons already perform real,
-   * idempotent IPC calls the moment they're clicked (same as `'first-run'`)
-   * — Cancel doesn't undo those either, it just never points the *active*
+   * it. `guided-iam` is pre-marked too, but conditionally, not unconditionally
+   * like its three siblings above: only when `wizard.state.get()`'s
+   * `aws?.profile` is the exact guided-provisioning profile name (see
+   * `isGuidedProfile` below) — a manually picked profile or pasted key never
+   * pre-completes it, and it renders as a live step in that case. This covers
+   * the durable answer data only, not every side effect: the credentials
+   * step's "paste keys instead" form and the bootstrap step's "Run
+   * bootstrap"/"Check permissions" buttons already perform real, idempotent
+   * IPC calls the moment they're clicked (same as `'first-run'`) — Cancel
+   * doesn't undo those either, it just never points the *active*
    * `aws`/`bootstrap` config at their result.
    */
   mode?: 'first-run' | 'reconfigure';
@@ -128,6 +155,43 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const [iamChecking, setIamChecking] = useState(false);
   const [iamError, setIamError] = useState<string | null>(null);
 
+  // The shell's own `getProgress()` result's `guidedIam` sub-state, captured
+  // only when `progress.step === 'guided-iam'` (see the resume-on-mount
+  // effect below) — passed straight through as `GuidedIamStep`'s
+  // `initialProgress` prop. `'first-run'`-only, like the resume effect
+  // itself; stays `undefined` in `'reconfigure'` mode, so an Edit on a
+  // pre-completed guided-iam summary always starts the step fresh from the
+  // region screen.
+  const [guidedIamInitialProgress, setGuidedIamInitialProgress] = useState<WizardProgress['guidedIam']>(undefined);
+
+  // Whether the durably-stored AWS credential source is the guided-IAM
+  // step's rotated profile (see `isGuidedProfile`) — drives the credentials
+  // step's `satisfiedByGuidedProvisioning` prop. Re-derived on mount (so a
+  // relaunch that resumes directly onto/past the credentials step, or a
+  // reconfigure Edit on an already-guided profile, still renders the
+  // satisfied summary) and again right after `GuidedIamStep`'s `onComplete`
+  // fires (so completing it in the current session reflects immediately,
+  // without waiting for a relaunch). Cleared locally by the credentials
+  // step's "Switch to a different source" escape hatch — see
+  // `handleSwitchCredentialSource` below.
+  const [guidedCredentials, setGuidedCredentials] = useState<{ profile: string; region: string } | null>(null);
+
+  /** Re-derives {@link guidedCredentials} from `wizard.state.get()` — see that state's own doc comment for when this runs. */
+  const refreshGuidedCredentials = useCallback(async () => {
+    if (!window.hyveon) return;
+    try {
+      const state = await window.hyveon.wizard.getState();
+      const profile = state.aws?.profile;
+      setGuidedCredentials(isGuidedProfile(profile) ? { profile: profile!, region: state.aws?.region ?? '' } : null);
+    } catch {
+      // Best-effort — falls back to the normal credentials form.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshGuidedCredentials();
+  }, [refreshGuidedCredentials]);
+
   // Reconfigure-only: which pre-completed steps are collapsed to a summary
   // (present in the set) vs. expanded for editing (removed from it). Empty —
   // and unused — in `'first-run'` mode.
@@ -180,6 +244,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
         const index = WIZARD_STEPS.indexOf(progress.step);
         const maxResumableIndex = WIZARD_STEPS.indexOf('bootstrap');
         if (index > 0) setStepIndex(Math.min(index, maxResumableIndex));
+        // Only meaningful when resuming directly onto the guided-iam step
+        // itself — `GuidedIamStep` treats a `progress.guidedIam` it never
+        // asked for (e.g. resuming onto a later step) as irrelevant, but
+        // this still guards against passing a stale sub-state down for no
+        // reason.
+        if (progress.step === 'guided-iam') setGuidedIamInitialProgress(progress.guidedIam);
         // Set in the same microtask as the `setStepIndex` call above (rather
         // than a subsequent `.finally()`), so this is guaranteed true before
         // React processes that batched update — the save effect's re-run
@@ -198,10 +268,37 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // shouldn't block the wizard, only degrade resume on the next launch.
   // Gated on `resumeSettledRef` so this can never race the resume effect's
   // own read of the same file (see that effect's comment).
+  //
+  // Includes `guidedIamInitialProgress` in the payload whenever `step` is
+  // `'guided-iam'`, rather than omitting `guidedIam` entirely: this effect
+  // fires the moment the resume-on-mount effect jumps `stepIndex` onto
+  // `guided-iam`, which happens *before* `GuidedIamStep` itself has had a
+  // chance to re-persist anything. Without this, that first save would
+  // rewrite `wizard-state.json` as bare `{ step: 'guided-iam' }`, silently
+  // dropping whatever sub-state (e.g. `rotation-pending`) the operator
+  // resumed with — the CURRENT session still resumes correctly (this
+  // component already received the real value via the `initialProgress`
+  // prop before this effect ran), but a second relaunch with no further
+  // action taken would then land back on a fresh region screen instead of
+  // resuming again. `guidedIamInitialProgress` only ever reflects what
+  // `getProgress()` returned on THIS mount (see that state's own doc
+  // comment) — it is never updated as `GuidedIamStep` advances internally,
+  // so it can go stale relative to `GuidedIamStep`'s own `persistProgress`
+  // calls (which fire at real transition moments with fresh values and are
+  // authoritative). That staleness is harmless here: `step` itself doesn't
+  // change while the operator moves between `GuidedIamStep`'s internal
+  // phases, so this effect does not re-run and does not re-fire a stale
+  // write over a fresher one — it only fires once on entry to (or exit
+  // from) the `guided-iam` step, which is exactly the resume-preserving
+  // write this fix needs.
   useEffect(() => {
     if (mode !== 'first-run' || !window.hyveon || !resumeSettledRef.current) return;
-    window.hyveon.wizard.saveProgress({ step }).catch(() => {});
-  }, [mode, step]);
+    const payload =
+      step === 'guided-iam' && guidedIamInitialProgress
+        ? { step, guidedIam: guidedIamInitialProgress }
+        : { step };
+    window.hyveon.wizard.saveProgress(payload).catch(() => {});
+  }, [mode, step, guidedIamInitialProgress]);
 
   // Guards the reconfigure-prefill effect below so it applies exactly once,
   // never re-running over an operator's in-progress edits once it has fired.
@@ -246,6 +343,19 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
             setPastedProfileName(state.aws.profile);
             setPasteRegion(state.aws.region ?? '');
           }
+          // Conditional pre-completion (unlike `pick-cloud`/`credentials`/
+          // `bootstrap`'s unconditional entries in
+          // `RECONFIGURE_PRE_COMPLETED_STEPS`): guided-iam only renders
+          // pre-completed when this exact profile name is real evidence
+          // guided provisioning actually ran — see `isGuidedProfile`'s own
+          // doc comment.
+          if (isGuidedProfile(state.aws.profile)) {
+            setCompletedSteps((current) => {
+              const next = new Set(current);
+              next.add('guided-iam');
+              return next;
+            });
+          }
         }
         if (state.bootstrap) setResourceNames(state.bootstrap);
       })
@@ -259,6 +369,61 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   function handleFinished() {
     onComplete?.();
+  }
+
+  /**
+   * `GuidedIamStep`'s `onComplete` — guided provisioning finished and the
+   * rotated key is now the active AWS credential. Re-derives
+   * {@link guidedCredentials} immediately (rather than waiting for the next
+   * mount) so the credentials step it advances into already renders the
+   * satisfied summary, then advances past this step via {@link goNext}.
+   * Awaits {@link refreshGuidedCredentials} before calling {@link goNext} —
+   * firing them concurrently let `goNext` flip `stepIndex` to `credentials`
+   * before `guidedCredentials` had re-derived, so the credentials step
+   * briefly mounted its normal picker/paste form for one frame before
+   * flipping to the satisfied summary. Sequencing them removes that flicker.
+   * Like `stack-init-step.component.tsx`'s `onFinished`, this bypasses the
+   * shared footer's Next button entirely — see the footer's `hideNextButton`
+   * computation below for why Next is hidden for this step.
+   *
+   * Clears {@link guidedIamInitialProgress} before advancing — see that
+   * state's own doc comment for why: leaving it set would let a later `Back`
+   * navigation back onto `guided-iam` re-fire the save effect above with this
+   * mount's now-stale value, overwriting whatever `GuidedIamStep` itself
+   * persisted since.
+   */
+  async function handleGuidedIamComplete() {
+    setGuidedIamInitialProgress(undefined);
+    await refreshGuidedCredentials();
+    void goNext();
+  }
+
+  /**
+   * `GuidedIamStep`'s `onSkipToManual` — the operator chose "I already have
+   * credentials" instead of guided provisioning. Advances past this step the
+   * same way {@link handleGuidedIamComplete} does; no sub-state was
+   * persisted for this path (see `GuidedIamStepProps.onSkipToManual`'s own
+   * doc comment), so there is nothing to re-derive here. Clears
+   * {@link guidedIamInitialProgress} for the same reason
+   * {@link handleGuidedIamComplete} does.
+   */
+  function handleGuidedIamSkipToManual() {
+    setGuidedIamInitialProgress(undefined);
+    void goNext();
+  }
+
+  /**
+   * Credentials step's "Switch to a different source" escape hatch off the
+   * satisfied-by-guided-provisioning summary — clears the shell's own
+   * {@link guidedCredentials} state so `CredentialsStep` falls through to
+   * its normal picker/paste form. Deliberately does not touch the
+   * underlying persisted `aws.profile`: the normal form's own Next-time
+   * `wizard.state.save` call (see {@link goNext}) overwrites it once the
+   * operator picks something else, exactly as it would for any other
+   * credentials-step edit.
+   */
+  function handleSwitchCredentialSource() {
+    setGuidedCredentials(null);
   }
 
   useEffect(() => {
@@ -487,6 +652,18 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
         ? !bootstrapComplete
         : false;
 
+  // The shared footer's Next button is hidden for `stack-init` (it drives
+  // its own completion via `onFinished`/Finish setup) and, the same way,
+  // for `guided-iam` whenever it is NOT collapsed to a Reconfigure summary
+  // — `GuidedIamStep` drives its own advancement via `onComplete`/
+  // `onSkipToManual` (see those handlers above), so a shared Next button
+  // would either duplicate that advancement or let the operator skip past
+  // an incomplete guided flow. A COLLAPSED guided-iam summary (Reconfigure,
+  // real evidence of prior guided provisioning already on record) is the
+  // one case Next stays visible for this step, matching every other
+  // pre-completed Reconfigure summary's "just click Next past it" behavior.
+  const hideNextButton = step === 'stack-init' || (step === 'guided-iam' && !stepCollapsed);
+
   /**
    * Advances past the current step. In `'first-run'` mode, leaving
    * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via
@@ -612,6 +789,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               )}
             </>
           ))}
+        {step === 'guided-iam' &&
+          (stepCollapsed ? (
+            <CompletedStepSummary label={STEP_LABELS['guided-iam']} onEdit={() => startEdit('guided-iam')} />
+          ) : (
+            <GuidedIamStep
+              onComplete={handleGuidedIamComplete}
+              onSkipToManual={handleGuidedIamSkipToManual}
+              initialProgress={guidedIamInitialProgress}
+            />
+          ))}
         {step === 'credentials' &&
           (stepCollapsed ? (
             <CompletedStepSummary label={STEP_LABELS['credentials']} onEdit={() => startEdit('credentials')} />
@@ -635,6 +822,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
                 pasteSaving={pasteSaving}
                 pasteError={pasteError}
                 pastedProfileName={pastedProfileName}
+                satisfiedByGuidedProvisioning={
+                  guidedCredentials
+                    ? { principal: 'AWS account (guided setup)', region: guidedCredentials.region }
+                    : undefined
+                }
+                onSwitchSource={handleSwitchCredentialSource}
               />
               {saveError && (
                 <p role="alert" className="text-sm text-[var(--color-red)]">
@@ -682,7 +875,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               </Button>
             )}
           </div>
-          {step !== 'stack-init' && (
+          {!hideNextButton && (
             <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>
               Next
             </Button>

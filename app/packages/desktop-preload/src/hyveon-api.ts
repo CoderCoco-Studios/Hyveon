@@ -1300,6 +1300,12 @@ export interface BootstrapDeploymentConfigInput {
 /** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
+/**
+ * Which credential source produced an {@link IamCheckResult}. Mirrors
+ * `IamCheckOrigin` in `IamCheckService.ts` — keep in sync.
+ */
+export type IamCheckOrigin = 'guided' | 'pasted' | 'profile' | 'none';
+
 /** Result of the wizard's best-effort IAM permission dry-run against the `HyveonDeployAll` action set. */
 export interface IamCheckResult {
   status: IamCheckStatus;
@@ -1313,19 +1319,44 @@ export interface IamCheckResult {
    * why simulation itself could not run.
    */
   message?: string;
+  /** Which credential source produced this result. See {@link IamCheckOrigin}. */
+  origin: IamCheckOrigin;
+  /**
+   * `true` only when `status === 'missing'` AND `origin === 'guided'` — see
+   * `IamCheckService.ts`'s `IamCheckResult.blocking` for the full rationale.
+   * The single source of truth a caller reads to decide whether to gate
+   * wizard progression; no other field or method exposes that decision.
+   */
+  blocking: boolean;
 }
 
 /** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
-export type WizardStepName = 'pick-cloud' | 'credentials' | 'bootstrap' | 'stack-init';
+export type WizardStepName = 'pick-cloud' | 'guided-iam' | 'credentials' | 'bootstrap' | 'stack-init';
 
-/** Resumable wizard progress persisted to `userData/wizard-state.json`. */
+/**
+ * Sub-state of the guided-IAM step's internal flow. Only meaningful when
+ * `step === 'guided-iam'` — a documented convention, not a type-level
+ * constraint. Mirrors `GuidedIamSubState` in `FirstRunWizardService.ts` —
+ * keep in sync.
+ */
+export type GuidedIamSubState = 'not-started' | 'template-written' | 'awaiting-key-intake' | 'rotation-pending' | 'complete';
+
+/** Resumable wizard progress persisted to `userData/wizard-state.json`. Mirrors `WizardProgress` in `FirstRunWizardService.ts` — keep in sync. */
 export interface WizardProgress {
   step: WizardStepName;
+  /** Present only while `step === 'guided-iam'` has ever recorded sub-progress. */
+  guidedIam?: {
+    subState: GuidedIamSubState;
+    /** Whether a bootstrap key was ever submitted this session — never the key itself. */
+    hasBootstrapKey: boolean;
+  };
 }
 
-/** Payload accepted by {@link HyveonWizardApi.saveProgress}. */
+/** Payload accepted by {@link HyveonWizardApi.saveProgress}. Mirrors `SaveWizardProgressInput` in `wizard.controller.ts` — keep in sync. */
 export interface SaveWizardProgressInput {
   step: WizardStepName;
+  /** See {@link WizardProgress.guidedIam}. */
+  guidedIam?: WizardProgress['guidedIam'];
 }
 
 /** Per-resource outcome of a `wizard.bootstrap.*` call. */
@@ -1345,6 +1376,82 @@ export type BootstrapResourceStatus = 'created' | 'exists' | 'failed';
 export interface BootstrapResult {
   status: BootstrapResourceStatus;
   /** Present when `status` is `'failed'` — an actionable message for the wizard to display. */
+  message?: string;
+}
+
+/**
+ * Result of {@link HyveonWizardApi.guidedIamPrepareTemplate}. Mirrors
+ * `RenderedTemplateResult` in `GuidedIamService.ts` — keep in sync.
+ */
+export interface RenderedTemplateResult {
+  /** Absolute path to the rendered `iam-bootstrap.yaml` copy on disk. */
+  path: string;
+}
+
+/** Payload accepted by {@link HyveonWizardApi.guidedIamOpenConsole}. Mirrors `OpenGuidedIamConsoleInput` in `wizard.controller.ts` — keep in sync. */
+export interface OpenGuidedIamConsoleInput {
+  region: string;
+}
+
+/**
+ * Result of {@link HyveonWizardApi.guidedIamOpenConsole}. On failure, carries
+ * the console `url` back so the caller can fall back to displaying it as
+ * plain text for the operator to open manually. Mirrors `OpenConsoleResult`
+ * in `GuidedIamService.ts` — keep in sync.
+ */
+export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
+
+/** Input to {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}. Mirrors `BootstrapKeyIntakeInput` in `GuidedIamService.ts` — keep in sync. */
+export interface BootstrapKeyIntakeInput {
+  /** Access key ID the operator pasted from the CloudFormation stack outputs. */
+  accessKeyId: string;
+  /** Secret access key the operator pasted from the CloudFormation stack outputs. */
+  secretAccessKey: string;
+  /** Region to validate the key pair against. */
+  region: string;
+}
+
+/** Result of {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}. Mirrors `BootstrapKeyIntakeResult` in `GuidedIamService.ts` — keep in sync. */
+export interface BootstrapKeyIntakeResult {
+  /** AWS account ID resolved from `sts:GetCallerIdentity`. */
+  accountId: string;
+}
+
+/** Input to {@link HyveonWizardApi.guidedIamRotate}. Mirrors `RotationInput` in `GuidedIamService.ts` — keep in sync. */
+export interface RotationInput {
+  /** Access key ID of the validated bootstrap key (from {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}). */
+  bootstrapAccessKeyId: string;
+  /** Secret access key of the validated bootstrap key. */
+  bootstrapSecretAccessKey: string;
+  /** Region to build every AWS client used during rotation against. */
+  region: string;
+}
+
+/**
+ * Outcome of {@link HyveonWizardApi.guidedIamRotate}. Mirrors `RotationResult`
+ * in `GuidedIamService.ts` — keep in sync.
+ */
+export type RotationResult =
+  /** The new key pair is active and the bootstrap key has been revoked. */
+  | { status: 'complete' }
+  /** `sts:GetCallerIdentity` failed for the newly minted key; nothing was activated. */
+  | { status: 'verification-failed'; error: string }
+  /** The new key pair is already active, but `iam:DeleteAccessKey` failed for the bootstrap key — revoke it manually via `consoleUrl`. */
+  | { status: 'delete-failed'; consoleUrl: string };
+
+/** Input to {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyInput` in `GuidedIamService.ts` — keep in sync. */
+export interface RevokeBootstrapKeyInput {
+  /** Access key ID of the still-live bootstrap key to revoke. */
+  bootstrapAccessKeyId: string;
+  /** Region to build the IAM client against. */
+  region: string;
+}
+
+/** Result of {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyResult` in `GuidedIamService.ts` — keep in sync. */
+export interface RevokeBootstrapKeyResult {
+  /** `true` once `iam:DeleteAccessKey` succeeds for the bootstrap key. */
+  revoked: boolean;
+  /** Present when `revoked` is `false` — a clear, actionable explanation of the refusal or AWS failure. */
   message?: string;
 }
 
@@ -1407,15 +1514,55 @@ export interface HyveonWizardApi {
    * `iam:SimulatePrincipalPolicy`, batched). Never grants permissions.
    */
   simulateIamPermissions: () => Promise<IamCheckResult>;
-  /** Returns the last-recorded resumable step, defaulting to `prerequisites` if unset/corrupt. */
+  /**
+   * Returns the last-recorded resumable step, defaulting to `pick-cloud` if
+   * unset/corrupt. `guidedIam`, when present, is the guided-IAM step's own
+   * validated sub-progress (see {@link WizardProgress.guidedIam}).
+   */
   getProgress: () => Promise<WizardProgress>;
-  /** Persists the current step so the wizard resumes here if the app closes before completion. */
+  /**
+   * Persists the current step — and, once the guided-IAM step has made
+   * progress, its `guidedIam` sub-state — so the wizard resumes here if the
+   * app closes before completion.
+   */
   saveProgress: (input: SaveWizardProgressInput) => Promise<void>;
   /**
    * Marks the wizard complete (`wizardCompleted: true`), gating the app
    * router past the wizard. Returns the same shape as {@link getState}.
    */
   complete: () => Promise<WizardState>;
+  /**
+   * Renders the `iam-bootstrap.yaml` CloudFormation template shell to disk
+   * (policy documents substituted in) and returns the path to display to the
+   * operator.
+   */
+  guidedIamPrepareTemplate: () => Promise<RenderedTemplateResult>;
+  /**
+   * Builds the region-scoped CloudFormation "Create stack" console URL and
+   * attempts to open it in the operator's default browser. On a failed/
+   * unavailable browser launch, the result echoes the same URL back so the
+   * caller can display it as plain text.
+   */
+  guidedIamOpenConsole: (input: OpenGuidedIamConsoleInput) => Promise<OpenConsoleResult>;
+  /**
+   * Validates the operator-pasted bootstrap access key pair against
+   * `sts:GetCallerIdentity`, returning the resolved AWS account ID. The
+   * pasted secret is sent as input only — never echoed back in the result.
+   */
+  guidedIamSubmitBootstrapKey: (input: BootstrapKeyIntakeInput) => Promise<BootstrapKeyIntakeResult>;
+  /**
+   * Performs the mandatory mint-then-revoke rotation onto a freshly-minted
+   * key pair. See {@link RotationResult} for the `complete`/
+   * `verification-failed`/`delete-failed` outcome branches.
+   */
+  guidedIamRotate: (input: RotationInput) => Promise<RotationResult>;
+  /**
+   * Manual-retry action for a `delete-failed` {@link RotationResult}: revokes
+   * the still-live bootstrap access key without re-running the mint/verify
+   * sequence. Never rejects — a refusal or AWS failure comes back as
+   * `{ revoked: false, message }`.
+   */
+  guidedIamRevokeBootstrapKey: (input: RevokeBootstrapKeyInput) => Promise<RevokeBootstrapKeyResult>;
 }
 
 /**
@@ -1427,6 +1574,18 @@ export interface WizardAwsChoice {
   profile?: string;
   region?: string;
 }
+
+/**
+ * The profile name `GuidedIamService.rotate()` stores in
+ * `WizardAwsChoice.profile` once guided IAM provisioning's mint-then-revoke
+ * rotation completes. Mirrors `GUIDED_PROFILE_NAME` in `GuidedIamService.ts`
+ * — keep in sync. Only reachable from the main process, so `@hyveon/web`
+ * compares `WizardState.aws?.profile`/`SaveWizardStateInput.aws?.profile`
+ * against this constant (rather than the main-process export it mirrors) to
+ * tell guided provisioning apart from a manually picked/pasted profile — a
+ * plain CLI profile or paste-flow entry never lands on this exact name.
+ */
+export const GUIDED_PROFILE_NAME = 'hyveon-guided';
 
 /**
  * The bootstrap step's last-submitted resource names, as persisted to

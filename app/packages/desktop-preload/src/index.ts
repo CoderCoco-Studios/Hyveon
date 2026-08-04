@@ -31,9 +31,16 @@ export type {
   OpType,
   AwsProfileSummary,
   IamCheckResult,
+  IamCheckOrigin,
   WizardState,
   SaveWizardStateInput,
+  WizardStepName,
+  GuidedIamSubState,
+  WizardProgress,
+  SaveWizardProgressInput,
 } from './hyveon-api.js';
+
+export { GUIDED_PROFILE_NAME } from './hyveon-api.js';
 
 declare global {
   interface Window {

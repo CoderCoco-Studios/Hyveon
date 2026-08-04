@@ -175,7 +175,7 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
 
       expect(await screen.findByText(/choose your cloud is already configured/i)).toBeInTheDocument();
-      expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
+      expect(screen.getByText(/step 1 of 5/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     });
 
@@ -184,8 +184,14 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));
       await screen.findByText(/choose your cloud is already configured/i);
 
-      // pick-cloud: leave collapsed, advance to credentials.
+      // pick-cloud: leave collapsed, advance to credentials. Guided-IAM sits
+      // in between (Group 7) but isn't in RECONFIGURE_PRE_COMPLETED_STEPS —
+      // the default `aws.profile: 'default'` prefill is not the guided
+      // profile, so it isn't pre-completed either — skip it via "I already
+      // have credentials".
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText(/provision aws access/i);
+      await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
 
       // credentials: open for editing, change only the region.
@@ -225,6 +231,10 @@ describe('SettingsPage', () => {
       await screen.findByText(/choose your cloud is already configured/i);
 
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // Default `aws.profile: 'default'` is not the guided profile, so
+      // guided-iam isn't pre-completed — skip it via "I already have credentials".
+      await screen.findByText(/provision aws access/i);
+      await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/bootstrap aws resources is already configured/i);
@@ -248,6 +258,10 @@ describe('SettingsPage', () => {
       await screen.findByText(/choose your cloud is already configured/i);
 
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // Default `aws.profile: 'default'` is not the guided profile, so
+      // guided-iam isn't pre-completed — skip it via "I already have credentials".
+      await screen.findByText(/provision aws access/i);
+      await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       await screen.findByText(/bootstrap aws resources is already configured/i);

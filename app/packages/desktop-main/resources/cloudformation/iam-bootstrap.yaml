@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Bootstraps the IAM identity Hyveon's desktop app uses to deploy and manage
+  AWS infrastructure: a deploy user, its HyveonDeployAll and HyveonSelfRotate
+  managed policies, and a bootstrap access key. Rendered by GuidedIamService
+  (substituting the two managed-policy PolicyDocument placeholders with
+  generated JSON) before being submitted as a CloudFormation stack. Nothing
+  in this stack is per-game — it is created once, during first-run setup.
+
+Parameters:
+  UserName:
+    Type: String
+    Default: hyveon
+    Description: >-
+      Name of the IAM user Hyveon deploys as. Also used as the resource
+      scope for the HyveonSelfRotate policy, so this user can rotate its own
+      access key without a standing iam:*-on-all-users grant.
+
+Resources:
+  # PolicyDocument is a literal placeholder token, not inline JSON.
+  # GuidedIamService replaces it with JSON.stringify(generateHyveonDeployAllPolicy(...))
+  # (see app/packages/shared/src/iamPolicy.ts) before submitting this template.
+  # Keep the token text and its "on its own line" placement exact — it is
+  # matched by literal string search, not regex. The substituted value MUST
+  # be single-line JSON.stringify(...) output (no `null, 2` pretty-printing):
+  # it is inserted inline after `PolicyDocument: `, and a pretty-printed,
+  # multi-line JSON string pasted at that column would NOT be valid YAML
+  # there (continuation lines would land at column 0, breaking the flow
+  # scalar).
+  HyveonDeployAllPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: HyveonDeployAll
+      Description: >-
+        Grants the Hyveon deploy user permission to provision and manage
+        Hyveon's AWS infrastructure (ECS, EFS, EC2, Lambda, Route53, the
+        configuration and Pulumi state buckets, etc).
+      PolicyDocument: __HYVEON_DEPLOY_ALL_POLICY_DOCUMENT__
+
+  # PolicyDocument is a literal placeholder token, not inline JSON — same
+  # substitution mechanism as HyveonDeployAllPolicy above, via a separate,
+  # small self-rotate-only generator (this policy is not part of
+  # HYVEON_DEPLOY_ALL_ACTIONS / HYVEON_DEPLOY_ALL_STATEMENTS). Its rendered
+  # document scopes iam:CreateAccessKey / iam:DeleteAccessKey /
+  # iam:ListAccessKeys to arn:aws:iam::*:user/${UserName} — the same
+  # UserName parameter as HyveonDeployUser below — and nothing else.
+  HyveonSelfRotatePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: HyveonSelfRotate
+      Description: >-
+        Lets the Hyveon deploy user rotate its own access key
+        (iam:CreateAccessKey / iam:DeleteAccessKey / iam:ListAccessKeys)
+        without granting broader IAM permissions.
+      PolicyDocument: __HYVEON_SELF_ROTATE_POLICY_DOCUMENT__
+
+  HyveonDeployUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref UserName
+      ManagedPolicyArns:
+        - !Ref HyveonDeployAllPolicy
+        - !Ref HyveonSelfRotatePolicy
+
+  # Retained on stack delete: by the time an operator deletes this stack the
+  # app has already rotated/revoked this key via HyveonSelfRotate, so leaving
+  # the (already-inert) key behind is safe and avoids a delete failing on a
+  # key CloudFormation no longer believes it owns. RetainExceptOnCreate (not
+  # plain Retain) so a failed *initial* stack creation still rolls back
+  # cleanly instead of leaving an orphaned key attached to a rolled-back user.
+  HyveonDeployUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    DeletionPolicy: RetainExceptOnCreate
+    Properties:
+      UserName: !Ref HyveonDeployUser
+
+Outputs:
+  DeployUserName:
+    Description: Name of the created Hyveon deploy IAM user.
+    Value: !Ref HyveonDeployUser
+  HyveonDeployAllPolicyArn:
+    Description: ARN of the HyveonDeployAll managed policy.
+    Value: !Ref HyveonDeployAllPolicy
+  AccessKeyId:
+    Description: Access key ID of the bootstrap access key.
+    Value: !Ref HyveonDeployUserAccessKey
+  SecretAccessKey:
+    Description: Secret access key of the bootstrap access key.
+    Value: !GetAtt HyveonDeployUserAccessKey.SecretAccessKey

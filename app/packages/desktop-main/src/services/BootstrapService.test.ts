@@ -231,10 +231,11 @@ describe('BootstrapService', () => {
   });
 
   describe('ensureConfigurationBucket', () => {
-    it('should create the bucket with versioning, a 90-day noncurrent-version lifecycle rule, and public-access-block on a fresh bucket', async () => {
+    it('should create the bucket with versioning, a 90-day noncurrent-version lifecycle rule, encryption, and public-access-block on a fresh bucket', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
       s3Mock.on(PutPublicAccessBlockCommand).resolves({});
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
 
@@ -262,6 +263,12 @@ describe('BootstrapService', () => {
           ],
         },
       });
+      expect(s3Mock.commandCalls(PutBucketEncryptionCommand)[0]!.args[0].input).toEqual({
+        Bucket: 'my-config-bucket',
+        ServerSideEncryptionConfiguration: {
+          Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }],
+        },
+      });
       expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)[0]!.args[0].input).toEqual({
         Bucket: 'my-config-bucket',
         PublicAccessBlockConfiguration: {
@@ -273,10 +280,11 @@ describe('BootstrapService', () => {
       });
     });
 
-    it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/lifecycle/public-access-block', async () => {
+    it('should treat BucketAlreadyOwnedByYou as a success no-op and still ensure versioning/lifecycle/encryption/public-access-block', async () => {
       s3Mock.on(CreateBucketCommand).rejects(awsError('BucketAlreadyOwnedByYou'));
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
       s3Mock.on(PutPublicAccessBlockCommand).resolves({});
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
 
@@ -285,6 +293,7 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'exists' });
       expect(s3Mock.commandCalls(PutBucketVersioningCommand)).toHaveLength(1);
       expect(s3Mock.commandCalls(PutBucketLifecycleConfigurationCommand)).toHaveLength(1);
+      expect(s3Mock.commandCalls(PutBucketEncryptionCommand)).toHaveLength(1);
       expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(1);
     });
 
@@ -292,6 +301,7 @@ describe('BootstrapService', () => {
       s3Mock.on(HeadBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
       s3Mock.on(PutPublicAccessBlockCommand).resolves({});
       const service = new BootstrapService(makeStore({ region: 'us-east-1' }));
 
@@ -324,10 +334,24 @@ describe('BootstrapService', () => {
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
     });
 
+    it('should report failure with the error message when encryption cannot be applied after a successful create', async () => {
+      s3Mock.on(CreateBucketCommand).resolves({});
+      s3Mock.on(PutBucketVersioningCommand).resolves({});
+      s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).rejects(new Error('access denied'));
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      const result = await service.ensureConfigurationBucket('my-config-bucket');
+
+      expect(result).toEqual({ status: 'failed', message: 'access denied' });
+      expect(s3Mock.commandCalls(PutPublicAccessBlockCommand)).toHaveLength(0);
+    });
+
     it('should report failure when public-access-block cannot be applied after a successful create', async () => {
       s3Mock.on(CreateBucketCommand).resolves({});
       s3Mock.on(PutBucketVersioningCommand).resolves({});
       s3Mock.on(PutBucketLifecycleConfigurationCommand).resolves({});
+      s3Mock.on(PutBucketEncryptionCommand).resolves({});
       s3Mock.on(PutPublicAccessBlockCommand).rejects(new Error('access denied'));
       const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
 

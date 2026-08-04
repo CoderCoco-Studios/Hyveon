@@ -342,6 +342,21 @@ export class ElectronStoreService {
   }
 
   /**
+   * Remove a pasted-credentials profile from `creds.aws.<profileName>`.
+   * Merges with any existing `creds.aws` map so other profiles are
+   * preserved. A no-op (still logs) if the profile was never stored.
+   *
+   * @param profileName - The pasted-profile name to remove.
+   */
+  deletePastedCredentials(profileName: string): void {
+    const currentCreds = this.get('creds') ?? { aws: {} };
+    const remaining = { ...currentCreds.aws };
+    delete remaining[profileName];
+    this.set('creds', { ...currentCreds, aws: remaining });
+    logger.debug(`ElectronStoreService: creds.aws.${profileName} deleted`);
+  }
+
+  /**
    * Read `pulumi.passphrase`, decrypting the stored blob via
    * {@link SafeStorageService}.
    *

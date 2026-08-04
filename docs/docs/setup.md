@@ -37,6 +37,23 @@ On the AWS side you need:
 
 ## 1. Create and authorise an IAM user
 
+You don't need to touch the IAM console. Launch the app and follow the wizard
+— [step 2 of 5](#2-clone-install-and-launch-the-wizard)
+does this for you: it renders a CloudFormation template, opens the AWS
+console pre-scoped to the region you chose, and you upload the template and
+create the stack. Paste the resulting bootstrap access key back into the
+wizard and the app immediately mints its own key from that same principal,
+verifies it works, and revokes the bootstrap key — a mint-then-revoke
+rotation, so the credential the app ends up holding is never the one that was
+briefly visible in the CloudFormation stack's Outputs.
+
+### Manual fallback
+
+Prefer not to use guided setup, already have credentials, or hit an edge case
+guided setup doesn't cover? Choose **I already have credentials** on the
+wizard's guided-IAM step to skip straight to the credentials step, and set up
+the IAM user by hand instead:
+
 1. In the **[AWS IAM console](https://console.aws.amazon.com/iam/)** →
    **Users → Create user**, give it a name like `hyveon`.
 2. On the permissions step, choose **Attach policies directly** and skip
@@ -47,7 +64,7 @@ On the AWS side you need:
 4. **Security credentials → Create access key → Command Line Interface (CLI)**.
    Copy the Access Key ID and Secret Access Key. Treat the secret like a
    password — AWS will not show it again. You'll paste these into the
-   in-app setup wizard in the next step (or point the wizard at an existing
+   in-app setup wizard's credentials step (or point the wizard at an existing
    AWS CLI profile instead, if you already have one).
 
 ```json
@@ -176,12 +193,39 @@ explicitly included above to avoid `AccessDenied` during an apply:
 - **CloudFront** — the Discord interactions endpoint is fronted by a CloudFront distribution. `cloudfront:*` above covers creation, updates, tagging, and deletion of distributions.
 - **ACM (Certificate Manager)** — CloudFront's custom domain (`discord.{hosted_zone_name}`) needs a DNS-validated ACM certificate, always provisioned in `us-east-1` regardless of your chosen region. This needs `acm:RequestCertificate`, `acm:DescribeCertificate`, `acm:AddTagsToCertificate`, and `acm:DeleteCertificate` at minimum; `acm:*` above covers all of it. ACM certificate ARNs aren't predictable before creation (unlike the project-prefixed IAM roles/policies in `HyveonIAM`), so this is scoped like `cloudfront:*`/`route53:*` above — `Resource: "*"` within the `HyveonDeploy` statement, not a separate ARN-scoped statement.
 
-This policy is the **single source of truth** for IAM permissions. If you
-need to add or remove permissions, edit it here — do not create separate
-inline policies or update the README independently. The in-app setup
-wizard's IAM permission check (see [step 2](#2-clone-install-and-launch-the-wizard))
-simulates against this exact action list, so keeping the two in sync is
-covered by an automated test.
+`HYVEON_DEPLOY_ALL_ACTIONS` in `app/packages/shared/src/iamPolicy.ts` is the
+**single source of truth** for IAM permissions — this JSON block is generated
+from it, not the other way around. If you need to add or remove permissions,
+update `HYVEON_DEPLOY_ALL_ACTIONS` there, not this documentation; do not
+create separate inline policies or update the README independently. Two
+things in the app are generated from that same shared source: the in-app
+setup wizard's IAM permission check (see [step 2](#2-clone-install-and-launch-the-wizard))
+simulates every action in it against your credentials, and the guided-IAM
+step's CloudFormation template generates its `HyveonDeployAll` managed policy
+from it too — so the permissions the guided flow provisions can never drift
+from what the wizard check simulates. This JSON block itself is test-locked
+against `HYVEON_DEPLOY_ALL_ACTIONS`
+(`app/packages/shared/src/iamPolicy.test.ts`), so it must be updated to match
+whenever the shared source changes, or that test fails.
+
+### `HyveonSelfRotate`: a second, narrower managed policy
+
+The guided-IAM CloudFormation template also attaches a second managed
+policy, `HyveonSelfRotate`, to the deploy user it creates. It grants exactly
+three actions — `iam:CreateAccessKey`, `iam:DeleteAccessKey`,
+`iam:ListAccessKeys` — scoped via a CloudFormation `Fn::Sub` to the created
+user's own ARN (`arn:aws:iam::*:user/${UserName}`), never to `Resource: "*"`
+or every user in the account.
+
+This exists so the deploy principal can rotate its own access key — which
+both the guided flow's mint-then-revoke sequence and the app's own
+`AwsProfileService.rotateActiveCredentials()` need — without granting
+standing `iam:*` on all IAM users, which `HyveonDeployAll`'s `HyveonIAM`
+statement deliberately does not do (it's scoped to `hyveon-*` roles and
+policies, not users). If you hand-roll your own IAM user via the
+[manual fallback](#manual-fallback) instead of guided setup, add these same
+three actions — scoped to that user's own ARN — or self-rotation from the
+app will fail with `AccessDenied`.
 
 ## 2. Clone, install, and launch the wizard
 
@@ -201,22 +245,42 @@ new code.
 :::
 
 The first launch replaces the entire window with the **first-run setup
-wizard** — there is no dashboard, no sidebar, and no way to skip it. Four
+wizard** — there is no dashboard, no sidebar, and no way to skip it. Five
 steps, none of them a CLI command:
 
 1. **Choose your cloud** — AWS is the only option today.
-2. **AWS credentials** — pick an existing AWS CLI profile, or paste the
-   access key you created in [step 1](#1-create-and-authorise-an-iam-user)
-   directly; either way the keys (if pasted) are encrypted with your OS
-   keychain, never stored in plaintext.
-3. **Bootstrap AWS resources** — creates the state bucket, the
+2. **Provision AWS access** — enter the region you want to deploy into, then
+   either **Continue with guided setup** (the default) or **I already have
+   credentials** to skip straight to step 3. Guided setup renders the
+   `iam-bootstrap.yaml` CloudFormation template to disk, opens the AWS
+   console's Create Stack page pre-scoped to your region, and has you upload
+   the template and paste back the Access Key ID / Secret Access Key from the
+   stack's Outputs. The app validates that key, then automatically mints a
+   replacement, verifies it, and revokes the bootstrap key — see
+   [step 1](#1-create-and-authorise-an-iam-user) for why. If the newly minted
+   key fails verification (AWS key propagation can lag a few seconds) the
+   step offers **Retry rotation** against the same bootstrap key; if
+   revoking the bootstrap key itself fails, the new key is already active
+   and the step gives you a direct IAM console link to revoke it by hand.
+   Progress is checkpointed at every sub-stage, so quitting mid-flow resumes
+   here rather than losing your place.
+3. **AWS credentials** — if you completed guided setup in step 2, this step
+   shows a satisfied summary ("Hyveon already provisioned and activated AWS
+   credentials during guided setup") instead of asking you to pick a profile
+   or paste keys — a **Switch to a different source** button is there if you
+   change your mind. Otherwise, pick an existing AWS CLI profile, or paste
+   the access key you created under [Manual fallback](#manual-fallback)
+   directly; either way pasted keys are encrypted with your OS keychain,
+   never stored in plaintext.
+4. **Bootstrap AWS resources** — creates the state bucket, the
    configuration bucket, and the run-history table directly via the AWS SDK
    (no CLI, no Terraform, and none of the three is Pulumi-managed): a
    **state bucket** (default `hyveon-tfstate`, versioned, AES-256 encrypted)
    that Pulumi's self-managed S3 backend reads and writes state to; a
    **configuration bucket** (default `hyveon-tfvars`, versioned, 90-day
-   noncurrent-version expiry) that holds the JSON configuration object your
-   game servers are declared in; and a **run-history table** (default
+   noncurrent-version expiry, AES-256 encrypted) that holds the JSON
+   configuration object your game servers are declared in; and a
+   **run-history table** (default
    `hyveon-runs`) that records every plan/apply/destroy run. All three names
    can be selected during this bootstrap step; the run-history table name
    cannot change afterward without a migration, since it names an
@@ -230,7 +294,7 @@ steps, none of them a CLI command:
    check** — it simulates the `HyveonDeployAll` policy's actions against
    your credentials and tells you exactly which are missing, but never
    blocks you from continuing.
-4. **Finish setup** — resolves and installs the pinned Pulumi engine,
+5. **Finish setup** — resolves and installs the pinned Pulumi engine,
    installs the AWS provider plugin, and initializes the Pulumi stack
    against the bucket you just created. Runs automatically on arrival; no
    configuration needed beyond what you already entered.

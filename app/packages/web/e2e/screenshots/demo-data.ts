@@ -83,11 +83,16 @@ export interface BootstrapResult {
 /** Mirrors `IamCheckStatus` in `hyveon-api.ts`. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
+/** Mirrors `IamCheckOrigin` in `hyveon-api.ts`. */
+export type IamCheckOrigin = 'guided' | 'pasted' | 'profile' | 'none';
+
 /** Mirrors `IamCheckResult` in `hyveon-api.ts`. */
 export interface IamCheckResult {
   status: IamCheckStatus;
   policyJson?: string;
   message?: string;
+  origin: IamCheckOrigin;
+  blocking: boolean;
 }
 
 /** Mirrors `WizardProgress` in `hyveon-api.ts`. */
@@ -734,7 +739,7 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
     ] as AwsProfileSummary[],
     bootstrapCreated: { status: 'created' as BootstrapResourceStatus },
     bootstrapExists: { status: 'exists' as BootstrapResourceStatus },
-    iamPassed: { status: 'passed' as IamCheckStatus },
+    iamPassed: { status: 'passed', origin: 'profile', blocking: false } as IamCheckResult,
     wizardState: { wizardCompleted: false } as WizardState,
     stackInitEvents: DEMO_STACK_INIT_EVENTS,
   };
