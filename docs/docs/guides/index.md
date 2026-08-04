@@ -19,11 +19,6 @@ Role-oriented walkthroughs for the three people most likely to open this site:
   any more — AWS credentials, Discord secrets, and your game configuration
   all live outside the repo. Includes an interactive scaffolder that
   generates the wrapper Makefile for you.
-- **[S3 tfvars storage guide](/guides/s3-tfvars)** — a
-  legacy, maintainer-only CLI that syncs a `terraform.tfvars`-shaped S3
-  object nothing in the app reads any more (the app exclusively uses
-  `deployment-config.json` in the same bucket). Not part of the
-  recommended day-to-day workflow.
 
 The [Setup guide](/setup) is still the first stop if
 none of the above has happened yet.

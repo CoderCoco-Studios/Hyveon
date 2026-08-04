@@ -300,8 +300,9 @@ while the write paths and `getRawConfig()` throw a typed
 `ConfigurationNotConfiguredError`. Parsed results are cached in-memory for
 `TFVARS_CACHE_TTL_MS` (default 30 s) so repeated reads (e.g. drift checks)
 don't re-fetch from S3 on every call; `invalidateCache()` is called after any
-write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see the
-[S3 tfvars storage guide](/guides/s3-tfvars)) is a separate, maintainer-facing
+write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (a
+separate, maintainer-only CLI documented in the
+[maintainer guide](/guides/maintainer)) is a separate, maintainer-facing
 CLI concern — it does not share this resolution mechanism.
 
 `getTopLevelSettings()`/`updateTopLevelSettings()` are the top-level-field

@@ -137,35 +137,11 @@ below, so the table covers the three that actually do something:
 | `make update` | Bumps the submodule to the tip of `main` (`git submodule update --remote --merge`), then reminds you to commit the new submodule pointer. Does not rebuild or re-run anything else — if upstream changed dependencies or added a workspace, `make setup` again. |
 | `make dev` | Wipes stale TypeScript build info under the submodule's `app/packages/*/`, then runs `npm run app:dev` directly in the submodule — currently broken (see the [maintainer guide](/guides/maintainer)'s scripts table); build with `desktop:build` and launch with `app:start` in the submodule instead. |
 
-:::note `make dev`'s output still mentions Terraform — this is a known leftover
-The generated recipe's first line attempts a `terraform state pull` against
-a `terraform/` directory the submodule no longer has, and sets
-`TF_STATE_PATH` — an environment variable nothing in the app reads any
-more (removed as dead code in an earlier phase of this migration). The
-`terraform state pull` always fails silently (its output is redirected and
-the failure is swallowed), so this step is harmless but pointless — it
-does not block `make dev`, and the app itself needs neither the file nor
-the env var. This is tracked as a generator cleanup, not something you need
-to work around.
-:::
-
 There is no `make plan`/`make apply` any more, and no `tfvars-pull`/
 `tfvars-push`/`tfvars-diff` targets — those belonged to the old
-Terraform-CLI workflow and the S3 tfvars-sync backend built around it. The
-app's first-run wizard and its [Infrastructure](/app/iac) page replace all
-of that from inside the running app.
-
-## `scripts/tfvars-sync.ts` is legacy tooling, not part of this workflow
-
-The public repo still ships a standalone `tfvars-sync.ts` CLI
-(`npm run scripts:tfvars-sync`) that can pull/push/diff a `terraform.tfvars`
-object against the S3 bucket the wizard provisions for your JSON
-configuration — but the app itself never reads the `terraform.tfvars`
-object key that tool syncs; it exclusively reads and writes
-`deployment-config.json` in the same bucket. This generated Makefile does
-not wire it up, and neither should you unless you have your own separate
-reason to keep a `terraform.tfvars`-shaped mirror in sync — it is not
-required for anything described on this page.
+Terraform-CLI workflow. The app's first-run wizard and its
+[Infrastructure](/app/iac) page replace all of that from inside the
+running app.
 
 ## Keeping up with upstream
 
@@ -206,4 +182,3 @@ Things that tend to need attention after a bump:
 | `make setup` says "No such file or directory" pointing at `Hyveon/` | Submodule wasn't initialised | `make setup` again (it runs `git submodule update --init --recursive` itself), or `git submodule update --init --recursive` by hand. |
 | `make update` silently pulls main and something breaks | Upstream changed something incompatible | `update` only bumps the submodule pointer and reminds you to commit — it doesn't rebuild anything. Run `make setup` again and check the app's own changelog/PR history for what changed. Pin to a SHA in `.gitmodules` if you want stricter control. |
 | After bumping upstream, Discord commands have wrong arguments | Descriptors in `@hyveon/shared/commands.ts` changed | Click **Register commands** for each guild in the dashboard. |
-| `make dev` prints a Terraform-related line before the app starts | Known generator leftover — see the note above | Harmless; ignore it. The app needs neither the file nor the env var it's trying to set. |

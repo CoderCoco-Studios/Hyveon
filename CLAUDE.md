@@ -52,7 +52,7 @@ npm run desktop:package         # electron-builder installers → release/ (Win 
 npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
 npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
 npm run scripts:init-parent      # parent-repo scaffolder
-npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see guides/s3-tfvars)
+npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see guides/maintainer)
 
 npm run app:lint                 # eslint (flat config at app/eslint.config.js)
 npm run app:lint:fix
