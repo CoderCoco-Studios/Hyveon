@@ -34,6 +34,25 @@ const stoppedStatus: GameStatus = {
   state: 'stopped',
 };
 
+/** A minimal not-deployed-server status fixture. */
+const notDeployedStatus: GameStatus = {
+  game: 'minecraft',
+  state: 'not_deployed',
+};
+
+/** A minimal starting-server status fixture. */
+const startingStatus: GameStatus = {
+  game: 'minecraft',
+  state: 'starting',
+};
+
+/** An error-state status fixture carrying a distinctive error reason. */
+const errorStatus: GameStatus = {
+  game: 'minecraft',
+  state: 'error',
+  message: 'Task failed to start: insufficient capacity',
+};
+
 function renderCard(status: GameStatus = runningStatus) {
   return render(
     <MemoryRouter>
@@ -67,6 +86,82 @@ describe('GameCard — stats grid', () => {
     renderCard();
 
     expect(screen.queryByText('Players')).not.toBeInTheDocument();
+  });
+});
+
+describe('GameCard — error-state recovery', () => {
+  beforeEach(() => {
+    apiMock.stop.mockResolvedValue(undefined);
+    apiMock.start.mockResolvedValue(undefined);
+    toastMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+  });
+
+  it('should render the Start button enabled when the server is in the error state', () => {
+    renderCard(errorStatus);
+
+    const startButton = screen.getByRole('button', { name: /start/i });
+    expect(startButton).toBeInTheDocument();
+    expect(startButton).not.toBeDisabled();
+  });
+
+  it('should render the error message when the server is in the error state', () => {
+    renderCard(errorStatus);
+
+    expect(screen.getByText('Task failed to start: insufficient capacity')).toBeInTheDocument();
+  });
+
+  it('should not render an error message when the error state has no message', () => {
+    renderCard({ game: 'minecraft', state: 'error' });
+
+    expect(screen.queryByText(/insufficient capacity/i)).not.toBeInTheDocument();
+  });
+
+  it('should call api.start when Start is clicked from the error state', async () => {
+    renderCard(errorStatus);
+
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(apiMock.start).toHaveBeenCalledWith('minecraft');
+  });
+});
+
+describe('GameCard — Start/Stop button state per server state', () => {
+  beforeEach(() => {
+    apiMock.stop.mockResolvedValue(undefined);
+    apiMock.start.mockResolvedValue(undefined);
+    toastMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+  });
+
+  it('should render an enabled Start button and no Stop button when stopped', () => {
+    renderCard(stoppedStatus);
+
+    expect(screen.getByRole('button', { name: /start/i })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
+  });
+
+  it('should render an enabled Start button and no Stop button when not deployed', () => {
+    renderCard(notDeployedStatus);
+
+    expect(screen.getByRole('button', { name: /start/i })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
+  });
+
+  it('should render an enabled Stop button and no Start button when running', () => {
+    renderCard(runningStatus);
+
+    expect(screen.getByRole('button', { name: /stop/i })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /start/i })).not.toBeInTheDocument();
+  });
+
+  it('should render an enabled Stop button and no Start button when starting', () => {
+    renderCard(startingStatus);
+
+    expect(screen.getByRole('button', { name: /stop/i })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /start/i })).not.toBeInTheDocument();
   });
 });
 

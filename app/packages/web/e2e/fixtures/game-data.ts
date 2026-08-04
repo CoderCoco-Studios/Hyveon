@@ -35,6 +35,13 @@ export const MULTI_GAME_STATUSES: GameStatus[] = [
   { game: 'valheim', state: 'running', publicIp: '5.6.7.8' },
 ];
 
+/** A single game in the error state, carrying a distinctive failure reason. */
+export const ERROR_GAME: GameStatus = {
+  game: 'minecraft',
+  state: 'error',
+  message: 'Task failed to start: insufficient capacity',
+};
+
 /** Stub response for `GET /api/config` (the watchdog tuning panel). */
 export const WATCHDOG_CONFIG: WatchdogConfig = {
   watchdog_interval_minutes: 15,

@@ -68,6 +68,19 @@ export class DashboardPage {
     return this.page.getByText(state, { exact: true });
   }
 
+  /**
+   * Error-reason text rendered on a game card in the `error` state
+   * (issue #78), keyed off the `data-testid="game-card-error-{name}"` hook
+   * `GameCard` renders alongside the message so it can be located without
+   * depending on the message's actual wording.
+   *
+   * @param name - the game's name, matching {@link gameCardHeading}.
+   * @returns a locator for that card's error-message row.
+   */
+  gameCardErrorMessage(name: string): Locator {
+    return this.page.getByTestId(`game-card-error-${name}`);
+  }
+
   /** Empty-state card heading shown when no games are deployed. */
   emptyConfiguredMessage(): Locator {
     return this.page.getByRole('heading', { name: /no games deployed/i });
