@@ -129,11 +129,13 @@ If the run also mutated some resources before it failed or was aborted —
 Pulumi's engine reports this as `partialApply` on the run record — you get a
 different, more specific banner instead: **Apply stopped partway through.**
 Its point is that the deployed infrastructure no longer matches the plan
-you approved, so retrying that same apply is unsafe (it is still gated on a
-`planHash` computed against state that is now stale). The banner bundles a
-**Start over** button directly into it, guiding you to run a fresh plan
-against current state rather than retry. The same `partial` badge appears
-next to the run's status in [run history](#run-history).
+you approved, so retrying that same apply is unsafe. The `planHash` check
+only proves the plan artifact and configuration are unchanged since
+approval — it says nothing about whether resources were already mutated by
+a prior attempt. The banner deliberately offers no retry action, only a
+**Start over** button, guiding you to run a fresh plan against current
+state instead. The same `partial` badge appears next to the run's status in
+[run history](#run-history).
 
 ## The workspace-busy banner
 
