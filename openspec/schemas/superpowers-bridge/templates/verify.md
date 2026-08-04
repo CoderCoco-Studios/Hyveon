@@ -70,7 +70,7 @@ and Scenarios of `specs/*.md`:
 ## 5. Implementation Signal
 
 - [ ] No unstaged files in the worktree
-- [ ] All relevant commits have been pushed
+- [ ] All relevant implementation commits exist in local history
 
 **Commit range** (if known): `<from-sha>..<to-sha>`
 
