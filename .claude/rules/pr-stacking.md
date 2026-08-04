@@ -41,8 +41,9 @@ diff in flight.
   deviation from `/pr`'s default of basing on `main`). Only the stack's
   first PR bases on `main`.
 - **Each PR must independently pass this repo's full pre-PR gate**
-  (`npm run app:lint`, `app:typecheck`, `app:test`, plus `app:test:integration`/
-  `app:test:e2e` when applicable per `CLAUDE.md`) before opening it — a
+  (`npm run app:lint`, `npm run app:typecheck`, `npm run app:test`, plus
+  `npm run app:test:integration`/`npm run app:test:e2e` when applicable per
+  `CLAUDE.md`) before opening it — a
   later group in the stack inheriting a broken earlier group compounds the
   problem.
 - **Documentation updates can land in a dedicated, later PR in the same
