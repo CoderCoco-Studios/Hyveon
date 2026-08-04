@@ -188,9 +188,9 @@ async function askRequired(rl: Interface, label: string, def?: string): Promise<
  *   update → bump the submodule to the tip of `main`. No re-init step
  *            follows it: there is no longer a local Terraform working
  *            directory for a bump to invalidate.
- *   dev    → `npm run app:dev` directly in the submodule. No local state to
- *            pull — the app reads deployed state via the Pulumi Automation
- *            API at runtime, not a file on disk.
+ *   dev    → `npm run desktop:dev` directly in the submodule. No local state
+ *            to pull — the app reads deployed state via the Pulumi
+ *            Automation API at runtime, not a file on disk.
  *
  * `plan`/`apply` (which used to shell out to `terraform -chdir=$(TF_DIR)
  * plan/apply` directly) are gone entirely — the app's own Plan/Apply page
@@ -265,7 +265,7 @@ update:
 # Automation API at runtime, so this just launches the app.
 dev:
 \trm -f $(SUBMODULE)/app/packages/*/tsconfig*.tsbuildinfo
-\tcd $(SUBMODULE) && npm run app:dev
+\tcd $(SUBMODULE) && npm run desktop:dev
 `;
 }
 

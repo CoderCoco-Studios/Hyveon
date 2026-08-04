@@ -89,8 +89,10 @@ npm install
 # guide) bootstraps the S3 state backend and initializes the Pulumi stack
 # for you the first time you launch the app.
 
-# Electron desktop app — build once, then launch
-# (npm run app:dev / desktop:dev currently crash on launch — see the scripts table below)
+# Electron desktop app — dev mode (HMR on renderer saves)
+npm run desktop:dev
+
+# Or: build once, then launch (closer to the packaged app)
 npm run desktop:build
 npm run app:start
 
@@ -102,9 +104,8 @@ npm run app:lint && npm run app:test && npm run app:build
 
 | Command | What it does |
 |---|---|
-| `npm run app:dev` | Launches the Electron app in dev mode. Runs the `dev` script in the `@hyveon/app` workspace (`electron-vite dev --config ../electron.vite.config.ts`) — it does **not** literally delegate to the root `desktop:dev` script, though both ultimately invoke `electron-vite dev` against the same config, so behaviour is equivalent (including the outstanding bug below). |
 | `npm run app:build` | Compiles shared → cloud-aws → desktop-main → web TypeScript. |
-| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. **Currently broken**: `electron-vite dev`'s on-the-fly main-process bundling doesn't tree-shake the way a production `desktop:build` does, so it eagerly resolves several of NestJS's optional lazy-loaded imports (`@nestjs/websockets/socket-module` and similar) that this app never actually uses, and the main process crashes on launch. Use `desktop:build` + `app:start` instead until this is fixed. |
+| `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. Must run with cwd at the repo root: `package.json` there has the `main` field electron-vite's entry-point check requires. |
 | `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
 | `npm run desktop:package` | Runs `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
 | `npm run app:build:lambdas` | esbuild every Lambda (including `efs-seeder`) to `dist/handler.cjs`. Required before the first infra apply. |

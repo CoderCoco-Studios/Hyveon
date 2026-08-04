@@ -27,7 +27,6 @@
   },
   "scripts": {
     "postinstall": "patch-package",
-    "app:dev": "npm run dev            -w @hyveon/app",
     "app:build": "npm run build          -w @hyveon/app",
     "app:start": "npm run start          -w @hyveon/app",
     "app:build:lambdas": "npm run build:lambdas  -w @hyveon/app",
