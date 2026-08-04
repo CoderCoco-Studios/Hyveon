@@ -149,8 +149,8 @@ never speaks HTTP to this process.
   intakes the operator-pasted bootstrap key, and performs the mandatory
   mint-then-revoke rotation onto a freshly-minted key pair — plus a
   standalone manual-revoke action for the rotation's failure path.
-  `PrerequisiteService` was deleted (task 10.1/10.2) along with the wizard's
-  old prerequisites step.
+  `PrerequisiteService` was deleted (`migrate-iac-to-pulumi` change, tasks
+  10.1/10.2) along with the wizard's old prerequisites step.
 - **`ElectronStoreModule`** — provides `SafeStorageService` (OS-keychain
   encryption) and `ElectronStoreService` (the typed `electron-store`
   consumer built on top of it). See

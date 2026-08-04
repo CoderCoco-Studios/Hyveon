@@ -193,15 +193,20 @@ explicitly included above to avoid `AccessDenied` during an apply:
 - **CloudFront** — the Discord interactions endpoint is fronted by a CloudFront distribution. `cloudfront:*` above covers creation, updates, tagging, and deletion of distributions.
 - **ACM (Certificate Manager)** — CloudFront's custom domain (`discord.{hosted_zone_name}`) needs a DNS-validated ACM certificate, always provisioned in `us-east-1` regardless of your chosen region. This needs `acm:RequestCertificate`, `acm:DescribeCertificate`, `acm:AddTagsToCertificate`, and `acm:DeleteCertificate` at minimum; `acm:*` above covers all of it. ACM certificate ARNs aren't predictable before creation (unlike the project-prefixed IAM roles/policies in `HyveonIAM`), so this is scoped like `cloudfront:*`/`route53:*` above — `Resource: "*"` within the `HyveonDeploy` statement, not a separate ARN-scoped statement.
 
-This policy is the **single source of truth** for IAM permissions. If you
-need to add or remove permissions, edit it here — do not create separate
-inline policies or update the README independently. Two things in the app are
-generated from (and test-locked against) this exact JSON: the in-app setup
-wizard's IAM permission check (see [step 2](#2-clone-install-and-launch-the-wizard))
+`HYVEON_DEPLOY_ALL_ACTIONS` in `app/packages/shared/src/iamPolicy.ts` is the
+**single source of truth** for IAM permissions — this JSON block is generated
+from it, not the other way around. If you need to add or remove permissions,
+update `HYVEON_DEPLOY_ALL_ACTIONS` there, not this documentation; do not
+create separate inline policies or update the README independently. Two
+things in the app are generated from that same shared source: the in-app
+setup wizard's IAM permission check (see [step 2](#2-clone-install-and-launch-the-wizard))
 simulates every action in it against your credentials, and the guided-IAM
 step's CloudFormation template generates its `HyveonDeployAll` managed policy
-from the same source — so the permissions the guided flow provisions can
-never drift from what's documented here.
+from it too — so the permissions the guided flow provisions can never drift
+from what the wizard check simulates. This JSON block itself is test-locked
+against `HYVEON_DEPLOY_ALL_ACTIONS`
+(`app/packages/shared/src/iamPolicy.test.ts`), so it must be updated to match
+whenever the shared source changes, or that test fails.
 
 ### `HyveonSelfRotate`: a second, narrower managed policy
 
