@@ -25,9 +25,10 @@ Top right of the page:
 
 | Badge | Condition |
 |---|---|
-| **serverless · ready** (green) | The bot token and public key are both stored, and Terraform has published an interactions endpoint URL |
-| **terraform not applied** (amber) | No interactions endpoint URL — the Lambda has not been deployed. Run a Terraform apply |
-| **awaiting credentials** (amber) | The endpoint exists, but the bot token or public key (or both) has not been saved |
+| **serverless · ready** (green) | The bot token and public key are both stored, and an apply has published an interactions endpoint URL |
+| **not applied yet** (amber) | No interactions endpoint URL — the Lambda has not been deployed. Plan and apply from the [Infrastructure](/app/iac) page |
+| **awaiting credentials** (amber) | The endpoint URL exists, but the bot token or public key (or both) has not been saved |
+| **incomplete** (amber) | A third fallback label in the badge's logic. It cannot currently be reached in practice: the only way to have an endpoint URL and still be non-ready is a missing secret, which the row above already covers |
 
 :::caution "Ready" is narrower than it sounds
 
@@ -72,7 +73,7 @@ Four tabs, in this order: **Credentials**, **Guilds**, **Admins**,
 | **Application (Client) ID** | Not a secret — the stored value is shown. Must be a 17–20 digit Discord snowflake if provided |
 | **Bot Token** | Masked, with an eye toggle to reveal what you typed |
 | **Application Public Key** | Masked, with an eye toggle |
-| **Interactions Endpoint URL** | Read-only, published by Terraform |
+| **Interactions Endpoint URL** | Read-only, published by an apply |
 
 Both secret fields behave the same way. When a value is already stored, a
 green **set** marker appears next to the label, the placeholder reads *Leave
@@ -96,10 +97,11 @@ registrar, which fetches it itself when it calls Discord.
 
 ### The Interactions Endpoint URL
 
-This is the HTTPS endpoint Discord will send every interaction to. It is
-created by Terraform, so before your first apply the field reads:
+This is the HTTPS endpoint Discord will send every interaction to. It is a
+Lambda Function URL provisioned by the infra program, so before your first
+apply the field reads:
 
-> Run `terraform apply` to provision the Lambda and surface this URL.
+> Run a plan and apply from the [Infrastructure](/app/iac) page to provision the Lambda and surface this URL.
 
 Once it exists it is shown in a code block with a **Copy** button (which flips
 to **Copied** for a second and a half).
@@ -140,7 +142,7 @@ Type or paste a guild (server) ID into the **Add a guild** field — placeholder
 | Error | Meaning |
 |---|---|
 | `Guild IDs are 17–20 digit Discord snowflakes.` | Not a valid snowflake |
-| `That guild is already allowlisted.` | Already present, in either the app's list or Terraform's |
+| `That guild is already allowlisted.` | Already present, in either the app's list or the base config's |
 
 Adding takes effect on the next interaction — the Lambda re-reads its config
 on every invocation, so there is nothing to restart.
@@ -150,7 +152,7 @@ on every invocation, so there is nothing to restart.
 | Column | Contents |
 |---|---|
 | **Guild ID** | The snowflake |
-| **Status** | `registered` or `not registered`, plus a `terraform` badge on Terraform-managed rows |
+| **Status** | `registered` or `not registered`, plus a `base` badge on base-config rows |
 | **Actions** | **Register** and **Remove** |
 
 When the list is empty: `No guilds allowlisted yet.`
@@ -188,20 +190,24 @@ exactly which guild it stopped on — and it carries on through the rest of the
 allowlist rather than aborting.
 :::
 
-### Terraform-managed guilds
+### Base config guilds
 
-Guilds set through the `base_allowed_guilds` Terraform variable appear with a
-`terraform` badge, and their **Remove** button is disabled with the tooltip:
+Guilds set through the **Base allowed guild IDs** field on the
+[Settings](/app/settings) page (the `baseAllowedGuilds` field in
+`deployment-config.json`) appear with a `base` badge, and their **Remove**
+button is disabled with the tooltip:
 
-> Managed by Terraform — remove via terraform.tfvars
+> Locked by the base deployment config — edit "Base allowed guild IDs" on the
+> Settings page, then plan and apply.
 
-They live in a Terraform-owned record that the app only ever reads. Even if
+They live in a base-config DynamoDB record (the `BASE#discord` row) that the
+infra program (re)writes on every apply; the app only ever reads it. Even if
 the request were forced through, the server refuses it:
 
 > Guild `…` is in the Terraform base config and cannot be removed via the UI.
 > Edit base_allowed_guilds in tfvars and re-apply Terraform.
 
-Terraform-managed guilds *can* still be registered — the restriction is on
+Base-config guilds *can* still be registered — the restriction is on
 removal only.
 
 ### Removing a guild
@@ -262,16 +268,18 @@ Success shows `Admins saved`.
 Nothing is persisted until you press Save; adding and removing chips only
 changes what you see.
 
-### Terraform-managed admins
+### Base config admins
 
-If admins were set through the `base_admin_user_ids` / `base_admin_role_ids`
-Terraform variables, a read-only section appears below the Save button headed:
+If admins were set through the **Base admin user IDs** / **Base admin role
+IDs** fields on the [Settings](/app/settings) page (`baseAdminUserIds` /
+`baseAdminRoleIds` in `deployment-config.json`), a read-only section appears
+below the Save button headed:
 
-> **Terraform-managed (read-only)**
+> **Base config (read-only)**
 
-Those chips have no remove button at all. Change them by editing
-`terraform.tfvars` and re-applying. They are unioned with the app-managed list
-at runtime, so both sets of admins are effective.
+Those chips have no remove button at all. Change them on the
+[Settings](/app/settings) page and re-apply. They are unioned with the
+app-managed list at runtime, so both sets of admins are effective.
 
 ---
 
@@ -329,7 +337,8 @@ bypass per-game permissions entirely.
 
 If no games are known:
 
-> No games configured yet — run `terraform apply` first.
+> No games configured yet — declare one on the [Games](/app/games) page, then
+> plan and apply from [Infrastructure](/app/iac).
 
 Note that this same message appears if the games list simply failed to load,
 so if you know you have games declared, check the Games page.
@@ -341,12 +350,12 @@ so if you know you have games declared, check the Games page.
 Before the configuration loads, the page shows only its heading and
 `Loading…`. If the configuration cannot be read at all:
 
-> Discord config unavailable — infrastructure not deployed yet. Run
-> \`terraform apply\` first.
+> Discord config unavailable — infrastructure not deployed yet. Run a plan
+> and apply from the [Infrastructure](/app/iac) page first.
 
 The tabs, the readiness badge and the Get started card are all absent in that
-state. It means Terraform has not published the DynamoDB table and Secrets
-Manager ARNs the app needs.
+state. It means the infra program has not published the DynamoDB table name
+and Secrets Manager ARNs the app needs — no apply has succeeded yet.
 
 Any failed change produces a toast titled **Action failed** with the reason as
 its description.
@@ -355,8 +364,9 @@ its description.
 
 The badge covers three of these. The rest are on you.
 
-1. `terraform apply` has run, publishing the interactions endpoint, the config
-   table and the two secrets.
+1. An apply has succeeded from the [Infrastructure](/app/iac) page,
+   publishing the interactions endpoint, the config table and the two
+   secrets.
 2. A Discord application with a Bot exists.
 3. The **Application (Client) ID** is saved — required for command
    registration, and not checked by the badge.
@@ -366,8 +376,8 @@ The badge covers three of these. The rest are on you.
    developer portal and accepted.
 7. The bot has been **invited to the guild** with the `applications.commands`
    scope. Nothing in this UI reflects this.
-8. The **guild is allowlisted**, here or via Terraform.
+8. The **guild is allowlisted**, here or via the base config.
 9. **Commands have been registered in that guild.**
 10. The invoking user is an **admin**, or has a matching per-game entry with
     the right action ticked.
-11. The game itself is declared in `terraform.tfvars` and deployed.
+11. The game itself is declared in `deployment-config.json` and deployed.

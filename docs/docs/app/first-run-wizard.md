@@ -18,7 +18,7 @@ The header reads **Welcome to Hyveon**, with a subtitle showing
 | 1 | Choose your cloud | Picks the cloud provider (AWS only, today) |
 | 2 | Provision AWS access | Optionally has Hyveon create and rotate an AWS deploy principal for you via a guided CloudFormation flow, or lets you skip straight to supplying your own credentials |
 | 3 | AWS credentials | Picks an AWS profile, or stores pasted access keys — skipped over automatically if step 2's guided flow already established a credential |
-| 4 | Bootstrap AWS resources | Creates the S3 state bucket and S3 tfvars bucket |
+| 4 | Bootstrap AWS resources | Creates the S3 state bucket, S3 tfvars bucket, and DynamoDB run-history table |
 | 5 | Finish setup | Initializes the Pulumi stack against that new backend |
 
 At the bottom of every step: **Back** (disabled on step 1) and **Next**. Step 5

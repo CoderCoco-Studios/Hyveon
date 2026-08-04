@@ -8,9 +8,7 @@ sidebar_position: 4
 The Games screen (route `/games`) is where you declare what servers exist. It
 is the app's editor for `gameServers` in the versioned JSON configuration
 object (`deployment-config.json`, in your S3 configuration bucket) — there
-is no `terraform.tfvars` any more. A handful of literal UI strings quoted
-verbatim below still say `terraform.tfvars`; that's the app's own
-not-yet-updated copy, not a claim that the file exists.
+is no `terraform.tfvars` any more.
 
 :::danger The rule that governs this whole screen
 
@@ -220,8 +218,8 @@ The header carries the game name, its status chip, and — for declared games �
 If you open the detail page for an **Undeclared** game, none of those cards
 appear. Instead:
 
-> This game is deployed but has no entry in `terraform.tfvars` — there is no
-> declared configuration to show.
+> This game is deployed but has no entry in the configuration object — there
+> is no declared configuration to show.
 
 **Edit** and **Remove game** are not rendered at all, because there is nothing
 declared left to edit or remove. The way to clean it up is to run a plan and
@@ -266,7 +264,7 @@ never collides with itself.
 **Remove game** opens a confirmation dialog:
 
 > ### Remove minecraft?
-> This deletes the `minecraft` entry from `terraform.tfvars`. The deployed AWS
+> This deletes the `minecraft` entry from `deployment-config.json`. The deployed AWS
 > resources stay live until an operator applies the change from the
 > **Infrastructure** page.
 
@@ -274,7 +272,7 @@ Below the text is a single input whose placeholder is the game's own name. You
 must type the game name **exactly** — the match is case-sensitive and
 untrimmed — before the **Remove game** button becomes clickable.
 
-On success you get `minecraft removed from terraform.tfvars` and are returned
+On success you get `minecraft removed from deployment-config.json` and are returned
 to the games list, where the game now shows as **Undeclared** until you run a
 plan and apply.
 

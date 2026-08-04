@@ -6,8 +6,11 @@ sidebar_position: 4
 # Lambdas
 
 Five TypeScript Lambda packages live under `app/packages/lambda/`. Each
-builds via esbuild to a single CJS file at `dist/handler.cjs`; Terraform's
-`archive_file` data source zips that at apply time.
+builds via esbuild to a single CJS file at `dist/handler.cjs`; the Pulumi
+infra program's `lambdaCode()` helper (`app/packages/infra/src/lambdas.ts`)
+wraps that file in an `AssetArchive`/`FileAsset` pair at deploy time —
+functionally equivalent to Terraform's old `archive_file` data source, which
+has no direct Pulumi resource counterpart.
 
 ```bash
 npm run app:build:lambdas        # produces every dist/handler.cjs
@@ -15,9 +18,11 @@ npm run app:build:lambdas        # produces every dist/handler.cjs
 
 The four core Lambdas (interactions, followup, update-dns, watchdog) read
 AWS region from `process.env.AWS_REGION_` (trailing underscore —
-`AWS_REGION` is reserved by the Lambda runtime). Terraform sets the variable
-with that name in every function definition, including efs-seeder's — but
-efs-seeder never reads it, since it makes no AWS SDK calls (see below).
+`AWS_REGION` is reserved by the Lambda runtime). The Pulumi infra program
+sets the variable with that name in every function definition
+(`app/packages/infra/src/lambdas.ts`'s `defineLambdas`), including
+efs-seeder's — but efs-seeder never reads it, since it makes no AWS SDK
+calls (see below).
 
 ## interactions
 
@@ -25,7 +30,7 @@ efs-seeder never reads it, since it makes no AWS SDK calls (see below).
 |---|---|
 | **Package** | `@hyveon/lambda-interactions` |
 | **Trigger** | Lambda Function URL (public HTTPS, `auth_type = NONE`, CORS for `https://discord.com`) — Discord POSTs every interaction here. |
-| **Terraform** | `terraform/aws/interactions.tf`. Output: `interactions_invoke_url`. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`interactionsFunction`, `interactionsFunctionUrl`). Output: `StackOutputs.interactionsInvokeUrl` (`program.ts`). |
 | **IAM** | `dynamodb:GetItem` on the Discord table, `secretsmanager:GetSecretValue` on the public-key secret, `lambda:InvokeFunction` on the followup Lambda. |
 | **Env vars** | `AWS_REGION_`, `TABLE_NAME`, `DISCORD_PUBLIC_KEY_SECRET_ARN`, `FOLLOWUP_LAMBDA_NAME`, `GAME_NAMES`, `HOSTED_ZONE_NAME`. |
 
@@ -60,7 +65,7 @@ we can't forge).
 |---|---|
 | **Package** | `@hyveon/lambda-followup` |
 | **Trigger** | Async invoke from the interactions Lambda (`InvocationType: 'Event'`). Not exposed externally. |
-| **Terraform** | `terraform/aws/followup.tf`. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`followupFunction`). |
 | **IAM** | `ecs:RunTask` / `StopTask` / `ListTasks` / `DescribeTasks` / `TagResource`, `iam:PassRole` (task execution role — required for RunTask with Fargate), `ec2:DescribeNetworkInterfaces`, `dynamodb:GetItem` / `PutItem`, `secretsmanager:GetSecretValue` on the public key (only read for downstream calls in some paths). |
 | **Env vars** | `AWS_REGION_`, `TABLE_NAME`, `ECS_CLUSTER`, `SUBNET_IDS` (comma-separated), `SECURITY_GROUP_ID`, `DOMAIN_NAME`, `GAME_NAMES`. |
 
@@ -117,7 +122,7 @@ Failure modes:
 |---|---|
 | **Package** | `@hyveon/lambda-update-dns` |
 | **Trigger** | EventBridge rule on `source: aws.ecs`, `detail-type: 'ECS Task State Change'`, `lastStatus` in `['RUNNING', 'STOPPED']`. |
-| **Terraform** | `terraform/aws/route53.tf`. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`dnsUpdaterFunction`, `ecsTaskChangeRule`) — `route53.ts` only performs the hosted-zone lookup (DNS records themselves are Lambda-managed, never infra-program-managed). |
 | **IAM** | `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`, `ecs:DescribeTasks`, `ec2:DescribeNetworkInterfaces`, `dynamodb:GetItem` / `DeleteItem`. |
 | **Env vars** | `HOSTED_ZONE_ID`, `DOMAIN_NAME`, `GAME_NAMES`, `DNS_TTL`, `AWS_REGION_`, `TABLE_NAME`. |
 
@@ -169,7 +174,7 @@ Failure modes:
 |---|---|
 | **Package** | `@hyveon/lambda-watchdog` |
 | **Trigger** | EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. No event payload. |
-| **Terraform** | `terraform/aws/watchdog.tf`. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`watchdogFunction`, `watchdogScheduleRule`). |
 | **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`. |
 | **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`. |
 
@@ -209,18 +214,18 @@ Failure modes:
 | | |
 |---|---|
 | **Package** | `@hyveon/lambda-efs-seeder` |
-| **Trigger** | `aws_lambda_invocation` in `terraform/aws/efs-seeder.tf`, run synchronously during `terraform apply`. Not exposed externally, not event-driven, and not part of the always-on control flow the other four Lambdas belong to. |
-| **Terraform** | `terraform/aws/efs-seeder.tf`. **One function per game that declares `file_seeds`** — this Lambda is conditionally created, not fixed like the other four. Games with no `file_seeds` get no seeder function, no seeder IAM role, and no seeder log group. |
+| **Trigger** | An `aws.lambda.Invocation` resource in `app/packages/infra/src/escapes.ts`'s `defineEfsSeederInvocations`, invoked synchronously as part of `PulumiService`'s `apply()` (`stack.up()`). Not exposed externally, not event-driven, and not part of the always-on control flow the other four Lambdas belong to. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`efsSeederFunctions`, `efsSeederLogGroups`) and `app/packages/infra/src/escapes.ts` (`efsSeederInvocations`). **One function per game that declares `file_seeds`** — this Lambda is conditionally created, not fixed like the other four. Games with no `file_seeds` get no seeder function, no seeder IAM role, and no seeder log group. |
 | **IAM** | Per-game role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), `elasticfilesystem:ClientMount`/`ClientWrite` scoped to the shared EFS filesystem. |
-| **Env vars** | `AWS_REGION_` — set by Terraform for consistency with the other Lambdas, but unused: this handler makes no AWS SDK calls (see below). |
+| **Env vars** | `AWS_REGION_` — set by the Pulumi infra program for consistency with the other Lambdas, but unused: this handler makes no AWS SDK calls (see below). |
 
 ### Behaviour
 
 The Lambda mounts the game's first volume's EFS access point at `/mnt/efs`
 via `file_system_config` (VPC-attached, using the same public subnets and a
 dedicated `efs-seeder` security group whose egress is currently unrestricted —
-all protocols to `0.0.0.0/0`, not scoped to NFS; see
-`terraform/aws/efs-seeder.tf`) and
+all protocols to `0.0.0.0/0`, not scoped to NFS; see the `efsSeederSg` group
+in `app/packages/infra/src/securityGroups.ts`) and
 receives `{ game, seeds, container_path }` as its invocation payload —
 `container_path` is `volumes[0].container_path`.
 
@@ -232,18 +237,21 @@ receives `{ game, seeds, container_path }` as its invocation payload —
    must be set — and validate `mode` is a 3–4 digit octal string (default
    `"0644"`).
 3. `mkdirSync(..., { recursive: true })` then `writeFileSync` with that mode.
-4. Throw on any error — `aws_lambda_invocation` is a synchronous Terraform
-   resource, so a thrown error surfaces directly as a `terraform apply`
-   failure rather than an async CloudWatch-only failure.
+4. Throw on any error — `aws.lambda.Invocation` is a synchronous Pulumi
+   resource (it calls the Lambda's `Invoke` API during resource creation),
+   so a thrown error surfaces directly as a failed `PulumiService.apply()`
+   run (`stack.up()`, raised to the caller as `PulumiUpError`/
+   `PulumiPartialApplyError`) rather than an async CloudWatch-only failure.
 
 Unlike the other four Lambdas, this handler imports no `@aws-sdk/*` package
 at all — it only touches the filesystem (`fs`, `path`), which is why the
-`AWS_REGION_` env var Terraform sets on it is never actually read.
+`AWS_REGION_` env var the infra program sets on it is never actually read.
 
-**Re-trigger behaviour**: the `aws_lambda_invocation.efs_seeder` resource's
-`triggers` block is `{ seeds_hash = sha256(jsonencode(each.value.file_seeds)) }`,
-so `terraform apply` only re-invokes the Lambda for a game when that game's
-`file_seeds` content actually changes — an apply with unchanged seeds is a
+**Re-trigger behaviour**: each invocation's `triggers` is
+`{ seedsHash: fileSeedsHash(fileSeeds) }` (`escapes.ts`'s
+`defineEfsSeederInvocations`) — a SHA-256 digest of the game's `file_seeds`
+array — so a deploy only re-invokes the Lambda for a game when that game's
+`file_seeds` content actually changes; a deploy with unchanged seeds is a
 no-op for this Lambda. Removed seed entries are not deleted from EFS; clean
 them up via the FileBrowser task.
 
@@ -251,10 +259,10 @@ Failure modes:
 
 - Path validation error (traversal, missing file component, both/neither of
   `content`/`content_base64` set, invalid `mode`) → thrown synchronously,
-  fails the `terraform apply`.
+  fails the `PulumiService.apply()` run.
 - EFS mount not ready (mount targets still propagating) → Lambda invocation
-  fails; `terraform apply` reports the error, retry the apply once mount
-  targets are up (~30 s after `aws_efs_mount_target` creation).
+  fails; the deploy reports the error — retry once mount targets are up
+  (~30 s after the EFS mount target's creation).
 
 ## The `/server-start` critical path, assembled
 
