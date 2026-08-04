@@ -106,6 +106,7 @@ export default defineConfig({
           'semver',
           'class-validator',
           'class-transformer',
+          'electron-updater',
         ],
         output: {
           format: 'es',
