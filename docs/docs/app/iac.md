@@ -12,7 +12,7 @@ it, and apply it.
 
 > Plan, review, and apply infrastructure changes directly from the app.
 
-![The Infrastructure page with a Run plan button and an empty log viewer waiting for output](/img/app/terraform.png)
+![The Infrastructure page with a Run plan button and an empty log viewer waiting for output](/img/app/iac.png)
 
 The workflow is a strict sequence, and each stage only unlocks the next:
 
@@ -69,7 +69,7 @@ appears. Approval is a separate, recorded act — the approver's name is taken
 from the operating-system user running the app, never supplied by the page —
 so run history shows who signed off on what.
 
-![The Infrastructure page after a successful plan, showing the change-summary badges and an Approve plan button](/img/app/terraform-awaiting-approval.png)
+![The Infrastructure page after a successful plan, showing the change-summary badges and an Approve plan button](/img/app/iac-awaiting-approval.png)
 
 Approving shows a `Plan approved` toast and replaces the button with a panel:
 
@@ -118,7 +118,7 @@ in run history. Output streams the same way.
 On success you get a green panel reading **Apply complete.** with a **View
 dashboard** link, plus a toast.
 
-![The Infrastructure page after a successful apply, showing streamed apply output in the log viewer, the resources-added change summary, and a green Apply complete banner with a View dashboard link](/img/app/terraform-apply.png)
+![The Infrastructure page after a successful apply, showing streamed apply output in the log viewer, the resources-added change summary, and a green Apply complete banner with a View dashboard link](/img/app/iac-apply.png)
 
 ### A failed or aborted apply
 
@@ -216,7 +216,7 @@ the page to reset the section.
 
 The **View history** link in the page header opens `/iac/history`.
 
-![The Infrastructure run history table listing past plan, apply and destroy runs with status badges, timestamps and approver, plus Kind and Status filters](/img/app/terraform-history.png)
+![The Infrastructure run history table listing past plan, apply and destroy runs with status badges, timestamps and approver, plus Kind and Status filters](/img/app/iac-history.png)
 
 > Past plan, apply, and destroy runs.
 

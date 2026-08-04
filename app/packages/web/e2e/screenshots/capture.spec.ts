@@ -241,70 +241,72 @@ test('settings.png', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Terraform
+// Infrastructure (IaC)
 // ---------------------------------------------------------------------------
 
-test('terraform.png', async () => {
+test('iac.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
     await gotoRoute(win, '/iac');
     await disableMotion(win);
     await expect(new IacPage(win).heading()).toBeVisible();
     await expect(win.getByRole('button', { name: /Run plan/ })).toBeVisible();
-    await shot(win, 'terraform.png');
+    await shot(win, 'iac.png');
   } finally {
     await app.close();
   }
 });
 
-test('terraform-awaiting-approval.png', async () => {
+test('iac-awaiting-approval.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
     await gotoRoute(win, '/iac');
-    const terraform = new IacPage(win);
-    // Drives the page into the approval-gate state: `terraform.plan()`
+    const iac = new IacPage(win);
+    // Drives the page into the approval-gate state: `iac.plan()`
     // resolves `{started:true, runId:'run-plan-demo'}` (mocked), the plan
     // run's log stream attaches and delivers `DEMO_TERRAFORM_PLAN_CHUNKS`
     // (see `demo-data.ts`) through the real `HyveonStreamHandle`, which flips
     // `useTerraformRunLog`'s `ended` flag once the iterable completes and
-    // triggers the one-shot `terraform.runs.get(runId)` follow-up (mocked to
-    // `awaiting_approval`). The resource-change summary badges ("N to add" /
-    // "N to change" / "N to destroy") are parsed from those same streamed
-    // chunks by `parsePlanSummary` in `terraform.page.tsx`, so this screenshot
-    // now shows both the populated ANSI log and the badges alongside the
-    // Approve gate.
-    await terraform.runPlanButton().click();
-    await expect(terraform.approveButton()).toBeVisible();
-    await expect(terraform.summaryBadge('1 to add')).toBeVisible();
-    await expect(terraform.summaryBadge('1 to change')).toBeVisible();
-    await expect(terraform.summaryBadge('0 to destroy')).toBeVisible();
+    // triggers the one-shot `iac.runs.get(runId)` follow-up (mocked to
+    // `awaiting_approval`, with a `changeSummary` of `{ create: 1, update: 1 }`).
+    // The resource-change summary badges ("N to create" / "N to update") are
+    // rendered by `ChangeSummaryStatus` in `iac.page.tsx` straight off that
+    // structured `changeSummary` — never by parsing the streamed ANSI log —
+    // so this screenshot shows both the populated log and the badges
+    // alongside the Approve gate. `delete`/`replace`/`other` are absent from
+    // the mock, so no badge renders for them (`ChangeSummaryStatus` only
+    // renders a badge for counts > 0).
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeVisible();
+    await expect(iac.summaryBadge('1 to create')).toBeVisible();
+    await expect(iac.summaryBadge('1 to update')).toBeVisible();
     await disableMotion(win);
-    await shot(win, 'terraform-awaiting-approval.png');
+    await shot(win, 'iac-awaiting-approval.png');
   } finally {
     await app.close();
   }
 });
 
-test('terraform-apply.png', async () => {
+test('iac-apply.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
     await gotoRoute(win, '/iac');
-    const terraform = new IacPage(win);
-    // Carries the plan from `terraform-awaiting-approval.png` one step
-    // further: approve, then apply. `terraform.apply()` resolves
+    const iac = new IacPage(win);
+    // Carries the plan from `iac-awaiting-approval.png` one step
+    // further: approve, then apply. `iac.apply()` resolves
     // `{started:true, runId:'run-apply-demo'}` (mocked), whose log stream
     // delivers `DEMO_TERRAFORM_APPLY_CHUNKS` (see `demo-data.ts`) — the same
-    // 1 add / 1 change / 0 destroy shape as the plan, so the two screenshots
-    // tell one consistent story.
-    await terraform.runPlanButton().click();
-    await expect(terraform.approveButton()).toBeVisible();
-    await terraform.approveButton().click();
-    await expect(terraform.approvedText()).toBeVisible();
-    await terraform.applyButton().click();
-    await expect(terraform.applyCompleteText()).toBeVisible();
-    // The Plan section (with its own "1 to add" badge) stays mounted above
+    // `{ create: 1, update: 1 }` changeSummary shape as the plan, so the two
+    // screenshots tell one consistent story.
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeVisible();
+    await iac.approveButton().click();
+    await expect(iac.approvedText()).toBeVisible();
+    await iac.applyButton().click();
+    await expect(iac.applyCompleteText()).toBeVisible();
+    // The Plan section (with its own "1 to create" badge) stays mounted above
     // the Apply section, so `.last()` targets the Apply section's copy.
-    await expect(terraform.summaryBadge('1 to add').last()).toBeVisible();
+    await expect(iac.summaryBadge('1 to create').last()).toBeVisible();
     // `toast.success('Apply complete')` fires a Sonner toast that
     // would otherwise sit on top of the Apply section for its full 4s
     // duration — the frozen clock never advances on its own, so nothing ever
@@ -312,15 +314,15 @@ test('terraform-apply.png', async () => {
     // toast's own exit-animation timers) so the shot shows the settled page,
     // not a toast overlapping the result.
     await win.clock.fastForward(5000);
-    await terraform.applyCompleteText().scrollIntoViewIfNeeded();
+    await iac.applyCompleteText().scrollIntoViewIfNeeded();
     await disableMotion(win);
-    await shot(win, 'terraform-apply.png');
+    await shot(win, 'iac-apply.png');
   } finally {
     await app.close();
   }
 });
 
-test('terraform-history.png', async () => {
+test('iac-history.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
   try {
     await gotoRoute(win, '/iac');
@@ -329,7 +331,7 @@ test('terraform-history.png', async () => {
     await expect(new IacHistoryPage(win).heading()).toBeVisible();
     // Rows render `record.kind` (plan/apply/destroy), not the raw `runId`.
     await expect(win.getByRole('cell', { name: 'chris@hyveon.example.com' })).toBeVisible();
-    await shot(win, 'terraform-history.png');
+    await shot(win, 'iac-history.png');
   } finally {
     await app.close();
   }
@@ -346,6 +348,25 @@ test('wizard-pick-cloud.png', async () => {
     await expect(win.getByRole('radiogroup', { name: 'Cloud provider' })).toBeVisible();
     await disableMotion(win);
     await shot(win, 'wizard-pick-cloud.png');
+  } finally {
+    await app.close();
+  }
+});
+
+test('wizard-guided-iam.png', async () => {
+  const { app, win } = await launchSeeded((w) => seedWizard(w, 'guided-iam'));
+  try {
+    await win.locator('#wizard-guided-iam-region').fill('us-east-1');
+    await win.getByRole('button', { name: 'Continue with guided setup' }).click();
+    // `GuidedIamStep` moves `region` -> `template` and fires
+    // `wizard.guidedIam.prepareTemplate()` (mocked in `demo-data.ts`'s
+    // `seedWizard`), which resolves with a template path — this is the
+    // template-and-console-handoff screen, the most illustrative single
+    // frame for this step (region input and key-intake are plain forms;
+    // this one shows the template path, copy button, and console link).
+    await expect(win.getByRole('button', { name: 'Continue to key entry' })).toBeVisible();
+    await disableMotion(win);
+    await shot(win, 'wizard-guided-iam.png');
   } finally {
     await app.close();
   }
@@ -382,7 +403,7 @@ test('wizard-bootstrap.png', async () => {
 test('wizard-stack-init.png', async () => {
   const { app, win } = await launchSeeded((w) => seedWizard(w, 'bootstrap'));
   try {
-    // `stack-init` (step 4) can only be reached by advancing from a
+    // `stack-init` (step 5) can only be reached by advancing from a
     // bootstrap-complete state — the wizard's own resume-on-mount logic
     // deliberately clamps a direct resume jump at `bootstrap` (see
     // `first-run-wizard.component.tsx`), so this always takes one real
