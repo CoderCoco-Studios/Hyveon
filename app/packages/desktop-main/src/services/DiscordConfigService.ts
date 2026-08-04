@@ -240,15 +240,15 @@ export class DiscordConfigService {
 
   /**
    * Remove a guild from the dynamic allowlist. Returns `{ ok: false }` when the
-   * guild is in the Terraform base config — those entries can only be removed by
-   * editing tfvars and re-applying Terraform.
+   * guild is in the base config — those entries can only be removed by editing
+   * "Base allowed guild IDs" on the Settings page and re-applying.
    */
   async removeAllowedGuild(guildId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
     const base = await this.loadBase();
     if (base.allowedGuilds.includes(guildId)) {
       return {
         ok: false,
-        reason: `Guild ${guildId} is in the Terraform base config and cannot be removed via the UI. Edit base_allowed_guilds in tfvars and re-apply Terraform.`,
+        reason: `Guild ${guildId} is in the base config and cannot be removed via the UI. Edit "Base allowed guild IDs" on the Settings page and re-apply from the Infrastructure page.`,
       };
     }
     const cfg = await this.load();

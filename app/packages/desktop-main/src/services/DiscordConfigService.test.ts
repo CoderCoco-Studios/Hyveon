@@ -91,10 +91,10 @@ beforeEach(() => {
 });
 
 describe('DiscordConfigService construction', () => {
-  it('should return an empty config when Terraform outputs are missing rather than crash the request', async () => {
+  it('should return an empty config when Pulumi stack outputs are missing rather than crash the request', async () => {
     // `load()` catches the "table name missing" error so a freshly-cloned
-    // repo where `terraform apply` hasn't run can still render the web UI
-    // (with empty config) instead of 500ing on every Discord controller call.
+    // repo where an apply hasn't run can still render the web UI (with
+    // empty config) instead of 500ing on every Discord controller call.
     const svc = makeService(null);
     const cfg = await svc.getConfig();
     expect(cfg).toEqual({
@@ -234,7 +234,7 @@ describe('DiscordConfigService.allowedGuilds mutations', () => {
     );
   });
 
-  it('should refuse to remove a guild that is in the Terraform base config', async () => {
+  it('should refuse to remove a guild that is in the base config', async () => {
     getBaseDiscordConfigMock.mockResolvedValue({
       allowedGuilds: ['G-base'],
       admins: { userIds: [], roleIds: [] },
