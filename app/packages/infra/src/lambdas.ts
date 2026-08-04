@@ -168,8 +168,8 @@ import type { GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import type { IamRoleResources } from './iam.js';
 
-/** Node.js Lambda runtime every one of the five functions declares (`nodejs20.x` in the HCL). */
-const LAMBDA_RUNTIME = 'nodejs20.x';
+/** Node.js Lambda runtime every one of the five functions declares. */
+const LAMBDA_RUNTIME = 'nodejs24.x';
 
 /** Handler string every one of the five functions declares (`handler.handler` in the HCL — module `handler.cjs`, exported function `handler`). */
 const LAMBDA_HANDLER = 'handler.handler';
