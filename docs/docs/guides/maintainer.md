@@ -20,7 +20,7 @@ This page is documentation over the top of them, not a replacement.
 Hyveon/
 ├── package.json                         # npm-workspaces ROOT — `npm run` scripts fan out from here
 ├── tsconfig.base.json                   # shared TS config
-├── scripts/                             # @hyveon/scripts — init-parent.ts submodule scaffolder
+├── scripts/                             # @hyveon/scripts — tfvars-sync.ts (legacy, maintainer-only)
 ├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs
 ├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
 ├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
@@ -117,8 +117,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
 | `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package → `scripts`. Required before opening a PR. |
-| `npm run scripts:init-parent` | Runs the interactive submodule-parent-repo scaffolder — see the [submodule guide](/guides/submodule). |
-| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`status`/`check`) — legacy tooling that syncs a `terraform.tfvars`-shaped object nothing in the app reads any more (the app exclusively uses `deployment-config.json` in the same bucket). See the [S3 tfvars storage guide](/guides/s3-tfvars). |
+| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`status`/`check`) — legacy tooling that syncs a `terraform.tfvars`-shaped object nothing in the app reads any more (the app exclusively uses `deployment-config.json` in the same bucket). See `scripts/README.md`. |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
 
 ## Test + naming conventions (short form)
@@ -401,13 +400,6 @@ then plan/approve/apply from the app's Infrastructure page, and then
 packaging/running the Electron app (`npm run desktop:package`, or
 `npm run app:build && npm run app:start`) from whatever machine holds the
 AWS credentials.
-
-If you're wrapping this repo as a submodule inside a private parent repo
-for a pinned version and your own notes — see the
-[submodule guide](/guides/submodule) for that layout. It is no longer a
-secrets-storage pattern; AWS credentials, Discord secrets, and your game
-configuration all live outside the repo (OS keychain, Secrets Manager, and
-S3, respectively).
 
 ## Legacy Terraform teardown (one-off)
 

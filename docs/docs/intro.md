@@ -46,12 +46,6 @@ matches what you're doing right now:
 - **[Maintainer guide](/guides/maintainer)** — working
   on the code: monorepo layout, tests, lint, CI, release/deploy mechanics,
   load-bearing invariants not to break.
-- **[Submodule guide](/guides/submodule)** — the
-  pattern of wrapping this repo as a git submodule inside a private parent
-  repo that holds `server_config.json` and anything else secret. There is no
-  `terraform.tfvars` any more — Pulumi's state and your deployment
-  configuration both live in S3, bootstrapped by the app's own first-run
-  wizard, not in a file this pattern needs to vendor.
 
 ## Component reference
 
@@ -102,7 +96,7 @@ Hyveon/
 │           ├── update-dns/     # Route 53 on task state change
 │           ├── watchdog/       # idle detection + auto-stop
 │           └── efs-seeder/     # writes declarative file_seeds to a game's EFS volume
-├── scripts/                    # @hyveon/scripts — init-parent.ts submodule scaffolder
+├── scripts/                    # @hyveon/scripts — tfvars-sync.ts (legacy, maintainer-only)
 ├── build/                      # icon source art + generator for packaging
 ├── docs/                       # this site
 ├── openspec/                   # OpenSpec change proposals/specs for this repo

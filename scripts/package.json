@@ -5,9 +5,7 @@
   "description": "Helper scripts for Hyveon. Not part of the app workspace — install from this directory.",
   "type": "module",
   "scripts": {
-    "init-parent": "tsx init-parent.ts",
     "tfvars-sync": "tsx tfvars-sync.ts",
-    "test": "tsx init-parent.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

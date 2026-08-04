@@ -41,7 +41,6 @@ organised around three roles. Pick the one that matches what you need to do.
 | [**Setup guide**](https://codercoco.github.io/Hyveon/setup/) | Going from a blank AWS account to a running Fargate task. |
 | [**User guide**](https://codercoco.github.io/Hyveon/guides/user/) | Driving an already-provisioned deployment — the dashboard, Discord commands, day-to-day ops. |
 | [**Maintainer guide**](https://codercoco.github.io/Hyveon/guides/maintainer/) | Working on this codebase. |
-| [**Private parent + submodule guide**](https://codercoco.github.io/Hyveon/guides/submodule/) | Wrapping this repo in a private repo for anything else secret. Includes an interactive scaffolder ([`scripts/init-parent.ts`](./scripts/init-parent.ts)) that generates a self-contained wrapper Makefile. |
 
 Component deep-dives:
 
@@ -126,7 +125,7 @@ Hyveon/                        # npm-workspaces root — one `npm install` insta
 │           ├── watchdog/      # Idle detection + auto-stop
 │           └── efs-seeder/    # Conditional, per game with file_seeds
 ├── docs/                      # Documentation site (published via GH Pages)
-├── scripts/                   # Helper scripts (init-parent.ts scaffolder)
+├── scripts/                   # Helper scripts (tfvars-sync.ts, legacy/maintainer-only)
 ├── CLAUDE.md                  # Project instructions + invariants
 ├── CONTRIBUTING.md            # PR conventions, local checks
 └── README.md                  # this file
