@@ -146,6 +146,11 @@ export default tseslint.config(
       'packages/desktop-main/src/services/IamCheckService.test.ts',
       'packages/desktop-main/src/services/GuidedIamService.ts',
       'packages/desktop-main/src/services/GuidedIamService.test.ts',
+      // AwsProfileService.rotateActiveCredentials builds STS/IAM clients from
+      // explicit credential parameters, same reasoning as GuidedIamService
+      // above — see add-one-click-aws-bootstrap Group 3.
+      'packages/desktop-main/src/services/AwsProfileService.ts',
+      'packages/desktop-main/src/services/AwsProfileService.test.ts',
       'packages/desktop-main/src/test-mocks/ecs-mock.ts',
       'packages/desktop-main/src/test-mocks/run-record-mock.ts',
       'packages/desktop-main/src/test-mocks/remote-file-store-mock.ts',
