@@ -223,10 +223,11 @@ Failure modes:
 
 The Lambda mounts the game's first volume's EFS access point at `/mnt/efs`
 via `file_system_config` (VPC-attached, using the same public subnets and a
-dedicated `efs-seeder` security group whose egress is currently unrestricted —
-all protocols to `0.0.0.0/0`, not scoped to NFS; see the `efsSeederSg` group
-in `app/packages/infra/src/securityGroups.ts`) and
-receives `{ game, seeds, container_path }` as its invocation payload —
+dedicated `efs-seeder` security group scoped to outbound NFS only — port
+2049/tcp to the EFS security group, via a standalone `aws.ec2.SecurityGroupRule`
+rather than an inline rule on the seeder group itself; see the `efsSeederSg`
+group and its `efsSeederEgressRule` in `app/packages/infra/src/securityGroups.ts`)
+and receives `{ game, seeds, container_path }` as its invocation payload —
 `container_path` is `volumes[0].container_path`.
 
 1. For each `FileSeed` in `seeds`: strip the `container_path` prefix from
