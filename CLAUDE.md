@@ -40,10 +40,6 @@ under `app/packages/lambda/*`, and `@hyveon/scripts`.
 npm install                     # install every workspace (run from repo root)
 
 npm run desktop:dev             # Electron dev mode: renderer HMR, auto-restart main+preload
-                                 #   currently broken (electron-vite dev's SSR bundling eagerly
-                                 #   resolves NestJS's optional lazy imports, e.g. @nestjs/websockets,
-                                 #   that production desktop:build tree-shakes away) — use
-                                 #   desktop:build + app:start instead until fixed
 npm run app:build                # compile shared → cloud-aws → desktop-main → preload → web
 npm run desktop:build           # electron-vite build → out/main, out/preload, out/renderer
 npm run app:start                # launch the built app (requires desktop:build first)
@@ -51,8 +47,7 @@ npm run desktop:package         # electron-builder installers → release/ (Win 
 
 npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
 npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
-npm run scripts:init-parent      # parent-repo scaffolder
-npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see guides/s3-tfvars)
+npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see scripts/README.md)
 
 npm run app:lint                 # eslint (flat config at app/eslint.config.js)
 npm run app:lint:fix

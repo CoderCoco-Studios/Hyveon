@@ -434,14 +434,11 @@ describe('tfvars-sync', () => {
 
   describe('parseArgs', () => {
     /**
-     * The generated parent Makefile (see `renderMakefile()` in
-     * `init-parent.ts`) renders every call site as
-     * `$(TFVARS_SYNC) <subcommand> $(TFVARS_SYNC_ARGS)`, which Make expands
-     * to `... tfvars-sync.ts <subcommand> --path <file> --bucket <bucket>`
-     * — i.e. the subcommand always precedes the flags. This is the exact
-     * argv shape `parseArgs()` must accept.
+     * `parseArgs()` requires the subcommand to precede any flags —
+     * `tfvars-sync.ts <subcommand> --path <file> --bucket <bucket>`. This is
+     * the argv shape every call site (CLI or scripted) must use.
      */
-    it('should parse the subcommand-then-flags argv shape the generated Makefile emits', () => {
+    it('should parse the subcommand-then-flags argv shape', () => {
       const { command, options } = parseArgs(['pull', '--path', '/tmp/parent/terraform.tfvars', '--bucket', 'my-bucket']);
 
       expect(command).toBe('pull');
@@ -449,7 +446,7 @@ describe('tfvars-sync', () => {
       expect(options.bucket).toBe('my-bucket');
     });
 
-    it('should parse the subcommand-then-flags argv shape for every Makefile-driven subcommand (push/diff/check)', () => {
+    it('should parse the subcommand-then-flags argv shape for every subcommand (push/diff/check)', () => {
       for (const command of ['push', 'diff', 'check'] as const) {
         const parsed = parseArgs([command, '--path', '/tmp/parent/terraform.tfvars', '--bucket', 'my-bucket']);
         expect(parsed.command).toBe(command);

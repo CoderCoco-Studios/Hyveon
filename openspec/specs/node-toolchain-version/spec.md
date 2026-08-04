@@ -41,10 +41,6 @@ Every document that tells a reader which Node version to install, or which versi
 - **WHEN** a maintainer reads the workflow list in `docs/docs/guides/maintainer.md`
 - **THEN** every entry, including the two docs workflows, states Node 24
 
-#### Scenario: Parent-repo owner copies the example workflow
-- **WHEN** someone copies the example GitHub Actions workflow from `docs/docs/guides/submodule.md`
-- **THEN** its `node-version` is 24, matching the version the submodule's own CI uses
-
 ### Requirement: AWS Lambda runtime versions are governed separately
 The Node version used by deployed AWS Lambda functions SHALL be governed independently of the development and CI toolchain version, and SHALL NOT be required to match it. The Lambda `runtime` declared in Terraform and the esbuild `target` used to bundle each Lambda SHALL stay consistent with each other, because the bundle's output syntax must be executable by the runtime that receives it.
 

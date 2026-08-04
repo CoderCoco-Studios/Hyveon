@@ -22,12 +22,10 @@ Install everything from the root:
 npm install
 ```
 
-Dev mode (`npm run app:dev`/`desktop:dev`) is meant to launch the full
-Electron app with hot-reload on renderer saves; electron-vite serves the
-renderer for HMR purposes only, never as a network API surface. It's
-currently broken (see the [maintainer guide](/guides/maintainer)'s scripts
-table) — use `npm run desktop:build && npm run app:start` instead. See the
-[setup guide](/setup) for the packaged-installer build.
+Dev mode (`npm run desktop:dev`) launches the full Electron app with
+hot-reload on renderer saves; electron-vite serves the renderer for HMR
+purposes only, never as a network API surface. See the [setup guide](/setup)
+for the packaged-installer build.
 
 ## `@hyveon/shared`
 
@@ -300,9 +298,9 @@ while the write paths and `getRawConfig()` throw a typed
 `ConfigurationNotConfiguredError`. Parsed results are cached in-memory for
 `TFVARS_CACHE_TTL_MS` (default 30 s) so repeated reads (e.g. drift checks)
 don't re-fetch from S3 on every call; `invalidateCache()` is called after any
-write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see the
-[S3 tfvars storage guide](/guides/s3-tfvars)) is a separate, maintainer-facing
-CLI concern — it does not share this resolution mechanism.
+write. `scripts/tfvars-sync.ts`'s own local-vs-S3 backend choice (see
+`scripts/README.md`) is a separate, maintainer-facing CLI concern — it does
+not share this resolution mechanism.
 
 `getTopLevelSettings()`/`updateTopLevelSettings()` are the top-level-field
 counterpart to `addGameServer()`/`updateGameServer()`/`removeGameServer()` —
@@ -379,8 +377,8 @@ documentation screenshot harness — see the
 [maintainer guide](/guides/maintainer#refreshing-the-documentation-screenshots)).
 
 **This seam is gated off in production.** When `HYVEON_TEST_MODE` is unset —
-the default for packaged/production builds and for `npm run app:dev` without
-the flag explicitly set — the `if (isTestMode)` branch in the preload script
+the default for packaged/production builds and for `npm run desktop:dev`
+without the flag explicitly set — the `if (isTestMode)` branch in the preload script
 is never entered, and `window.hyveon.__test` is `undefined`. There is no
 runtime toggle, config file, or IPC call that can expose the mock registry
 to an end user's build.

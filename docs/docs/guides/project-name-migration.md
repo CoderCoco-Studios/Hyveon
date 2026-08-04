@@ -122,8 +122,7 @@ Worse, if you re-run the app's bootstrap step again after changing
 `project_name`, it derives the tfvars bucket name the same way (off the
 *new* `project_name`) and will happily bootstrap a brand-new
 `{new_project_name}-tfvars` bucket. If you're instead bootstrapping manually
-via `terraform/bootstrap/` (see the [S3 tfvars storage guide](/guides/s3-tfvars)),
-the same risk applies — it derives the bucket name off whatever
+via `terraform/bootstrap/`, the same risk applies — it derives the bucket name off whatever
 `project_name` is current at the time. Don't assume the "real" tfvars
 content silently stayed behind in the old bucket — **always verify which
 bucket you're actually pointed at** (`aws s3 cp s3://<bucket>/terraform.tfvars -`
@@ -157,10 +156,9 @@ directly) with the new `project_name`, pick one here too:
 
 ### 1. Review the `terraform plan` output line by line
 
-Run `terraform plan` (or `make plan` if you're on the
-[submodule/S3 tfvars workflow](/guides/s3-tfvars)) after changing
-`project_name` in `terraform.tfvars`, and read the full plan before applying
-anything:
+Run `terraform plan` (or `make plan` if you're on the S3 tfvars workflow)
+after changing `project_name` in `terraform.tfvars`, and read the full plan
+before applying anything:
 
 ```bash
 cd terraform
