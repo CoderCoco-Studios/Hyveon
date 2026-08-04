@@ -20,7 +20,7 @@
 - **Active hours**: <estimate>
 - **Subagent dispatches**: <count or "n/a">
 - **New external dependencies**: <list, with license + version, or "none">
-- **Bugs encountered post-merge**: <count, one-line each, or "none">
+- **Bugs encountered during this cycle**: <count, one-line each, or "none">
 - **OpenSpec validate state at archive**: <pass / fail / not-run>
 - **Test coverage signal**: <e.g. jacoco %, pytest count, vitest count, or "n/a">
 

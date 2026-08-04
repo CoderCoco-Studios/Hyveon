@@ -13,5 +13,12 @@
 
 ## Task 1: <!-- Component Name -->
 
+<!--
+Checkbox states: `- [ ]` pending, `- [x]` done,
+`- [~]` deferred (manual smoke / dogfood / live-environment check not run
+this cycle). Every `- [~]` row MUST be enumerated in verify.md §7 with its
+equivalent automated test, or recorded as a coverage gap.
+-->
+
 - [ ] **Step 1:** <!-- micro-step -->
 - [ ] **Step 2:** <!-- micro-step -->

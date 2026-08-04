@@ -65,7 +65,8 @@ migrate.
 ## RENAMED Requirements
 
 <!--
-Rename a Requirement header. Fixed format: FROM / TO with a code-fence header.
+Rename a Requirement header. Fixed format: FROM / TO as inline-code lines
+(not a fenced code block), exactly as shown below.
 If both the name and the content change, list the rename under RENAMED **and**
 also write the full content under MODIFIED using the **new** header.
 

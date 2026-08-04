@@ -76,7 +76,7 @@ and Scenarios of `specs/*.md`:
 
 ---
 
-## 6. Front-Door Routing Leak Detector (warning, non-blocking)
+## 6. Front-Door Routing Leak Detector
 
 Design output should not land in `docs/superpowers/specs/` (the brainstorm
 artifact's output redirection should route it to
@@ -93,13 +93,15 @@ ls docs/superpowers/specs/*.md 2>/dev/null
 
 **Leak list** (if any):
 
-| File | Content already captured in the change? | Suggested action |
-|---|---|---|
-| — | — | — |
+| File | Produced this cycle? | Content already captured in the change? | Suggested action |
+|---|---|---|---|
+| — | — | — | — |
 
-> Does not block archive. Leaks produced by a new schema-installed cycle
-> should be moved into `openspec/changes/<name>/brainstorm.md` or `design.md`,
-> then the original file deleted.
+> A leak produced by the current schema-installed cycle blocks PASS and
+> archive. Move it into `openspec/changes/<name>/brainstorm.md` or
+> `design.md`, then delete the original file. Leaks that predate the
+> schema install (legitimate pre-existing use of the directory) remain
+> non-blocking.
 
 ---
 
@@ -120,7 +122,7 @@ section.
 > - "Equivalent" = the automated test's assertion set is a superset of the manual dogfood's expected assertions
 > - "Coverage assessment" = list the layers actually touched (context / DB schema / wiring / HTTP path / etc.)
 > - Any row where "Real gap = ✅" can still let the Overall Decision be PASS, but a follow-up item must be left in the retrospective
-
+>
 > **When this section can be left blank**: when plan.md has no rows marked
 > `[~]` at all, this section doesn't need to be filled in (blank = PASS).
 > As soon as plan.md has any `[~]`, this section MUST list them item by item,

@@ -12,7 +12,8 @@ description: >
   If your platform lacks subagent support, use spec-driven instead.
   Each artifact / apply step verifies its required skills before
   invoking and surfaces a clear error if any are missing.
-  brainstorm → proposal → specs → tasks → plan → verify → retrospective.
+  brainstorm → proposal → design → specs → tasks → plan → verify →
+  retrospective (design and specs both feed tasks).
   design is required (reorganizes raw brainstorm output into structured
   Context / Goals / Decisions / Risks / Migration; referenced by tasks
   and plan for implementation guidance).
@@ -204,7 +205,11 @@ artifacts:
       yet produced reviewable changes.
 
       1. Commit evidence (must return > 0):
-         git log --oneline $(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null)..HEAD | wc -l
+         BASE=$(git merge-base HEAD origin/HEAD 2>/dev/null \
+           || git merge-base HEAD origin/main 2>/dev/null \
+           || git merge-base HEAD origin/master 2>/dev/null)
+         [ -n "$BASE" ] || { echo "ERROR: cannot resolve base commit"; exit 1; }
+         git log --oneline "$BASE"..HEAD | wc -l
 
       2. Task progress (must return > 0):
          grep -c '^- \[x\]' openspec/changes/<change-name>/tasks.md
@@ -250,7 +255,7 @@ artifacts:
          committed (no unstaged files in the worktree). Cite the
          commit range if known.
 
-      6. **Front-door routing leak detector** (warning, non-blocking):
+      6. **Front-door routing leak detector**:
 
          For projects using superpowers-bridge, design output
          should never land in `docs/superpowers/specs/` — the
@@ -260,15 +265,17 @@ artifacts:
 
            ls docs/superpowers/specs/*.md 2>/dev/null
 
-         If any files exist, record a WARNING: "Front-door routing
-         leak — design output found at docs/superpowers/specs/...;
-         these belong in openspec/changes/<name>/brainstorm.md or
-         design.md. Move/delete after confirming content is captured
-         in the change directory."
+         For each file found, determine whether it was produced by
+         the current schema-installed cycle (e.g. its mtime or git
+         history falls within this change's commit range) or
+         predates the schema install:
 
-         Non-blocking — adopters may have legitimate non-schema use
-         of that directory predating schema install. Surfaces the
-         leak so the user can decide whether to clean up.
+         - Current-cycle leak: BLOCKING. Move the content into
+           `openspec/changes/<name>/brainstorm.md` or `design.md`,
+           delete the original file, then re-run verify.
+         - Pre-existing file (legitimate non-schema use predating
+           install): record a non-blocking WARNING and leave it in
+           place.
 
       7. **Deferred dogfood vs automated-test equivalence**:
 
@@ -329,7 +336,7 @@ artifacts:
         edge exists only for schema graph purposes; the actual
         retrospective MUST run on a completed, verified implementation.
 
-      Process (follow these 3 steps):
+      Process (follow these 4 steps):
 
       1. **Gather evidence**
          - Run `git log --oneline <base>..HEAD` in the change worktree
@@ -352,7 +359,8 @@ artifacts:
              from `git log <base>..HEAD`, `tasks.md`, and
              verify.md: commit count, diff size (lines/files),
              tasks-done ratio, active hours, subagent dispatch
-             count, new external dependencies, post-merge bugs,
+             count, new external dependencies, bugs encountered
+             during this cycle,
              OpenSpec validate state at archive, test coverage
              signal, and a one-line commit chain.
 
@@ -478,8 +486,8 @@ apply:
        If any required skill is missing, STOP and inform the user —
        do NOT proceed and do NOT silently fall back to manual
        implementation. The user can install the Superpowers plugin,
-       or explicitly opt into the manual fallback path described at
-       the end of this instruction.
+       or switch this change to the built-in `spec-driven` schema
+       (see step 2 — there is no manual fallback path in this schema).
 
        Additionally, confirm the project's expected CLI tools are
        on PATH. The exact list depends on the project — read

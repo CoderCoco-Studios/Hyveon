@@ -196,7 +196,7 @@ This repo uses [`superpowers-bridge`](https://github.com/JiangWay/openspec-schem
 | Trigger you observe | What to do |
 |---|---|
 | User starts a narrative "design discussion / let's brainstorm" | Run verbal `superpowers:brainstorming`, but **do NOT** write to `docs/superpowers/specs/`. Once the conversation converges per the 5 criteria below, promote to `/opsx:propose` |
-| User invokes `/opsx:new` / `/opsx:ff` / `/opsx:propose` directly | Follow the schema's flow; artifact instructions inject at each step |
+| User invokes `/opsx:new` / `/opsx:ff` / `/opsx:propose` directly | Pass `--schema superpowers-bridge` explicitly (the project default remains `spec-driven`); artifact instructions inject at each step |
 | User explicitly says bug fix / typo / config tweak / doc update | Direct PR — **do NOT** open a change (see skip rules below) |
 | User is mid-change | Advance with `/opsx:continue`, `/opsx:apply`, `/opsx:verify`, or `/opsx:archive` |
 
