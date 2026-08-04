@@ -17,7 +17,8 @@ report something odd.
 ## Where the logs come from
 
 Logs are read from CloudWatch Logs, from the log group **`/ecs/{game}-server`**
-— the group Terraform creates for each entry in your `game_servers` map.
+— the group the Pulumi infra program creates for each entry in `gameServers`
+(`defineEcs` in `@hyveon/infra`).
 
 Opening the page does two things: it fetches a snapshot of the most recent
 lines from the newest log stream, then it opens a live tail that polls
@@ -26,10 +27,12 @@ CloudWatch every two seconds for anything new.
 The live tail starts from the moment you subscribe, so it only shows lines
 produced from then on. Everything before that comes from the snapshot.
 
-If Terraform has not been applied, the stream fails with `Terraform not
-applied. Run 'terraform apply' first.` If the game has never run, the snapshot
-comes back as a single line reading `No log streams found for minecraft.` —
-rendered as an ordinary log line, not as an error.
+If infrastructure has not been deployed, the live tail fails immediately and
+the error banner reads `Stream ended with error: Infrastructure is not
+deployed. Run Apply on the IaC page first.` If the game has never run (the log
+group exists but has no streams yet), the snapshot comes back as a single
+line reading `No log streams found for minecraft.` — rendered as an ordinary
+log line, not as an error.
 
 ## Choosing a game
 

@@ -465,8 +465,9 @@ export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | unde
  * `applyRecord.partialApply` is `true` — the Pulumi engine
  * mutated some resources before the apply run failed or was aborted, so the
  * deployed infrastructure no longer matches the plan that was approved.
- * Retrying the same apply blindly is unsafe because it's still gated on a
- * `planHash` computed against state that's now stale; the correct recovery
+ * Retrying the same apply blindly is unsafe: `planHash` only proves the plan
+ * artifact and configuration are unchanged since approval, not that
+ * resources weren't already mutated by this attempt. The correct recovery
  * is a fresh plan against current state. Bundles the "Start over" action
  * directly into the banner (rather than relying on the generic control
  * further down the page) so it reads as the guided next step.

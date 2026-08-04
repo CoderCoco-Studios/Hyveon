@@ -144,7 +144,7 @@ async function advanceToBootstrap(): Promise<void> {
   const select = await screen.findByLabelText('Profile');
   await userEvent.selectOptions(select, 'default');
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-  await screen.findByLabelText('Terraform state bucket name');
+  await screen.findByLabelText('State bucket name');
 }
 
 /** Advances the wizard all the way to the stack-init step, with both bootstrap resources succeeding. */
@@ -563,7 +563,7 @@ describe('FirstRunWizard', () => {
       await screen.findByText(/choose the aws credentials/i);
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-      await screen.findByLabelText('Terraform state bucket name');
+      await screen.findByLabelText('State bucket name');
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
@@ -615,7 +615,7 @@ describe('FirstRunWizard', () => {
 
       render(<FirstRunWizard />);
 
-      expect(await screen.findByLabelText('Terraform state bucket name')).toBeInTheDocument();
+      expect(await screen.findByLabelText('State bucket name')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
       expect(hyveonMock.iac.stack.initialize).not.toHaveBeenCalled();
     });
