@@ -11,6 +11,7 @@ import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { SafeStorageUnavailableError } from './AwsProfileService.js';
+import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
 
 /** Absolute path to the `dist/services/` directory at runtime. */
 const _dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,6 +107,22 @@ export type RotationResult =
    * bootstrap key is still live and must be revoked manually via `consoleUrl`.
    */
   | { status: 'delete-failed'; consoleUrl: string };
+
+/** Input to {@link GuidedIamService.revokeBootstrapKey}. */
+export interface RevokeBootstrapKeyInput {
+  /** Access key ID of the still-live bootstrap key to revoke. */
+  bootstrapAccessKeyId: string;
+  /** Region to build the IAM client against. */
+  region: string;
+}
+
+/** Result of {@link GuidedIamService.revokeBootstrapKey}. */
+export interface RevokeBootstrapKeyResult {
+  /** `true` once `iam:DeleteAccessKey` succeeds for the bootstrap key. */
+  revoked: boolean;
+  /** Present when `revoked` is `false` — a clear, actionable explanation of the refusal or AWS failure. */
+  message?: string;
+}
 
 /**
  * Drives the first-run guided IAM bootstrap flow: renders the
@@ -454,6 +471,90 @@ export class GuidedIamService {
       bootstrapAccessKeyId: input.bootstrapAccessKeyId,
     });
     return { status: 'complete' };
+  }
+
+  /**
+   * Revokes the still-live bootstrap access key via `iam:DeleteAccessKey` —
+   * the manual-retry action for {@link rotate}'s `delete-failed` outcome.
+   * By the time an operator triggers this, `rotate()` has already minted,
+   * staged, and activated a new key pair (step 4 of {@link rotate}); the
+   * bootstrap key is the only thing left over, and the operator has no new
+   * key material to paste back in for a re-run.
+   *
+   * This is why this method — unlike every other one on this service, all
+   * of which take credentials as explicit input because they run *before*
+   * any credential source exists (see the class doc comment) — is the one
+   * deliberate exception that legitimately reads
+   * {@link ElectronStoreService} via {@link resolveAwsCredentialSource}: by
+   * this point in the flow, the credentials it needs (the rotated key) ARE
+   * the wizard's already-active credential source, and there is nothing
+   * else to pass in.
+   *
+   * "Usable" here means {@link resolveAwsCredentialSource} resolves to
+   * `kind: 'pasted'` **with `profile === {@link GUIDED_PROFILE_NAME}`** — the
+   * only shape guaranteed to carry the rotated key's own
+   * `accessKeyId`/`secretAccessKey`, which {@link createIamClient}'s existing
+   * seam (reused as-is here, not duplicated) then consumes. Every other
+   * shape refuses rather than throw: `kind: 'none'` (no credential source
+   * configured); `kind: 'profile'` (a `~/.aws` CLI profile *name*, not key
+   * material — building a client from it needs a `fromIni`-based path this
+   * service has no other need for); and, load-bearing, `kind: 'pasted'`
+   * under any *other* profile name. Without that last check, an operator
+   * who pastes a manual (non-guided) credential set — or switches to one —
+   * between `rotate()`'s `delete-failed` result and triggering this retry
+   * would have this method build an IAM client from *that* unrelated
+   * pasted key and send `iam:DeleteAccessKey` for `input.bootstrapAccessKeyId`
+   * (a value this method takes as-is, sourced from the wizard UI) under it —
+   * silently attempting to delete an access key using credentials that have
+   * nothing to do with the bootstrap flow. Refusing keeps this method's only
+   * side effect scoped to the one credential pair `rotate()` itself just
+   * activated. A decrypt failure on a stored pasted entry
+   * ({@link AwsPastedCredentialDecryptError}) is caught and folded into the
+   * same refusal shape.
+   *
+   * Never throws: this is a manual-retry UI action invoked from the wizard
+   * after a `delete-failed` result, so a crash here would be strictly worse
+   * than a clear refusal message the operator can act on (revoking via
+   * `rotate()`'s `consoleUrl` instead). Returns `{ revoked: true }` on
+   * success; `{ revoked: false, message }` on refusal or AWS failure —
+   * `message` is the underlying AWS SDK error's message, unmodified on the
+   * AWS-failure branch, matching {@link intakeBootstrapKey}'s convention of
+   * never wrapping the real error.
+   *
+   * @param input - The still-live bootstrap key's access key ID and the
+   *   region to build the IAM client against.
+   */
+  async revokeBootstrapKey(input: RevokeBootstrapKeyInput): Promise<RevokeBootstrapKeyResult> {
+    let source: AwsCredentialSource;
+    try {
+      source = resolveAwsCredentialSource(this.store);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { revoked: false, message };
+    }
+
+    if (source.kind !== 'pasted' || source.profile !== GUIDED_PROFILE_NAME) {
+      const message =
+        source.kind === 'none'
+          ? 'No active AWS credential source is configured — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.'
+          : source.kind === 'profile'
+            ? 'The active AWS credential source is a CLI profile, not the rotated key pair — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.'
+            : 'The active AWS credential source is not the rotated guided-provisioning key pair — cannot revoke the bootstrap key automatically. Revoke it manually via the IAM console.';
+      return { revoked: false, message };
+    }
+
+    try {
+      const client = this.createIamClient({
+        accessKeyId: source.accessKeyId,
+        secretAccessKey: source.secretAccessKey,
+        region: input.region,
+      });
+      await client.send(new DeleteAccessKeyCommand({ AccessKeyId: input.bootstrapAccessKeyId }));
+      return { revoked: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { revoked: false, message };
+    }
   }
 
   /**

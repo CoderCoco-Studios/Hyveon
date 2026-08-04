@@ -7,6 +7,7 @@ import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 import type { BootstrapService, BootstrapResult } from '../services/BootstrapService.js';
 import type { IamCheckService, IamCheckResult } from '../services/IamCheckService.js';
 import type { FirstRunWizardService, WizardProgress } from '../services/FirstRunWizardService.js';
+import type { GuidedIamService } from '../services/GuidedIamService.js';
 
 const SAMPLE_PROFILES: AwsProfileSummary[] = [
   { profileName: 'default', region: 'us-east-1' },
@@ -67,6 +68,23 @@ function makeFirstRunWizard(progress: WizardProgress = { step: 'pick-cloud' }): 
   return service as FirstRunWizardService;
 }
 
+/**
+ * Build a `GuidedIamService` stub. This controller's `GuidedIamService`
+ * handlers are wiring-only pass-throughs, proven by Task 3's tier-2
+ * integration specs rather than unit tests here — this stub exists only so
+ * `makeController` can satisfy the constructor's now-five dependencies.
+ */
+function makeGuidedIam(): GuidedIamService {
+  return {
+    renderTemplate: vi.fn(),
+    buildCloudFormationConsoleUrl: vi.fn(),
+    openConsole: vi.fn(),
+    intakeBootstrapKey: vi.fn(),
+    rotate: vi.fn(),
+    revokeBootstrapKey: vi.fn(),
+  } as Partial<GuidedIamService> as GuidedIamService;
+}
+
 /** Builds a `WizardController` with default stubs for any dependency the caller doesn't override. */
 function makeController(overrides: {
   awsProfiles?: AwsProfileService;
@@ -74,6 +92,7 @@ function makeController(overrides: {
   bootstrap?: BootstrapService;
   iamCheck?: IamCheckService;
   firstRunWizard?: FirstRunWizardService;
+  guidedIam?: GuidedIamService;
 } = {}): WizardController {
   return new WizardController(
     overrides.awsProfiles ?? makeAwsProfiles(),
@@ -81,6 +100,7 @@ function makeController(overrides: {
     overrides.bootstrap ?? makeBootstrap(),
     overrides.iamCheck ?? makeIamCheck(),
     overrides.firstRunWizard ?? makeFirstRunWizard(),
+    overrides.guidedIam ?? makeGuidedIam(),
   );
 }
 
@@ -146,6 +166,37 @@ describe('WizardController', () => {
     it('should register complete on the "wizard.complete" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
       expect(pattern).toEqual(['wizard.complete']);
+    });
+
+    it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.prepareGuidedIamTemplate);
+      expect(pattern).toEqual(['wizard.guidedIam.prepareTemplate']);
+    });
+
+    it('should register openGuidedIamConsole on the "wizard.guidedIam.openConsole" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.openGuidedIamConsole);
+      expect(pattern).toEqual(['wizard.guidedIam.openConsole']);
+    });
+
+    it('should register submitGuidedIamBootstrapKey on the "wizard.guidedIam.submitBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.submitGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.submitBootstrapKey']);
+    });
+
+    it('should register rotateGuidedIamKey on the "wizard.guidedIam.rotate" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.rotateGuidedIamKey);
+      expect(pattern).toEqual(['wizard.guidedIam.rotate']);
+    });
+
+    it('should register revokeGuidedIamBootstrapKey on the "wizard.guidedIam.revokeBootstrapKey" IPC channel', () => {
+      const pattern = Reflect.getMetadata(
+        PATTERN_METADATA_KEY,
+        WizardController.prototype.revokeGuidedIamBootstrapKey,
+      );
+      expect(pattern).toEqual(['wizard.guidedIam.revokeBootstrapKey']);
     });
   });
 

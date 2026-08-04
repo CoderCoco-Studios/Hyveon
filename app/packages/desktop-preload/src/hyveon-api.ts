@@ -1363,6 +1363,82 @@ export interface BootstrapResult {
   message?: string;
 }
 
+/**
+ * Result of {@link HyveonWizardApi.guidedIamPrepareTemplate}. Mirrors
+ * `RenderedTemplateResult` in `GuidedIamService.ts` — keep in sync.
+ */
+export interface RenderedTemplateResult {
+  /** Absolute path to the rendered `iam-bootstrap.yaml` copy on disk. */
+  path: string;
+}
+
+/** Payload accepted by {@link HyveonWizardApi.guidedIamOpenConsole}. Mirrors `OpenGuidedIamConsoleInput` in `wizard.controller.ts` — keep in sync. */
+export interface OpenGuidedIamConsoleInput {
+  region: string;
+}
+
+/**
+ * Result of {@link HyveonWizardApi.guidedIamOpenConsole}. On failure, carries
+ * the console `url` back so the caller can fall back to displaying it as
+ * plain text for the operator to open manually. Mirrors `OpenConsoleResult`
+ * in `GuidedIamService.ts` — keep in sync.
+ */
+export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
+
+/** Input to {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}. Mirrors `BootstrapKeyIntakeInput` in `GuidedIamService.ts` — keep in sync. */
+export interface BootstrapKeyIntakeInput {
+  /** Access key ID the operator pasted from the CloudFormation stack outputs. */
+  accessKeyId: string;
+  /** Secret access key the operator pasted from the CloudFormation stack outputs. */
+  secretAccessKey: string;
+  /** Region to validate the key pair against. */
+  region: string;
+}
+
+/** Result of {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}. Mirrors `BootstrapKeyIntakeResult` in `GuidedIamService.ts` — keep in sync. */
+export interface BootstrapKeyIntakeResult {
+  /** AWS account ID resolved from `sts:GetCallerIdentity`. */
+  accountId: string;
+}
+
+/** Input to {@link HyveonWizardApi.guidedIamRotate}. Mirrors `RotationInput` in `GuidedIamService.ts` — keep in sync. */
+export interface RotationInput {
+  /** Access key ID of the validated bootstrap key (from {@link HyveonWizardApi.guidedIamSubmitBootstrapKey}). */
+  bootstrapAccessKeyId: string;
+  /** Secret access key of the validated bootstrap key. */
+  bootstrapSecretAccessKey: string;
+  /** Region to build every AWS client used during rotation against. */
+  region: string;
+}
+
+/**
+ * Outcome of {@link HyveonWizardApi.guidedIamRotate}. Mirrors `RotationResult`
+ * in `GuidedIamService.ts` — keep in sync.
+ */
+export type RotationResult =
+  /** The new key pair is active and the bootstrap key has been revoked. */
+  | { status: 'complete' }
+  /** `sts:GetCallerIdentity` failed for the newly minted key; nothing was activated. */
+  | { status: 'verification-failed'; error: string }
+  /** The new key pair is already active, but `iam:DeleteAccessKey` failed for the bootstrap key — revoke it manually via `consoleUrl`. */
+  | { status: 'delete-failed'; consoleUrl: string };
+
+/** Input to {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyInput` in `GuidedIamService.ts` — keep in sync. */
+export interface RevokeBootstrapKeyInput {
+  /** Access key ID of the still-live bootstrap key to revoke. */
+  bootstrapAccessKeyId: string;
+  /** Region to build the IAM client against. */
+  region: string;
+}
+
+/** Result of {@link HyveonWizardApi.guidedIamRevokeBootstrapKey}. Mirrors `RevokeBootstrapKeyResult` in `GuidedIamService.ts` — keep in sync. */
+export interface RevokeBootstrapKeyResult {
+  /** `true` once `iam:DeleteAccessKey` succeeds for the bootstrap key. */
+  revoked: boolean;
+  /** Present when `revoked` is `false` — a clear, actionable explanation of the refusal or AWS failure. */
+  message?: string;
+}
+
 /** First-run wizard endpoints (see `openspec/changes/add-first-run-wizard`). */
 export interface HyveonWizardApi {
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
@@ -1431,6 +1507,38 @@ export interface HyveonWizardApi {
    * router past the wizard. Returns the same shape as {@link getState}.
    */
   complete: () => Promise<WizardState>;
+  /**
+   * Renders the `iam-bootstrap.yaml` CloudFormation template shell to disk
+   * (policy documents substituted in) and returns the path to display to the
+   * operator.
+   */
+  guidedIamPrepareTemplate: () => Promise<RenderedTemplateResult>;
+  /**
+   * Builds the region-scoped CloudFormation "Create stack" console URL and
+   * attempts to open it in the operator's default browser. On a failed/
+   * unavailable browser launch, the result echoes the same URL back so the
+   * caller can display it as plain text.
+   */
+  guidedIamOpenConsole: (input: OpenGuidedIamConsoleInput) => Promise<OpenConsoleResult>;
+  /**
+   * Validates the operator-pasted bootstrap access key pair against
+   * `sts:GetCallerIdentity`, returning the resolved AWS account ID. The
+   * pasted secret is sent as input only — never echoed back in the result.
+   */
+  guidedIamSubmitBootstrapKey: (input: BootstrapKeyIntakeInput) => Promise<BootstrapKeyIntakeResult>;
+  /**
+   * Performs the mandatory mint-then-revoke rotation onto a freshly-minted
+   * key pair. See {@link RotationResult} for the `complete`/
+   * `verification-failed`/`delete-failed` outcome branches.
+   */
+  guidedIamRotate: (input: RotationInput) => Promise<RotationResult>;
+  /**
+   * Manual-retry action for a `delete-failed` {@link RotationResult}: revokes
+   * the still-live bootstrap access key without re-running the mint/verify
+   * sequence. Never rejects — a refusal or AWS failure comes back as
+   * `{ revoked: false, message }`.
+   */
+  guidedIamRevokeBootstrapKey: (input: RevokeBootstrapKeyInput) => Promise<RevokeBootstrapKeyResult>;
 }
 
 /**

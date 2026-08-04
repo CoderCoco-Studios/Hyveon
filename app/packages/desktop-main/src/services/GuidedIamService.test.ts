@@ -612,4 +612,136 @@ describe('GuidedIamService', () => {
       }
     });
   });
+
+  describe('revokeBootstrapKey', () => {
+    const REVOKE_INPUT = { bootstrapAccessKeyId: 'AKIABOOTSTRAPKEY', region: 'us-west-2' };
+    const ROTATED_ACCESS_KEY_ID = 'AKIAROTATEDKEY';
+    const ROTATED_SECRET = 'rotated-secret-value-xyz';
+
+    /**
+     * Store stub whose `aws.profile` resolves to a pasted-credentials
+     * entry — the shape `rotate()` step 4 always leaves behind, matching
+     * `revokeBootstrapKey`'s one intended call site (the `delete-failed`
+     * manual retry).
+     */
+    function makePastedStore(): ElectronStoreService {
+      return {
+        get: vi
+          .fn()
+          .mockImplementation((key: string) =>
+            key === 'aws' ? { profile: GUIDED_PROFILE_NAME, region: REVOKE_INPUT.region } : undefined,
+          ),
+        set: vi.fn(),
+        setPastedCredentials: vi.fn(),
+        getPastedCredentials: vi
+          .fn()
+          .mockReturnValue({ accessKeyId: ROTATED_ACCESS_KEY_ID, secretAccessKey: ROTATED_SECRET, region: REVOKE_INPUT.region }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+    }
+
+    it('should refuse without throwing when no active credential source is configured', async () => {
+      store = makeStore(); // get('aws') -> undefined, resolves to kind: 'none'
+      service = new TestableGuidedIamService(store, safeStorage);
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result.revoked).toBe(false);
+      expect(result.message).toMatch(/No active AWS credential source/);
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+    });
+
+    it('should refuse without throwing when the active source is a CLI profile rather than the rotated key pair', async () => {
+      store = {
+        get: vi
+          .fn()
+          .mockImplementation((key: string) => (key === 'aws' ? { profile: 'some-cli-profile', region: REVOKE_INPUT.region } : undefined)),
+        set: vi.fn(),
+        setPastedCredentials: vi.fn(),
+        getPastedCredentials: vi.fn().mockReturnValue(undefined),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      service = new TestableGuidedIamService(store, safeStorage);
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result.revoked).toBe(false);
+      expect(result.message).toMatch(/CLI profile/);
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+    });
+
+    it('should refuse without throwing when the active source is a pasted profile other than the guided one, and never call any IAM command', async () => {
+      store = {
+        get: vi
+          .fn()
+          .mockImplementation((key: string) =>
+            key === 'aws' ? { profile: 'hyveon-pasted', region: REVOKE_INPUT.region } : undefined,
+          ),
+        set: vi.fn(),
+        setPastedCredentials: vi.fn(),
+        getPastedCredentials: vi.fn().mockReturnValue({ accessKeyId: 'AKIAUNRELATED', secretAccessKey: 'unrelated-secret' }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      service = new TestableGuidedIamService(store, safeStorage);
+      const createIamClientSpy = vi.spyOn(service, 'createIamClient');
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result.revoked).toBe(false);
+      expect(result.message).toMatch(/not the rotated guided-provisioning key pair/);
+      expect(createIamClientSpy).not.toHaveBeenCalled();
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+    });
+
+    it('should refuse without throwing when the stored pasted-credentials entry cannot be decrypted', async () => {
+      const decryptError = new Error('bad ciphertext');
+      store = {
+        get: vi
+          .fn()
+          .mockImplementation((key: string) =>
+            key === 'aws' ? { profile: GUIDED_PROFILE_NAME, region: REVOKE_INPUT.region } : undefined,
+          ),
+        set: vi.fn(),
+        setPastedCredentials: vi.fn(),
+        getPastedCredentials: vi.fn().mockImplementation(() => {
+          throw decryptError;
+        }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      service = new TestableGuidedIamService(store, safeStorage);
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result.revoked).toBe(false);
+      expect(result.message).toMatch(/Cannot decrypt the stored pasted-credentials entry/);
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)).toHaveLength(0);
+    });
+
+    it('should return revoked: true after calling iam:DeleteAccessKey with the bootstrap key ID, using an IAM client built from the active (rotated) credentials', async () => {
+      store = makePastedStore();
+      service = new TestableGuidedIamService(store, safeStorage);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      const createIamClientSpy = vi.spyOn(service, 'createIamClient');
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result).toEqual({ revoked: true });
+      expect(createIamClientSpy).toHaveBeenCalledWith({
+        accessKeyId: ROTATED_ACCESS_KEY_ID,
+        secretAccessKey: ROTATED_SECRET,
+        region: REVOKE_INPUT.region,
+      });
+      const calls = iamMock.commandCalls(DeleteAccessKeyCommand);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.args[0].input).toEqual({ AccessKeyId: REVOKE_INPUT.bootstrapAccessKeyId });
+    });
+
+    it('should return revoked: false with the AWS error message unmodified when iam:DeleteAccessKey fails', async () => {
+      store = makePastedStore();
+      service = new TestableGuidedIamService(store, safeStorage);
+      const awsError = new Error('User is not authorized to perform iam:DeleteAccessKey');
+      awsError.name = 'AccessDenied';
+      iamMock.on(DeleteAccessKeyCommand).rejects(awsError);
+
+      const result = await service.revokeBootstrapKey(REVOKE_INPUT);
+
+      expect(result).toEqual({ revoked: false, message: awsError.message });
+    });
+  });
 });
