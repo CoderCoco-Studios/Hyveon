@@ -201,6 +201,7 @@ has no region default to fall back on.
 | State bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption — Pulumi's self-managed backend reads/writes state here directly; there is no separate lock table (the DIY S3 backend locks via objects in this same bucket) |
 | Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days, AES256 encryption |
 | Run-history table | `hyveon-runs` | DynamoDB table (`pk`/`sk` keys, `status-index` GSI, point-in-time recovery) recording every plan/apply/destroy run — created here, not by Pulumi, so the very first plan/apply cycle of a fresh install has somewhere to record itself before any deploy has ever succeeded. Not name-editable at this step (see below) |
+| Initial configuration | — | Seeds an empty `deployment-config.json` object (empty `gameServers`, no hosted zone) into the Tfvars bucket, idempotently — it writes only if the object is absent, never overwriting an existing one. Without this, a fresh install has no config object yet, so Settings saves, adding a game, and Pulumi previews all fail. Not name-editable; it always targets whatever name is in the Tfvars bucket field above it |
 
 These are created with the AWS SDK directly — the wizard does not shell out to
 any CLI for this step. The run-history table's name is not operator-editable
@@ -208,9 +209,12 @@ here: unlike the two buckets, it has no `DeploymentConfig` yet to hold a
 custom name override (that only gets configured later, from the Settings
 page), so it always uses the project-name default shown above.
 
-Press **Bootstrap AWS resources**. All three are created concurrently, so a
-failure on one does not stop the others. Each row's badge moves
-independently:
+Press **Bootstrap AWS resources**. The State bucket and Run-history table are
+created concurrently with the rest. The initial-configuration seed is chained
+after the Tfvars bucket instead — it only starts once that bucket resolves to
+**Created** or **Already exists**, since it writes into it, and its row moves
+straight to **Failed** if the bucket step fails. A failure on one resource
+does not stop the others. Each row's badge moves independently:
 
 | Badge | Meaning |
 |---|---|
