@@ -4,7 +4,8 @@ import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
+import { GUIDED_PROFILE_NAME } from './GuidedIamService.js';
 
 /**
  * Maximum number of action names sent in a single `SimulatePrincipalPolicy`
@@ -14,6 +15,21 @@ const SIMULATE_BATCH_SIZE = 50;
 
 /** Outcome of {@link IamCheckService.checkPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
+
+/**
+ * Which credential source produced an {@link IamCheckResult} — resolved by
+ * {@link IamCheckService.classifyOrigin} from the same
+ * {@link resolveAwsCredentialSource} snapshot {@link IamCheckService.checkPermissions}
+ * resolves once at the top of the method:
+ *
+ * - `'guided'` — a key minted and rotated in by {@link GuidedIamService.rotate}
+ *   (`AwsCredentialSource.kind === 'pasted'` with `profile === GUIDED_PROFILE_NAME`).
+ * - `'pasted'` — a manually pasted key (`kind: 'pasted'`, any other profile name).
+ * - `'profile'` — a real `~/.aws` CLI profile (`kind: 'profile'`).
+ * - `'none'` — no credential source is configured yet (`kind: 'none'`), or the
+ *   source could not be determined (see {@link IamCheckService.checkPermissions}).
+ */
+export type IamCheckOrigin = 'guided' | 'pasted' | 'profile' | 'none';
 
 /** Result of the wizard's best-effort IAM permission dry-run. */
 export interface IamCheckResult {
@@ -29,6 +45,21 @@ export interface IamCheckResult {
    * `iam:SimulatePrincipalPolicy`).
    */
   message?: string;
+  /** Which credential source produced this result. See {@link IamCheckOrigin}. */
+  origin: IamCheckOrigin;
+  /**
+   * `true` only when `status === 'missing'` AND `origin === 'guided'` — a
+   * denied action against a guided-provisioned (mint-then-rotate) key
+   * indicates a real fault (wrong account, partially-failed CloudFormation
+   * stack, a denying SCP), since that permission set is known by
+   * construction. Every other combination is `false`: `warning` never
+   * blocks regardless of origin (simulation failure degrades to advisory),
+   * and `missing` on a `profile`/`pasted`/`none` origin is advisory too — an
+   * operator may deliberately run a narrower policy on those paths. This is
+   * the single source of truth a caller reads to decide whether to gate
+   * wizard progression; no other field or method exposes that decision.
+   */
+  blocking: boolean;
 }
 
 /**
@@ -45,19 +76,53 @@ export interface IamCheckResult {
 export class IamCheckService {
   constructor(private readonly store: ElectronStoreService) {}
 
-  /** Runs the dry-run and returns a `passed` / `missing` / `warning` result. */
+  /**
+   * Runs the dry-run and returns a `passed` / `missing` / `warning` result.
+   *
+   * Resolves `region` and the active {@link AwsCredentialSource} exactly
+   * once, synchronously, before any AWS call — then threads that one
+   * snapshot through {@link classifyOrigin}, {@link createStsClient}, and
+   * {@link createIamClient}. Doing this resolution once (rather than each of
+   * those three independently re-reading `this.store` at different times) is
+   * load-bearing: `this.store` can mutate mid-call — e.g. an operator
+   * triggers `AwsProfileService.rotateActiveCredentials()` while this
+   * method's own `await`ed `sts:GetCallerIdentity`/`iam:SimulatePrincipalPolicy`
+   * calls are in flight — and without a single snapshot, the STS call, the
+   * IAM call, and the returned `origin` could each end up describing a
+   * *different* credential source.
+   */
   async checkPermissions(): Promise<IamCheckResult> {
+    let source: AwsCredentialSource;
+    try {
+      source = resolveAwsCredentialSource(this.store);
+    } catch (err) {
+      // e.g. AwsPastedCredentialDecryptError for a corrupt stored ciphertext
+      // — no source could be classified at all.
+      return { status: 'warning', message: this.describeError(err), origin: 'none', blocking: false };
+    }
+    const origin = this.classifyOrigin(source);
+
+    const region = this.store.get('aws')?.region;
+    if (!region) {
+      return {
+        status: 'warning',
+        message: 'Cannot run the IAM permission check: no region is configured. Complete the credentials step of the wizard first.',
+        origin,
+        blocking: false,
+      };
+    }
+
     let callerArn: string;
     try {
-      callerArn = await this.getCallerArn();
+      callerArn = await this.getCallerArn(region, source);
     } catch (err) {
-      return { status: 'warning', message: this.describeError(err) };
+      return { status: 'warning', message: this.describeError(err), origin, blocking: false };
     }
 
     const actions = this.actionsToCheck();
     const denied: string[] = [];
     try {
-      const client = this.createIamClient();
+      const client = this.createIamClient(region, source);
       for (const batch of this.chunk(actions, SIMULATE_BATCH_SIZE)) {
         const response = await client.send(
           new SimulatePrincipalPolicyCommand({ PolicySourceArn: callerArn, ActionNames: [...batch] }),
@@ -69,13 +134,35 @@ export class IamCheckService {
         }
       }
     } catch (err) {
-      return { status: 'warning', message: this.describeError(err) };
+      return { status: 'warning', message: this.describeError(err), origin, blocking: false };
     }
 
     if (denied.length === 0) {
-      return { status: 'passed' };
+      return { status: 'passed', origin, blocking: false };
     }
-    return { status: 'missing', policyJson: this.buildPolicyJson(denied) };
+    return { status: 'missing', policyJson: this.buildPolicyJson(denied), origin, blocking: origin === 'guided' };
+  }
+
+  /**
+   * Classifies {@link IamCheckOrigin} from an already-resolved
+   * {@link AwsCredentialSource} — pure, no store access, so every caller
+   * shares the exact snapshot {@link checkPermissions} resolved once at the
+   * top of the method. Classifies a `'pasted'` source further: a profile
+   * name of {@link GUIDED_PROFILE_NAME} means the key came from
+   * {@link GuidedIamService.rotate}, distinguishing it from a manually
+   * pasted key (see `GuidedIamService`'s doc comment on `GUIDED_PROFILE_NAME`
+   * for why it's a distinct name from `AwsProfileService`'s
+   * `DEFAULT_PASTED_PROFILE_NAME`).
+   */
+  private classifyOrigin(source: AwsCredentialSource): IamCheckOrigin {
+    switch (source.kind) {
+      case 'none':
+        return 'none';
+      case 'profile':
+        return 'profile';
+      case 'pasted':
+        return source.profile === GUIDED_PROFILE_NAME ? 'guided' : 'pasted';
+    }
   }
 
   /**
@@ -88,8 +175,8 @@ export class IamCheckService {
     return HYVEON_DEPLOY_ALL_ACTIONS;
   }
 
-  private async getCallerArn(): Promise<string> {
-    const client = this.createStsClient();
+  private async getCallerArn(region: string, source: AwsCredentialSource): Promise<string> {
+    const client = this.createStsClient(region, source);
     const response = await client.send(new GetCallerIdentityCommand({}));
     if (!response.Arn) {
       throw new Error('sts:GetCallerIdentity did not return an ARN for the configured credentials.');
@@ -135,30 +222,33 @@ export class IamCheckService {
   }
 
   /**
-   * Builds an STS client from the credentials/region chosen in the wizard's
-   * credentials step. Extracted as a protected seam so tests can stub it.
+   * Builds an STS client from an already-resolved `region`/`source` snapshot
+   * — never re-reads `this.store` itself. Extracted as a protected seam so
+   * tests can stub it.
+   *
+   * @param region - The region resolved by {@link checkPermissions}.
+   * @param source - The credential source resolved by {@link checkPermissions}.
    */
-  protected createStsClient(): STSClient {
-    return new STSClient(this.resolveClientConfig());
+  protected createStsClient(region: string, source: AwsCredentialSource): STSClient {
+    return new STSClient(this.buildClientConfig(region, source));
   }
 
   /**
-   * Builds an IAM client from the same wizard-chosen credentials/region as
-   * {@link createStsClient}. Extracted as a protected seam so tests can stub it.
+   * Builds an IAM client from the same `region`/`source` snapshot as
+   * {@link createStsClient} — never re-reads `this.store` itself. Extracted
+   * as a protected seam so tests can stub it.
+   *
+   * @param region - The region resolved by {@link checkPermissions}.
+   * @param source - The credential source resolved by {@link checkPermissions}.
    */
-  protected createIamClient(): IAMClient {
-    return new IAMClient(this.resolveClientConfig());
+  protected createIamClient(region: string, source: AwsCredentialSource): IAMClient {
+    return new IAMClient(this.buildClientConfig(region, source));
   }
 
-  private resolveClientConfig(): Pick<import('@aws-sdk/client-iam').IAMClientConfig, 'region' | 'credentials'> {
-    const aws = this.store.get('aws');
-    if (!aws?.region) {
-      throw new Error(
-        'Cannot run the IAM permission check: no region is configured. Complete the credentials step of the wizard first.',
-      );
-    }
-    const { region } = aws;
-    const source = resolveAwsCredentialSource(this.store);
+  private buildClientConfig(
+    region: string,
+    source: AwsCredentialSource,
+  ): Pick<import('@aws-sdk/client-iam').IAMClientConfig, 'region' | 'credentials'> {
     switch (source.kind) {
       case 'none':
         return { region };

@@ -1300,6 +1300,12 @@ export interface BootstrapDeploymentConfigInput {
 /** Outcome of {@link HyveonWizardApi.simulateIamPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
+/**
+ * Which credential source produced an {@link IamCheckResult}. Mirrors
+ * `IamCheckOrigin` in `IamCheckService.ts` — keep in sync.
+ */
+export type IamCheckOrigin = 'guided' | 'pasted' | 'profile' | 'none';
+
 /** Result of the wizard's best-effort IAM permission dry-run against the `HyveonDeployAll` action set. */
 export interface IamCheckResult {
   status: IamCheckStatus;
@@ -1313,6 +1319,15 @@ export interface IamCheckResult {
    * why simulation itself could not run.
    */
   message?: string;
+  /** Which credential source produced this result. See {@link IamCheckOrigin}. */
+  origin: IamCheckOrigin;
+  /**
+   * `true` only when `status === 'missing'` AND `origin === 'guided'` — see
+   * `IamCheckService.ts`'s `IamCheckResult.blocking` for the full rationale.
+   * The single source of truth a caller reads to decide whether to gate
+   * wizard progression; no other field or method exposes that decision.
+   */
+  blocking: boolean;
 }
 
 /** A single first-run wizard step name, in wizard order. Mirrors `WIZARD_STEPS` in `@hyveon/shared`'s `wizardSteps.ts` (re-exported by `@hyveon/web`'s `wizard.utils.ts`). */
