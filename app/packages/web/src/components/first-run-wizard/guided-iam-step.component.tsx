@@ -440,7 +440,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
    * Finder/Explorer" button here without touching this function.
    */
   function handleCopyPath() {
-    if (!templatePath) return;
+    if (!templatePath || !navigator.clipboard) return;
     void navigator.clipboard
       .writeText(templatePath)
       .then(() => setPathCopied(true))

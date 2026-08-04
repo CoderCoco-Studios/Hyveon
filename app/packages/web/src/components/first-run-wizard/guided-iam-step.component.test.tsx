@@ -127,6 +127,19 @@ describe('GuidedIamStep', () => {
       expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(2);
     });
 
+    it('should not throw and should leave the copy state unset when clicking Copy in a context with no clipboard API', async () => {
+      stubHappyPathDefaults();
+      Object.assign(navigator, { clipboard: undefined });
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+      await screen.findByLabelText('Template path');
+
+      await userEvent.click(screen.getByRole('button', { name: /copy template path/i }));
+
+      expect(screen.queryByText(/copied/i)).not.toBeInTheDocument();
+    });
+
     it('should open the AWS console and show a success message when opened', async () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);

@@ -385,8 +385,15 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * Like `stack-init-step.component.tsx`'s `onFinished`, this bypasses the
    * shared footer's Next button entirely — see the footer's `hideNextButton`
    * computation below for why Next is hidden for this step.
+   *
+   * Clears {@link guidedIamInitialProgress} before advancing — see that
+   * state's own doc comment for why: leaving it set would let a later `Back`
+   * navigation back onto `guided-iam` re-fire the save effect above with this
+   * mount's now-stale value, overwriting whatever `GuidedIamStep` itself
+   * persisted since.
    */
   async function handleGuidedIamComplete() {
+    setGuidedIamInitialProgress(undefined);
     await refreshGuidedCredentials();
     void goNext();
   }
@@ -396,9 +403,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * credentials" instead of guided provisioning. Advances past this step the
    * same way {@link handleGuidedIamComplete} does; no sub-state was
    * persisted for this path (see `GuidedIamStepProps.onSkipToManual`'s own
-   * doc comment), so there is nothing to re-derive here.
+   * doc comment), so there is nothing to re-derive here. Clears
+   * {@link guidedIamInitialProgress} for the same reason
+   * {@link handleGuidedIamComplete} does.
    */
   function handleGuidedIamSkipToManual() {
+    setGuidedIamInitialProgress(undefined);
     void goNext();
   }
 

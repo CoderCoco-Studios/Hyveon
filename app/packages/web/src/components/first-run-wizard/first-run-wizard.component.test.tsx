@@ -684,6 +684,38 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText(/choose the aws credentials/i)).toBeInTheDocument();
     });
 
+    it('should not resurrect a stale guided-iam sub-state on the save effect after Back navigation past the step', async () => {
+      // Regression test: a mount-time guided-iam sub-state used to stay in
+      // `guidedIamInitialProgress` forever, even after the step's own exit
+      // handlers fired — so re-entering `guided-iam` via Back re-ran the
+      // save-on-change effect with that stale value, overwriting whatever
+      // GuidedIamStep itself had persisted since.
+      hyveonMock.wizard.getProgress.mockResolvedValue({
+        step: 'guided-iam',
+        guidedIam: { subState: 'awaiting-key-intake', hasBootstrapKey: false },
+      });
+      render(<FirstRunWizard />);
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() =>
+        expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({
+          step: 'guided-iam',
+          guidedIam: { subState: 'awaiting-key-intake', hasBootstrapKey: false },
+        }),
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      await screen.findByText(/choose the aws credentials/i);
+      hyveonMock.wizard.saveProgress.mockClear();
+
+      await userEvent.click(screen.getByRole('button', { name: /back/i }));
+
+      await screen.findByText('guided-iam-step-stub');
+      await waitFor(() => expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({ step: 'guided-iam' }));
+      expect(hyveonMock.wizard.saveProgress).not.toHaveBeenCalledWith(
+        expect.objectContaining({ guidedIam: expect.anything() }),
+      );
+    });
+
     it("should render the credentials step's satisfied summary when GuidedIamStep calls onComplete with a guided profile on record", async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: false,
