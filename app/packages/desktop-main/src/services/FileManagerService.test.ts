@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import type { Task } from '@aws-sdk/client-ecs';
+import type { SecretsStore } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -10,6 +11,7 @@ import { FileManagerService } from './FileManagerService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { EcsService } from './EcsService.js';
 import type { Ec2Service } from './Ec2Service.js';
+import type { SchedulerService } from './SchedulerService.js';
 import type { StackOutputs } from '@hyveon/shared';
 
 /**
@@ -32,6 +34,8 @@ const DEFAULT_OUTPUTS: StackOutputs = {
   runsTableName: 'runs-table',
   discordBotTokenSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:bot-token',
   discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:public-key',
+  fileBrowserCredentialSecretArn: 'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
+  fileBrowserSchedulerRoleArn: 'arn:aws:iam::123:role/filebrowser-scheduler',
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,
@@ -97,17 +101,67 @@ function makeEc2(ip: string | null = '1.2.3.4'): Ec2Service {
   return stub as Ec2Service;
 }
 
+/**
+ * Subset of SchedulerService that FileManagerService actually calls. Both
+ * methods default to succeeding — individual tests override to exercise the
+ * best-effort failure paths.
+ */
+type SchedulerStub = Pick<SchedulerService, 'createStopSchedule' | 'deleteSchedule'>;
+
+/** Build a SchedulerService stub with happy-path defaults, overridable per test. */
+function makeScheduler(overrides: Partial<SchedulerStub> = {}): { stub: SchedulerStub; service: SchedulerService } {
+  const stub: SchedulerStub = {
+    createStopSchedule: vi.fn().mockResolvedValue(true),
+    deleteSchedule: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+  return { stub, service: stub as SchedulerService };
+}
+
+/** Build a SecretsStore stub whose `put` resolves by default; override to simulate a Secrets Manager write failure. */
+function makeSecrets(overrides: Partial<SecretsStore> = {}): { stub: SecretsStore; service: SecretsStore } {
+  const stub: SecretsStore = {
+    get: vi.fn().mockResolvedValue(undefined),
+    put: vi.fn().mockResolvedValue(undefined),
+    exists: vi.fn().mockResolvedValue(false),
+    ...overrides,
+  };
+  return { stub, service: stub };
+}
+
+/**
+ * Constructs the SUT with happy-path `EcsService`/`Ec2Service`/`SchedulerService`/
+ * `SecretsStore` collaborators unless overridden — the standard "arrange" step
+ * every test below uses, so adding a new constructor dependency only needs a
+ * new optional field here rather than touching every call site.
+ */
+function buildService(options: {
+  config?: ConfigService;
+  ecs?: EcsService;
+  ec2?: Ec2Service;
+  scheduler?: SchedulerService;
+  secrets?: SecretsStore;
+} = {}): FileManagerService {
+  return new FileManagerService(
+    options.config ?? makeConfig(),
+    options.ecs ?? makeEcs().service,
+    options.ec2 ?? makeEc2(),
+    options.scheduler ?? makeScheduler().service,
+    options.secrets ?? makeSecrets().service,
+  );
+}
+
 describe('FileManagerService', () => {
   describe('getStatus', () => {
     it('should return not_deployed when terraform outputs are missing', async () => {
       const { service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(null), ecs, makeEc2());
+      const svc = buildService({ config: makeConfig(null), ecs });
       expect((await svc.getStatus('minecraft')).state).toBe('not_deployed');
     });
 
     it('should return stopped when no tasks exist', async () => {
       const { stub, service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([]) });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       expect((await svc.getStatus('minecraft')).state).toBe('stopped');
       expect(stub.listTasksByStartedBy).toHaveBeenCalledWith('game-cluster', 'filemgr-minecraft');
     });
@@ -118,11 +172,12 @@ describe('FileManagerService', () => {
         listTasksByStartedBy: vi.fn().mockResolvedValue([task]),
         extractEniId: vi.fn().mockReturnValue('eni-1'),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2('5.6.7.8'));
+      const svc = buildService({ ecs, ec2: makeEc2('5.6.7.8') });
       const status = await svc.getStatus('minecraft');
       expect(status.state).toBe('running');
       expect(status.url).toBe('http://5.6.7.8:8080');
       expect(status.taskArn).toBe('arn-fm');
+      expect(status).not.toHaveProperty('credentials');
     });
 
     it('should return running without a URL when the public IP cannot be resolved', async () => {
@@ -130,7 +185,7 @@ describe('FileManagerService', () => {
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ lastStatus: 'RUNNING' }]),
         extractEniId: vi.fn().mockReturnValue('eni-1'),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2(null));
+      const svc = buildService({ ecs, ec2: makeEc2(null) });
       const status = await svc.getStatus('minecraft');
       expect(status.state).toBe('running');
       expect(status.url).toBeUndefined();
@@ -140,7 +195,7 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-fm', lastStatus: 'PROVISIONING' }]),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const status = await svc.getStatus('minecraft');
       expect(status.state).toBe('starting');
       expect(status.taskArn).toBe('arn-fm');
@@ -150,7 +205,7 @@ describe('FileManagerService', () => {
   describe('start', () => {
     it('should fail if terraform outputs are missing', async () => {
       const { service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(null), ecs, makeEc2());
+      const svc = buildService({ config: makeConfig(null), ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/not deployed/i);
@@ -159,7 +214,7 @@ describe('FileManagerService', () => {
     it('should fail when the game has no EFS access point', async () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, efsAccessPoints: {} };
       const { service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(outputs), ecs, makeEc2());
+      const svc = buildService({ config: makeConfig(outputs), ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/no efs access point/i);
@@ -168,7 +223,7 @@ describe('FileManagerService', () => {
     it('should fail when file_manager_security_group_id is not set', async () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileManagerSecurityGroupId: '' };
       const { service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(outputs), ecs, makeEc2());
+      const svc = buildService({ config: makeConfig(outputs), ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/fileManagerSecurityGroupId/);
@@ -178,7 +233,7 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'existing' }]),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/already running/i);
@@ -188,15 +243,15 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({
         getTaskDefinition: vi.fn().mockResolvedValue(null),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/execution role/i);
     });
 
-    it('should register a filebrowser task definition and then run it', async () => {
+    it('should register a filebrowser task definition (auth flags, not --noauth) and then run it', async () => {
       const { stub, service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.start('minecraft');
 
       expect(result.success).toBe(true);
@@ -219,7 +274,15 @@ describe('FileManagerService', () => {
       expect(container.image).toContain('filebrowser');
       expect(container.portMappings![0]!.containerPort).toBe(8080);
       expect(container.mountPoints![0]!.containerPath).toBe('/srv');
-      expect(container.command).toContain('--noauth');
+      expect(container.command).not.toContain('--noauth');
+      expect(container.command).toContain('--username');
+      expect(container.command).toContain('--password');
+      // The password flag must carry a bcrypt hash, never the plaintext
+      // returned to the caller in `result.credentials.password`.
+      const passwordIndex = container.command!.indexOf('--password') + 1;
+      const passwordFlagValue = container.command![passwordIndex] as string;
+      expect(passwordFlagValue).toMatch(/^\$2[aby]\$/);
+      expect(passwordFlagValue).not.toBe(result.credentials?.password);
       expect(container.logConfiguration!.options!['awslogs-group']).toBe('/ecs/filebrowser-minecraft');
       expect(container.logConfiguration!.options!['awslogs-region']).toBe('us-east-1');
 
@@ -232,11 +295,93 @@ describe('FileManagerService', () => {
       expect(runArgs.networkConfiguration!.awsvpcConfiguration!.assignPublicIp).toBe('ENABLED');
     });
 
+    it('should return a random plaintext username/password pair once, in credentials', async () => {
+      const { service: ecs } = makeEcs();
+      const svc = buildService({ ecs });
+
+      const first = await svc.start('minecraft');
+      const second = await svc.start('minecraft');
+
+      expect(first.credentials?.username).toBe('admin');
+      expect(first.credentials?.password).toEqual(expect.any(String));
+      expect(first.credentials?.password.length).toBeGreaterThan(0);
+      // Every launch generates a fresh password.
+      expect(second.credentials?.password).not.toBe(first.credentials?.password);
+    });
+
+    it('should write the bcrypt hash to Secrets Manager via the shared SecretsStore', async () => {
+      const { service: ecs } = makeEcs();
+      const { stub: secretsStub, service: secrets } = makeSecrets();
+      const svc = buildService({ ecs, secrets });
+
+      const result = await svc.start('minecraft');
+
+      expect(secretsStub.put).toHaveBeenCalledWith(
+        'arn:aws:secretsmanager:us-east-1:123:secret:filebrowser-credential',
+        expect.any(String),
+      );
+      const storedHash = vi.mocked(secretsStub.put).mock.calls[0]![1];
+      expect(storedHash).not.toBe(result.credentials?.password);
+    });
+
+    it('should not fail the launch when the Secrets Manager write throws', async () => {
+      const { service: ecs } = makeEcs();
+      const { service: secrets } = makeSecrets({ put: vi.fn().mockRejectedValue(new Error('AccessDenied')) });
+      const svc = buildService({ ecs, secrets });
+
+      const result = await svc.start('minecraft');
+
+      expect(result.success).toBe(true);
+      expect(result.credentials).toBeDefined();
+    });
+
+    it('should create a one-time auto-stop schedule after a successful RunTask, targeting the new task and the deployed scheduler role', async () => {
+      const { service: ecs } = makeEcs();
+      const { stub: schedulerStub, service: scheduler } = makeScheduler();
+      const svc = buildService({ ecs, scheduler });
+
+      await svc.start('minecraft');
+
+      expect(schedulerStub.createStopSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'filemgr-stop-minecraft',
+          cluster: 'game-cluster',
+          taskArn: 'arn-fm',
+          roleArn: 'arn:aws:iam::123:role/filebrowser-scheduler',
+          at: expect.any(Date),
+        }),
+      );
+      const at = vi.mocked(schedulerStub.createStopSchedule).mock.calls[0]![0].at;
+      expect(at.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('should not create a schedule (and should still succeed) when fileBrowserSchedulerRoleArn is missing from stack outputs', async () => {
+      const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileBrowserSchedulerRoleArn: '' };
+      const { service: ecs } = makeEcs();
+      const { stub: schedulerStub, service: scheduler } = makeScheduler();
+      const svc = buildService({ config: makeConfig(outputs), ecs, scheduler });
+
+      const result = await svc.start('minecraft');
+
+      expect(result.success).toBe(true);
+      expect(schedulerStub.createStopSchedule).not.toHaveBeenCalled();
+    });
+
+    it('should still succeed when schedule creation itself fails', async () => {
+      const { service: ecs } = makeEcs();
+      const { service: scheduler } = makeScheduler({ createStopSchedule: vi.fn().mockResolvedValue(false) });
+      const svc = buildService({ ecs, scheduler });
+
+      const result = await svc.start('minecraft');
+
+      expect(result.success).toBe(true);
+    });
+
     it('should fail when task-definition registration returns null', async () => {
       const { stub, service: ecs } = makeEcs({
         registerTaskDefinition: vi.fn().mockResolvedValue(null),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
       expect(stub.runTask).not.toHaveBeenCalled();
@@ -246,7 +391,7 @@ describe('FileManagerService', () => {
       const { service: ecs } = makeEcs({
         runTask: vi.fn().mockResolvedValue(null),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.start('minecraft');
       expect(result.success).toBe(false);
     });
@@ -255,13 +400,13 @@ describe('FileManagerService', () => {
   describe('stop', () => {
     it('should fail when outputs are missing', async () => {
       const { service: ecs } = makeEcs();
-      const svc = new FileManagerService(makeConfig(null), ecs, makeEc2());
+      const svc = buildService({ config: makeConfig(null), ecs });
       expect((await svc.stop('minecraft')).success).toBe(false);
     });
 
     it('should fail when no file manager is running', async () => {
       const { service: ecs } = makeEcs({ listTasksByStartedBy: vi.fn().mockResolvedValue([]) });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.stop('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toMatch(/no file manager running/i);
@@ -271,10 +416,22 @@ describe('FileManagerService', () => {
       const { stub, service: ecs } = makeEcs({
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.stop('minecraft');
       expect(result.success).toBe(true);
       expect(stub.stopTask).toHaveBeenCalledWith('game-cluster', 'arn-1', expect.any(String));
+    });
+
+    it('should delete the game auto-stop schedule after stopping the task', async () => {
+      const { service: ecs } = makeEcs({
+        listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
+      });
+      const { stub: schedulerStub, service: scheduler } = makeScheduler();
+      const svc = buildService({ ecs, scheduler });
+
+      await svc.stop('minecraft');
+
+      expect(schedulerStub.deleteSchedule).toHaveBeenCalledWith('filemgr-stop-minecraft');
     });
 
     it('should return failure when stopTask throws', async () => {
@@ -282,7 +439,7 @@ describe('FileManagerService', () => {
         listTasksByStartedBy: vi.fn().mockResolvedValue([{ taskArn: 'arn-1' }]),
         stopTask: vi.fn().mockRejectedValue(new Error('nope')),
       });
-      const svc = new FileManagerService(makeConfig(), ecs, makeEc2());
+      const svc = buildService({ ecs });
       const result = await svc.stop('minecraft');
       expect(result.success).toBe(false);
       expect(result.message).toContain('nope');

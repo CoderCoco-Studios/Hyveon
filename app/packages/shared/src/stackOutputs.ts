@@ -114,6 +114,24 @@ export interface StackOutputs {
   discordPublicKeySecretArn: string;
 
   /**
+   * Secrets Manager ARN for the FileBrowser helper's per-launch credential
+   * hash. A location, not the secret value itself — see
+   * {@link discordBotTokenSecretArn}'s doc for why this is safe to include.
+   * `FileManagerService` writes a fresh bcrypt hash here on every launch (one
+   * shared secret, not per-game — see `secrets.ts`'s file doc for why a
+   * single secret is enough for an ephemeral, always-rotated credential).
+   */
+  fileBrowserCredentialSecretArn: string;
+
+  /**
+   * IAM role ARN that EventBridge Scheduler assumes to invoke `ecs:StopTask`
+   * for the FileBrowser helper's auto-stop schedule. Trust-scoped to
+   * `scheduler.amazonaws.com`, permissioned only for `ecs:StopTask` on the
+   * deployed cluster — see `iam.ts`'s `fileBrowserSchedulerRole`.
+   */
+  fileBrowserSchedulerRoleArn: string;
+
+  /**
    * URL to paste into the Discord Developer Portal's "Interactions Endpoint
    * URL" field. Mirrors the `interactions_invoke_url` output. `null` when
    * absent from the stack's outputs (e.g. state predates this output).

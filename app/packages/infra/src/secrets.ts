@@ -11,6 +11,23 @@
  * | `aws_secretsmanager_secret_version.discord_bot_token` | {@link SecretsResources.discordBotTokenSecretVersion} |
  * | `aws_secretsmanager_secret.discord_public_key` | {@link SecretsResources.discordPublicKeySecret} |
  * | `aws_secretsmanager_secret_version.discord_public_key` | {@link SecretsResources.discordPublicKeySecretVersion} |
+ * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecret} |
+ * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecretVersion} |
+ *
+ * ## The FileBrowser credential secret — one shared secret, not per-game
+ *
+ * `FileManagerService` (`@hyveon/desktop-main`) writes a fresh bcrypt hash to
+ * {@link SecretsResources.fileBrowserCredentialSecret} on every FileBrowser
+ * helper launch, for whichever game's helper was just started — the plaintext
+ * credential is generated app-side, shown to the operator once in the
+ * `files.start` IPC response, and never itself stored. A SINGLE secret is
+ * declared (not one per game, the way `efs.ts`'s access points are) because
+ * the credential is ephemeral and rotates on every launch regardless of which
+ * game the helper is for; a per-game secret would only add N recurring
+ * Secrets Manager line items ($0.40/month each) for a value nothing ever
+ * needs to read back across launches. Same create-only-placeholder pattern as
+ * the two Discord secrets above, for the same reason: this program cannot
+ * accept secret material as an input.
  *
  * ## SPEC-CRITICAL: no secret material enters the stack
  *
@@ -79,6 +96,10 @@ export interface SecretsResources {
   discordPublicKeySecret: aws.secretsmanager.Secret;
   /** {@link discordPublicKeySecret}'s create-only placeholder version (`aws_secretsmanager_secret_version.discord_public_key`). */
   discordPublicKeySecretVersion: aws.secretsmanager.SecretVersion;
+  /** The FileBrowser helper's per-launch credential-hash secret — one shared secret across every game, not per-game. See this file's doc, "The FileBrowser credential secret". */
+  fileBrowserCredentialSecret: aws.secretsmanager.Secret;
+  /** {@link fileBrowserCredentialSecret}'s create-only placeholder version. */
+  fileBrowserCredentialSecretVersion: aws.secretsmanager.SecretVersion;
 }
 
 /** Arguments {@link defineSecrets} needs to declare every secret and its placeholder version. Deliberately carries NO secret-value field — see this file's doc. */
@@ -176,5 +197,31 @@ export function defineSecrets(args: DefineSecretsArgs): SecretsResources {
     secretResourceOptions.forVersion(provider),
   );
 
-  return { discordBotTokenSecret, discordBotTokenSecretVersion, discordPublicKeySecret, discordPublicKeySecretVersion };
+  const fileBrowserCredentialSecret = new aws.secretsmanager.Secret(
+    `${projectName}-filebrowser-credential`,
+    {
+      name: `${projectName}/filebrowser/credential`,
+      description: 'FileBrowser helper — bcrypt hash of the most recently generated per-launch credential',
+      recoveryWindowInDays: 0,
+    },
+    opts,
+  );
+
+  const fileBrowserCredentialSecretVersion = new aws.secretsmanager.SecretVersion(
+    `${projectName}-filebrowser-credential-version`,
+    {
+      secretId: fileBrowserCredentialSecret.id,
+      secretString: PLACEHOLDER_SECRET_VALUE,
+    },
+    secretResourceOptions.forVersion(provider),
+  );
+
+  return {
+    discordBotTokenSecret,
+    discordBotTokenSecretVersion,
+    discordPublicKeySecret,
+    discordPublicKeySecretVersion,
+    fileBrowserCredentialSecret,
+    fileBrowserCredentialSecretVersion,
+  };
 }

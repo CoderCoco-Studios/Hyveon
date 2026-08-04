@@ -36,6 +36,8 @@ const TF: StackOutputs = {
   runsTableName: '',
   discordBotTokenSecretArn: '',
   discordPublicKeySecretArn: '',
+  fileBrowserCredentialSecretArn: '',
+  fileBrowserSchedulerRoleArn: '',
   interactionsInvokeUrl: null,
   discordInteractionsUrl: null,
   appliedGameServers: null,

@@ -6,10 +6,12 @@ import { EcsService } from '../services/EcsService.js';
 import { LogsService } from '../services/LogsService.js';
 import { CostService } from '../services/CostService.js';
 import { FileManagerService } from '../services/FileManagerService.js';
+import { SchedulerService } from '../services/SchedulerService.js';
 
 /**
  * Feature module grouping every AWS-facing service (ECS, EC2, CloudWatch
- * Logs, Cost Explorer, the FileBrowser task helper). Imported by `AppModule`
+ * Logs, Cost Explorer, EventBridge Scheduler, the FileBrowser task helper).
+ * Imported by `AppModule`
  * so controllers get these via Nest's DI without wiring each provider
  * individually.
  *
@@ -31,7 +33,7 @@ import { FileManagerService } from '../services/FileManagerService.js';
  */
 @Module({
   imports: [ConfigModule, CloudProviderModule],
-  providers: [Ec2Service, EcsService, LogsService, CostService, FileManagerService],
+  providers: [Ec2Service, EcsService, LogsService, CostService, SchedulerService, FileManagerService],
   exports: [
     ConfigModule,
     CloudProviderModule,
@@ -39,6 +41,7 @@ import { FileManagerService } from '../services/FileManagerService.js';
     EcsService,
     LogsService,
     CostService,
+    SchedulerService,
     FileManagerService,
   ],
 })
