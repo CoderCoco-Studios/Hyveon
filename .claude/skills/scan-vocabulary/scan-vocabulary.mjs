@@ -11,7 +11,7 @@
  * same report.
  *
  * Usage:
- *   node scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--json]
+ *   node scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--exclude=path1,path2] [--json]
  *
  *   rootDir     Directory to scan (required, positional).
  *   --terms     Comma-separated list of search terms (required).
@@ -22,6 +22,11 @@
  *               (e.g. "tf" plain-substring-matches inside "outfit").
  *               Boundary mode also auto-generates a PascalCase word-segment
  *               variant (so "tf" also catches "TfOutputs"/"getTfOutputs").
+ *   --exclude   Comma-separated list of paths (relative to rootDir) to skip
+ *               for this run only, on top of the built-in defaults — e.g. a
+ *               directory that's expected to hold historical references
+ *               (`openspec`) or a generated artifact not covered by the
+ *               defaults. Matches the path itself and everything under it.
  *   --json      Emit the full match list as JSON instead of a
  *               human-readable report (still deterministically ordered).
  *
@@ -32,6 +37,9 @@
  *   # Same, but treat the short/generic term "tf" as boundary-only to
  *   # avoid matching inside unrelated words
  *   node scan-vocabulary.mjs ../.. --terms=terraform,tfvars,tf --boundary=tf
+ *
+ *   # Skip a directory that's expected to hold historical references
+ *   node scan-vocabulary.mjs ../.. --terms=terraform,tfvars --exclude=openspec
  *
  * No external dependencies — Node builtins only.
  */
@@ -54,6 +62,7 @@ const EXCLUDED_DIR_NAMES = new Set([
   '.cache',
   '.turbo',
   '.next',
+  'playwright-report',
 ]);
 
 /** Relative path prefixes (from the scan root) to skip — nested worktree copies of this same repo. */
@@ -68,7 +77,7 @@ const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.webp',
   '.woff', '.woff2', '.ttf', '.eot',
   '.zip', '.gz', '.tar', '.pdf', '.mp4', '.mov', '.webm',
-  '.wasm', '.node', '.map', '.lock',
+  '.wasm', '.node', '.map', '.lock', '.tsbuildinfo',
 ]);
 
 function escapeRegExp(s) {
@@ -108,12 +117,16 @@ function isTextFile(filePath) {
   return !BINARY_EXTENSIONS.has(extname(filePath).toLowerCase());
 }
 
-function isExcludedPath(relPath) {
-  return EXCLUDED_PATH_PREFIXES.some((prefix) => relPath === prefix || relPath.startsWith(prefix + '/'));
+function isExcludedPath(relPath, extraPrefixes) {
+  const relNormalized = relPath.split('\\').join('/');
+  if (EXCLUDED_PATH_PREFIXES.some((prefix) => relNormalized === prefix || relNormalized.startsWith(prefix + '/'))) {
+    return true;
+  }
+  return extraPrefixes.some((prefix) => relNormalized === prefix || relNormalized.startsWith(prefix + '/'));
 }
 
-/** Recursively collects every scannable file path under `dir`, skipping excluded dirs. */
-function walk(dir, root, acc) {
+/** Recursively collects every scannable file path under `dir`, skipping excluded dirs and `--exclude` paths. */
+function walk(dir, root, acc, extraPrefixes) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -124,9 +137,14 @@ function walk(dir, root, acc) {
     const full = join(dir, entry.name);
     const rel = relative(root, full);
     if (entry.isDirectory()) {
-      if (EXCLUDED_DIR_NAMES.has(entry.name) || isExcludedPath(rel)) continue;
-      walk(full, root, acc);
-    } else if (entry.isFile() && !EXCLUDED_FILE_NAMES.has(entry.name) && isTextFile(full)) {
+      if (EXCLUDED_DIR_NAMES.has(entry.name) || isExcludedPath(rel, extraPrefixes)) continue;
+      walk(full, root, acc, extraPrefixes);
+    } else if (
+      entry.isFile() &&
+      !EXCLUDED_FILE_NAMES.has(entry.name) &&
+      isTextFile(full) &&
+      !isExcludedPath(rel, extraPrefixes)
+    ) {
       acc.push(full);
     }
   }
@@ -196,7 +214,9 @@ async function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
 
   if (!flags.terms) {
-    console.error('Usage: node scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--json]');
+    console.error(
+      'Usage: node scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--exclude=path1,path2] [--json]',
+    );
     process.exitCode = 1;
     return;
   }
@@ -208,12 +228,18 @@ async function main() {
       ? String(flags.boundary).split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
       : [],
   );
+  const excludePrefixes = flags.exclude
+    ? String(flags.exclude)
+        .split(',')
+        .map((p) => p.trim().split('\\').join('/').replace(/^\/+|\/+$/g, ''))
+        .filter(Boolean)
+    : [];
   const jsonOutput = Boolean(flags.json);
 
   const patterns = buildPatterns(terms, boundaryTerms);
   const patternSpecs = patterns.map((p) => ({ name: p.name, source: p.regex.source, flags: p.regex.flags }));
 
-  const files = walk(root, root, []);
+  const files = walk(root, root, [], excludePrefixes);
   files.sort(); // deterministic file ordering regardless of readdir order
 
   const workerCount = Math.max(1, Math.min(cpus().length, files.length || 1));
@@ -257,6 +283,7 @@ async function main() {
 
   console.log('');
   console.log(`Terms: ${terms.join(', ')}${boundaryTerms.size ? ` (boundary mode: ${[...boundaryTerms].join(', ')})` : ''}`);
+  if (excludePrefixes.length) console.log(`Excluded: ${excludePrefixes.join(', ')}`);
   console.log(`Scanned ${files.length} files using ${workerCount} worker threads.`);
   console.log(`Found ${allMatches.length} matches:`);
   for (const [name, count] of Object.entries(byPattern)) {
