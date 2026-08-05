@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r \".tool_input.file_path // empty\"); if [[ -n \"$f\" && \"$f\" =~ (^|/)docs/superpowers/(specs|plans)/ ]]; then jq -cn \"{hookSpecificOutput:{hookEventName:\\\"PreToolUse\\\",permissionDecision:\\\"deny\\\",permissionDecisionReason:\\\"Blocked: .claude/rules/spec-driven-development.md forbids writing directly to docs/superpowers/specs/** or docs/superpowers/plans/**. Narrative brainstorming stays verbal-only; writing-plans output is redirected by the superpowers-bridge schema. Promote via /opsx:propose or /opsx:new so output lands in openspec/changes/<name>/brainstorm.md or plan.md instead. See openspec/schemas/superpowers-bridge/README.md, section Entry and exit gates.\\\"}}\"; fi",
+            "command": "node .claude/hooks/guard-superpowers-paths.js",
             "statusMessage": "Checking brainstorm/plan output path against routing rule..."
           }
         ]
