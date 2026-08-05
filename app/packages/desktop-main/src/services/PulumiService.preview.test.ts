@@ -128,11 +128,15 @@ function makeRemoteFileStore(
 function makeRunRecordPersister(): RunRecordPersister & {
   persist: ReturnType<typeof vi.fn>;
   getByRunId: ReturnType<typeof vi.fn>;
+  writePreflightMarker: ReturnType<typeof vi.fn>;
 } {
   return {
     persist: vi.fn().mockResolvedValue(undefined),
     getByRunId: vi.fn(() => {
       throw new Error('RunRecordPersister.getByRunId() was not expected to be called by this test');
+    }),
+    writePreflightMarker: vi.fn(() => {
+      throw new Error('RunRecordPersister.writePreflightMarker() was not expected to be called by this test');
     }),
   };
 }

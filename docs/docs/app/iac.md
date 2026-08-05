@@ -139,17 +139,37 @@ dashboard** link, plus a toast.
 An ordinary apply failure or abort shows a red banner: `Apply failed — see
 the log above for details.` (or `was aborted` for an abort).
 
-If the run also mutated some resources before it failed or was aborted —
-Pulumi's engine reports this as `partialApply` on the run record — you get a
+If the run leaves any uncertainty about whether resources were already
+mutated before it failed or was aborted — Pulumi's engine reports this as
+`partialApply` on the run record, and the field is set proactively, before
+`stack.up()` is ever called, so a failure can't hide it — you get a
 different, more specific banner instead: **Apply stopped partway through.**
-Its point is that the deployed infrastructure no longer matches the plan
+Its point is that the deployed infrastructure might no longer match the plan
 you approved, so retrying that same apply is unsafe. The `planHash` check
 only proves the plan artifact and configuration are unchanged since
 approval — it says nothing about whether resources were already mutated by
 a prior attempt. The banner deliberately offers no retry action, only a
 **Start over** button, guiding you to run a fresh plan against current
 state instead. The same `partial` badge appears next to the run's status in
-[run history](#run-history).
+[run history](#run-history) — including for a run that aborted before any
+resource step actually ran, since the marker is written before that risk is
+known one way or the other, and the record stays non-retryable (`kind:
+'apply'`) either way.
+
+This isn't only a UI nicety — the backend refuses the retry too, even if
+someone tried to replay the same plan run's id directly. Before `stack.up()`
+is ever called, `PulumiService.apply` writes a durable, in-doubt marker
+record for the attempt (`kind: apply`, `partialApply: true`), so an apply
+attempt for that plan is on record from the moment the durable lock is
+acquired, not only once the run settles. If the attempt finishes cleanly,
+the settlement write overwrites the marker in place; if it doesn't — a
+partial apply, or even the settlement write itself failing to persist — the
+marker (or whatever the settlement did record) is what's left, and it always
+carries `partialApply: true` for the id in question. The apply gate checks
+that flag on every submission and refuses a second `apply()` call against the
+same plan run's id outright, before touching Pulumi again — a fresh
+`preview()` against current state is the only way forward from there,
+matching what the banner already tells you to do.
 
 ## The workspace-busy banner
 

@@ -25,7 +25,15 @@
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
 import { buildRunSk, deriveRunStatus, resolvePreApplyRunsTableName } from '@hyveon/shared';
-import type { ChangeSummary, RemoteFileStore, RunKind, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
+import type {
+  ChangeSummary,
+  RemoteFileStore,
+  RunKind,
+  RunPageResult,
+  RunRecord,
+  RunRecordStore,
+  RunStatus,
+} from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
@@ -180,6 +188,36 @@ export interface PersistRunRecordParams {
    * {@link RunRecord.partialApply}.
    */
   partialApply?: boolean;
+}
+
+/**
+ * Input to {@link RunRecordService.writePreflightMarker} — the minimal
+ * identifying/gate-carried fields needed to write a durable, in-doubt
+ * placeholder {@link RunRecord} for an `apply` attempt BEFORE the underlying
+ * engine call (`stack.up()`) begins (issue #399).
+ */
+export interface PreflightMarkerParams {
+  /**
+   * Unique identifier of the run about to attempt an apply — always the
+   * approved plan run's own `runId` (`PulumiService.apply`'s `planRunId`,
+   * reused unchanged as the apply's own `runId`).
+   */
+  runId: string;
+  /**
+   * ISO-8601 timestamp captured immediately after the durable apply lock was
+   * acquired. Reused, UNCHANGED, as the `startedAt` the eventual settlement
+   * write (via {@link persist}) uses for this same attempt, so both writes
+   * resolve to the identical {@link RunRecord.sk} (see `buildRunSk`) and the
+   * settlement write safely overwrites this marker in place rather than
+   * leaving two records behind for one attempt.
+   */
+  startedAt: string;
+  /** The tfvars version id the approved plan ran against, if known. */
+  tfvarsVersionId?: string;
+  /** The approved plan's stored `planHash`, if known. */
+  planHash?: string;
+  /** The approved plan's stamped `engineVersion`, if known. */
+  engineVersion?: string;
 }
 
 /**
@@ -350,6 +388,78 @@ export class RunRecordService {
     } finally {
       await this.runService.releaseRun(params.runId);
     }
+  }
+
+  /**
+   * Writes a durable, in-doubt placeholder {@link RunRecord} for an `apply`
+   * attempt via a direct `store.putRecord` call — BEFORE `PulumiService.apply`
+   * calls `stack.up()` — closing the retry-safety gap issue #399 describes:
+   * if the SETTLEMENT write ({@link persist}, called once `stack.up()` has
+   * resolved one way or another) itself fails to persist, the apply-kind
+   * record `persist` would have written is simply never there, leaving the
+   * original approved `plan` record as the only observable record for
+   * `runId` — which passes every one of `PulumiService.apply`'s gate checks
+   * again, permitting a blind retry against infrastructure a prior attempt
+   * may have already partially mutated. Writing this marker durably, before
+   * `stack.up()` ever runs, means an apply-kind record for `runId` already
+   * exists no matter how the attempt ends — `PulumiService.apply`'s gate
+   * checks `record.kind !== 'plan'` (and, more specifically,
+   * `record.partialApply === true`) on every subsequent call, and this
+   * marker satisfies both.
+   *
+   * The written record always carries `kind: 'apply'`, `status: 'aborted'`,
+   * `exitCode: null`, and `partialApply: true` — NOT because a resource step
+   * has actually been applied yet (none has, at the point this is called),
+   * but because whether one WILL be applied before this attempt settles is
+   * genuinely unknown, and the fix intentionally assumes the worst until a
+   * completed successor record (written by {@link persist} once the attempt
+   * actually settles, sharing this SAME `sk` — see {@link PreflightMarkerParams.startedAt} —
+   * and therefore overwriting this marker in place) proves otherwise.
+   *
+   * Deliberately bypasses {@link persist} entirely rather than calling it
+   * with placeholder fields: `persist`'s own `finally` unconditionally
+   * releases the durable apply lock via `RunService.releaseRun` — exactly
+   * the lock `PulumiService.apply`'s gate step 8 just acquired and that
+   * MUST remain held while `stack.up()` is still ahead of it. Calling
+   * `persist` here would release that lock the instant this marker landed,
+   * long before the engine call it's supposed to guard even starts.
+   *
+   * Unlike {@link persist}, this method is NOT best-effort — a failure here
+   * is thrown to the caller (`PulumiService.apply`) rather than logged and
+   * swallowed, since the whole point is to fail closed: if this marker can't
+   * be written durably, `PulumiService.apply` must abort BEFORE calling
+   * `stack.up()` (and release the lock itself, in that specific failure
+   * path) rather than proceed without one.
+   *
+   * @param params - The run's identifying/gate-carried fields — see {@link PreflightMarkerParams}.
+   * @throws A plain `Error` when `runs_table_name` isn't configured yet, or
+   *   whatever `store.putRecord` itself throws (typically a wrapped
+   *   DynamoDB error) — neither is caught here, so the caller can tell "the
+   *   marker never landed" from "it did."
+   */
+  async writePreflightMarker(params: PreflightMarkerParams): Promise<void> {
+    const tableName = await this.resolveRunsTableName();
+    if (!tableName) {
+      throw new Error(
+        `RunRecordService.writePreflightMarker: runs_table_name not configured, cannot write pre-flight marker for run "${params.runId}"`,
+      );
+    }
+
+    const record: RunRecord = {
+      sk: buildRunSk(params.startedAt, params.runId),
+      runId: params.runId,
+      kind: 'apply',
+      status: 'aborted',
+      startedAt: params.startedAt,
+      completedAt: params.startedAt,
+      exitCode: null,
+      partialApply: true,
+      ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
+      ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
+      ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
+    };
+
+    await this.store.putRecord(record);
   }
 
   /**
