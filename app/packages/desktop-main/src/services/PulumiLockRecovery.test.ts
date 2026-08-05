@@ -444,8 +444,9 @@ describe('classifyStackLockConflict — absence of in-flight activity is not evi
 describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern (argued in prose, not directly testable)', () => {
   // This is a documentation placeholder, not a real assertion: an
   // in-app-concurrent request never reaches a `ConcurrentUpdateError` at all,
-  // since the workspace-in-flight/"busy" guard (the same pattern
-  // `TerraformService.getWorkspaceInFlight()` already establishes) refuses
+  // since the workspace-in-flight/"busy" guard (the same pattern the deleted
+  // `TerraformService.getWorkspaceInFlight()` established, now
+  // `PulumiService.getOperationInFlight()`) refuses
   // the second call before any SDK invocation happens. There is no error
   // shape this test file could construct that would exercise that path
   // through this module, because this module only ever runs once the SDK

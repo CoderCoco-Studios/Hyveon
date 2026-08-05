@@ -306,8 +306,8 @@ describe('IacRunsController.logs', () => {
 
   it('should forward every chunk, in order, on iac.runs.logs.chunk tagged with the streamId', async () => {
     const chunks: PulumiRunChunk[] = [
-      { stream: 'stdout', line: 'Terraform will perform the following actions:' },
-      { stream: 'stdout', line: 'Plan: 1 to add, 0 to change, 0 to destroy.' },
+      { stream: 'stdout', line: 'Previewing update...' },
+      { stream: 'stdout', line: '+ 1 to create' },
     ];
     async function* twoChunks() {
       for (const chunk of chunks) yield chunk;

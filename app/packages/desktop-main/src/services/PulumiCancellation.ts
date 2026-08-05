@@ -64,18 +64,18 @@ import { logger } from '../logger.js';
  * `addEventListener` call is a permanent no-op — the spawned CLI process
  * would never receive `SIGINT` at all and would run to completion entirely
  * ungoverned by the cancellation the caller thought they had already
- * requested. This is a materially more dangerous failure mode than
- * `TerraformService`'s equivalent pre-spawn `if (signal?.aborted)` guard
+ * requested. This is a materially more dangerous failure mode than the
+ * deleted `TerraformService`'s equivalent pre-spawn `if (signal?.aborted)` guard
  * (that guard exists purely to skip an unnecessary spawn; here, skipping it
  * would let a genuinely undesired operation run uninterrupted). This is why
  * {@link runWithEscalatingCancellation} checks `userSignal?.aborted` first
  * and refuses to invoke `operation` at all in that case (rejecting with
- * {@link PulumiOperationNotStartedError}), mirroring `TerraformService`'s
- * precedent but for a strictly higher-stakes reason.
+ * {@link PulumiOperationNotStartedError}), mirroring the deleted
+ * `TerraformService`'s precedent but for a strictly higher-stakes reason.
  *
  * ## Three distinct settlement shapes, so callers never have to read `signal.aborted` post-hoc
  *
- * Mirroring `TerraformService.spawnAndStream`'s own precedent (it latches a
+ * Mirroring the deleted `TerraformService.spawnAndStream`'s own precedent (it latches a
  * local `aborted` flag inside its `onAbort` handler, rather than reading
  * `signal.aborted` after the fact, specifically so a signal that fires late
  * can't misclassify an already-successful run — see that method's own
@@ -261,9 +261,9 @@ export function runWithEscalatingCancellation<T>(
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     // Latched the instant the abort listener fires, rather than read from
-    // `userSignal.aborted` when `operation` later rejects — mirrors
-    // `TerraformService.spawnAndStream`'s own `aborted` latch (see this
-    // file's top-level TSDoc). Using the live `.aborted` getter instead would
+    // `userSignal.aborted` when `operation` later rejects — mirrors the
+    // deleted `TerraformService.spawnAndStream`'s own `aborted` latch (see
+    // this file's top-level TSDoc). Using the live `.aborted` getter instead would
     // give the same answer here in practice (nothing unlatches it), but the
     // explicit local flag keeps this function's classification logic
     // independent of exactly when `userSignal` itself is inspected.

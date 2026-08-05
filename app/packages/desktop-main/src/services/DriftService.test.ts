@@ -145,7 +145,7 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [] });
   });
 
-  it('should order entries as declared (tfvars) order first, then deployed-only entries in deployedNames order', () => {
+  it('should order entries as declared config order first, then deployed-only entries in deployedNames order', () => {
     const ark = buildGameServer('ark');
 
     const result = computeDrift([ark], null, ['zomboid', 'terraria']);

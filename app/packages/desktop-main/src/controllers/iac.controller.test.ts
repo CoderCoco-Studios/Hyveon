@@ -104,7 +104,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
     startedAt: '2026-07-21T00:00:00.000Z',
     completedAt: '2026-07-21T00:00:05.000Z',
     exitCode: 0,
-    configVersionId: 'tfvars-v-new-head',
+    configVersionId: 'config-v-new-head',
     ...overrides,
   };
 }
@@ -137,7 +137,7 @@ function makePulumi(): PulumiService {
     mintDestroyConfirmationToken: vi.fn().mockReturnValue('token-abc'),
     mintLockClearConfirmationToken: vi.fn().mockReturnValue('lock-clear-token-abc'),
     resolveRollbackTarget: vi.fn().mockResolvedValue({
-      versionId: 'tfvars-v-prior',
+      versionId: 'config-v-prior',
       lastModified: new Date('2026-07-20T00:00:00.000Z'),
     }),
     computeRollbackDiff: vi.fn().mockResolvedValue(undefined),
@@ -1558,7 +1558,7 @@ describe('IacController', () => {
       expect(pulumi.resolveRollbackTarget).toHaveBeenCalledWith('apply-run-1');
       expect(result).toEqual({
         resolved: true,
-        versionId: 'tfvars-v-prior',
+        versionId: 'config-v-prior',
         lastModified: '2026-07-20T00:00:00.000Z',
       });
     });
@@ -1577,7 +1577,7 @@ describe('IacController', () => {
 
     it('should return { resolved: false, error } with the thrown error message when resolution fails', async () => {
       const pulumi = makePulumi();
-      const error = new Error('RollbackVersionMissingError: version tfvars-v-expired no longer exists');
+      const error = new Error('RollbackVersionMissingError: version config-v-expired no longer exists');
       vi.mocked(pulumi.resolveRollbackTarget).mockRejectedValue(error);
 
       const result = await new IacController(pulumi).resolveRollback({
@@ -1599,10 +1599,10 @@ describe('IacController', () => {
         applyRunId: 'apply-run-1',
       });
 
-      expect(pulumi.computeRollbackDiff).toHaveBeenCalledWith('tfvars-v-prior');
+      expect(pulumi.computeRollbackDiff).toHaveBeenCalledWith('config-v-prior');
       expect(result).toEqual({
         resolved: true,
-        versionId: 'tfvars-v-prior',
+        versionId: 'config-v-prior',
         lastModified: '2026-07-20T00:00:00.000Z',
         diff,
       });
@@ -1618,7 +1618,7 @@ describe('IacController', () => {
 
       expect(result).toEqual({
         resolved: true,
-        versionId: 'tfvars-v-prior',
+        versionId: 'config-v-prior',
         lastModified: '2026-07-20T00:00:00.000Z',
       });
       expect(result.diff).toBeUndefined();
@@ -1634,7 +1634,7 @@ describe('IacController', () => {
 
       expect(result).toEqual({
         resolved: true,
-        versionId: 'tfvars-v-prior',
+        versionId: 'config-v-prior',
         lastModified: '2026-07-20T00:00:00.000Z',
       });
     });
@@ -1672,7 +1672,7 @@ describe('IacController', () => {
 
       const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
-      expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-new-head' });
+      expect(result).toEqual({ confirmed: true, versionId: 'config-v-new-head' });
       const chunkCalls = sender.send.mock.calls.filter(([channel]) => channel === 'iac.rollback.confirm.chunk');
       expect(chunkCalls).toEqual([
         ['iac.rollback.confirm.chunk', { applyRunId: 'apply-run-1', chunk: chunks[0] }],
@@ -1688,14 +1688,14 @@ describe('IacController', () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
       vi.mocked(pulumi.readRunRecord).mockReturnValue(
-        buildRunRecord({ runId: 'rollback-plan-run-42', configVersionId: 'tfvars-v-recovered' }),
+        buildRunRecord({ runId: 'rollback-plan-run-42', configVersionId: 'config-v-recovered' }),
       );
       const { ctx } = makeCtx();
 
       const result = await new IacController(pulumi).confirmRollback({ applyRunId: 'apply-run-1' }, ctx);
 
       expect(pulumi.readRunRecord).toHaveBeenCalledWith('rollback-plan-run-42');
-      expect(result).toEqual({ confirmed: true, versionId: 'tfvars-v-recovered' });
+      expect(result).toEqual({ confirmed: true, versionId: 'config-v-recovered' });
     });
 
     it('should only resolve the ack once the whole restore+plan generator has settled — not before', async () => {
@@ -1742,7 +1742,7 @@ describe('IacController', () => {
 
       expect(record).toHaveBeenCalledTimes(1);
       const recordedEntry = record.mock.calls[0]?.[0] as RecordAuditEntryParams;
-      expect(recordedEntry).toMatchObject({ action: 'rollback', versionId: 'tfvars-v-new-head' });
+      expect(recordedEntry).toMatchObject({ action: 'rollback', versionId: 'config-v-new-head' });
     });
 
     it('should return { confirmed: false, error } with the thrown error message and write nothing when the restore-then-plan unit fails', async () => {
@@ -1819,7 +1819,7 @@ describe('IacController', () => {
 
     it('should not record an audit entry when confirmation fails', async () => {
       const pulumi = makePulumi();
-      const error = new Error('RollbackVersionMissingError: version tfvars-v-expired no longer exists');
+      const error = new Error('RollbackVersionMissingError: version config-v-expired no longer exists');
       vi.mocked(pulumi.confirmRollback).mockImplementation(() => {
         throw error;
       });
@@ -1841,7 +1841,7 @@ describe('IacController', () => {
       const pulumi = makePulumi();
       const error = new PulumiRollbackPlanFailedError(
         'apply-run-1',
-        'tfvars-v-restored-but-orphaned',
+        'config-v-restored-but-orphaned',
         new Error('pulumi preview failed: engine version mismatch'),
       );
       vi.mocked(pulumi.confirmRollback).mockImplementation(() => {
@@ -1854,7 +1854,7 @@ describe('IacController', () => {
 
       expect(result).toEqual({
         confirmed: false,
-        versionId: 'tfvars-v-restored-but-orphaned',
+        versionId: 'config-v-restored-but-orphaned',
         error: error.message,
       });
       expect(record).not.toHaveBeenCalled();

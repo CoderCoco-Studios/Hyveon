@@ -218,7 +218,7 @@ describe('resolveCloudBindings', () => {
       expect(bindings.remoteFileStore(config)).toBeInstanceOf(AwsRemoteFileStore);
     });
 
-    it('should resolve the tfvars file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
+    it('should resolve the deployment config file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
       const config = makeConfig('aws', 'my-config-bucket');
       expect(resolveDeploymentConfigFileStoreConfig(config)).toEqual({ bucket: 'my-config-bucket', region: 'us-east-1' });
     });

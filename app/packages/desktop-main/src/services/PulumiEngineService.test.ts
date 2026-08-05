@@ -6,7 +6,7 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 /*
  * Spy variables must be hoisted before vi.mock() factories run, because
  * vi.mock() calls are lifted to the top of the compiled output above regular
- * declarations — mirrors TerraformService.test.ts's `execFileMock` pattern.
+ * declarations — mirrors the deleted TerraformService.test.ts's `execFileMock` pattern.
  */
 const {
   getMock,

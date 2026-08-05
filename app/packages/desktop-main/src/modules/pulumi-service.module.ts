@@ -5,7 +5,7 @@ import { PulumiWorkspaceModule } from './pulumi-workspace.module.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 
 /**
- * Feature module for `PulumiService`, `TerraformService.ts`'s successor.
+ * Feature module for `PulumiService`, the deleted `TerraformService.ts`'s successor.
  *
  * Imports `PulumiWorkspaceModule` for the `getOrCreateStack` seam
  * `getStackOutputs()`/`preview()` read through, and `ElectronStoreModule`

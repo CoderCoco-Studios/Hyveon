@@ -161,7 +161,7 @@ describe('RunRecordService', () => {
     it('should embed a small log directly on the record and never call store.putLog', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
-      const smallLog = 'terraform plan output\nPlan: 1 to add, 0 to change, 0 to destroy.';
+      const smallLog = 'pulumi preview output\nResources: 1 to create, 0 unchanged, 0 to delete.';
 
       await service.persist(makeParams(), writeLogFile(smallLog));
 

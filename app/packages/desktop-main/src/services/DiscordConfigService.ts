@@ -115,8 +115,10 @@ export class DiscordConfigService {
   }
 
   /**
-   * Read the Terraform-managed BASE#discord row. Empty base returned when the
-   * row is absent (i.e. no base Terraform variables were set). Result is cached
+   * Read the Pulumi-managed BASE#discord row (populated from
+   * `DeploymentConfig.baseAllowedGuilds`/`baseAdmins` on every deploy). Empty
+   * base returned when the row is absent (i.e. no base allowlist/admins were
+   * configured). Result is cached
    * until `invalidateCache()` is called, same as the dynamic config cache.
    */
   private async loadBase(): Promise<BaseDiscordConfig> {
@@ -153,7 +155,7 @@ export class DiscordConfigService {
     return this.load();
   }
 
-  /** The Terraform-managed base allowlist and admins — read-only from the app's perspective. */
+  /** The Pulumi-managed base allowlist and admins (from `DeploymentConfig.baseAllowedGuilds`/`baseAdmins`) — read-only from the app's perspective. */
   async getBaseConfig(): Promise<BaseDiscordConfig> {
     return this.loadBase();
   }
@@ -164,7 +166,7 @@ export class DiscordConfigService {
     return token ?? null;
   }
 
-  /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Terraform base lists. */
+  /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists. */
   async getRedacted(): Promise<RedactedDiscordConfig> {
     const [cfg, base, botToken, publicKey] = await Promise.all([
       this.load(),

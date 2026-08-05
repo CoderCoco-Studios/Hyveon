@@ -1,7 +1,7 @@
 /**
  * Write/read facade over the cloud-agnostic `AuditLogStore` contract (see
  * `@hyveon/shared/cloud.js`), backing the `game_servers` mutation audit log
- * (`terraform/aws/audit_store.tf`).
+ * (the DynamoDB audit table provisioned by `app/packages/infra/src/dynamodb.ts`).
  *
  * `record()` is intentionally best-effort: an audit-log write failure (or a
  * not-yet-deployed table) must never block the `game_servers` write it's
@@ -32,7 +32,7 @@ export interface RecordAuditEntryParams {
   before: GameServer | null;
   /** The game's configuration after the mutation, or `null` for `remove`. */
   after: GameServer | null;
-  /** S3 object version id of `terraform.tfvars` produced by the write, if known. */
+  /** S3 object version id of `deployment-config.json` produced by the write, if known. */
   versionId?: string;
 }
 
@@ -80,7 +80,7 @@ export class AuditService {
    * timestamp/`sk` from the current time) and persists it via
    * `store.putEntry`.
    *
-   * Never throws: when `audit_table_name` isn't in the Terraform outputs
+   * Never throws: when `auditTableName` isn't in the Pulumi stack outputs
    * yet (table not deployed) or `store.putEntry` rejects, a winston warning
    * is logged and the method returns — the caller's own write must not be
    * blocked or failed by an audit-logging problem.
@@ -122,8 +122,8 @@ export class AuditService {
    * Lists audit entries newest-first, delegating to `store.listEntries`
    * after clamping `opts.limit` via {@link clampLimit}.
    *
-   * Mirrors {@link record}'s missing-table guard: when `audit_table_name`
-   * isn't in the Terraform outputs yet (table not deployed), a winston
+   * Mirrors {@link record}'s missing-table guard: when `auditTableName`
+   * isn't in the Pulumi stack outputs yet (table not deployed), a winston
    * warning is logged and an empty page is returned rather than letting
    * `store.listEntries` throw — the always-visible audit page should render
    * its empty state on pre-audit-table deployments, not an error state.

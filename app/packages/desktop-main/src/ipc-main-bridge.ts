@@ -14,10 +14,10 @@ import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
  *   `pulumi preview` progress over a side channel for the duration of a
  *   long-running run, the same self-bridging pattern `logs.stream` uses.
  * - `iac.apply`: bridged manually by the same controller for the same
- *   reason as `iac.plan` — it streams `terraform apply` progress over a
+ *   reason as `iac.plan` — it streams `pulumi up` progress over a
  *   side channel for the duration of a long-running run (see #109).
  * - `iac.destroy`: bridged manually by the same controller for the
- *   same reason as `iac.apply` — it streams `terraform destroy`
+ *   same reason as `iac.apply` — it streams `pulumi destroy`
  *   progress over a side channel for the duration of a long-running run (see
  *   #307). `iac.destroy.mintToken` is *not* in this set — it resolves
  *   a single value, so the generic bridge handles it.

@@ -118,8 +118,9 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
 
     const { settings } = await deploymentConfig.getTopLevelSettings();
     expect(settings.hostedZoneName).toBe('example.com');
-    // Every other field still carries the seed's Terraform-parity defaults —
-    // the settings write only touched hostedZoneName.
+    // Every other field still carries the seed's defaults (from
+    // withDeploymentConfigDefaults) — the settings write only touched
+    // hostedZoneName.
     expect(settings.projectName).toBe('hyveon');
 
     // 4. Adding a game (the Games UI's write path) now succeeds too.

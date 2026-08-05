@@ -57,8 +57,8 @@ type EcsStub = Pick<
 >;
 
 /**
- * Build a minimal ConfigService stub. Pass `null` to simulate "terraform
- * apply hasn't been run yet".
+ * Build a minimal ConfigService stub. Pass `null` to simulate "the stack
+ * hasn't been deployed yet".
  */
 function makeConfig(outputs: StackOutputs | null = DEFAULT_OUTPUTS): ConfigService {
   const stub: Partial<ConfigService> = {
@@ -153,7 +153,7 @@ function buildService(options: {
 
 describe('FileManagerService', () => {
   describe('getStatus', () => {
-    it('should return not_deployed when terraform outputs are missing', async () => {
+    it('should return not_deployed when stack outputs are missing', async () => {
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(null), ecs });
       expect((await svc.getStatus('minecraft')).state).toBe('not_deployed');
@@ -203,7 +203,7 @@ describe('FileManagerService', () => {
   });
 
   describe('start', () => {
-    it('should fail if terraform outputs are missing', async () => {
+    it('should fail if stack outputs are missing', async () => {
       const { service: ecs } = makeEcs();
       const svc = buildService({ config: makeConfig(null), ecs });
       const result = await svc.start('minecraft');

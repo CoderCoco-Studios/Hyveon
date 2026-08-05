@@ -33,7 +33,7 @@ describe('EnvController', () => {
   });
 
   describe('getEnv', () => {
-    it('should return region and domain from Terraform outputs', async () => {
+    it('should return region and domain from stack outputs', async () => {
       const result = await new EnvController(
         makeConfig({ awsRegion: 'us-east-1', domainName: 'example.com' }),
       ).getEnv();
@@ -48,7 +48,7 @@ describe('EnvController', () => {
       expect(result.environment).toBe('PROD');
     });
 
-    it('should fall back to "local" region and empty domain when Terraform has not been applied', async () => {
+    it('should fall back to "local" region and empty domain when stack outputs are missing', async () => {
       const result = await new EnvController(makeConfig(null)).getEnv();
       expect(result.region).toBe('local');
       expect(result.domain).toBe('');

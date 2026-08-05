@@ -5,11 +5,11 @@ import { DeploymentConfigService } from '../services/DeploymentConfigService.js'
 import { DEPLOYMENT_CONFIG_SERVICE } from '../services/PulumiService.js';
 
 /**
- * Feature module for `DeploymentConfigService`, the local-vs-S3 `terraform.tfvars`
+ * Feature module for `DeploymentConfigService`, the S3-backed `deployment-config.json`
  * reader/parser (see `DeploymentConfigService`'s file-level doc comment for source
  * resolution, parsing, and caching behaviour).
  *
- * `ConfigModule` is imported for `ConfigService` (tfvars source resolution)
+ * `ConfigModule` is imported for `ConfigService` (configuration bucket resolution)
  * and `CloudProviderModule` for the `REMOTE_FILE_STORE` token (S3-mode
  * reads), both re-exported alongside `DeploymentConfigService` so any consumer that
  * only needs `DeploymentConfigModule` gets the full dependency chain without also
