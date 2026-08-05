@@ -559,6 +559,37 @@ describe('PulumiService.apply environment redaction', () => {
 
     expect(chunks).toEqual([{ stream: 'stdout', line: 'resource count: 1 of 1' }]);
   });
+
+  it('should fully redact a shorter environment value even when it is a prefix of a longer one', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: {
+              minecraft: {
+                environment: [
+                  { name: 'SHORT', value: 'sup3rSecret' },
+                  { name: 'LONG', value: 'sup3rSecretValue' },
+                ],
+              },
+            },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+      listVersions: vi.fn().mockResolvedValue([{ versionId: CONFIG_VERSION_ID, lastModified: new Date('2026-01-01') }]),
+    });
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.('token=sup3rSecretValue\n');
+      return { stdout: '', stderr: '', outputs: {}, summary: makeUpdateSummary() };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'token=***REDACTED***' }]);
+  });
 });
 
 describe('PulumiService.apply partial-apply detection', () => {

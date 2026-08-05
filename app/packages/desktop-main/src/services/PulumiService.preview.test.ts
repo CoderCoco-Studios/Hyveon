@@ -481,6 +481,36 @@ describe('PulumiService.preview environment redaction', () => {
 
     expect(chunks).toEqual([{ stream: 'stdout', line: 'resource count: 1 of 1' }]);
   });
+
+  it('should fully redact a shorter environment value even when it is a prefix of a longer one', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: {
+              minecraft: {
+                environment: [
+                  { name: 'SHORT', value: 'sup3rSecret' },
+                  { name: 'LONG', value: 'sup3rSecretValue' },
+                ],
+              },
+            },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.('token=sup3rSecretValue\n');
+      return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'token=***REDACTED***' }]);
+  });
 });
 
 describe('PulumiService.preview structured changeSummary', () => {

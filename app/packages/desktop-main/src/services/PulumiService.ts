@@ -1493,6 +1493,11 @@ export class PulumiService {
    * `appliedGameServers` (`program.ts`). This deliberately redacts ALL
    * values unconditionally rather than only ones an operator marks
    * sensitive — `GameServerConfig` has no per-key sensitivity marker today.
+   * @remarks
+   * Values are applied longest-first so that a shorter value which happens
+   * to be a substring of a longer one (e.g. `abcd` inside `abcd-secret`)
+   * cannot redact the longer value's prefix and leave its suffix exposed in
+   * the output.
    * @param line - A single streamed line of Pulumi stdout/stderr.
    * @param redactedValues - The value set built by
    *   {@link buildEnvironmentRedactionSet}.
@@ -1500,7 +1505,7 @@ export class PulumiService {
    */
   private static redactEnvironmentValues(line: string, redactedValues: Set<string>): string {
     let redacted = line;
-    for (const value of redactedValues) {
+    for (const value of [...redactedValues].sort((a, b) => b.length - a.length)) {
       redacted = redacted.split(value).join(ENV_REDACTION_PLACEHOLDER);
     }
     return redacted;
