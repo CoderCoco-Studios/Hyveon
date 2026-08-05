@@ -404,49 +404,6 @@ packaging/running the Electron app (`npm run desktop:package`, or
 `npm run desktop:run` to build and launch without producing an installer)
 from whatever machine holds the AWS credentials.
 
-## Legacy pre-Pulumi teardown (one-off)
-
-If you deployed the **old, pre-Pulumi** version of this stack before
-the `migrate-iac-to-pulumi` change, you must fully tear that stack down
-before running your first Pulumi apply against the same AWS account. This
-is a **one-time migration step**, not an ongoing workflow — once the old
-stack is destroyed and the new one is up, this section no longer applies to
-you.
-
-The Pulumi port reused the old stack's physical resource names verbatim, so
-deploying both at once is not a "mostly fine, minor overlap" situation — it
-ranges from a loud failure to a silent, dangerous double-deployment:
-
-- **Hard collisions (the apply fails outright).** Both stacks would create
-  identically-named DynamoDB tables (`hyveon-discord`, `hyveon-runs`,
-  `hyveon-audit`), Lambda functions (`hyveon-interactions`, `-followup`,
-  `-watchdog`, `-dns-updater`, `-efs-seeder-{game}`), IAM roles, CloudWatch
-  log groups, Secrets Manager secrets, the EFS filesystem's creation token,
-  and the Discord custom domain's CloudFront alias + Route 53 A/AAAA
-  records. AWS rejects the second create for all of these.
-- **Silent adoption (no error, but two states now think they own one
-  resource).** The ECS cluster name, the two EventBridge rules, and the
-  `{game}-server` task-definition family are all upsert-like or
-  revision-versioned — a second stack quietly takes over or appends to the
-  first stack's resource rather than failing. If you later run the old
-  tool's destroy command against the old stack, it deletes the resource out
-  from under the live Pulumi stack.
-- **Don't "fix" the collisions by renaming the project.** Changing the
-  project name sidesteps every failure above, but converts them into a
-  **silent duplicate deployment**: two live `update-dns` Lambdas and two
-  live `watchdog` Lambdas, both reacting to the same ECS task-state events
-  and both writing/deleting the same `{game}.{hostedZoneName}` DNS record —
-  each stack's Lambda fights the other's. This is strictly worse than the
-  loud failures above, because nothing tells you it's happening.
-
-**The correct order is always: destroy the old, pre-Pulumi stack completely,
-then run your first Pulumi apply.** If you no longer have the old
-provisioning tool's project files available to run its destroy command
-with, tear the resources down manually from the AWS console/CLI before proceeding, and
-confirm in particular that the two Discord Secrets Manager secrets are
-actually gone (their zero-day recovery window means the delete completes
-immediately, but a still-pending delete blocks a same-named `CreateSecret`).
-
 ## Useful references
 
 - [`CLAUDE.md`](https://github.com/CoderCoco/Hyveon/blob/main/CLAUDE.md) —

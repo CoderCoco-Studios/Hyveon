@@ -5,11 +5,16 @@ sidebar_position: 2
 
 # Infra program
 
-All AWS infrastructure is provisioned by `app/packages/infra` (`@hyveon/infra`) —
-a **Pulumi Automation API program**: ordinary TypeScript functions that
-declare `@pulumi/aws` resources, driven entirely from inside the packaged
-Electron app by `PulumiService`. There is no separate infrastructure-as-code
-file tree on disk to edit or run — the program's source *is* this package.
+The Pulumi-managed application stack is provisioned by `app/packages/infra`
+(`@hyveon/infra`) — a **Pulumi Automation API program**: ordinary TypeScript
+functions that declare `@pulumi/aws` resources, driven entirely from inside
+the packaged Electron app by `PulumiService`. There is no separate
+infrastructure-as-code file tree on disk to edit or run for this stack — the
+program's source *is* this package. Two exceptions provision AWS resources
+outside it: the one-time IAM bootstrap CloudFormation template run before the
+app ever calls Pulumi (see [setup](/setup)), and the [runs
+table](#the-runs-table-invariant--bootstrap-managed-not-pulumi-managed)
+below, created via the AWS SDK instead of Pulumi for a correctness reason.
 
 ## How it's invoked — no host-installed `pulumi` binary
 
@@ -156,15 +161,6 @@ from three places that must never disagree: `BootstrapService.ensureRunsTable`
 `RunRecordService`/`resolveRunRecordStoreConfig`'s pre-apply fallback (which
 reads the persisted `DeploymentConfig` directly via `resolvePreApplyRunsTableName`
 when no Pulumi stack output is available yet).
-
-## Migrating from a pre-Pulumi deployment
-
-If you previously deployed this stack with its old, pre-Pulumi provisioning
-tool, see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-pre-pulumi-teardown-one-off)
-before running the first apply from the app's [Infrastructure page](/app/iac) —
-the new program reuses the same physical resource names, and deploying both
-stacks against the same AWS account risks duplicate or conflicting
-infrastructure.
 
 ## Dependencies
 

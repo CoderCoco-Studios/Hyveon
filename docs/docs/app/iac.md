@@ -25,7 +25,7 @@ Destroy is a separate, deliberately isolated path at the bottom of the page.
 ## Run plan
 
 **Run plan** runs a Pulumi **preview** against the current configuration —
-no separate CLI binary, no config-file tree to read. `PulumiService` invokes
+no operator-installed CLI binary, no config-file tree to read. `PulumiService` invokes
 `stack.preview()` from the Automation API and writes the resulting plan
 artifact (`<runId>.plan.json`) to disk so it can be applied later without
 re-previewing. Output streams into the log viewer live (`Waiting for plan

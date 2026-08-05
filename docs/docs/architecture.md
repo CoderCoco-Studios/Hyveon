@@ -8,10 +8,12 @@ sidebar_position: 2
 Three loosely-coupled pieces, all sharing types and helpers through a single
 workspace package, `@hyveon/shared`:
 
-1. **`app/packages/infra`** provisions every AWS resource — a Pulumi
-   Automation API program (TypeScript), not a CLI-driven, file-based config
-   tree. There is no separate infrastructure-as-code file format anywhere in
-   this repository.
+1. **`app/packages/infra`** provisions the Pulumi-managed application stack —
+   a Pulumi Automation API program (TypeScript), not a CLI-driven, file-based
+   config tree. It is not the *only* way AWS resources reach this account: a
+   one-time IAM bootstrap CloudFormation template and a handful of
+   `BootstrapService` AWS-SDK calls exist outside it — see
+   [Infra program](/components/infra) for the exact boundary.
 2. The **management app** is a packaged Electron desktop app and the local
    control plane. Its React/Vite renderer talks to the Nest.js backend
    (`desktop-main`) over Electron IPC — not HTTP. The backend reads the

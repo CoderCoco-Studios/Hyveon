@@ -18,7 +18,7 @@ Touchpoints 3 and 4 are conditional, not universal — flag them as "likely N/A"
 1. Determine the scope of changes:
    - If the user gave you a base ref, diff against it: `git diff <base>...HEAD -- app/packages/shared/src/deploymentConfig.ts app/packages/shared/src/gameServerConfig.ts`.
    - Otherwise default to `git diff origin/main...HEAD -- app/packages/shared/src/deploymentConfig.ts app/packages/shared/src/gameServerConfig.ts` and fall back to `git diff HEAD~1 -- <same paths>` if no upstream is configured.
-2. Extract the set of field names **added** or **removed** from the `DeploymentConfig`/`GameServer` interfaces (look for `^[+-]\s*\w+\??:` lines inside those interface bodies — read enough surrounding context via `Read`/`Grep` to confirm a hit is actually an interface member, not an unrelated line).
+2. Extract the set of field names **added** or **removed** from the `DeploymentConfig`/`GameServerConfig` interfaces (look for `^[+-]\s*\w+\??:` lines inside those interface bodies — read enough surrounding context via `Read`/`Grep` to confirm a hit is actually an interface member, not an unrelated line).
 3. For each added/removed field name, verify the other touchpoints in the same diff range:
    - `app/packages/infra/src/*.ts` — grep the diff (or `git diff <base>...HEAD -- app/packages/infra/src`) for the field name.
    - `app/packages/web/src/components/add-game-wizard/` and `edit-game-form/` — grep the diff for the field name; note "likely N/A" if the field is plausibly not operator-editable.

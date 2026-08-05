@@ -98,10 +98,10 @@ import { logger } from '../logger.js';
  * Absence of an in-flight operation in *this app instance* is deliberately
  * *not* part of this test on its own — per the spec's "In-app concurrency is
  * reported as busy" scenario, that distinction is made by a layer above this
- * module (the workspace-in-flight/"busy" check performed by
- * `PulumiService.getOperationInFlight()` — see `iac.controller.ts`),
- * *before* an operation ever reaches the SDK call this module's classifier
- * reacts to. What this module
+ * module (`iac.controller.ts`'s pre-flight guard, which rejects a second
+ * concurrent request using `PulumiService.getOperationInFlight()` as its
+ * state accessor), *before* an operation ever reaches the SDK call this
+ * module's classifier reacts to. What this module
  * additionally guards against is a **live** conflicting process — same
  * machine or not — that this app instance is *not* the one running, which
  * the "absence of in-flight activity" framing alone cannot rule out.
