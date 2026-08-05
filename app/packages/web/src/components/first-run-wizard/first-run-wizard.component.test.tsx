@@ -132,7 +132,7 @@ async function advanceToCredentials(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-  await screen.findByText(/provision aws access/i);
+  await screen.findByText(/provision aws access/i, { selector: 'p' });
   await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
   await screen.findByText(/choose the aws credentials/i);
 }
@@ -558,7 +558,7 @@ describe('FirstRunWizard', () => {
       render(<FirstRunWizard onComplete={onComplete} />);
       await screen.findByText(/choose the cloud provider/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-      await screen.findByText(/provision aws access/i);
+      await screen.findByText(/provision aws access/i, { selector: 'p' });
       await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
       await screen.findByText(/choose the aws credentials/i);
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');

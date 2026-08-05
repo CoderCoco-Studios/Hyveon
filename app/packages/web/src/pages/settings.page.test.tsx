@@ -190,7 +190,7 @@ describe('SettingsPage', () => {
       // profile, so it isn't pre-completed either — skip it via "I already
       // have credentials".
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-      await screen.findByText(/provision aws access/i);
+      await screen.findByText(/provision aws access/i, { selector: 'p' });
       await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
 
@@ -233,7 +233,7 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       // Default `aws.profile: 'default'` is not the guided profile, so
       // guided-iam isn't pre-completed — skip it via "I already have credentials".
-      await screen.findByText(/provision aws access/i);
+      await screen.findByText(/provision aws access/i, { selector: 'p' });
       await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
@@ -260,7 +260,7 @@ describe('SettingsPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
       // Default `aws.profile: 'default'` is not the guided profile, so
       // guided-iam isn't pre-completed — skip it via "I already have credentials".
-      await screen.findByText(/provision aws access/i);
+      await screen.findByText(/provision aws access/i, { selector: 'p' });
       await userEvent.click(screen.getByRole('button', { name: /i already have credentials/i }));
       await screen.findByText(/aws credentials is already configured/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
