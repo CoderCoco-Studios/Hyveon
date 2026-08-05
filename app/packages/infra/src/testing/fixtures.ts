@@ -54,8 +54,9 @@ export const FIXTURE_GAME_SERVERS: Record<string, GameServerConfig> = {
 
 /**
  * Builds a representative, fully-populated {@link DeploymentConfig} for
- * tests, defaulting to {@link FIXTURE_GAME_SERVERS} and Terraform's own
- * default `projectName`/`awsRegion`/`vpcCidr` values so specs read realistic
+ * tests, defaulting to {@link FIXTURE_GAME_SERVERS} and
+ * `DEPLOYMENT_CONFIG_DEFAULTS`'s own `projectName`/`awsRegion`/`vpcCidr`
+ * values so specs read realistic
  * names/CIDRs without hardcoding them again at each call site.
  *
  * @param overrides - Fields to override on top of the defaults.

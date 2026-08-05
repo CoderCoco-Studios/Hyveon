@@ -115,11 +115,11 @@ describe('AwsRunRecordStore', () => {
       ddbMock.on(PutCommand).resolves({});
 
       const store = makeStore();
-      const record = makeRecord({ logInline: 'terraform plan output' });
+      const record = makeRecord({ logInline: 'pulumi preview output' });
       await store.putRecord(record);
 
       const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-      expect(input.Item?.['logInline']).toBe('terraform plan output');
+      expect(input.Item?.['logInline']).toBe('pulumi preview output');
       expect(input.Item).not.toHaveProperty('logS3Key');
     });
 
