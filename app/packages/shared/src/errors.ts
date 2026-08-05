@@ -9,7 +9,7 @@
 import type { RunLock } from './runs.js';
 
 /**
- * Thrown by tfvars write helpers (e.g. `TfvarsService.updateGameServer`)
+ * Thrown by tfvars write helpers (e.g. `DeploymentConfigService.updateGameServer`)
  * when an optimistic-concurrency check fails: the caller supplied the etag
  * it last read, but the remote file has since moved to a different etag.
  * Carries both etags so the UI can surface a clear "remote moved — refresh"

@@ -56,9 +56,9 @@ import {
   RollbackNoConfigVersionError,
   RollbackVersionMissingError,
   RUN_RECORD_PERSISTER,
-  TFVARS_SERVICE,
+  DEPLOYMENT_CONFIG_SERVICE,
   type RunRecordPersister,
-  type TfvarsRestorer,
+  type DeploymentConfigRestorer,
 } from './PulumiService.js';
 import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
 import type { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
@@ -71,7 +71,7 @@ const APPLY_RUN_ID = 'apply-run-1';
 const APPLY_CONFIG_VERSION_ID = 'cfg-v3';
 /** The version immediately before `APPLY_CONFIG_VERSION_ID` in history — the rollback target. */
 const PRIOR_CONFIG_VERSION_ID = 'cfg-v2';
-/** The version {@link TfvarsRestorer.restoreRawTfvars} writes as the fresh new head once restored. */
+/** The version {@link DeploymentConfigRestorer.restoreRawConfig} writes as the fresh new head once restored. */
 const RESTORED_CONFIG_VERSION_ID = 'cfg-v4';
 const HISTORIC_RAW_CONFIG = JSON.stringify({ hostedZoneName: 'example.com', gameServers: { old: {} } });
 
@@ -166,48 +166,48 @@ function makeRemoteFileStore(
   };
 }
 
-/** `TfvarsRestorer` stub — `restoreRawTfvars` resolves a fresh version id by default. */
-function makeTfvarsRestorer(
-  overrides: Partial<TfvarsRestorer> = {},
-): TfvarsRestorer & { restoreRawTfvars: ReturnType<typeof vi.fn> } {
-  const restorer: TfvarsRestorer = {
-    restoreRawTfvars: vi.fn().mockResolvedValue({ etag: 'etag-restored', versionId: RESTORED_CONFIG_VERSION_ID }),
+/** `DeploymentConfigRestorer` stub — `restoreRawConfig` resolves a fresh version id by default. */
+function makeDeploymentConfigRestorer(
+  overrides: Partial<DeploymentConfigRestorer> = {},
+): DeploymentConfigRestorer & { restoreRawConfig: ReturnType<typeof vi.fn> } {
+  const restorer: DeploymentConfigRestorer = {
+    restoreRawConfig: vi.fn().mockResolvedValue({ etag: 'etag-restored', versionId: RESTORED_CONFIG_VERSION_ID }),
   };
-  return Object.assign(restorer, overrides) as TfvarsRestorer & { restoreRawTfvars: ReturnType<typeof vi.fn> };
+  return Object.assign(restorer, overrides) as DeploymentConfigRestorer & { restoreRawConfig: ReturnType<typeof vi.fn> };
 }
 
 /**
- * Builds a `remoteFileStore`/`tfvarsRestorer` pair that stay consistent with
+ * Builds a `remoteFileStore`/`deploymentConfigRestorer` pair that stay consistent with
  * each other the way the real S3-backed implementations would: calling
- * `restoreRawTfvars` pushes a fresh `RESTORED_CONFIG_VERSION_ID` entry onto
+ * `restoreRawConfig` pushes a fresh `RESTORED_CONFIG_VERSION_ID` entry onto
  * the SAME version history `listVersions` reads from. This matters because
  * `confirmRollback` passes the just-restored version id to `previewCore` as
  * its expected `configVersionId` — `previewCore`'s own staleness check
  * (`head.versionId !== configVersionId`) would spuriously fire on every
- * "the plan actually runs" test if `restoreRawTfvars` and `listVersions`
+ * "the plan actually runs" test if `restoreRawConfig` and `listVersions`
  * were independently stubbed against two different fixed snapshots, since
  * nothing would ever make the mocked `listVersions` head move to reflect the
- * mocked restore. `makeService`'s default `remoteFileStore`/`tfvarsRestorer`
+ * mocked restore. `makeService`'s default `remoteFileStore`/`deploymentConfigRestorer`
  * come from this helper for exactly that reason; a test that overrides
  * either one directly (e.g. the "historic version expired" scenario, which
- * needs `tfvarsRestorer.restoreRawTfvars` to NEVER be called at all) opts
+ * needs `deploymentConfigRestorer.restoreRawConfig` to NEVER be called at all) opts
  * out of this coupling on purpose.
  */
 function makeConfigStores(): {
   remoteFileStore: RemoteFileStore & { listVersions: ReturnType<typeof vi.fn>; getVersion: ReturnType<typeof vi.fn> };
-  tfvarsRestorer: TfvarsRestorer & { restoreRawTfvars: ReturnType<typeof vi.fn> };
+  deploymentConfigRestorer: DeploymentConfigRestorer & { restoreRawConfig: ReturnType<typeof vi.fn> };
 } {
   const versionHistory = defaultVersionHistory();
   const remoteFileStore = makeRemoteFileStore({
     listVersions: vi.fn().mockImplementation(() => Promise.resolve([...versionHistory])),
   });
-  const tfvarsRestorer = makeTfvarsRestorer({
-    restoreRawTfvars: vi.fn().mockImplementation(async () => {
+  const deploymentConfigRestorer = makeDeploymentConfigRestorer({
+    restoreRawConfig: vi.fn().mockImplementation(async () => {
       versionHistory.unshift({ versionId: RESTORED_CONFIG_VERSION_ID, lastModified: new Date() });
       return { etag: 'etag-restored', versionId: RESTORED_CONFIG_VERSION_ID };
     }),
   });
-  return { remoteFileStore, tfvarsRestorer };
+  return { remoteFileStore, deploymentConfigRestorer };
 }
 
 /** Shape `confirmRollback()`'s delegated `previewCore()` drives `stack.preview` with. */
@@ -229,19 +229,19 @@ function makeHappyPathPreview(): FakeStackPreview {
 
 /**
  * Stub `ModuleRef` routing `.get(token, { strict: false })` to the given
- * `RunRecordPersister`/`RemoteFileStore`/`TfvarsRestorer` stubs — mirrors how
+ * `RunRecordPersister`/`RemoteFileStore`/`DeploymentConfigRestorer` stubs — mirrors how
  * `confirmRollback()`/`resolveRollbackTarget()` actually resolve them at call
- * time (`getRunRecordPersister`/`getRemoteFileStore`/`getTfvarsService`).
+ * time (`getRunRecordPersister`/`getRemoteFileStore`/`getDeploymentConfigService`).
  */
 function makeModuleRef(deps: {
   runRecordPersister: RunRecordPersister;
   remoteFileStore: RemoteFileStore;
-  tfvarsRestorer: TfvarsRestorer;
+  deploymentConfigRestorer: DeploymentConfigRestorer;
 }): ModuleRef {
   const get = vi.fn((token: unknown) => {
     if (token === RUN_RECORD_PERSISTER) return deps.runRecordPersister;
     if (token === REMOTE_FILE_STORE) return deps.remoteFileStore;
-    if (token === TFVARS_SERVICE) return deps.tfvarsRestorer;
+    if (token === DEPLOYMENT_CONFIG_SERVICE) return deps.deploymentConfigRestorer;
     throw new Error(`ModuleRef.get() called with an unexpected token: ${String(token)}`);
   });
   return { get } as unknown as ModuleRef;
@@ -265,17 +265,17 @@ function makeService(opts: {
   store?: ElectronStoreService;
   runRecordPersister?: ReturnType<typeof makeRunRecordPersister>;
   remoteFileStore?: ReturnType<typeof makeRemoteFileStore>;
-  tfvarsRestorer?: ReturnType<typeof makeTfvarsRestorer>;
+  deploymentConfigRestorer?: ReturnType<typeof makeDeploymentConfigRestorer>;
   engine?: PulumiEngineService;
 }): PulumiService {
   const runRecordPersister = opts.runRecordPersister ?? makeRunRecordPersister();
   const coupled = makeConfigStores();
   const remoteFileStore = opts.remoteFileStore ?? coupled.remoteFileStore;
-  const tfvarsRestorer = opts.tfvarsRestorer ?? coupled.tfvarsRestorer;
+  const deploymentConfigRestorer = opts.deploymentConfigRestorer ?? coupled.deploymentConfigRestorer;
   return new PulumiService(
     opts.workspace ?? makeWorkspace(makeHappyPathPreview()),
     opts.store ?? makeFullyConfiguredStore(),
-    makeModuleRef({ runRecordPersister, remoteFileStore, tfvarsRestorer }),
+    makeModuleRef({ runRecordPersister, remoteFileStore, deploymentConfigRestorer }),
     opts.engine ?? makeEngine(),
   );
 }
@@ -438,13 +438,13 @@ describe('PulumiService.confirmRollback happy path', () => {
     // Coupled pair (see makeConfigStores' doc comment) — this test drives
     // confirmRollback all the way through previewCore's own staleness
     // re-check, which requires listVersions' head to actually reflect the
-    // restore restoreRawTfvars just performed.
-    const { remoteFileStore, tfvarsRestorer } = makeConfigStores();
-    const service = makeService({ runRecordPersister, remoteFileStore, tfvarsRestorer });
+    // restore restoreRawConfig just performed.
+    const { remoteFileStore, deploymentConfigRestorer } = makeConfigStores();
+    const service = makeService({ runRecordPersister, remoteFileStore, deploymentConfigRestorer });
 
     const { result } = await collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID));
 
-    expect(tfvarsRestorer.restoreRawTfvars).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
+    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
     expect(result).toBeDefined();
     expect(result?.runId).toBe('rollback-run-1');
 
@@ -548,14 +548,14 @@ describe('PulumiService.confirmRollback: historic version expired', () => {
     const remoteFileStore = makeRemoteFileStore({
       listVersions: vi.fn().mockResolvedValue([{ versionId: APPLY_CONFIG_VERSION_ID, lastModified: new Date() }]),
     });
-    const tfvarsRestorer = makeTfvarsRestorer();
-    const service = makeService({ remoteFileStore, tfvarsRestorer });
+    const deploymentConfigRestorer = makeDeploymentConfigRestorer();
+    const service = makeService({ remoteFileStore, deploymentConfigRestorer });
 
     await expect(collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID))).rejects.toBeInstanceOf(
       RollbackVersionMissingError,
     );
 
-    expect(tfvarsRestorer.restoreRawTfvars).not.toHaveBeenCalled();
+    expect(deploymentConfigRestorer.restoreRawConfig).not.toHaveBeenCalled();
 
     // The lock must have been released too — a subsequent preview() succeeds.
     const result = await drainToCompletion(service.preview());
@@ -574,8 +574,8 @@ describe('PulumiService.confirmRollback: compensating semantics when the plan fa
     // staleness re-check passes and this test actually reaches
     // stack.preview() (where the injected failure lives), rather than
     // failing earlier for an unrelated, fixture-induced reason.
-    const { remoteFileStore, tfvarsRestorer } = makeConfigStores();
-    const service = makeService({ workspace, store, remoteFileStore, tfvarsRestorer });
+    const { remoteFileStore, deploymentConfigRestorer } = makeConfigStores();
+    const service = makeService({ workspace, store, remoteFileStore, deploymentConfigRestorer });
 
     const err = await collectRollbackChunks(service.confirmRollback(APPLY_RUN_ID)).catch((e: unknown) => e);
 
@@ -592,7 +592,7 @@ describe('PulumiService.confirmRollback: compensating semantics when the plan fa
 
     // The restore write itself DID happen — this is what makes the failure
     // an orphan rather than a clean pre-write rejection.
-    expect(tfvarsRestorer.restoreRawTfvars).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
+    expect(deploymentConfigRestorer.restoreRawConfig).toHaveBeenCalledWith(HISTORIC_RAW_CONFIG);
 
     // The lock must still have been released despite the failure — proven by
     // a follow-up preview() reaching stack.preview() at all (and failing for

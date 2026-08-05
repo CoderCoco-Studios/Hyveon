@@ -1515,7 +1515,7 @@ describe('preload dispatcher', () => {
   });
 
   describe('iac.output', () => {
-    /** Minimal `TfOutputs`-shaped fixture used across these tests. */
+    /** Minimal `StackOutputs`-shaped fixture used across these tests. */
     const OUTPUTS = {
       aws_region: 'us-east-1',
       ecs_cluster_name: 'hyveon-cluster',

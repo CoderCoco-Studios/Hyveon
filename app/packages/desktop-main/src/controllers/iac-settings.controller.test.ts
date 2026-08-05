@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { TopLevelDeploymentSettings, UpdateDeploymentSettingsPayload } from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError, TfvarsService } from '../services/TfvarsService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
 
 vi.mock('../logger.js', () => ({
@@ -28,12 +28,12 @@ const SETTINGS: TopLevelDeploymentSettings = {
   runsTableName: '',
 };
 
-/** Build a `TfvarsService` stub exposing just the methods `IacSettingsController` calls. */
-function makeTfvars(): TfvarsService {
+/** Build a `DeploymentConfigService` stub exposing just the methods `IacSettingsController` calls. */
+function makeTfvars(): DeploymentConfigService {
   return {
     getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
     updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
-  } as Partial<TfvarsService> as TfvarsService;
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
 }
 
 /**
@@ -64,7 +64,7 @@ describe('IacSettingsController', () => {
   });
 
   describe('get', () => {
-    it('should return the top-level settings and etag from TfvarsService.getTopLevelSettings', async () => {
+    it('should return the top-level settings and etag from DeploymentConfigService.getTopLevelSettings', async () => {
       const tfvars = makeTfvars();
       const result = await new IacSettingsController(tfvars).get();
       expect(result).toEqual({ ok: true, settings: SETTINGS, etag: 'etag-1' });
@@ -96,7 +96,7 @@ describe('IacSettingsController', () => {
       expectedVersionId: 'etag-1',
     };
 
-    it('should delegate to TfvarsService.updateTopLevelSettings with the patch and expectedVersionId', async () => {
+    it('should delegate to DeploymentConfigService.updateTopLevelSettings with the patch and expectedVersionId', async () => {
       const tfvars = makeTfvars();
       await new IacSettingsController(tfvars).update(PAYLOAD);
       expect(tfvars.updateTopLevelSettings).toHaveBeenCalledWith({ dnsTtl: 60 }, 'etag-1');
@@ -136,7 +136,7 @@ describe('IacSettingsController', () => {
       expect(calls).toEqual(['update', 'get']);
     });
 
-    it('should never call TfvarsService.updateTopLevelSettings when the patch fails validation', async () => {
+    it('should never call DeploymentConfigService.updateTopLevelSettings when the patch fails validation', async () => {
       const tfvars = makeTfvars();
       const result = await new IacSettingsController(tfvars).update({ patch: { hostedZoneName: '' } });
 

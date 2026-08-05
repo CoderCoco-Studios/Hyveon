@@ -82,7 +82,7 @@ export interface DeploymentSettingsValidationIssue {
  * silently accepting a number, an object, or `null` for the same field — is
  * not actually independent of the client in the type-safety sense: it would
  * let `{ hostedZoneName: 42 }` or `{ baseAdminUserIds: "everyone" }` reach
- * `TfvarsService.updateTopLevelSettings()` and get written into
+ * `DeploymentConfigService.updateTopLevelSettings()` and get written into
  * `deployment-config.json` verbatim, corrupting every downstream consumer
  * that assumes the declared `TopLevelDeploymentSettings` types (e.g.
  * `infra/src/escapes.ts`'s `baseAllowedGuilds.length` — a string also has a
@@ -210,7 +210,7 @@ function checkSnowflakeArray<K extends keyof TopLevelDeploymentSettings>(
  * Successful read of the top-level settings — the `iac.settings.get`
  * result shape. `etag` is the `RemoteFileStore` etag to round-trip as
  * `expectedVersionId` on the follow-up `iac.settings.update` call, mirroring
- * `TfvarsService.getRawConfig()`'s own `{ config, etag }` shape.
+ * `DeploymentConfigService.getRawConfig()`'s own `{ config, etag }` shape.
  */
 export interface DeploymentSettingsGetSuccess {
   ok: true;
@@ -293,7 +293,7 @@ export type DeploymentSettingsWriteResult =
  * `expectedVersionId`, when supplied, is checked against the current
  * deployment-config object version and a {@link DeploymentSettingsConflict}
  * is returned on mismatch. The renderer always supplies it — it's optional
- * here only because `TfvarsService.updateTopLevelSettings`'s own
+ * here only because `DeploymentConfigService.updateTopLevelSettings`'s own
  * unconditional-write convention (mirroring `addGameServer`/
  * `updateGameServer`) requires the parameter to stay optional at the type
  * level.

@@ -2,29 +2,29 @@
  * End-to-end proof of the fresh-install-bricking fix (final-review round 2,
  * finding 1): before `BootstrapService.ensureDeploymentConfig` existed,
  * NOTHING anywhere ever created the initial `deployment-config.json` object
- * — every `TfvarsService` write path (`writeConfig`, shared by
+ * — every `DeploymentConfigService` write path (`writeConfig`, shared by
  * `addGameServer`/`updateGameServer`/`removeGameServer`, and
  * `updateTopLevelSettings`) reads the document before writing
  * (`fetchRawConfig`), and that read threw a plain `Error` when the object
  * didn't exist. A fresh install that completed the first-run wizard landed
  * on the dashboard with no way to save Settings or add a game.
  *
- * Unlike `TfvarsService.write.test.ts`/`TfvarsService.s3.test.ts` (which
+ * Unlike `DeploymentConfigService.write.test.ts`/`DeploymentConfigService.s3.test.ts` (which
  * either stub `RemoteFileStore` directly or seed a document up front), this
  * spec drives the REAL sequence end to end against a single shared S3
  * double:
  *
  *  1. `BootstrapService` and a real `AwsRemoteFileStore` are both backed by
  *     the SAME `aws-sdk-client-mock` `S3Client` interceptor — mirrors
- *     `TfvarsService.s3.test.ts`'s "exercise the real `AwsRemoteFileStore`"
+ *     `DeploymentConfigService.s3.test.ts`'s "exercise the real `AwsRemoteFileStore`"
  *     approach, extended to also cover `BootstrapService`'s raw-SDK seed
  *     path against the identical in-memory bucket.
  *  2. The bucket starts with NO `deployment-config.json` object — `getRawConfig()`
  *     is asserted to reject, proving the bug's precondition is genuinely
  *     reproduced, not assumed.
  *  3. `BootstrapService.ensureDeploymentConfig()` runs (the fix).
- *  4. `TfvarsService.updateTopLevelSettings()` (a Settings save setting a
- *     real `hostedZoneName`) and `TfvarsService.addGameServer()` (the Games
+ *  4. `DeploymentConfigService.updateTopLevelSettings()` (a Settings save setting a
+ *     real `hostedZoneName`) and `DeploymentConfigService.addGameServer()` (the Games
  *     UI's write path) are called against the SAME store and now succeed.
  */
 import 'reflect-metadata';
@@ -34,7 +34,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, HeadObjectCommand, NoSuchKey, PutObjectCommand } from '@aws-sdk/client-s3';
 import { AwsRemoteFileStore } from '@hyveon/cloud-aws';
 import { BootstrapService } from './BootstrapService.js';
-import { TfvarsService } from './TfvarsService.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
@@ -48,11 +48,11 @@ function makeStore(aws: { profile?: string; region?: string } | undefined): Elec
   } as Partial<ElectronStoreService> as ElectronStoreService;
 }
 
-/** Builds a `ConfigService` stub exposing just the methods `TfvarsService` reads. */
+/** Builds a `ConfigService` stub exposing just the methods `DeploymentConfigService` reads. */
 function makeConfig(bucket: string): ConfigService {
   return {
     getConfigurationBucket: () => bucket,
-    readEnvTfvarsCacheTtlMs: () => 30000,
+    readEnvConfigCacheTtlMs: () => 30000,
   } as ConfigService;
 }
 
@@ -97,7 +97,7 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
 
   it('should let updateTopLevelSettings and addGameServer succeed after BootstrapService.ensureDeploymentConfig seeds a bucket that starts with no deployment-config.json object', async () => {
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: BUCKET, region: 'us-west-2' }));
-    const tfvars = new TfvarsService(makeConfig(BUCKET), remoteFileStore);
+    const tfvars = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
 
     // 1. Seed absent — reproduces the bug's precondition for real, not by
     // assumption: every write path calls fetchRawConfig() first, and it
@@ -105,7 +105,7 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
     await expect(tfvars.getRawConfig()).rejects.toThrow(/not found/i);
 
     // 2. The fix: BootstrapService seeds the initial document into the SAME
-    // bucket TfvarsService reads/writes, via the SAME mocked S3Client.
+    // bucket DeploymentConfigService reads/writes, via the SAME mocked S3Client.
     const bootstrap = new BootstrapService(makeStore({ region: 'us-west-2' }));
     const seedResult = await bootstrap.ensureDeploymentConfig(BUCKET);
     expect(seedResult).toEqual({ status: 'created' });
@@ -137,7 +137,7 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
 
   it('should report exists (not created) and never overwrite an operator-edited document when ensureDeploymentConfig is re-run after a Settings save', async () => {
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: BUCKET, region: 'us-west-2' }));
-    const tfvars = new TfvarsService(makeConfig(BUCKET), remoteFileStore);
+    const tfvars = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
     const bootstrap = new BootstrapService(makeStore({ region: 'us-west-2' }));
 
     await bootstrap.ensureDeploymentConfig(BUCKET);

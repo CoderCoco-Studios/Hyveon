@@ -25,7 +25,7 @@
  * (no `Date`, `Map`, `Set`, or class instances) throughout.
  */
 
-import type { GameServerConfig } from './tfvars.js';
+import type { GameServerConfig } from './gameServerConfig.js';
 
 /**
  * Every value the app reads off a deployed Pulumi stack. `PulumiService`
@@ -153,7 +153,7 @@ export interface StackOutputs {
    * field-by-field comparison against the currently declared configuration.
    * Mirrors the `applied_game_servers` output. `null` when absent (e.g. no
    * apply has run since this output was introduced, or nothing has been
-   * deployed yet). Reuses {@link GameServerConfig} (`./tfvars.js`), matching
+   * deployed yet). Reuses {@link GameServerConfig} (`./gameServerConfig.js`), matching
    * {@link DeploymentConfig.gameServers}'s value type so drift comparisons
    * are structurally directly comparable.
    */

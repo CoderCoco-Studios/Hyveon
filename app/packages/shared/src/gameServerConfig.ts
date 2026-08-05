@@ -3,7 +3,7 @@
  * TypeScript mirror of the `game_servers` map entry object type declared in
  * `terraform/variables.tf` (still kept in sync with that Terraform variable
  * — `terraform/aws/variables.tf:game_servers` remains the field-inventory
- * source of truth). This is the shape `TfvarsService` parses out of
+ * source of truth). This is the shape `DeploymentConfigService` parses out of
  * `terraform.tfvars` today.
  *
  * As of the `migrate-iac-to-pulumi` change, `GameServer` (via the
@@ -13,7 +13,7 @@
  * `terraform.tfvars` as the app's configuration source of truth going
  * forward. It is reused there rather than forked into a parallel
  * `camelCase` type specifically because it is already this deeply embedded
- * (`gameServerValidator.ts`'s zod schema, `TfvarsService.ts`'s JSON read/write
+ * (`gameServerValidator.ts`'s zod schema, `DeploymentConfigService.ts`'s JSON read/write
  * paths, the Games UI) — see `deploymentConfig.ts`'s file doc for the full
  * naming-convention rationale.
  */
@@ -118,7 +118,7 @@ export interface GameServer {
    * When `true`, an in-task Caddy sidecar terminates TLS via Let's Encrypt
    * in front of the game server. Terraform's `optional(bool, false)` default
    * applies whenever this field is omitted — an absent `https` MUST be read
-   * as `false`, never as an unresolved third state; `TfvarsService.ts`'s
+   * as `false`, never as an unresolved third state; `DeploymentConfigService.ts`'s
    * JSON write path preserves this (it round-trips whatever `https` value —
    * present or absent — the caller supplied, rather than ever synthesizing
    * an explicit `false`), and every write path in the UI (`add-game-wizard`,
@@ -159,9 +159,8 @@ export interface GameServer {
  * rather than a flattened list — e.g. {@link DeploymentConfig.gameServers}
  * (`./deploymentConfig.js`) and {@link StackOutputs.appliedGameServers}
  * (`./stackOutputs.js`). Consolidates the `Omit<GameServer, 'name'>` shape
- * that was previously hand-duplicated (see `TfvarsService`'s
- * `RawGameServerEntry` and `ConfigService`'s `TfOutputs.applied_game_servers`
- * in `@hyveon/desktop-main`).
+ * that was previously hand-duplicated (see `DeploymentConfigService`'s
+ * `RawGameServerEntry` in `@hyveon/desktop-main`).
  */
 export type GameServerConfig = Omit<GameServer, 'name'>;
 

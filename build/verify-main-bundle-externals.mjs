@@ -16,7 +16,7 @@
  * `@pulumi/pulumi` pulls in `@grpc/grpc-js`, which owns sockets. (`@cdktf/hcl2json`
  * was guarded here too, for the same class of failure — its Go `wasm_exec` glue
  * ran module-scope side effects — before the `migrate-iac-to-pulumi` change
- * removed it from the dependency tree entirely; see `TfvarsService.ts`'s
+ * removed it from the dependency tree entirely; see `DeploymentConfigService.ts`'s
  * JSON-only configuration model.) `semver` is external for a different reason —
  * `PulumiCommand.install()` `instanceof`-checks a `SemVer` against its own copy
  * of the class, so a second bundled copy breaks it.

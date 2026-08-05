@@ -311,7 +311,7 @@ export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
  *    future approval flow (#109), which is expected to delete the `.tfplan`
  *    file once consumed; as of this writing nothing does, so this rule's
  *    actual escape hatch is rule ordering, not artifact deletion —
- *    `TerraformService.apply` writes its own {@link TerraformRunRecord}
+ *    `TerraformService.apply` writes its own {@link IacRunRecord}
  *    (`kind: 'apply'`) to the same `<runsDir>/<runId>/run.json` that the
  *    plan run used, so once an apply has run for this `runId` the caller
  *    observes `kind === 'apply'` (not `'plan'`) and this rule no longer

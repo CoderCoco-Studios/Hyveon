@@ -213,39 +213,39 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('readEnvTfvarsCacheTtlMs', () => {
+  describe('readEnvConfigCacheTtlMs', () => {
     afterEach(() => {
       delete process.env['TFVARS_CACHE_TTL_MS'];
     });
 
     it('should default to 30000 when TFVARS_CACHE_TTL_MS is unset', () => {
       delete process.env['TFVARS_CACHE_TTL_MS'];
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
     it('should default to 30000 when TFVARS_CACHE_TTL_MS is empty', () => {
       process.env['TFVARS_CACHE_TTL_MS'] = '';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
     it('should parse a valid TFVARS_CACHE_TTL_MS value', () => {
       process.env['TFVARS_CACHE_TTL_MS'] = '60000';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(60000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(60000);
     });
 
     it('should default to 30000 and warn when TFVARS_CACHE_TTL_MS is not a number', () => {
       process.env['TFVARS_CACHE_TTL_MS'] = 'not-a-number';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
     it('should default to 30000 when TFVARS_CACHE_TTL_MS is negative', () => {
       process.env['TFVARS_CACHE_TTL_MS'] = '-1';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
     it('should default to 30000 when TFVARS_CACHE_TTL_MS is zero', () => {
       process.env['TFVARS_CACHE_TTL_MS'] = '0';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
   });
 

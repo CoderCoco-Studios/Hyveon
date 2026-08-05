@@ -1,7 +1,7 @@
 /**
  * Zod-backed structural schema + business-rule validator for a single
  * `game_servers` map entry (see `terraform/variables.tf:game_servers` and
- * the {@link GameServer} mirror in `./tfvars.js`).
+ * the {@link GameServer} mirror in `./gameServerConfig.js`).
  *
  * This module is deliberately split in two:
  *  - {@link gameServerSchema} mirrors the Terraform `game_servers` object
@@ -20,7 +20,7 @@
  */
 
 import { z } from 'zod';
-import type { GameServer, GameServerPort } from './tfvars.js';
+import type { GameServer, GameServerPort } from './gameServerConfig.js';
 
 /**
  * Matches a game name that's safe to use both as a `DeploymentConfig.gameServers`
@@ -32,7 +32,7 @@ import type { GameServer, GameServerPort } from './tfvars.js';
  * characters, never leading or trailing.
  *
  * Exported from here (rather than duplicated) so the server-side write path
- * (`TfvarsService.assertValidGameName`, `@hyveon/desktop-main`) and the web
+ * (`DeploymentConfigService.assertValidGameName`, `@hyveon/desktop-main`) and the web
  * wizard's client-side validation (`checkName`, `wizard-form.utils.ts`) can
  * never drift out of sync the way they briefly did — mirrors the same
  * single-source-of-truth pattern {@link checkConnectMessagePlaceholders}
@@ -424,7 +424,7 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
  * @param proposed - The candidate entry, typically untrusted input (e.g.
  *   parsed JSON from an API request body).
  * @param existingGameServers - Every other already-declared `game_servers`
- *   entry (as returned by `TfvarsService.getGameServers()`), used for the
+ *   entry (as returned by `DeploymentConfigService.getGameServers()`), used for the
  *   cross-game port-collision check.
  */
 export function validateGameServer(

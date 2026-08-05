@@ -3,7 +3,7 @@ export * from './errors.js';
 export * from './pulumiVersion.js';
 export * from './iamPolicy.js';
 export * from './wizardSteps.js';
-export * from './tfvars.js';
+export * from './gameServerConfig.js';
 export * from './deploymentConfig.js';
 export * from './stackOutputs.js';
 export * from './gameServerValidator.js';

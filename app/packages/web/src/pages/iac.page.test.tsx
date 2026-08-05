@@ -95,7 +95,7 @@ function seedSuccessfulPlan() {
   });
 }
 
-/** A `TerraformStaleLockInfo`-shaped fixture for one lock holder, "started" 5 minutes before `now`. */
+/** A `IacStaleLockInfo`-shaped fixture for one lock holder, "started" 5 minutes before `now`. */
 function makeStaleLockInfo() {
   return {
     stackName: 'production',

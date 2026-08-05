@@ -28,7 +28,7 @@ import type {
 import {
   CLOUD_BINDINGS,
   resolveCloudBindings,
-  resolveTfvarsFileStoreConfig,
+  resolveDeploymentConfigFileStoreConfig,
   resolveAuditLogStoreConfig,
   resolveRunRecordStoreConfig,
   type CloudBindings,
@@ -220,12 +220,12 @@ describe('resolveCloudBindings', () => {
 
     it('should resolve the tfvars file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
       const config = makeConfig('aws', 'my-tfvars-bucket');
-      expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: 'my-tfvars-bucket', region: 'us-east-1' });
+      expect(resolveDeploymentConfigFileStoreConfig(config)).toEqual({ bucket: 'my-tfvars-bucket', region: 'us-east-1' });
     });
 
     it('should fall back to an empty bucket name when getConfigurationBucket() reports no bucket configured', () => {
       const config = makeConfig('aws', null);
-      expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: '', region: 'us-east-1' });
+      expect(resolveDeploymentConfigFileStoreConfig(config)).toEqual({ bucket: '', region: 'us-east-1' });
     });
 
     it('should produce an AwsDiscordEventReceiver from the aws discordReceiver factory', () => {

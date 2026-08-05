@@ -37,14 +37,14 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * `ModuleRef` is a core Nest primitive injectable without any module wiring
  * of its own, so this module's import list stays minimal.
  *
- * **Also deliberately does NOT import `TfvarsModule`**, for the identical
- * reason: `PulumiService.confirmRollback`'s `TfvarsRestorer`/`TFVARS_SERVICE`
- * dependency. `TfvarsModule` imports `ConfigModule`/`CloudProviderModule`,
+ * **Also deliberately does NOT import `DeploymentConfigModule`**, for the identical
+ * reason: `PulumiService.confirmRollback`'s `DeploymentConfigRestorer`/`DEPLOYMENT_CONFIG_SERVICE`
+ * dependency. `DeploymentConfigModule` imports `ConfigModule`/`CloudProviderModule`,
  * both upstream of this module in the same cycle shape described above.
- * `TfvarsModule` is already imported directly by `app.module.ts`, so
- * `TFVARS_SERVICE` is reachable via the same
+ * `DeploymentConfigModule` is already imported directly by `app.module.ts`, so
+ * `DEPLOYMENT_CONFIG_SERVICE` is reachable via the same
  * `ModuleRef.get(token, { strict: false })` lookup — see
- * `PulumiService.ts`'s `getTfvarsService` and `tfvars.module.ts`'s own doc
+ * `PulumiService.ts`'s `getDeploymentConfigService` and `deployment-config.module.ts`'s own doc
  * comment.
  */
 @Module({

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { DriftChangedField, DriftEntry, DriftReport, GameServer } from '@hyveon/shared';
 import { ConfigService } from './ConfigService.js';
-import { TfvarsService } from './TfvarsService.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
 
 /**
  * Config fields compared for a `'config_drift'` finding, paired with the
@@ -82,7 +82,7 @@ function changedFields(
 
 /**
  * Pure computation of a {@link DriftReport} from a declared game list
- * (`TfvarsService.getGameServers()`), the applied game config snapshot
+ * (`DeploymentConfigService.getGameServers()`), the applied game config snapshot
  * (`ConfigService.getStackOutputs()?.appliedGameServers`), and the
  * authoritative set of deployed game names (`deployedNames`, mirroring the
  * `deployed` parameter of `mergeGameLists()` in `./mergeGameLists.ts`). No
@@ -149,7 +149,7 @@ export function computeDrift(
 
 /**
  * Computes drift between the declared game server configuration
- * (`terraform.tfvars`, via {@link TfvarsService.getGameServers}) and the
+ * (`terraform.tfvars`, via {@link DeploymentConfigService.getGameServers}) and the
  * applied configuration last written to the deployed Pulumi stack (via
  * {@link ConfigService.getStackOutputs}'s `appliedGameServers` and
  * `gameNames` outputs). See issue #94.
@@ -161,13 +161,13 @@ export function computeDrift(
 @Injectable()
 export class DriftService {
   constructor(
-    private readonly tfvars: TfvarsService,
+    private readonly tfvars: DeploymentConfigService,
     private readonly config: ConfigService,
   ) {}
 
   /**
    * Returns the current {@link DriftReport} — see {@link computeDrift} for
-   * the classification rules. Invalidates only the `TfvarsService` cache
+   * the classification rules. Invalidates only the `DeploymentConfigService` cache
    * (cheap — an in-memory S3 object cache with its own short TTL), NOT
    * {@link ConfigService}'s stack-outputs cache: this method backs
    * `PendingChangesBanner`'s 30-second `GET /api/drift` poll

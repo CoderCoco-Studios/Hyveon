@@ -48,7 +48,7 @@ export interface ActualCosts {
  * Per-game container configuration, keyed by game name in the
  * `game_servers` Terraform variable (`terraform/variables.tf`).
  *
- * Mirrors `GameServer` in `@hyveon/shared/src/tfvars.ts` — that file is the
+ * Mirrors `GameServer` in `@hyveon/shared/src/gameServerConfig.ts` — that file is the
  * source of truth; keep this copy in sync with it.
  */
 export interface GameServer {
@@ -70,7 +70,7 @@ export interface GameServer {
  * with the deployed view (`terraform.tfstate`) so callers can tell
  * "declared but not yet applied" apart from "live" games — see issue #92.
  *
- * Mirrors `GameListEntry` in `@hyveon/shared/src/tfvars.ts` — that file is
+ * Mirrors `GameListEntry` in `@hyveon/shared/src/gameServerConfig.ts` — that file is
  * the source of truth; keep this copy in sync with it.
  */
 export interface GameListEntry {

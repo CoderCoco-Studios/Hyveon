@@ -1,6 +1,6 @@
 /**
  * Reads and parses the app's JSON deployment configuration into the
- * `GameServer[]` shape declared by `@hyveon/shared/tfvars.js`.
+ * `GameServer[]` shape declared by `@hyveon/shared/gameServerConfig.js`.
  *
  * The operator's versioned S3 configuration bucket
  * (`ConfigService.getConfigurationBucket()`) is the ONLY configuration
@@ -18,7 +18,7 @@
  * its `gameServers` record is flattened into a `GameServer[]` with the map
  * key attached as `name`.
  *
- * Parsed results are cached in-memory for `ConfigService.readEnvTfvarsCacheTtlMs()`
+ * Parsed results are cached in-memory for `ConfigService.readEnvConfigCacheTtlMs()`
  * milliseconds so frequent callers (e.g. polling endpoints) don't re-fetch
  * from S3 on every call. Call `invalidateCache()` to force a fresh read
  * before the TTL elapses (e.g. after a config edit). The cache mirrors
@@ -66,7 +66,7 @@ import { REMOTE_FILE_STORE } from '../modules/cloud-provider.tokens.js';
  * minus the `name` field (the same shape `@hyveon/shared`'s
  * `GameServerConfig` alias already names) — kept as a local alias since it
  * also doubles as the write-side "config" parameter shape for
- * {@link TfvarsService.addGameServer} and {@link TfvarsService.updateGameServer},
+ * {@link DeploymentConfigService.addGameServer} and {@link DeploymentConfigService.updateGameServer},
  * since `name` is supplied separately as the `gameServers` map key in both
  * directions.
  */
@@ -100,7 +100,7 @@ interface CachedGameServers {
 export type GameServerEntryErrorReason = 'invalid-name' | 'duplicate-name' | 'not-found' | 'structural';
 
 /**
- * Thrown by {@link TfvarsService}'s write methods (`addGameServer`/
+ * Thrown by {@link DeploymentConfigService}'s write methods (`addGameServer`/
  * `updateGameServer`/`removeGameServer`) for any `gameServers`-entry-level
  * failure — invalid/duplicate/missing entry names as well as structural
  * config-document issues. Replaces the retired `hclSurgeon.ts`'s
@@ -118,11 +118,11 @@ export class GameServerEntryError extends Error {
 }
 
 /**
- * Thrown by every {@link TfvarsService} method that reads or writes
- * configuration content — {@link TfvarsService.getRawConfig},
- * {@link TfvarsService.addGameServer}, {@link TfvarsService.updateGameServer},
- * {@link TfvarsService.removeGameServer}, and
- * {@link TfvarsService.restoreRawTfvars} — when no configuration bucket is
+ * Thrown by every {@link DeploymentConfigService} method that reads or writes
+ * configuration content — {@link DeploymentConfigService.getRawConfig},
+ * {@link DeploymentConfigService.addGameServer}, {@link DeploymentConfigService.updateGameServer},
+ * {@link DeploymentConfigService.removeGameServer}, and
+ * {@link DeploymentConfigService.restoreRawConfig} — when no configuration bucket is
  * configured (`ConfigService.getConfigurationBucket()` returns `null`).
  *
  * A typed, recognizable error rather than letting `AwsRemoteFileStore`'s
@@ -130,13 +130,13 @@ export class GameServerEntryError extends Error {
  * `RemoteFileStore` implementation) surface verbatim — callers that need to
  * distinguish "setup incomplete" from an ordinary I/O failure can check
  * `instanceof ConfigurationNotConfiguredError` instead of pattern-matching an
- * error message. Thrown by `TfvarsService` itself, before ever calling into
+ * error message. Thrown by `DeploymentConfigService` itself, before ever calling into
  * `RemoteFileStore`, so no disk or network access is attempted for an
  * unconfigured bucket.
  *
- * {@link TfvarsService.getGameServers} does NOT throw this — its contract is
+ * {@link DeploymentConfigService.getGameServers} does NOT throw this — its contract is
  * to never reject, so it catches this (like any other read failure) and
- * resolves to `[]` instead. Use {@link TfvarsService.isConfigured} to
+ * resolves to `[]` instead. Use {@link DeploymentConfigService.isConfigured} to
  * distinguish "unconfigured" from "genuinely zero games" when that
  * distinction matters (e.g. wizard-routing UI).
  */
@@ -151,7 +151,7 @@ export class ConfigurationNotConfiguredError extends Error {
 }
 
 /**
- * Thrown by {@link TfvarsService.updateTopLevelSettings} when a proposed
+ * Thrown by {@link DeploymentConfigService.updateTopLevelSettings} when a proposed
  * patch would change the deployment's EFFECTIVE (resolved) run-history table
  * name — i.e. `projectName` and/or `runsTableName` shift such that
  * `resolveRunsTableName(nextProjectName, nextRunsTableNameOverride)` no
@@ -225,7 +225,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * comment above for source resolution, parsing, and caching behaviour.
  */
 @Injectable()
-export class TfvarsService {
+export class DeploymentConfigService {
   private cache: CachedGameServers | null = null;
 
   /**
@@ -291,7 +291,7 @@ export class TfvarsService {
    * `name`).
    *
    * Returns a cached result when the last resolution (success *or* failure)
-   * is younger than `ConfigService.readEnvTfvarsCacheTtlMs()`; otherwise
+   * is younger than `ConfigService.readEnvConfigCacheTtlMs()`; otherwise
    * reads/parses fresh and re-caches. Never rejects: an unconfigured bucket
    * (see {@link isConfigured}), a missing S3 object, a missing `gameServers`
    * key, or malformed JSON are logged and resolved to `[]` (and negatively
@@ -299,7 +299,7 @@ export class TfvarsService {
    * degrade gracefully instead of crashing.
    */
   async getGameServers(): Promise<GameServer[]> {
-    const ttl = this.config.readEnvTfvarsCacheTtlMs();
+    const ttl = this.config.readEnvConfigCacheTtlMs();
     if (this.cache && this.now() - this.cache.cachedAt < ttl) {
       logger.debug('tfvars cache hit', { failed: this.cache.failed, cachedAt: this.cache.cachedAt });
       return this.cache.value;
@@ -379,7 +379,7 @@ export class TfvarsService {
    * @throws {@link RunsTableRenameError} when the restored document resolves
    *   to a different runs-table name than the current document.
    */
-  async restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
+  async restoreRawConfig(rawConfig: string): Promise<{ etag: string; versionId?: string }> {
     const { config: currentRaw } = await this.fetchRawConfig();
     const { gameServers: _currentGameServers, ...currentSettings } = this.parseConfigContents(currentRaw);
     const restoredSettings = this.parseConfigContents(rawConfig);

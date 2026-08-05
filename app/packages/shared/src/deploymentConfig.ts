@@ -6,9 +6,9 @@
  *  - Field names are idiomatic TS `camelCase` rather than HCL `snake_case`,
  *    EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
  *    {@link GameServerConfig} — the existing shared game-server shape (see
- *    `./tfvars.js`) already dictates `snake_case` field names
+ *    `./gameServerConfig.js`) already dictates `snake_case` field names
  *    (`container_path`, `connect_message`, `content_base64`) and is deeply
- *    embedded across `gameServerValidator.ts`, `TfvarsService.ts`'s JSON
+ *    embedded across `gameServerValidator.ts`, `DeploymentConfigService.ts`'s JSON
  *    read/write paths, and the Games UI, so this model reuses it as-is
  *    rather than forking a parallel `camelCase` copy.
  *  - The model is plain data — every field is JSON-serializable (`string`,
@@ -47,12 +47,12 @@
  *    operator input.
  */
 
-import type { GameServerConfig } from './tfvars.js';
+import type { GameServerConfig } from './gameServerConfig.js';
 import type { RemoteFileStore } from './cloud.js';
 
 /**
  * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
- * inside the operator's configuration bucket. Shared by `TfvarsService`
+ * inside the operator's configuration bucket. Shared by `DeploymentConfigService`
  * (desktop-main) and `TerraformService`'s rollback flow (#112) — both derive
  * the object key from this single constant rather than a filesystem path's
  * `basename()`. A fixed constant means an env-var override to a local path
@@ -212,7 +212,7 @@ export interface DeploymentConfig {
    * legitimate "no games yet" state, but the key itself must be present),
    * so it has no entry in {@link DEPLOYMENT_CONFIG_DEFAULTS} and
    * {@link withDeploymentConfigDefaults} requires it explicitly. Reuses
-   * {@link GameServerConfig} (`./tfvars.js`) — the existing shared
+   * {@link GameServerConfig} (`./gameServerConfig.js`) — the existing shared
    * game-server shape — rather than a new parallel type; see the file-level
    * doc for why its field names stay `snake_case`.
    */
@@ -223,7 +223,7 @@ export interface DeploymentConfig {
  * Every top-level {@link DeploymentConfig} field EXCEPT `gameServers` — the
  * exact slice the operator edits from the Settings page's
  * deployment-settings form, via
- * `TfvarsService.getTopLevelSettings`/`updateTopLevelSettings`
+ * `DeploymentConfigService.getTopLevelSettings`/`updateTopLevelSettings`
  * (`@hyveon/desktop-main`) and the `iac.settings.get`/`iac.settings.update`
  * IPC channels. Deliberately excludes `gameServers` — that map has its own
  * dedicated add-game-wizard/edit-game-form flow (`games.create`/`games.update`/
@@ -494,7 +494,7 @@ const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
  * is either a flat array of primitives (order-sensitive key ordering isn't a
  * concern — arrays don't have "key order" the way objects do) or a
  * `GameServerConfig` object written exclusively by this app's own JSON
- * serialization (`TfvarsService`'s write path), which produces consistent
+ * serialization (`DeploymentConfigService`'s write path), which produces consistent
  * key order across writes rather than an externally-authored document with
  * arbitrary key ordering.
  */

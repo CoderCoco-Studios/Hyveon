@@ -8,7 +8,7 @@ import type {
 } from '@hyveon/shared';
 import { OptimisticLockError, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
-import { ConfigurationNotConfiguredError, RunsTableRenameError, TfvarsService } from '../services/TfvarsService.js';
+import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
 // DI resolves `engine`'s token off `design:paramtypes` metadata, which
 // `emitDecoratorMetadata` can only populate from a real (value) import; an
@@ -50,14 +50,14 @@ export class IacSettingsController {
    * `engine` the same as "not yet provisioned" rather than throwing.
    */
   constructor(
-    private readonly tfvars: TfvarsService,
+    private readonly tfvars: DeploymentConfigService,
     private readonly engine?: PulumiEngineService,
   ) {}
 
   /**
    * Returns the current top-level deployment settings plus the etag to
    * round-trip as {@link update}'s `expectedVersionId` — see
-   * `TfvarsService.getTopLevelSettings()`.
+   * `DeploymentConfigService.getTopLevelSettings()`.
    *
    * Reachable via the Electron IPC transport (`iac.settings.get`).
    */
@@ -80,13 +80,13 @@ export class IacSettingsController {
    * Validates `payload.patch` via {@link validateDeploymentSettingsPatch}
    * (the same validator the renderer's form runs client-side — see that
    * function's doc comment) and, if it passes, delegates to
-   * `TfvarsService.updateTopLevelSettings()`. Re-reads the settings
+   * `DeploymentConfigService.updateTopLevelSettings()`. Re-reads the settings
    * post-write so a successful result's `settings` reflects exactly what's
    * now persisted, including any field `payload.patch` omitted.
    *
    * Failure mapping:
    *  - {@link validateDeploymentSettingsPatch} reports issues → `{ code: 'validation' }`
-   *    with the full issue list — never reaches `TfvarsService` at all.
+   *    with the full issue list — never reaches `DeploymentConfigService` at all.
    *  - `RunsTableRenameError` (the patch would rename the already-bootstrapped
    *    run-history table — see that class's own doc comment) → also
    *    `{ code: 'validation' }`, with one issue per field the error reports

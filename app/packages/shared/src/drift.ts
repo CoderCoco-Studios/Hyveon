@@ -1,6 +1,6 @@
 /**
  * Shared types for drift detection — comparing the declared game server
- * configuration (`terraform.tfvars`, via `TfvarsService.getGameServers()`)
+ * configuration (`terraform.tfvars`, via `DeploymentConfigService.getGameServers()`)
  * against the live deployed state (`terraform.tfstate`, via
  * `ConfigService.getTfOutputs()`). See issue #94.
  */
