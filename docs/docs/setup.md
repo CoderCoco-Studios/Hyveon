@@ -298,7 +298,7 @@ steps, none of them a CLI command:
    (no CLI, no Terraform, and none of the three is Pulumi-managed): a
    **state bucket** (default `hyveon-tfstate`, versioned, AES-256 encrypted)
    that Pulumi's self-managed S3 backend reads and writes state to; a
-   **configuration bucket** (default `hyveon-tfvars`, versioned, 90-day
+   **configuration bucket** (default `hyveon-config`, versioned, 90-day
    noncurrent-version expiry, AES-256 encrypted) that holds the JSON
    configuration object your game servers are declared in; and a
    **run-history table** (default

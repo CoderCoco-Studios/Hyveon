@@ -73,7 +73,7 @@ the single source of truth for per-game resources; it's persisted as the
 JSON object `deployment-config.json` in the operator's S3 configuration
 bucket. `PulumiService` fetches that object, `JSON.parse`s it, and passes it
 into `createInfraProgram()`. See
-[Management app — `TfvarsModule` / `TfvarsService`](/components/management-app#tfvarsmodule--tfvarsservice)
+[Management app — `DeploymentConfigModule` / `DeploymentConfigService`](/components/management-app#deploymentconfigmodule--deploymentconfigservice)
 for how the desktop app reads and writes the same object.
 
 There is no single `for_each`-style loop over this map. `defineAll()`

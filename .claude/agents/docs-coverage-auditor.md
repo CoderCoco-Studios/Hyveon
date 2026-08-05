@@ -46,7 +46,7 @@ close.
      `openspec/changes/<change>/` directory in the diff whose specs were never
      folded in.
    - **`DeploymentConfig`/`GameServerConfig` fields** added or removed (in
-     `app/packages/shared/src/deploymentConfig.ts` / `tfvars.ts`) must touch, as
+     `app/packages/shared/src/deploymentConfig.ts` / `gameServerConfig.ts`) must touch, as
      applicable: the relevant `defineX()` consumer in `app/packages/infra`, the
      add/edit-game wizard in `@hyveon/web` if the field is operator-editable,
      and `docs/docs/components/infra.md`'s file/resource table if the field

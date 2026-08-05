@@ -79,7 +79,7 @@ these are easy to violate while making an otherwise reasonable change.
   core cost model.
 - **`DeploymentConfig.gameServers` is the single source of truth.** It's persisted as
   the JSON object `deployment-config.json` in the operator's S3 configuration bucket
-  (`TfvarsService`). Adding a game means adding one map entry — every per-game resource
+  (`DeploymentConfigService`). Adding a game means adding one map entry — every per-game resource
   in `app/packages/infra` fans out from that one object.
 - **DNS records are Lambda-managed, never infra-program-managed.** `@hyveon/lambda-update-dns`
   UPSERTs on `RUNNING` and DELETEs on `STOPPED`; a Pulumi-owned per-game record would fight it.
