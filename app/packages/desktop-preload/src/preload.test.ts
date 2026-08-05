@@ -1049,9 +1049,9 @@ describe('preload dispatcher', () => {
         const ack = { started: true, runId: 'run-001' };
         ipcInvoke.mockResolvedValue(ack);
         const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
-        const opts = { tfvarsVersionId: 'v-123' };
+        const opts = { configVersionId: 'v-123' };
 
         const result = await terraform.plan(opts);
 
@@ -1062,7 +1062,7 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.plan channel with no opts when omitted', async () => {
         ipcInvoke.mockResolvedValue({ started: true, runId: 'run-002' });
         const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
 
         await terraform.plan();
@@ -1078,7 +1078,7 @@ describe('preload dispatcher', () => {
         };
         ipcInvoke.mockResolvedValue(ack);
         const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
 
         const result = await terraform.plan();
@@ -1101,9 +1101,9 @@ describe('preload dispatcher', () => {
         testApi.mock('iac.plan', mockHandler);
 
         const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
-        const opts = { tfvarsVersionId: 'v-456' };
+        const opts = { configVersionId: 'v-456' };
         const result = await terraform.plan(opts);
 
         expect(mockHandler).toHaveBeenCalledWith(opts);

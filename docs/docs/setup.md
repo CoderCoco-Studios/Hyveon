@@ -119,8 +119,8 @@ the IAM user by hand instead:
         "s3:PutBucketPublicAccessBlock"
       ],
       "Resource": [
-        "arn:aws:s3:::${project_name}-tfvars",
-        "arn:aws:s3:::${project_name}-tfvars/*"
+        "arn:aws:s3:::${project_name}-config",
+        "arn:aws:s3:::${project_name}-config/*"
       ]
     },
     {
@@ -157,9 +157,8 @@ the IAM user by hand instead:
 
 > **`HyveonConfigurationBucket` scopes access to the JSON configuration
 > bucket** the setup wizard's bootstrap step creates (default name
-> `${project_name}-tfvars` — the name predates this migration and is kept
-> for continuity; it holds the versioned `deployment-config.json` object,
-> not a `.tfvars` file). It grants object read/write/list/versioning access
+> `${project_name}-config`; it holds the versioned `deployment-config.json`
+> object). It grants object read/write/list/versioning access
 > plus the bucket-config actions (`PutLifecycleConfiguration`,
 > `PutEncryptionConfiguration`, `PutBucketPublicAccessBlock`,
 > `PutBucketVersioning`/`GetBucketVersioning`, `GetBucketLocation`) the

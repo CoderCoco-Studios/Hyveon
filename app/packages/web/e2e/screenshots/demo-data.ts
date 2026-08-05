@@ -382,7 +382,7 @@ const RUN_9: RunHistoryRecord = {
   sk: '2026-07-26T09:32:10.000Z#run-9', runId: 'run-9', kind: 'apply', status: 'success',
   startedAt: '2026-07-26T09:32:10.000Z', completedAt: '2026-07-26T09:36:02.000Z', exitCode: 0,
   planHash: 'a1b2c3d4', approvedBy: 'chris@hyveon.example.com', approvedAt: '2026-07-26T09:31:40.000Z',
-  tfvarsVersionId: 'v48',
+  configVersionId: 'v48',
 };
 const RUN_8: RunHistoryRecord = {
   sk: '2026-07-26T09:28:00.000Z#run-8', runId: 'run-8', kind: 'plan', status: 'success',
@@ -399,7 +399,7 @@ const RUN_6: RunHistoryRecord = {
 const RUN_5: RunHistoryRecord = {
   sk: '2026-07-23T11:00:00.000Z#run-5', runId: 'run-5', kind: 'apply', status: 'success',
   startedAt: '2026-07-23T11:00:00.000Z', completedAt: '2026-07-23T11:07:15.000Z', exitCode: 0,
-  approvedBy: 'ops@hyveon.example.com', tfvarsVersionId: 'v41', rolledBackFrom: 'run-3',
+  approvedBy: 'ops@hyveon.example.com', configVersionId: 'v41', rolledBackFrom: 'run-3',
 };
 
 export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {

@@ -392,7 +392,7 @@ describe('FirstRunWizard', () => {
       await waitFor(() =>
         expect(hyveonMock.wizard.bootstrapStateBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfstate' }),
       );
-      expect(hyveonMock.wizard.bootstrapConfigurationBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' });
+      expect(hyveonMock.wizard.bootstrapConfigurationBucket).toHaveBeenCalledWith({ bucketName: 'hyveon-config' });
       // No `wizard.bootstrap.lockTable` channel exists, and this wizard has
       // no client method for it either — there is nothing left to assert
       // was "not called" here beyond the two real calls above.
@@ -432,7 +432,7 @@ describe('FirstRunWizard', () => {
         await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
 
         await waitFor(() =>
-          expect(hyveonMock.wizard.bootstrapDeploymentConfig).toHaveBeenCalledWith({ bucketName: 'hyveon-tfvars' }),
+          expect(hyveonMock.wizard.bootstrapDeploymentConfig).toHaveBeenCalledWith({ bucketName: 'hyveon-config' }),
         );
         expect(await screen.findByText('Initial configuration')).toBeInTheDocument();
       });
@@ -529,7 +529,7 @@ describe('FirstRunWizard', () => {
 
       await waitFor(() =>
         expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
-          bootstrap: { stateBucket: 'hyveon-tfstate', configurationBucket: 'hyveon-tfvars' },
+          bootstrap: { stateBucket: 'hyveon-tfstate', configurationBucket: 'hyveon-config' },
         }),
       );
     });

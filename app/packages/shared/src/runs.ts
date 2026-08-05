@@ -40,14 +40,14 @@ export interface RunRecord {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one (e.g. killed via abort signal). */
   exitCode: number | null;
-  /** The tfvars version id the run was executed against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the run was executed against, if the caller supplied one. */
+  configVersionId?: string;
   /**
    * Hash of the plan artifact this record's `terraform` invocation produced
    * (for a `plan` run) or was gated against (for an `apply` run) — see #109.
    * The apply IPC handler compares the caller-supplied `planHash` against the
    * plan run's stored value before allowing the apply to proceed, ensuring
-   * the tfvars/plan an admin approved is exactly what gets applied.
+   * the configuration/plan an admin approved is exactly what gets applied.
    */
   planHash?: string;
   /**
@@ -86,7 +86,7 @@ export interface RunRecord {
    * The `runId` of the `apply` {@link RunRecord} this run rolled back, when
    * this run was started by the rollback flow (#112) rather than an ordinary
    * plan submission. Set only on the `plan` record produced when an operator
-   * restores a prior tfvars version from history — the plan runs against the
+   * restores a prior configuration version from history — the plan runs against the
    * restored version, which becomes the new head, so no other field
    * distinguishes a rollback plan from an ordinary one. Absent for every
    * other run.
@@ -253,7 +253,7 @@ export function isRunLockExpired(lock: RunLock, now: Date = new Date()): boolean
  * before the apply IPC handler (#109) must reject it and require
  * re-approval. Fixed at 15 minutes — long enough to review a plan and click
  * apply, short enough that a stale approval can't be used to apply against
- * drifted tfvars long after the reviewer looked at it.
+ * drifted configuration long after the reviewer looked at it.
  */
 export const APPROVAL_WINDOW_MS = 15 * 60 * 1000;
 

@@ -151,8 +151,8 @@ export interface PersistRunRecordParams {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one (e.g. killed via abort signal). */
   exitCode: number | null;
-  /** The tfvars version id the run was executed against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the run was executed against, if the caller supplied one. */
+  configVersionId?: string;
   /**
    * SHA-256 hex digest of the `.tfplan` artifact this run produced (a
    * successful `plan` run only — see `TerraformService.computePlanHash` and
@@ -212,8 +212,8 @@ export interface PreflightMarkerParams {
    * leaving two records behind for one attempt.
    */
   startedAt: string;
-  /** The tfvars version id the approved plan ran against, if known. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the approved plan ran against, if known. */
+  configVersionId?: string;
   /** The approved plan's stored `planHash`, if known. */
   planHash?: string;
   /** The approved plan's stamped `engineVersion`, if known. */
@@ -367,7 +367,7 @@ export class RunRecordService {
           startedAt: params.startedAt,
           completedAt: params.completedAt,
           exitCode: params.exitCode,
-          ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
+          ...(params.configVersionId !== undefined ? { configVersionId: params.configVersionId } : {}),
           ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
           ...(params.rolledBackFrom !== undefined ? { rolledBackFrom: params.rolledBackFrom } : {}),
           ...(params.changeSummary !== undefined ? { changeSummary: params.changeSummary } : {}),
@@ -454,7 +454,7 @@ export class RunRecordService {
       completedAt: params.startedAt,
       exitCode: null,
       partialApply: true,
-      ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
+      ...(params.configVersionId !== undefined ? { configVersionId: params.configVersionId } : {}),
       ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
       ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
     };

@@ -91,9 +91,9 @@ describe('DeploymentConfigService (S3 path, real AwsRemoteFileStore)', () => {
       ETag: '"etag-1"',
     });
 
-    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
+    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-config-bucket' }));
     const service = new DeploymentConfigService(
-      makeConfig({ bucket: 'my-tfvars-bucket' }),
+      makeConfig({ bucket: 'my-config-bucket' }),
       remoteFileStore,
     );
 
@@ -115,15 +115,15 @@ describe('DeploymentConfigService (S3 path, real AwsRemoteFileStore)', () => {
 
     expect(s3Mock.commandCalls(GetObjectCommand)).toHaveLength(1);
     const input = s3Mock.commandCalls(GetObjectCommand)[0]!.args[0].input;
-    expect(input.Bucket).toBe('my-tfvars-bucket');
+    expect(input.Bucket).toBe('my-config-bucket');
     expect(input.Key).toBe('deployment-config.json');
   });
 
   it('should return an empty array and not throw when the S3 object does not exist', async () => {
     s3Mock.on(GetObjectCommand).resolves({});
 
-    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
-    const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-config-bucket' }));
+    const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
     await expect(service.getGameServers()).resolves.toEqual([]);
     expect(s3Mock.commandCalls(GetObjectCommand)).toHaveLength(1);
@@ -139,9 +139,9 @@ describe('DeploymentConfigService (S3 path, real AwsRemoteFileStore)', () => {
       VersionId: 'v-abc123',
     });
 
-    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
+    const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-config-bucket' }));
     const service = new DeploymentConfigService(
-      makeConfig({ bucket: 'my-tfvars-bucket' }),
+      makeConfig({ bucket: 'my-config-bucket' }),
       remoteFileStore,
     );
 

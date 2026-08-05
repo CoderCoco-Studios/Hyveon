@@ -563,13 +563,13 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 
       await waitFor(() =>
         expect(hyveonMock.iac.plan).toHaveBeenCalledWith({
-          tfvarsVersionId: 'v-new-head',
+          configVersionId: 'v-new-head',
           rolledBackFrom: 'apply-1',
         }),
       );
@@ -599,7 +599,7 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 

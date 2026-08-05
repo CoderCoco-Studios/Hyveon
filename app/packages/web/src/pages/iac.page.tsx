@@ -20,13 +20,13 @@ import { ConfirmDialog } from '../components/confirm-dialog.component.js';
 /**
  * `location.state` shape the rollback flow (#112) navigates to `/iac`
  * with, from a confirmed rollback in `/iac/history` — see
- * `RollbackAction`. `tfvarsVersionId` is the freshly-restored head version to
+ * `RollbackAction`. `configVersionId` is the freshly-restored head version to
  * plan against; `rolledBackFrom` is the apply run it was restored from, sent
  * straight through to `hyveon.iac.plan` so the resulting plan's persisted
  * record carries the same tag.
  */
 interface RollbackNavState {
-  tfvarsVersionId: string;
+  configVersionId: string;
   rolledBackFrom: string;
 }
 
@@ -35,7 +35,7 @@ function isRollbackNavState(state: unknown): state is RollbackNavState {
   return (
     typeof state === 'object' &&
     state !== null &&
-    typeof (state as Partial<RollbackNavState>).tfvarsVersionId === 'string' &&
+    typeof (state as Partial<RollbackNavState>).configVersionId === 'string' &&
     typeof (state as Partial<RollbackNavState>).rolledBackFrom === 'string'
   );
 }
@@ -644,7 +644,7 @@ export function IacPage() {
     if (!rollbackState || rollbackConsumedRef.current) return;
     rollbackConsumedRef.current = true;
     navigate('/iac', { replace: true, state: null });
-    submitPlan({ tfvarsVersionId: rollbackState.tfvarsVersionId, rolledBackFrom: rollbackState.rolledBackFrom });
+    submitPlan({ configVersionId: rollbackState.configVersionId, rolledBackFrom: rollbackState.rolledBackFrom });
   }, [navigate, rollbackState, submitPlan]);
 
   const submitApprove = useCallback(() => {

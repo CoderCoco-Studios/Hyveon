@@ -64,7 +64,7 @@ describe('RollbackAction', () => {
     });
     hyveonMock.iac.rollback.confirm.mockResolvedValue({
       confirmed: false,
-      error: 'Historic tfvars version "v-prior" no longer exists — it may have expired. Nothing was written.',
+      error: 'Historic configuration version "v-prior" no longer exists — it may have expired. Nothing was written.',
     });
     const onRolledBack = vi.fn();
     render(<RollbackAction applyRunId="apply-1" onRolledBack={onRolledBack} />);
@@ -126,7 +126,7 @@ describe('RollbackAction', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Rollback' }));
 
     const dialog = await screen.findByRole('alertdialog');
-    expect(dialog).toHaveTextContent('This restores tfvars version v-prior');
+    expect(dialog).toHaveTextContent('This restores configuration version v-prior');
     expect(dialog).not.toHaveTextContent(/game server/);
     expect(dialog).not.toHaveTextContent(/configuration differences/);
   });

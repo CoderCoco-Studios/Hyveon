@@ -188,12 +188,12 @@ describe('IacHistoryPage', () => {
   });
 
   describe('rollback action (#112)', () => {
-    it('should show a Rollback button only for apply rows that recorded a tfvarsVersionId', async () => {
+    it('should show a Rollback button only for apply rows that recorded a configVersionId', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
         records: [
-          makeRecord({ runId: 'apply-with-version', kind: 'apply', tfvarsVersionId: 'v-1' }),
+          makeRecord({ runId: 'apply-with-version', kind: 'apply', configVersionId: 'v-1' }),
           makeRecord({ runId: 'apply-without-version', sk: 'sk-2', kind: 'apply' }),
-          makeRecord({ runId: 'plan-with-version', sk: 'sk-3', kind: 'plan', tfvarsVersionId: 'v-2' }),
+          makeRecord({ runId: 'plan-with-version', sk: 'sk-3', kind: 'plan', configVersionId: 'v-2' }),
         ],
       });
       renderPage(<IacHistoryPage />);
@@ -205,7 +205,7 @@ describe('IacHistoryPage', () => {
 
     it('should resolve the rollback target and open a confirmation dialog naming it on click', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
+        records: [makeRecord({ runId: 'apply-1', kind: 'apply', configVersionId: 'v-1' })],
       });
       hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: true,
@@ -224,11 +224,11 @@ describe('IacHistoryPage', () => {
 
     it('should surface a resolve failure inline without opening a confirmation dialog', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
+        records: [makeRecord({ runId: 'apply-1', kind: 'apply', configVersionId: 'v-1' })],
       });
       hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: false,
-        error: 'Historic tfvars version "v-1" no longer exists — it may have expired. Nothing was written.',
+        error: 'Historic configuration version "v-1" no longer exists — it may have expired. Nothing was written.',
       });
       renderPage(<IacHistoryPage />);
 
@@ -240,7 +240,7 @@ describe('IacHistoryPage', () => {
 
     it('should confirm the rollback and navigate to /iac with the new versionId and rolledBackFrom', async () => {
       hyveonMock.iac.runs.list.mockResolvedValue({
-        records: [makeRecord({ runId: 'apply-1', kind: 'apply', tfvarsVersionId: 'v-1' })],
+        records: [makeRecord({ runId: 'apply-1', kind: 'apply', configVersionId: 'v-1' })],
       });
       hyveonMock.iac.rollback.resolve.mockResolvedValue({
         resolved: true,
@@ -257,7 +257,7 @@ describe('IacHistoryPage', () => {
       expect(hyveonMock.iac.rollback.confirm).toHaveBeenCalledWith({ applyRunId: 'apply-1' });
       await waitFor(() =>
         expect(navigateMock).toHaveBeenCalledWith('/iac', {
-          state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' },
+          state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' },
         }),
       );
     });

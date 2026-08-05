@@ -342,7 +342,7 @@ describe('DeploymentConfigService', () => {
     });
 
     it('should return true when a configuration bucket is configured', () => {
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       expect(service.isConfigured()).toBe(true);
     });
 
@@ -438,7 +438,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getRawConfig();
 
       expect(result.config).toBe(FIXTURE_JSON);
@@ -448,7 +448,7 @@ describe('DeploymentConfigService', () => {
     it('should reject when the S3 object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getRawConfig()).rejects.toThrow(/not found/);
     });
@@ -461,7 +461,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_GAME_SERVERS);
@@ -474,7 +474,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
 
       expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
@@ -483,7 +483,7 @@ describe('DeploymentConfigService', () => {
     it('should return an empty array and log when the remote config object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -497,7 +497,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -509,7 +509,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -521,7 +521,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
@@ -544,7 +544,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const entry = {
         image: 'ryshe/terraria',
         cpu: 512,
@@ -565,7 +565,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
@@ -588,7 +588,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_MULTIPLE_GAME_SERVERS);
@@ -600,7 +600,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_OMITTED_OPTIONALS_GAME_SERVERS);
@@ -618,7 +618,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_RICH_ENTRY_GAME_SERVERS);
@@ -635,7 +635,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -649,7 +649,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
 
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
@@ -661,7 +661,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       const first = await service.getGameServers();
@@ -678,7 +678,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await service.getGameServers();
@@ -694,7 +694,7 @@ describe('DeploymentConfigService', () => {
         etag: 'etag-1',
       });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
 
       await service.getGameServers();
       service.invalidateCache();

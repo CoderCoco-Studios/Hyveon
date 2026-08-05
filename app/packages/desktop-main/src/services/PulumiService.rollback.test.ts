@@ -114,7 +114,7 @@ function makeApplyRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     startedAt: now.toISOString(),
     completedAt: now.toISOString(),
     exitCode: 0,
-    tfvarsVersionId: APPLY_CONFIG_VERSION_ID,
+    configVersionId: APPLY_CONFIG_VERSION_ID,
     ...overrides,
   };
 }
@@ -346,7 +346,7 @@ describe('PulumiService.resolveRollbackTarget', () => {
   });
 
   it('should throw RollbackNoConfigVersionError when the apply run has no recorded configuration version id', async () => {
-    const runRecordPersister = makeRunRecordPersister(makeApplyRunRecord({ tfvarsVersionId: undefined }));
+    const runRecordPersister = makeRunRecordPersister(makeApplyRunRecord({ configVersionId: undefined }));
     const service = makeService({ runRecordPersister });
 
     await expect(service.resolveRollbackTarget(APPLY_RUN_ID)).rejects.toBeInstanceOf(RollbackNoConfigVersionError);
@@ -452,7 +452,7 @@ describe('PulumiService.confirmRollback happy path', () => {
       expect.objectContaining({
         kind: 'plan',
         rolledBackFrom: APPLY_RUN_ID,
-        tfvarsVersionId: RESTORED_CONFIG_VERSION_ID,
+        configVersionId: RESTORED_CONFIG_VERSION_ID,
       }),
       expect.anything(),
     );
