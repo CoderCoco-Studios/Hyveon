@@ -490,7 +490,11 @@ describe('PulumiService.initializeStack', () => {
         acquiredAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       };
-      const runRecordPersister: RunRecordPersister = { getByRunId: vi.fn(), persist: vi.fn().mockResolvedValue(undefined) };
+      const runRecordPersister: RunRecordPersister = {
+        getByRunId: vi.fn(),
+        persist: vi.fn().mockResolvedValue(undefined),
+        writePreflightMarker: vi.fn().mockResolvedValue(undefined),
+      };
       const runLockService: RunLockService = { createRun: vi.fn().mockResolvedValue(lock), releaseRun: vi.fn().mockResolvedValue(undefined) };
       const configCacheInvalidator: ConfigCacheInvalidator = { invalidateCache: vi.fn() };
       const moduleRef = {

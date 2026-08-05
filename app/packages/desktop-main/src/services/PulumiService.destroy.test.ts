@@ -103,11 +103,16 @@ function makeFullyConfiguredStore(): ElectronStoreService {
   return makeStore(FULLY_CONFIGURED);
 }
 
-/** `RunRecordPersister` stub — `persist` is a directly-inspectable mock; `getByRunId` is unused by `destroy()` but stubbed for interface completeness. */
-function makeRunRecordPersister(): RunRecordPersister & { persist: ReturnType<typeof vi.fn>; getByRunId: ReturnType<typeof vi.fn> } {
+/** `RunRecordPersister` stub — `persist` is a directly-inspectable mock; `getByRunId`/`writePreflightMarker` are unused by `destroy()` but stubbed for interface completeness. */
+function makeRunRecordPersister(): RunRecordPersister & {
+  persist: ReturnType<typeof vi.fn>;
+  getByRunId: ReturnType<typeof vi.fn>;
+  writePreflightMarker: ReturnType<typeof vi.fn>;
+} {
   return {
     getByRunId: vi.fn().mockResolvedValue(undefined),
     persist: vi.fn().mockResolvedValue(undefined),
+    writePreflightMarker: vi.fn().mockResolvedValue(undefined),
   };
 }
 

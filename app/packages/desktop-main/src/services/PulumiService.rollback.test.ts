@@ -119,13 +119,18 @@ function makeApplyRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
-/** `RunRecordPersister` stub — `getByRunId` resolves `record` by default, `persist` is a directly-inspectable mock. */
+/** `RunRecordPersister` stub — `getByRunId` resolves `record` by default, `persist`/`writePreflightMarker` are directly-inspectable mocks. */
 function makeRunRecordPersister(
   record: RunRecord | undefined = makeApplyRunRecord(),
-): RunRecordPersister & { persist: ReturnType<typeof vi.fn>; getByRunId: ReturnType<typeof vi.fn> } {
+): RunRecordPersister & {
+  persist: ReturnType<typeof vi.fn>;
+  getByRunId: ReturnType<typeof vi.fn>;
+  writePreflightMarker: ReturnType<typeof vi.fn>;
+} {
   return {
     getByRunId: vi.fn().mockResolvedValue(record),
     persist: vi.fn().mockResolvedValue(undefined),
+    writePreflightMarker: vi.fn().mockResolvedValue(undefined),
   };
 }
 

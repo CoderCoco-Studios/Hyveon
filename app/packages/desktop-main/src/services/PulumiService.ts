@@ -26,6 +26,7 @@ import type {
   RunKind,
   RunLock,
   RunRecord,
+  RunStatus,
   StackOutputs,
 } from '@hyveon/shared';
 import { logger } from '../logger.js';
@@ -54,7 +55,7 @@ import {
 } from './PulumiCancellation.js';
 import { runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
 import { classifyStackLockConflict, isStackLockConflict, PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
-import type { PersistRunRecordParams } from './RunRecordService.js';
+import type { PersistRunRecordParams, PreflightMarkerParams } from './RunRecordService.js';
 
 /** Absolute path to the `dist/services/` directory at runtime — mirrors `ConfigService.ts`'s identically-named constant. */
 const _dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,10 +107,19 @@ export const RUN_RECORD_PERSISTER = Symbol('RUN_RECORD_PERSISTER');
  * referencing it directly) purely so nothing in this file ever needs
  * `RunRecordService` as a value — see {@link RUN_RECORD_PERSISTER}'s doc
  * comment.
+ *
+ * `writePreflightMarker` (issue #399) is the narrow slice of
+ * `RunRecordService.writePreflightMarker`'s surface {@link PulumiService.apply}
+ * depends on — a direct, thin write of a durable in-doubt placeholder record,
+ * deliberately NOT routed through {@link persist} (which releases the durable
+ * apply lock in its own `finally` — see that method's own doc comment for why
+ * that would be wrong here). Only {@link PulumiService.apply} calls it;
+ * {@link PulumiService.preview}/`destroy` have no equivalent pre-flight step.
  */
 export interface RunRecordPersister {
   persist(params: PersistRunRecordParams, logFilePath: string | null): Promise<void>;
   getByRunId(runId: string): Promise<RunRecord | undefined>;
+  writePreflightMarker(params: PreflightMarkerParams): Promise<void>;
 }
 
 /**
@@ -2476,12 +2486,28 @@ export class PulumiService {
    * record (not re-derived), plus the new `partialApply` indicator. As
    * documented on {@link persistRunRecord}, `RunRecordService.persist`'s own
    * `finally` releases the durable apply lock gate step 8 acquired — no
-   * separate `RunLockService.releaseRun` call is made by this method itself,
-   * on any path, mirroring `TerraformService.apply`'s identical reliance on
+   * separate `RunLockService.releaseRun` call is made by this method itself
+   * on that path, mirroring `TerraformService.apply`'s identical reliance on
    * that release happening one layer down. A gate failure (steps 1-7) never
    * reaches this point at all — `runId` is only ever assigned after step 8
    * succeeds, so a rejected gate call writes no run record and holds no
    * lock to release.
+   *
+   * ## Pre-flight durable marker (issue #399)
+   *
+   * Immediately after gate step 8 acquires the lock — and BEFORE `stack.up()`
+   * is ever called — `RunRecordService.writePreflightMarker` writes a
+   * durable, in-doubt placeholder `RunRecord` (`kind: 'apply'`,
+   * `partialApply: true`) for `runId`, sharing the same `sk` the eventual
+   * settlement write below uses (so a normal settlement overwrites it in
+   * place, leaving exactly one record for the attempt). This closes the gap
+   * where a partial apply whose FINAL settlement write itself fails to
+   * persist would otherwise leave the original approved `plan` record as the
+   * only observable record for `runId`, passing every gate check above all
+   * over again on a subsequent call and permitting a blind retry against
+   * infrastructure this very attempt may have already mutated. This write is
+   * deliberately NOT best-effort — see {@link PulumiPreflightMarkerError}'s
+   * doc comment for the fail-closed behavior when it itself fails.
    *
    * @param planRunId - The `runId` of the approved `plan` run to apply — also
    *   reused, unchanged, as this apply run's own `runId` (see "run id"
@@ -2498,9 +2524,18 @@ export class PulumiService {
    *   {@link PulumiPlanHashMismatchError}, {@link StalePlanError}, or
    *   {@link PulumiPlanArtifactStaleError} if the corresponding gate step
    *   (1-6) fails.
+   * @throws {@link PulumiPartialApplyRetryBlockedError} if gate step 2 finds
+   *   an `apply`-kind record for `planRunId` with `partialApply: true` — a
+   *   prior attempt against this same plan either diverged partway through,
+   *   or never confirmed that it didn't (issue #399).
    * @throws {@link PulumiEngineVersionMismatchError} if gate step 7 fails.
    * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if gate step 8
    *   loses the atomic race for the apply lock.
+   * @throws {@link PulumiPreflightMarkerError} if the durable pre-flight
+   *   marker `RunRecordService.writePreflightMarker` writes immediately
+   *   after gate step 8 (before `stack.up()` is ever called) itself fails —
+   *   `apply` fails closed on this: `stack.up()` is never reached, and the
+   *   durable apply lock is released explicitly in this same path.
    * @throws {@link PulumiUnrecognizedLockError} if `stack.up()` hits a
    *   backend lock conflict that cannot be proven this installation's own
    *   orphan.
@@ -2618,6 +2653,20 @@ export class PulumiService {
         throw new PulumiPlanRunNotFoundError(planRunId);
       }
       if (record.kind !== 'plan') {
+        // Refined check FIRST (see PulumiPartialApplyRetryBlockedError's own
+        // doc comment): a record found here with `kind !== 'plan'` means
+        // SOME prior attempt already reached gate step 8 for this exact
+        // `planRunId` — either it settled normally (persisted via
+        // `persist()`) or it's still the durable pre-flight marker
+        // `writePreflightMarker` wrote before `stack.up()` ran (issue #399,
+        // the settlement write having failed to overwrite it). Either way,
+        // `partialApply: true` means retry safety cannot be assumed —
+        // checked directly, never gated behind `record.status === 'failed'`
+        // first (see `RunRecord.partialApply`'s own doc comment for why that
+        // would silently miss the cancelled-mid-apply case).
+        if (record.kind === 'apply' && record.partialApply === true) {
+          throw new PulumiPartialApplyRetryBlockedError(planRunId, record.status);
+        }
         throw new PulumiPlanRunWrongKindError(planRunId, record.kind);
       }
       if (!record.approvedBy || !record.approvedAt) {
@@ -2760,6 +2809,61 @@ export class PulumiService {
       // `startedAt` must already be set before any of that fallible work
       // begins, not only once `stack.up()` is actually about to be called.
       startedAt = new Date().toISOString();
+
+      // --- Pre-flight durable marker (issue #399) — written BEFORE stack.up() ---
+      // Closes the retry-safety gap: without this, a partial apply whose
+      // FINAL settlement write (`persistRunRecord`, far below) itself fails
+      // to persist leaves the original approved `plan` record as the only
+      // observable record for `runId` — passing every gate check above all
+      // over again and permitting a blind retry against infrastructure this
+      // very attempt may be about to partially mutate. Writing a durable
+      // `kind: 'apply', partialApply: true` marker here, before `stack.up()`
+      // is ever called, means an apply-kind record for `runId` already
+      // exists no matter how this attempt ends — this gate's own
+      // `record.kind !== 'plan'` / `PulumiPartialApplyRetryBlockedError`
+      // checks (above) catch it on any subsequent call. Shares `startedAt`
+      // (and therefore `sk`) with the eventual settlement write below, so a
+      // successful settlement safely overwrites this marker in place rather
+      // than leaving two records behind for one attempt (see
+      // `RunRecordService.writePreflightMarker`'s own doc comment).
+      //
+      // Deliberately NOT best-effort: if this write itself fails, `apply`
+      // fails closed — abort BEFORE `stack.up()` (no infrastructure is
+      // touched) and release the durable lock gate step 8 just acquired
+      // explicitly, right here, rather than falling through to the ordinary
+      // post-settlement release path below (which this failure never
+      // reaches). `runRecordWritten` is set `true` before throwing so the
+      // outer `finally`'s force-closed-generator fallback (gated on
+      // `!runRecordWritten`) does NOT also fire for this — genuinely
+      // thrown, not force-closed — exit path. `lockReleased` is set `true`
+      // only once `releaseRun` above actually resolves, so a failed release
+      // here still leaves the outer `finally`'s `!lockReleased` backstop
+      // free to retry rather than leaking the lock until TTL expiry.
+      try {
+        await this.getRunRecordPersister().writePreflightMarker({
+          runId,
+          startedAt,
+          tfvarsVersionId,
+          planHash: record.planHash,
+          engineVersion,
+        });
+      } catch (err) {
+        logger.warn(
+          'pulumi apply: failed to write the durable pre-flight marker; aborting before stack.up() to fail closed',
+          { planRunId, runId, error: err instanceof Error ? err.message : String(err) },
+        );
+        try {
+          await this.getRunLockService().releaseRun(runId);
+          lockReleased = true;
+        } catch (releaseErr) {
+          logger.warn(
+            'pulumi apply: failed to release the durable apply lock after aborting on a pre-flight marker failure',
+            { planRunId, runId, error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr) },
+          );
+        }
+        runRecordWritten = true;
+        throw new PulumiPreflightMarkerError(planRunId, err);
+      }
 
       // Everything from here through `operationPromise` settling is wrapped
       // in one try/catch so ANY failure after the lock is acquired —
@@ -5435,6 +5539,41 @@ export class PulumiPlanRunWrongKindError extends Error {
 }
 
 /**
+ * Thrown by {@link PulumiService.apply}'s gate (step 2, a refinement of the
+ * {@link PulumiPlanRunWrongKindError} check) when the record found for
+ * `planRunId` is an `apply`-kind record with `partialApply: true` — i.e. a
+ * PRIOR attempt on this same plan either genuinely diverged partway through
+ * `stack.up()`, or never got to confirm it didn't (see
+ * `RunRecordService.writePreflightMarker`'s doc comment and issue #399):
+ * either way, whether `stack.up()` already mutated real infrastructure for
+ * this `planRunId` is unknown or affirmatively partial, so a second `apply()`
+ * call for the SAME plan must be refused rather than silently retried.
+ * `record.partialApply` is checked directly (never gated behind
+ * `record.status === 'failed'` — see {@link RunRecord.partialApply}'s own
+ * doc comment for why that would silently miss the cancelled-mid-apply
+ * case), finally implementing the check this gate step's own long-standing
+ * doc comment already described as correct. Distinct from the plain
+ * {@link PulumiPlanRunWrongKindError} thrown for every OTHER non-`'plan'`
+ * record (a clean success or a clean failure, neither of which is a
+ * "was this actually partial?" case), so a caller/operator sees a message
+ * that names the real reason a retry is refused instead of the generic
+ * "wrong kind" wording.
+ */
+export class PulumiPartialApplyRetryBlockedError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly status: RunStatus,
+  ) {
+    super(
+      `Apply refused for plan run "${planRunId}": a prior apply attempt against this plan did not confirm a ` +
+        `clean completion (status "${status}", partialApply: true) — the deployed infrastructure may not match ` +
+        'this plan anymore. Re-run preview() against current state instead of retrying this plan.',
+    );
+    this.name = 'PulumiPartialApplyRetryBlockedError';
+  }
+}
+
+/**
  * Thrown by {@link PulumiService.apply}'s gate (step 3) when the plan run's
  * `approvedBy`/`approvedAt` are not both set — a typed error rather than a
  * bare string, since `apply` is self-contained and has no controller to
@@ -5611,6 +5750,34 @@ export class PulumiRunPersistError extends Error {
       case 'failed':
         return `failed (${outcome.error.message})`;
     }
+  }
+}
+
+/**
+ * Thrown by {@link PulumiService.apply} when
+ * `RunRecordService.writePreflightMarker` — the durable, in-doubt placeholder
+ * record it writes immediately after gate step 8 acquires the apply lock, but
+ * BEFORE `stack.up()` is ever called (issue #399) — itself fails. `apply`
+ * fails closed on this: `stack.up()` is never reached, and the durable apply
+ * lock gate step 8 just acquired is released explicitly in this same failure
+ * path (NOT the ordinary post-settlement release {@link PulumiRunPersistError}'s
+ * doc comment describes), since no infrastructure mutation has happened yet
+ * and holding the lock for a run that never started would only wedge the
+ * workspace for no reason. Distinct from {@link PulumiRunPersistError}, which
+ * describes a persistence failure AFTER the operation has already settled —
+ * this one is entirely pre-engine-call.
+ */
+export class PulumiPreflightMarkerError extends Error {
+  constructor(
+    public readonly planRunId: string,
+    public readonly cause: unknown,
+  ) {
+    super(
+      `pulumi apply refused: failed to write the durable pre-flight marker for plan run "${planRunId}" — aborting ` +
+        `before stack.up() to fail closed (no infrastructure was touched): ` +
+        `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'PulumiPreflightMarkerError';
   }
 }
 
