@@ -18,44 +18,44 @@
 
 ## 2. Guided-IAM region dropdown
 
-- [ ] 2.1 In `guided-iam-step.component.tsx`, add local state to track
+- [x] 2.1 In `guided-iam-step.component.tsx`, add local state to track
       whether manual entry is active (`manualRegionEntry: boolean`),
       defaulting to `false`. (The `region` phase is only ever entered with
       `region === ''` — a successful resume with a recovered region skips
       straight to the `template` phase — so no resume-aware default is
       needed.)
-- [ ] 2.2 Replace the `phase === 'region'` screen's `<Input>`
+- [x] 2.2 Replace the `phase === 'region'` screen's `<Input>`
       (`guided-iam-step.component.tsx:474-486`) with the shadcn `Select`
       family (`Select`, `SelectTrigger`, `SelectContent`, `SelectGroup`,
       `SelectLabel`, `SelectItem`) from `ui/select.component.tsx`, rendered
       when `manualRegionEntry` is `false`.
-- [ ] 2.3 Group `SelectItem`s by `continent` using `SelectGroup` +
+- [x] 2.3 Group `SelectItem`s by `continent` using `SelectGroup` +
       `SelectLabel`, sorted per `AWS_REGIONS`' existing order; item label
       format `"{name} — {code}"`; `onValueChange` sets `region` to the
       selected `code`.
-- [ ] 2.4 Add a final ungrouped `SelectItem` "Other (enter manually)" whose
+- [x] 2.4 Add a final ungrouped `SelectItem` "Other (enter manually)" whose
       selection sets `manualRegionEntry` to `true` instead of writing to
       `region`.
-- [ ] 2.5 When `manualRegionEntry` is `true`, render the original
+- [x] 2.5 When `manualRegionEntry` is `true`, render the original
       `<Input>` (pre-focused via `autoFocus`) in place of the `Select`,
       preserving existing `id`, `placeholder`, `value`/`onChange`, and
       `regionError` display unchanged.
-- [ ] 2.6 Verify `guided-iam-step.component.tsx`'s own local emptiness
+- [x] 2.6 Verify `guided-iam-step.component.tsx`'s own local emptiness
       validation (`handleChooseGuided`) requires no changes — `region`
       stays a plain string in both render paths, so `handleChooseGuided`,
       `handleOpenConsole`, and `handleSubmitKey` need no changes either.
 
 ## 3. Tests
 
-- [ ] 3.1 Extend `guided-iam-step.component.tsx`'s jsdom component spec:
+- [x] 3.1 Extend `guided-iam-step.component.tsx`'s jsdom component spec:
       region phase renders continent-grouped options with the
       `"{name} — {code}"` label format.
-- [ ] 3.2 Add a test: selecting a concrete region option sets `region` to
+- [x] 3.2 Add a test: selecting a concrete region option sets `region` to
       its code and enables "Next".
-- [ ] 3.3 Add a test: selecting "Other (enter manually)" reveals the text
+- [x] 3.3 Add a test: selecting "Other (enter manually)" reveals the text
       input, and typing a value not present in `AWS_REGIONS` is accepted
       and flows through to the same state/validation path as before.
-- [ ] 3.4 Confirm existing region-phase tests (resume-without-region
+- [x] 3.4 Confirm existing region-phase tests (resume-without-region
       messaging, guided vs. manual-credentials buttons) still pass
       unmodified.
 
