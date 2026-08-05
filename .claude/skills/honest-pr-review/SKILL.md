@@ -171,12 +171,12 @@ These are the point of the skill, not decoration:
 - **Separate verified from suspected.** If a finding rests on an ordering you reasoned about but
   didn't observe, say so in the comment ("today the read wins because effects run in declaration
   order — but that's the only thing keeping it correct").
-- **Don't soften a real defect into a suggestion.** If resuming runs terraform against the wrong
-  backend, that is a bug, and the comment says "bug", not "consider guarding".
+- **Don't soften a real defect into a suggestion.** If resuming runs the deploy against the wrong
+  state backend, that is a bug, and the comment says "bug", not "consider guarding".
 - **Don't inflate a nit into a defect.** A duplicated constant with sync comments is a
   maintainability risk; label it that way and put it at the bottom.
-- **Report what you skipped.** If you didn't read the Terraform side, or didn't check the e2e
-  specs, name it. A review that implies full coverage it doesn't have is worse than a short one.
+- **Report what you skipped.** If you didn't read the infra program's side, or didn't check the
+  e2e specs, name it. A review that implies full coverage it doesn't have is worse than a short one.
 
 ## Notes
 

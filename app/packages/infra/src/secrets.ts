@@ -114,7 +114,7 @@ export interface DefineSecretsArgs {
  * Literal value every secret version is created with — the HCL's own
  * fallback branch (`"placeholder"`), now the ONLY branch since the real-value
  * branch's input variable no longer exists. The shared `secretsStore`
- * (`discord_store.tf`'s file doc, carried over from the HCL era) already
+ * (`dynamodb.ts`'s file doc, carried over from the legacy tool era) already
  * treats this exact string (and an empty string) as "not configured", so
  * every consumer already handles it safely.
  *

@@ -22,7 +22,7 @@ page then plans and applies the actual game-server infrastructure.
 | Node.js | 24+ | Matches `engines.node` in the root `package.json`, `docs/package.json`, and `scripts/package.json`, and the version every CI workflow runs. Not enforced at boot — the backend does not check the Node version — but nothing is tested below 24. |
 | npm | 10+ | Ships with Node 24. |
 
-There is no Terraform or AWS CLI prerequisite. The desktop app talks to AWS
+There is no separate infrastructure or AWS CLI prerequisite. The desktop app talks to AWS
 directly via the SDK, and Pulumi's engine is provisioned automatically by
 the app itself (see [step 2](#2-clone-install-and-launch-the-wizard)) — there
 is nothing to install manually.
@@ -175,8 +175,9 @@ the IAM user by hand instead:
 > `s3:ListBucket` (bucket-level) plus `s3:GetObject`/`s3:PutObject`/
 > `s3:DeleteObject` (object-level) are exactly what Pulumi's DIY S3 backend
 > needs to read and write state objects and its own lock objects — **there
-> is no DynamoDB lock table**, unlike the project's earlier Terraform
-> backend. `s3:PutBucketVersioning` and `s3:PutEncryptionConfiguration` are
+> is no DynamoDB lock table**, since Pulumi's self-managed S3 backend stores
+> its lock as an object in the same bucket rather than a companion table.
+> `s3:PutBucketVersioning` and `s3:PutEncryptionConfiguration` are
 > what the bootstrap step's `ensureStateBucket` call uses to enable
 > versioning and default (AES256) encryption on this bucket;
 > `s3:PutBucketPublicAccessBlock` lets it harden the bucket against public
@@ -295,7 +296,7 @@ steps, none of them a CLI command:
    never stored in plaintext.
 4. **Bootstrap AWS resources** — creates the state bucket, the
    configuration bucket, and the run-history table directly via the AWS SDK
-   (no CLI, no Terraform, and none of the three is Pulumi-managed): a
+   (no CLI, and none of the three is Pulumi-managed): a
    **state bucket** (default `hyveon-tfstate`, versioned, AES-256 encrypted)
    that Pulumi's self-managed S3 backend reads and writes state to; a
    **configuration bucket** (default `hyveon-config`, versioned, 90-day

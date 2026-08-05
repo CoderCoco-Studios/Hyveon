@@ -232,7 +232,7 @@ export interface AuditLogStore {
 
 /**
  * Cloud-agnostic interface for persisting plan/apply/destroy run history
- * (see `RunKind`'s doc in `runs.ts` for the retained Terraform-subcommand
+ * (see `RunKind`'s doc in `runs.ts` for the retained subcommand
  * vocabulary) and offloading their captured logs. Implementations may target AWS
  * DynamoDB + S3, Azure Table Storage + Blob Storage, GCP Firestore + Cloud
  * Storage, or any other backend — callers depend only on this contract. No
