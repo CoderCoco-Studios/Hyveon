@@ -1,18 +1,17 @@
 /**
  * Per-game container configuration shape, historically a straight
  * TypeScript mirror of the `game_servers` map entry object type declared in
- * `terraform/variables.tf` (still kept in sync with that Terraform variable
- * — `terraform/aws/variables.tf:game_servers` remains the field-inventory
- * source of truth). This is the shape `DeploymentConfigService` parses out of
- * `terraform.tfvars` today.
+ * the former `terraform/variables.tf` — that retired Terraform variable
+ * (`terraform/aws/variables.tf:game_servers`) is this shape's historical
+ * field-inventory source; `DeploymentConfig.gameServers` (`./deploymentConfig.js`)
+ * is the CURRENT source of truth per `CLAUDE.md`'s invariants list.
+ * `DeploymentConfigService` parses this shape out of `deployment-config.json`
+ * today (originally out of `terraform.tfvars`, before the Pulumi migration).
  *
- * As of the `migrate-iac-to-pulumi` change, `GameServer` (via the
- * key-less {@link GameServerConfig} alias below) is also the CANONICAL
- * per-game shape embedded in `DeploymentConfig.gameServers`
- * (`./deploymentConfig.js`) — the typed configuration model that replaces
- * `terraform.tfvars` as the app's configuration source of truth going
- * forward. It is reused there rather than forked into a parallel
- * `camelCase` type specifically because it is already this deeply embedded
+ * `GameServer` (via the key-less {@link GameServerConfig} alias below) is
+ * the CANONICAL per-game shape embedded in `DeploymentConfig.gameServers`.
+ * It is reused there rather than forked into a parallel `camelCase` type
+ * specifically because it is already this deeply embedded
  * (`gameServerValidator.ts`'s zod schema, `DeploymentConfigService.ts`'s JSON read/write
  * paths, the Games UI) — see `deploymentConfig.ts`'s file doc for the full
  * naming-convention rationale.
@@ -23,10 +22,10 @@ export interface GameServerPort {
   /** Container port number the process listens on (e.g. `25565`). */
   container: number;
   /**
-   * Transport protocol. Terraform requires the exact lowercase string
-   * `"tcp"` or `"udp"` — passed straight through to ECS `portMappings`,
-   * which rejects anything else (`terraform/aws/variables.tf`'s
-   * `game_servers` validation block).
+   * Transport protocol. Must be the exact lowercase string `"tcp"` or
+   * `"udp"` — passed straight through to ECS `portMappings`, which rejects
+   * anything else. Inherited from the former Terraform `game_servers`
+   * validation block's same requirement (`terraform/aws/variables.tf`).
    */
   protocol: string;
 }
@@ -44,13 +43,14 @@ export interface GameServerVolume {
   /**
    * Volume identifier, unique within the entry. Each `(game, name)` pair
    * gets its own EFS access point rooted at `/${game}/${name}`. Must be
-   * non-empty (`terraform/aws/variables.tf`'s `game_servers` validation
-   * block).
+   * non-empty — enforced by `gameServerValidator.ts`'s `gameServerVolumeSchema`,
+   * mirroring the former Terraform `game_servers` validation block's same
+   * requirement.
    */
   name: string;
   /**
    * Absolute in-container path the volume is mounted at (e.g.
-   * `"/palworld"`). Must be non-empty (same validation block as {@link name}).
+   * `"/palworld"`). Must be non-empty (same schema as {@link name}).
    */
   container_path: string;
 }
@@ -77,14 +77,16 @@ export interface GameServerFileSeed {
 }
 
 /**
- * Per-game container configuration, keyed by game name in the
- * `game_servers` Terraform variable (`terraform/variables.tf`).
+ * Per-game container configuration, keyed by game name in
+ * `DeploymentConfig.gameServers`'s `game_servers` map (historically the
+ * former Terraform `game_servers` variable, `terraform/variables.tf`).
  */
 export interface GameServer {
   /**
-   * The `game_servers` map key for this entry. Not a Terraform object
-   * attribute — flattened onto the entry here so a list of `GameServer`
-   * values is self-describing without a separate keys array.
+   * The `game_servers` map key for this entry. Not an attribute of the map
+   * value itself (mirroring the former Terraform object's own shape) —
+   * flattened onto the entry here so a list of `GameServer` values is
+   * self-describing without a separate keys array.
    */
   name: string;
   /** Container image reference (e.g. `"itzg/minecraft-server:latest"`), pulled by the ECS task. */
@@ -109,29 +111,29 @@ export interface GameServer {
   environment?: GameServerEnvironmentVariable[];
   /**
    * EFS-backed volume mounts. Must contain at least one entry with a
-   * non-empty `name` and `container_path` (`terraform/aws/variables.tf`'s
-   * `game_servers` validation block) — there is no Terraform default;
-   * this field is required.
+   * non-empty `name` and `container_path` — enforced by
+   * `gameServerValidator.ts`, mirroring the former Terraform
+   * `game_servers` validation block's same requirement; there is no
+   * Terraform default, this field is required.
    */
   volumes: GameServerVolume[];
   /**
    * When `true`, an in-task Caddy sidecar terminates TLS via Let's Encrypt
-   * in front of the game server. Terraform's `optional(bool, false)` default
-   * applies whenever this field is omitted — an absent `https` MUST be read
-   * as `false`, never as an unresolved third state; `DeploymentConfigService.ts`'s
-   * JSON write path preserves this (it round-trips whatever `https` value —
-   * present or absent — the caller supplied, rather than ever synthesizing
-   * an explicit `false`), and every write path in the UI (`add-game-wizard`,
+   * in front of the game server. Defaults to `false` whenever this field is
+   * omitted (inherited from the former Terraform `optional(bool, false)`
+   * declaration) — an absent `https` MUST be read as `false`, never as an
+   * unresolved third state; `DeploymentConfigService.ts`'s JSON write path
+   * preserves this (it round-trips whatever `https` value — present or
+   * absent — the caller supplied, rather than ever synthesizing an explicit
+   * `false`), and every write path in the UI (`add-game-wizard`,
    * `edit-game-form`) always sets an explicit `boolean` before submission,
    * so `undefined` only ever arises on the read side (a hand-edited or
-   * pre-toggle config entry). When `true`, `terraform/aws/variables.tf`'s
-   * `game_servers` validation block (retired, but still the historical
-   * source of truth this mirrors) requires: at least one entry in
-   * {@link ports}; the first port's `protocol` is exactly `"tcp"`; every
-   * port's `protocol` is
+   * pre-toggle config entry). When `true`, `gameServerValidator.ts`'s
+   * `checkHttpsPortRules` requires: at least one entry in {@link ports}; the
+   * first port's `protocol` is exactly `"tcp"`; every port's `protocol` is
    * `"tcp"` or `"udp"`; and no port uses container port `80` or `443`
-   * (reserved for the sidecar) — enforced client-side by
-   * `gameServerValidator.ts`'s `checkHttpsPortRules`.
+   * (reserved for the sidecar) — mirroring the same rules the former,
+   * retired Terraform `game_servers` validation block used to enforce.
    */
   https?: boolean;
   /**
@@ -166,24 +168,24 @@ export type GameServerConfig = Omit<GameServer, 'name'>;
 
 /**
  * Response entry for the merged games list (the `games.list` IPC channel /
- * `/api/games` HTTP route). Combines the declared view (`terraform.tfvars`,
- * via {@link GameServer}) with the deployed view (`terraform.tfstate`) so
- * callers can tell "declared but not yet applied" apart from "live" games —
- * see issue #92.
+ * `/api/games` HTTP route). Combines the declared view
+ * (`DeploymentConfig.gameServers`, via {@link GameServer}) with the deployed
+ * view (tfstate) so callers can tell "declared but not yet applied" apart
+ * from "live" games — see issue #92.
  */
 export interface GameListEntry {
   /**
-   * Game key. Sourced from the tfvars `game_servers` map key when
+   * Game key. Sourced from the declared `game_servers` map key when
    * `declared` is true, otherwise from the tfstate game name.
    */
   name: string;
-  /** True when this game has an entry in the tfvars `game_servers` map. */
+  /** True when this game has an entry in the declared `game_servers` map (`DeploymentConfig.gameServers`). */
   declared: boolean;
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full tfvars-parsed configuration for this game. Only present when
-   * `declared` is true.
+   * Full declared configuration for this game (parsed from
+   * `DeploymentConfig.gameServers`). Only present when `declared` is true.
    */
   config?: GameServer;
 }

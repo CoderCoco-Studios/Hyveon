@@ -1,12 +1,12 @@
 /**
  * Zod-backed structural schema + business-rule validator for a single
- * `game_servers` map entry (see `terraform/variables.tf:game_servers` and
- * the {@link GameServer} mirror in `./gameServerConfig.js`).
+ * `game_servers` map entry (historically `terraform/variables.tf:game_servers`;
+ * see the {@link GameServer} mirror in `./gameServerConfig.js`).
  *
  * This module is deliberately split in two:
- *  - {@link gameServerSchema} mirrors the Terraform `game_servers` object
- *    type field-for-field (it does NOT include `name` — like the Terraform
- *    object, `name` is the map key, not an attribute of the entry).
+ *  - {@link gameServerSchema} mirrors the former Terraform `game_servers`
+ *    object type field-for-field (it does NOT include `name` — like that
+ *    Terraform object, `name` is the map key, not an attribute of the entry).
  *  - {@link validateGameServer} layers the custom business rules that can't
  *    be expressed as a pure per-field zod refinement because they either
  *    need the sibling `game_servers` entries (port collisions) or are
@@ -14,9 +14,9 @@
  *    pairing, absolute paths, connect-message placeholders, HTTPS port
  *    constraints).
  *
- * Intended for both the desktop-main API (validating a proposed tfvars edit
- * before writing it back) and the web client (surfacing the same messages
- * in a form).
+ * Intended for both the desktop-main API (validating a proposed
+ * `DeploymentConfig.gameServers` edit before writing it back) and the web
+ * client (surfacing the same messages in a form).
  */
 
 import { z } from 'zod';
@@ -72,8 +72,8 @@ export const gameServerEnvironmentVariableSchema = z.object({
 
 /**
  * Zod schema mirroring `GameServerVolume`. `name` and `container_path` must
- * be non-empty, matching the Terraform validation block on
- * `game_servers` (`terraform/variables.tf`).
+ * be non-empty, matching the requirement the former Terraform validation
+ * block on `game_servers` (`terraform/variables.tf`) used to enforce.
  */
 export const gameServerVolumeSchema = z.object({
   name: z.string().min(1, 'volumes[].name must not be empty.'),
@@ -158,8 +158,9 @@ function zodIssueToValidationIssue(issue: z.core.$ZodIssue): GameServerValidatio
 /**
  * The current Fargate CPU → valid memory (MiB) table. `256` only accepts
  * three discrete values; every other tier accepts a stepped range. Source:
- * AWS Fargate task size documentation, mirrored here so tfvars edits are
- * rejected client-side before a `terraform apply` would fail.
+ * AWS Fargate task size documentation, mirrored here so a proposed
+ * `game_servers` edit is rejected client-side before a Pulumi apply would
+ * fail.
  */
 const FARGATE_CPU_MEMORY_TABLE: Readonly<
   Record<number, { values: number[] } | { min: number; max: number; step: number }>
@@ -271,7 +272,7 @@ function checkAbsolutePaths(entry: GameServerEntryInput): GameServerValidationIs
   return issues;
 }
 
-/** Placeholder tokens allowed inside `connect_message`, matching the Terraform variable's doc comment. */
+/** Placeholder tokens allowed inside `connect_message`, matching the former Terraform variable's doc comment. */
 export const ALLOWED_CONNECT_MESSAGE_PLACEHOLDERS: ReadonlySet<string> = new Set(['host', 'ip', 'port', 'game']);
 
 /** Matches every `{token}` occurrence in a string, capturing the token itself. */
@@ -358,13 +359,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Mirrors the `game_servers` variable validation block in
- * `terraform/aws/variables.tf` that gates on `cfg.https`: a game with
- * `https = true` must declare at least one port, its first port must use
- * protocol `tcp` (exact, lowercase — Terraform compares the literal string),
- * every port protocol must be `tcp` or `udp`, and no port may use container
- * port 80 or 443 (reserved for the in-task Caddy sidecar). `terraform/aws/variables.tf`
- * is the source of truth these rules mirror — keep both in sync if either changes.
+ * Mirrors the `game_servers` variable validation block that used to live in
+ * the now-retired `terraform/aws/variables.tf` and gated on `cfg.https`: a
+ * game with `https = true` must declare at least one port, its first port
+ * must use protocol `tcp` (exact, lowercase), every port protocol must be
+ * `tcp` or `udp`, and no port may use container port 80 or 443 (reserved for
+ * the in-task Caddy sidecar). This function is now the sole source of truth
+ * for these rules — there is no Terraform variable left to stay in sync with.
  *
  * Only needs `ports` to be structurally valid — like {@link checkPortCollisions},
  * it's called independently of whether the rest of the entry parses, so a
