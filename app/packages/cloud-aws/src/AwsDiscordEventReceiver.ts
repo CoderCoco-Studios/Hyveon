@@ -1,7 +1,7 @@
 import type { DiscordEventReceiver } from '@hyveon/shared';
 
 /**
- * Minimal subset of Terraform-derived configuration this receiver needs.
+ * Minimal subset of Pulumi-derived configuration this receiver needs.
  */
 export interface AwsDiscordEventReceiverConfig {
   /** The API Gateway/Lambda invoke URL Discord should POST interactions to,
@@ -14,8 +14,8 @@ export interface AwsDiscordEventReceiverConfig {
  *
  * Resolves the interactions endpoint URL from a `getConfig` callback,
  * mirroring `AwsCloudProvider`/`AwsSecretsStore`'s `getConfig` callback
- * pattern so a value that changes between calls (e.g. re-applied Terraform
- * state) is always read fresh rather than captured once at construction.
+ * pattern so a value that changes between calls (e.g. a re-applied Pulumi
+ * stack) is always read fresh rather than captured once at construction.
  * Callers typically source `interactionsInvokeUrl` from
  * `ConfigService.getStackOutputs()`'s `interactionsInvokeUrl` field (read
  * off the deployed Pulumi stack), the same value `DiscordConfigService`
@@ -23,10 +23,11 @@ export interface AwsDiscordEventReceiverConfig {
  */
 export class AwsDiscordEventReceiver implements DiscordEventReceiver {
   /**
-   * @param getConfig - Resolves the current Terraform-derived configuration
+   * @param getConfig - Resolves the current Pulumi-derived configuration
    *   on every call. Omit when no interactions endpoint is available yet
-   *   (e.g. before `terraform apply` has run) — {@link getInteractionEndpointUrl}
-   *   resolves to `null` rather than throwing in that case.
+   *   (e.g. before a Pulumi apply has run through `PulumiService`) —
+   *   {@link getInteractionEndpointUrl} resolves to `null` rather than
+   *   throwing in that case.
    */
   constructor(
     private readonly getConfig?: () => AwsDiscordEventReceiverConfig | null | undefined,

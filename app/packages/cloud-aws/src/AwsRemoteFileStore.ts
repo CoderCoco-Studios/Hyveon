@@ -41,8 +41,8 @@ export class AwsRemoteFileStore implements RemoteFileStore {
   /**
    * @param getConfig - Resolves the S3 bucket (and optional region) this
    *   store reads/writes, on every call — so a bucket rename picked up
-   *   between calls (e.g. after a Terraform re-apply) isn't stuck targeting
-   *   a stale bucket. Optional so the class remains constructible with no
+   *   between calls (e.g. after a Pulumi apply run through `PulumiService`)
+   *   isn't stuck targeting a stale bucket. Optional so the class remains constructible with no
    *   arguments, mirroring `AwsCloudProvider.getConfig`/`AwsSecretsStore`'s
    *   zero-arg-constructible pattern. When omitted (or when it returns no
    *   `bucket`), every method throws a clear "bucket not configured" error

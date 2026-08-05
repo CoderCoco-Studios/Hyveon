@@ -204,7 +204,7 @@ describe('defineEcs', () => {
     });
   });
 
-  it('should default a game with environment omitted to an empty environment array (matching the tfvars optional(..., []) default)', async () => {
+  it('should default a game with environment omitted to an empty environment array (matching GameServerConfig.environment\'s optional-field default)', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const gameServers: Record<string, GameServerConfig> = {
       onlyGame: {

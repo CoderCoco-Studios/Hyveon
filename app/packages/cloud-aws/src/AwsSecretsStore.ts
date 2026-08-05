@@ -74,7 +74,7 @@ export class AwsSecretsStore implements SecretsStore {
    *
    * Returns `undefined` (rather than throwing) when the secret doesn't
    * exist, its value is empty/whitespace-only, or it's still on the
-   * Terraform-seeded {@link SECRET_PLACEHOLDER} — all three mean "not
+   * infra program's seeded {@link SECRET_PLACEHOLDER} — all three mean "not
    * configured" from the caller's perspective. Successful lookups are cached
    * for 5 minutes so repeated calls for the same name don't round-trip to
    * AWS.

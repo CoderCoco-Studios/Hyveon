@@ -89,7 +89,7 @@
  *    (`testing/pulumiMocks.ts`) intercepts every resource registration
  *    before any real engine or upload is involved, so no test needs a real
  *    bundle file to exist on disk.
- *  - **`PulumiService`** (`desktop-main`, not yet built) must resolve a real
+ *  - **`PulumiService`** (`desktop-main`) must resolve a real
  *    directory before calling `defineAll`/`createInfraProgram`, following the
  *    same three-tier pattern the old, pre-Pulumi `ConfigService.getTfStatePath()`
  *    established for `terraform.tfstate` (the configuration bucket's
