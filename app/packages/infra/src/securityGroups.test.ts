@@ -15,6 +15,7 @@ async function runDefineSecurityGroups(
     promiseOf(result.fileManager.id),
     promiseOf(result.efs.id),
     ...(result.efsSeeder ? [promiseOf(result.efsSeeder.id)] : []),
+    ...(result.efsSeederEgressRule ? [promiseOf(result.efsSeederEgressRule.id)] : []),
   ]);
   return result;
 }
@@ -207,16 +208,18 @@ describe('defineSecurityGroups', () => {
     expect(result.efsSeeder).toBeDefined();
     const seederSg = findByName(mocks.resources, 'hyveon-efs-seeder-sg');
     expect(seederSg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
-    expect(seederSg.inputs.namePrefix).toBe('hyveon-efs-seeder-sg-');
+    expect(seederSg.inputs.namePrefix).toBe('hyveon-efs-seeder-sg-v2-');
     expect(seederSg.inputs.vpcId).toBe('vpc-mock');
     expect(seederSg.inputs.description).toBe('EFS seeder Lambdas — outbound NFS to EFS only');
-    expect(seederSg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
+    // No inline egress on the seeder group itself — its one egress need is a
+    // standalone `SecurityGroupRule`, asserted in its own test below (issue #349).
+    expect(seederSg.inputs.egress).toBeUndefined();
 
-    // No standalone `aws.ec2.SecurityGroupRule` anywhere — the seeder rule
-    // must be a second in-line entry in `efs`'s own `ingress` array (see
-    // this file's doc for why mixing the two is unsafe).
-    expect(mocks.resources.some((resource) => resource.type === 'aws:ec2/securityGroupRule:SecurityGroupRule')).toBe(false);
-
+    // The seeder's INGRESS-side rule (into `efs`) must still be a second
+    // in-line entry in `efs`'s own `ingress` array, never a standalone rule
+    // on `efs` itself — see this file's doc for why mixing the two on the
+    // SAME group is unsafe. This is a distinct concern from the seeder
+    // group's own standalone EGRESS rule, asserted below.
     const efsSg = findByName(mocks.resources, 'hyveon-efs-sg');
     expect(efsSg.inputs.ingress).toEqual([
       {
@@ -234,6 +237,46 @@ describe('defineSecurityGroups', () => {
         securityGroups: [await promiseOf(result.efsSeeder?.id ?? Promise.reject(new Error('expected an efsSeeder security group')))],
       },
     ]);
+  });
+
+  it('should scope the efs_seeder security group egress to NFS-only against the efs security group via a standalone rule, when a game declares file_seeds', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 1234, protocol: 'tcp' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        file_seeds: [{ path: '/data/config.yml', content: 'foo: bar' }],
+      },
+    };
+    const result = await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    expect(result.efsSeederEgressRule).toBeDefined();
+    const rule = findByName(mocks.resources, 'hyveon-efs-seeder-egress');
+    expect(rule.type).toBe('aws:ec2/securityGroupRule:SecurityGroupRule');
+    expect(rule.inputs.type).toBe('egress');
+    expect(rule.inputs.fromPort).toBe(2049);
+    expect(rule.inputs.toPort).toBe(2049);
+    expect(rule.inputs.protocol).toBe('tcp');
+    expect(rule.inputs.securityGroupId).toBe(await promiseOf(result.efsSeeder!.id));
+    expect(rule.inputs.sourceSecurityGroupId).toBe(await promiseOf(result.efs.id));
+
+    // Exactly one standalone SecurityGroupRule in the whole graph — the
+    // seeder's own egress. Its ingress-side counterpart into `efs` stays a
+    // second in-line entry in `efs`'s own array (asserted above), never a
+    // second standalone rule.
+    expect(mocks.resources.filter((resource) => resource.type === 'aws:ec2/securityGroupRule:SecurityGroupRule')).toHaveLength(1);
+  });
+
+  it('should declare no efsSeederEgressRule when no game declares file_seeds', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineSecurityGroups({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, vpcId: 'vpc-mock', provider });
+
+    expect(result.efsSeederEgressRule).toBeUndefined();
+    expect(mocks.resources.some((resource) => resource.type === 'aws:ec2/securityGroupRule:SecurityGroupRule')).toBe(false);
   });
 
   it('should add only one new ingress rule when a new game entry reuses an existing port', async () => {

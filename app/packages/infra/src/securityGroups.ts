@@ -31,6 +31,33 @@
  * `lambdas.ts`'s EFS-seeder Lambda functions take the resulting security
  * group's id as a plain input (`DefineLambdasArgs.efsSeederSecurityGroupId`)
  * rather than constructing their own — see that file's doc.
+ *
+ * ## `efsSeederSg`'s egress — standalone rule, not inline (issue #349)
+ *
+ * `efsSeederSg` itself carries NO inline `egress` array — unlike every other
+ * group in this file, which declares `egress: [openEgress]` inline. Its one
+ * egress need (outbound NFS to {@link efsSg}) is instead a standalone
+ * `aws.ec2.SecurityGroupRule`, declared AFTER `efsSg` is constructed further
+ * down (it needs `efsSg.id` as its `sourceSecurityGroupId`). This does NOT
+ * trip the inline/standalone-mixing hazard described above: that hazard is
+ * specifically about `efsSg`'s own rules (which stay 100% inline — its
+ * ingress array is never touched by a standalone rule), not `efsSeederSg`'s.
+ * A security group with zero inline rules of its own has nothing for a
+ * standalone rule on that same group to conflict with. Previously
+ * `efsSeederSg` carried `egress: [openEgress]` — all protocols/ports to
+ * `0.0.0.0/0` — even though the seeder Lambda only ever needs outbound NFS to
+ * mount and write to EFS.
+ *
+ * `namePrefix` carries a `-v2-` suffix for the same reason: Pulumi's
+ * `ingress`/`egress` arguments are attributes-as-blocks, so simply omitting
+ * the old `egress: [openEgress]` block from this resource's args does NOT
+ * revoke that rule on a security group deployed before this fix — only an
+ * explicit `egress: []` does, and adding that here would reintroduce the
+ * exact inline/standalone conflict described above against the standalone
+ * NFS-egress rule. Bumping `namePrefix` instead forces Pulumi to replace the
+ * whole security group — the old one (open-egress rule included) is
+ * destroyed and a clean one takes its place, with only the NFS-scoped
+ * standalone rule ever applied to it.
  */
 
 import * as aws from '@pulumi/aws';
@@ -60,6 +87,13 @@ export interface SecurityGroupResources {
    * as a plain input rather than constructing their own security group.
    */
   efsSeeder: aws.ec2.SecurityGroup | undefined;
+  /**
+   * Standalone egress rule scoping {@link efsSeeder}'s outbound NFS traffic
+   * to {@link efs} only (port 2049/tcp) — see this file's doc, "`efsSeederSg`'s
+   * egress — standalone rule, not inline (issue #349)". `undefined` exactly
+   * when {@link efsSeeder} is `undefined` (no game declares `file_seeds`).
+   */
+  efsSeederEgressRule: aws.ec2.SecurityGroupRule | undefined;
 }
 
 /** Arguments {@link defineSecurityGroups} needs to declare the security groups. */
@@ -231,10 +265,22 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     ? new aws.ec2.SecurityGroup(
         `${projectName}-efs-seeder-sg`,
         {
-          namePrefix: `${projectName}-efs-seeder-sg-`,
+          // `-v2-`: forces replacement of any `efsSeederSg` deployed before
+          // issue #349's fix. Pulumi's `ingress`/`egress` arguments are
+          // attributes-as-blocks — simply omitting the old `egress:
+          // [openEgress]` block below does NOT revoke that all-protocol
+          // 0.0.0.0/0 rule on an already-deployed security group, so a
+          // forced replacement (old group destroyed, new one created with
+          // only the NFS-scoped standalone rule) is the only way to
+          // actually remove it. See this file's doc, "`efsSeederSg`'s
+          // egress — standalone rule, not inline (issue #349)".
+          namePrefix: `${projectName}-efs-seeder-sg-v2-`,
           description: 'EFS seeder Lambdas — outbound NFS to EFS only',
           vpcId,
-          egress: [openEgress],
+          // No inline `egress` here — its one egress rule (NFS to `efsSg`) is
+          // a standalone `aws.ec2.SecurityGroupRule` declared below, once
+          // `efsSg` exists. See this file's doc, "`efsSeederSg`'s egress —
+          // standalone rule, not inline (issue #349)".
           tags: { Name: `${projectName}-efs-seeder-sg` },
         },
         opts,
@@ -279,5 +325,32 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
-  return { gameServers: gameServersSg, fileManager: fileManagerSg, efs: efsSg, efsSeeder: efsSeederSg };
+  // Standalone egress rule for `efsSeederSg` — declared here, after `efsSg`
+  // exists, since it needs `efsSg.id` as its `sourceSecurityGroupId`. Safe as
+  // a standalone rule (unlike a hypothetical standalone rule on `efsSg`
+  // itself) because `efsSeederSg` carries no inline rules of its own for this
+  // one to conflict with — see this file's doc, "`efsSeederSg`'s egress —
+  // standalone rule, not inline (issue #349)".
+  const efsSeederEgressRule = efsSeederSg
+    ? new aws.ec2.SecurityGroupRule(
+        `${projectName}-efs-seeder-egress`,
+        {
+          type: 'egress',
+          fromPort: 2049,
+          toPort: 2049,
+          protocol: 'tcp',
+          securityGroupId: efsSeederSg.id,
+          sourceSecurityGroupId: efsSg.id,
+        },
+        opts,
+      )
+    : undefined;
+
+  return {
+    gameServers: gameServersSg,
+    fileManager: fileManagerSg,
+    efs: efsSg,
+    efsSeeder: efsSeederSg,
+    efsSeederEgressRule,
+  };
 }
