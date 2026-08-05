@@ -57,6 +57,11 @@ a medium one, one on a narrow one.
 Every state change is also announced to screen readers, e.g. "minecraft server
 is now running".
 
+When a card is in the `ERROR` state and the backend supplied a reason, that
+reason is shown as a short line of red text under the header, next to a
+warning icon — e.g. `Task failed to start: insufficient capacity`. No reason
+is shown if the backend didn't supply one.
+
 ### Connect string
 
 Under the game name the card shows the server's hostname (`minecraft.example.com`),
@@ -87,7 +92,7 @@ The card shows exactly one of the two buttons:
 |---|---|---|
 | `STOPPED` / `NOT DEPLOYED` | **Start** | Yes |
 | `RUNNING` / `STARTING` | **Stop** | Yes |
-| `ERROR` | **Start** | **No** — permanently disabled until the error clears |
+| `ERROR` | **Start** | Yes — lets you retry starting the server without leaving the dashboard |
 
 After pressing either button the card locks for **three seconds**, then
 re-fetches that one game's status and unlocks. The lock applies even if the
