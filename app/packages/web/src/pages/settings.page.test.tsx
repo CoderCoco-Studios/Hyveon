@@ -246,8 +246,8 @@ describe('SettingsPage', () => {
       expect(hyveonMock.wizard.saveState).not.toHaveBeenCalled();
       // `PulumiService.initializeStack` resolves the state bucket/region it
       // needs internally from already-persisted wizard state — unlike the
-      // deleted `terraform init` call this replaces, the renderer passes it
-      // no config at all.
+      // deleted pre-migration `init` call this replaces, the renderer passes
+      // it no config at all.
       expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith();
     });
 

@@ -8,8 +8,8 @@ import { ElectronStoreModule } from './electron-store.module.js';
 
 /**
  * Groups the first-run wizard's providers (see
- * `openspec/changes/add-first-run-wizard`). Follows the same shape as the
- * deleted `TerraformModule`/`DiscordModule` — `providers`/`exports` only, no
+ * `openspec/changes/add-first-run-wizard`). Follows the same shape as
+ * `DiscordModule` — `providers`/`exports` only, no
  * `controllers` array; the IPC controller is wired directly into
  * `AppModule.controllers` alongside every other controller in this codebase.
  * Imports `ElectronStoreModule` so `AwsProfileService`/`BootstrapService`/

@@ -10,8 +10,8 @@
  * one-click AWS access provisioning, inserted between pick-cloud and
  * credentials), credentials, bootstrap, and stack-init (the last of which
  * initializes the Pulumi stack and finishes the wizard — task 10.3's
- * replacement for the pre-migration `terraform-init` step, which ran
- * `terraform init` and has been fully removed).
+ * replacement for the pre-migration `init` step, which ran the old IaC
+ * CLI's `init` command and has been fully removed).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
@@ -301,7 +301,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // from the durably-stored `wizard.state.get` so the collapsed step
   // summaries reflect what's actually configured, not the first-run
   // defaults. `StackInitializationStep` itself no longer depends on any of
-  // this prefilled state (unlike the deleted `terraform-init` step's
+  // this prefilled state (unlike the deleted pre-migration `init` step's
   // `backendConfig`, which read `resourceNames` regardless of whether the
   // bootstrap step was ever opened) — `PulumiService.initializeStack`
   // resolves the state bucket/region it needs internally — but the collapsed

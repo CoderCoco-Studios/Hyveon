@@ -9,8 +9,8 @@ Five TypeScript Lambda packages live under `app/packages/lambda/`. Each
 builds via esbuild to a single CJS file at `dist/handler.cjs`; the Pulumi
 infra program's `lambdaCode()` helper (`app/packages/infra/src/lambdas.ts`)
 wraps that file in an `AssetArchive`/`FileAsset` pair at deploy time —
-functionally equivalent to Terraform's old `archive_file` data source, which
-has no direct Pulumi resource counterpart.
+functionally equivalent to the directory-archiving data source other IaC
+tools provide, which has no direct Pulumi resource counterpart.
 
 ```bash
 npm run app:build:lambdas        # produces every dist/handler.cjs

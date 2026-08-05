@@ -67,8 +67,8 @@ function parseBaseData(raw: unknown): BaseDiscordConfig {
 }
 
 /**
- * Read the Pulumi-managed BASE#discord row (historically Terraform-managed).
- * Returns an empty base when the row is absent (i.e. `baseAllowedGuilds`,
+ * Read the Pulumi-managed BASE#discord row (historically managed by the
+ * app's original IaC tool). Returns an empty base when the row is absent (i.e. `baseAllowedGuilds`,
  * `baseAdminUserIds`, and `baseAdminRoleIds` are all unset on
  * {@link DeploymentConfig}).
  */

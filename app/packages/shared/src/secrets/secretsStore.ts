@@ -8,8 +8,8 @@ let cached: SecretsManagerClient | null = null;
 
 /**
  * Placeholder value the Pulumi program (`@hyveon/infra`'s `secrets.ts`,
- * historically Terraform) writes into a freshly-provisioned secret so the
- * resource has a version. Readers treat this as "not configured" so we never
+ * historically the app's original IaC tool) writes into a freshly-provisioned
+ * secret so the resource has a version. Readers treat this as "not configured" so we never
  * ship a literal "placeholder" to Discord.
  */
 export const SECRET_PLACEHOLDER = 'placeholder';

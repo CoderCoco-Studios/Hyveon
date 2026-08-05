@@ -9,8 +9,8 @@ import type { DiscordEventReceiver } from '../cloud.js';
 export interface DiscordReceiverConfig {
   /** The public custom-domain URL for the Discord interactions endpoint
    *  (mirrors {@link StackOutputs.discordInteractionsUrl}, historically the
-   *  Terraform output `discord_interactions_url`), or `null` / `undefined`
-   *  when no endpoint has been deployed yet. */
+   *  app's original IaC tool's `discord_interactions_url` output), or
+   *  `null` / `undefined` when no endpoint has been deployed yet. */
   discord_interactions_url: string | null | undefined;
 }
 

@@ -661,7 +661,7 @@ export interface StackInitPhaseEvent {
 
 /**
  * Which subcommand produced a {@link IacRunRecord}. Named for the
- * pre-migration `terraform` CLI subcommands (`plan`/`apply`/`destroy`) —
+ * pre-migration IaC CLI's subcommands (`plan`/`apply`/`destroy`) —
  * Pulumi's equivalent Automation API calls are `preview`/`up`/`destroy`, but
  * this value is a persisted-record discriminant, not a currently-running
  * operation name, so it keeps its original vocabulary.
@@ -1653,7 +1653,8 @@ export interface HyveonIacRunsApi {
 
 /**
  * Stack-initialization IPC surface — the first-run wizard's replacement for
- * the deleted `iac.init` channel. Pulumi has no `terraform init` analogue.
+ * the deleted `iac.init` channel. Pulumi has no direct equivalent of the
+ * pre-migration CLI's `init` step.
  */
 export interface HyveonIacStackApi {
   /**
@@ -1699,7 +1700,7 @@ export interface HyveonIacStackApi {
  * against the Pulumi-backed engine.
  */
 export interface HyveonIacApi {
-  /** Stack initialization: the wizard's `terraform init` replacement. */
+  /** Stack initialization: the wizard's replacement for the pre-migration CLI's `init` step. */
   stack: HyveonIacStackApi;
   /**
    * Submits a plan (`pulumi preview`) run by invoking the `iac.plan` IPC

@@ -16,8 +16,7 @@ You review changes to the Discord serverless path for security regressions. The 
 - The Discord interactions/followup Lambdas and their IAM are declared in
   `app/packages/infra/src/lambdas.ts` (functions, log groups, Function URL,
   invoke permissions) and `app/packages/infra/src/iam.ts` (execution roles/
-  policies) — this migration's Pulumi program replaced the deleted
-  `terraform/aws/interactions.tf`/`followup.tf`.
+  policies).
 
 ## What to check
 
