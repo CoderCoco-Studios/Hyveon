@@ -25,7 +25,7 @@
 
 Commit chain (chronological):
 
-```
+```text
 9d8f331 docs: propose wizard-responsive-layout OpenSpec change
 7cf786b feat(web): add WizardStepSidebar progress component
 545221c feat(web): show wizard step progress and widen content at md+

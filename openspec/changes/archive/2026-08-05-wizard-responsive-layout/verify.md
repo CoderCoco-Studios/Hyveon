@@ -44,6 +44,8 @@ No failing items.
 |---|---|---|
 | `wizard-flow` | ✗ Needs sync | `openspec/changes/wizard-responsive-layout/specs/wizard-flow/spec.md` (2 ADDED Requirements: "Responsive wizard shell layout", "Step progress sidebar") not yet merged into `openspec/specs/wizard-flow/spec.md` (confirmed: main spec currently has 7 requirements, none matching these two). Expected — sync happens at archive time (`openspec archive` / `/opsx:sync`), not during apply. |
 
+> **Update 2026-08-05**: synced via commit `0512374` ("docs: sync wizard-responsive-layout delta spec into wizard-flow"), as this report's own Overall Decision anticipated. Both requirements are now present in `openspec/specs/wizard-flow/spec.md`.
+
 ---
 
 ## 4. Design / Specs Coherence Spot Check
