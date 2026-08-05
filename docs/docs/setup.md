@@ -235,14 +235,34 @@ app will fail with `AccessDenied`.
 git clone https://github.com/CoderCoco/Hyveon.git
 cd Hyveon
 npm install
+npm run desktop:run
+```
+
+`desktop:run` chains three steps: `app:build` compiles every TypeScript
+workspace (`@hyveon/shared` → `@hyveon/infra` → `@hyveon/cloud-aws` →
+`@hyveon/desktop-main` → `@hyveon/desktop-preload` → `@hyveon/web`), then
+`desktop:build` runs `electron-vite build`, then `app:start` launches the
+built app. On a clean checkout `npm run desktop:build` alone fails — Vite
+can't resolve `@hyveon/shared` and the other workspace packages until
+`app:build` has compiled them — so `desktop:run` exists to get from a fresh
+clone to a running app in one command without hitting that error first.
+
+Once you've run `app:build` at least once, you don't need to repeat it on
+every iteration:
+
+```bash
 npm run desktop:build
 npm run app:start
 ```
 
+Use this manual two-step when you're iterating on Electron main/preload or
+renderer code without touching the shared/infra/cloud-aws TypeScript — it
+skips recompiling every workspace and just re-bundles and relaunches.
+
 :::note
 `npm run desktop:dev` (hot-reload dev mode) has a known outstanding bundling
-bug unrelated to this migration and shouldn't be used right now — build once
-with `desktop:build`, then launch with `app:start`; re-run both after pulling
+bug unrelated to this migration and shouldn't be used right now — use
+`desktop:run` (or the manual two-step above) instead; re-run after pulling
 new code.
 :::
 
@@ -392,14 +412,29 @@ token to configure. Pick one of the two ways to run it:
 ### Option A — build and launch
 
 ```bash
+# One-shot from a clean checkout: compiles every workspace, bundles
+# Electron, and launches the built app
+npm run desktop:run
+```
+
+Same one-shot command used in
+[step 2](#2-clone-install-and-launch-the-wizard) above — chains `app:build`
+(compiles `@hyveon/shared` and every other TypeScript workspace),
+`desktop:build` (`electron-vite build`), and `app:start` (launches the
+built app).
+
+If you've already run `app:build` and just changed Electron main/preload or
+renderer code, skip straight to the cheaper manual two-step instead of
+recompiling every workspace:
+
+```bash
 npm run desktop:build
 npm run app:start
 ```
 
-Same flow used in [step 2](#2-clone-install-and-launch-the-wizard) above.
 `npm run desktop:dev` normally adds hot-reload on renderer saves, but has a
-known outstanding bundling bug right now — use the build-and-launch sequence
-above instead until that's fixed.
+known outstanding bundling bug right now — use `desktop:run` (or the manual
+two-step above) instead until that's fixed.
 
 ### Option B — packaged Electron app (distributable installer)
 
