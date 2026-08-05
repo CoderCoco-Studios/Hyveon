@@ -125,17 +125,22 @@ dashboard** link, plus a toast.
 An ordinary apply failure or abort shows a red banner: `Apply failed — see
 the log above for details.` (or `was aborted` for an abort).
 
-If the run also mutated some resources before it failed or was aborted —
-Pulumi's engine reports this as `partialApply` on the run record — you get a
+If the run leaves any uncertainty about whether resources were already
+mutated before it failed or was aborted — Pulumi's engine reports this as
+`partialApply` on the run record, and the field is set proactively, before
+`stack.up()` is ever called, so a failure can't hide it — you get a
 different, more specific banner instead: **Apply stopped partway through.**
-Its point is that the deployed infrastructure no longer matches the plan
+Its point is that the deployed infrastructure might no longer match the plan
 you approved, so retrying that same apply is unsafe. The `planHash` check
 only proves the plan artifact and configuration are unchanged since
 approval — it says nothing about whether resources were already mutated by
 a prior attempt. The banner deliberately offers no retry action, only a
 **Start over** button, guiding you to run a fresh plan against current
 state instead. The same `partial` badge appears next to the run's status in
-[run history](#run-history).
+[run history](#run-history) — including for a run that aborted before any
+resource step actually ran, since the marker is written before that risk is
+known one way or the other, and the record stays non-retryable (`kind:
+'apply'`) either way.
 
 This isn't only a UI nicety — the backend refuses the retry too, even if
 someone tried to replay the same plan run's id directly. Before `stack.up()`

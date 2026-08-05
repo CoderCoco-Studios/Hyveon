@@ -2832,10 +2832,13 @@ export class PulumiService {
       // touched) and release the durable lock gate step 8 just acquired
       // explicitly, right here, rather than falling through to the ordinary
       // post-settlement release path below (which this failure never
-      // reaches). `runRecordWritten`/`lockReleased` are both set `true`
-      // before throwing so the outer `finally`'s force-closed-generator
-      // fallback (gated on `!runRecordWritten`) does NOT also fire for this
-      // — genuinely thrown, not force-closed — exit path.
+      // reaches). `runRecordWritten` is set `true` before throwing so the
+      // outer `finally`'s force-closed-generator fallback (gated on
+      // `!runRecordWritten`) does NOT also fire for this — genuinely
+      // thrown, not force-closed — exit path. `lockReleased` is set `true`
+      // only once `releaseRun` above actually resolves, so a failed release
+      // here still leaves the outer `finally`'s `!lockReleased` backstop
+      // free to retry rather than leaking the lock until TTL expiry.
       try {
         await this.getRunRecordPersister().writePreflightMarker({
           runId,
@@ -2851,6 +2854,7 @@ export class PulumiService {
         );
         try {
           await this.getRunLockService().releaseRun(runId);
+          lockReleased = true;
         } catch (releaseErr) {
           logger.warn(
             'pulumi apply: failed to release the durable apply lock after aborting on a pre-flight marker failure',
@@ -2858,7 +2862,6 @@ export class PulumiService {
           );
         }
         runRecordWritten = true;
-        lockReleased = true;
         throw new PulumiPreflightMarkerError(planRunId, err);
       }
 

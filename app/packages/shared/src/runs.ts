@@ -123,10 +123,12 @@ export interface RunRecord {
    */
   engineVersion?: string;
   /**
-   * `true` only on a `kind: 'apply'` record whose engine invocation did NOT
-   * settle as a success — failed OR was aborted — AFTER at least one
-   * resource step had already been applied. `PulumiService.apply` is not
-   * all-or-nothing, so a divergence detected partway through leaves earlier
+   * `true` on a `kind: 'apply'` record whose engine invocation did NOT
+   * settle as a success — failed OR was aborted — either because at least
+   * one resource step had already been applied before the divergence, or
+   * (see the pre-flight-marker paragraph below) because whether one WOULD
+   * run was still genuinely unknown when the attempt aborted. `PulumiService.apply`
+   * is not all-or-nothing, so a divergence detected partway through leaves earlier
    * changes applied. Deliberately additive rather than a fourth
    * {@link RunStatus} value: `RunStatus` is the hash key of the
    * `status-index` DynamoDB GSI, so widening its value set is a bigger,
