@@ -25,7 +25,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  *
  * Each test still seeds its channel's *data source* via
  * `window.hyveon.__test.mock(channel, handler)`, since there is no real
- * AWS/Terraform backend available in this test environment — but the mock
+ * AWS/Pulumi backend available in this test environment — but the mock
  * handler here returns a **plain object** implementing the async-iterator
  * protocol (`next()` + `[Symbol.asyncIterator]()`), not a real
  * `async function*`. A real generator instance run from a mock handler has

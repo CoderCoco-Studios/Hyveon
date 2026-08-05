@@ -14,11 +14,11 @@ import { cn } from '@/lib/utils.utils';
  * rather than silently falling through to the Badge's `default` variant.
  */
 const ACTION_BADGE_VARIANT: Record<AuditAction, 'success' | 'warning' | 'destructive' | 'cyan' | 'secondary'> = {
-  // tfvars edits — green for additive, amber for mutating, red for removal.
+  // Game-server edits — green for additive, amber for mutating, red for removal.
   add: 'success',
   edit: 'warning',
   remove: 'destructive',
-  // Terraform lifecycle — cyan for the read-only/approval steps, and the
+  // Iac run lifecycle — cyan for the read-only/approval steps, and the
   // warning/destructive colours for the two that actually mutate infra.
   plan: 'cyan',
   approve: 'cyan',

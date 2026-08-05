@@ -43,7 +43,7 @@ const declaredOnly: GameListEntry = {
   },
 };
 
-/** Deployed but no tfvars entry — the "ghost" / "undeclared" row (no `config`). */
+/** Deployed but no declared entry — the "ghost" / "undeclared" row (no `config`). */
 const ghostRow: GameListEntry = {
   name: 'terraria',
   declared: false,

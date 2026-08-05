@@ -6,7 +6,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge.component';
  * issue #92).
  */
 export interface GameStatusBadgesProps {
-  /** True when this game has an entry in the tfvars `game_servers` map. */
+  /** True when this game has an entry in the declared `gameServers` map. */
   declared: boolean;
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
@@ -15,7 +15,7 @@ export interface GameStatusBadgesProps {
 /**
  * Renders the drift indicator for a single game row on the Settings →
  * Games panel (issue #93): one chip summarizing whether the game is
- * declared in `terraform.tfvars`, deployed to `terraform.tfstate`, or
+ * declared in the deployment config, deployed to tfstate, or
  * both — so operators can spot drift between the two sources at a glance.
  *
  * - declared && deployed → "In sync" (success)

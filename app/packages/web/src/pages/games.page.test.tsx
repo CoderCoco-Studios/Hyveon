@@ -44,7 +44,7 @@ const declaredOnly = {
   },
 };
 
-/** Deployed but no tfvars entry — the "ghost" / "undeclared" row (no `config`). */
+/** Deployed but no declared entry — the "ghost" / "undeclared" row (no `config`). */
 const ghostRow = {
   name: 'terraria',
   declared: false,

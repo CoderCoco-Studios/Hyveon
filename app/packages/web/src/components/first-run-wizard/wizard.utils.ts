@@ -27,7 +27,8 @@ export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exist
 /**
  * Sensible default resource names for the bootstrap step's editable name
  * fields, derived from the operator's project name (defaults to `hyveon`,
- * matching `terraform/variables.tf`'s `project_name` default). These are
+ * matching `PULUMI_PROJECT_NAME` in
+ * `@hyveon/desktop-main/src/services/PulumiWorkspaceService.ts`). These are
  * operator-editable rather than fixed — the defaults just save typing in the
  * common case.
  */

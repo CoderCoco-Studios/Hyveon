@@ -53,7 +53,7 @@ const GameStatusCtx = createContext<GameStatusContextValue | null>(null);
  * `/api/costs/estimate` loops over every configured game and calls
  * `EcsService.getTaskDefinition()` per game, so polling it every 20s on every
  * route would add steady ECS API traffic for data that only changes on
- * `terraform apply`.
+ * a Pulumi apply.
  */
 export function GameStatusProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<GameStatus[]>([]);

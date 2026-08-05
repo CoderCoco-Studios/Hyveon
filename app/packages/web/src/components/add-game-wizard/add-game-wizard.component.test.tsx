@@ -164,7 +164,7 @@ describe('AddGameWizard — submit failure paths', () => {
     apiMock.createGame.mockResolvedValue({
       ok: false,
       code: 'conflict',
-      message: 'terraform.tfvars changed since this draft was loaded.',
+      message: 'deployment config changed since this draft was loaded.',
     });
     await openWizard();
     await fillHappyPathToReview();
@@ -172,7 +172,7 @@ describe('AddGameWizard — submit failure paths', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
     await screen.findByRole('alert');
-    expect(screen.getByRole('alert')).toHaveTextContent('terraform.tfvars changed since this draft was loaded.');
+    expect(screen.getByRole('alert')).toHaveTextContent('deployment config changed since this draft was loaded.');
     expect(screen.getByText('Step 5 of 5: Review')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     expect(toastMock.success).not.toHaveBeenCalled();
