@@ -409,6 +409,114 @@ describe('PulumiService.preview streaming', () => {
   });
 });
 
+describe('PulumiService.preview environment redaction', () => {
+  /** Distinctive operator-set environment value that must never survive into streamed or persisted output verbatim. */
+  const SECRET_VALUE = 'sup3rSecretValue';
+
+  /** `RemoteFileStore` override whose configuration object has one game server with `SECRET_VALUE` as an environment value. */
+  function makeRemoteFileStoreWithSecretEnv(): ReturnType<typeof makeRemoteFileStore> {
+    return makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'RCON_PASSWORD', value: SECRET_VALUE }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+  }
+
+  it('should redact an operator-set environment value from streamed stdout and stderr chunks', async () => {
+    const remoteFileStore = makeRemoteFileStoreWithSecretEnv();
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.(`applying RCON_PASSWORD=${SECRET_VALUE}\n`);
+      opts.onError?.(`warning: leaked ${SECRET_VALUE} in output\n`);
+      return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks).toEqual([
+      { stream: 'stdout', line: 'applying RCON_PASSWORD=***REDACTED***' },
+      { stream: 'stderr', line: 'warning: leaked ***REDACTED*** in output' },
+    ]);
+    expect(chunks.some((chunk) => chunk.line.includes(SECRET_VALUE))).toBe(false);
+  });
+
+  it('should redact the same environment value from the persisted pulumi.log transcript', async () => {
+    const remoteFileStore = makeRemoteFileStoreWithSecretEnv();
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.(`applying RCON_PASSWORD=${SECRET_VALUE}\n`);
+      return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    await collectPreviewChunks(service.preview());
+
+    const logCall = writeFileSyncMock.mock.calls.find(
+      (call): call is [string, string] => typeof call[0] === 'string' && call[0].includes('pulumi.log'),
+    );
+    expect(logCall?.[1]).toContain('***REDACTED***');
+    expect(logCall?.[1]).not.toContain(SECRET_VALUE);
+  });
+
+  it('should not redact environment values shorter than the minimum redactable length, to avoid false-positive redaction noise', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: { minecraft: { environment: [{ name: 'EULA', value: '1' }] } },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.('resource count: 1 of 1\n');
+      return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'resource count: 1 of 1' }]);
+  });
+
+  it('should fully redact a shorter environment value even when it is a prefix of a longer one', async () => {
+    const remoteFileStore = makeRemoteFileStore({
+      get: vi.fn().mockResolvedValue({
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            hostedZoneName: 'example.com',
+            gameServers: {
+              minecraft: {
+                environment: [
+                  { name: 'SHORT', value: 'sup3rSecret' },
+                  { name: 'LONG', value: 'sup3rSecretValue' },
+                ],
+              },
+            },
+          }),
+        ),
+        etag: 'etag-1',
+      }),
+    });
+    const workspace = makeWorkspace(async (opts) => {
+      opts.onOutput?.('token=sup3rSecretValue\n');
+      return { stdout: '', stderr: '', changeSummary: { same: 1 } };
+    });
+    const service = makeService({ workspace, remoteFileStore });
+
+    const { chunks } = await collectPreviewChunks(service.preview());
+
+    expect(chunks).toEqual([{ stream: 'stdout', line: 'token=***REDACTED***' }]);
+  });
+});
+
 describe('PulumiService.preview structured changeSummary', () => {
   it('should return the changeSummary captured from onEvent, not derived from stdout text', async () => {
     const workspace = makeWorkspace(makeHappyPathPreview({ create: 3, update: 1, same: 5 }));
