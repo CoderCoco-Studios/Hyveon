@@ -17,10 +17,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 
 // Shared mock instances behind both the bare `'fs'` specifier and the
-// `'node:fs'` specifier — Node treats these as distinct module ids, and
-// TerraformService.ts imports the latter, so mocking only `'fs'` would let a
-// reintroduced local-disk fallback via `node:fs` slip past this file's
-// "no disk fallback reachable" assertions unnoticed.
+// `'node:fs'` specifier — Node treats these as distinct module ids, and the
+// deleted TerraformService.ts used to import the latter, so mocking only
+// `'fs'` would let a reintroduced local-disk fallback via `node:fs` slip past
+// this file's "no disk fallback reachable" assertions unnoticed.
 const { mockExists, mockRead, mockWrite } = vi.hoisted(() => ({
   mockExists: vi.fn(),
   mockRead: vi.fn(),

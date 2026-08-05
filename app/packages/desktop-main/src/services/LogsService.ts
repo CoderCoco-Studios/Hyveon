@@ -27,7 +27,7 @@ type CloudProviderWithPollInterval = CloudProvider & {
 
 /**
  * Fetches recent CloudWatch Logs lines for a game's ECS task so the UI can
- * render a tail. Assumes the Terraform-provisioned log group naming
+ * render a tail. Assumes the Pulumi-provisioned log group naming
  * convention `/ecs/{game}-server`.
  */
 @Injectable()

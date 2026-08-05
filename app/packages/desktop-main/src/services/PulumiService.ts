@@ -549,7 +549,7 @@ export interface PulumiRunRecord {
    * from a partial apply. Deliberately an ADDITIVE field
    * alongside `exitCode`/`status` rather than a fourth `RunStatus` value:
    * `RunStatus` is also the hash key of the `status-index` DynamoDB GSI
-   * (`terraform/aws/runs_store.tf`), so widening its value set is an
+   * (`defineDynamoDb` in `app/packages/infra/src/dynamodb.ts`), so widening its value set is an
    * infra-affecting change — an additive boolean lets the UI/later logic
    * check "is this a partial apply" without touching the GSI's key schema at
    * all.
@@ -4947,7 +4947,7 @@ export class PulumiService {
    * Callers that need to distinguish "still running" from "unknown run"
    * should also consult `RunService.getCurrentLock()` (the durable apply
    * lock) or attempt a live {@link streamRunOutput} subscription —
-   * exactly like `TerraformRunsController.get()` already does, unchanged by
+   * exactly like `IacRunsController.get()` already does, unchanged by
    * this port.
    *
    * @throws A plain `Error` synchronously if `runId` isn't a bare path
@@ -4970,7 +4970,7 @@ export class PulumiService {
    * `TerraformService.hasPlanArtifact`, adapted from that method's
    * `.tfplan`-suffixed artifact-path convention to `previewCore`'s own
    * `.plan.json`-suffixed one (Pulumi's `--save-plan` JSON artifact, not a
-   * Terraform binary plan file). Used by `TerraformRunsController.get()` to
+   * Terraform binary plan file). Used by `IacRunsController.get()` to
    * distinguish a `plan` record that's still applyable from one whose
    * artifact has since been cleaned up.
    *
@@ -5413,7 +5413,7 @@ export class PulumiService {
  * `operationInFlight` busy check when another operation is already running
  * against the shared workspace. A typed error (rather than a plain `Error`)
  * lets a controller map {@link inFlight} straight onto
- * `IacPlanAck.conflict` (which `terraform.page.tsx` reads to drive
+ * `IacPlanAck.conflict` (which `iac.page.tsx` reads to drive
  * the renderer's busy-banner UX) without parsing a message string.
  */
 export class PulumiOperationInFlightError extends Error {

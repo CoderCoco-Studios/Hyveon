@@ -145,7 +145,7 @@ describe('computeDrift', () => {
     expect(result).toEqual({ entries: [] });
   });
 
-  it('should order entries as declared (tfvars) order first, then deployed-only entries in deployedNames order', () => {
+  it('should order entries as declared config order first, then deployed-only entries in deployedNames order', () => {
     const ark = buildGameServer('ark');
 
     const result = computeDrift([ark], null, ['zomboid', 'terraria']);
@@ -219,7 +219,7 @@ describe('DriftService', () => {
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
-    it('should report every declared game as pending_create when terraform.tfstate has never been applied', async () => {
+    it('should report every declared game as pending_create when the stack has never been applied', async () => {
       const ark = buildGameServer('ark');
 
       const result = await new DriftService(makeDeploymentConfig([ark]), makeConfig(null)).getDrift();

@@ -100,7 +100,7 @@ function describeError(err: unknown): string {
  * True if `err` is a {@link WorkloadGuardError} — the type
  * {@link AwsCloudProvider.startWorkload} / {@link AwsCloudProvider.stopWorkload}
  * throw for expected precondition refusals (a task is already running,
- * nothing is running to stop, Terraform hasn't been applied yet) rather than
+ * nothing is running to stop, the infra program hasn't been applied yet) rather than
  * a genuine AWS/SDK failure. `start()` / `stop()` check this so refusals log
  * at `warn` instead of `error` — they're normal operator situations, not
  * exceptions worth alerting on. Using `instanceof` instead of message-pattern
@@ -191,7 +191,7 @@ export class EcsService {
 
   /**
    * Locate the current non-stopped task for a game, keyed by the `{game}-server`
-   * task-definition family Terraform provisions. `ListTasks` is filtered to
+   * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
    * out of the describe result — leaving the single active task, if any.
    */
@@ -309,7 +309,8 @@ export class EcsService {
   /**
    * Register a new task-definition revision on the fly. Used exclusively by
    * {@link FileManagerService.start} to build the FileBrowser task def per
-   * game — game-server task definitions themselves are Terraform-managed.
+   * game — game-server task definitions themselves are managed by the infra
+   * program (`app/packages/infra/src/ecs.ts`).
    */
   async registerTaskDefinition(params: Parameters<ECSClient['send']>[0] extends import('@aws-sdk/client-ecs').RegisterTaskDefinitionCommand ? never : import('@aws-sdk/client-ecs').RegisterTaskDefinitionCommandInput): Promise<string | null> {
     const { RegisterTaskDefinitionCommand } = await import('@aws-sdk/client-ecs');

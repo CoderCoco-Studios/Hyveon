@@ -60,8 +60,8 @@ function makeRegistrar(): DiscordCommandRegistrar {
 }
 
 /**
- * Build a ConfigService stub. Pass null to simulate absent Terraform outputs
- * (i.e. Terraform has not been applied yet).
+ * Build a ConfigService stub. Pass null to simulate absent Pulumi stack outputs
+ * (i.e. the stack has not been deployed yet).
  */
 function makeConfig(invokeUrl: string | null = 'https://xyz.lambda-url.us-east-1.on.aws/'): ConfigService {
   return {
@@ -161,7 +161,7 @@ describe('DiscordController', () => {
       expect(result.publicKeySet).toBe(true);
     });
 
-    it('should return null interactionsEndpointUrl when Terraform outputs are absent', async () => {
+    it('should return null interactionsEndpointUrl when stack outputs are absent', async () => {
       const result = await ctrl(makeDiscord(), makeRegistrar(), makeConfig(null)).getConfig();
       expect(result.interactionsEndpointUrl).toBeNull();
     });
@@ -253,7 +253,7 @@ describe('DiscordController', () => {
       const discord = makeDiscord();
       vi.mocked(discord.removeAllowedGuild).mockResolvedValue({
         ok: false,
-        reason: 'Guild is in the Terraform base config',
+        reason: 'Guild is in the base config',
       });
       await expect(ctrl(discord).removeGuild('G-base')).rejects.toBeInstanceOf(BadRequestException);
     });

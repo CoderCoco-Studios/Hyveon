@@ -98,10 +98,11 @@ import { logger } from '../logger.js';
  * Absence of an in-flight operation in *this app instance* is deliberately
  * *not* part of this test on its own — per the spec's "In-app concurrency is
  * reported as busy" scenario, that distinction is made by a layer above this
- * module (the workspace-in-flight/"busy" check
- * `TerraformService.getWorkspaceInFlight()` already establishes the
- * precedent for — see `terraform.controller.ts`), *before* an operation ever
- * reaches the SDK call this module's classifier reacts to. What this module
+ * module (the workspace-in-flight/"busy" check the deleted
+ * `TerraformService.getWorkspaceInFlight()` established the precedent for,
+ * now `PulumiService.getOperationInFlight()` — see `iac.controller.ts`),
+ * *before* an operation ever reaches the SDK call this module's classifier
+ * reacts to. What this module
  * additionally guards against is a **live** conflicting process — same
  * machine or not — that this app instance is *not* the one running, which
  * the "absence of in-flight activity" framing alone cannot rule out.

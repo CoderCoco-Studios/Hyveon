@@ -72,8 +72,9 @@ export class DiscordController {
   }
 
   /**
-   * Returns the dynamic allowlisted guild IDs and the Terraform-managed base guild IDs.
-   * The UI should render base guilds as locked (non-removable).
+   * Returns the dynamic allowlisted guild IDs and the Pulumi-managed base guild IDs
+   * (`DeploymentConfig.baseAllowedGuilds`). The UI should render base guilds as locked
+   * (non-removable).
    */
   @MessagePattern('discord.listGuilds')
   async listGuilds() {
@@ -96,7 +97,8 @@ export class DiscordController {
 
   /**
    * Removes a guild ID from the dynamic allowlist. Returns 400 if the guild is
-   * in the Terraform base config — those entries require a tfvars edit + re-apply.
+   * in the Pulumi-managed base config — those entries require a
+   * `deployment-config.json` edit (`baseAllowedGuilds`) + re-apply.
    * Already-registered slash commands remain in Discord until manually cleaned up.
    */
   @MessagePattern('discord.removeGuild')
@@ -125,8 +127,9 @@ export class DiscordController {
   }
 
   /**
-   * Returns the dynamic admin user/role lists and the Terraform-managed base admin lists.
-   * The UI should render base admins as locked (non-removable).
+   * Returns the dynamic admin user/role lists and the Pulumi-managed base admin lists
+   * (`DeploymentConfig.baseAdminUserIds`/`baseAdminRoleIds`). The UI should render base
+   * admins as locked (non-removable).
    */
   @MessagePattern('discord.getAdmins')
   async getAdmins() {
@@ -136,7 +139,7 @@ export class DiscordController {
 
   /**
    * Replaces the dynamic admin user/role lists atomically. Omitted fields are treated as empty arrays
-   * (not "leave alone"). Base admins set via Terraform are unaffected by this endpoint.
+   * (not "leave alone"). Base admins set via the deployment config are unaffected by this endpoint.
    */
   @MessagePattern('discord.putAdmins')
   async putAdmins(@Payload() body: { userIds?: unknown; roleIds?: unknown } = {}) {
@@ -155,7 +158,7 @@ export class DiscordController {
 
   /**
    * Sets the allowed users/roles/actions for a single game. `game` must match
-   * a key in the Terraform `game_servers` map; unknown keys return 400. The
+   * a key in `DeploymentConfig.gameServers`; unknown keys return 400. The
    * `actions` array is the permission bucket `canRun()` checks against.
    *
    * The IPC payload is a single object `{ game, body }` — `nestjs-electron-ipc-transport`
@@ -185,7 +188,7 @@ export class DiscordController {
     return { success: true, permissions: (await this.discord.getConfig()).gamePermissions };
   }
 
-  /** Removes the permission entry for a game. Returns 400 if `game` is empty or isn't a known key from the Terraform `game_servers` map. */
+  /** Removes the permission entry for a game. Returns 400 if `game` is empty or isn't a known key in `DeploymentConfig.gameServers`. */
   @MessagePattern('discord.deletePermission')
   async deletePermission(@Payload() gameRaw: string) {
     const game = (gameRaw ?? '').trim();

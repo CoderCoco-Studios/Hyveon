@@ -144,7 +144,7 @@ describe('GamesController', () => {
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
-    it('should return the deployed game names from Terraform outputs when nothing is declared in tfvars', async () => {
+    it('should return the deployed game names from stack outputs when nothing is declared in the deployment config', async () => {
       const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite()).listGames();
       expect(result).toEqual({
         games: [
@@ -154,18 +154,18 @@ describe('GamesController', () => {
       });
     });
 
-    it('should return an empty games array when Terraform has not been applied yet and nothing is declared', async () => {
+    it('should return an empty games array when stack outputs are missing and nothing is declared', async () => {
       const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig(), makeGamesWrite()).listGames();
       expect(result).toEqual({ games: [] });
     });
 
-    it('should return a game that exists only in tfvars (declared but not yet applied)', async () => {
+    it('should return a game that exists only in the deployment config (declared but not yet applied)', async () => {
       const ark = buildGameServer('ark');
       const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig([ark]), makeGamesWrite()).listGames();
       expect(result).toEqual({ games: [{ name: 'ark', declared: true, deployed: false, config: ark }] });
     });
 
-    it('should merge declared tfvars games with deployed tfstate games', async () => {
+    it('should merge declared deployment-config games with deployed tfstate games', async () => {
       const palworld = buildGameServer('palworld');
       const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig([palworld]), makeGamesWrite()).listGames();
       expect(result).toEqual({
@@ -190,7 +190,7 @@ describe('GamesController', () => {
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
-    it('should query ECS status for every game in the Terraform outputs', async () => {
+    it('should query ECS status for every game in the stack outputs', async () => {
       const ecs = makeEcs();
       await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite()).listStatus();
       expect(ecs.getStatus).toHaveBeenCalledWith('minecraft');

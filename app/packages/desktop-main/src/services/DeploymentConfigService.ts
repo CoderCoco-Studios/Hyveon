@@ -22,7 +22,7 @@
  * milliseconds so frequent callers (e.g. polling endpoints) don't re-fetch
  * from S3 on every call. Call `invalidateCache()` to force a fresh read
  * before the TTL elapses (e.g. after a config edit). The cache mirrors
- * `ConfigService.tfCache`'s tri-state approach: `undefined` means "never
+ * `ConfigService.stackOutputsCache`'s tri-state approach: `undefined` means "never
  * loaded" (always a miss), while a set `CachedGameServers` entry covers
  * *both* a successful parse and a negatively-cached failed load (the
  * `failed` flag distinguishes the two) — either way the entry's `cachedAt`

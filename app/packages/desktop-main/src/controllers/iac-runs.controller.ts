@@ -209,7 +209,7 @@ export class IacRunsController implements OnModuleInit {
    * `{ streamId, chunk }`, forwarded in order straight from
    * `PulumiService.streamRunOutput` — which itself either replays an
    * in-flight run's buffered + live output or, for a finished run, replays
-   * its persisted `terraform.log`.
+   * its persisted `pulumi.log`.
    *
    * Exactly one terminal message is sent on {@link LOGS_END_CHANNEL} once the
    * run reaches a terminal status: `{ streamId }` when
