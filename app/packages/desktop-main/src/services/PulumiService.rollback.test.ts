@@ -1,11 +1,9 @@
 /**
  * Unit tests for `PulumiService.resolveRollbackTarget`/`.confirmRollback`
- * — the rollback flow's successor, replacing `TerraformService.ts`'s
- * same-named methods with a version that holds `PulumiService`'s private
+ * — the rollback flow, which holds `PulumiService`'s private
  * `operationInFlight` guard across the restore write AND the follow-up
- * plan's persistence (the old `TerraformService` version never held any
- * lock across those two steps at all — see `confirmRollback`'s own TSDoc,
- * "The old TerraformService gap this closes").
+ * plan's persistence — see `confirmRollback`'s own TSDoc,
+ * "Why restore and plan are one guarded unit".
  *
  * Named `PulumiService.rollback.test.ts` (covering both methods jointly,
  * not one-method-scoped like `PulumiService.preview.test.ts`/

@@ -282,7 +282,7 @@ This step **starts automatically on arrival** — there is no Start button. It
 calls `PulumiService.initializeStack`, which needs no configuration from
 earlier steps — it resolves the state bucket and region it needs from what
 you already entered — and reports progress as three phases, rendered as a
-checklist rather than a scrolling log (there is no `terraform init`-style
+checklist rather than a scrolling log (there is no verbose CLI-style
 process output to show here):
 
 | Phase | What it does |

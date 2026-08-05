@@ -49,7 +49,8 @@ The repository **root** `package.json` is the npm-workspaces root — its
 `workspaces` array lists `app`, `app/packages/*`, `app/packages/desktop-preload`,
 and `app/packages/lambda/*`. One `npm install` at the root installs
 everything; `app/` itself is just one workspace (`@hyveon/app`) among several,
-not a nested workspaces root. There is no `terraform/` tree — `app/packages/infra`
+not a nested workspaces root. There is no separate infrastructure-as-code
+directory outside the npm workspace tree — `app/packages/infra`
 (`@hyveon/infra`) is a Pulumi Automation API program, ordinary TypeScript.
 Lambdas are built via esbuild to single-file CJS bundles at
 `app/packages/lambda/*/dist/handler.cjs`; the infra program's `lambdas.ts`
@@ -59,7 +60,7 @@ local dev must build them before any apply.
 ## The infra program, at a glance
 
 `app/packages/infra` is a Pulumi Automation API program — TypeScript, no
-`.tf` files. One function per file, each declaring a slice of the stack;
+separate config-file format. One function per file, each declaring a slice of the stack;
 `program.ts`'s `defineAll()` calls them in dependency order. Full detail,
 including the exact resource each file declares, is in the
 [infra program reference](/components/infra) — the short version:
@@ -156,10 +157,9 @@ Seven workflows live in `.github/workflows/`:
 
 - **`lint.yml`** — two jobs: ESLint (`npm run app:lint`) and a full
   cross-workspace typecheck (`npm run app:typecheck`). Runs on every
-  push/PR. Node 24. There is no `tflint` job — the `terraform/` tree is
-  gone, and there's no `.tf` code left for it to lint; the infra program is
-  ordinary TypeScript, covered by the same ESLint/typecheck jobs as
-  everything else.
+  push/PR. Node 24. There is no separate infra-linting job — the infra
+  program is ordinary TypeScript, covered by the same ESLint/typecheck jobs
+  as everything else.
 - **`test.yml`** — `vitest run --coverage` across all workspaces. Node 24.
 - **`e2e.yml`** — `npm run app:test:e2e`, the Playwright tier-1 suite
   (`chromium` + `electron` projects) against a built app, under `xvfb`.
@@ -404,9 +404,9 @@ packaging/running the Electron app (`npm run desktop:package`, or
 `npm run desktop:run` to build and launch without producing an installer)
 from whatever machine holds the AWS credentials.
 
-## Legacy Terraform teardown (one-off)
+## Legacy pre-Pulumi teardown (one-off)
 
-If you deployed the **old, Terraform-based** version of this stack before
+If you deployed the **old, pre-Pulumi** version of this stack before
 the `migrate-iac-to-pulumi` change, you must fully tear that stack down
 before running your first Pulumi apply against the same AWS account. This
 is a **one-time migration step**, not an ongoing workflow — once the old
@@ -428,9 +428,9 @@ ranges from a loud failure to a silent, dangerous double-deployment:
   resource).** The ECS cluster name, the two EventBridge rules, and the
   `{game}-server` task-definition family are all upsert-like or
   revision-versioned — a second stack quietly takes over or appends to the
-  first stack's resource rather than failing. If you later `terraform
-  destroy` the old stack, it deletes the resource out from under the live
-  Pulumi stack.
+  first stack's resource rather than failing. If you later run the old
+  tool's destroy command against the old stack, it deletes the resource out
+  from under the live Pulumi stack.
 - **Don't "fix" the collisions by renaming the project.** Changing the
   project name sidesteps every failure above, but converts them into a
   **silent duplicate deployment**: two live `update-dns` Lambdas and two
@@ -439,10 +439,10 @@ ranges from a loud failure to a silent, dangerous double-deployment:
   each stack's Lambda fights the other's. This is strictly worse than the
   loud failures above, because nothing tells you it's happening.
 
-**The correct order is always: destroy the old Terraform stack completely,
+**The correct order is always: destroy the old, pre-Pulumi stack completely,
 then run your first Pulumi apply.** If you no longer have the old
-`terraform/` tree available to run `terraform destroy` with, tear the
-resources down manually from the AWS console/CLI before proceeding, and
+provisioning tool's project files available to run its destroy command
+with, tear the resources down manually from the AWS console/CLI before proceeding, and
 confirm in particular that the two Discord Secrets Manager secrets are
 actually gone (their zero-day recovery window means the delete completes
 immediately, but a still-pending delete blocks a same-named `CreateSecret`).

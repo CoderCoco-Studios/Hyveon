@@ -27,11 +27,8 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * How many days a noncurrent configuration-bucket object version is retained
- * before expiring — matches the baseline set by the now-deleted
- * `terraform/bootstrap/main.tf`'s `aws_s3_bucket_lifecycle_configuration.tfvars`
- * rule (that Terraform-era resource was named for the `tfvars` object it once
- * held; this service uses the same 90-day window for the renamed
- * configuration bucket).
+ * before expiring, applied via {@link BootstrapService.ensureConfigurationBucket}'s
+ * lifecycle rule.
  */
 const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
 
@@ -100,7 +97,7 @@ export class BootstrapService {
    * enabled.
    *
    * @remarks
-   * There is no Terraform/Pulumi resource for this bucket itself, since the
+   * There is no Pulumi resource for this bucket itself, since the
    * infrastructure program can't provision the backend it also reads state
    * from — this SDK path is the only place that creates and hardens it.
    *
@@ -147,14 +144,10 @@ export class BootstrapService {
    * public-access-block settings enabled.
    *
    * @remarks
-   * Matches the now-deleted `terraform/bootstrap/main.tf`'s
-   * `aws_s3_bucket_versioning.tfvars` / `aws_s3_bucket_lifecycle_configuration.tfvars` /
-   * `aws_s3_bucket_server_side_encryption_configuration.tfvars` /
-   * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
-   * lifecycle, encryption, and public-access-block — the resulting bucket is
-   * the canonical `RemoteFileStore` holding the JSON game-server
-   * configuration. That deleted Terraform module had named its bucket for
-   * the `terraform.tfvars` object it once held.
+   * Configures versioning, a noncurrent-version expiration lifecycle rule,
+   * default encryption, and public-access-block settings on the bucket — the
+   * resulting bucket is the canonical `RemoteFileStore` holding the JSON
+   * game-server configuration.
    *
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */
@@ -241,10 +234,11 @@ export class BootstrapService {
    * before `ElectronStoreService` has any record of the bucket name at all.
    *
    * The seed content — `withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} })`
-   * (`@hyveon/shared`) — fills in every field that has a
-   * Terraform-parity default and leaves `hostedZoneName` as an empty-string
-   * placeholder (it has no default; every real deployment requires a real
-   * value). This deliberately never runs through
+   * (`@hyveon/shared`) — fills in every field that has a documented default
+   * (see `DEPLOYMENT_CONFIG_DEFAULTS` in `@hyveon/shared`) and leaves
+   * `hostedZoneName` as an empty-string placeholder (it has no default;
+   * every real deployment requires a real value). This deliberately never
+   * runs through
    * `validateDeploymentSettingsPatch` (`@hyveon/shared`): that validator only
    * gates a Settings-form PATCH via `IacSettingsController.update`, never a
    * raw initial write like this one — so the empty placeholder here reaches
@@ -510,10 +504,7 @@ export class BootstrapService {
   /**
    * Applies all four S3 public-access-block settings (`BlockPublicAcls`,
    * `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`) to
-   * `bucketName`, mirroring `terraform/bootstrap/main.tf`'s
-   * `aws_s3_bucket_public_access_block.tfvars` resource — a historical HCL
-   * baseline only, since `terraform/bootstrap/` is deleted as part of Phase
-   * 12 of this change.
+   * `bucketName`.
    *
    * @remarks
    * Called unconditionally after {@link createBucket} resolves — on both the

@@ -20,8 +20,8 @@ export type ActiveCloud = 'aws';
 /**
  * Owns every runtime configuration source the management app reads:
  *  - The deployed Pulumi stack's outputs — read via {@link getStackOutputs},
- *    a memoised delegate to {@link PulumiService.getStackOutputs}. Nothing
- *    reads a local `terraform.tfstate` file under the Pulumi engine.
+ *    a memoised delegate to {@link PulumiService.getStackOutputs}. Outputs
+ *    are always fetched live via the SDK, never from a local state file.
  *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
  * Every other service injects this one instead of touching `process.env`
@@ -113,8 +113,8 @@ export class ConfigService {
   }
 
   /**
-   * Reads every value the app cares about off the deployed Pulumi stack.
-   * Nothing reads a local `terraform.tfstate` file under the Pulumi engine.
+   * Reads every value the app cares about off the deployed Pulumi stack,
+   * fetched live via the SDK rather than from a local state file.
    *
    * A memoised delegate to {@link PulumiService.getStackOutputs} — see that
    * method's doc comment for the full "never deployed yet degrades to

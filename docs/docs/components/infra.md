@@ -6,11 +6,10 @@ sidebar_position: 2
 # Infra program
 
 All AWS infrastructure is provisioned by `app/packages/infra` (`@hyveon/infra`) —
-a **Pulumi Automation API program**, not a CLI-driven `.tf` tree. There is no
-`.tf` file anywhere in this repository; the old `terraform/` tree was deleted
-by the `migrate-iac-to-pulumi` change. Provisioning logic lives in ordinary
-TypeScript functions that declare `@pulumi/aws` resources, driven entirely
-from inside the packaged Electron app by `PulumiService`.
+a **Pulumi Automation API program**: ordinary TypeScript functions that
+declare `@pulumi/aws` resources, driven entirely from inside the packaged
+Electron app by `PulumiService`. There is no separate infrastructure-as-code
+file tree on disk to edit or run — the program's source *is* this package.
 
 ## How it's invoked — no host-installed `pulumi` binary
 
@@ -43,9 +42,9 @@ never shells out to a `pulumi` command it hopes is on `PATH`. Instead:
 
 ## State backend — self-managed S3, no DynamoDB lock table
 
-Unlike the old Terraform S3 backend (which paired an S3 bucket with a
-DynamoDB lock table), the Pulumi stack uses Pulumi's own **DIY S3 backend**
-and needs no separate lock table:
+Unlike an S3 backend that pairs a bucket with a companion DynamoDB lock
+table, the Pulumi stack uses Pulumi's own **DIY S3 backend** and needs no
+separate lock table:
 
 - `LocalWorkspaceOptions.envVars.PULUMI_BACKEND_URL` is set to
   `s3://<stateBucket>?region=<region>` — the same state bucket the first-run
@@ -67,8 +66,8 @@ and needs no separate lock table:
 ## Configuration input
 
 The program takes a single `DeploymentConfig` object (`@hyveon/shared`) as
-its only input — there is no `terraform.tfvars` and no `.tfvars` file of any
-kind. `DeploymentConfig.gameServers: Record<string, GameServerConfig>` is
+its only input — there is no separate variables file of any kind.
+`DeploymentConfig.gameServers: Record<string, GameServerConfig>` is
 the single source of truth for per-game resources; it's persisted as the
 JSON object `deployment-config.json` in the operator's S3 configuration
 bucket. `PulumiService` fetches that object, `JSON.parse`s it, and passes it
@@ -128,9 +127,7 @@ Lambda.
 
 The **only** `aws.route53.Record` resources in the whole program are the
 three static, fixed records in `discordDomain.ts` for the Discord bot's own
-custom subdomain — unrelated to any game, never touched by any Lambda. This
-mirrors the old Terraform stack's one exception to the same rule, so it is
-not a migration regression.
+custom subdomain — unrelated to any game, never touched by any Lambda.
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 
@@ -160,10 +157,10 @@ from three places that must never disagree: `BootstrapService.ensureRunsTable`
 reads the persisted `DeploymentConfig` directly via `resolvePreApplyRunsTableName`
 when no Pulumi stack output is available yet).
 
-## Migrating from the old Terraform stack
+## Migrating from a pre-Pulumi deployment
 
-If you previously deployed the Terraform-based version of this stack,
-see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-terraform-teardown-one-off)
+If you previously deployed this stack with its old, pre-Pulumi provisioning
+tool, see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-pre-pulumi-teardown-one-off)
 before running the first apply from the app's [Infrastructure page](/app/iac) —
 the new program reuses the same physical resource names, and deploying both
 stacks against the same AWS account risks duplicate or conflicting

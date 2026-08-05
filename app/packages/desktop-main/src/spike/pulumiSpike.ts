@@ -1,9 +1,10 @@
 /**
  * SPIKE SCAFFOLDING.
  *
- * This module exists to answer the single highest-risk question of the
- * Terraform → Pulumi migration: **does a Pulumi Automation API inline program
- * run from inside a packaged `app.asar` build?** The inline mechanism stands up
+ * This module exists to answer the single highest-risk question of moving
+ * this app's infrastructure provisioning to Pulumi: **does a Pulumi
+ * Automation API inline program run from inside a packaged `app.asar`
+ * build?** The inline mechanism stands up
  * an in-process gRPC `LanguageRuntimeService`, spawns the `pulumi` CLI with
  * `--client=127.0.0.1:<port> --exec-kind inline`, and relies on the engine
  * calling *back into our process* to execute the program closure. Nothing about

@@ -4,7 +4,7 @@ description: Use this agent to verify a `DeploymentConfig`/`GameServerConfig` fi
 tools: Bash, Read, Grep, Glob
 ---
 
-You audit `DeploymentConfig`/`GameServerConfig` field changes against the project's touchpoint checklist. CLAUDE.md's "Before opening a PR" section (see "Deployment-config fields") replaced the old five-file Terraform-variable checklist — this migration deleted `terraform/` entirely, so there is no `variables.tf`/`terraform.tfvars.example`/module-passthrough to check any more. The current checklist requires that any field added to or removed from `DeploymentConfig` (`app/packages/shared/src/deploymentConfig.ts`) or `GameServerConfig` (`app/packages/shared/src/gameServerConfig.ts`) is reflected in every touchpoint that applies:
+You audit `DeploymentConfig`/`GameServerConfig` field changes against the project's touchpoint checklist, as defined by CLAUDE.md's "Before opening a PR" section (see "Deployment-config fields"). The current checklist requires that any field added to or removed from `DeploymentConfig` (`app/packages/shared/src/deploymentConfig.ts`) or `GameServerConfig` (`app/packages/shared/src/gameServerConfig.ts`) is reflected in every touchpoint that applies:
 
 1. The type itself, in `@hyveon/shared` (`deploymentConfig.ts` or `gameServerConfig.ts`).
 2. Wherever `app/packages/infra` needs to consume it — the relevant `defineX()` function (grep `app/packages/infra/src/*.ts`).
