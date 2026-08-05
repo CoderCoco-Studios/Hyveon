@@ -229,7 +229,7 @@ export interface RedactedDiscordConfig {
   baseAdmins: DiscordAdmins;
   botTokenSet: boolean;
   publicKeySet: boolean;
-  /** Function URL for the interactions Lambda, copied from Terraform outputs. Null if not yet applied. */
+  /** Function URL for the interactions Lambda, copied from Pulumi stack outputs. Null if not yet applied. */
   interactionsEndpointUrl: string | null;
 }
 
@@ -265,7 +265,7 @@ export interface PutConfigResult {
   config: RedactedDiscordConfig;
 }
 
-/** Environment metadata derived from Terraform outputs. */
+/** Environment metadata derived from Pulumi stack outputs. */
 export interface EnvInfo {
   region: string;
   domain: string;
@@ -321,8 +321,8 @@ export interface GameServerFileSeed {
 }
 
 /**
- * Per-game container configuration, keyed by game name in the
- * `game_servers` Terraform variable (`terraform/variables.tf`).
+ * Per-game container configuration, keyed by game name in
+ * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
  *
  * Mirrors `GameServer` in `@hyveon/shared/src/gameServerConfig.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -342,8 +342,8 @@ export interface GameServer {
 
 /**
  * Response entry for the merged games list (the `games.list` IPC channel).
- * Combines the declared view (`terraform.tfvars`, via {@link GameServer})
- * with the deployed view (`terraform.tfstate`) so callers can tell
+ * Combines the declared view (`DeploymentConfig.gameServers`, via
+ * {@link GameServer}) with the deployed view (tfstate) so callers can tell
  * "declared but not yet applied" apart from "live" games.
  *
  * Mirrors `GameListEntry` in `@hyveon/shared/src/gameServerConfig.ts` — that file is
@@ -351,17 +351,17 @@ export interface GameServer {
  */
 export interface GameListEntry {
   /**
-   * Game key. Sourced from the tfvars `game_servers` map key when
+   * Game key. Sourced from the declared `gameServers` map key when
    * `declared` is true, otherwise from the tfstate game name.
    */
   name: string;
-  /** True when this game has an entry in the tfvars `game_servers` map. */
+  /** True when this game has an entry in the declared `gameServers` map. */
   declared: boolean;
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full tfvars-parsed configuration for this game. Only present when
-   * `declared` is true.
+   * Full declared configuration for this game. Only present when `declared`
+   * is true.
    */
   config?: GameServer;
 }
@@ -396,9 +396,9 @@ export interface GameWriteSuccess {
 
 /**
  * The write was rejected because the caller's `expectedVersionId` didn't
- * match the current tfvars file version — someone else edited
- * `terraform.tfvars` since the caller last read it. `currentVersionId` lets
- * the caller re-fetch and retry.
+ * match the deployment config's current S3 object version — someone else
+ * edited the declared configuration since the caller last read it.
+ * `currentVersionId` lets the caller re-fetch and retry.
  *
  * Mirrors `GameWriteConflict` in `@hyveon/shared/src/gamesWrite.ts` — that
  * file is the source of truth; keep this copy in sync with it.
@@ -481,8 +481,8 @@ export type GameWriteResult =
 
 /**
  * Request payload for `games.create`. `expectedVersionId`, when supplied,
- * is checked against the current tfvars file version and a
- * {@link GameWriteConflict} is returned on mismatch.
+ * is checked against the deployment config's current S3 object version and
+ * a {@link GameWriteConflict} is returned on mismatch.
  *
  * Mirrors `CreateGamePayload` in `@hyveon/shared/src/gamesWrite.ts` — that
  * file is the source of truth; keep this copy in sync with it.
@@ -518,8 +518,8 @@ export interface DeleteGamePayload {
 }
 
 /**
- * Category of mismatch between a game's declared (tfvars) and deployed
- * (tfstate) state.
+ * Category of mismatch between a game's declared (deployment config) and
+ * deployed (tfstate) state.
  *
  * Mirrors `DriftKind` in `@hyveon/shared/src/drift.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -528,7 +528,7 @@ export type DriftKind = 'pending_create' | 'pending_delete' | 'config_drift';
 
 /**
  * Name of a top-level game server config field that can differ between the
- * declared (tfvars) and deployed (tfstate) configuration for a
+ * declared (deployment config) and deployed (tfstate) configuration for a
  * `'config_drift'` finding.
  *
  * Mirrors `DriftChangedField` in `@hyveon/shared/src/drift.ts` — that file
@@ -538,7 +538,7 @@ export type DriftChangedField = 'ports' | 'image' | 'cpu' | 'memory' | 'volumes'
 
 /**
  * A single per-game drift finding, produced by comparing a game's declared
- * tfvars configuration against its live tfstate configuration.
+ * configuration against its live tfstate configuration.
  *
  * Mirrors `DriftEntry` in `@hyveon/shared/src/drift.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -563,7 +563,7 @@ export interface DriftReport {
 
 /**
  * The kind of mutation an {@link AuditEntry} records, plus `plan` for a
- * dry-run `terraform plan` invocation that touched no infrastructure.
+ * dry-run `pulumi preview` invocation that touched no infrastructure.
  *
  * Mirrors `AuditAction` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -580,8 +580,8 @@ export type AuditAction =
 
 /**
  * A single row in the DynamoDB audit log, recording who changed a game
- * server's configuration, what changed, and the resulting `terraform.tfvars`
- * S3 version.
+ * server's configuration, what changed, and the resulting deployment
+ * config S3 object version.
  *
  * Mirrors `AuditEntry` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -601,7 +601,7 @@ export interface AuditEntry {
   before: GameServer | null;
   /** The game's configuration after the mutation, or `null` for `remove`. */
   after: GameServer | null;
-  /** S3 object version id of `terraform.tfvars` produced by the write, if known. */
+  /** S3 object version id of the deployment config produced by the write, if known. */
   versionId?: string;
 }
 
@@ -698,7 +698,7 @@ export interface IacRunRecord {
    * SHA-256 hex digest of the persisted `.tfplan` artifact this record's
    * `plan` run produced. Set only on a successful `plan` record; a failed
    * or aborted `plan` run (and `apply`/`destroy` records generally) leave
-   * this unset. The `/terraform` page passes this straight through to
+   * this unset. The `/iac` page (`IacPage`) passes this straight through to
    * `hyveon.iac.apply`'s `planHash` payload field.
    */
   planHash?: string;
@@ -780,7 +780,7 @@ export interface RunHistoryRecord {
   sk: string;
   /** Unique identifier for the run. */
   runId: string;
-  /** Which `terraform` subcommand produced this record. */
+  /** Which subcommand produced this record. */
   kind: IacRunKind;
   /** Lifecycle status. */
   status: RunHistoryStatus;
@@ -1019,9 +1019,9 @@ export interface IacLockClearAck {
  * expected plan hash, checked against the plan run's stored `planHash` to
  * catch drift between when the plan was approved and when apply runs.
  *
- * Mirrors the `POST /api/terraform/apply` request body described in issue
- * #109 — the desktop-main apply IPC handler is the source of truth; keep
- * this copy in sync with it.
+ * Mirrors the request body `IacController.apply` (the `iac.apply` IPC
+ * handler; this app has no HTTP transport) accepts — that desktop-main
+ * handler is the source of truth; keep this copy in sync with it.
  */
 export interface IacApplyPayload {
   planRunId: string;
@@ -1107,7 +1107,7 @@ export interface IacApproveAck {
 
 /** Game-server lifecycle: list games, query status, start/stop ECS tasks. */
 export interface HyveonGamesApi {
-  /** Lists games merged from tfvars (declared) and tfstate (deployed). */
+  /** Lists games merged from the declared config (`gameServers`) and deployed state (tfstate). */
   list: () => Promise<{ games: GameListEntry[] }>;
   /** Returns ECS status for every game in parallel. */
   status: () => Promise<GameStatus[]>;
@@ -1117,11 +1117,11 @@ export interface HyveonGamesApi {
   start: (game: string) => Promise<StartResult>;
   /** Stops the running ECS task for `game`. */
   stop: (game: string) => Promise<StartResult>;
-  /** Adds a new entry to the tfvars `game_servers` map. */
+  /** Adds a new entry to the declared `gameServers` map. */
   create: (payload: CreateGamePayload) => Promise<GameWriteResult>;
-  /** Overwrites an existing entry in the tfvars `game_servers` map. */
+  /** Overwrites an existing entry in the declared `gameServers` map. */
   update: (payload: UpdateGamePayload) => Promise<GameWriteResult>;
-  /** Removes an entry from the tfvars `game_servers` map. */
+  /** Removes an entry from the declared `gameServers` map. */
   delete: (payload: DeleteGamePayload) => Promise<GameWriteResult>;
 }
 
@@ -1167,7 +1167,7 @@ export interface HyveonDiscordApi {
   getConfig: () => Promise<RedactedDiscordConfig>;
   /** Updates bot token, client ID, and/or public key in Secrets Manager. */
   putConfig: (body: { botToken?: string; clientId?: string; publicKey?: string }) => Promise<PutConfigResult>;
-  /** Lists dynamic and Terraform-base allowed guild IDs. */
+  /** Lists dynamic and deployment-config-base allowed guild IDs. */
   listGuilds: () => Promise<{ guilds: string[]; baseGuilds: string[] }>;
   /** Adds a guild ID to the dynamic allowlist in DynamoDB. */
   addGuild: (guildId: string) => Promise<GuildListResult>;
@@ -1175,7 +1175,7 @@ export interface HyveonDiscordApi {
   removeGuild: (guildId: string) => Promise<GuildListResult>;
   /** Registers slash commands for a guild in the Discord developer portal. */
   registerCommands: (guildId: string) => Promise<RegisterResult>;
-  /** Returns the dynamic and Terraform-base admin user/role lists. */
+  /** Returns the dynamic and deployment-config-base admin user/role lists. */
   getAdmins: () => Promise<DiscordAdmins & { baseAdmins: DiscordAdmins }>;
   /** Replaces the dynamic admin user/role lists. */
   putAdmins: (body: { userIds?: string[]; roleIds?: string[] }) => Promise<AdminsResult>;
@@ -1201,7 +1201,7 @@ export interface HyveonDiscordApi {
 
 /** Environment metadata: region, domain, and environment label for UI display. */
 export interface HyveonEnvApi {
-  /** Returns region, domain, and environment label derived from Terraform outputs. */
+  /** Returns region, domain, and environment label derived from Pulumi stack outputs. */
   get: () => Promise<EnvInfo>;
 }
 
@@ -1562,7 +1562,7 @@ export interface SaveWizardStateInput {
   bootstrap?: WizardBootstrapNames;
 }
 
-/** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
+/** Drift detection: compares declared (deployment config) against deployed (tfstate) state. */
 export interface HyveonDriftApi {
   /** Returns the current drift report — games out of sync between declared and deployed state. */
   get: () => Promise<DriftReport>;
@@ -1729,16 +1729,18 @@ export interface HyveonIacApi {
    * `runId`) so `apply` may proceed against it, by invoking the
    * `iac.approve` IPC channel with `opts`.
    *
-   * Mirrors `POST /api/terraform/runs/:id/approve` (#109) — admin-only;
-   * records the approver and approved-at timestamp on the plan run and
-   * resolves the {@link IacApproveAck}.
+   * Delegates to `RunRecordService.approveRun` (issue #109, which moved
+   * plan/apply/approve to Electron IPC handlers — this app has no HTTP
+   * transport) — admin-only; records the approver and approved-at timestamp
+   * on the plan run and resolves the {@link IacApproveAck}.
    */
   approve: (opts: { planRunId: string }) => Promise<IacApproveAck>;
   /**
    * Submits an apply (`pulumi up`) run gated on plan-hash + approval by
    * invoking the `iac.apply` IPC channel, resolving an ack shaped like
-   * {@link IacPlanAck}. Mirrors `POST /api/terraform/apply` (#109):
-   * rejects when the plan run isn't approved, the current configuration has
+   * {@link IacPlanAck}. `IacController.apply` (issue #109, the IPC handler
+   * this app uses in place of an HTTP route) rejects when the plan run
+   * isn't approved, the current configuration has
    * drifted since the plan, the supplied `planHash` doesn't match the plan
    * run's stored hash, another run already holds the shared workspace lock,
    * or an unrecognized Pulumi backend lock conflict was hit (see
@@ -1978,7 +1980,7 @@ export interface HyveonApi {
   games: HyveonGamesApi;
   /** Cost endpoints: forward-looking Fargate estimates and historical CE data. */
   costs: HyveonCostsApi;
-  /** CloudWatch log endpoints (request/response only; SSE stream is separate). */
+  /** CloudWatch log endpoints (request/response only; the live tail is a separate IPC stream). */
   logs: HyveonLogsApi;
   /** EFS file-manager task endpoints: status, start, and stop per game. */
   files: HyveonFilesApi;
@@ -1988,7 +1990,7 @@ export interface HyveonApi {
   env: HyveonEnvApi;
   /** First-run wizard endpoints: prerequisite detection, credentials, cloud bootstrap. */
   wizard: HyveonWizardApi;
-  /** Drift detection: compares declared (tfvars) config against deployed (tfstate) state. */
+  /** Drift detection: compares declared (deployment config) against deployed (tfstate) state. */
   drift: HyveonDriftApi;
   /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
   diagnostics: HyveonDiagnosticsApi;

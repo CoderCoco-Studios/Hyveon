@@ -165,7 +165,7 @@ function formatTimestamp(iso: string): string {
 
 /**
  * Read-only run-detail route (`/iac/history/:runId`) — shows a single
- * persisted `terraform` run's status and captured log, reusing the live
+ * persisted iac run's status and captured log, reusing the live
  * Plan/Apply page's `AnsiLogViewer`/`ErrorBanner`/`ChangeSummaryStatus`
  * components. Never offers Approve/Apply controls: every record in history
  * describes a finished (terminal) run — a `RunRecord` is only ever

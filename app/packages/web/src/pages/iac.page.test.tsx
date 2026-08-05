@@ -392,7 +392,7 @@ describe('IacPage', () => {
       hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
       hyveonMock.iac.destroy.mockResolvedValue({
         started: false,
-        error: 'terraform destroy refused: apply is already in flight',
+        error: 'pulumi destroy refused: apply is already in flight',
         conflict: 'up',
       });
       renderPage(<IacPage />);

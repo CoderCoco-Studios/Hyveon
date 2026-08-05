@@ -2,8 +2,8 @@ import type { HyveonStreamHandle } from '@hyveon/desktop-preload';
 
 /**
  * Wraps an async generator function so a Vitest `mockImplementation` can back
- * a streaming `window.hyveon` method (`logs.stream`, `terraform.init`,
- * `terraform.runs.streamLogs`) with a {@link HyveonStreamHandle}-shaped
+ * a streaming `window.hyveon` method (`logs.stream`, `iac.stack.initialize`,
+ * `iac.runs.streamLogs`) with a {@link HyveonStreamHandle}-shaped
  * return value — matching what the real preload bridge now returns (see
  * `bridgeStream` in `@hyveon/desktop-preload`'s `preload.ts`) instead of a
  * bare `AsyncGenerator`, which the contextBridge can't clone across the

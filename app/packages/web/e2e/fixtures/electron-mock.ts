@@ -51,8 +51,8 @@ export async function seedDiscordMocks(win: Page, config: DiscordConfigRedacted)
       Promise.resolve({ success: true, config: cfg }),
     );
 
-    // Guild list — split into dynamic (allowedGuilds) and Terraform-base
-    // (baseAllowedGuilds) so the Guilds tab renders the correct table rows.
+    // Guild list — split into dynamic (allowedGuilds) and deployment-config
+    // base (baseAllowedGuilds) so the Guilds tab renders the correct table rows.
     hyveon.__test.mock('discord.listGuilds', () =>
       Promise.resolve({ guilds: cfg.allowedGuilds, baseGuilds: cfg.baseAllowedGuilds }),
     );

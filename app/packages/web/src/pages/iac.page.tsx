@@ -62,7 +62,7 @@ function isApprovalExpired(approvedAt: string, now: number): boolean {
  */
 const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
-/** Live state of a single streamed `terraform` run, backed by `hyveon.iac.runs.streamLogs`. */
+/** Live state of a single streamed iac run, backed by `hyveon.iac.runs.streamLogs`. */
 interface RunLogState {
   chunks: IacRunChunk[];
   /** True once the stream's `for await` loop has completed — the run reached a terminal status (or the run was never attached). */

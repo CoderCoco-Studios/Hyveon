@@ -19,7 +19,7 @@ const PAGE_SIZE = 25;
 /**
  * Audit log route (`/audit`). Fetches the newest {@link PAGE_SIZE} entries on
  * mount, renders them as expandable rows (see {@link AuditEntryRow}) showing
- * the before/after `terraform.tfvars` diff for each mutation, and paginates
+ * the before/after game-server config diff for each mutation, and paginates
  * older entries via a "Load more" button that passes the previous page's
  * `nextBefore` cursor back to `api.audit()`.
  */

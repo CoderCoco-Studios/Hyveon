@@ -1073,7 +1073,7 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform plan refused: apply is already in flight',
+          error: 'plan refused: apply is already in flight',
           conflict: 'apply' as const,
         };
         ipcInvoke.mockResolvedValue(ack);
@@ -1191,7 +1191,7 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform apply refused: plan is already in flight',
+          error: 'pulumi apply refused: plan is already in flight',
           conflict: 'plan' as const,
         };
         ipcInvoke.mockResolvedValue(ack);
@@ -1474,7 +1474,7 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform destroy refused: apply is already in flight',
+          error: 'pulumi destroy refused: apply is already in flight',
           conflict: 'apply' as const,
         };
         ipcInvoke.mockResolvedValue(ack);

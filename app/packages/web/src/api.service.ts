@@ -45,8 +45,8 @@ export interface ActualCosts {
 }
 
 /**
- * Per-game container configuration, keyed by game name in the
- * `game_servers` Terraform variable (`terraform/variables.tf`).
+ * Per-game container configuration, keyed by game name in
+ * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
  *
  * Mirrors `GameServer` in `@hyveon/shared/src/gameServerConfig.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -66,8 +66,8 @@ export interface GameServer {
 
 /**
  * Response entry for the merged games list (the `games.list` IPC channel).
- * Combines the declared view (`terraform.tfvars`, via {@link GameServer})
- * with the deployed view (`terraform.tfstate`) so callers can tell
+ * Combines the declared view (`DeploymentConfig.gameServers`, via
+ * {@link GameServer}) with the deployed view (tfstate) so callers can tell
  * "declared but not yet applied" apart from "live" games — see issue #92.
  *
  * Mirrors `GameListEntry` in `@hyveon/shared/src/gameServerConfig.ts` — that file is
@@ -75,17 +75,17 @@ export interface GameServer {
  */
 export interface GameListEntry {
   /**
-   * Game key. Sourced from the tfvars `game_servers` map key when
+   * Game key. Sourced from the declared `gameServers` map key when
    * `declared` is true, otherwise from the tfstate game name.
    */
   name: string;
-  /** True when this game has an entry in the tfvars `game_servers` map. */
+  /** True when this game has an entry in the declared `gameServers` map. */
   declared: boolean;
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full tfvars-parsed configuration for this game. Only present when
-   * `declared` is true.
+   * Full declared configuration for this game. Only present when `declared`
+   * is true.
    */
   config?: GameServer;
 }
@@ -120,9 +120,9 @@ export interface GameWriteSuccess {
 
 /**
  * The write was rejected because the caller's `expectedVersionId` didn't
- * match the current tfvars file version — someone else edited
- * `terraform.tfvars` since the caller last read it. `currentVersionId` lets
- * the caller re-fetch and retry.
+ * match the deployment config's current S3 object version — someone else
+ * edited the declared configuration since the caller last read it.
+ * `currentVersionId` lets the caller re-fetch and retry.
  *
  * Mirrors `GameWriteConflict` in `@hyveon/shared/src/gamesWrite.ts` — that
  * file is the source of truth; keep this copy in sync with it.
@@ -205,8 +205,8 @@ export type GameWriteResult =
 
 /**
  * Request payload for `games.create`. `expectedVersionId`, when supplied,
- * is checked against the current tfvars file version and a
- * {@link GameWriteConflict} is returned on mismatch.
+ * is checked against the deployment config's current S3 object version and
+ * a {@link GameWriteConflict} is returned on mismatch.
  *
  * Mirrors `CreateGamePayload` in `@hyveon/shared/src/gamesWrite.ts` — that
  * file is the source of truth; keep this copy in sync with it.
@@ -290,9 +290,9 @@ export interface DiscordConfigRedacted {
   allowedGuilds: string[];
   admins: DiscordAdmins;
   gamePermissions: Record<string, DiscordGamePermission>;
-  /** Guild IDs locked in by Terraform — non-removable via the UI. */
+  /** Guild IDs locked in by the deployment config's immutable "base" allowlist — non-removable via the UI. */
   baseAllowedGuilds: string[];
-  /** Admin user/role IDs locked in by Terraform — non-removable via the UI. */
+  /** Admin user/role IDs locked in by the deployment config's immutable "base" allowlist — non-removable via the UI. */
   baseAdmins: DiscordAdmins;
   botTokenSet: boolean;
   publicKeySet: boolean;
@@ -313,8 +313,8 @@ export interface EnvInfo {
 }
 
 /**
- * Category of mismatch between a game's declared (tfvars) and deployed
- * (tfstate) state.
+ * Category of mismatch between a game's declared (deployment config) and
+ * deployed (tfstate) state.
  *
  * Mirrors `DriftKind` in `@hyveon/shared/src/drift.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -323,7 +323,7 @@ export type DriftKind = 'pending_create' | 'pending_delete' | 'config_drift';
 
 /**
  * Name of a top-level game server config field that can differ between the
- * declared (tfvars) and deployed (tfstate) configuration for a
+ * declared (deployment config) and deployed (tfstate) configuration for a
  * `'config_drift'` finding.
  *
  * Mirrors `DriftChangedField` in `@hyveon/shared/src/drift.ts` — that file
@@ -333,7 +333,7 @@ export type DriftChangedField = 'ports' | 'image' | 'cpu' | 'memory' | 'volumes'
 
 /**
  * A single per-game drift finding, produced by comparing a game's declared
- * tfvars configuration against its live tfstate configuration.
+ * configuration against its live tfstate configuration.
  *
  * Mirrors `DriftEntry` in `@hyveon/shared/src/drift.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -358,11 +358,11 @@ export interface DriftReport {
 
 /**
  * The kind of mutation an {@link AuditEntry} records: `add` | `edit` | `remove`
- * for game-server CRUD, `plan` for a dry-run `terraform plan` that touched no
+ * for game-server CRUD, `plan` for a dry-run `pulumi preview` that touched no
  * infrastructure, `approve` for marking a `plan` run approved for a later
- * `apply`, `apply` for a `terraform apply` that mutated infrastructure,
- * `destroy` for a confirmed `terraform destroy`, and `rollback` for restoring
- * a historic tfvars version as a new head.
+ * `apply`, `apply` for a `pulumi up` that mutated infrastructure,
+ * `destroy` for a confirmed `pulumi destroy`, and `rollback` for restoring
+ * a prior deployment config version as a new head.
  *
  * Mirrors `AuditAction` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -379,8 +379,8 @@ export type AuditAction =
 
 /**
  * A single row in the DynamoDB audit log, recording who changed a game
- * server's configuration, what changed, and the resulting `terraform.tfvars`
- * S3 version.
+ * server's configuration, what changed, and the resulting deployment
+ * config S3 object version.
  *
  * Mirrors `AuditEntry` in `@hyveon/shared/src/audit.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -400,7 +400,7 @@ export interface AuditEntry {
   before: GameServer | null;
   /** The game's configuration after the mutation, or `null` for `remove`. */
   after: GameServer | null;
-  /** S3 object version id of `terraform.tfvars` produced by the write, if known. */
+  /** S3 object version id of the deployment config produced by the write, if known. */
   versionId?: string;
 }
 
