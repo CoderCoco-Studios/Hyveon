@@ -1,19 +1,19 @@
 ## 1. Static region data set
 
-- [ ] 1.1 Write `build/generate-aws-regions.mjs`: fetch
+- [x] 1.1 Write `build/generate-aws-regions.mjs`: fetch
       `https://b0.p.awsstatic.com/locations/1.0/aws/current/locations.json`,
       filter to commercial-partition AWS Regions only (exclude Local
       Zones, Wavelength Zones, GovCloud, China), map to
       `{ code, name, continent }`, sort by continent then name.
-- [ ] 1.2 Add `AwsRegionInfo` interface and `AWS_REGIONS: AwsRegionInfo[]`
+- [x] 1.2 Add `AwsRegionInfo` interface and `AWS_REGIONS: AwsRegionInfo[]`
       export to a new `app/packages/shared/src/awsRegions.ts`, written by
       the script from 1.1.
-- [ ] 1.3 Export `AwsRegionInfo` and `AWS_REGIONS` from
+- [x] 1.3 Export `AwsRegionInfo` and `AWS_REGIONS` from
       `app/packages/shared/src/index.ts`.
-- [ ] 1.4 Add a `aws-regions:generate` script to the root `package.json`
+- [x] 1.4 Add a `aws-regions:generate` script to the root `package.json`
       that runs the generator from 1.1 (following the `icons:generate`
       pattern — manually triggered, not part of `app:build`).
-- [ ] 1.5 Run `aws-regions:generate` once to produce the initial
+- [x] 1.5 Run `aws-regions:generate` once to produce the initial
       committed `awsRegions.ts`.
 
 ## 2. Guided-IAM region dropdown
