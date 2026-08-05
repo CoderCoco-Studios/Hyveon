@@ -58,12 +58,13 @@ function buildPlainGameServer(): GameServerConfig {
  * A game server entry with `https` entirely omitted — the third state the
  * field's type (`https?: boolean`) allows alongside explicit `true`/`false`.
  * Per `GameServerConfig`'s (`./gameServerConfig.js`) TSDoc, an absent `https` MUST be
- * read as `false` (Terraform's own `optional(bool, false)` default), never
- * as an unresolved state — this fixture exists to prove that reading holds
- * through a JSON round-trip: the key must come back genuinely absent (not
- * `null`, not coerced to `false`), so a consumer applying the documented
- * "absent means false" rule sees exactly what a hand-edited/legacy tfvars
- * entry without an `https` line would have produced.
+ * read as `false` (the app's original config input's own `optional(bool, false)`
+ * default), never as an unresolved state — this fixture exists to prove that
+ * reading holds through a JSON round-trip: the key must come back genuinely
+ * absent (not `null`, not coerced to `false`), so a consumer applying the
+ * documented "absent means false" rule sees exactly what a hand-edited or
+ * legacy pre-Pulumi config entry without an `https` line would have
+ * produced.
  */
 function buildGameServerWithoutHttps(): GameServerConfig {
   return {

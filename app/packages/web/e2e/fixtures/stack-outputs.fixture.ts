@@ -4,13 +4,13 @@ import type { StackOutputs } from '@hyveon/shared';
  * A synthetic, fully-deployed {@link StackOutputs} value for integration
  * specs to script onto `harness.mocks.pulumi` via `scriptStackOutputs()`.
  *
- * Replaces the deleted `tfstate.fixture.json` (a synthetic
- * `terraform.tfstate`, injected via the now-inert `TF_STATE_PATH` mechanism
- * — see `ipc-harness.ts`'s doc comment) as the source of truth for these
- * values — same region/domain/game names/table names so every spec that
- * asserted against the old fixture's values keeps asserting the same
+ * Replaces the deleted `tfstate.fixture.json` (a synthetic legacy deployed-
+ * state file, injected via a now-removed environment-variable-driven
+ * mechanism — see `ipc-harness.ts`'s doc comment) as the source of truth for
+ * these values — same region/domain/game names/table names so every spec
+ * that asserted against the old fixture's values keeps asserting the same
  * values, just read through `PulumiService.getStackOutputs()`'s stubbed
- * return instead of a parsed tfstate file. Field-for-field mapping notes
+ * return instead of a parsed state file. Field-for-field mapping notes
  * where the two shapes genuinely differ (not just renamed):
  *  - `subnet_ids` was a single comma-joined string (`"subnet-test1234"`);
  *    {@link StackOutputs.subnetIds} is a real array — one element here,
@@ -18,7 +18,7 @@ import type { StackOutputs } from '@hyveon/shared';
  *  - `interactions_invoke_url` was `null` in the old fixture;
  *    {@link StackOutputs.interactionsInvokeUrl} keeps that same `null`.
  *  - `discord_interactions_url` and `applied_game_servers` have no analogue
- *    in the old tfstate fixture (both post-date it) — set to `null` here,
+ *    in the old state fixture (both post-date it) — set to `null` here,
  *    `StackOutputs`'s own documented "absent" value for each.
  */
 export const DEFAULT_STACK_OUTPUTS: StackOutputs = {

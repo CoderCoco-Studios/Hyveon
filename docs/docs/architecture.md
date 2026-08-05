@@ -8,9 +8,12 @@ sidebar_position: 2
 Three loosely-coupled pieces, all sharing types and helpers through a single
 workspace package, `@hyveon/shared`:
 
-1. **`app/packages/infra`** provisions every AWS resource — a Pulumi
-   Automation API program (TypeScript), not a CLI-driven `.tf` tree. There
-   is no `.tf` file anywhere in this repository.
+1. **`app/packages/infra`** provisions the Pulumi-managed application stack —
+   a Pulumi Automation API program (TypeScript), not a CLI-driven, file-based
+   config tree. It is not the *only* way AWS resources reach this account: a
+   one-time IAM bootstrap CloudFormation template and a handful of
+   `BootstrapService` AWS-SDK calls exist outside it — see
+   [Infra program](/components/infra) for the exact boundary.
 2. The **management app** is a packaged Electron desktop app and the local
    control plane. Its React/Vite renderer talks to the Nest.js backend
    (`desktop-main`) over Electron IPC — not HTTP. The backend reads the
@@ -24,9 +27,10 @@ workspace package, `@hyveon/shared`:
    declares `file_seeds` (zero, one, or many instances, never a fixed fifth
    function).
 
-## Why Pulumi, not Terraform
+## Why Pulumi
 
-The project started on Terraform and migrated to Pulumi mid-way through
+The project originally provisioned infrastructure with a CLI-driven,
+HCL-based tool and migrated to Pulumi mid-way through
 (`migrate-iac-to-pulumi`). Three reasons drove it: **multi-cloud
 optionality** — Pulumi's provider model makes a future non-AWS cloud a new
 package alongside `app/packages/infra`, using the same `CloudProvider`
@@ -36,7 +40,7 @@ so there's no state-diffing or code-generation step between the app's own
 types (`DeploymentConfig`, `GameServerConfig`) and the infrastructure that
 consumes them; and **no operator-installed CLI binary** — the Automation API
 lets the app drive Pulumi as a library, with `PulumiEngineService`
-provisioning the pinned engine itself, instead of requiring a `terraform`
+provisioning the pinned engine itself, instead of requiring a separate CLI
 binary on the operator's machine.
 
 There is **no persistent ECS service**. Game servers only exist while a

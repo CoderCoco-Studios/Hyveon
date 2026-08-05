@@ -43,9 +43,5 @@ out/
 # electron-builder packaged artifacts
 release/
 
-# Legacy local marker dir for the now-removed .hyveon/tfvars-bucket lookup —
-# the app resolves the S3 configuration bucket via ElectronStoreService's
-# bootstrap.configurationBucket instead. Kept ignored for any stale local copies.
-.hyveon/
 # legacy pre-rename marker dir — ignored during the .gsd -> .hyveon compat window
 .gsd/

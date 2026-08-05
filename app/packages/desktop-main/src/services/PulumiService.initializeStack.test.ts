@@ -1,6 +1,6 @@
 /**
- * Unit tests for `PulumiService.initializeStack` — the wizard's real
- * replacement for the deleted `terraform init` step, including the
+ * Unit tests for `PulumiService.initializeStack` — the wizard's
+ * stack-initialization step, including the
  * `'engine'`-vs-`'operation'` failure-tag distinction covered by the
  * `should tag an engine-resolution failure as 'engine', not 'operation'`
  * case below.

@@ -1,8 +1,8 @@
 /**
- * VPC / networking resources — ported from `terraform/aws/main.tf`'s
- * `## VPC & Networking` block: the VPC itself, its internet gateway, two
- * public subnets, the shared public route table, and the per-subnet route
- * table associations.
+ * VPC / networking resources — ported from the legacy infrastructure-as-code
+ * tool's `## VPC & Networking` block: the VPC itself, its internet gateway,
+ * two public subnets, the shared public route table, and the per-subnet
+ * route table associations.
  */
 
 import * as aws from '@pulumi/aws';
@@ -16,7 +16,7 @@ export interface NetworkResources {
   internetGateway: aws.ec2.InternetGateway;
   /**
    * The public subnets, in `count.index` order (`aws_subnet.public`).
-   * Always {@link PUBLIC_SUBNET_COUNT} entries — the Terraform module
+   * Always {@link PUBLIC_SUBNET_COUNT} entries — the legacy module
    * hardcodes `count = 2` rather than deriving the count from any
    * configuration input.
    */
@@ -41,32 +41,33 @@ export interface DefineNetworkArgs {
 }
 
 /**
- * Number of public subnets to declare. Mirrors `terraform/aws/main.tf`'s
+ * Number of public subnets to declare. Mirrors the legacy tool's
  * `aws_subnet.public`'s `count = 2` — a hardcoded constant in the HCL, not
- * driven by any Terraform variable, so it stays a hardcoded constant here
- * too rather than becoming a spurious `DeploymentConfig` field.
+ * driven by any configuration variable, so it stays a hardcoded constant
+ * here too rather than becoming a spurious `DeploymentConfig` field.
  */
 const PUBLIC_SUBNET_COUNT = 2;
 
 /**
- * Pure re-implementation of Terraform's built-in `cidrsubnet` function
- * (`cidrsubnet(prefix, newbits, netnum)`) for IPv4 CIDR blocks — reproduces
- * `terraform/aws/main.tf`'s `cidrsubnet(var.vpc_cidr, 8, count.index)` used
- * to derive each public subnet's CIDR from the VPC's CIDR block. Pulumi has
- * no built-in equivalent. `vpcCidr` flows into this program as a plain
- * captured string (`DeploymentConfig`, not `pulumi.Config`), so this runs
- * synchronously in plain JS rather than through `pulumi.Output.apply`.
+ * Pure re-implementation of the legacy infrastructure-as-code tool's
+ * built-in `cidrsubnet` function (`cidrsubnet(prefix, newbits, netnum)`) for
+ * IPv4 CIDR blocks — reproduces the legacy tool's
+ * `cidrsubnet(var.vpc_cidr, 8, count.index)` used to derive each public
+ * subnet's CIDR from the VPC's CIDR block. Pulumi has no built-in
+ * equivalent. `vpcCidr` flows into this program as a plain captured string
+ * (`DeploymentConfig`, not `pulumi.Config`), so this runs synchronously in
+ * plain JS rather than through `pulumi.Output.apply`.
  *
  * Only handles well-formed IPv4 CIDR blocks whose host bits are already
  * zero (true of every `vpcCidr` the app's config validation accepts, and of
- * Terraform's own default `"10.0.0.0/16"`) — the same assumption the HCL's
- * `cidrsubnet` call relies on.
+ * the legacy tool's own default `"10.0.0.0/16"`) — the same assumption the
+ * HCL's `cidrsubnet` call relies on.
  *
  * @param baseCidr - The base IPv4 CIDR block (e.g. `"10.0.0.0/16"`).
  * @param newBits - Additional network bits to carve out (e.g. `8` turns a
  *   `/16` into a `/24`).
  * @param netNum - Which of the resulting `2 ** newBits` subnets to return,
- *   0-indexed — mirrors Terraform's `count.index`.
+ *   0-indexed — mirrors the legacy tool's `count.index`.
  * @returns The resulting subnet CIDR block (e.g. `"10.0.1.0/24"`).
  */
 export function cidrSubnet(baseCidr: string, newBits: number, netNum: number): string {
@@ -91,10 +92,10 @@ export function cidrSubnet(baseCidr: string, newBits: number, netNum: number): s
 
 /**
  * Declares the VPC, internet gateway, public subnets, route table, and
- * route-table associations — the full `## VPC & Networking` section of
- * `terraform/aws/main.tf`. Must be called from inside the Pulumi
- * inline-program closure (see `program.ts`'s {@link createInfraProgram}),
- * never at module scope.
+ * route-table associations — the full `## VPC & Networking` section of the
+ * legacy tool's config. Must be called from inside the Pulumi inline-program
+ * closure (see `program.ts`'s {@link createInfraProgram}), never at module
+ * scope.
  *
  * @param args - Naming and provider inputs — see {@link DefineNetworkArgs}.
  * @returns The declared resources — see {@link NetworkResources}.

@@ -167,7 +167,7 @@ function useIacRunLog(runId: string | null): RunLogState {
  * workspace — the raw values `IacController`'s gates emit
  * (`PulumiOperationInFlightError.inFlight`/`RunLockHeldError`), which are the
  * Pulumi Automation API's own operation names (`preview`/`up`) rather than
- * the pre-migration `terraform` CLI subcommand names this type used to carry.
+ * the pre-migration IaC CLI's subcommand names this type used to carry.
  * See {@link CONFLICT_LABELS} for the operator-facing label each maps to.
  */
 type Conflict = 'preview' | 'up' | 'destroy' | 'rollback';

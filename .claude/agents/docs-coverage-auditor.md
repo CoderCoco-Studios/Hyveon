@@ -50,11 +50,8 @@ close.
      applicable: the relevant `defineX()` consumer in `app/packages/infra`, the
      add/edit-game wizard in `@hyveon/web` if the field is operator-editable,
      and `docs/docs/components/infra.md`'s file/resource table if the field
-     changes what gets provisioned. There is no five-file Terraform-variable
-     checklist any more — that mechanism (`terraform/variables.tf` +
-     `terraform/aws/variables.tf` + the `module "cloud"` passthrough +
-     `terraform.tfvars.example` + the components doc) no longer exists; see
-     CLAUDE.md's "Before opening a PR" section for the current list.
+     changes what gets provisioned. See CLAUDE.md's "Deployment-config fields"
+     entry under "Before opening a PR" for the authoritative touchpoint list.
 4. Distinguish a genuine gap from a non-obligation. A refactor with no
    reader-visible consequence needs no docs change — say that explicitly rather
    than manufacturing work.

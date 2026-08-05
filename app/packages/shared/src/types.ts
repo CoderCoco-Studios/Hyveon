@@ -32,8 +32,8 @@ export interface DiscordConfig {
 }
 
 /**
- * Pulumi-managed baseline (historically Terraform-managed) stored in the
- * BASE#discord DynamoDB row.
+ * Pulumi-managed baseline (historically managed by the app's original IaC
+ * tool) stored in the BASE#discord DynamoDB row.
  *
  * These entries form a read-only floor: the management UI can never remove
  * them (only a Pulumi apply can). The effective config seen by `canRun()`

@@ -203,8 +203,8 @@ export interface DefineIamPoliciesArgs {
 
 /**
  * Filters a game-server map down to entries declaring at least one file
- * seed, mirroring `terraform/aws/efs-seeder.tf`'s `local.games_with_seeds`
- * local (`if length(cfg.file_seeds) > 0`) — exactly the games that get a
+ * seed, mirroring the legacy tool's EFS-seeder resource area's
+ * `local.games_with_seeds` local (`if length(cfg.file_seeds) > 0`) — exactly the games that get a
  * per-game EFS-seeder IAM role declared by {@link defineIamRoles} (and, in
  * turn, a policy declared by {@link defineIamPolicies}).
  *
@@ -278,7 +278,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
   const { projectName, gameServers, provider } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
-  // ── ECS task-execution role (main.tf) ─────────────────────────────────────
+  // ── ECS task-execution role ────────────────────────────────────────────────
   const ecsTaskExecutionRole = new aws.iam.Role(
     `${projectName}-task-execution`,
     {
@@ -297,7 +297,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     opts,
   );
 
-  // ── Per-Lambda roles (watchdog.tf, followup.tf, interactions.tf, route53.tf) ─
+  // ── Per-Lambda roles (watchdog, followup, interactions, dns-updater) ──────
   const watchdogLambdaRole = new aws.iam.Role(
     `${projectName}-watchdog-lambda`,
     { name: `${projectName}-watchdog-lambda`, assumeRolePolicy: LAMBDA_ASSUME_ROLE_POLICY },
@@ -322,7 +322,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     opts,
   );
 
-  // ── Per-game EFS-seeder roles (efs-seeder.tf) ─────────────────────────────
+  // ── Per-game EFS-seeder roles ──────────────────────────────────────────────
   const efsSeederRoles: Record<string, aws.iam.Role> = {};
   for (const game of Object.keys(gamesWithFileSeeds(gameServers))) {
     efsSeederRoles[game] = new aws.iam.Role(
@@ -378,7 +378,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
   } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
-  // ── Watchdog Lambda policy (watchdog.tf) — no external ARN dependency ─────
+  // ── Watchdog Lambda policy — no external ARN dependency ───────────────────
   const watchdogLambdaPolicy = new aws.iam.RolePolicy(
     `${projectName}-watchdog-lambda-policy`,
     {
@@ -401,7 +401,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     opts,
   );
 
-  // ── Followup Lambda policy (followup.tf) ──────────────────────────────────
+  // ── Followup Lambda policy ─────────────────────────────────────────────────
   const followupLambdaPolicy = new aws.iam.RolePolicy(
     `${projectName}-followup-lambda-policy`,
     {
@@ -426,7 +426,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     opts,
   );
 
-  // ── Interactions Lambda policy (interactions.tf) ──────────────────────────
+  // ── Interactions Lambda policy ─────────────────────────────────────────────
   const interactionsLambdaPolicy = new aws.iam.RolePolicy(
     `${projectName}-interactions-lambda-policy`,
     {
@@ -445,7 +445,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     opts,
   );
 
-  // ── DNS-updater Lambda policy (route53.tf) ────────────────────────────────
+  // ── DNS-updater Lambda policy ──────────────────────────────────────────────
   const dnsUpdaterLambdaPolicy = new aws.iam.RolePolicy(
     `${projectName}-dns-updater-lambda-policy`,
     {
@@ -469,7 +469,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     opts,
   );
 
-  // ── Per-game EFS-seeder policies (efs-seeder.tf) ──────────────────────────
+  // ── Per-game EFS-seeder policies ───────────────────────────────────────────
   // Iterates `roles.efsSeederRoles` (not a freshly-recomputed
   // `gamesWithFileSeeds`) so the policies declared here can never drift from
   // the roles `defineIamRoles` actually created — see `DefineIamPoliciesArgs`

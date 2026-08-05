@@ -17,8 +17,8 @@
  * it, flapping NFS port 2049 access.
  *
  * Instead, this mirrors what the HCL itself does: `aws_security_group.efs`'s
- * second ingress rule (`main.tf`'s second `dynamic "ingress"` block, gated on
- * `local.games_with_seeds` being non-empty) is a second IN-LINE entry in
+ * second ingress rule (the legacy config's second `dynamic "ingress"` block,
+ * gated on `local.games_with_seeds` being non-empty) is a second IN-LINE entry in
  * the SAME resource's `ingress` array, not a separate resource. Reproducing
  * that in Pulumi means the seeder security group must exist BEFORE `efs`'s
  * `ingress` array is constructed — so {@link defineSecurityGroups} declares
@@ -118,7 +118,7 @@ export interface GamePort {
 
 /**
  * Deduplicated set of container port/protocol pairs across every
- * non-HTTPS game server, mirroring `terraform/aws/main.tf`'s
+ * non-HTTPS game server, mirroring the legacy tool's
  * `local.direct_game_ports` local — a `distinct(flatten(...))` over every
  * game's `ports`, filtered to entries where `https` is falsy. Two games
  * declaring the same port and protocol yield exactly one entry here,
@@ -128,7 +128,7 @@ export interface GamePort {
  * `https` follows the `undefined ≡ false` contract documented on
  * `GameServerConfig.https` (`@hyveon/shared`'s `gameServerConfig.ts`) — a config entry
  * with `https` omitted is treated as non-HTTPS and contributes its ports,
- * matching Terraform's `optional(bool, false)` default and the HCL's
+ * matching the legacy tool's `optional(bool, false)` default and the HCL's
  * `!cfg.https` filter.
  *
  * @param gameServers - The configured game-server map to derive ports from.
@@ -152,7 +152,7 @@ export function dedupedDirectGamePorts(gameServers: Record<string, GameServerCon
 
 /**
  * True when at least one configured game server has `https: true`, mirroring
- * `terraform/aws/main.tf`'s `length(local.https_games) > 0` gate that
+ * the legacy tool's `length(local.https_games) > 0` gate that
  * controls whether the 443/80 Caddy-sidecar ingress rules are declared at
  * all. Follows the same `undefined ≡ false` contract as
  * {@link dedupedDirectGamePorts} (`config.https === true` excludes both
@@ -171,7 +171,7 @@ export function hasHttpsGame(gameServers: Record<string, GameServerConfig>): boo
  * `program.ts`'s {@link createInfraProgram}/`defineAll`), never at module
  * scope.
  *
- * Terraform's `lifecycle { create_before_destroy = true }` on `game_servers`
+ * The legacy tool's `lifecycle { create_before_destroy = true }` on `game_servers`
  * and `file_manager` (NOT present on `efs` — the HCL omits it there) is not
  * replicated as an explicit Pulumi option: Pulumi's own default replacement
  * behaviour already creates a group's replacement before deleting the old
@@ -198,8 +198,8 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
 
   // HTTPS games — public 443/80 for the in-task Caddy sidecar, only declared
   // when at least one HTTPS game exists. Order (443 then 80) mirrors
-  // Terraform's `for_each` over `{ "443" = 443, "80" = 80 }`, which iterates
-  // map keys in sorted order ("443" < "80" lexicographically).
+  // the legacy tool's `for_each` over `{ "443" = 443, "80" = 80 }`, which
+  // iterates map keys in sorted order ("443" < "80" lexicographically).
   if (hasHttpsGame(gameServers)) {
     for (const httpsPort of [443, 80]) {
       gamePortIngress.push({
@@ -253,7 +253,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
-  // ── EFS-seeder security group (efs-seeder.tf) — declared BEFORE `efs`
+  // ── EFS-seeder security group — declared BEFORE `efs`
   // below so its id is in scope for `efs`'s own conditional ingress entry.
   // Same "create_before_destroy" non-replication rationale as the other two
   // groups above (Pulumi's default replacement behaviour already matches

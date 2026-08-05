@@ -1,15 +1,15 @@
 /**
- * DynamoDB tables — ported from `terraform/aws/audit_store.tf`'s
- * `aws_dynamodb_table.audit` and `terraform/aws/discord_store.tf`'s
- * `aws_dynamodb_table.discord`.
+ * DynamoDB tables — ported from the legacy infrastructure-as-code tool's
+ * audit-store resource area (`aws_dynamodb_table.audit`) and Discord-store
+ * resource area (`aws_dynamodb_table.discord`).
  *
  * | Table | This file |
  * | --- | --- |
  * | `aws_dynamodb_table.discord` | {@link DynamoDbResources.discordTable} |
  * | `aws_dynamodb_table.audit` | {@link DynamoDbResources.auditTable} |
  *
- * `aws_dynamodb_table.runs` (`terraform/aws/runs_store.tf`) is deliberately
- * NOT ported here: `RunRecordService`'s approve/apply gates require this
+ * `aws_dynamodb_table.runs` (the legacy tool's runs-store resource area) is
+ * deliberately NOT ported here: `RunRecordService`'s approve/apply gates require this
  * table to exist on the very FIRST plan/apply cycle of a fresh install,
  * before any Pulumi apply has ever succeeded — a table this program
  * provisions can't be relied on that early (see
@@ -113,7 +113,7 @@ function resolveTableName(overrideName: string, projectName: string, suffix: str
  *
  * Every table's Pulumi *logical* name is fixed to `${projectName}-<role>`,
  * deliberately NOT derived from the resolved (possibly operator-overridden)
- * `name:` input: Terraform addressed `aws_dynamodb_table.audit` by a fixed
+ * `name:` input: the legacy tool addressed `aws_dynamodb_table.audit` by a fixed
  * resource address regardless of `var.audit_table_name`, and tying this
  * program's logical name to the same operator-editable value would mean an
  * unrelated table-name edit also changes the resource's Pulumi identity (its
@@ -128,7 +128,7 @@ export function defineDynamoDb(args: DefineDynamoDbArgs): DynamoDbResources {
   const { projectName, auditTableName, provider } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
-  // ── Discord table (discord_store.tf) ──────────────────────────────────────
+  // ── Discord table ──────────────────────────────────────────────────────────
   const discordTable = new aws.dynamodb.Table(
     `${projectName}-discord`,
     {
@@ -147,7 +147,7 @@ export function defineDynamoDb(args: DefineDynamoDbArgs): DynamoDbResources {
     opts,
   );
 
-  // ── Audit table (audit_store.tf) ───────────────────────────────────────────
+  // ── Audit table ─────────────────────────────────────────────────────────────
   const resolvedAuditTableName = resolveTableName(auditTableName, projectName, 'audit');
   const auditTable = new aws.dynamodb.Table(
     `${projectName}-audit`,

@@ -225,42 +225,27 @@ export interface DeploymentConfigRestorer {
 }
 
 /**
- * Pulumi-backed replacement for the deleted `TerraformService.ts`.
+ * Pulumi Automation API service backing the app's infra lifecycle.
  *
- * Provides the typed error classes ported from `TerraformService.ts` (below),
- * {@link getStackOutputs} — the async stack-outputs read replacing
- * `ConfigService.getTfOutputs()` — {@link preview} — the plan-equivalent
- * operation, including the plan-hash computation the apply-time
- * staleness-refusal gate depends on — and the `up`/`destroy`/rollback
- * methods on this same class.
+ * Provides the typed error classes this class's operations throw (below),
+ * {@link getStackOutputs} — the async stack-outputs read — {@link preview} —
+ * the plan-equivalent operation, including the plan-hash computation the
+ * apply-time staleness-refusal gate depends on — and the `up`/`destroy`/
+ * rollback methods on this same class.
  *
  * ## Error-class organization
  *
- * Of `TerraformService.ts`'s 13 error classes: 2 were dropped
- * (`TerraformNotFoundError`, `TerraformInitError` — no Pulumi analogue, since
- * `PulumiEngineService` auto-installs and there is no separate init step); 5
- * were ported byte-for-byte under their original name (`StalePlanError`,
- * `DestroyNotConfirmedError`, `RollbackTargetNotFoundError`,
- * `RollbackNotApplyRunError`, `RollbackVersionMissingError` — each is about
- * S3 config-object versioning or the destroy confirmation-token gate,
- * concepts the engine swap doesn't touch); 1 was renamed
- * (`TerraformPlanHashError` → {@link PulumiPlanHashError} — see that class's
- * own doc comment); 1 was renamed for terminology
- * (`RollbackNoTfvarsVersionError` → {@link RollbackNoConfigVersionError} —
- * "tfvars" is retired as the configuration-store noun, and
- * `RunRecord.tfvarsVersionId` was renamed to `configVersionId` to match, so
- * the field and class names stay aligned); 4 were reshaped and renamed to the
- * `Pulumi*Error` convention because their shape changed with the engine
- * (`TerraformPlanError`/`TerraformApplyError`/`TerraformDestroyError` lost
- * their `exitCode` field — Automation API throws a `CommandError`, not a
- * process exit code — becoming {@link PulumiPreviewError}/
- * {@link PulumiUpError}/{@link PulumiDestroyError}; `TerraformRunPersistError`
- * had its `outcome` union reshaped for Pulumi outcomes, becoming
- * {@link PulumiRunPersistError}); and 1 is new
- * ({@link PulumiPartialApplyError}, for the clean-failure-vs-partial-apply
- * distinction). `PulumiUnrecognizedLockError` (`PulumiLockRecovery.ts`) is
- * the class later dispatches' stale-lock handling uses; it is not
- * duplicated here.
+ * `StalePlanError`, `DestroyNotConfirmedError`, `RollbackTargetNotFoundError`,
+ * `RollbackNotApplyRunError`, and `RollbackVersionMissingError` are each about
+ * S3 config-object versioning or the destroy confirmation-token gate —
+ * concepts independent of which engine runs underneath. The `Pulumi*Error`
+ * classes ({@link PulumiPreviewError}/{@link PulumiUpError}/
+ * {@link PulumiDestroyError}) wrap a `CommandError` from the Automation API
+ * rather than a process exit code. {@link PulumiRunPersistError} carries a
+ * Pulumi-shaped `outcome` union. {@link PulumiPartialApplyError} exists for
+ * the clean-failure-vs-partial-apply distinction. `PulumiUnrecognizedLockError`
+ * (`PulumiLockRecovery.ts`) is the class later dispatches' stale-lock
+ * handling uses; it is not duplicated here.
  *
  * Colocated in this one file (rather than a separate `pulumiServiceErrors.ts`)
  * because every one of them is either thrown by, or describes the outcome
@@ -270,11 +255,11 @@ export interface DeploymentConfigRestorer {
  */
 
 /**
- * Matches a bare, single-segment run identifier — mirrors `TerraformService.ts`'s
- * `RUN_ID_PATTERN` exactly (letters, digits, underscores, hyphens only, no
- * path separators or traversal segments). See that constant's doc comment
- * for the full rationale; unchanged by the engine swap since `runId` is
- * still joined directly into filesystem paths under {@link PulumiService.getRunsDir}.
+ * Matches a bare, single-segment run identifier: letters, digits,
+ * underscores, hyphens only — no path separators or traversal segments.
+ * `runId` is joined directly into filesystem paths under
+ * {@link PulumiService.getRunsDir}, so this guards against path traversal
+ * via a malformed id.
  */
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -307,8 +292,7 @@ const MUTATING_OP_TYPES: ReadonlySet<OpType> = new Set([
 /**
  * How long a token minted by {@link PulumiService.mintDestroyConfirmationToken}
  * stays valid before {@link PulumiService.destroy} rejects it as stale, even
- * if it was never consumed — matches `TerraformService.ts`'s former
- * `DESTROY_CONFIRMATION_TTL_MS` (5 minutes): nothing about the destroy flow
+ * if it was never consumed (5 minutes) — nothing about the destroy flow
  * itself calls for a different window than the renderer's destroy-
  * confirmation modal stays open for.
  */
@@ -372,8 +356,8 @@ const LOCK_CLEAR_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
  *
  * `null` when no token has been minted, or once the most recently minted one
  * has been consumed or superseded by a newer {@link PulumiService.mintDestroyConfirmationToken}
- * call (minting always supersedes — mirrors `TerraformService.ts`'s identical
- * "only the most recently minted token is ever accepted" rule).
+ * call — minting always supersedes, so only the most recently minted token
+ * is ever accepted.
  */
 interface PulumiPendingDestroyConfirmation {
   /** The single-use token the renderer must supply back to {@link PulumiService.destroy}. */
@@ -420,11 +404,9 @@ interface PulumiPendingLockClearConfirmation {
 
 /**
  * A single line of streamed stdout/stderr output from a Pulumi Automation
- * API operation, tagged with the stream it came from. Mirrors
- * `TerraformService.ts`'s `IacRunChunk` exactly — same shape, same
- * role (yielded by `preview`/`up`/`destroy` as the operation produces
- * output, consumed by {@link PulumiService.streamRunOutput}'s subscribers)
- * — renamed for this file's `Pulumi*` convention.
+ * API operation, tagged with the stream it came from — yielded by
+ * `preview`/`up`/`destroy` as the operation produces output, consumed by
+ * {@link PulumiService.streamRunOutput}'s subscribers.
  */
 export interface PulumiRunChunk {
   stream: 'stdout' | 'stderr';
@@ -434,10 +416,8 @@ export interface PulumiRunChunk {
 /**
  * In-memory fan-out buffer for a single in-flight `preview`/`up`/`destroy`
  * run's streamed output, keyed by `runId` in `PulumiService`'s private
- * `activeRuns` map. Mirrors `TerraformService.ts`'s `ActiveRunBuffer`
- * byte-for-byte — see that interface's doc comment for the full contract
- * (populated by {@link PulumiService.recordRunChunk}, consumed by
- * {@link PulumiService.streamRunOutput}).
+ * `activeRuns` map — populated by {@link PulumiService.recordRunChunk},
+ * consumed by {@link PulumiService.streamRunOutput}.
  */
 interface PulumiActiveRunBuffer {
   /** Every chunk streamed so far, in production order — replayed in full to a new subscriber before it starts receiving live chunks. */
@@ -453,19 +433,18 @@ interface PulumiActiveRunBuffer {
 /**
  * Outcome of a successful {@link PulumiService.preview} run, resolved via
  * the async generator's return value once `stack.preview()` settles and the
- * run wasn't aborted. Mirrors `TerraformService.ts`'s `TerraformPlanResult`,
- * reshaped for the engine swap:
- *  - `varFilePath` is dropped — the Pulumi inline program takes the
- *    deployment config as an in-memory object (see {@link PulumiService.preview}),
- *    so there is no separate pulled-var-file artifact on disk to point at.
- *  - `add`/`change`/`destroy` (three counts scraped from Terraform's
- *    human-readable summary line) become the single structured
- *    {@link ChangeSummary} the design doc's "Structured summaries, not
- *    scraped stdout" decision requires.
- *  - `engineVersion` is new: the engine version stamped into the saved plan
- *    artifact's own `manifest.version` field — see
- *    {@link PulumiService.preview}'s doc comment, "Engine-version stamping",
- *    for why this is a separate field rather than folded into `planHash`.
+ * run wasn't aborted.
+ *
+ * The Pulumi inline program takes the deployment config as an in-memory
+ * object (see {@link PulumiService.preview}), so there is no separate
+ * pulled-var-file artifact on disk to point at. Resource changes are
+ * reported as the single structured {@link ChangeSummary} the design doc's
+ * "Structured summaries, not scraped stdout" decision requires, rather than
+ * counts scraped from a human-readable summary line. `engineVersion` is the
+ * engine version stamped into the saved plan artifact's own
+ * `manifest.version` field — see {@link PulumiService.preview}'s doc
+ * comment, "Engine-version stamping", for why this is a separate field
+ * rather than folded into `planHash`.
  */
 export interface PulumiPreviewResult {
   /** The `runId` minted for this run — the parent directory (`<runsDir>/<runId>/`) of {@link artifactPath}. */
@@ -503,8 +482,7 @@ export interface PulumiPreviewResult {
  * Describes what {@link PulumiService.preview} was about to return/throw the
  * moment its operation settled — captured before the run record is
  * persisted so a persistence failure (see {@link PulumiRunPersistError})
- * doesn't discard the real outcome. Mirrors `TerraformService.ts`'s
- * `TerraformPlanOutcome`.
+ * doesn't discard the real outcome.
  */
 export type PulumiPreviewOutcome =
   | { kind: 'success'; result: PulumiPreviewResult }
@@ -515,11 +493,11 @@ export type PulumiPreviewOutcome =
  * Persisted to `<runsDir>/<runId>/run.json` once a {@link PulumiService.preview}
  * (and, later, `up`/`destroy`) run has settled — the local run-history
  * counterpart to the DynamoDB write {@link PulumiService.persistRunRecord}
- * makes through {@link RunRecordPersister}. Mirrors `TerraformService.ts`'s
- * `IacRunRecord` field-for-field, plus `changeSummary`/`engineVersion`.
- * `kind` reuses the SAME `RunKind` union (`'plan'`/`'apply'`/`'destroy'`)
- * `IacRunRecord` used — this vocabulary was deliberately not renamed,
- * so a Pulumi `preview` run is still recorded as a `'plan'` kind.
+ * makes through {@link RunRecordPersister}. Field-for-field with
+ * `IacRunRecord` (the preload-exposed shape this mirrors), plus
+ * `changeSummary`/`engineVersion`. `kind` reuses the same `RunKind` union
+ * (`'plan'`/`'apply'`/`'destroy'`) `IacRunRecord` uses, so a Pulumi
+ * `preview` run is still recorded as a `'plan'` kind.
  */
 export interface PulumiRunRecord {
   /** The `runId` this record describes — matches the directory it's written into. */
@@ -650,17 +628,16 @@ export type PulumiDestroyOutcome =
   | { kind: 'failed'; error: PulumiDestroyError | PulumiUnrecognizedLockError };
 
 /**
- * Pulumi-backed service replacing `TerraformService.ts` — see this file's
- * top-level doc comment (above) for the full picture: the ported error
- * classes, {@link getStackOutputs}, and {@link preview}.
+ * Pulumi-backed service — see this file's top-level doc comment (above) for
+ * the full picture: the error classes, {@link getStackOutputs}, and
+ * {@link preview}.
  */
 @Injectable()
 export class PulumiService {
   /**
    * Name of whichever operation (`preview`, `up`, `destroy`, or
    * `rollback`) is actively running against the shared Pulumi workspace
-   * directory, or `null` when none is. Mirrors `TerraformService.ts`'s
-   * `workspaceInFlight` guard: every operation reuses the SAME
+   * directory, or `null` when none is. Every operation reuses the SAME
    * `workDir`/`Pulumi.<stack>.yaml` (`PulumiWorkspaceService.getWorkspaceRoot`'s
    * doc comment: "one stable directory per stack, reused across
    * operations"), so two concurrent operations against this one
@@ -684,8 +661,8 @@ export class PulumiService {
 
   /**
    * Fan-out buffers for every currently in-flight `preview`/`up`/`destroy`
-   * run, keyed by `runId`. Mirrors `TerraformService.ts`'s `activeRuns` —
-   * see {@link PulumiActiveRunBuffer}'s doc comment for the full contract.
+   * run, keyed by `runId` — see {@link PulumiActiveRunBuffer}'s doc comment
+   * for the full contract.
    */
   private readonly activeRuns = new Map<string, PulumiActiveRunBuffer>();
 
@@ -693,8 +670,6 @@ export class PulumiService {
    * The most recently minted destroy-confirmation token, its expiry, and its
    * bound target — see {@link PulumiPendingDestroyConfirmation}'s doc comment
    * for the full contract, including the target-binding design.
-   * Mirrors `TerraformService.ts`'s `pendingDestroyConfirmation`
-   * field exactly, extended with the target fields that field never carried.
    */
   private pendingDestroyConfirmation: PulumiPendingDestroyConfirmation | null = null;
 
@@ -736,9 +711,8 @@ export class PulumiService {
   ) {}
 
   /**
-   * Read-only accessor for {@link operationInFlight}, mirroring
-   * `TerraformService.getWorkspaceInFlight()`'s exact contract and return
-   * type so callers' pre-flight busy checks keep working unchanged.
+   * Read-only accessor for {@link operationInFlight}, for callers'
+   * pre-flight busy checks.
    *
    * Deliberately just a getter — no behavior change to {@link operationInFlight}
    * itself, and no new way to observe or influence it beyond what every
@@ -846,11 +820,10 @@ export class PulumiService {
    * error is a separate, independent choice made at each call site: `preview`'s
    * `persistRunRecord` wraps this call in a try/catch that treats ANY
    * failure of the run-history side-write (a missing token included) as
-   * best-effort and logs+swallows it, mirroring `TerraformService.persistRunRecord`'s
-   * pre-existing "never throws" contract for that specific write — that is
-   * `persistRunRecord`'s own deliberate policy about what "run-history
-   * persistence failed" means for an otherwise-successful preview, not a
-   * difference in what this method itself does on failure.
+   * best-effort and logs+swallows it — that is `persistRunRecord`'s own
+   * deliberate "never throws" policy about what "run-history persistence
+   * failed" means for an otherwise-successful preview, not a difference in
+   * what this method itself does on failure.
    */
   private getRunRecordPersister(): RunRecordPersister {
     try {
@@ -957,21 +930,17 @@ export class PulumiService {
   }
 
   /**
-   * Reads every value the app cares about off the deployed Pulumi stack,
-   * replacing `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`.
-   * Returns `null` — NEVER throws, full stop — mirroring the old
-   * `getTfOutputs()`'s exact contract: that method had three separate
-   * catch-alls (`ConfigService.ts`'s old `getTfOutputs()`) that swallowed
-   * every failure — a missing file, unparseable JSON, a thrown projection
-   * error — and returned `null`/logged rather than ever propagating. Every
-   * one of the ~14 call sites that use `getStackOutputs()`
-   * was written against that never-throw contract (several inside `finally`
-   * blocks, or ahead of code that must not be skipped by an unhandled
-   * rejection — e.g. `RunService.releaseRun`'s lock release, or
-   * `AuditService.record`'s documented "never throws" promise), so this
-   * method restores it in full: see the catch-all around the Pulumi call
-   * below. See `StackOutputs`'s own doc comment for the "not deployed yet"
-   * framing this degrades to.
+   * Reads every value the app cares about off the deployed Pulumi stack.
+   * Returns `null` — NEVER throws, full stop. Every one of the ~14 call
+   * sites that use `getStackOutputs()` is written against that never-throw
+   * contract (several inside `finally` blocks, or ahead of code that must
+   * not be skipped by an unhandled rejection — e.g. `RunService.releaseRun`'s
+   * lock release, or `AuditService.record`'s documented "never throws"
+   * promise): see the catch-all around the Pulumi call below, which
+   * swallows every failure — a missing file, unparseable JSON, a thrown
+   * projection error — and returns `null`/logs rather than ever
+   * propagating. See `StackOutputs`'s own doc comment for the "not deployed
+   * yet" framing this degrades to.
    *
    * ## Concurrency guard
    *
@@ -1032,9 +1001,8 @@ export class PulumiService {
    * catch-all: ANY failure from either call — `PulumiBackendNotBootstrappedError`,
    * `PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`,
    * engine-resolution failures, or a `CommandError` from the underlying
-   * `pulumi stack output` invocation — is logged and degraded to `null`,
-   * exactly like `getTfOutputs()`'s old catch-alls. This is a deliberate,
-   * blunt restoration of the old contract rather than a nuanced per-error
+   * `pulumi stack output` invocation — is logged and degraded to `null`.
+   * This is a deliberate, blunt catch-all rather than a nuanced per-error
    * classification: callers cannot tell "genuinely not deployed" apart from
    * "deployed, but this read failed" from the return value alone, which is
    * an acceptable trade against the alternative (an unhandled rejection
@@ -1058,9 +1026,8 @@ export class PulumiService {
    *
    * A stack that exists but has never had a successful `up()` (e.g. only
    * `preview()` has ever run) reports `stack.outputs()` as `{}` — treated as
-   * "not deployed" here too, mirroring `projectTfOutputs`'s identical
-   * "empty outputs map = infra not yet deployed" rule for
-   * `terraform.tfstate`.
+   * "not deployed" here too: an empty outputs map means infra isn't yet
+   * deployed.
    */
   async getStackOutputs(): Promise<StackOutputs | null> {
     if (this.stackInitInFlight || this.operationInFlight) {
@@ -1096,9 +1063,9 @@ export class PulumiService {
       });
       outputs = await stack.outputs();
     } catch (err) {
-      // Restores the old `getTfOutputs()`'s never-throw contract in full — see this
-      // method's doc comment for why every kind of failure here (not just a
-      // missing backend) degrades to `null` rather than propagating.
+      // See this method's doc comment for why every kind of failure here
+      // (not just a missing backend) degrades to `null` rather than
+      // propagating — the never-throw contract every call site relies on.
       logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
         err,
       });
@@ -1115,14 +1082,12 @@ export class PulumiService {
 
   /**
    * Projects a raw Automation API {@link OutputMap} into {@link StackOutputs}.
-   * Unlike the retired `projectTfOutputs` (which mapped `snake_case`
-   * Terraform output keys onto new `camelCase` field names), NO key
-   * translation happens here: `@hyveon/infra`'s `buildStackOutputs` (task
-   * 3.11) already returns an object keyed by the exact `StackOutputs` field
-   * names, and the Automation API registers whatever the program returns
-   * as-is as the stack's output keys — so `outputs[key].value` reads
-   * directly for every field. Per-field fallbacks mirror `projectTfOutputs`'s
-   * defaults for a key that's absent (e.g. state predates that output).
+   * NO key translation happens here: `@hyveon/infra`'s `buildStackOutputs`
+   * already returns an object keyed by the exact `StackOutputs` field names,
+   * and the Automation API registers whatever the program returns as-is as
+   * the stack's output keys — so `outputs[key].value` reads directly for
+   * every field. Per-field fallbacks apply the field's default for a key
+   * that's absent (e.g. state predates that output).
    */
   private static projectStackOutputs(outputs: OutputMap): StackOutputs {
     const get = <T>(key: keyof StackOutputs, fallback: T): T =>
@@ -1153,10 +1118,9 @@ export class PulumiService {
   }
 
   /**
-   * The real replacement for the deleted `terraform init` wizard
-   * step (`IacController.init` is a permanent, documented-dead rejection
-   * stub — see that method's own TSDoc for the full
-   * history). Initializes — or, on a retry, re-verifies — the one Pulumi
+   * The wizard's stack-initialization step (`IacController.init` is a
+   * permanent, documented-dead rejection stub — see that method's own
+   * TSDoc for the full history). Initializes — or, on a retry, re-verifies — the one Pulumi
    * stack this app manages end to end: resolves the engine, constructs (or
    * selects) the Automation API workspace/stack against the operator's S3
    * backend via {@link PulumiWorkspaceService.getOrCreateStack} (generating
@@ -1527,13 +1491,11 @@ export class PulumiService {
    * Runs `pulumi preview` against the current deployment configuration,
    * yielding a {@link PulumiRunChunk} per line of stdout/stderr as the
    * operation produces it, and resolving to a {@link PulumiPreviewResult}
-   * once it settles — replacing `TerraformService.plan()`. Ports that
-   * method's generator shape (positional args, `runId`/`startedAt` hoisted
-   * above the `try` so a force-closed generator's outer `finally` can still
-   * persist a cancelled record, `workspaceInFlight`-equivalent guard,
+   * once it settles. A generator (positional args, `runId`/`startedAt`
+   * hoisted above the `try` so a force-closed generator's outer `finally`
+   * can still persist a cancelled record, an operation-in-flight guard,
    * `beginActiveRun` registered before the pre-spawn awaits so an early
-   * `streamRunOutput` subscriber never falls through to "unknown run") —
-   * see `TerraformService.plan`'s own TSDoc for the shape this mirrors.
+   * `streamRunOutput` subscriber never falls through to "unknown run").
    *
    * ## This method is a thin lock-owning wrapper around {@link previewCore}
    *
@@ -1641,7 +1603,7 @@ export class PulumiService {
    * the returned result — see {@link ChangeSummary}'s doc comment for the
    * `{}`-means-"summary missed" sharp edge every reader must respect.
    *
-   * ## Chunk streaming (ported from `TerraformService.spawnAndStream`)
+   * ## Chunk streaming (ported from `spawnAndStream`'s algorithm)
    *
    * `onOutput`/`onError` deliver **unbounded chunks, not lines** — the exact same shape
    * `spawnAndStream`'s `child.stdout`/`.stderr` `'data'` handlers received.
@@ -1683,15 +1645,12 @@ export class PulumiService {
    * so a torn-down consumer can never leave the CLI subprocess (and the
    * shared workspace directory it's still writing to) running unsupervised
    * while this instance reports itself free for a new operation — see the
-   * outer `finally`'s own comment for the full rationale and why this
-   * mirrors `TerraformService.plan()`'s inner `stream.return({ aborted: true })`
-   * call.
+   * outer `finally`'s own comment for the full rationale.
    *
    * ## Persistence
    *
-   * Once the operation settles (success, failure, or abort), this method —
-   * mirroring `TerraformService.plan` exactly — writes the accumulated
-   * transcript (`writeRunLog`), settles the active-run buffer
+   * Once the operation settles (success, failure, or abort), this method
+   * writes the accumulated transcript (`writeRunLog`), settles the active-run buffer
    * (`endActiveRun`), writes the local `<runsDir>/<runId>/run.json`
    * (`writeRunRecord`), and persists the same record to the cloud-agnostic
    * run-history store (`persistRunRecord`, via {@link RunRecordPersister}) —
@@ -1704,15 +1663,12 @@ export class PulumiService {
    *   this preview is expected to run against, if the caller has one (e.g.
    *   re-running a preview after a prior stale one). When supplied and it no
    *   longer matches the configuration object's current head version, throws
-   *   before any Pulumi call is made — mirrors `TerraformService.pullVarFile`'s
-   *   identical inline staleness check (using this codebase's
-   *   "configuration object" noun), and is unrelated to {@link planHash}'s
-   *   hash mechanism, which always covers whatever version id was actually
-   *   observed. Ignored entirely when omitted — there is no prior expectation
-   *   to compare against.
+   *   before any Pulumi call is made — an inline staleness check unrelated
+   *   to {@link planHash}'s hash mechanism, which always covers whatever
+   *   version id was actually observed. Ignored entirely when omitted —
+   *   there is no prior expectation to compare against.
    * @param signal - Optional cancellation signal — see "Cancellation" above.
-   * @param preMintedRunId - Optional caller-minted `runId` (mirrors
-   *   `TerraformService.plan`'s identically-named parameter) — must match
+   * @param preMintedRunId - Optional caller-minted `runId` — must match
    *   {@link RUN_ID_PATTERN}.
    * @param rolledBackFrom - The `runId` of the `apply` run this preview is
    *   re-planning after a rollback — passed
@@ -1724,10 +1680,7 @@ export class PulumiService {
    *   (its first `.next()` call), before any `await`; note this is NOT the
    *   same as "synchronously from the `preview(...)` call itself" — like any
    *   async generator, calling `preview(...)` only constructs the generator
-   *   object and runs none of this method's body until iteration begins
-   *   (mirrors a pre-existing imprecision in `TerraformService.plan`'s own
-   *   equivalent doc, fixed here since this method's doc was being rewritten
-   *   anyway).
+   *   object and runs none of this method's body until iteration begins.
    * @throws A descriptive `Error` if no configuration bucket is configured,
    *   the configuration object doesn't exist, or `configVersionId` is stale
    *   (see above).
@@ -1795,34 +1748,29 @@ export class PulumiService {
     preMintedRunId?: string,
     rolledBackFrom?: string,
   ): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult | undefined> {
-    // Hoisted above the try block — mirrors TerraformService.plan()'s
-    // identical hoist: a force-closed generator (consumer break/.return()/
-    // .throw()) unwinds straight from `yield chunk` below, past the
-    // writeRunRecord call further down, to the outer finally, which needs
-    // to see these.
+    // Hoisted above the try block: a force-closed generator (consumer
+    // break/.return()/.throw()) unwinds straight from `yield chunk` below,
+    // past the writeRunRecord call further down, to the outer finally,
+    // which needs to see these.
     let runId: string | undefined;
     let startedAt: string | undefined;
     let runRecordWritten = false;
     // Accumulates every yielded chunk's `line` so the full transcript can be
     // written to `<runsDir>/<runId>/pulumi.log` in a single `writeFileSync`
-    // once the operation has settled — mirrors TerraformService.plan()'s
-    // `logLines`.
+    // once the operation has settled.
     const logLines: string[] = [];
     // `internalController`/`operationPromise`/`operationSettled` are hoisted
     // (not declared inside the try block) so the outer `finally` can abort
     // AND await a still-running `stack.preview()` call if this generator is
     // force-closed (consumer `break`/`.return()`/`.throw()`) while the
     // operation is in flight — see the outer `finally`'s own comment for why
-    // this is required, not optional: `TerraformService.plan()`'s equivalent
-    // safety net is its inner `try/finally` around the drive loop, whose
-    // `finally` calls `stream.return({ aborted: true })` to force
-    // `spawnAndStream`'s OWN finally to run (kill the child, then await its
-    // `close` event) before this generator's own outer finally proceeds to
-    // clear `workspaceInFlight`. This generator has no inner sub-generator to
-    // delegate that to (the Automation API's `onOutput`/`onError` are plain
-    // callbacks, not a stream this code owns the lifecycle of) — the
-    // `internalController`/`operationPromise` pair below is the equivalent
-    // mechanism, built by hand.
+    // this is required, not optional. This generator has no inner
+    // sub-generator to delegate cancellation to (the Automation API's
+    // `onOutput`/`onError` are plain callbacks, not a stream this code owns
+    // the lifecycle of) — the `internalController`/`operationPromise` pair
+    // below is a hand-built equivalent: on force-close, it aborts the
+    // in-flight `stack.preview()` call and awaits its settlement before this
+    // generator's own outer finally proceeds to clear `operationInFlight`.
     //
     // `internalController` is ALWAYS the signal actually forwarded to
     // `stack.preview()` (via `runWithEscalatingCancellation`) — never the
@@ -1875,8 +1823,7 @@ export class PulumiService {
 
       // Mint (or adopt the pre-minted) runId and register its active-run
       // buffer *here* — before the pre-spawn awaits below (the config
-      // fetch, then `getOrCreateStack`'s engine resolution) — mirrors
-      // TerraformService.plan()'s identical ordering and rationale: a
+      // fetch, then `getOrCreateStack`'s engine resolution) — so a
       // `streamRunOutput()` subscriber that arrives before those awaits
       // settle still finds the run already in flight.
       runId = preMintedRunId ?? randomUUID();
@@ -2157,14 +2104,10 @@ export class PulumiService {
       // still live, letting a new `preview()`/`up()`/`destroy()` call start
       // immediately and race against it on that shared local state — exactly
       // what `operationInFlight`'s own doc comment says this guard exists to
-      // prevent. Mirrors `TerraformService.plan()`'s inner
-      // `stream.return({ aborted: true })` call, which drives
-      // `spawnAndStream`'s own `finally` (kill the child, await its `close`
-      // event) before that generator's outer `finally` proceeds — this
-      // generator has no inner sub-generator to delegate to (the Automation
-      // API's `onOutput`/`onError` are plain callbacks, not a stream), so the
-      // `internalController`/`operationPromise` pair is the hand-built
-      // equivalent. The wait is still BOUNDED, not indefinite:
+      // prevent. This generator has no inner sub-generator to delegate
+      // cancellation to (the Automation API's `onOutput`/`onError` are plain
+      // callbacks, not a stream), so the `internalController`/`operationPromise`
+      // pair is a hand-built equivalent. The wait is still BOUNDED, not indefinite:
       // `runWithEscalatingCancellation` (already wrapping `operationPromise`)
       // gives up waiting on a genuinely wedged operation after its own
       // escalation timeout and settles anyway — see that function's TSDoc.
@@ -2190,10 +2133,9 @@ export class PulumiService {
         // from the function signature) is threaded through here rather than
         // `observedConfigVersionId` (the version this run actually resolved
         // to reading the configuration object) — that variable is
-        // block-scoped inside the `try` above and unreachable here; this
-        // mirrors `TerraformService.plan()`'s identical force-killed
-        // fallback, which threads its own caller-supplied `configVersionId`
-        // through for the same reason.
+        // block-scoped inside the `try` above and unreachable here; the
+        // caller-supplied `configVersionId` is the best available fallback
+        // for this force-killed path.
         try {
           this.writeRunRecord(runId, 'plan', startedAt, completedAt, null, configVersionId, undefined, rolledBackFrom);
         } catch {
@@ -2212,12 +2154,9 @@ export class PulumiService {
   }
 
   /**
-   * Runs `pulumi up` constrained by a previously approved, unexpired plan —
-   * `TerraformService.apply`'s successor, replacing the old
-   * `TerraformController.apply`'s controller-side gate with a
-   * **self-contained** gate this method owns end-to-end (`TerraformController`
-   * split the gate across itself and `TerraformService`; `PulumiService.apply`
-   * does not — there is no `PulumiController` yet, and this method needs none).
+   * Runs `pulumi up` constrained by a previously approved, unexpired plan,
+   * behind a **self-contained** gate this method owns end-to-end — there is
+   * no `PulumiController` yet, and this method needs none.
    *
    * ## The 8-step gate, in the exact order the `iac-plan-apply-page` spec
    * requires ("The gate MUST verify, in order: ...")
@@ -2244,9 +2183,8 @@ export class PulumiService {
    *      against). A mismatch means the configuration has been written
    *      again since the plan was reviewed — throws {@link StalePlanError}
    *      (reused, not reinvented: this is exactly the condition that class
-   *      already exists to describe, byte-for-byte the same shape
-   *      `TerraformService.pullVarFile`'s pre-existing staleness check
-   *      used).
+   *      already exists to describe — the same staleness check
+   *      {@link preview}'s own `configVersionId` guard performs).
    *    - 6b. The on-disk plan artifact is re-hashed
    *      (`computePlanHash(artifactPath, currentConfigVersionId)` — raw
    *      bytes only, never `JSON.parse`d) and compared against
@@ -2285,8 +2223,7 @@ export class PulumiService {
    *    `RunLockHeldError` (`@hyveon/shared`), which this method does not
    *    catch or reclassify — it propagates raw, carrying the winning lock's
    *    detail, for a future controller to map onto an ack shaped like
-   *    `{ started: false, conflict: 'apply' }`, the same way
-   *    `TerraformController.apply` did.
+   *    `{ started: false, conflict: 'apply' }`.
    *
    * ## `operationInFlight` is checked, but never set, before gate step 8
    *
@@ -2313,15 +2250,13 @@ export class PulumiService {
    * atomicity orders them.
    *
    * `initiator` is resolved internally via {@link resolveInitiator}
-   * (`os.userInfo().username`, duplicating `TerraformController.resolveApprover()`'s
-   * identical lookup) rather than taken as a parameter — this method is
-   * self-contained per the ruling above, and there is no controller yet to
-   * resolve it instead.
+   * (`os.userInfo().username`) rather than taken as a parameter — this
+   * method is self-contained per the ruling above, and there is no
+   * controller yet to resolve it instead.
    *
    * `runId` is always `planRunId` itself (never a fresh `randomUUID()`) —
-   * mirrors `TerraformController.apply`'s established precedent ("the
-   * applied plan and its apply run record share the same
-   * `<runsDir>/<runId>/` lineage"): the plan's own `runId` is reused so the
+   * the applied plan and its apply run record share the same
+   * `<runsDir>/<runId>/` lineage: the plan's own `runId` is reused so the
    * plan artifact, the plan's `run.json`, and the apply's `run.json` all
    * live under one `<runsDir>/<planRunId>/` directory, and so `RunLockService.createRun`'s
    * `runId` parameter *is* the atomic reservation key both the gate
@@ -2340,11 +2275,9 @@ export class PulumiService {
    * more check before anything is actually reserved: a re-read of
    * `operationInFlight`, closing the residual TOCTOU gap between the
    * top-of-function check and this point (a `preview`/`destroy` call could
-   * have started and set the field during the `await`s gate steps 1-7 took)
-   * — mirrors `TerraformController.apply`'s own identical post-`createRun`
-   * re-check of `getWorkspaceInFlight()` ("a concurrent plan/init could have
-   * reserved the workspace during that gap; this re-check closes it"). If
-   * that re-check finds the field already set, the durable lock this call
+   * have started and set the field during the `await`s gate steps 1-7 took;
+   * a concurrent plan/init could have reserved the workspace during that
+   * gap, so this re-check closes it). If that re-check finds the field already set, the durable lock this call
    * just won is released (`RunLockService.releaseRun`) and the call is
    * refused — nothing was ever reserved from the operator's point of view
    * (no run record, no active-run buffer), so releasing here is simply
@@ -2563,9 +2496,8 @@ export class PulumiService {
    * record (not re-derived), plus the new `partialApply` indicator. As
    * documented on {@link persistRunRecord}, `RunRecordService.persist`'s own
    * `finally` releases the durable apply lock gate step 8 acquired — no
-   * separate `RunLockService.releaseRun` call is made by this method itself
-   * on that path, mirroring `TerraformService.apply`'s identical reliance on
-   * that release happening one layer down. A gate failure (steps 1-7) never
+   * separate `RunLockService.releaseRun` call is made by this method itself,
+   * relying on that release happening one layer down. A gate failure (steps 1-7) never
    * reaches this point at all — `runId` is only ever assigned after step 8
    * succeeds, so a rejected gate call writes no run record and holds no
    * lock to release.
@@ -2813,10 +2745,9 @@ export class PulumiService {
 
       // Re-check the shared local-workspace guard now that this call has
       // crossed the only genuinely async gap since the top-of-function
-      // check — mirrors `TerraformController.apply`'s identical
-      // post-`createRun` recheck ("a concurrent plan/init could have
-      // reserved the workspace during that gap; this re-check closes it").
-      // This closes the apply-vs-`preview`/`destroy` race that the
+      // check — a concurrent plan/init could have reserved the workspace
+      // during that gap, so this re-check closes it. This closes the
+      // apply-vs-`preview`/`destroy` race that the
       // top-of-function check alone cannot close by itself, since
       // it only reads the field, never sets it — `preview`/`destroy` never touch
       // `RunLockService` at all, so only this in-process flag can order them
@@ -3357,11 +3288,9 @@ export class PulumiService {
       // force-close fallback above, which is gated on `!runRecordWritten`) —
       // and would otherwise leak the durable lock for the full
       // `DEFAULT_LOCK_TTL_MS` (1 hour) with nothing in-app to clear it.
-      // `TerraformController.apply`'s own streaming-loop `finally` has an
-      // identical unconditional `RunService.releaseRun` backstop one layer
-      // up; `apply` is self-contained, so it inherits
-      // that obligation itself rather than leaving it to a controller that
-      // doesn't exist yet. Wrapped in try/catch (matching the re-check's own
+      // `apply` is self-contained, so it owns this unconditional
+      // `RunService.releaseRun` backstop itself rather than leaving it to a
+      // controller that doesn't exist yet. Wrapped in try/catch (matching the re-check's own
       // `releaseRun` call above) even though `RunService.releaseRun` is
       // documented to never throw — defensive, since this method depends on
       // it only through the narrower `RunLockService` interface.
@@ -3386,8 +3315,7 @@ export class PulumiService {
    * target-binding design. Intended to
    * be called the moment the renderer shows its destroy-confirmation modal,
    * so the token's lifetime brackets the window the operator actually has
-   * that modal open — mirrors `TerraformService.mintDestroyConfirmationToken`'s
-   * identical intent.
+   * that modal open.
    *
    * Minting a new token immediately supersedes any previously minted (and not
    * yet consumed) token — only the most recently minted token is ever
@@ -3431,9 +3359,8 @@ export class PulumiService {
    * Runs `pulumi destroy` against the deployed stack, yielding a
    * {@link PulumiRunChunk} per line of stdout/stderr as the operation
    * produces it, and resolving to a {@link PulumiDestroyResult} once it
-   * settles — `TerraformService.destroy`'s successor, gated
-   * behind the SAME confirmation-token mechanism, now genuinely target-bound
-   * (see {@link PulumiPendingDestroyConfirmation}'s doc comment).
+   * settles, gated behind a confirmation-token mechanism that is genuinely
+   * target-bound (see {@link PulumiPendingDestroyConfirmation}'s doc comment).
    *
    * ## No plan-hash gate — the token IS the gate
    *
@@ -3672,8 +3599,8 @@ export class PulumiService {
    *
    * `kind: 'destroy'`, same `writeRunLog`/`endActiveRun`/`writeRunRecord`/
    * `persistRunRecord` sequence `preview`/`apply` use. No `configVersionId`,
-   * `planHash`, or `engineVersion` is recorded — mirrors
-   * `TerraformService.destroy`'s identical `undefined` for all three (there
+   * `planHash`, or `engineVersion` is recorded — all three are left
+   * `undefined` (there
    * is no configuration version or plan artifact this run ran against — see
    * "No-op inline program" above for why this method never even reads the
    * configuration object). `persistRunRecord`'s own `RunRecordService.persist`
@@ -3688,8 +3615,7 @@ export class PulumiService {
    *   for exactly when this is validated relative to the durable lock.
    * @param signal - Optional cancellation signal — see "Cancellation, chunk
    *   streaming, force-close safety net" above.
-   * @param preMintedRunId - Optional caller-minted `runId` (mirrors
-   *   `TerraformService.destroy`'s identically-named parameter) — must match
+   * @param preMintedRunId - Optional caller-minted `runId` — must match
    *   {@link RUN_ID_PATTERN}.
    * @throws {@link PulumiOperationInFlightError} if another `preview`/`up`/
    *   `destroy`/`rollback` is already in flight on this instance (the
@@ -4183,10 +4109,7 @@ export class PulumiService {
   /**
    * Resolves the configuration-object version that was live immediately
    * before the given `apply` run — the target {@link confirmRollback} would
-   * restore. Read-only: performs no write. Ported faithfully from
-   * `TerraformService.ts`'s `resolveRollbackTarget` (renamed
-   * `RollbackNoTfvarsVersionError` → {@link RollbackNoConfigVersionError};
-   * algorithm otherwise unchanged).
+   * restore. Read-only: performs no write.
    * Safe to call twice for the same `applyRunId`: once to preview the
    * rollback target for an operator's confirmation dialog, and again,
    * immediately before the actual restore write, inside
@@ -4333,19 +4256,16 @@ export class PulumiService {
    * bytes as the configuration object's new head version, then runs a plan
    * against that restored version — tagged `rolledBackFrom: applyRunId` —
    * reusing {@link previewCore} directly rather than duplicating its logic.
-   * Replaces `TerraformService.ts`'s `confirmRollback`, which only did the
-   * restore write and left starting the follow-up plan to its caller (the
-   * controller) as a separate, unguarded step.
    *
-   * ## The old `TerraformService` gap this closes
+   * ## Why restore and plan are one guarded unit
    *
-   * `TerraformService.confirmRollback` wrote the restore and returned,
-   * trusting the caller to invoke `plan()` next. Nothing held any lock
-   * across those two calls — a `destroy()` (or a second, racing rollback)
-   * could interleave between them, and if the caller's follow-up `plan()`
+   * A naive implementation could write the restore and return, trusting the
+   * caller to invoke `preview()` next. Nothing would hold any lock across
+   * those two calls — a `destroy()` (or a second, racing rollback)
+   * could interleave between them, and if the caller's follow-up preview
    * call simply never happened (a crashed controller, a dropped IPC
-   * response), the restored configuration was left as the head with no plan
-   * describing it, silently. The `iac-rollback` spec requires closing
+   * response), the restored configuration would be left as the head with no
+   * plan describing it, silently. The `iac-rollback` spec requires closing
    * exactly this gap: "The restore and the
    * plan's creation SHALL be performed as one guarded unit... so no other
    * operation can interleave between the two." This method is that guarded
@@ -4684,10 +4604,7 @@ export class PulumiService {
    * token was minted against — see {@link PulumiPendingDestroyConfirmation}'s
    * doc comment for the full target-binding design. On success, consumes the
    * token (clears {@link pendingDestroyConfirmation}) so it can never be
-   * replayed against a second `destroy()` call. Mirrors
-   * `TerraformService.assertFreshDestroyConfirmation`'s token/expiry checks
-   * exactly, extended with the target-binding comparison that method never
-   * had.
+   * replayed against a second `destroy()` call.
    *
    * Fully synchronous — no `await` anywhere in this method — which is what
    * makes token consumption atomic: two "concurrent" calls (in the
@@ -4697,14 +4614,13 @@ export class PulumiService {
    * `RunService.createRun`'s in-memory compare-and-set. Whichever call's
    * synchronous body runs first observes {@link pendingDestroyConfirmation}
    * as still set and clears it; the second, whenever it runs, observes it
-   * already `null` (or already superseded by a newer mint) and throws. This
-   * property is unchanged from `TerraformService.ts`'s original — adding
-   * two more equality comparisons for target binding before the
-   * same single synchronous clear does not introduce any `await`.
+   * already `null` (or already superseded by a newer mint) and throws. The
+   * two extra equality comparisons for target binding are added before the
+   * same single synchronous clear, so they don't introduce any `await`
+   * either.
    *
    * Does NOT clear {@link pendingDestroyConfirmation} on failure (wrong
-   * token, expired, wrong target) — mirrors `TerraformService.ts`'s identical
-   * behavior: a genuinely correct, still-valid token remains usable by a
+   * token, expired, wrong target) — a genuinely correct, still-valid token remains usable by a
    * subsequent call even if an earlier call supplied a wrong one first (e.g.
    * a stale IPC retry racing a fresh one).
    *
@@ -4820,10 +4736,9 @@ export class PulumiService {
 
   /**
    * Resolves the OS-level identity recorded as {@link RunLock.initiator} for
-   * an apply — duplicates `TerraformController.resolveApprover()`'s
-   * identical `os.userInfo().username` lookup rather than depending on a
-   * controller (none exists yet for Pulumi operations, and {@link apply} is
-   * self-contained — see {@link getConfigurationBucket}'s
+   * an apply — a plain `os.userInfo().username` lookup rather than
+   * depending on a controller (none exists yet for Pulumi operations, and
+   * {@link apply} is self-contained — see {@link getConfigurationBucket}'s
    * doc comment for the established precedent of duplicating a small
    * OS-level accessor rather than adding a dependency this class has no
    * other reason for).
@@ -4921,12 +4836,10 @@ export class PulumiService {
    * {@link preview}'s TSDoc, "Engine-version stamping", for why it's a
    * separate stored field instead.
    *
-   * Public (rather than `private`) — mirrors `TerraformService.computePlanHash`'s
-   * own public visibility — so `apply`'s apply-time re-verification
-   * (mirroring `TerraformController.apply`'s pre-flight re-hash of the
-   * on-disk `.tfplan`) can re-read and re-hash the on-disk artifact directly,
-   * rather than trusting the stored `planHash` alone to prove the artifact
-   * on disk hasn't been swapped or tampered with.
+   * Public (rather than `private`) so `apply`'s gate step 6
+   * apply-time re-verification can re-read and re-hash the on-disk artifact
+   * directly, rather than trusting the stored `planHash` alone to prove the
+   * artifact on disk hasn't been swapped or tampered with.
    *
    * @throws Whatever `readFileSync` throws if `artifactPath` can't be read —
    *   wrapped by {@link preview} into {@link PulumiPlanHashError}.
@@ -4939,16 +4852,14 @@ export class PulumiService {
 
   /**
    * Reads and parses the persisted {@link PulumiRunRecord} for `runId` from
-   * `<runsDir>/<runId>/run.json` (see {@link writeRunRecord}) — ports
-   * `TerraformService.readRunRecord`, the run-detail counterpart to
-   * {@link streamRunOutput}'s output feed. Returns `null` (rather than
-   * throwing) when no `run.json` exists for `runId` yet — e.g. the run is
-   * still in flight and hasn't settled, or `runId` doesn't exist at all.
-   * Callers that need to distinguish "still running" from "unknown run"
-   * should also consult `RunService.getCurrentLock()` (the durable apply
-   * lock) or attempt a live {@link streamRunOutput} subscription —
-   * exactly like `IacRunsController.get()` already does, unchanged by
-   * this port.
+   * `<runsDir>/<runId>/run.json` (see {@link writeRunRecord}) — the
+   * run-detail counterpart to {@link streamRunOutput}'s output feed. Returns
+   * `null` (rather than throwing) when no `run.json` exists for `runId` yet
+   * — e.g. the run is still in flight and hasn't settled, or `runId`
+   * doesn't exist at all. Callers that need to distinguish "still running"
+   * from "unknown run" should also consult `RunService.getCurrentLock()`
+   * (the durable apply lock) or attempt a live {@link streamRunOutput}
+   * subscription — exactly like `IacRunsController.get()` already does.
    *
    * @throws A plain `Error` synchronously if `runId` isn't a bare path
    *   segment matching {@link RUN_ID_PATTERN} (via {@link assertValidRunId}).
@@ -4966,13 +4877,9 @@ export class PulumiService {
    * Reports whether {@link previewCore}'s persisted plan artifact exists on
    * disk for `runId` — `<runsDir>/<runId>/<runId>.plan.json`, the exact path
    * {@link apply}'s gate step 6 re-hashes (see that method's own "Gate
-   * structure" doc section) — ports
-   * `TerraformService.hasPlanArtifact`, adapted from that method's
-   * `.tfplan`-suffixed artifact-path convention to `previewCore`'s own
-   * `.plan.json`-suffixed one (Pulumi's `--save-plan` JSON artifact, not a
-   * Terraform binary plan file). Used by `IacRunsController.get()` to
-   * distinguish a `plan` record that's still applyable from one whose
-   * artifact has since been cleaned up.
+   * structure" doc section; this is Pulumi's `--save-plan` JSON artifact).
+   * Used by `IacRunsController.get()` to distinguish a `plan` record that's
+   * still applyable from one whose artifact has since been cleaned up.
    *
    * @throws A plain `Error` synchronously if `runId` isn't a bare path
    *   segment matching {@link RUN_ID_PATTERN} (via {@link assertValidRunId}).
@@ -4986,12 +4893,10 @@ export class PulumiService {
    * Reduces a {@link PulumiPreviewOutcome} (which carries the full
    * {@link PulumiPreviewResult} on success) to the minimal
    * {@link PulumiOperationOutcome} shape {@link PulumiRunPersistError}
-   * carries — mirrors `TerraformRunPersistError`'s equivalent narrowing
-   * (`TerraformService.plan()` constructs its `TerraformPlanOutcome`
-   * directly as the argument; this method exists because `PulumiPreviewOutcome`
+   * carries — this method exists because `PulumiPreviewOutcome`
    * has richer per-operation shapes than the single cross-operation
    * `PulumiOperationOutcome` union `PulumiRunPersistError` is deliberately
-   * kept to — see that type's own doc comment for why).
+   * kept to — see that type's own doc comment for why.
    */
   private static toOperationOutcome(outcome: PulumiPreviewOutcome): PulumiOperationOutcome {
     switch (outcome.kind) {
@@ -5005,8 +4910,7 @@ export class PulumiService {
   }
 
   /**
-   * Registers a fresh, empty {@link PulumiActiveRunBuffer} for `runId` —
-   * mirrors `TerraformService.beginActiveRun` exactly.
+   * Registers a fresh, empty {@link PulumiActiveRunBuffer} for `runId`.
    */
   private beginActiveRun(runId: string): void {
     this.activeRuns.set(runId, {
@@ -5019,8 +4923,7 @@ export class PulumiService {
 
   /**
    * Appends `chunk` to `runId`'s {@link PulumiActiveRunBuffer} (a no-op if
-   * no buffer is registered) and synchronously notifies every subscriber —
-   * mirrors `TerraformService.recordRunChunk` exactly.
+   * no buffer is registered) and synchronously notifies every subscriber.
    */
   private recordRunChunk(runId: string, chunk: PulumiRunChunk): void {
     const active = this.activeRuns.get(runId);
@@ -5033,8 +4936,7 @@ export class PulumiService {
 
   /**
    * Marks `runId`'s {@link PulumiActiveRunBuffer} as settled and removes it
-   * from {@link activeRuns} — mirrors `TerraformService.endActiveRun`
-   * exactly.
+   * from {@link activeRuns}.
    */
   private endActiveRun(runId: string): void {
     const active = this.activeRuns.get(runId);
@@ -5050,8 +4952,7 @@ export class PulumiService {
   /**
    * Returns the single filesystem path every operation ({@link preview},
    * and later `up`/`destroy`) writes its captured stdout/stderr transcript
-   * to — `<runsDir>/<runId>/pulumi.log`. Mirrors `TerraformService.getRunLogPath`,
-   * renamed from `terraform.log`.
+   * to — `<runsDir>/<runId>/pulumi.log`.
    */
   private getRunLogPath(runId: string): string {
     return join(this.getRunsDir(), runId, 'pulumi.log');
@@ -5059,8 +4960,8 @@ export class PulumiService {
 
   /**
    * Writes `lines` to `<runsDir>/<runId>/pulumi.log` in a single
-   * `writeFileSync` call — mirrors `TerraformService.writeRunLog` exactly,
-   * including its "log a WARN and swallow, never throw" contract.
+   * `writeFileSync` call. Logs a WARN and swallows any failure — never
+   * throws.
    */
   private writeRunLog(runId: string, lines: string[]): void {
     const runDir = join(this.getRunsDir(), runId);
@@ -5077,8 +4978,7 @@ export class PulumiService {
 
   /**
    * Replays a finished run's persisted `pulumi.log` line-by-line as
-   * `stdout`-tagged {@link PulumiRunChunk} values — mirrors
-   * `TerraformService.replayRunLog` exactly, the fallback path
+   * `stdout`-tagged {@link PulumiRunChunk} values — the fallback path
    * {@link streamRunOutput} takes once `runId` is no longer in flight.
    *
    * @throws A plain `Error` when no `pulumi.log` exists for `runId`.
@@ -5102,7 +5002,7 @@ export class PulumiService {
    * Streams a run's output — live if `runId` is still in flight (replaying
    * every chunk buffered so far, then following live chunks until the run
    * settles), or by replaying the persisted `pulumi.log` if it's already
-   * finished. Mirrors `TerraformService.streamRunOutput` exactly.
+   * finished.
    *
    * @throws A plain `Error` (via {@link replayRunLog}) if `runId` is neither
    *   currently in flight nor has a persisted log on disk.
@@ -5167,9 +5067,8 @@ export class PulumiService {
 
   /**
    * Writes a {@link PulumiRunRecord} to `<runsDir>/<runId>/run.json` once a
-   * `preview`/`up`/`destroy` run has settled. Mirrors
-   * `TerraformService.writeRunRecord` exactly, plus the `changeSummary`/
-   * `engineVersion` parameters and `partialApply` (see
+   * `preview`/`up`/`destroy` run has settled, including the
+   * `changeSummary`/`engineVersion` parameters and `partialApply` (see
    * {@link PulumiRunRecord.partialApply}'s doc comment).
    *
    * @throws A descriptive `Error` (wrapping the underlying filesystem error
@@ -5219,9 +5118,8 @@ export class PulumiService {
    * Persists the cloud-agnostic run-history counterpart of
    * {@link writeRunRecord}'s local `run.json` write, via
    * {@link RunRecordPersister} (the real `RunRecordService` singleton,
-   * resolved lazily via {@link getRunRecordPersister}). Mirrors
-   * `TerraformService.persistRunRecord` exactly, including its "best-effort,
-   * never throws, logged and swallowed on failure" contract. As a side
+   * resolved lazily via {@link getRunRecordPersister}). Best-effort: never
+   * throws, logged and swallowed on failure. As a side
    * effect (via `RunRecordService.persist`'s own `finally`), this also
    * releases the durable apply lock {@link apply}'s gate step 8 acquired for
    * `runId` — see that method's TSDoc for why no separate release call is
@@ -5289,18 +5187,16 @@ export class PulumiService {
 
   /**
    * Resolve the absolute path to the directory `preview()` (and later
-   * `up`/`destroy`) writes per-run artifacts into — the SAME
-   * `<runsDir>/<runId>/...` layout `TerraformService`'s `.tfplan`/`terraform.log`/
-   * `run.json` used, just holding a `.plan.json`/`pulumi.log`/`run.json`
-   * trio instead. Duplicates `ConfigService.getRunsDir()`'s exact resolution
+   * `up`/`destroy`) writes per-run artifacts into —
+   * `<runsDir>/<runId>/...`, holding a `.plan.json`/`pulumi.log`/`run.json`
+   * trio. Duplicates `ConfigService.getRunsDir()`'s exact resolution
    * order (env override `RUNS_DIR_PATH`, then `<userData>/runs`, then
    * `<tmpdir>/hyveon-runs`) — see {@link getConfigurationBucket}'s doc
    * comment for why this can't inject `ConfigService` to reuse it directly.
    * Resolving to the SAME path `ConfigService.getRunsDir()` does (identical
    * env var, identical `userData` subdirectory) is deliberate, not
-   * incidental — a future run-history reader keyed only on `runId` must find
-   * a Pulumi run's directory in the same place a Terraform run's directory
-   * would have been.
+   * incidental — a run-history reader keyed only on `runId` must find it
+   * regardless of which service resolved the path.
    */
   private getRunsDir(): string {
     const envOverride = process.env['RUNS_DIR_PATH'];
@@ -5398,8 +5294,7 @@ export class PulumiService {
 
   /**
    * Throws a descriptive `Error` unless `runId` is a bare path segment
-   * matching {@link RUN_ID_PATTERN} — mirrors `TerraformService.assertValidRunId`
-   * exactly.
+   * matching {@link RUN_ID_PATTERN}.
    */
   private static assertValidRunId(runId: string): void {
     if (!RUN_ID_PATTERN.test(runId)) {
@@ -5451,11 +5346,10 @@ export class PulumiStackInitializationError extends Error {
 
 /**
  * Thrown by `PulumiService.preview` when the Automation
- * API's `stack.preview()` call throws. Ports `TerraformPlanError`'s role
- * (thrown when the spawned `terraform plan` process exited non-zero) but
- * reshaped: Automation API failures are a thrown `CommandError` (or a
- * subclass, e.g. `ConcurrentUpdateError`), not a process exit code, so this
- * carries the SDK's own error as `cause` instead of an `exitCode`.
+ * API's `stack.preview()` call throws. Automation API failures are a thrown
+ * `CommandError` (or a subclass, e.g. `ConcurrentUpdateError`), not a
+ * process exit code, so this carries the SDK's own error as `cause` instead
+ * of an `exitCode`.
  */
 export class PulumiPreviewError extends Error {
   constructor(public readonly cause: unknown) {
@@ -5465,11 +5359,10 @@ export class PulumiPreviewError extends Error {
 }
 
 /**
- * Thrown by `TerraformService.apply`'s successor, `PulumiService.apply`,
- * when the Automation API's `stack.up()` call throws and the failure is a
- * clean (non-partial) failure. Ports `TerraformApplyError`'s role, reshaped
- * the same way as {@link PulumiPreviewError} — see its doc comment for why
- * `cause` replaces `exitCode`. Distinct from {@link PulumiPartialApplyError},
+ * Thrown by `PulumiService.apply` when the Automation API's `stack.up()`
+ * call throws and the failure is a clean (non-partial) failure — see
+ * {@link PulumiPreviewError}'s doc comment for why `cause` carries the
+ * underlying failure. Distinct from {@link PulumiPartialApplyError},
  * which is thrown instead when the divergence happened partway
  * through applying resources rather than before any resource was touched.
  */
@@ -5481,10 +5374,9 @@ export class PulumiUpError extends Error {
 }
 
 /**
- * Thrown by `TerraformService.destroy`'s successor,
- * `PulumiService.destroy`, when the Automation API's `stack.destroy()` call
- * throws. Ports `TerraformDestroyError`'s role, reshaped the same way as
- * {@link PulumiPreviewError} — see its doc comment for why `cause` replaces
+ * Thrown by `PulumiService.destroy` when the Automation API's
+ * `stack.destroy()` call throws — see {@link PulumiPreviewError}'s doc
+ * comment for why `cause` carries the underlying failure instead of an
  * `exitCode`.
  */
 export class PulumiDestroyError extends Error {
@@ -5538,10 +5430,10 @@ export interface PulumiPartialApplyStep {
  * least one resource step has already been applied — i.e. the stack is now
  * in a state between its old and new desired states, distinct from a clean
  * failure ({@link PulumiUpError}) where nothing was touched before the
- * divergence. `TerraformService.ts` had no equivalent, since a failed
- * `terraform apply` process's partial-resource-state is only ever visible by
- * re-reading `terraform show`, not surfaced as a distinguishable outcome by
- * the CLI itself.
+ * divergence. The Automation API's `onEvent` stream is what makes this
+ * distinguishable at all: it reports each resource step as it completes, so
+ * a failure partway through is directly observable rather than something a
+ * caller would have to infer by re-reading state afterward.
  *
  * `completedSteps` is populated from whatever `StepEventMetadata` the
  * `onEvent` callback observed before the failure (see
@@ -5567,15 +5459,10 @@ export class PulumiPartialApplyError extends Error {
 }
 
 /**
- * Thrown by `TerraformService.apply`'s successor before spawning the update
+ * Thrown by {@link PulumiService.apply} before spawning the update
  * when the caller supplied a config-object version id (the version the
  * saved plan was generated against) and the S3 configuration object's
- * current head version no longer matches it. Ported from `TerraformService.ts`'s
- * `StalePlanError` with its message text re-termed for Pulumi/config-object
- * nouns ("configuration object" for "tfvars object", "preview()" for
- * "plan()") — the shape (`key`/`bucket`/`expectedVersionId`/`actualVersionId`)
- * and the underlying check (S3 config-object head version) are unchanged,
- * entirely unaffected by the engine swap.
+ * current head version no longer matches it.
  */
 export class StalePlanError extends Error {
   constructor(key: string, bucket: string, expectedVersionId: string, actualVersionId: string | undefined) {
@@ -5590,11 +5477,10 @@ export class StalePlanError extends Error {
 
 /**
  * Thrown by {@link PulumiService.apply}'s gate (step 1) when no run record
- * exists at all for the supplied `planRunId`. None of the 13 error classes
- * ported/reshaped from `TerraformService.ts` cover this
- * case; `RunRecordService`'s own `RunRecordNotFoundError` exists but is
- * scoped to `approveRun`'s call site, not `apply`'s gate, so a distinct
- * class is added here following this file's `Pulumi*Error` house style.
+ * exists at all for the supplied `planRunId`. `RunRecordService`'s own
+ * `RunRecordNotFoundError` exists but is scoped to `approveRun`'s call
+ * site, not `apply`'s gate, so a distinct class is added here following
+ * this file's `Pulumi*Error` house style.
  */
 export class PulumiPlanRunNotFoundError extends Error {
   constructor(public readonly planRunId: string) {
@@ -5713,9 +5599,8 @@ export class PulumiPlanHashMismatchError extends Error {
  * mismatch here can only mean the artifact's own bytes differ from what was
  * hashed at plan time — the file was swapped or modified on disk since the
  * plan was reviewed. Also thrown, wrapping the underlying failure as
- * `cause`, if the artifact can't even be read/hashed. None of the 13
- * classes ported/reshaped from `TerraformService.ts` fit this byte-level
- * tamper-detection case — {@link StalePlanError}'s shape
+ * `cause`, if the artifact can't even be read/hashed. This is a distinct
+ * class from {@link StalePlanError} because its shape
  * (`key`/`bucket`/`expectedVersionId`/`actualVersionId`) describes an S3
  * config-object version mismatch, not an artifact-bytes mismatch, so
  * reusing it here would misdescribe the failure.
@@ -5743,10 +5628,8 @@ export class PulumiPlanArtifactStaleError extends Error {
  * `PulumiEngineService.getResolvedVersion()` — the `iac-plan-apply-page`
  * spec's "Engine upgraded between plan and apply" scenario requires an
  * error that *names the version change*, which is why both versions are
- * carried and included in the message. None of the 13 classes
- * ported/reshaped from `TerraformService.ts` anticipated an engine-version
- * comparison, so a new class is
- * added here following this file's `Pulumi*Error` house style.
+ * carried and included in the message, following this file's
+ * `Pulumi*Error` house style.
  */
 export class PulumiEngineVersionMismatchError extends Error {
   constructor(
@@ -5766,9 +5649,8 @@ export class PulumiEngineVersionMismatchError extends Error {
 /**
  * Thrown by `PulumiService.preview` when the saved plan artifact can't be
  * hashed (or its `manifest.version` read — see {@link PulumiService.readEngineVersionFromPlanArtifact})
- * after a successful `stack.preview()` call. Renamed from
- * `TerraformService.ts`'s `TerraformPlanHashError`. Updated in what it
- * hashes: the saved Pulumi update-plan JSON file, not a `.tfplan` binary.
+ * after a successful `stack.preview()` call. Hashes the saved Pulumi
+ * update-plan JSON file.
  */
 export class PulumiPlanHashError extends Error {
   constructor(
@@ -5799,13 +5681,10 @@ export type PulumiOperationOutcome =
 /**
  * Thrown when persisting a run record (local artifact plus the
  * `RunRecordStore` write) fails after a `preview`/`up`/`destroy` operation
- * has already settled. Ported from `TerraformService.ts`'s
- * `TerraformRunPersistError` and renamed (unlike the "AS-IS" ports above) —
- * its `outcome` field is reshaped to {@link PulumiOperationOutcome} (no
- * `exitCode` to branch on for a Pulumi failure, so `describeOutcome` no
- * longer needs the old `'exitCode' in outcome.error` special case), so it
- * now genuinely describes a Pulumi-specific concept rather than a verbatim
- * port.
+ * has already settled. Its `outcome` field is
+ * {@link PulumiOperationOutcome} — there's no `exitCode` to branch on for a
+ * Pulumi failure, so `describeOutcome` doesn't need a special case for an
+ * `exitCode` property on `outcome.error`.
  */
 export class PulumiRunPersistError extends Error {
   constructor(
@@ -5863,14 +5742,9 @@ export class PulumiPreflightMarkerError extends Error {
 }
 
 /**
- * Thrown by `TerraformService.destroy`'s successor when it's called without
- * a fresh, valid confirmation token. Ported from `TerraformService.ts`'s
- * `DestroyNotConfirmedError` with its message text re-termed for Pulumi
- * nouns ("pulumi destroy" for "terraform destroy",
- * "PulumiService.mintDestroyConfirmationToken()" for the `TerraformService`
- * equivalent) — the confirmation-token gate itself is unaffected by the
- * engine swap; only
- * the mint/consume call sites move.
+ * Thrown by {@link PulumiService.destroy} when it's called without
+ * a fresh, valid confirmation token — call
+ * `PulumiService.mintDestroyConfirmationToken()` first.
  */
 export class DestroyNotConfirmedError extends Error {
   constructor() {
@@ -5900,9 +5774,8 @@ export class LockClearNotConfirmedError extends Error {
 }
 
 /**
- * Thrown by the rollback flow's successor when no run record
- * exists for the given `applyRunId`. Ported byte-for-byte from
- * `TerraformService.ts`'s `RollbackTargetNotFoundError`.
+ * Thrown by the rollback flow when no run record
+ * exists for the given `applyRunId`.
  */
 export class RollbackTargetNotFoundError extends Error {
   constructor(public readonly applyRunId: string) {
@@ -5912,9 +5785,8 @@ export class RollbackTargetNotFoundError extends Error {
 }
 
 /**
- * Thrown by the rollback flow's successor when the run record
- * found for `applyRunId` isn't an `apply` run. Ported byte-for-byte from
- * `TerraformService.ts`'s `RollbackNotApplyRunError`.
+ * Thrown by the rollback flow when the run record
+ * found for `applyRunId` isn't an `apply` run.
  */
 export class RollbackNotApplyRunError extends Error {
   constructor(
@@ -5927,15 +5799,9 @@ export class RollbackNotApplyRunError extends Error {
 }
 
 /**
- * Thrown by the rollback flow's successor when the target apply
+ * Thrown by the rollback flow when the target apply
  * run has no recorded configuration-object version id — there's no version
  * history to roll back against.
- *
- * Renamed from `TerraformService.ts`'s `RollbackNoTfvarsVersionError`:
- * "tfvars" is retired as the noun for the configuration store, including the
- * field this class describes — `RunRecord.configVersionId` (itself renamed
- * from `tfvarsVersionId`) — so the class's name and the field it describes
- * now use consistent terminology.
  */
 export class RollbackNoConfigVersionError extends Error {
   constructor(public readonly applyRunId: string) {
@@ -5945,11 +5811,8 @@ export class RollbackNoConfigVersionError extends Error {
 }
 
 /**
- * Thrown by the rollback flow's successor when the historic
- * configuration version a rollback would restore no longer exists. Ported
- * from `TerraformService.ts`'s `RollbackVersionMissingError` with its
- * message text re-termed for config-object nouns ("configuration version"
- * for "tfvars version") — the shape (`versionId`) is unchanged.
+ * Thrown by the rollback flow when the historic
+ * configuration version a rollback would restore no longer exists.
  */
 export class RollbackVersionMissingError extends Error {
   constructor(public readonly versionId: string) {
@@ -5966,11 +5829,8 @@ export class RollbackVersionMissingError extends Error {
  * object's new head, but the follow-up plan {@link PulumiService.previewCore}
  * runs against it could not be completed — the `iac-rollback` spec's
  * "MUST NOT leave the restored configuration as the head with no plan
- * attached... silently" clause. No `TerraformService.ts` analogue exists:
- * the old rollback flow never ran the follow-up plan itself (see
- * `confirmRollback`'s TSDoc, "The old TerraformService gap this closes"),
- * so this failure mode couldn't previously occur inside a single guarded
- * unit at all.
+ * attached... silently" clause (see `confirmRollback`'s TSDoc, "Why restore
+ * and plan are one guarded unit").
  *
  * This is the "record-and-surface" half of the chosen compensating-
  * semantics strategy (see `confirmRollback`'s TSDoc for why restore-the-
