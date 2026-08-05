@@ -10,5 +10,19 @@
     "typescript-lsp@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "playwright@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-superpowers-paths.js",
+            "statusMessage": "Checking brainstorm/plan output path against routing rule..."
+          }
+        ]
+      }
+    ]
   }
 }

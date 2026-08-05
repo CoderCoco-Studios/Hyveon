@@ -96,6 +96,10 @@ npm run desktop:dev
 npm run desktop:build
 npm run app:start
 
+# One-shot: app:build → desktop:build → app:start. Use this on a fresh
+# clone — the two-step form above needs the workspaces already compiled.
+npm run desktop:run
+
 # Before pushing
 npm run app:lint && npm run app:test && npm run app:build
 ```
@@ -105,6 +109,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | Command | What it does |
 |---|---|
 | `npm run app:build` | Compiles shared → cloud-aws → desktop-main → web TypeScript. |
+| `npm run desktop:run` | `app:build` → `desktop:build` → `app:start` chained as one command. The one-shot way to go from a fresh clone to a running app without hitting `desktop:build`'s "Failed to resolve entry for package @hyveon/shared" (the TypeScript workspaces have to be compiled before electron-vite can bundle main/preload). |
 | `npm run desktop:dev` | `electron-vite dev` run directly from the repo root — HMR on renderer saves, auto-restarts main+preload. Must run with cwd at the repo root: `package.json` there has the `main` field electron-vite's entry-point check requires. |
 | `npm run desktop:build` | electron-vite build — produces `out/main`, `out/preload`, `out/renderer`. |
 | `npm run desktop:package` | Runs `desktop:build` then `electron-builder` to produce a platform installer under `release/`. |
@@ -398,8 +403,8 @@ executes it and CI's e2e job never writes to `docs/static/img/app/`.
 There is no versioned release. "Deploying" = running `npm run app:build:lambdas`,
 then plan/approve/apply from the app's Infrastructure page, and then
 packaging/running the Electron app (`npm run desktop:package`, or
-`npm run app:build && npm run app:start`) from whatever machine holds the
-AWS credentials.
+`npm run desktop:run` to build and launch without producing an installer)
+from whatever machine holds the AWS credentials.
 
 ## Legacy Terraform teardown (one-off)
 
