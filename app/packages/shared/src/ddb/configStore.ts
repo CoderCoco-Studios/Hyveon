@@ -67,8 +67,10 @@ function parseBaseData(raw: unknown): BaseDiscordConfig {
 }
 
 /**
- * Read the Terraform-managed BASE#discord row. Returns an empty base when the
- * row is absent (i.e. all three base Terraform variables are unset).
+ * Read the Pulumi-managed BASE#discord row (historically Terraform-managed).
+ * Returns an empty base when the row is absent (i.e. `baseAllowedGuilds`,
+ * `baseAdminUserIds`, and `baseAdminRoleIds` are all unset on
+ * {@link DeploymentConfig}).
  */
 export async function getBaseDiscordConfig(tableName: string): Promise<BaseDiscordConfig> {
   const resp = await getDocClient().send(
@@ -83,10 +85,10 @@ export async function getBaseDiscordConfig(tableName: string): Promise<BaseDisco
 }
 
 /**
- * Read both the Terraform base row and the app-managed dynamic row, then return
- * their union as the effective config. This is what `canRun()` and the Lambdas
- * should use — it ensures base entries are always enforced even when the dynamic
- * row doesn't list them.
+ * Read both the Pulumi-managed base row and the app-managed dynamic row, then
+ * return their union as the effective config. This is what `canRun()` and
+ * the Lambdas should use — it ensures base entries are always enforced even
+ * when the dynamic row doesn't list them.
  */
 export async function getEffectiveDiscordConfig(tableName: string): Promise<DiscordConfig> {
   const [dynamic, base] = await Promise.all([

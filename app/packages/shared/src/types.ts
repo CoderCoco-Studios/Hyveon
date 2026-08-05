@@ -32,10 +32,11 @@ export interface DiscordConfig {
 }
 
 /**
- * Terraform-managed baseline stored in the BASE#discord DynamoDB row.
+ * Pulumi-managed baseline (historically Terraform-managed) stored in the
+ * BASE#discord DynamoDB row.
  *
  * These entries form a read-only floor: the management UI can never remove
- * them (only `terraform apply` can). The effective config seen by `canRun()`
+ * them (only a Pulumi apply can). The effective config seen by `canRun()`
  * and the Lambdas is the union of this base and the dynamic CONFIG#discord row.
  */
 export interface BaseDiscordConfig {
@@ -49,9 +50,9 @@ export interface RedactedDiscordConfig {
   allowedGuilds: string[];
   admins: DiscordAdmins;
   gamePermissions: Record<string, DiscordGamePermission>;
-  /** Guild IDs locked in by Terraform — shown as non-removable in the UI. */
+  /** Guild IDs locked in by the deploy — shown as non-removable in the UI. */
   baseAllowedGuilds: string[];
-  /** Admin user/role IDs locked in by Terraform — shown as non-removable in the UI. */
+  /** Admin user/role IDs locked in by the deploy — shown as non-removable in the UI. */
   baseAdmins: DiscordAdmins;
   botTokenSet: boolean;
   publicKeySet: boolean;

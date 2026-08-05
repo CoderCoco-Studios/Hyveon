@@ -5,14 +5,16 @@
  * defines the TYPE ONLY — no reading/parsing logic lives here; `PulumiService`
  * owns turning a stack's `outputs` map into a {@link StackOutputs} value.
  *
- * Field inventory: every field mirrors an `output` block in
- * `terraform/aws/outputs.tf` (re-exported unchanged by the root
- * `terraform/outputs.tf`) that the app actually reads today via
+ * Field inventory: every field is an output the app actually reads today via
  * `ConfigService.getStackOutputs()` and its consumers (`EcsService`,
  * `FileManagerService`, `DriftService`, `discord.controller.ts`,
  * `AwsDiscordEventReceiver`) — confirmed by grepping every consumer's field
- * accesses against the full output list. Six declared Terraform outputs are
- * deliberately NOT carried forward because no consumer reads them today:
+ * accesses against the full output list. Each one historically mirrored an
+ * `output` block in the former `terraform/aws/outputs.tf` (re-exported
+ * unchanged by the root `terraform/outputs.tf`); the same field set is now
+ * emitted by the Pulumi program instead (`@hyveon/infra`'s `program.ts`,
+ * `buildStackOutputs`). Six declared Terraform outputs were deliberately NOT
+ * carried forward because no consumer reads them today:
  * `vpc_id`, `task_definitions`, `hosted_zone_id`, `dns_records`,
  * `watchdog_function_name`, and the root-only `tfvars_bucket_name` (whose
  * bucket-naming role the configuration store resolves independently — see
@@ -50,11 +52,10 @@ export interface StackOutputs {
 
   /**
    * Public subnet IDs the game-server and file-manager tasks run in.
-   * Mirrors the `subnet_ids` output — an array here rather than the
+   * Mirrors the `subnet_ids` output — an array here rather than the old
    * Terraform output's comma-joined string, since this is a new canonical
-   * type with no legacy-format constraint (today's consumers, e.g.
-   * `FileManagerService`, split the Terraform string on `,`; a future
-   * `PulumiService` caller reads the array directly instead).
+   * type with no legacy-format constraint: `FileManagerService` and every
+   * other consumer read the array directly, with no `,`-splitting step.
    */
   subnetIds: string[];
 
@@ -141,9 +142,9 @@ export interface StackOutputs {
   /**
    * Custom-domain URL for the Discord interactions endpoint. Mirrors the
    * `discord_interactions_url` output — a second, `discord.<domain>`-rooted
-   * URL alongside {@link interactionsInvokeUrl} (the two overlap in today's
-   * Terraform module; carried forward as-is for consumer parity). `null`
-   * when absent from the stack's outputs.
+   * URL alongside {@link interactionsInvokeUrl} (the two already overlapped
+   * in the retired Terraform module; carried forward as-is for consumer
+   * parity). `null` when absent from the stack's outputs.
    */
   discordInteractionsUrl: string | null;
 

@@ -33,7 +33,7 @@ describe('getBotToken / getPublicKey', () => {
     expect(token).toBe('real-token');
   });
 
-  it('should return null when the secret still holds the Terraform placeholder', async () => {
+  it('should return null when the secret still holds the provisioning placeholder', async () => {
     secrets.on(GetSecretValueCommand).resolves({ SecretString: SECRET_PLACEHOLDER });
     const token = await getBotToken(BOT_ARN);
     expect(token).toBeNull();

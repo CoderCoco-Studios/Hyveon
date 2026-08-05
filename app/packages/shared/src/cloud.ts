@@ -112,8 +112,8 @@ export interface RemoteFileStore {
   /**
    * Retrieves a specific historical version of a file by path, for stores
    * that support object versioning (e.g. a versioned S3 bucket). Used by the
-   * rollback flow (#112) to read a prior tfvars version's bytes before
-   * restoring them as a new head version.
+   * rollback flow (#112) to read a prior configuration version's bytes
+   * before restoring them as a new head version.
    *
    * @param path - The store-relative path of the file to retrieve.
    * @param versionId - The provider-assigned version id to retrieve, as
@@ -231,8 +231,9 @@ export interface AuditLogStore {
 }
 
 /**
- * Cloud-agnostic interface for persisting `terraform` plan/apply/destroy run
- * history and offloading their captured logs. Implementations may target AWS
+ * Cloud-agnostic interface for persisting plan/apply/destroy run history
+ * (see `RunKind`'s doc in `runs.ts` for the retained Terraform-subcommand
+ * vocabulary) and offloading their captured logs. Implementations may target AWS
  * DynamoDB + S3, Azure Table Storage + Blob Storage, GCP Firestore + Cloud
  * Storage, or any other backend — callers depend only on this contract. No
  * `@aws-sdk/*` shapes appear in this interface or its parameter/return
@@ -307,8 +308,8 @@ export interface RunRecordStore {
 
   /**
    * Attempts to atomically acquire the apply lock on behalf of a new run,
-   * guarding against two simultaneous `terraform` plan/apply/destroy
-   * submissions (`RunService.createRun`, desktop-main, #106). Implementations
+   * guarding against two simultaneous plan/apply/destroy submissions
+   * (`RunService.createRun`, desktop-main, #106). Implementations
    * must perform the check-and-set atomically (e.g. a DynamoDB conditional
    * `PutItem` against a single well-known lock item) rather than as a
    * separate `getRunLock` read followed by a write, which would leave a race
