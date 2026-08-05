@@ -47,8 +47,9 @@ export interface DeploymentSettingsValidationIssue {
  * rule below REJECTS a wrong-typed value rather than silently passing it
  * through; see "Type safety" below):
  *  - `hostedZoneName`, `projectName`, `awsRegion`: must be a string when
- *    present, and non-empty. `hostedZoneName` has no Terraform default and
- *    is required in every real deployment (see its own TSDoc on
+ *    present, and non-empty. `hostedZoneName` has no default in
+ *    `DEPLOYMENT_CONFIG_DEFAULTS` and is required in every real
+ *    deployment (see its own TSDoc on
  *    {@link DeploymentConfig}); `projectName`/`awsRegion` do have defaults
  *    but an empty value is never a usable one (resource naming / region
  *    selection).
@@ -134,7 +135,8 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 /**
  * Matches an IPv4 CIDR block: four dot-separated 0-255 octets, a `/`, and a
  * 0-32 prefix length. Deliberately simple (no IPv6 support — `vpcCidr`'s own
- * TSDoc and Terraform default are both IPv4-only) and not exhaustive about
+ * TSDoc and default in `DEPLOYMENT_CONFIG_DEFAULTS` are both
+ * IPv4-only) and not exhaustive about
  * every malformed edge case (e.g. `010.0.0.0/16` with a leading zero passes)
  * — "prevent obviously malformed input", not a full IP-address validator.
  */

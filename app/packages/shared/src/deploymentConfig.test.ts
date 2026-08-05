@@ -192,7 +192,7 @@ describe('DeploymentConfig gameServers https semantics', () => {
 });
 
 describe('DEPLOYMENT_CONFIG_DEFAULTS', () => {
-  it('should match the Terraform variable defaults verbatim', () => {
+  it('should match the documented default values verbatim', () => {
     expect(DEPLOYMENT_CONFIG_DEFAULTS).toEqual({
       projectName: 'hyveon',
       awsRegion: 'us-east-1',
