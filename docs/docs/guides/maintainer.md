@@ -196,7 +196,7 @@ with `StopTask`. Adding `aws_ecs_service` anywhere means you pay for a task
 ### 2. `DeploymentConfig.gameServers` is the single source of truth
 
 It's persisted as the JSON object `deployment-config.json` in the
-operator's S3 configuration bucket, read and written through `TfvarsService`
+operator's S3 configuration bucket, read and written through `DeploymentConfigService`
 (`REMOTE_FILE_STORE`). Every per-game resource — task definition, EFS
 access point, CloudWatch log group, security-group rules, the `GAME_NAMES`
 env var on four Lambdas (interactions, followup, update-dns, watchdog) — is

@@ -18,7 +18,7 @@ The header reads **Welcome to Hyveon**, with a subtitle showing
 | 1 | Choose your cloud | Picks the cloud provider (AWS only, today) |
 | 2 | Provision AWS access | Optionally has Hyveon create and rotate an AWS deploy principal for you via a guided CloudFormation flow, or lets you skip straight to supplying your own credentials |
 | 3 | AWS credentials | Picks an AWS profile, or stores pasted access keys — skipped over automatically if step 2's guided flow already established a credential |
-| 4 | Bootstrap AWS resources | Creates the S3 state bucket, S3 tfvars bucket, and DynamoDB run-history table |
+| 4 | Bootstrap AWS resources | Creates the S3 state bucket, S3 configuration bucket, and DynamoDB run-history table |
 | 5 | Finish setup | Initializes the Pulumi stack against that new backend |
 
 At the bottom of every step: **Back** (disabled on step 1) and **Next**. Step 5
@@ -199,9 +199,9 @@ has no region default to fall back on.
 | Resource | Default name | What it is |
 |---|---|---|
 | State bucket | `hyveon-tfstate` | S3 bucket, versioning enabled, AES256 encryption — Pulumi's self-managed backend reads/writes state here directly; there is no separate lock table (the DIY S3 backend locks via objects in this same bucket) |
-| Tfvars bucket | `hyveon-tfvars` | S3 bucket, versioning enabled, non-current versions expire after 90 days, AES256 encryption |
+| Configuration bucket | `hyveon-config` | S3 bucket, versioning enabled, non-current versions expire after 90 days, AES256 encryption |
 | Run-history table | `hyveon-runs` | DynamoDB table (`pk`/`sk` keys, `status-index` GSI, point-in-time recovery) recording every plan/apply/destroy run — created here, not by Pulumi, so the very first plan/apply cycle of a fresh install has somewhere to record itself before any deploy has ever succeeded. Not name-editable at this step (see below) |
-| Initial configuration | — | Seeds an empty `deployment-config.json` object (empty `gameServers`, no hosted zone) into the Tfvars bucket, idempotently — it writes only if the object is absent, never overwriting an existing one. Without this, a fresh install has no config object yet, so Settings saves, adding a game, and Pulumi previews all fail. Not name-editable; it always targets whatever name is in the Tfvars bucket field above it |
+| Initial configuration | — | Seeds an empty `deployment-config.json` object (empty `gameServers`, no hosted zone) into the Configuration bucket, idempotently — it writes only if the object is absent, never overwriting an existing one. Without this, a fresh install has no config object yet, so Settings saves, adding a game, and Pulumi previews all fail. Not name-editable; it always targets whatever name is in the Configuration bucket field above it |
 
 These are created with the AWS SDK directly — the wizard does not shell out to
 any CLI for this step. The run-history table's name is not operator-editable
@@ -211,7 +211,7 @@ page), so it always uses the project-name default shown above.
 
 Press **Bootstrap AWS resources**. The State bucket and Run-history table are
 created concurrently with the rest. The initial-configuration seed is chained
-after the Tfvars bucket instead — it only starts once that bucket resolves to
+after the Configuration bucket instead — it only starts once that bucket resolves to
 **Created** or **Already exists**, since it writes into it, and its row moves
 straight to **Failed** if the bucket step fails. A failure on one resource
 does not stop the others. Each row's badge moves independently:
