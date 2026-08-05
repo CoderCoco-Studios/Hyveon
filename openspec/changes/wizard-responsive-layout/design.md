@@ -89,6 +89,54 @@ card leaves most of the window empty.
 - **Alternatives considered**: `lg:` (1024px) — rejected, no reason found
   in the existing codebase to diverge from the app-wide precedent.
 
+### D4: Sidebar gated to `mode === 'first-run'` only
+
+- **Choice**: `WizardStepSidebar` renders only when `FirstRunWizard`'s
+  `mode` prop is `'first-run'` (the default). In `'reconfigure'` mode it
+  never renders, at any viewport width; the widened `max-w-xl md:max-w-2xl`
+  content column still applies in both modes.
+- **Rationale**: `FirstRunWizard` is mounted two ways, not one.
+  `app.component.tsx` mounts it full-window for actual first-run, which is
+  what D1-D3 above were designed against. But `settings.page.tsx` also
+  mounts it embedded, with `mode="reconfigure"`, inside
+  `app-layout.component.tsx`'s own `<main>` — and that `<main>` sits next to
+  app-layout's own `hidden md:flex w-60` (240px) sidebar. The sidebar added
+  by this change reacts to a viewport media query (`md:`), not to how much
+  width app-layout's chrome has already consumed, so in reconfigure mode the
+  wizard's own sidebar started competing for space against a sidebar it
+  didn't know existed. The result: reconfigure's content became narrower
+  than before this whole branch at every window width below ~1208px, and
+  visibly broken (card unable to shrink, row overflow) between roughly
+  768-1000px viewport width. This was caught by the final whole-branch code
+  review, not anticipated during design — none of D1-D3 above considered the
+  embedded mount path at all.
+- **Alternatives considered**:
+  - *Container query* (`@container`) instead of a viewport media query —
+    would let the sidebar react to the actual space `FirstRunWizard`'s
+    subtree has available regardless of mount context, correctly handling
+    both call sites without a mode branch. Rejected as more machinery than
+    this fix needs: it requires establishing a containment context up the
+    tree (`app-layout.component.tsx`'s `<main>`) and auditing Tailwind v4's
+    container-query support end to end, for a component that has exactly
+    two call sites, one of which (`'reconfigure'`) was never a target for
+    the sidebar in the first place (see Context: this change was scoped
+    against the full-window first-run surface described in `proposal.md`
+    and the original design above; the embedded Settings mount was an
+    oversight, not a second intended surface).
+  - *Have the sidebar account for the outer chrome's width* (e.g. pass the
+    240px offset down as a prop, or read it from a shared layout constant) —
+    rejected for the same reason: it treats the embedded mount as a surface
+    this feature should adapt to, when the simpler fact is that surface was
+    never supposed to get the sidebar. Threading layout-offset knowledge
+    from `app-layout.component.tsx` into `first-run-wizard.component.tsx`
+    also couples two components that are otherwise independent.
+  - **Chosen**: gate on the existing `mode` prop. `FirstRunWizard` already
+    distinguishes the two mount contexts for other reasons (pre-completed
+    steps, Cancel/buffered-save behavior), so this adds no new prop or
+    coupling — it reuses a distinction the component already makes, and
+    restores reconfigure's pre-branch layout exactly, just with the
+    (harmless, still-correct-in-both-modes) wider content card from D1.
+
 ## Risks / Trade-offs
 
 - [Risk] New layout wrapper could break existing component/e2e specs that

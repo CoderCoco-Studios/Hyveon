@@ -49,4 +49,20 @@ describe('WizardStepSidebar', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
+
+  it('should mark no steps as completed when currentIndex is 0', () => {
+    render(<WizardStepSidebar steps={STEPS} currentIndex={0} labels={LABELS} />);
+
+    for (const stepId of STEPS) {
+      expect(screen.getByText(LABELS[stepId]).closest('li')).not.toHaveAttribute('data-state', 'completed');
+    }
+  });
+
+  it('should mark no steps as upcoming when currentIndex is the last step', () => {
+    render(<WizardStepSidebar steps={STEPS} currentIndex={STEPS.length - 1} labels={LABELS} />);
+
+    for (const stepId of STEPS) {
+      expect(screen.getByText(LABELS[stepId]).closest('li')).not.toHaveAttribute('data-state', 'upcoming');
+    }
+  });
 });

@@ -2,7 +2,8 @@
 
 ### Requirement: Responsive wizard shell layout
 
-The first-run wizard SHALL render a two-region layout at the `md:`
+When the wizard is shown in first-run mode (the full-window mandatory
+first-launch experience), it SHALL render a two-region layout at the `md:`
 breakpoint (768px) and above: a fixed-width step-progress sidebar alongside
 the active step's content, with the content column's maximum width
 increased from 576px to 672px. Below the `md:` breakpoint, the wizard SHALL
@@ -23,8 +24,9 @@ layout, with the sidebar not shown.
 
 ### Requirement: Step progress sidebar
 
-When shown, the step-progress sidebar SHALL list all wizard steps in order
-and indicate, per step, whether it is completed (before the current step),
+The step-progress sidebar is shown only when the wizard is rendered in
+first-run mode. When shown, it SHALL list all wizard steps in order and
+indicate, per step, whether it is completed (before the current step),
 current, or upcoming (after the current step). The sidebar SHALL NOT be
 interactive — it MUST NOT provide a way to navigate directly to a step
 other than through the wizard's existing forward/back controls.
@@ -40,3 +42,9 @@ other than through the wizard's existing forward/back controls.
 - **WHEN** the operator interacts with a step-progress sidebar entry for a
   step other than the current one
 - **THEN** the wizard's current step does not change
+
+#### Scenario: No sidebar in reconfigure mode
+
+- **WHEN** the wizard renders in reconfigure mode (launched from Settings →
+  Reconfigure)
+- **THEN** no step-progress sidebar is shown, regardless of viewport width

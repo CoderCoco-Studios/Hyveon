@@ -4,7 +4,7 @@ import type { WizardStep } from './wizard.utils.js';
 
 /** Props for {@link WizardStepSidebar}. */
 export interface WizardStepSidebarProps {
-  /** Steps in display order, e.g. {@link WIZARD_STEPS}. */
+  /** Steps in display order, e.g. `WIZARD_STEPS`. */
   steps: readonly WizardStep[];
   /** Index into `steps` of the step currently shown. */
   currentIndex: number;

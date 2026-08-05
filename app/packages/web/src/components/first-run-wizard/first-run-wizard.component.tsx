@@ -762,7 +762,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="flex w-full max-w-5xl justify-center gap-6">
-        <WizardStepSidebar steps={steps} currentIndex={stepIndex} labels={STEP_LABELS} />
+        {mode === 'first-run' && <WizardStepSidebar steps={steps} currentIndex={stepIndex} labels={STEP_LABELS} />}
         <div className="w-full max-w-xl md:max-w-2xl rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8 space-y-6">
         <div>
           <h1 className="text-xl font-semibold">{mode === 'reconfigure' ? 'Reconfigure Hyveon' : 'Welcome to Hyveon'}</h1>
