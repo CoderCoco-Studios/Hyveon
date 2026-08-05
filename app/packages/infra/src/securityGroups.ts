@@ -47,6 +47,17 @@
  * `efsSeederSg` carried `egress: [openEgress]` — all protocols/ports to
  * `0.0.0.0/0` — even though the seeder Lambda only ever needs outbound NFS to
  * mount and write to EFS.
+ *
+ * `namePrefix` carries a `-v2-` suffix for the same reason: Pulumi's
+ * `ingress`/`egress` arguments are attributes-as-blocks, so simply omitting
+ * the old `egress: [openEgress]` block from this resource's args does NOT
+ * revoke that rule on a security group deployed before this fix — only an
+ * explicit `egress: []` does, and adding that here would reintroduce the
+ * exact inline/standalone conflict described above against the standalone
+ * NFS-egress rule. Bumping `namePrefix` instead forces Pulumi to replace the
+ * whole security group — the old one (open-egress rule included) is
+ * destroyed and a clean one takes its place, with only the NFS-scoped
+ * standalone rule ever applied to it.
  */
 
 import * as aws from '@pulumi/aws';
@@ -254,7 +265,16 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     ? new aws.ec2.SecurityGroup(
         `${projectName}-efs-seeder-sg`,
         {
-          namePrefix: `${projectName}-efs-seeder-sg-`,
+          // `-v2-`: forces replacement of any `efsSeederSg` deployed before
+          // issue #349's fix. Pulumi's `ingress`/`egress` arguments are
+          // attributes-as-blocks — simply omitting the old `egress:
+          // [openEgress]` block below does NOT revoke that all-protocol
+          // 0.0.0.0/0 rule on an already-deployed security group, so a
+          // forced replacement (old group destroyed, new one created with
+          // only the NFS-scoped standalone rule) is the only way to
+          // actually remove it. See this file's doc, "`efsSeederSg`'s
+          // egress — standalone rule, not inline (issue #349)".
+          namePrefix: `${projectName}-efs-seeder-sg-v2-`,
           description: 'EFS seeder Lambdas — outbound NFS to EFS only',
           vpcId,
           // No inline `egress` here — its one egress rule (NFS to `efsSg`) is
