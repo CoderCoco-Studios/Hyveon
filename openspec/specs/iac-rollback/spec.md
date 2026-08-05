@@ -1,8 +1,8 @@
-# terraform-rollback
+# iac-rollback
 
 ## Purpose
 
-Defines rollback of a Terraform apply: complete (paginated) S3 version history so the correct prior tfvars version can be found, a "Rollback" action in run history that resolves and confirms the target version, restoring that version as a new S3 head and queuing a plan tagged `rolledBackFrom`, routing that plan through the standard approve/apply gates, and failing clearly if the historic version no longer exists.
+Defines rollback of an apply: complete (paginated) S3 version history so the correct prior configuration version can be found, a "Rollback" action in run history that resolves and confirms the target version, restoring that version as a new S3 head and queuing a plan tagged `rolledBackFrom`, routing that plan through the standard approve/apply gates, and failing clearly if the historic version no longer exists.
 
 ## Requirements
 
@@ -22,26 +22,26 @@ Defines rollback of a Terraform apply: complete (paginated) S3 version history s
 
 ### Requirement: Rollback initiation from history
 
-The history view SHALL offer a "Rollback" action on apply runs that recorded a `tfvarsVersionId`. Initiating a rollback MUST resolve the tfvars S3 version that was live before that run (using the complete version listing) and present it to the operator for confirmation before anything is written.
+The history view SHALL offer a "Rollback" action on apply runs that recorded a `configVersionId`. Initiating a rollback MUST resolve the configuration S3 version that was live before that run (using the complete version listing), via `hyveon.iac.rollback.resolve({ applyRunId })`, and present it to the operator for confirmation before anything is written.
 
 #### Scenario: Operator starts a rollback
 
 - **WHEN** the operator clicks "Rollback" on an apply run in history
-- **THEN** the app resolves the prior tfvars version and shows a confirmation identifying the target version before proceeding
+- **THEN** the app resolves the prior configuration version and shows a confirmation identifying the target version before proceeding
 
-#### Scenario: Runs without a tfvars version offer no rollback
+#### Scenario: Runs without a configuration version offer no rollback
 
-- **WHEN** a history row is a run with no recorded `tfvarsVersionId` (or not an apply run)
+- **WHEN** a history row is a run with no recorded `configVersionId` (or not an apply run)
 - **THEN** no Rollback action is offered for that row
 
 ### Requirement: Rollback restores the version and queues a tagged plan
 
-Confirming a rollback SHALL restore the selected historic tfvars version's content as the new head of the tfvars object (a new S3 version — history is never rewritten) and then start a `terraform plan` against that restored version. The resulting plan run's record MUST carry `rolledBackFrom: <applyRunId>` (a new optional `RunRecord` field in `@hyveon/shared/runs.ts`, plumbed through run-record persistence), and the history view MUST display the tag on rollback runs.
+Confirming a rollback, via `hyveon.iac.rollback.confirm({ applyRunId })`, SHALL restore the selected historic configuration version's content as the new head of the configuration object (a new S3 version — history is never rewritten) and then start a plan (`iac.plan`) against that restored version. The resulting plan run's record MUST carry `rolledBackFrom: <applyRunId>` (an optional `RunRecord` field in `@hyveon/shared/runs.ts`, plumbed through run-record persistence), and the history view MUST display the tag on rollback runs.
 
 #### Scenario: Rollback plan is tagged
 
 - **WHEN** the operator confirms a rollback of apply run `R`
-- **THEN** the historic tfvars content is written as the new head version and a plan run starts whose persisted record has `rolledBackFrom: R`, visible as a tag in the history view
+- **THEN** the historic configuration content is written as the new head version and a plan run starts whose persisted record has `rolledBackFrom: R`, visible as a tag in the history view
 
 ### Requirement: Rollback goes through the standard approve and apply gates
 
@@ -54,9 +54,9 @@ A rollback plan SHALL be approved and applied through exactly the same flow as a
 
 ### Requirement: Missing historic version is a clear error
 
-If the historic tfvars version no longer exists (e.g. removed by S3 lifecycle expiry), the rollback SHALL fail before any write occurs, surfacing an error that names the missing version, and MUST leave the current tfvars head untouched.
+If the historic configuration version no longer exists (e.g. removed by S3 lifecycle expiry), the rollback SHALL fail before any write occurs, surfacing an error that names the missing version, and MUST leave the current configuration head untouched.
 
 #### Scenario: Historic version expired
 
 - **WHEN** the operator confirms a rollback whose target version id no longer exists in S3
-- **THEN** the app surfaces an error identifying the missing version, no new tfvars head is written, and no plan run is started
+- **THEN** the app surfaces an error identifying the missing version, no new configuration head is written, and no plan run is started

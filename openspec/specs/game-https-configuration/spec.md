@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Operator-facing configuration of a game's in-task TLS termination — how the `https` flag is presented in the game form, what constraints govern a valid HTTPS-enabled game, what the operator is told before enabling it, and how the value round-trips to the tfvars declaration. The infrastructure the flag drives is specified by `in-task-tls-termination`.
+Operator-facing configuration of a game's in-task TLS termination — how the `https` flag is presented in the game form, what constraints govern a valid HTTPS-enabled game, what the operator is told before enabling it, and how the value round-trips through the deployment-config JSON object. The infrastructure the flag drives is specified by `in-task-tls-termination`.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ The web UI SHALL expose the `https` flag as an editable control in both the add-
 
 ### Requirement: An HTTPS-enabled game must satisfy the Caddy sidecar's port constraints
 
-The shared game-server validator SHALL enforce, for any game whose `https` flag is true, the same four constraints that the Terraform `game_servers` variable validation enforces. Because the validator runs on the IPC and HTTP write surfaces as well as behind the form, these constraints SHALL apply to every write path, not only the UI.
+The shared game-server validator (`gameServerValidator.ts`'s `checkHttpsPortRules`) SHALL enforce, for any game whose `https` flag is true, the following four constraints (mirroring the retired Terraform `game_servers` variable validation this behavior was originally ported from). Because the validator runs on the IPC and HTTP write surfaces as well as behind the form, these constraints SHALL apply to every write path, not only the UI.
 
 The constraints are:
 
@@ -61,7 +61,7 @@ Each violation SHALL be reported with an issue path anchored to the offending po
 #### Scenario: HTTPS game whose first port protocol is uppercase
 
 - **WHEN** a game config sets `https: true` and its first port entry uses protocol `TCP`
-- **THEN** validation fails with an issue pathed at `ports[0]`, because Terraform matches the literal lowercase string
+- **THEN** validation fails with an issue pathed at `ports[0]`, because the validator matches the literal lowercase string
 
 #### Scenario: HTTPS game using a port reserved for the sidecar
 
@@ -83,7 +83,7 @@ Each violation SHALL be reported with an issue path anchored to the offending po
 - **WHEN** a game config sets `https: true` and declares a first port of container 8080 protocol `tcp`
 - **THEN** validation reports no HTTPS-related issues
 
-### Requirement: The form blocks a save that Terraform would reject
+### Requirement: The form blocks a save the shared validator would reject
 
 The game form SHALL surface HTTPS constraint violations as blocking validation issues, disabling the save action while any remain. Issues pathed at a port entry SHALL be attributed to the Networking step so the operator is directed to the control that caused them.
 
@@ -99,7 +99,7 @@ The game form SHALL surface HTTPS constraint violations as blocking validation i
 
 ### Requirement: Operators are warned about the consequences of enabling HTTPS
 
-When the HTTPS control is enabled, the form SHALL display an inline warning callout adjacent to the control. The callout SHALL state all three infrastructure consequences, because none of them are undone by simply disabling the flag after a `terraform apply` has run:
+When the HTTPS control is enabled, the form SHALL display an inline warning callout adjacent to the control. The callout SHALL state all three infrastructure consequences, because none of them are undone by simply disabling the flag after an apply run has provisioned it:
 
 1. ports 443 and 80 become open to the internet for the whole stack, not only for this game;
 2. this game's raw container port loses its public ingress rule, and reaching the game goes through the sidecar;
@@ -115,21 +115,21 @@ When the HTTPS control is enabled, the form SHALL display an inline warning call
 - **WHEN** the HTTPS control is disabled
 - **THEN** no warning callout is rendered
 
-### Requirement: The HTTPS flag round-trips to the tfvars declaration
+### Requirement: The HTTPS flag round-trips through the deployment-config JSON
 
-A game's `https` value SHALL survive the full write path from form submission to the emitted HCL in the remote tfvars object, and SHALL be read back into the form on a subsequent edit.
+A game's `https` value SHALL survive the full write path from form submission to the persisted `GameServerConfig.https` field in the remote deployment-config JSON object (`DeploymentConfigService`), and SHALL be read back into the form on a subsequent edit.
 
 #### Scenario: Enabling HTTPS rewrites the declaration
 
 - **WHEN** a game previously declared without `https` is updated with `https: true`
-- **THEN** the rewritten tfvars entry emits `https = true`
+- **THEN** the rewritten game-server config entry's `https` field is `true`
 
 #### Scenario: Disabling HTTPS rewrites the declaration
 
-- **WHEN** a game declared with `https = true` is updated with `https: false`
-- **THEN** the rewritten tfvars entry emits `https = false` rather than omitting the attribute
+- **WHEN** a game declared with `https: true` is updated with `https: false`
+- **THEN** the rewritten game-server config entry's `https` field is explicitly `false` rather than being omitted
 
 #### Scenario: Unrelated edits preserve the declared value
 
-- **WHEN** a game declared with `https = true` has only its memory value updated
-- **THEN** the rewritten tfvars entry still emits `https = true` and no other attribute is disturbed
+- **WHEN** a game declared with `https: true` has only its memory value updated
+- **THEN** the rewritten game-server config entry's `https` field is still `true` and no other field is disturbed

@@ -90,11 +90,11 @@ The Settings page SHALL surface a "Reconfigure" button that relaunches the wizar
 - **WHEN** the operator cancels Reconfigure partway through
 - **THEN** no partial changes are committed and the app returns to Settings in its prior working state
 
-### Requirement: Resolved Terraform version in Settings
+### Requirement: Resolved Pulumi engine version in Settings
 
-Settings SHALL display the Terraform version resolved by the detection service alongside the pinned minimum supported version, so operators can see what the wizard validated against.
+Settings SHALL display the Pulumi engine version resolved by `PulumiEngineService` (via `iac.settings.engineVersion`) alongside the pinned/target engine version (`PULUMI_ENGINE_VERSION`), so operators can see what the app provisioned against.
 
 #### Scenario: Settings shows versions
 
 - **WHEN** the operator opens Settings after wizard completion
-- **THEN** the resolved Terraform version and the pinned minimum are both visible
+- **THEN** the resolved Pulumi engine version and the pinned/target version are both visible

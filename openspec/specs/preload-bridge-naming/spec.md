@@ -13,7 +13,7 @@ The desktop preload script SHALL expose the renderer-facing IPC bridge object as
 #### Scenario: Renderer reads the bridge after preload initializes
 
 - **WHEN** the Electron renderer process loads and the preload script has run
-- **THEN** `window.hyveon` is defined and exposes the `games`, `costs`, `logs`, `files`, `discord`, `env`, `config`, `drift`, `diagnostics`, `audit`, and `terraform` namespaces
+- **THEN** `window.hyveon` is defined and exposes the `games`, `costs`, `logs`, `files`, `discord`, `env`, `wizard`, `drift`, `diagnostics`, `audit`, and `iac` namespaces
 - **AND** `window.gsd` is `undefined`
 
 ### Requirement: Bridge TypeScript types are named `Hyveon*`

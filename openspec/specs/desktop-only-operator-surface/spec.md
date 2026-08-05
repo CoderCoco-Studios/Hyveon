@@ -145,15 +145,16 @@ prototype methods the bridge drops.
 - **THEN** the streamed lines appear in the viewer after the initial snapshot, with no stream
   error banner
 
-#### Scenario: Wizard terraform init completes
+#### Scenario: Wizard stack initialization completes
 
-- **WHEN** the operator reaches the final wizard step and starts `terraform init`
-- **THEN** the command actually executes, its output streams into the viewer, and the step can
-  reach its success state
+- **WHEN** the operator reaches the final wizard step and starts stack initialization
+  (`iac.stack.initialize`)
+- **THEN** the operation actually executes, its phase-progress streams into the viewer, and the
+  step can reach its success state
 
-#### Scenario: Terraform run output renders live
+#### Scenario: IaC run output renders live
 
-- **WHEN** a plan, apply, or destroy run is started from the terraform screen
+- **WHEN** a plan, apply, or destroy run is started from the `/iac` screen
 - **THEN** the run's output streams into the log viewer while the run is in progress
 
 #### Scenario: Cancellation stops the stream
