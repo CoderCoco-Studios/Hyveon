@@ -20,7 +20,7 @@ This page is documentation over the top of them, not a replacement.
 Hyveon/
 ├── package.json                         # npm-workspaces ROOT — `npm run` scripts fan out from here
 ├── tsconfig.base.json                   # shared TS config
-├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs
+├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs, generate-aws-regions.mjs
 ├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
 ├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
 ├── openspec/                            # OpenSpec change proposals/specs for this repo
@@ -123,6 +123,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
 | `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package. Required before opening a PR. |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
+| `npm run aws-regions:generate` | Rewrites `app/packages/shared/src/awsRegions.ts` from AWS's published region-location data — run this to pick up newly-launched regions. |
 
 ## Test + naming conventions (short form)
 

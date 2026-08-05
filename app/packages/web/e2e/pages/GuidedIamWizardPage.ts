@@ -66,6 +66,18 @@ export class GuidedIamWizardPage {
     return this.page.getByLabel('AWS region');
   }
 
+  /**
+   * Opens the region/choice screen's continent-grouped dropdown and selects
+   * the option with the given accessible label (e.g.
+   * `"US West (Oregon) — us-west-2"`). Only valid on the region/choice
+   * screen — the key-intake screen's same-labelled region field is a plain
+   * text input, not this Select.
+   */
+  async selectRegion(label: string): Promise<void> {
+    await this.regionInput().click();
+    await this.page.getByRole('option', { name: label }).click();
+  }
+
   /** "Continue with guided setup" button — commits the region and moves to the template screen. */
   continueWithGuidedSetupButton(): Locator {
     return this.page.getByRole('button', { name: 'Continue with guided setup' });

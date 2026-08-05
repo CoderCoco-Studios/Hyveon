@@ -66,6 +66,18 @@ An AWS region field, plus two buttons:
   (step 3) doing nothing else; no progress is recorded for this path since
   there is nothing to resume into.
 
+The region field is a dropdown, not free text. It's populated from a static,
+committed list of AWS regions grouped by continent — each continent is a
+labeled group, and within it regions are sorted alphabetically by name. Every
+item reads `"{name} — {code}"` (e.g. "US East (N. Virginia) — us-east-1");
+selecting one sets the region to its code. A final, ungrouped **Other (enter
+manually)** item swaps the dropdown for an auto-focused free-text field —
+functionally identical to the old plain-text region input — so you can still
+type any region code, including one AWS launched after the bundled list was
+last regenerated. Validation is unchanged either way: **Continue with guided
+setup** still requires a non-empty value, dropdown-selected or typed, and
+shows an inline error otherwise.
+
 ### Guided setup: template and console handoff
 
 Choosing guided setup renders `iam-bootstrap.yaml`, a CloudFormation template
