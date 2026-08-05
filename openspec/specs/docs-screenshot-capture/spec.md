@@ -54,9 +54,9 @@ including `games.list` returning `GameListEntry[]` rather than a string array.
 
 #### Scenario: Channels beyond the shared stub helper are seeded
 
-- **WHEN** the harness captures the games, audit, logs, terraform, dashboard, and settings screens
+- **WHEN** the harness captures the games, audit, logs, iac, dashboard, and settings screens
 - **THEN** it seeds `games.list`, `drift.get`, `audit.list`, `logs.get`, `logs.stream`, the
-  `terraform.*` channels, and the `diagnostics.*` channels in addition to the channels the shared
+  `iac.*` channels, and the `diagnostics.*` channels in addition to the channels the shared
   Electron stub helper already covers
 
 #### Scenario: Contract shapes are honoured
