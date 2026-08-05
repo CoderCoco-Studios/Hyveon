@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the first-run wizard's overall flow: launch gating based on `wizardCompleted`, a resumable `FirstRunWizardService` that persists per-step progress, the cloud-choice step, the Terraform-init step with a live log, wizard completion, and the Settings-page "Reconfigure" entry point that re-runs later steps against existing state.
+Defines the first-run wizard's overall flow: launch gating based on `wizardCompleted`, a resumable `FirstRunWizardService` that persists per-step progress, the cloud-choice step, the stack-initialization step with phased progress, wizard completion, and the Settings-page "Reconfigure" entry point that re-runs later steps against existing state.
 
 ## Requirements
 
@@ -48,19 +48,19 @@ The second wizard step SHALL present the cloud choice as a single-option selecti
 - **WHEN** the cloud step renders
 - **THEN** AWS is the only selectable option and the footer indicates more clouds are coming
 
-### Requirement: Terraform init step with live log
+### Requirement: Stack initialization step with phased progress
 
-The final configuration step SHALL invoke `TerraformService.init({ backendConfig: { bucket, region, dynamodbTable } })` using the bootstrapped backend resources, streaming stdout/stderr live into a wizard log pane via the existing `terraform.init` streaming IPC channel (`hyveon.terraform.init` async iterable). ANSI colors in the output MUST render correctly. The completion control SHALL enable only when the run exits with code 0; a non-zero exit SHALL surface an error state with the captured log and allow retry.
+The final configuration step SHALL invoke `window.hyveon.iac.stack.initialize()` (the `iac.stack.initialize` IPC channel, no request payload) against the bootstrapped backend resources. The call SHALL return an async-iterable handle that streams structured `{ phase, status }` events — `phase` one of `engine` | `plugins` | `operation` (Pulumi engine resolution, provider plugin install, stack creation, in that order) and `status` one of `start` | `end` — rather than raw log text. The step SHALL render a three-item checklist reflecting each phase's state (pending / in-progress / done / failed) as events arrive. If the shared workspace is already busy with another operation, or the stream throws once started, the step SHALL mark the last-started phase as failed, show an inline error, keep the completion control disabled, and offer a retry that starts a fresh attempt. The completion control SHALL enable only once every phase has completed successfully.
 
-#### Scenario: Successful init
+#### Scenario: Successful stack initialization
 
-- **WHEN** `terraform init` streams output and exits 0
-- **THEN** the log pane shows the live output with ANSI colors rendered and the completion button becomes enabled
+- **WHEN** `iac.stack.initialize()` streams `start`/`end` events for all three phases and the stream completes without error
+- **THEN** the checklist shows all three phases as done and the completion button becomes enabled
 
-#### Scenario: Failed init
+#### Scenario: Failed stack initialization
 
-- **WHEN** `terraform init` exits non-zero
-- **THEN** the step shows an error UI with the log, keeps the completion button disabled, and offers a retry
+- **WHEN** the `iac.stack.initialize()` stream throws after a phase's `start` event has fired
+- **THEN** the step marks that phase as failed, shows an inline error, keeps the completion button disabled, and offers a retry
 
 ### Requirement: Wizard completion
 

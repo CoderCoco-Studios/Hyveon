@@ -36,7 +36,7 @@ Five steps: choose your cloud (AWS is the only option today), provision AWS
 access (let Hyveon create and rotate a deploy principal via a guided
 CloudFormation flow, or skip straight to your own credentials), point the app
 at an AWS profile or paste access keys, create the three bootstrap resources
-(an S3 state bucket, an S3 tfvars bucket, and a DynamoDB run-history table),
+(an S3 state bucket, an S3 configuration bucket, and a DynamoDB run-history table),
 and finally initialize the Pulumi stack against that new backend.
 
 Progress is saved on every step change, so you can close the app and pick up

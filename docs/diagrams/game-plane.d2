@@ -6,7 +6,7 @@ operator: "Operator's laptop" {
   dashboard -> api: "Electron IPC\n(window.hyveon)"
 }
 
-tfstate: "terraform.tfstate\n(read directly from disk\nby the desktop app)" {
+config: "deployment-config.json\n(S3 configuration bucket,\nread via RemoteFileStore)" {
   shape: document
 }
 
@@ -32,7 +32,7 @@ player: "Player" {
   shape: person
 }
 
-operator.api -> tfstate: "read"
+operator.api -> config: "read"
 operator.api -> aws.ecs: "RunTask / StopTask / DescribeTasks"
 operator.api -> aws.ddb: "put CONFIG#discord"
 operator.api -> aws.sm: "put bot-token / public-key"
