@@ -90,7 +90,7 @@ const TEST_HOSTNAME = 'test-host';
 
 /** The plan run this file's tests apply against. */
 const PLAN_RUN_ID = 'plan-run-1';
-/** The configuration-object version the plan ran against — must match the plan record's `tfvarsVersionId` for the gate's config-drift check to pass. */
+/** The configuration-object version the plan ran against — must match the plan record's `configVersionId` for the gate's config-drift check to pass. */
 const CONFIG_VERSION_ID = 'cfg-v1';
 /** Raw bytes `readFileSyncMock` returns for the plan artifact by default — hashed together with `CONFIG_VERSION_ID` below to build a real, independently-verifiable `planHash`. */
 const ARTIFACT_BYTES = Buffer.from(JSON.stringify({ manifest: { version: 'v3.255.0' } }));
@@ -159,7 +159,7 @@ function makeApprovedPlanRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     startedAt: now.toISOString(),
     completedAt: now.toISOString(),
     exitCode: 0,
-    tfvarsVersionId: CONFIG_VERSION_ID,
+    configVersionId: CONFIG_VERSION_ID,
     planHash: PLAN_HASH,
     approvedBy: 'alice',
     approvedAt: now.toISOString(),
@@ -474,7 +474,7 @@ describe('PulumiService.apply gate', () => {
 });
 
 describe('PulumiService.apply pre-flight marker (issue #399)', () => {
-  it('should write the pre-flight marker AFTER the durable lock is acquired but BEFORE stack.up() is called, carrying the gate-validated tfvarsVersionId/planHash/engineVersion', async () => {
+  it('should write the pre-flight marker AFTER the durable lock is acquired but BEFORE stack.up() is called, carrying the gate-validated configVersionId/planHash/engineVersion', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const runLockService = makeRunLockService();
     const runRecordPersister = makeRunRecordPersister();
@@ -486,7 +486,7 @@ describe('PulumiService.apply pre-flight marker (issue #399)', () => {
     const markerParams = runRecordPersister.writePreflightMarker.mock.calls[0]![0];
     expect(markerParams).toMatchObject({
       runId: PLAN_RUN_ID,
-      tfvarsVersionId: CONFIG_VERSION_ID,
+      configVersionId: CONFIG_VERSION_ID,
       planHash: PLAN_HASH,
       engineVersion: ENGINE_VERSION,
     });
@@ -776,7 +776,7 @@ describe('PulumiService.apply partial-apply detection', () => {
 });
 
 describe('PulumiService.apply run persistence', () => {
-  it('should persist a run.json with kind "apply", the plan record\'s tfvarsVersionId/planHash/engineVersion carried through', async () => {
+  it('should persist a run.json with kind "apply", the plan record\'s configVersionId/planHash/engineVersion carried through', async () => {
     const workspace = makeWorkspace(makeHappyPathUp({ create: 1 }));
     const service = makeService({ workspace });
 
@@ -789,7 +789,7 @@ describe('PulumiService.apply run persistence', () => {
       runId: PLAN_RUN_ID,
       kind: 'apply',
       exitCode: 0,
-      tfvarsVersionId: CONFIG_VERSION_ID,
+      configVersionId: CONFIG_VERSION_ID,
       planHash: PLAN_HASH,
       engineVersion: ENGINE_VERSION,
       changeSummary: { create: 1 },

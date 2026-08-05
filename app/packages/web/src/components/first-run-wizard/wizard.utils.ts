@@ -34,6 +34,6 @@ export type BootstrapResourceState = 'pending' | 'creating' | 'created' | 'exist
 export function defaultBootstrapResourceNames(projectName = 'hyveon'): Record<BootstrapResourceKey, string> {
   return {
     stateBucket: `${projectName}-tfstate`,
-    configurationBucket: `${projectName}-tfvars`,
+    configurationBucket: `${projectName}-config`,
   };
 }

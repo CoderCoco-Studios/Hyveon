@@ -597,7 +597,7 @@ describe('PulumiService.preview run persistence', () => {
       runId: 'run-123',
       kind: 'plan',
       exitCode: 0,
-      tfvarsVersionId: 'cfg-v1',
+      configVersionId: 'cfg-v1',
       changeSummary: { create: 1 },
       engineVersion: '3.255.0',
     });

@@ -7,7 +7,7 @@ import type { IamCheckResult } from '@hyveon/desktop-preload';
 
 const NAMES: Record<BootstrapResourceKey, string> = {
   stateBucket: 'hyveon-tfstate',
-  configurationBucket: 'hyveon-tfvars',
+  configurationBucket: 'hyveon-config',
 };
 
 const PENDING: Record<BootstrapResourceKey, BootstrapResourceState> = {
@@ -44,7 +44,7 @@ describe('BootstrapStep', () => {
   it('should render the two bootstrapped resource rows with their names', () => {
     renderStep();
     expect(screen.getByLabelText('State bucket name')).toHaveValue('hyveon-tfstate');
-    expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-tfvars');
+    expect(screen.getByLabelText('Configuration bucket name')).toHaveValue('hyveon-config');
   });
 
   it('should call onNameChange when a resource name field is edited', async () => {

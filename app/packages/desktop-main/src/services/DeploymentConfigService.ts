@@ -301,11 +301,11 @@ export class DeploymentConfigService {
   async getGameServers(): Promise<GameServer[]> {
     const ttl = this.config.readEnvConfigCacheTtlMs();
     if (this.cache && this.now() - this.cache.cachedAt < ttl) {
-      logger.debug('tfvars cache hit', { failed: this.cache.failed, cachedAt: this.cache.cachedAt });
+      logger.debug('configuration cache hit', { failed: this.cache.failed, cachedAt: this.cache.cachedAt });
       return this.cache.value;
     }
 
-    logger.debug('tfvars cache miss — loading deployment config', {});
+    logger.debug('configuration cache miss — loading deployment config', {});
 
     const generation = this.cacheGeneration;
 

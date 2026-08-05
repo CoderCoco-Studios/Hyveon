@@ -193,7 +193,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.addGameServer('terraria', NEW_ENTRY_CONFIG);
       expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
 
@@ -212,7 +212,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', UPDATED_ENTRY_CONFIG);
 
       expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
@@ -229,7 +229,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.removeGameServer('palworld');
 
       expect(remoteFileStore.put).toHaveBeenCalledTimes(1);
@@ -247,7 +247,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: true });
 
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
@@ -266,7 +266,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify(fixtureWithHttpsTrue));
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, https: false });
 
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
@@ -285,7 +285,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify(fixtureWithHttpsTrue));
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.updateGameServer('palworld', { ...UPDATED_ENTRY_CONFIG, memory: 32768, https: true });
 
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
@@ -301,7 +301,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject a name containing uppercase letters instead of writing a corrupt DNS label', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('Terraria', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -310,7 +310,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject a name containing an underscore, since underscores are not valid in a DNS label', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('my_server', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -319,7 +319,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject a name with a leading hyphen', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('-terraria', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -328,7 +328,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject an empty name', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('', NEW_ENTRY_CONFIG)).rejects.toThrow(/is invalid/);
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -338,7 +338,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.addGameServer('my-server-2', NEW_ENTRY_CONFIG)).resolves.toEqual({
         etag: 'etag-2',
@@ -350,7 +350,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject adding a name that already exists in gameServers, with reason: \'duplicate-name\' pinned for GamesWriteService\'s coupling', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       // `GamesWriteService.createGame()`'s catch block narrows on
       // `err.reason === 'duplicate-name'` (not just the error's message) to
@@ -369,7 +369,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject updateGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.updateGameServer('does-not-exist', UPDATED_ENTRY_CONFIG)).rejects.toMatchObject({
         reason: 'not-found',
@@ -380,7 +380,7 @@ describe('DeploymentConfigService write path', () => {
     it('should reject removeGameServer when the name does not exist in gameServers, with reason: \'not-found\' pinned for GamesWriteService\'s coupling', async () => {
       stubCurrentConfig(remoteFileStore);
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.removeGameServer('does-not-exist')).rejects.toMatchObject({ reason: 'not-found' });
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -418,7 +418,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.updateGameServer(LEGACY_NAME, UPDATED_ENTRY_CONFIG)).resolves.toEqual({
         etag: 'etag-2',
@@ -433,7 +433,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify(FIXTURE_WITH_LEGACY_NAME));
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.removeGameServer(LEGACY_NAME)).resolves.toEqual({ etag: 'etag-2', versionId: undefined });
       const [, body] = remoteFileStore.put.mock.calls[0] as [string, Uint8Array];
@@ -447,7 +447,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.restoreRawConfig(FIXTURE_JSON)).resolves.toEqual({
         etag: 'etag-restored',
@@ -464,7 +464,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-restored', versionId: 'v-restored' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
 
@@ -480,7 +480,7 @@ describe('DeploymentConfigService write path', () => {
     it('should throw RunsTableRenameError and skip the write when the restored document resolves to a different runs-table name', async () => {
       stubCurrentConfig(remoteFileStore, JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'current-project' }));
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const restoredJson = JSON.stringify({ ...FIXTURE_CONFIG, projectName: 'other-project' });
 
       await expect(service.restoreRawConfig(restoredJson)).rejects.toThrow(RunsTableRenameError);
@@ -492,7 +492,7 @@ describe('DeploymentConfigService write path', () => {
     it('should fail the second of two concurrent writes with a clear OptimisticLockError, not silently overwrite the first', async () => {
       // Both writers read the same starting etag...
       stubCurrentConfig(remoteFileStore);
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       // ...the first writer's conditional put succeeds and moves the remote
       // etag forward...
@@ -522,7 +522,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValueOnce({ etag: 'etag-2', versionId: 'v-123' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(
         service.updateGameServer('palworld', UPDATED_ENTRY_CONFIG, 'etag-1'),
@@ -535,7 +535,7 @@ describe('DeploymentConfigService write path', () => {
         new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
       );
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(
         service.addGameServer('terraria', NEW_ENTRY_CONFIG, 'etag-stale'),
@@ -560,7 +560,7 @@ describe('DeploymentConfigService write path', () => {
         new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
       );
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       let caught: unknown;
       try {
@@ -587,7 +587,7 @@ describe('DeploymentConfigService write path', () => {
       // Follow-up get() (to resolve the current etag for the error) fails too.
       remoteFileStore.get.mockRejectedValueOnce(new Error('network error'));
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       let caught: unknown;
       try {
@@ -606,7 +606,7 @@ describe('DeploymentConfigService write path', () => {
   describe('getTopLevelSettings / updateTopLevelSettings', () => {
     it('should return every top-level field except gameServers, plus the read etag', async () => {
       stubCurrentConfig(remoteFileStore);
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       const { settings, etag } = await service.getTopLevelSettings();
 
@@ -646,7 +646,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should default the three base-allowlist arrays to [] rather than returning them as undefined', async () => {
         stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const { settings } = await service.getTopLevelSettings();
 
@@ -657,7 +657,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should default the missing numeric fields to their Terraform defaults rather than returning them as undefined', async () => {
         stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const { settings } = await service.getTopLevelSettings();
 
@@ -669,7 +669,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should give each call a fresh array reference for the three base-allowlist fields (never a shared mutable default)', async () => {
         stubCurrentConfig(remoteFileStore, CONFIG_MISSING_FIELDS_JSON);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const first = await service.getTopLevelSettings();
         const second = await service.getTopLevelSettings();
@@ -679,7 +679,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should leave an already-complete document\'s values untouched (defaulting is a no-op, not a silent overwrite)', async () => {
         stubCurrentConfig(remoteFileStore);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const { settings } = await service.getTopLevelSettings();
 
@@ -693,7 +693,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.updateTopLevelSettings({ dnsTtl: 60, awsRegion: 'eu-west-1' });
       expect(result).toEqual({ etag: 'etag-2', versionId: undefined });
 
@@ -714,7 +714,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       // `updateTopLevelSettings`'s parameter type excludes `gameServers`, but
       // that's only a compile-time guarantee — this payload simulates what a
       // buggy/malicious IPC caller could still send at runtime (the IPC
@@ -742,7 +742,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-1');
 
       expect(remoteFileStore.put).toHaveBeenCalledWith('deployment-config.json', expect.any(Uint8Array), {
@@ -756,7 +756,7 @@ describe('DeploymentConfigService write path', () => {
         new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-stale'),
       );
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.updateTopLevelSettings({ dnsTtl: 60 }, 'etag-stale')).rejects.toBeInstanceOf(
         OptimisticLockError,
@@ -775,7 +775,7 @@ describe('DeploymentConfigService write path', () => {
       stubCurrentConfig(remoteFileStore);
       remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
 
@@ -803,7 +803,7 @@ describe('DeploymentConfigService write path', () => {
     describe('runs-table rename guard (final-review round 2, finding 2)', () => {
       it('should reject a patch that changes projectName in a way that shifts the resolved runs-table name', async () => {
         stubCurrentConfig(remoteFileStore); // FIXTURE_CONFIG: projectName 'hyveon', runsTableName '' → resolves to 'hyveon-runs'.
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const err = await service.updateTopLevelSettings({ projectName: 'other' }).catch((e: unknown) => e);
 
@@ -815,7 +815,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should reject a patch that sets runsTableName to a different explicit override', async () => {
         stubCurrentConfig(remoteFileStore);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const err = await service.updateTopLevelSettings({ runsTableName: 'custom-runs' }).catch((e: unknown) => e);
 
@@ -826,7 +826,7 @@ describe('DeploymentConfigService write path', () => {
 
       it('should report both fields when a combined patch still shifts the resolved name', async () => {
         stubCurrentConfig(remoteFileStore);
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         const err = await service
           .updateTopLevelSettings({ projectName: 'other', runsTableName: 'other-runs' })
@@ -839,7 +839,7 @@ describe('DeploymentConfigService write path', () => {
       it('should allow a patch that sets runsTableName explicitly to the value it already resolves to (no real rename)', async () => {
         stubCurrentConfig(remoteFileStore); // resolves to 'hyveon-runs' already.
         remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         await expect(service.updateTopLevelSettings({ runsTableName: 'hyveon-runs' })).resolves.toEqual({
           etag: 'etag-2',
@@ -850,7 +850,7 @@ describe('DeploymentConfigService write path', () => {
       it('should allow a patch that never touches projectName or runsTableName', async () => {
         stubCurrentConfig(remoteFileStore);
         remoteFileStore.put.mockResolvedValue({ etag: 'etag-2' });
-        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+        const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
         await expect(service.updateTopLevelSettings({ dnsTtl: 60 })).resolves.toEqual({
           etag: 'etag-2',
@@ -960,7 +960,7 @@ describe('DeploymentConfigService write path', () => {
         listVersions: vi.fn(),
       };
 
-      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       const writeResult = await service.addGameServer('full-round-trip-game', NEW_GAME_ALL_FIELDS);
       expect(writeResult.etag).toBe('etag-2');

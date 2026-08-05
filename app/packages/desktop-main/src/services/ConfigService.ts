@@ -6,7 +6,7 @@ import { PulumiService } from './PulumiService.js';
 
 /**
  * Default in-memory cache TTL (milliseconds) `DeploymentConfigService` uses for the
- * parsed tfvars payload when `TFVARS_CACHE_TTL_MS` is unset or invalid.
+ * parsed configuration payload when `CONFIG_CACHE_TTL_MS` is unset or invalid.
  */
 const DEFAULT_CONFIG_CACHE_TTL_MS = 30000;
 
@@ -180,8 +180,8 @@ export class ConfigService {
   }
 
   /**
-   * Read the tfvars in-memory cache TTL override (milliseconds) from
-   * `TFVARS_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
+   * Read the in-memory cache TTL override (milliseconds) from
+   * `CONFIG_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
    * {@link readEnvRegion}.
    *
    * Defaults to {@link DEFAULT_CONFIG_CACHE_TTL_MS} (30s) when the env var is
@@ -189,12 +189,12 @@ export class ConfigService {
    * default is applied here rather than pushed onto callers.
    */
   readEnvConfigCacheTtlMs(): number {
-    const raw = process.env['TFVARS_CACHE_TTL_MS'];
+    const raw = process.env['CONFIG_CACHE_TTL_MS'];
     if (raw === undefined || raw.length === 0) return DEFAULT_CONFIG_CACHE_TTL_MS;
 
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      logger.warn('Invalid TFVARS_CACHE_TTL_MS value, using default', { raw });
+      logger.warn('Invalid CONFIG_CACHE_TTL_MS value, using default', { raw });
       return DEFAULT_CONFIG_CACHE_TTL_MS;
     }
     return parsed;
@@ -216,7 +216,7 @@ export class ConfigService {
    * local-file fallback (see `DeploymentConfigService.isConfigured()`).
    *
    * Resolution order:
-   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set. A dev/CI convenience
+   *  1. `HYVEON_CONFIG_BUCKET` env var — wins when set. A dev/CI convenience
    *     override, not how the packaged app resolves the bucket in normal
    *     operator use.
    *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
@@ -233,11 +233,11 @@ export class ConfigService {
   }
 
   /**
-   * Read the `HYVEON_TFVARS_BUCKET` override from the process environment.
+   * Read the `HYVEON_CONFIG_BUCKET` override from the process environment.
    * Extracted for test-stubbing, mirroring {@link readEnvRegion}.
    */
   readEnvConfigBucketOverride(): string | undefined {
-    return process.env['HYVEON_TFVARS_BUCKET'];
+    return process.env['HYVEON_CONFIG_BUCKET'];
   }
 
   /**

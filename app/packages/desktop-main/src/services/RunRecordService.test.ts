@@ -263,14 +263,14 @@ describe('RunRecordService', () => {
       expect(record.status).toBe('aborted');
     });
 
-    it('should include tfvarsVersionId on the record when present on params', async () => {
+    it('should include configVersionId on the record when present on params', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
-      await service.persist(makeParams({ tfvarsVersionId: 'v-1' }), null);
+      await service.persist(makeParams({ configVersionId: 'v-1' }), null);
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record.tfvarsVersionId).toBe('v-1');
+      expect(record.configVersionId).toBe('v-1');
     });
 
     it('should include planHash on the record when present on params', async () => {
@@ -431,32 +431,32 @@ describe('RunRecordService', () => {
       expect(record.completedAt).toBe('2026-07-17T00:00:00.000Z');
     });
 
-    it('should carry tfvarsVersionId, planHash, and engineVersion onto the record when provided', async () => {
+    it('should carry configVersionId, planHash, and engineVersion onto the record when provided', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
       await service.writePreflightMarker({
         runId: 'run-123',
         startedAt: '2026-07-17T00:00:00.000Z',
-        tfvarsVersionId: 'v-1',
+        configVersionId: 'v-1',
         planHash: 'a'.repeat(64),
         engineVersion: '3.255.0',
       });
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record.tfvarsVersionId).toBe('v-1');
+      expect(record.configVersionId).toBe('v-1');
       expect(record.planHash).toBe('a'.repeat(64));
       expect(record.engineVersion).toBe('3.255.0');
     });
 
-    it('should omit tfvarsVersionId, planHash, and engineVersion from the record when absent from params', async () => {
+    it('should omit configVersionId, planHash, and engineVersion from the record when absent from params', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
       await service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' });
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record).not.toHaveProperty('tfvarsVersionId');
+      expect(record).not.toHaveProperty('configVersionId');
       expect(record).not.toHaveProperty('planHash');
       expect(record).not.toHaveProperty('engineVersion');
     });

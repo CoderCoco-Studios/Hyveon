@@ -122,7 +122,7 @@ interface IacOutputPayload {
 }
 
 /**
- * Payload accepted by {@link IacController.plan}. `tfvarsVersionId`,
+ * Payload accepted by {@link IacController.plan}. `configVersionId`,
  * when the configured configuration source is S3-backed, is forwarded
  * verbatim to `PulumiService.preview`'s pre-spawn staleness check against
  * the current head version of the configuration object. `rolledBackFrom`,
@@ -131,7 +131,7 @@ interface IacOutputPayload {
  * `runId`.
  */
 interface IacPlanPayload {
-  tfvarsVersionId?: string;
+  configVersionId?: string;
   rolledBackFrom?: string;
 }
 
@@ -349,7 +349,7 @@ interface IacRollbackResolveAck {
  * historic configuration content was restored as a new head version AND the
  * follow-up plan `PulumiService.confirmRollback` runs against it internally
  * completed successfully — `versionId` is the restored version's id, ready
- * to pass to `iac.plan`'s `tfvarsVersionId` (alongside
+ * to pass to `iac.plan`'s `configVersionId` (alongside
  * `rolledBackFrom: applyRunId`) for a renderer that still drives the
  * existing two-call flow (see {@link IacController.confirmRollback}'s
  * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
@@ -834,7 +834,7 @@ export class IacController implements OnModuleInit {
     const runId = randomUUID();
     const ac = new AbortController();
 
-    const stream = this.pulumi.preview(payload.tfvarsVersionId, ac.signal, runId, payload.rolledBackFrom);
+    const stream = this.pulumi.preview(payload.configVersionId, ac.signal, runId, payload.rolledBackFrom);
     const firstStep = stream.next();
     firstStep.catch(() => { /* handled in the streaming loop below */ });
 
@@ -860,7 +860,7 @@ export class IacController implements OnModuleInit {
       game: '',
       before: null,
       after: null,
-      ...(payload.tfvarsVersionId !== undefined ? { versionId: payload.tfvarsVersionId } : {}),
+      ...(payload.configVersionId !== undefined ? { versionId: payload.configVersionId } : {}),
     });
 
     // Fire-and-forget the streaming loop. Chunks are pushed back to the
@@ -1464,7 +1464,7 @@ export class IacController implements OnModuleInit {
    * `PulumiPreviewResult` (which describes the plan artifact, not the
    * configuration version it ran against) — it's recovered via
    * `PulumiService.readRunRecord(result.runId)` once the generator settles,
-   * reading back the `PulumiRunRecord.tfvarsVersionId` that `PulumiService`'s
+   * reading back the `PulumiRunRecord.configVersionId` that `PulumiService`'s
    * internal `previewCore` call persisted for this exact run (guaranteed
    * present: `previewCore` always records the configuration version id it
    * actually observed for a successful plan before returning).
@@ -1520,14 +1520,14 @@ export class IacController implements OnModuleInit {
       }
 
       const record = this.pulumi.readRunRecord(result.runId);
-      const versionId = record?.tfvarsVersionId;
+      const versionId = record?.configVersionId;
       if (!versionId) {
-        // Should not happen — previewCore always writes tfvarsVersionId for
+        // Should not happen — previewCore always writes configVersionId for
         // a successful plan run before returning (see this method's own
         // TSDoc). Defensive fallback so a genuinely unexpected gap surfaces
         // as a clear ack error rather than a "confirmed" ack the renderer
         // can't actually act on (it has nowhere to plan against next).
-        logger.error('terraform rollback confirm: missing persisted tfvarsVersionId after a successful rollback plan', {
+        logger.error('terraform rollback confirm: missing persisted configVersionId after a successful rollback plan', {
           applyRunId: payload.applyRunId,
           runId: result.runId,
         });

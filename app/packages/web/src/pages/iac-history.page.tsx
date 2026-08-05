@@ -149,7 +149,7 @@ export function IacHistoryPage() {
   /** Routes a confirmed rollback into the plan/apply run view — see `IacPage`'s `RollbackNavState`. */
   const handleRolledBack = useCallback(
     ({ versionId, rolledBackFrom }: RollbackResult) => {
-      navigate('/iac', { state: { tfvarsVersionId: versionId, rolledBackFrom } });
+      navigate('/iac', { state: { configVersionId: versionId, rolledBackFrom } });
     },
     [navigate],
   );
@@ -267,7 +267,7 @@ export function IacHistoryPage() {
                       <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.completedAt)}</TableCell>
                       <TableCell className="text-xs">{record.approvedBy ?? '—'}</TableCell>
                       <TableCell>
-                        {record.kind === 'apply' && record.tfvarsVersionId !== undefined && (
+                        {record.kind === 'apply' && record.configVersionId !== undefined && (
                           <RollbackAction applyRunId={record.runId} onRolledBack={handleRolledBack} />
                         )}
                       </TableCell>

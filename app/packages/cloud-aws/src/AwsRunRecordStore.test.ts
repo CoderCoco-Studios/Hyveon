@@ -98,15 +98,15 @@ describe('AwsRunRecordStore', () => {
       });
     });
 
-    it('should include tfvarsVersionId and logS3Key on the written item when present on the record', async () => {
+    it('should include configVersionId and logS3Key on the written item when present on the record', async () => {
       ddbMock.on(PutCommand).resolves({});
 
       const store = makeStore();
-      const record = makeRecord({ tfvarsVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
+      const record = makeRecord({ configVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
       await store.putRecord(record);
 
       const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-      expect(input.Item?.['tfvarsVersionId']).toBe('v-1');
+      expect(input.Item?.['configVersionId']).toBe('v-1');
       expect(input.Item?.['logS3Key']).toBe('runs/run-123.log');
       expect(input.Item).not.toHaveProperty('logInline');
     });
@@ -123,14 +123,14 @@ describe('AwsRunRecordStore', () => {
       expect(input.Item).not.toHaveProperty('logS3Key');
     });
 
-    it('should omit tfvarsVersionId, logInline, and logS3Key from the written item when absent on the record', async () => {
+    it('should omit configVersionId, logInline, and logS3Key from the written item when absent on the record', async () => {
       ddbMock.on(PutCommand).resolves({});
 
       const store = makeStore();
       await store.putRecord(makeRecord());
 
       const input = ddbMock.commandCalls(PutCommand)[0]!.args[0].input;
-      expect(input.Item).not.toHaveProperty('tfvarsVersionId');
+      expect(input.Item).not.toHaveProperty('configVersionId');
       expect(input.Item).not.toHaveProperty('logInline');
       expect(input.Item).not.toHaveProperty('logS3Key');
     });
@@ -275,14 +275,14 @@ describe('AwsRunRecordStore', () => {
       await expect(store.getRecordByRunId('missing-run')).resolves.toBeUndefined();
     });
 
-    it('should restore optional fields (tfvarsVersionId, logS3Key) on the returned record when present', async () => {
-      const record = makeRecord({ tfvarsVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
+    it('should restore optional fields (configVersionId, logS3Key) on the returned record when present', async () => {
+      const record = makeRecord({ configVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
       ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...record }] });
 
       const store = makeStore();
       const result = await store.getRecordByRunId('run-123');
 
-      expect(result?.tfvarsVersionId).toBe('v-1');
+      expect(result?.configVersionId).toBe('v-1');
       expect(result?.logS3Key).toBe('runs/run-123.log');
     });
 
@@ -587,7 +587,7 @@ describe('AwsRunRecordStore', () => {
     });
 
     it('should restore optional fields on records returned by a listRuns page', async () => {
-      const record = makeRecord({ tfvarsVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
+      const record = makeRecord({ configVersionId: 'v-1', logS3Key: 'runs/run-123.log' });
       ddbMock.on(QueryCommand).resolves({ Items: [{ pk: 'RUN', ...record }] });
 
       const store = makeStore();

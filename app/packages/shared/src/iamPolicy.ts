@@ -118,8 +118,8 @@ export const HYVEON_DEPLOY_ALL_STATEMENTS: readonly HyveonDeployAllStatement[] =
       's3:PutBucketPublicAccessBlock',
     ],
     Resource: (projectName: string) => [
-      `arn:aws:s3:::${projectName}-tfvars`,
-      `arn:aws:s3:::${projectName}-tfvars/*`,
+      `arn:aws:s3:::${projectName}-config`,
+      `arn:aws:s3:::${projectName}-config/*`,
     ],
   },
   {
@@ -158,13 +158,13 @@ interface RenderedPolicyStatement {
  * four-statement policy as the JSON block in `docs/docs/setup.md` — from
  * {@link HYVEON_DEPLOY_ALL_STATEMENTS}, substituting `projectName` into the
  * two bucket-scoped statements' `Resource` ARNs
- * (`arn:aws:s3:::<projectName>-tfvars(/*)` and
+ * (`arn:aws:s3:::<projectName>-config(/*)` and
  * `arn:aws:s3:::<projectName>-tfstate(/*)`). Used by the guided IAM
  * bootstrap flow to render the `HyveonDeployAll` `AWS::IAM::ManagedPolicy`
  * document for `iam-bootstrap.yaml`.
  *
  * @param projectName - Project/bucket-name prefix. Defaults to `'hyveon'`,
- *   the default used elsewhere in the wizard (`hyveon-tfstate`, `hyveon-tfvars`).
+ *   the default used elsewhere in the wizard (`hyveon-tfstate`, `hyveon-config`).
  */
 export function generateHyveonDeployAllPolicy(
   projectName = 'hyveon',

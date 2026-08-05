@@ -710,7 +710,7 @@ describe('PulumiService.destroy streaming and structured changeSummary', () => {
 });
 
 describe('PulumiService.destroy run persistence', () => {
-  it('should persist a run.json with kind "destroy", exitCode 0, and the captured changeSummary — no tfvarsVersionId/planHash/engineVersion', async () => {
+  it('should persist a run.json with kind "destroy", exitCode 0, and the captured changeSummary — no configVersionId/planHash/engineVersion', async () => {
     const workspace = makeWorkspace(makeHappyPathDestroy({ delete: 2 }));
     const service = makeService({ workspace });
     const token = service.mintDestroyConfirmationToken();
@@ -721,7 +721,7 @@ describe('PulumiService.destroy run persistence', () => {
     expect(call).toBeDefined();
     const record = JSON.parse(call![1] as string) as Record<string, unknown>;
     expect(record).toMatchObject({ kind: 'destroy', exitCode: 0, changeSummary: { delete: 2 } });
-    expect(record['tfvarsVersionId']).toBeUndefined();
+    expect(record['configVersionId']).toBeUndefined();
     expect(record['planHash']).toBeUndefined();
     expect(record['engineVersion']).toBeUndefined();
   });

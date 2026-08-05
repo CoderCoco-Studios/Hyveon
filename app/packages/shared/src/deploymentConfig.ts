@@ -70,7 +70,7 @@ export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 export interface DeploymentConfig {
   /**
    * Project name used for resource naming (e.g. `${projectName}-audit`,
-   * `${projectName}-tfvars`). Mirrors `project_name` in
+   * `${projectName}-config`). Mirrors `project_name` in
    * `terraform/variables.tf`. Terraform default: `"hyveon"` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */

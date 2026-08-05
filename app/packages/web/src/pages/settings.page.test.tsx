@@ -224,7 +224,7 @@ describe('SettingsPage', () => {
         wizardCompleted: true,
         activeCloud: 'aws',
         aws: { profile: 'default', region: 'us-east-1' },
-        bootstrap: { stateBucket: 'renamed-tfstate', configurationBucket: 'renamed-tfvars' },
+        bootstrap: { stateBucket: 'renamed-tfstate', configurationBucket: 'renamed-config' },
       });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       await userEvent.click(screen.getByRole('button', { name: /^reconfigure$/i }));

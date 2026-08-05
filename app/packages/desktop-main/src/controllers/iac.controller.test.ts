@@ -104,7 +104,7 @@ function buildRunRecord(overrides: Partial<PulumiRunRecord> = {}): PulumiRunReco
     startedAt: '2026-07-21T00:00:00.000Z',
     completedAt: '2026-07-21T00:00:05.000Z',
     exitCode: 0,
-    tfvarsVersionId: 'tfvars-v-new-head',
+    configVersionId: 'tfvars-v-new-head',
     ...overrides,
   };
 }
@@ -640,12 +640,12 @@ describe('IacController', () => {
       expect(chunkCalls.map(([, payload]) => (payload as { chunk: PulumiRunChunk }).chunk)).toEqual(chunks);
     });
 
-    it('should forward tfvarsVersionId, an AbortSignal, and the pre-minted runId to PulumiService.preview', async () => {
+    it('should forward configVersionId, an AbortSignal, and the pre-minted runId to PulumiService.preview', async () => {
       const pulumi = makePulumi();
       const { audit } = makeAudit();
       const { ctx } = makeCtx();
 
-      const result = await new IacController(pulumi, audit).plan({ tfvarsVersionId: 'v123' }, ctx);
+      const result = await new IacController(pulumi, audit).plan({ configVersionId: 'v123' }, ctx);
       await flushPromises();
 
       expect(pulumi.preview).toHaveBeenCalledWith('v123', expect.any(AbortSignal), result.runId, undefined);
@@ -657,7 +657,7 @@ describe('IacController', () => {
       const { ctx } = makeCtx();
 
       const result = await new IacController(pulumi, audit).plan(
-        { tfvarsVersionId: 'v123', rolledBackFrom: 'apply-run-1' },
+        { configVersionId: 'v123', rolledBackFrom: 'apply-run-1' },
         ctx,
       );
       await flushPromises();
@@ -755,7 +755,7 @@ describe('IacController', () => {
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 
-      await new IacController(pulumi, audit).plan({ tfvarsVersionId: 'v42' }, ctx);
+      await new IacController(pulumi, audit).plan({ configVersionId: 'v42' }, ctx);
       await flushPromises();
 
       expect(record).toHaveBeenCalledTimes(1);
@@ -1688,7 +1688,7 @@ describe('IacController', () => {
       const pulumi = makePulumi();
       vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
       vi.mocked(pulumi.readRunRecord).mockReturnValue(
-        buildRunRecord({ runId: 'rollback-plan-run-42', tfvarsVersionId: 'tfvars-v-recovered' }),
+        buildRunRecord({ runId: 'rollback-plan-run-42', configVersionId: 'tfvars-v-recovered' }),
       );
       const { ctx } = makeCtx();
 
@@ -1799,14 +1799,14 @@ describe('IacController', () => {
       expect(record).not.toHaveBeenCalled();
     });
 
-    it('should return { confirmed: false, error } — the defensive branch — when the recovered record has no tfvarsVersionId', async () => {
+    it('should return { confirmed: false, error } — the defensive branch — when the recovered record has no configVersionId', async () => {
       // eslint-disable-next-line require-yield -- generator settles immediately with no intermediate chunks
       async function* settles(): AsyncGenerator<PulumiRunChunk, PulumiPreviewResult> {
         return buildPreviewResult({ runId: 'rollback-plan-run-1' });
       }
       const pulumi = makePulumi();
       vi.mocked(pulumi.confirmRollback).mockImplementation(settles);
-      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord({ tfvarsVersionId: undefined }));
+      vi.mocked(pulumi.readRunRecord).mockReturnValue(buildRunRecord({ configVersionId: undefined }));
       const { audit, record } = makeAudit();
       const { ctx } = makeCtx();
 

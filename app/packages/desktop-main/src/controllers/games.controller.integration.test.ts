@@ -157,7 +157,7 @@ function makeConfig(gameNames: string[]): ConfigService {
   const config: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
     getStackOutputs: vi.fn().mockResolvedValue(outputs),
-    getConfigurationBucket: () => 'my-tfvars-bucket',
+    getConfigurationBucket: () => 'my-config-bucket',
     readEnvConfigCacheTtlMs: () => 30000,
   };
   return config as ConfigService;

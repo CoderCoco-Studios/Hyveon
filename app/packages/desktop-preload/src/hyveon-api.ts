@@ -692,8 +692,8 @@ export interface IacRunRecord {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one (e.g. killed via abort signal). */
   exitCode: number | null;
-  /** The tfvars version id the applied plan was generated against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the applied plan was generated against, if the caller supplied one. */
+  configVersionId?: string;
   /**
    * SHA-256 hex digest of the persisted `.tfplan` artifact this record's
    * `plan` run produced. Set only on a successful `plan` record; a failed
@@ -790,8 +790,8 @@ export interface RunHistoryRecord {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one. */
   exitCode: number | null;
-  /** The tfvars version id the run was executed against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the run was executed against, if the caller supplied one. */
+  configVersionId?: string;
   /** Hash of the plan artifact this record's run produced or was gated against. */
   planHash?: string;
   /** Opaque identifier of the admin who approved this plan run for apply. Set only on approved `plan` records. */
@@ -847,17 +847,17 @@ export interface IacRunsListOpts {
 }
 
 /**
- * Payload accepted by the `iac.plan` IPC channel. `tfvarsVersionId`,
- * when the configured tfvars source is S3-backed, is forwarded verbatim to
- * `PulumiService.preview`'s pre-spawn staleness check against the current
- * head version of the tfvars object.
+ * Payload accepted by the `iac.plan` IPC channel. `configVersionId`,
+ * when the configured configuration source is S3-backed, is forwarded
+ * verbatim to `PulumiService.preview`'s pre-spawn staleness check against the
+ * current head version of the configuration object.
  *
  * Mirrors `IacPlanPayload` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
  */
 export interface IacPlanPayload {
-  tfvarsVersionId?: string;
+  configVersionId?: string;
   /** The `runId` of the `apply` run being rolled back, if this plan was started via the rollback flow (#112). */
   rolledBackFrom?: string;
 }
@@ -968,8 +968,8 @@ export interface IacRollbackResolveAck {
 
 /**
  * Result the `iac.rollback.confirm` IPC channel resolves with.
- * `confirmed: true` means the historic tfvars content was restored as a new
- * head version AND the follow-up plan run `PulumiService.confirmRollback`
+ * `confirmed: true` means the historic configuration content was restored as
+ * a new head version AND the follow-up plan run `PulumiService.confirmRollback`
  * runs internally also completed successfully — `versionId` is the restored
  * version's id. `confirmed: false` means either no write was attempted, or a
  * write was attempted and the restore-then-plan unit failed partway through
@@ -1705,9 +1705,9 @@ export interface HyveonIacApi {
    * Submits a plan (`pulumi preview`) run by invoking the `iac.plan` IPC
    * channel and resolves its immediate {@link IacPlanAck}.
    *
-   * `opts.tfvarsVersionId`, when supplied, is forwarded to
+   * `opts.configVersionId`, when supplied, is forwarded to
    * `PulumiService.preview`'s staleness check against the current head
-   * version of the tfvars object. The resolved ack reports whether the run
+   * version of the configuration object. The resolved ack reports whether the run
    * started (`{ started: true, runId }`) or was rejected before starting —
    * rejection happens when the shared workspace is already busy running
    * `preview`/`up`/`destroy`/`rollback` (`{ started: false, error, conflict }`)
@@ -1738,7 +1738,7 @@ export interface HyveonIacApi {
    * Submits an apply (`pulumi up`) run gated on plan-hash + approval by
    * invoking the `iac.apply` IPC channel, resolving an ack shaped like
    * {@link IacPlanAck}. Mirrors `POST /api/terraform/apply` (#109):
-   * rejects when the plan run isn't approved, the current tfvars has
+   * rejects when the plan run isn't approved, the current configuration has
    * drifted since the plan, the supplied `planHash` doesn't match the plan
    * run's stored hash, another run already holds the shared workspace lock,
    * or an unrecognized Pulumi backend lock conflict was hit (see
@@ -1776,7 +1776,7 @@ export interface HyveonIacApi {
   output: (force?: boolean) => Promise<StackOutputs | null>;
   /** Iac run history: look up a single run's status and stream its log output. */
   runs: HyveonIacRunsApi;
-  /** Rollback flow (#112): preview and restore a prior tfvars version from an apply run in history. */
+  /** Rollback flow (#112): preview and restore a prior configuration version from an apply run in history. */
   rollback: HyveonIacRollbackApi;
   /** Stale backend-lock recovery: explicitly clear an unrecognized Pulumi backend lock. */
   lock: HyveonIacLockApi;
@@ -1822,11 +1822,11 @@ export interface HyveonIacLockApi {
 /**
  * Rollback flow (#112) IPC surface. A rollback is two calls: {@link resolve}
  * previews the target version for the confirmation dialog without writing
- * anything, then {@link confirm} restores it as a new tfvars head version
- * (and, internally, re-plans against it — see
+ * anything, then {@link confirm} restores it as a new configuration head
+ * version (and, internally, re-plans against it — see
  * {@link IacRollbackConfirmAck}'s doc comment). The caller completes
  * the rollback with an ordinary `iac.plan` call
- * (`{ tfvarsVersionId: confirm's returned versionId, rolledBackFrom: applyRunId }`)
+ * (`{ configVersionId: confirm's returned versionId, rolledBackFrom: applyRunId }`)
  * so the tagged plan streams and gates through the exact same channel every
  * other plan does — see `iac.controller.ts`'s `confirmRollback` TSDoc,
  * "Known, accepted consequence", for the resulting duplicate-plan-record
@@ -1834,17 +1834,17 @@ export interface HyveonIacLockApi {
  */
 export interface HyveonIacRollbackApi {
   /**
-   * Resolves the tfvars version that was live immediately before the given
-   * `apply` run, by invoking the `iac.rollback.resolve` IPC channel.
+   * Resolves the configuration version that was live immediately before the
+   * given `apply` run, by invoking the `iac.rollback.resolve` IPC channel.
    * Read-only — performs no write. `resolved: false` means the target
    * couldn't be resolved (no matching apply run, not an apply run, no
-   * recorded `tfvarsVersionId`, or no earlier version exists) — `error`
+   * recorded `configVersionId`, or no earlier version exists) — `error`
    * describes why.
    */
   resolve: (opts: { applyRunId: string }) => Promise<IacRollbackResolveAck>;
   /**
    * Confirms a previewed rollback of `opts.applyRunId`, by invoking the
-   * `iac.rollback.confirm` IPC channel — restores the historic tfvars
+   * `iac.rollback.confirm` IPC channel — restores the historic configuration
    * content as a new head version. `confirmed: false` means no write was
    * attempted — `error` describes why.
    */
