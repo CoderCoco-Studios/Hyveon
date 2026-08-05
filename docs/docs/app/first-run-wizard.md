@@ -13,6 +13,11 @@ to and nothing else would work.
 The header reads **Welcome to Hyveon**, with a subtitle showing
 `Step N of 5: <step title>`.
 
+On screens 768px wide or larger, a step-progress list is shown to the left of
+the wizard card, indicating which steps are completed, which is current, and
+which are upcoming. Below that width, the wizard renders as a single centered
+card, unchanged from narrower layouts.
+
 | # | Step | What it does |
 |---|---|---|
 | 1 | Choose your cloud | Picks the cloud provider (AWS only, today) |
