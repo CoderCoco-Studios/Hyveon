@@ -210,7 +210,7 @@ test.describe('guided-IAM wizard step', () => {
     // `wizard.progress.get` mock, skipping pick-cloud entirely (out of scope
     // for this group — see the plan's Global Constraints).
     await expect(wizard.regionInput()).toBeVisible();
-    await wizard.regionInput().fill(TEST_REGION);
+    await wizard.selectRegion('US West (Oregon) — us-west-2');
     await wizard.continueWithGuidedSetupButton().click();
 
     // Template screen — `wizard.guidedIam.prepareTemplate` resolves the fake
