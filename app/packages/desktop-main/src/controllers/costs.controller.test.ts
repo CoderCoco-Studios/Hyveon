@@ -67,7 +67,7 @@ describe('CostsController', () => {
   });
 
   describe('estimate', () => {
-    it('should return zeroed estimates when Terraform has not been applied', async () => {
+    it('should return zeroed estimates when stack outputs are missing', async () => {
       const result = await new CostsController(makeConfig(null), makeCosts(), makeEcs()).estimate();
       expect(result).toEqual({ games: {}, totalPerHourIfAllOn: 0 });
     });

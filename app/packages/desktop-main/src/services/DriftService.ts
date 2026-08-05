@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { DriftChangedField, DriftEntry, DriftReport, GameServer } from '@hyveon/shared';
 import { ConfigService } from './ConfigService.js';
-import { TfvarsService } from './TfvarsService.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
 
 /**
  * Config fields compared for a `'config_drift'` finding, paired with the
@@ -45,16 +45,16 @@ function canonicalStringify(value: unknown): string {
 }
 
 /**
- * The `'ports'` and `'volumes'` fields are HCL lists whose element order can
- * shift between a `terraform.tfvars` edit and the last-applied snapshot (or
- * vice versa) without the *set* of ports/volumes actually changing — e.g. an
- * operator reordering entries in the tfvars file. Comparison for these two
- * fields is therefore order-insensitive: array values are sorted by their
+ * The `'ports'` and `'volumes'` fields are JSON arrays whose element order can
+ * shift between a `deployment-config.json` edit and the last-applied snapshot
+ * (or vice versa) without the *set* of ports/volumes actually changing — e.g.
+ * an operator reordering entries in the declared config. Comparison for these
+ * two fields is therefore order-insensitive: array values are sorted by their
  * canonical (key-order-independent) string representation before the
  * equality check, so key-order-only differences within each entry (e.g. from
- * how Terraform serializes JSON) don't falsely trigger drift. All other
- * compared fields use `value` as-is (order-sensitive, which is correct for
- * scalars).
+ * how the declared and applied sides independently serialize equivalent
+ * JSON) don't falsely trigger drift. All other compared fields use `value`
+ * as-is (order-sensitive, which is correct for scalars).
  */
 function normalizeForComparison(field: DriftChangedField, value: unknown): unknown {
   if ((field === 'ports' || field === 'volumes') && Array.isArray(value)) {
@@ -64,8 +64,8 @@ function normalizeForComparison(field: DriftChangedField, value: unknown): unkno
 }
 
 /**
- * Compares a declared game's tfvars config against its applied (last
- * `terraform apply`d) config and returns the list of {@link COMPARED_FIELDS}
+ * Compares a declared game's config against its applied (last
+ * successfully-applied) config and returns the list of {@link COMPARED_FIELDS}
  * that differ, in declaration order. Empty when the two configs match on
  * every compared field. `ports`/`volumes` comparisons are order-insensitive
  * — see {@link normalizeForComparison}.
@@ -82,7 +82,7 @@ function changedFields(
 
 /**
  * Pure computation of a {@link DriftReport} from a declared game list
- * (`TfvarsService.getGameServers()`), the applied game config snapshot
+ * (`DeploymentConfigService.getGameServers()`), the applied game config snapshot
  * (`ConfigService.getStackOutputs()?.appliedGameServers`), and the
  * authoritative set of deployed game names (`deployedNames`, mirroring the
  * `deployed` parameter of `mergeGameLists()` in `./mergeGameLists.ts`). No
@@ -107,7 +107,7 @@ function changedFields(
  * still produce `'pending_delete'` entries when no longer declared, even
  * though there's no applied config to diff for `'config_drift'`.
  *
- * Ordering is deterministic: entries appear in `declared` (tfvars) order
+ * Ordering is deterministic: entries appear in `declared` config order
  * first, followed by any deployed-only entries (`'pending_delete'`) in the
  * order they appear in `deployedNames`.
  */
@@ -149,7 +149,7 @@ export function computeDrift(
 
 /**
  * Computes drift between the declared game server configuration
- * (`terraform.tfvars`, via {@link TfvarsService.getGameServers}) and the
+ * (`deployment-config.json`, via {@link DeploymentConfigService.getGameServers}) and the
  * applied configuration last written to the deployed Pulumi stack (via
  * {@link ConfigService.getStackOutputs}'s `appliedGameServers` and
  * `gameNames` outputs). See issue #94.
@@ -161,13 +161,13 @@ export function computeDrift(
 @Injectable()
 export class DriftService {
   constructor(
-    private readonly tfvars: TfvarsService,
+    private readonly deploymentConfig: DeploymentConfigService,
     private readonly config: ConfigService,
   ) {}
 
   /**
    * Returns the current {@link DriftReport} — see {@link computeDrift} for
-   * the classification rules. Invalidates only the `TfvarsService` cache
+   * the classification rules. Invalidates only the `DeploymentConfigService` cache
    * (cheap — an in-memory S3 object cache with its own short TTL), NOT
    * {@link ConfigService}'s stack-outputs cache: this method backs
    * `PendingChangesBanner`'s 30-second `GET /api/drift` poll
@@ -181,8 +181,8 @@ export class DriftService {
    * is invalidated on write instead, not on every read here.
    */
   async getDrift(): Promise<DriftReport> {
-    this.tfvars.invalidateCache();
-    const declared = await this.tfvars.getGameServers();
+    this.deploymentConfig.invalidateCache();
+    const declared = await this.deploymentConfig.getGameServers();
     const stackOutputs = await this.config.getStackOutputs();
     const applied = stackOutputs?.appliedGameServers ?? null;
     const deployedNames = stackOutputs?.appliedGameServers

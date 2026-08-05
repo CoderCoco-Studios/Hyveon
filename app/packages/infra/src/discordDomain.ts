@@ -49,7 +49,7 @@
  * ## These three Route 53 records do NOT violate the "no per-game DNS records" invariant
  *
  * CLAUDE.md's invariant ("DNS records are Lambda-managed, never
- * Terraform-managed") is about *per-game* records (`{game}.{hostedZoneName}`),
+ * infra-program-managed") is about *per-game* records (`{game}.{hostedZoneName}`),
  * written exclusively by the update-dns Lambda at runtime (`UPSERT` on
  * `RUNNING`, `DELETE` on `STOPPED`) — a Pulumi-owned record for the same name
  * would fight those writes on every `pulumi up`/refresh. The three records

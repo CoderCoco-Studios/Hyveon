@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import type { RunHistoryRecord, RunHistoryStatus, TerraformRunKind } from '@hyveon/desktop-preload';
+import type { RunHistoryRecord, RunHistoryStatus, IacRunKind } from '@hyveon/desktop-preload';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -17,7 +17,7 @@ const PAGE_SIZE = 25;
 const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
 
 /** `kind` filter options, `'all'` meaning no filter is applied. */
-type KindFilter = TerraformRunKind | 'all';
+type KindFilter = IacRunKind | 'all';
 
 /** `status` filter options, `'all'` meaning no filter is applied (i.e. the unfiltered `hyveon.iac.runs.list` path). */
 type StatusFilter = RunHistoryStatus | 'all';
@@ -29,8 +29,8 @@ function formatTimestamp(iso: string): string {
 }
 
 /**
- * Terraform run-history route (`/iac/history`) — a newest-first table
- * of persisted `terraform` plan/apply/destroy runs backed by
+ * Iac run-history route (`/iac/history`) — a newest-first table
+ * of persisted plan/apply/destroy runs backed by
  * `hyveon.iac.runs.list` (issue #111). Supports `kind`/`status` filters
  * and cursor-based "Load more" pagination; clicking a row's kind opens the
  * read-only run-detail view at `/iac/history/:runId`. The "Changes"
@@ -149,7 +149,7 @@ export function IacHistoryPage() {
   /** Routes a confirmed rollback into the plan/apply run view — see `IacPage`'s `RollbackNavState`. */
   const handleRolledBack = useCallback(
     ({ versionId, rolledBackFrom }: RollbackResult) => {
-      navigate('/iac', { state: { tfvarsVersionId: versionId, rolledBackFrom } });
+      navigate('/iac', { state: { configVersionId: versionId, rolledBackFrom } });
     },
     [navigate],
   );
@@ -267,7 +267,7 @@ export function IacHistoryPage() {
                       <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.completedAt)}</TableCell>
                       <TableCell className="text-xs">{record.approvedBy ?? '—'}</TableCell>
                       <TableCell>
-                        {record.kind === 'apply' && record.tfvarsVersionId !== undefined && (
+                        {record.kind === 'apply' && record.configVersionId !== undefined && (
                           <RollbackAction applyRunId={record.runId} onRolledBack={handleRolledBack} />
                         )}
                       </TableCell>

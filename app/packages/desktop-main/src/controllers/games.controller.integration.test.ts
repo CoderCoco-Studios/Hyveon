@@ -1,9 +1,9 @@
 /**
  * Integration test for `GamesController.listGames()` — exercises a *real*
- * `TfvarsService` (parsing real JSON, exactly as `TfvarsService.test.ts`
+ * `DeploymentConfigService` (parsing real JSON, exactly as `DeploymentConfigService.test.ts`
  * does) wired into a real `GamesController`, with only the `RemoteFileStore`
  * and `ConfigService` stubbed. This complements `games.controller.test.ts`
- * (which stubs `TfvarsService` entirely) by proving the merged
+ * (which stubs `DeploymentConfigService` entirely) by proving the merged
  * `GameListEntry[]` shape produced by `mergeGameLists` (see issue #92) holds
  * up end-to-end when the declared view comes from genuine config parsing
  * rather than a canned fixture array.
@@ -37,7 +37,7 @@ import { readFileSync, existsSync, writeFileSync } from 'fs';
 import type { DeploymentConfig, RemoteFileStore, StackOutputs } from '@hyveon/shared';
 import { RemoteFileConflictError } from '@hyveon/shared';
 import { GamesController } from './games.controller.js';
-import { TfvarsService } from '../services/TfvarsService.js';
+import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
@@ -79,7 +79,7 @@ const CONFIG_DECLARING_ARK: DeploymentConfig = {
   },
 };
 
-/** {@link CONFIG_DECLARING_ARK} serialized exactly as `TfvarsService` would write/read it. */
+/** {@link CONFIG_DECLARING_ARK} serialized exactly as `DeploymentConfigService` would write/read it. */
 const CONFIG_JSON_DECLARING_ARK = JSON.stringify(CONFIG_DECLARING_ARK, null, 2) + '\n';
 
 /** Expected `GameServer` shape parsed out of {@link CONFIG_JSON_DECLARING_ARK}. */
@@ -106,7 +106,7 @@ function makeRemoteFileStore(configJson: string): RemoteFileStore {
  * Builds a `RemoteFileStore` stub whose `get`/`put` remain directly-controllable
  * `vi.fn()` spies (unlike {@link makeRemoteFileStore}, which erases the mock
  * type) — used by the conflict spec below to queue per-call responses,
- * mirroring `TfvarsService.write.test.ts`'s `makeRemoteFileStore()`.
+ * mirroring `DeploymentConfigService.write.test.ts`'s `makeRemoteFileStore()`.
  */
 function makeSpyableRemoteFileStore(): RemoteFileStore & {
   get: ReturnType<typeof vi.fn>;
@@ -124,7 +124,7 @@ function makeSpyableRemoteFileStore(): RemoteFileStore & {
  * Builds a `RemoteFileStore` stub backed by a single mutable `currentConfigJson`
  * string: `put()` overwrites it (and returns a fresh etag) and `get()` always
  * resolves whatever it currently holds, so `GamesWriteService`'s own
- * post-write `tfvars.getGameServers()` call (inside `successResult()`) sees
+ * post-write `deploymentConfig.getGameServers()` call (inside `successResult()`) sees
  * the mutation immediately — matching how the real S3 object behaves —
  * without requiring a manual `get.mockResolvedValue(...)` reset after the fact.
  */
@@ -148,7 +148,7 @@ function makeMutableRemoteFileStore(initialJson: string): RemoteFileStore & { cu
 }
 
 /**
- * Builds a `ConfigService` stub exposing just what `TfvarsService`/`GamesController`
+ * Builds a `ConfigService` stub exposing just what `DeploymentConfigService`/`GamesController`
  * read. A configuration bucket is always configured — there is no local-file
  * mode any more.
  */
@@ -157,8 +157,8 @@ function makeConfig(gameNames: string[]): ConfigService {
   const config: Partial<ConfigService> = {
     invalidateCache: vi.fn(),
     getStackOutputs: vi.fn().mockResolvedValue(outputs),
-    getConfigurationBucket: () => 'my-tfvars-bucket',
-    readEnvTfvarsCacheTtlMs: () => 30000,
+    getConfigurationBucket: () => 'my-config-bucket',
+    readEnvConfigCacheTtlMs: () => 30000,
   };
   return config as ConfigService;
 }
@@ -191,15 +191,15 @@ const UPDATED_ARK_CONFIG = {
   volumes: [{ name: 'saves', container_path: '/ark' }],
 };
 
-describe('GamesController + TfvarsService integration', () => {
+describe('GamesController + DeploymentConfigService integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('should report a game as declared-only when it exists in the config but not in tfstate', async () => {
     const config = makeConfig([]); // nothing deployed yet
-    const tfvars = new TfvarsService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), tfvars);
+    const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
+    const controller = new GamesController(config, makeEcs(), deploymentConfig);
 
     const result = await controller.listGames();
 
@@ -212,8 +212,8 @@ describe('GamesController + TfvarsService integration', () => {
 
   it('should report a game as deployed-only when it exists in tfstate but not in the config', async () => {
     const config = makeConfig(['minecraft']); // deployed game name unrelated to the config
-    const tfvars = new TfvarsService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), tfvars);
+    const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
+    const controller = new GamesController(config, makeEcs(), deploymentConfig);
 
     const result = await controller.listGames();
 
@@ -227,8 +227,8 @@ describe('GamesController + TfvarsService integration', () => {
 
   it('should report a game as both declared and deployed when its name is present in the config and tfstate', async () => {
     const config = makeConfig(['ark']); // same name as the declared config entry
-    const tfvars = new TfvarsService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), tfvars);
+    const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
+    const controller = new GamesController(config, makeEcs(), deploymentConfig);
 
     const result = await controller.listGames();
 
@@ -240,7 +240,7 @@ describe('GamesController + TfvarsService integration', () => {
 
 /**
  * Write-then-read round trip specs (see issue #98): a real `GamesWriteService`
- * (wired to the same real `TfvarsService` + a mutable `RemoteFileStore` stub
+ * (wired to the same real `DeploymentConfigService` + a mutable `RemoteFileStore` stub
  * used above) performs the `games.create` / `games.update` / `games.delete`
  * mutation, and a subsequent `listGames()` call — re-reading through the same
  * stubbed store, seeded with the JSON the write actually produced — proves
@@ -256,9 +256,9 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const remoteFileStore = makeMutableRemoteFileStore(CONFIG_JSON_DECLARING_ARK);
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const createResult = await controller.createGame({ name: 'minecraft', config: VALID_MINECRAFT_CONFIG });
 
@@ -302,9 +302,9 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const remoteFileStore = makeMutableRemoteFileStore(CONFIG_JSON_DECLARING_ARK);
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const updateResult = await controller.updateGame({ name: 'ark', config: UPDATED_ARK_CONFIG });
 
@@ -329,9 +329,9 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const remoteFileStore = makeMutableRemoteFileStore(CONFIG_JSON_DECLARING_ARK);
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const deleteResult = await controller.deleteGame({ name: 'ark' });
 
@@ -354,8 +354,8 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
  * validation failure (Fargate cpu/memory mismatch) must write nothing, and a
  * stale etag must surface as a `'conflict'` result carrying the store's
  * current version id — exercised against a real `GamesWriteService` +
- * `TfvarsService`, with only the `RemoteFileStore` stubbed to simulate the
- * conflicting write (mirroring `TfvarsService.write.test.ts`'s specs).
+ * `DeploymentConfigService`, with only the `RemoteFileStore` stubbed to simulate the
+ * conflicting write (mirroring `DeploymentConfigService.write.test.ts`'s specs).
  */
 describe('GamesController + GamesWriteService games.create failure paths', () => {
   beforeEach(() => {
@@ -370,9 +370,9 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     });
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const result = await controller.createGame({
       name: 'invalid-pairing',
@@ -395,8 +395,8 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     // update-in-place self-exclusion case), so a same-name duplicate on
     // create passes structural/business-rule validation cleanly — the
     // actual duplicate-name rejection only happens inside
-    // `TfvarsService.insertGameServerEntry()`. This spec exercises the real
-    // `TfvarsService` + `GamesWriteService` pair (no mocks) to pin that the
+    // `DeploymentConfigService.insertGameServerEntry()`. This spec exercises the real
+    // `DeploymentConfigService` + `GamesWriteService` pair (no mocks) to pin that the
     // `GameServerEntryError('...', 'duplicate-name')` it throws is
     // genuinely caught and translated by `GamesWriteService.createGame()`,
     // not just asserted against a hand-constructed error in
@@ -408,9 +408,9 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     });
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const result = await controller.createGame({ name: 'ark', config: VALID_MINECRAFT_CONFIG });
 
@@ -428,18 +428,18 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     remoteFileStore.get
       // 1st get(): GamesWriteService.createGame()'s sibling lookup (getGameServers()).
       .mockResolvedValueOnce({ body: new TextEncoder().encode(CONFIG_JSON_DECLARING_ARK), etag: 'etag-1' })
-      // 2nd get(): TfvarsService.writeConfig()'s fetchRawConfig() before mutating.
+      // 2nd get(): DeploymentConfigService.writeConfig()'s fetchRawConfig() before mutating.
       .mockResolvedValueOnce({ body: new TextEncoder().encode(CONFIG_JSON_DECLARING_ARK), etag: 'etag-1' })
-      // 3rd+ get(): the follow-up read TfvarsService issues after the conflict, to report the current etag.
+      // 3rd+ get(): the follow-up read DeploymentConfigService issues after the conflict, to report the current etag.
       .mockResolvedValue({ body: new TextEncoder().encode(CONFIG_JSON_DECLARING_ARK), etag: 'etag-2' });
     remoteFileStore.put.mockRejectedValue(
       new RemoteFileConflictError('deployment-config.json', 'Conflicting write detected.', 'etag-1'),
     );
 
     const config = makeConfig([]);
-    const tfvars = new TfvarsService(config, remoteFileStore);
-    const gamesWrite = new GamesWriteService(config, tfvars, makeAudit());
-    const controller = new GamesController(config, makeEcs(), tfvars, gamesWrite);
+    const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
+    const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
 
     const result = await controller.createGame({
       name: 'minecraft',

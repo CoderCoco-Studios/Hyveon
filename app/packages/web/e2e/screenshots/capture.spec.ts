@@ -264,9 +264,9 @@ test('iac-awaiting-approval.png', async () => {
     const iac = new IacPage(win);
     // Drives the page into the approval-gate state: `iac.plan()`
     // resolves `{started:true, runId:'run-plan-demo'}` (mocked), the plan
-    // run's log stream attaches and delivers `DEMO_TERRAFORM_PLAN_CHUNKS`
+    // run's log stream attaches and delivers `DEMO_IAC_PLAN_CHUNKS`
     // (see `demo-data.ts`) through the real `HyveonStreamHandle`, which flips
-    // `useTerraformRunLog`'s `ended` flag once the iterable completes and
+    // `useIacRunLog`'s `ended` flag once the iterable completes and
     // triggers the one-shot `iac.runs.get(runId)` follow-up (mocked to
     // `awaiting_approval`, with a `changeSummary` of `{ create: 1, update: 1 }`).
     // The resource-change summary badges ("N to create" / "N to update") are
@@ -295,7 +295,7 @@ test('iac-apply.png', async () => {
     // Carries the plan from `iac-awaiting-approval.png` one step
     // further: approve, then apply. `iac.apply()` resolves
     // `{started:true, runId:'run-apply-demo'}` (mocked), whose log stream
-    // delivers `DEMO_TERRAFORM_APPLY_CHUNKS` (see `demo-data.ts`) — the same
+    // delivers `DEMO_IAC_APPLY_CHUNKS` (see `demo-data.ts`) — the same
     // `{ create: 1, update: 1 }` changeSummary shape as the plan, so the two
     // screenshots tell one consistent story.
     await iac.runPlanButton().click();

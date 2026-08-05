@@ -73,7 +73,7 @@ the single source of truth for per-game resources; it's persisted as the
 JSON object `deployment-config.json` in the operator's S3 configuration
 bucket. `PulumiService` fetches that object, `JSON.parse`s it, and passes it
 into `createInfraProgram()`. See
-[Management app — `TfvarsModule` / `TfvarsService`](/components/management-app#tfvarsmodule--tfvarsservice)
+[Management app — `DeploymentConfigModule` / `DeploymentConfigService`](/components/management-app#deploymentconfigmodule--deploymentconfigservice)
 for how the desktop app reads and writes the same object.
 
 There is no single `for_each`-style loop over this map. `defineAll()`
@@ -164,9 +164,10 @@ when no Pulumi stack output is available yet).
 
 If you previously deployed the Terraform-based version of this stack,
 see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-terraform-teardown-one-off)
-before running `pulumi up` for the first time — the new program reuses the
-same physical resource names, and deploying both stacks against the same AWS
-account risks duplicate or conflicting infrastructure.
+before running the first apply from the app's [Infrastructure page](/app/iac) —
+the new program reuses the same physical resource names, and deploying both
+stacks against the same AWS account risks duplicate or conflicting
+infrastructure.
 
 ## Dependencies
 

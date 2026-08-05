@@ -29,9 +29,9 @@ export const PULUMI_PROJECT_NAME = 'hyveon';
 
 /**
  * Bare Pulumi stack name. The app manages exactly one deployment target per
- * install (mirroring the single `terraform.tfstate` the Terraform composer
- * reads/writes today — there is no per-environment or per-game Pulumi stack),
- * so one fixed name is enough.
+ * install (mirroring the single `terraform.tfstate` the deleted Terraform
+ * composer used to read/write — there is no per-environment or per-game
+ * Pulumi stack), so one fixed name is enough.
  *
  * Pinned as a single constant because stack naming is a trap: a
  * non-legacy DIY backend accepts either a bare stack name or

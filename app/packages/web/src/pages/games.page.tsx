@@ -17,14 +17,14 @@ function formatPorts(entry: GameListEntry): string {
 
 /**
  * Games route (`/games`) — read-only table of every game the app knows
- * about, merging the declared `terraform.tfvars` config with the deployed
- * `terraform.tfstate` view (see issue #92's `games.list` IPC channel).
+ * about, merging the declared deployment config with the deployed
+ * tfstate view (see issue #92's `games.list` IPC channel).
  *
  * Rows fall into three shapes:
  *   - declared + deployed → full config, "In sync" chip.
  *   - declared only → full config, "Pending deploy" chip (not yet applied).
  *   - deployed only ("ghost" row) → no `config`, "Undeclared" chip; config
- *     columns render as em dashes since there's no tfvars entry to read.
+ *     columns render as em dashes since there's no declared entry to read.
  *
  * Each row links to `/games/:name` for the deeper read-only detail view
  * (issue #93's follow-up), still to be implemented.

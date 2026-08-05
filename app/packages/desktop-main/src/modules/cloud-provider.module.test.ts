@@ -28,7 +28,7 @@ import type {
 import {
   CLOUD_BINDINGS,
   resolveCloudBindings,
-  resolveTfvarsFileStoreConfig,
+  resolveDeploymentConfigFileStoreConfig,
   resolveAuditLogStoreConfig,
   resolveRunRecordStoreConfig,
   type CloudBindings,
@@ -44,7 +44,7 @@ import type { StackOutputs } from '@hyveon/shared';
  */
 function makeConfig(
   activeCloud: ActiveCloud,
-  tfvarsBucket: string | null = 'test-tfvars-bucket',
+  configBucket: string | null = 'test-config-bucket',
   auditTableName = 'test-audit-table',
   runsTableName = 'test-runs-table',
   awsRegion = 'us-east-1',
@@ -52,7 +52,7 @@ function makeConfig(
   const stub: Partial<ConfigService> = {
     getActiveCloud: () => activeCloud,
     getRegion: () => 'us-east-1',
-    getConfigurationBucket: () => tfvarsBucket,
+    getConfigurationBucket: () => configBucket,
     getStackOutputs: async () => ({ auditTableName, runsTableName, awsRegion } as StackOutputs),
   };
   return stub as ConfigService;
@@ -218,14 +218,14 @@ describe('resolveCloudBindings', () => {
       expect(bindings.remoteFileStore(config)).toBeInstanceOf(AwsRemoteFileStore);
     });
 
-    it('should resolve the tfvars file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
-      const config = makeConfig('aws', 'my-tfvars-bucket');
-      expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: 'my-tfvars-bucket', region: 'us-east-1' });
+    it('should resolve the deployment config file store bucket from ConfigService.getConfigurationBucket() and region from getRegion()', () => {
+      const config = makeConfig('aws', 'my-config-bucket');
+      expect(resolveDeploymentConfigFileStoreConfig(config)).toEqual({ bucket: 'my-config-bucket', region: 'us-east-1' });
     });
 
     it('should fall back to an empty bucket name when getConfigurationBucket() reports no bucket configured', () => {
       const config = makeConfig('aws', null);
-      expect(resolveTfvarsFileStoreConfig(config)).toEqual({ bucket: '', region: 'us-east-1' });
+      expect(resolveDeploymentConfigFileStoreConfig(config)).toEqual({ bucket: '', region: 'us-east-1' });
     });
 
     it('should produce an AwsDiscordEventReceiver from the aws discordReceiver factory', () => {
@@ -241,7 +241,7 @@ describe('resolveCloudBindings', () => {
     });
 
     it('should resolve the audit log store table from ConfigService.getStackOutputs().auditTableName and region from getRegion()', async () => {
-      const config = makeConfig('aws', 'test-tfvars-bucket', 'my-audit-table');
+      const config = makeConfig('aws', 'test-config-bucket', 'my-audit-table');
       await expect(resolveAuditLogStoreConfig(config)).resolves.toEqual({ tableName: 'my-audit-table', region: 'us-east-1' });
     });
 
@@ -254,7 +254,7 @@ describe('resolveCloudBindings', () => {
     });
 
     it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
-      const config = makeConfig('aws', 'test-tfvars-bucket', 'my-audit-table', 'test-runs-table', 'eu-west-1');
+      const config = makeConfig('aws', 'test-config-bucket', 'my-audit-table', 'test-runs-table', 'eu-west-1');
       await expect(resolveAuditLogStoreConfig(config)).resolves.toEqual({ tableName: 'my-audit-table', region: 'eu-west-1' });
     });
 
@@ -273,10 +273,10 @@ describe('resolveCloudBindings', () => {
     });
 
     it('should resolve the run record store table from ConfigService.getStackOutputs().runsTableName, bucket from getConfigurationBucket(), and region from getRegion()', async () => {
-      const config = makeConfig('aws', 'my-tfvars-bucket', 'test-audit-table', 'my-runs-table');
+      const config = makeConfig('aws', 'my-config-bucket', 'test-audit-table', 'my-runs-table');
       await expect(resolveRunRecordStoreConfig(config, throwingRemoteFileStore)).resolves.toEqual({
         tableName: 'my-runs-table',
-        bucket: 'my-tfvars-bucket',
+        bucket: 'my-config-bucket',
         region: 'us-east-1',
       });
     });
@@ -294,10 +294,10 @@ describe('resolveCloudBindings', () => {
     });
 
     it('should prefer the deployed stack outputs awsRegion over getRegion() once a stack is deployed', async () => {
-      const config = makeConfig('aws', 'my-tfvars-bucket', 'test-audit-table', 'my-runs-table', 'ap-southeast-2');
+      const config = makeConfig('aws', 'my-config-bucket', 'test-audit-table', 'my-runs-table', 'ap-southeast-2');
       await expect(resolveRunRecordStoreConfig(config, throwingRemoteFileStore)).resolves.toEqual({
         tableName: 'my-runs-table',
-        bucket: 'my-tfvars-bucket',
+        bucket: 'my-config-bucket',
         region: 'ap-southeast-2',
       });
     });
@@ -310,34 +310,34 @@ describe('resolveCloudBindings', () => {
         // never run a successful Pulumi apply — `getStackOutputs()` is `null`,
         // exactly like a never-deployed stack.
         const config: ConfigService = {
-          ...makeConfig('aws', 'my-tfvars-bucket'),
+          ...makeConfig('aws', 'my-config-bucket'),
           getStackOutputs: async () => null,
         } as ConfigService;
         const remoteFileStore = makeConfigRemoteFileStore({ projectName: 'hyveon', runsTableName: '' });
 
         await expect(resolveRunRecordStoreConfig(config, remoteFileStore)).resolves.toEqual({
           tableName: 'hyveon-runs',
-          bucket: 'my-tfvars-bucket',
+          bucket: 'my-config-bucket',
           region: 'us-east-1',
         });
       });
 
       it('should resolve the configured runsTableName override from DeploymentConfig, not the project-prefixed default, in the pre-apply fallback', async () => {
         const config: ConfigService = {
-          ...makeConfig('aws', 'my-tfvars-bucket'),
+          ...makeConfig('aws', 'my-config-bucket'),
           getStackOutputs: async () => null,
         } as ConfigService;
         const remoteFileStore = makeConfigRemoteFileStore({ projectName: 'hyveon', runsTableName: 'custom-runs-table' });
 
         await expect(resolveRunRecordStoreConfig(config, remoteFileStore)).resolves.toEqual({
           tableName: 'custom-runs-table',
-          bucket: 'my-tfvars-bucket',
+          bucket: 'my-config-bucket',
           region: 'us-east-1',
         });
       });
 
       it('should prefer getStackOutputs().runsTableName over the pre-apply fallback once a stack has actually been applied', async () => {
-        const config = makeConfig('aws', 'my-tfvars-bucket', 'test-audit-table', 'deployed-runs-table');
+        const config = makeConfig('aws', 'my-config-bucket', 'test-audit-table', 'deployed-runs-table');
         // A remote file store whose DeploymentConfig would resolve to a
         // DIFFERENT name than the deployed stack reports — proving the
         // deployed value wins, not just that the fallback is reachable.
@@ -345,20 +345,20 @@ describe('resolveCloudBindings', () => {
 
         await expect(resolveRunRecordStoreConfig(config, remoteFileStore)).resolves.toEqual({
           tableName: 'deployed-runs-table',
-          bucket: 'my-tfvars-bucket',
+          bucket: 'my-config-bucket',
           region: 'us-east-1',
         });
       });
 
       it('should fall back to an empty table name when no DeploymentConfig has been persisted yet either', async () => {
         const config: ConfigService = {
-          ...makeConfig('aws', 'my-tfvars-bucket'),
+          ...makeConfig('aws', 'my-config-bucket'),
           getStackOutputs: async () => null,
         } as ConfigService;
 
         await expect(resolveRunRecordStoreConfig(config, makeConfigRemoteFileStore(undefined))).resolves.toEqual({
           tableName: '',
-          bucket: 'my-tfvars-bucket',
+          bucket: 'my-config-bucket',
           region: 'us-east-1',
         });
       });

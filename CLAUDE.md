@@ -33,8 +33,8 @@ through a change, not straight into `openspec/specs/`.
 
 Single **npm-workspaces** tree rooted at the repo root. Workspaces: `app`,
 `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/desktop-main`,
-`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, five Lambda packages
-under `app/packages/lambda/*`, and `@hyveon/scripts`.
+`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, and five Lambda
+packages under `app/packages/lambda/*`.
 
 ```bash
 npm install                     # install every workspace (run from repo root)
@@ -48,7 +48,6 @@ npm run desktop:package         # electron-builder installers → release/ (Win 
 
 npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
 npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
-npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see scripts/README.md)
 
 npm run app:lint                 # eslint (flat config at app/eslint.config.js)
 npm run app:lint:fix
@@ -80,7 +79,7 @@ these are easy to violate while making an otherwise reasonable change.
   core cost model.
 - **`DeploymentConfig.gameServers` is the single source of truth.** It's persisted as
   the JSON object `deployment-config.json` in the operator's S3 configuration bucket
-  (`TfvarsService`). Adding a game means adding one map entry — every per-game resource
+  (`DeploymentConfigService`). Adding a game means adding one map entry — every per-game resource
   in `app/packages/infra` fans out from that one object.
 - **DNS records are Lambda-managed, never infra-program-managed.** `@hyveon/lambda-update-dns`
   UPSERTs on `RUNNING` and DELETEs on `STOPPED`; a Pulumi-owned per-game record would fight it.

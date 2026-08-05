@@ -4,7 +4,7 @@ import { createRequire } from 'module';
 import { Module } from '@nestjs/common';
 import { AwsModule } from './modules/aws.module.js';
 import { DiscordModule } from './modules/discord.module.js';
-import { TfvarsModule } from './modules/tfvars.module.js';
+import { DeploymentConfigModule } from './modules/deployment-config.module.js';
 import { RunRecordModule } from './modules/run-record.module.js';
 import { PulumiEngineModule } from './modules/pulumi-engine.module.js';
 import { PulumiWorkspaceModule } from './modules/pulumi-workspace.module.js';
@@ -31,7 +31,7 @@ import { AuditService } from './services/AuditService.js';
 
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
- * `TfvarsModule`, `RunRecordModule`, `PulumiEngineModule`,
+ * `DeploymentConfigModule`, `RunRecordModule`, `PulumiEngineModule`,
  * `PulumiWorkspaceModule`, `PulumiServiceModule`, `WizardModule`,
  * `ElectronStoreModule`) to the IPC controllers.
  *
@@ -60,7 +60,7 @@ import { AuditService } from './services/AuditService.js';
   imports: [
     AwsModule,
     DiscordModule,
-    TfvarsModule,
+    DeploymentConfigModule,
     RunRecordModule,
     PulumiEngineModule,
     PulumiWorkspaceModule,

@@ -6,7 +6,7 @@ import { ConfirmDialog } from './confirm-dialog.component.js';
 
 /** Result of a confirmed rollback, handed to {@link RollbackActionProps.onRolledBack}. */
 export interface RollbackResult {
-  /** The freshly-restored tfvars version, to plan against. */
+  /** The freshly-restored configuration version, to plan against. */
   versionId: string;
   /** The apply run the restored version was resolved from — tags the resulting plan. */
   rolledBackFrom: string;
@@ -15,7 +15,7 @@ export interface RollbackResult {
 interface RollbackActionProps {
   /** The `runId` of the apply run to roll back. */
   applyRunId: string;
-  /** Called once the rollback is confirmed and the historic tfvars version has been restored as the new head. */
+  /** Called once the rollback is confirmed and the historic configuration version has been restored as the new head. */
   onRolledBack: (result: RollbackResult) => void;
 }
 
@@ -74,7 +74,7 @@ function formatDiffSummary(diff: DeploymentConfigDiff): string {
  * nothing is written until the operator has seen the target version:
  *
  * 1. Clicking the button calls `hyveon.iac.rollback.resolve` (read-only)
- *    to identify the tfvars version that was live before this apply run, and
+ *    to identify the configuration version that was live before this apply run, and
  *    opens a {@link ConfirmDialog} naming it.
  * 2. Confirming calls `hyveon.iac.rollback.confirm`, which restores that
  *    version's content as a new head. On success, {@link onRolledBack} fires
@@ -146,7 +146,7 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
           setDialogOpen(false);
           onRolledBack({ versionId: ack.versionId, rolledBackFrom: applyRunId });
         } else {
-          setError(ack.error ?? 'Could not restore the historic tfvars version.');
+          setError(ack.error ?? 'Could not restore the historic configuration version.');
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -172,9 +172,9 @@ export function RollbackAction({ applyRunId, onRolledBack }: RollbackActionProps
         <ConfirmDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          title="Roll back tfvars?"
+          title="Roll back configuration?"
           description={
-            `This restores tfvars version ${target.versionId} (last modified ${formatTimestamp(target.lastModified)}) ` +
+            `This restores configuration version ${target.versionId} (last modified ${formatTimestamp(target.lastModified)}) ` +
             'as the new head, then queues a plan against it. The current head is not deleted — history is append-only.' +
             (target.diff ? ` ${formatDiffSummary(target.diff)}` : '')
           }

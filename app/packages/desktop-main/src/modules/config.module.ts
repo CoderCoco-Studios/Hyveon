@@ -5,7 +5,7 @@ import { ElectronStoreModule } from './electron-store.module.js';
 import { PulumiServiceModule } from './pulumi-service.module.js';
 
 /**
- * Standalone module for `ConfigService`, the terraform-state-backed
+ * Standalone module for `ConfigService`, the Pulumi-stack-outputs-backed
  * configuration reader shared across the app. Extracted so any feature
  * module (e.g. a future `CloudProviderModule`) can `imports: [ConfigModule]`
  * and receive `ConfigService` via Nest DI without pulling in `AwsModule`'s

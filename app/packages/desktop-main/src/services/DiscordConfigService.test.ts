@@ -29,7 +29,7 @@ vi.mock('@hyveon/shared', async () => {
 });
 
 /** Minimal `StackOutputs` stub exposing just the Discord-store fields. */
-const TF: StackOutputs = {
+const STACK_OUTPUTS: StackOutputs = {
   awsRegion: 'us-east-1',
   ecsClusterName: '',
   ecsClusterArn: '',
@@ -63,7 +63,7 @@ function makeSecretsStore(): SecretsStore {
 }
 
 function makeService(
-  outputs: StackOutputs | null = TF,
+  outputs: StackOutputs | null = STACK_OUTPUTS,
   secrets: SecretsStore = makeSecretsStore(),
 ): DiscordConfigService {
   const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;

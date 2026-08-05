@@ -8,7 +8,7 @@ interface FileSeed {
   mode?: string;
 }
 
-/** Payload sent by `aws_lambda_invocation.efs_seeder` in Terraform. */
+/** Payload sent by the `aws.lambda.Invocation` resource the infra program declares per game (`app/packages/infra/src/escapes.ts`'s `defineEfsSeederInvocations`). */
 interface SeederEvent {
   game: string;
   seeds: FileSeed[];
@@ -49,8 +49,9 @@ function resolveDestination(seedPath: string, containerPath: string): string {
 
 /**
  * Writes each `file_seeds` entry to the EFS access point mounted at
- * `/mnt/efs`.  Invoked synchronously by `aws_lambda_invocation` during
- * `terraform apply`; throws on any error so Terraform surfaces the failure.
+ * `/mnt/efs`.  Invoked synchronously by the `aws.lambda.Invocation` resource
+ * during the infra program's Pulumi apply (run through `PulumiService`);
+ * throws on any error so the apply surfaces the failure.
  */
 export const handler = async (event: SeederEvent): Promise<void> => {
   const { game, seeds, container_path: containerPath } = event;

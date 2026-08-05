@@ -13,10 +13,11 @@ const PARTITION_KEY = 'AUDIT';
 
 /**
  * AWS implementation of the cloud-agnostic {@link AuditLogStore} contract,
- * backed by the DynamoDB audit table provisioned in
- * `terraform/aws/audit_store.tf` (`pk = AUDIT`, `sk` = `buildAuditSk()`). No
- * `@aws-sdk/*` shapes appear outside this class's private fields/method
- * bodies, so callers depend only on {@link AuditLogStore}.
+ * backed by the DynamoDB audit table declared in
+ * `app/packages/infra/src/dynamodb.ts`'s `defineDynamoDb` (`pk = AUDIT`,
+ * `sk` = `buildAuditSk()`). No `@aws-sdk/*` shapes appear outside this
+ * class's private fields/method bodies, so callers depend only on
+ * {@link AuditLogStore}.
  */
 export class AwsAuditLogStore implements AuditLogStore {
   private client: DynamoDBDocumentClient | null = null;
@@ -25,8 +26,8 @@ export class AwsAuditLogStore implements AuditLogStore {
   /**
    * @param getConfig - Resolves the DynamoDB table (and optional region)
    *   this store reads/writes, on every call — so a table rename picked up
-   *   between calls (e.g. after a Terraform re-apply) isn't stuck targeting
-   *   a stale table. Optional so the class remains constructible with no
+   *   between calls (e.g. after a Pulumi apply run through `PulumiService`)
+   *   isn't stuck targeting a stale table. Optional so the class remains constructible with no
    *   arguments, mirroring `AwsSecretsStore`/`AwsRemoteFileStore`'s
    *   zero-arg-constructible pattern. When omitted (or when it returns no
    *   `tableName`), every method throws a clear "table not configured"

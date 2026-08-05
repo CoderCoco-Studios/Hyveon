@@ -1,5 +1,5 @@
 /**
- * Tests for `TfvarsService` — the S3-backed deployment-config reader/parser.
+ * Tests for `DeploymentConfigService` — the S3-backed deployment-config reader/parser.
  *
  * The config is plain JSON, so fixtures are inline `DeploymentConfig`-shaped
  * objects `JSON.stringify`d — no fixture files needed, unlike the retired
@@ -17,10 +17,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 
 // Shared mock instances behind both the bare `'fs'` specifier and the
-// `'node:fs'` specifier — Node treats these as distinct module ids, and
-// TerraformService.ts imports the latter, so mocking only `'fs'` would let a
-// reintroduced local-disk fallback via `node:fs` slip past this file's
-// "no disk fallback reachable" assertions unnoticed.
+// `'node:fs'` specifier — Node treats these as distinct module ids, and the
+// deleted TerraformService.ts used to import the latter, so mocking only
+// `'fs'` would let a reintroduced local-disk fallback via `node:fs` slip past
+// this file's "no disk fallback reachable" assertions unnoticed.
 const { mockExists, mockRead, mockWrite } = vi.hoisted(() => ({
   mockExists: vi.fn(),
   mockRead: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { TfvarsService, ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
+import { DeploymentConfigService, ConfigurationNotConfiguredError, GameServerEntryError } from './DeploymentConfigService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 
@@ -84,7 +84,7 @@ const FIXTURE_CONFIG: DeploymentConfig = {
   },
 };
 
-/** `FIXTURE_CONFIG` serialized exactly as `TfvarsService` would write/read it. */
+/** `FIXTURE_CONFIG` serialized exactly as `DeploymentConfigService` would write/read it. */
 const FIXTURE_JSON = JSON.stringify(FIXTURE_CONFIG, null, 2) + '\n';
 
 /** Expected `GameServer[]` produced by parsing {@link FIXTURE_JSON}. */
@@ -303,9 +303,9 @@ function makeRemoteFileStore(): RemoteFileStore & {
 /**
  * Test-only subclass exposing a directly-controllable `now()` mock, so tests
  * can simulate TTL expiry without real timers. Avoids reaching into
- * `TfvarsService`'s protected `now()` via an `as unknown as { now }` cast.
+ * `DeploymentConfigService`'s protected `now()` via an `as unknown as { now }` cast.
  */
-class TestableTfvarsService extends TfvarsService {
+class TestableDeploymentConfigService extends DeploymentConfigService {
   /** Mock backing `now()`; call `nowMock.mockReturnValue(...)` to control the clock. */
   readonly nowMock = vi.fn<[], number>(() => Date.now());
 
@@ -315,19 +315,19 @@ class TestableTfvarsService extends TfvarsService {
 }
 
 /**
- * Builds a `ConfigService` stub exposing just the methods `TfvarsService`
+ * Builds a `ConfigService` stub exposing just the methods `DeploymentConfigService`
  * reads. `bucket: null` (the default) selects the "unconfigured" state; any
  * non-null string selects the configured (S3) state.
  */
 function makeConfig(opts: { bucket?: string | null; ttlMs?: number } = {}): ConfigService {
   const stub: Partial<ConfigService> = {
     getConfigurationBucket: () => opts.bucket ?? null,
-    readEnvTfvarsCacheTtlMs: () => opts.ttlMs ?? 30000,
+    readEnvConfigCacheTtlMs: () => opts.ttlMs ?? 30000,
   };
   return stub as ConfigService;
 }
 
-describe('TfvarsService', () => {
+describe('DeploymentConfigService', () => {
   let remoteFileStore: RemoteFileStore & { get: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
@@ -337,24 +337,24 @@ describe('TfvarsService', () => {
 
   describe('isConfigured', () => {
     it('should return false when no configuration bucket is configured', () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
       expect(service.isConfigured()).toBe(false);
     });
 
     it('should return true when a configuration bucket is configured', () => {
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       expect(service.isConfigured()).toBe(true);
     });
 
     it('should return false when the configuration bucket resolves to an empty string, matching fetchRawConfig/putRawConfig\'s truthiness check', () => {
-      const service = new TfvarsService(makeConfig({ bucket: '' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: '' }), remoteFileStore);
       expect(service.isConfigured()).toBe(false);
     });
   });
 
   describe('unconfigured (no disk fallback reachable)', () => {
     it('should resolve getGameServers() to [] without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
 
@@ -366,7 +366,7 @@ describe('TfvarsService', () => {
     });
 
     it('should reject getRawConfig() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(service.getRawConfig()).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
 
@@ -376,7 +376,7 @@ describe('TfvarsService', () => {
     });
 
     it('should reject addGameServer() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(
         service.addGameServer('terraria', {
@@ -396,7 +396,7 @@ describe('TfvarsService', () => {
     });
 
     it('should reject updateGameServer() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(
         service.updateGameServer('palworld', {
@@ -413,7 +413,7 @@ describe('TfvarsService', () => {
     });
 
     it('should reject removeGameServer() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
       await expect(service.removeGameServer('palworld')).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
 
@@ -421,10 +421,10 @@ describe('TfvarsService', () => {
       expect(remoteFileStore.put).not.toHaveBeenCalled();
     });
 
-    it('should reject restoreRawTfvars() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
-      const service = new TfvarsService(makeConfig({ bucket: null }), remoteFileStore);
+    it('should reject restoreRawConfig() with ConfigurationNotConfiguredError without ever touching fs or the RemoteFileStore', async () => {
+      const service = new DeploymentConfigService(makeConfig({ bucket: null }), remoteFileStore);
 
-      await expect(service.restoreRawTfvars(FIXTURE_JSON)).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
+      await expect(service.restoreRawConfig(FIXTURE_JSON)).rejects.toBeInstanceOf(ConfigurationNotConfiguredError);
 
       expect(mockWrite).not.toHaveBeenCalled();
       expect(remoteFileStore.put).not.toHaveBeenCalled();
@@ -438,7 +438,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getRawConfig();
 
       expect(result.config).toBe(FIXTURE_JSON);
@@ -448,7 +448,7 @@ describe('TfvarsService', () => {
     it('should reject when the S3 object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getRawConfig()).rejects.toThrow(/not found/);
     });
@@ -461,7 +461,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_GAME_SERVERS);
@@ -474,7 +474,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
 
       expect(remoteFileStore.get).toHaveBeenCalledWith('deployment-config.json');
@@ -483,7 +483,7 @@ describe('TfvarsService', () => {
     it('should return an empty array and log when the remote config object does not exist', async () => {
       remoteFileStore.get.mockResolvedValue(undefined);
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -497,7 +497,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -509,7 +509,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -521,7 +521,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableTfvarsService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
@@ -544,7 +544,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const entry = {
         image: 'ryshe/terraria',
         cpu: 512,
@@ -565,7 +565,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableTfvarsService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
@@ -588,7 +588,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_MULTIPLE_GAME_SERVERS);
@@ -600,7 +600,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_OMITTED_OPTIONALS_GAME_SERVERS);
@@ -618,7 +618,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       const result = await service.getGameServers();
 
       expect(result).toEqual(EXPECTED_RICH_ENTRY_GAME_SERVERS);
@@ -635,7 +635,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
 
       await expect(service.getGameServers()).resolves.toEqual([]);
       expect(logger.error).toHaveBeenCalled();
@@ -649,7 +649,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket' }), remoteFileStore);
       await service.getGameServers();
 
       expect(remoteFileStore.get).toHaveBeenCalledTimes(1);
@@ -661,7 +661,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableTfvarsService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       const first = await service.getGameServers();
@@ -678,7 +678,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TestableTfvarsService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new TestableDeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
       service.nowMock.mockReturnValue(1_000_000);
 
       await service.getGameServers();
@@ -694,7 +694,7 @@ describe('TfvarsService', () => {
         etag: 'etag-1',
       });
 
-      const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket', ttlMs: 30000 }), remoteFileStore);
+      const service = new DeploymentConfigService(makeConfig({ bucket: 'my-config-bucket', ttlMs: 30000 }), remoteFileStore);
 
       await service.getGameServers();
       service.invalidateCache();

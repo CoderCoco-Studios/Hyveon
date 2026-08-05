@@ -197,7 +197,7 @@ export function stepForIssuePath(path: string): WizardStep {
 }
 
 /**
- * Validates `name` against the rules `TfvarsService.insertGameServerEntry()`
+ * Validates `name` against the rules `DeploymentConfigService.insertGameServerEntry()`
  * enforces server-side: non-empty, matches the shared
  * {@link GAME_NAME_PATTERN} (DNS-label-safe, imported from
  * `@hyveon/shared/gameServerValidator` so this can never drift from the

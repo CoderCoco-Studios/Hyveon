@@ -8,7 +8,7 @@ const STATUS_BADGE: Record<RunHistoryStatus, { variant: 'success' | 'destructive
   aborted: { variant: 'secondary', label: 'Aborted' },
 };
 
-/** Small colored status badge for a persisted `terraform` run record — shared by the history table rows and the read-only run-detail view. */
+/** Small colored status badge for a persisted iac run record — shared by the history table rows and the read-only run-detail view. */
 export function RunStatusBadge({ status }: { status: RunHistoryStatus }) {
   const { variant, label } = STATUS_BADGE[status];
   return <Badge variant={variant}>{label}</Badge>;

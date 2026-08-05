@@ -63,7 +63,7 @@ export interface CloudBindings {
  * directly without constructing an `@aws-sdk/client-s3`-backed store, which
  * `@hyveon/desktop-main` tests aren't permitted to import.
  */
-export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: string; region: string } {
+export function resolveDeploymentConfigFileStoreConfig(config: ConfigService): { bucket: string; region: string } {
   return { bucket: config.getConfigurationBucket() ?? '', region: config.getRegion() };
 }
 
@@ -77,7 +77,7 @@ export function resolveTfvarsFileStoreConfig(config: ConfigService): { bucket: s
  * SAME resolved `outputs.awsRegion` when a stack is deployed (falling back
  * to `getRegion()`'s wizard-configured value only when nothing is deployed
  * yet). Exported as a standalone function — see
- * {@link resolveTfvarsFileStoreConfig} for why.
+ * {@link resolveDeploymentConfigFileStoreConfig} for why.
  *
  * Region source, revisited: `ConfigService.getRegion()` reads the
  * wizard-configured `aws.region` rather than the deployed stack's own
@@ -137,7 +137,7 @@ export async function resolveAuditLogStoreConfig(config: ConfigService): Promise
  * intra-module provider dependency, not a new module `imports:` edge — both
  * tokens are already provided by this same module).
  *
- * Exported as a standalone function — see {@link resolveTfvarsFileStoreConfig}
+ * Exported as a standalone function — see {@link resolveDeploymentConfigFileStoreConfig}
  * for why. Async for the same reason, and with the same "not a DI-factory
  * hazard" and "prefer `outputs.awsRegion` once deployed" reasoning, as
  * {@link resolveAuditLogStoreConfig} — see its doc comment.
@@ -166,7 +166,7 @@ export const CLOUD_BINDINGS: Record<string, CloudBindings> = {
   aws: {
     cloudProvider: (config) => createAwsCloudProvider(config),
     secretsStore: (config) => new AwsSecretsStore(() => config.getRegion()),
-    remoteFileStore: (config) => new AwsRemoteFileStore(() => resolveTfvarsFileStoreConfig(config)),
+    remoteFileStore: (config) => new AwsRemoteFileStore(() => resolveDeploymentConfigFileStoreConfig(config)),
     discordReceiver: () => new AwsDiscordEventReceiver(),
     auditLogStore: (config) => new AwsAuditLogStore(() => resolveAuditLogStoreConfig(config)),
     runRecordStore: (config, remoteFileStore) => new AwsRunRecordStore(() => resolveRunRecordStoreConfig(config, remoteFileStore)),

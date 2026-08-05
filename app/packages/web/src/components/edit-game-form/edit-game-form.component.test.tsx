@@ -167,7 +167,7 @@ describe('EditGameForm', () => {
     apiMock.updateGame.mockResolvedValue({
       ok: false,
       code: 'conflict',
-      message: 'terraform.tfvars changed since this draft was loaded.',
+      message: 'deployment config changed since this draft was loaded.',
     });
     renderForm(<EditGameForm game={sampleGame()} />);
 
@@ -177,7 +177,7 @@ describe('EditGameForm', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await screen.findByRole('alert');
-    expect(screen.getByRole('alert')).toHaveTextContent('terraform.tfvars changed since this draft was loaded.');
+    expect(screen.getByRole('alert')).toHaveTextContent('deployment config changed since this draft was loaded.');
     expect(screen.getByLabelText('Image')).toHaveValue('edited/image');
   });
 

@@ -193,7 +193,7 @@ fields with the reported issues rather than a generic failure banner.
 ## Diagnostics
 
 The last **500 lines** of the desktop app's own log — the main process's
-structured log, not your game servers' CloudWatch logs and not Terraform
+structured log, not your game servers' CloudWatch logs and not Pulumi run
 output. This is where to look when the app itself misbehaves: a failed IPC
 call, an AWS SDK error the UI swallowed, a Discord command registration
 Discord rejected.

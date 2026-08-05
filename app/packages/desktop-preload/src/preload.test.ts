@@ -1048,12 +1048,12 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.plan channel with the opts payload and resolve the started ack with a runId', async () => {
         const ack = { started: true, runId: 'run-001' };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+        const iac = bridge['iac'] as {
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
-        const opts = { tfvarsVersionId: 'v-123' };
+        const opts = { configVersionId: 'v-123' };
 
-        const result = await terraform.plan(opts);
+        const result = await iac.plan(opts);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.plan', opts);
         expect(result).toEqual(ack);
@@ -1061,11 +1061,11 @@ describe('preload dispatcher', () => {
 
       it('should invoke the iac.plan channel with no opts when omitted', async () => {
         ipcInvoke.mockResolvedValue({ started: true, runId: 'run-002' });
-        const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+        const iac = bridge['iac'] as {
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
 
-        await terraform.plan();
+        await iac.plan();
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.plan', undefined);
       });
@@ -1073,15 +1073,15 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform plan refused: apply is already in flight',
+          error: 'plan refused: apply is already in flight',
           conflict: 'apply' as const,
         };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+        const iac = bridge['iac'] as {
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
 
-        const result = await terraform.plan();
+        const result = await iac.plan();
 
         expect(result).toEqual(ack);
       });
@@ -1100,11 +1100,11 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(ack);
         testApi.mock('iac.plan', mockHandler);
 
-        const terraform = bridge['iac'] as {
-          plan: (opts?: { tfvarsVersionId?: string }) => Promise<unknown>;
+        const iac = bridge['iac'] as {
+          plan: (opts?: { configVersionId?: string }) => Promise<unknown>;
         };
-        const opts = { tfvarsVersionId: 'v-456' };
-        const result = await terraform.plan(opts);
+        const opts = { configVersionId: 'v-456' };
+        const result = await iac.plan(opts);
 
         expect(mockHandler).toHaveBeenCalledWith(opts);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1128,10 +1128,10 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.approve channel with the opts payload', async () => {
         const result = { approved: true, approvedBy: 'admin@example.com', approvedAt: '2026-07-21T00:00:00.000Z' };
         ipcInvoke.mockResolvedValue(result);
-        const terraform = bridge['iac'] as { approve: (opts: { planRunId: string }) => Promise<unknown> };
+        const iac = bridge['iac'] as { approve: (opts: { planRunId: string }) => Promise<unknown> };
         const opts = { planRunId: 'run-001' };
 
-        const response = await terraform.approve(opts);
+        const response = await iac.approve(opts);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.approve', opts);
         expect(response).toEqual(result);
@@ -1151,9 +1151,9 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(result);
         testApi.mock('iac.approve', mockHandler);
 
-        const terraform = bridge['iac'] as { approve: (opts: { planRunId: string }) => Promise<unknown> };
+        const iac = bridge['iac'] as { approve: (opts: { planRunId: string }) => Promise<unknown> };
         const opts = { planRunId: 'run-mock' };
-        const response = await terraform.approve(opts);
+        const response = await iac.approve(opts);
 
         expect(mockHandler).toHaveBeenCalledWith(opts);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1177,12 +1177,12 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.apply channel with the payload and resolve the started ack with a runId', async () => {
         const ack = { started: true, runId: 'run-002' };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           apply: (payload: { planRunId: string; planHash: string }) => Promise<unknown>;
         };
         const payload = { planRunId: 'run-001', planHash: 'sha256:abc123' };
 
-        const result = await terraform.apply(payload);
+        const result = await iac.apply(payload);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.apply', payload);
         expect(result).toEqual(ack);
@@ -1191,15 +1191,15 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform apply refused: plan is already in flight',
+          error: 'pulumi apply refused: plan is already in flight',
           conflict: 'plan' as const,
         };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           apply: (payload: { planRunId: string; planHash: string }) => Promise<unknown>;
         };
 
-        const result = await terraform.apply({ planRunId: 'run-001', planHash: 'sha256:abc123' });
+        const result = await iac.apply({ planRunId: 'run-001', planHash: 'sha256:abc123' });
 
         expect(result).toEqual(ack);
       });
@@ -1218,11 +1218,11 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(ack);
         testApi.mock('iac.apply', mockHandler);
 
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           apply: (payload: { planRunId: string; planHash: string }) => Promise<unknown>;
         };
         const payload = { planRunId: 'run-001', planHash: 'sha256:def456' };
-        const result = await terraform.apply(payload);
+        const result = await iac.apply(payload);
 
         expect(mockHandler).toHaveBeenCalledWith(payload);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1417,9 +1417,9 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.destroy.mintToken channel with no arguments and resolve the token', async () => {
         const ack = { token: 'destroy-token-abc' };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as { mintDestroyToken: () => Promise<unknown> };
+        const iac = bridge['iac'] as { mintDestroyToken: () => Promise<unknown> };
 
-        const result = await terraform.mintDestroyToken();
+        const result = await iac.mintDestroyToken();
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.destroy.mintToken');
         expect(result).toEqual(ack);
@@ -1439,8 +1439,8 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(ack);
         testApi.mock('iac.destroy.mintToken', mockHandler);
 
-        const terraform = bridge['iac'] as { mintDestroyToken: () => Promise<unknown> };
-        const result = await terraform.mintDestroyToken();
+        const iac = bridge['iac'] as { mintDestroyToken: () => Promise<unknown> };
+        const result = await iac.mintDestroyToken();
 
         expect(mockHandler).toHaveBeenCalledWith();
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1460,12 +1460,12 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.destroy channel with the payload and resolve the started ack with a runId', async () => {
         const ack = { started: true, runId: 'destroy-run-001' };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           destroy: (payload: { confirmationToken: string }) => Promise<unknown>;
         };
         const payload = { confirmationToken: 'destroy-token-abc' };
 
-        const result = await terraform.destroy(payload);
+        const result = await iac.destroy(payload);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.destroy', payload);
         expect(result).toEqual(ack);
@@ -1474,15 +1474,15 @@ describe('preload dispatcher', () => {
       it('should resolve conflict details when the shared workspace is already busy', async () => {
         const ack = {
           started: false,
-          error: 'terraform destroy refused: apply is already in flight',
+          error: 'pulumi destroy refused: apply is already in flight',
           conflict: 'apply' as const,
         };
         ipcInvoke.mockResolvedValue(ack);
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           destroy: (payload: { confirmationToken: string }) => Promise<unknown>;
         };
 
-        const result = await terraform.destroy({ confirmationToken: 'destroy-token-abc' });
+        const result = await iac.destroy({ confirmationToken: 'destroy-token-abc' });
 
         expect(result).toEqual(ack);
       });
@@ -1501,11 +1501,11 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(ack);
         testApi.mock('iac.destroy', mockHandler);
 
-        const terraform = bridge['iac'] as {
+        const iac = bridge['iac'] as {
           destroy: (payload: { confirmationToken: string }) => Promise<unknown>;
         };
         const payload = { confirmationToken: 'destroy-token-def' };
-        const result = await terraform.destroy(payload);
+        const result = await iac.destroy(payload);
 
         expect(mockHandler).toHaveBeenCalledWith(payload);
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1515,7 +1515,7 @@ describe('preload dispatcher', () => {
   });
 
   describe('iac.output', () => {
-    /** Minimal `TfOutputs`-shaped fixture used across these tests. */
+    /** Minimal `StackOutputs`-shaped fixture used across these tests. */
     const OUTPUTS = {
       aws_region: 'us-east-1',
       ecs_cluster_name: 'hyveon-cluster',
@@ -1545,9 +1545,9 @@ describe('preload dispatcher', () => {
 
       it('should invoke the iac.output channel with { force: true } and resolve with the typed outputs object', async () => {
         ipcInvoke.mockResolvedValue(OUTPUTS);
-        const terraform = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
+        const iac = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
 
-        const result = await terraform.output(true);
+        const result = await iac.output(true);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.output', { force: true });
         expect(result).toEqual(OUTPUTS);
@@ -1555,27 +1555,27 @@ describe('preload dispatcher', () => {
 
       it('should invoke the iac.output channel with { force: false } when force is explicitly false', async () => {
         ipcInvoke.mockResolvedValue(OUTPUTS);
-        const terraform = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
+        const iac = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
 
-        await terraform.output(false);
+        await iac.output(false);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.output', { force: false });
       });
 
       it('should invoke the iac.output channel with { force: undefined } when no argument is supplied', async () => {
         ipcInvoke.mockResolvedValue(OUTPUTS);
-        const terraform = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
+        const iac = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
 
-        await terraform.output();
+        await iac.output();
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.output', { force: undefined });
       });
 
       it('should resolve with null when iac.output reports no outputs', async () => {
         ipcInvoke.mockResolvedValue(null);
-        const terraform = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
+        const iac = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
 
-        const result = await terraform.output();
+        const result = await iac.output();
 
         expect(result).toBeNull();
       });
@@ -1593,8 +1593,8 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(OUTPUTS);
         testApi.mock('iac.output', mockHandler);
 
-        const terraform = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
-        const result = await terraform.output(true);
+        const iac = bridge['iac'] as { output: (force?: boolean) => Promise<unknown> };
+        const result = await iac.output(true);
 
         expect(mockHandler).toHaveBeenCalledWith({ force: true });
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1618,9 +1618,9 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.runs.get channel with a { runId } payload and resolve the result', async () => {
         const result = { found: true, status: 'success', record: { runId: 'run-001', kind: 'plan', startedAt: '2026-07-17T00:00:00.000Z', completedAt: '2026-07-17T00:01:00.000Z', exitCode: 0 } };
         ipcInvoke.mockResolvedValue(result);
-        const terraformRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
+        const iacRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
 
-        const actual = await terraformRuns.get('run-001');
+        const actual = await iacRuns.get('run-001');
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.get', { runId: 'run-001' });
         expect(actual).toEqual(result);
@@ -1628,9 +1628,9 @@ describe('preload dispatcher', () => {
 
       it('should resolve { found: false } when the run is unknown', async () => {
         ipcInvoke.mockResolvedValue({ found: false });
-        const terraformRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
+        const iacRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
 
-        const actual = await terraformRuns.get('run-missing');
+        const actual = await iacRuns.get('run-missing');
 
         expect(actual).toEqual({ found: false });
       });
@@ -1649,8 +1649,8 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(result);
         testApi.mock('iac.runs.get', mockHandler);
 
-        const terraformRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
-        const actual = await terraformRuns.get('run-002');
+        const iacRuns = (bridge['iac'] as { runs: { get: (runId: string) => Promise<unknown> } }).runs;
+        const actual = await iacRuns.get('run-002');
 
         expect(mockHandler).toHaveBeenCalledWith({ runId: 'run-002' });
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1674,9 +1674,9 @@ describe('preload dispatcher', () => {
       it('should invoke the iac.runs.list channel with the given opts and resolve the page', async () => {
         const page = { records: [{ sk: 's1', runId: 'run-001', kind: 'apply', status: 'success', startedAt: 't1', completedAt: 't2', exitCode: 0 }], nextBefore: 's1' };
         ipcInvoke.mockResolvedValue(page);
-        const terraformRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
+        const iacRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
 
-        const actual = await terraformRuns.list({ limit: 10, before: 'cursor', status: 'failed' });
+        const actual = await iacRuns.list({ limit: 10, before: 'cursor', status: 'failed' });
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.list', { limit: 10, before: 'cursor', status: 'failed' });
         expect(actual).toEqual(page);
@@ -1684,9 +1684,9 @@ describe('preload dispatcher', () => {
 
       it('should invoke with undefined opts when called with no arguments', async () => {
         ipcInvoke.mockResolvedValue({ records: [] });
-        const terraformRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
+        const iacRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
 
-        await terraformRuns.list();
+        await iacRuns.list();
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.list', undefined);
       });
@@ -1705,8 +1705,8 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue(page);
         testApi.mock('iac.runs.list', mockHandler);
 
-        const terraformRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
-        const actual = await terraformRuns.list({ limit: 5 });
+        const iacRuns = (bridge['iac'] as { runs: { list: (opts?: unknown) => Promise<unknown> } }).runs;
+        const actual = await iacRuns.list({ limit: 5 });
 
         expect(mockHandler).toHaveBeenCalledWith({ limit: 5 });
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1729,11 +1729,11 @@ describe('preload dispatcher', () => {
 
       it('should invoke the iac.runs.logUrl channel and unwrap { url } to a bare string', async () => {
         ipcInvoke.mockResolvedValue({ url: 'https://example.com/signed-log' });
-        const terraformRuns = (bridge['iac'] as {
+        const iacRuns = (bridge['iac'] as {
           runs: { logUrl: (logKey: string, expiresInSeconds?: number) => Promise<string> };
         }).runs;
 
-        const actual = await terraformRuns.logUrl('runs/run-123.log', 60);
+        const actual = await iacRuns.logUrl('runs/run-123.log', 60);
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.logUrl', {
           logKey: 'runs/run-123.log',
@@ -1755,10 +1755,10 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockResolvedValue({ url: 'https://example.com/mocked' });
         testApi.mock('iac.runs.logUrl', mockHandler);
 
-        const terraformRuns = (bridge['iac'] as {
+        const iacRuns = (bridge['iac'] as {
           runs: { logUrl: (logKey: string, expiresInSeconds?: number) => Promise<string> };
         }).runs;
-        const actual = await terraformRuns.logUrl('runs/run-456.log');
+        const actual = await iacRuns.logUrl('runs/run-456.log');
 
         expect(mockHandler).toHaveBeenCalledWith({ logKey: 'runs/run-456.log', expiresInSeconds: undefined });
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1805,14 +1805,14 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockReturnValue(fakeStream());
         testApi.mock('iac.runs.logs', mockHandler);
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const chunks = await collectChunks(terraformRuns.streamLogs('run-003'));
+        const chunks = await collectChunks(iacRuns.streamLogs('run-003'));
 
         expect(mockHandler).toHaveBeenCalledWith('run-003', expect.any(AbortSignal));
         expect(ipcInvoke).not.toHaveBeenCalled();
@@ -1830,14 +1830,14 @@ describe('preload dispatcher', () => {
         const mockHandler = vi.fn().mockReturnValue(emptyStream());
         testApi.mock('iac.runs.logs', mockHandler);
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const handle = terraformRuns.streamLogs('run-004');
+        const handle = iacRuns.streamLogs('run-004');
         await collectChunks(handle);
 
         const forwardedSignal = mockHandler.mock.calls[0]?.[1] as AbortSignal;
@@ -1854,14 +1854,14 @@ describe('preload dispatcher', () => {
         async function* emptyStream() {}
         testApi.mock('iac.runs.logs', vi.fn().mockReturnValue(emptyStream()));
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        await collectChunks(terraformRuns.streamLogs('run-005'));
+        await collectChunks(iacRuns.streamLogs('run-005'));
 
         expect(ipcOn).not.toHaveBeenCalled();
         expect(ipcOnce).not.toHaveBeenCalled();
@@ -1874,13 +1874,13 @@ describe('preload dispatcher', () => {
 
     describe('unmocked passthrough branch', () => {
       /**
-       * `TerraformRunsController.logs` mints a per-call `streamId` and tags every
+       * `IacRunsController.logs` mints a per-call `streamId` and tags every
        * chunk/end payload with it (returning the same id in the invoke ack) so an
        * overlapping subscription to a different run's log stream can't
        * cross-terminate this call's stream. Tests below default to this id when
        * simulating the ack/events.
        */
-      const STREAM_ID = 'sid-terraform-runs-1';
+      const STREAM_ID = 'sid-iac-runs-1';
 
       /** Listener signatures captured off `ipcOn.mockImplementation` calls below. */
       type ChunkListener = (
@@ -1906,14 +1906,14 @@ describe('preload dispatcher', () => {
           }
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        await collectChunks(terraformRuns.streamLogs('run-006'));
+        await collectChunks(iacRuns.streamLogs('run-006'));
 
         // Registration must happen strictly before the invoke call resolves —
         // otherwise a chunk sent immediately after the main process
@@ -1935,14 +1935,14 @@ describe('preload dispatcher', () => {
           }
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const chunks = await collectChunks(terraformRuns.streamLogs('run-007'));
+        const chunks = await collectChunks(iacRuns.streamLogs('run-007'));
 
         expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.logs', { runId: 'run-007' });
         expect(chunks).toEqual([]);
@@ -1958,14 +1958,14 @@ describe('preload dispatcher', () => {
           if (channel === 'iac.runs.logs.end') capturedEndListener.current = listener as EndListener;
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const collected = collectChunks(terraformRuns.streamLogs('run-008'));
+        const collected = collectChunks(iacRuns.streamLogs('run-008'));
 
         await Promise.resolve();
         await Promise.resolve();
@@ -1994,14 +1994,14 @@ describe('preload dispatcher', () => {
           if (channel === 'iac.runs.logs.end') capturedEndListener.current = listener as EndListener;
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const collected = collectChunks(terraformRuns.streamLogs('run-009'));
+        const collected = collectChunks(iacRuns.streamLogs('run-009'));
 
         await Promise.resolve();
         await Promise.resolve();
@@ -2027,7 +2027,7 @@ describe('preload dispatcher', () => {
           }
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
@@ -2035,7 +2035,7 @@ describe('preload dispatcher', () => {
           }
         ).runs;
 
-        await expect(collectChunks(terraformRuns.streamLogs('run-010'))).rejects.toThrow('run not found');
+        await expect(collectChunks(iacRuns.streamLogs('run-010'))).rejects.toThrow('run not found');
       });
 
       it('should remove chunk/end listeners once the stream completes', async () => {
@@ -2047,14 +2047,14 @@ describe('preload dispatcher', () => {
           }
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        await collectChunks(terraformRuns.streamLogs('run-011'));
+        await collectChunks(iacRuns.streamLogs('run-011'));
 
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.runs.logs.chunk', expect.any(Function));
         expect(ipcRemoveListener).toHaveBeenCalledWith('iac.runs.logs.end', expect.any(Function));
@@ -2065,14 +2065,14 @@ describe('preload dispatcher', () => {
       // -----------------------------------------------------------------------
 
       it('should stop yielding and clean up listeners without calling invoke when cancelled before the first next()', async () => {
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const handle = terraformRuns.streamLogs('run-012');
+        const handle = iacRuns.streamLogs('run-012');
         // Cancelling before the underlying generator has ever run mirrors the
         // old "signal already aborted" scenario — see the equivalent
         // `iac.stack.initialize` test for why this works before any IPC
@@ -2097,14 +2097,14 @@ describe('preload dispatcher', () => {
           // never invoked — the stream stays open until cancel() is called.
         });
 
-        const terraformRuns = (
+        const iacRuns = (
           bridge['iac'] as {
             runs: {
               streamLogs: (runId: string) => HyveonStreamHandle<{ stream: 'stdout' | 'stderr'; line: string }>;
             };
           }
         ).runs;
-        const handle = terraformRuns.streamLogs('run-013');
+        const handle = iacRuns.streamLogs('run-013');
 
         const nextPromise = handle.next();
         await Promise.resolve();

@@ -374,9 +374,9 @@ describe('BootstrapService', () => {
    * the initial `deployment-config.json` document — before this existed,
    * nothing anywhere ever created that object, so a fresh install was
    * completely unusable the moment the wizard finished (every
-   * `TfvarsService` write path reads the document before writing, and that
+   * `DeploymentConfigService` write path reads the document before writing, and that
    * read threw when the object didn't exist). See this method's own doc
-   * comment for the full rationale, and `TfvarsService.freshInstall.test.ts`
+   * comment for the full rationale, and `DeploymentConfigService.freshInstall.test.ts`
    * for the genuine end-to-end proof that a seeded document really does let
    * `updateTopLevelSettings`/`addGameServer` succeed afterward.
    */

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the first-run wizard's overall flow: launch gating based on `wizardCompleted`, a resumable `FirstRunWizardService` that persists per-step progress, the cloud-choice step, the Terraform-init step with a live log, wizard completion, and the Settings-page "Reconfigure" entry point that re-runs later steps against existing state.
+Defines the first-run wizard's overall flow: launch gating based on `wizardCompleted`, a resumable `FirstRunWizardService` that persists per-step progress, the cloud-choice step, the stack-initialization step with phased progress, wizard completion, and the Settings-page "Reconfigure" entry point that re-runs later steps against existing state.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ A `FirstRunWizardService` in the desktop main process SHALL own wizard progress,
 
 ### Requirement: Pick-cloud step
 
-The second wizard step SHALL present the cloud choice as a single-option selection hard-coded to "AWS" for v1, with a "more clouds coming" footer, and persist the choice to electron-store as `activeCloud: 'aws'` via `ElectronStoreService`. The step's data model MUST be structured so additional options (`gcp`, `azure`) can be added without reworking the step (options driven by a list, not a hard-coded single control).
+The first wizard step SHALL present the cloud choice as a single-option selection hard-coded to "AWS" for v1, with a "more clouds coming" footer, and persist the choice to electron-store as `activeCloud: 'aws'` via `ElectronStoreService`. The step's data model MUST be structured so additional options (`gcp`, `azure`) can be added without reworking the step (options driven by a list, not a hard-coded single control).
 
 #### Scenario: Choosing AWS
 
@@ -48,19 +48,19 @@ The second wizard step SHALL present the cloud choice as a single-option selecti
 - **WHEN** the cloud step renders
 - **THEN** AWS is the only selectable option and the footer indicates more clouds are coming
 
-### Requirement: Terraform init step with live log
+### Requirement: Stack initialization step with phased progress
 
-The final configuration step SHALL invoke `TerraformService.init({ backendConfig: { bucket, region, dynamodbTable } })` using the bootstrapped backend resources, streaming stdout/stderr live into a wizard log pane via the existing `terraform.init` streaming IPC channel (`hyveon.terraform.init` async iterable). ANSI colors in the output MUST render correctly. The completion control SHALL enable only when the run exits with code 0; a non-zero exit SHALL surface an error state with the captured log and allow retry.
+The final configuration step SHALL invoke `window.hyveon.iac.stack.initialize()` (the `iac.stack.initialize` IPC channel, no request payload) against the bootstrapped backend resources. The call SHALL return an async-iterable handle that streams structured `{ phase, status }` events — `phase` one of `engine` | `plugins` | `operation` (Pulumi engine resolution, provider plugin install, stack creation, in that order) and `status` one of `start` | `end` — rather than raw log text. The step SHALL render a three-item checklist reflecting each phase's state (pending / in-progress / done / failed) as events arrive. If the shared workspace is already busy with another operation, or the stream throws once started, the step SHALL mark the last-started phase as failed, show an inline error, keep the completion control disabled, and offer a retry that starts a fresh attempt. The completion control SHALL enable only once every phase has completed successfully.
 
-#### Scenario: Successful init
+#### Scenario: Successful stack initialization
 
-- **WHEN** `terraform init` streams output and exits 0
-- **THEN** the log pane shows the live output with ANSI colors rendered and the completion button becomes enabled
+- **WHEN** `iac.stack.initialize()` streams `start`/`end` events for all three phases and the stream completes without error
+- **THEN** the checklist shows all three phases as done and the completion button becomes enabled
 
-#### Scenario: Failed init
+#### Scenario: Failed stack initialization
 
-- **WHEN** `terraform init` exits non-zero
-- **THEN** the step shows an error UI with the log, keeps the completion button disabled, and offers a retry
+- **WHEN** the `iac.stack.initialize()` stream throws after a phase's `start` event has fired
+- **THEN** the step marks that phase as failed, shows an inline error, keeps the completion button disabled, and offers a retry
 
 ### Requirement: Wizard completion
 
@@ -73,7 +73,7 @@ On finishing the final step, the wizard SHALL persist all answers (via `Electron
 
 ### Requirement: Reconfigure entry point in Settings
 
-The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, re-running steps 2–5 (cloud, credentials, bootstrap, init) — prerequisite detection is step 1 and is not repeated. Steps already satisfied by existing state SHALL render as completed with a per-step "Edit" affordance rather than forcing re-entry. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
+The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, pre-marking the pick-cloud, credentials, and bootstrap steps as completed (rendered with a per-step "Edit" affordance) since existing state already satisfies them, while the guided-IAM and stack-initialization steps render fresh. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
 
 #### Scenario: Reconfigure with one change
 
@@ -90,14 +90,14 @@ The Settings page SHALL surface a "Reconfigure" button that relaunches the wizar
 - **WHEN** the operator cancels Reconfigure partway through
 - **THEN** no partial changes are committed and the app returns to Settings in its prior working state
 
-### Requirement: Resolved Terraform version in Settings
+### Requirement: Resolved Pulumi engine version in Settings
 
-Settings SHALL display the Terraform version resolved by the detection service alongside the pinned minimum supported version, so operators can see what the wizard validated against.
+Settings SHALL display the Pulumi engine version resolved by `PulumiEngineService` (via `iac.settings.engineVersion`) alongside the pinned/target engine version (`PULUMI_ENGINE_VERSION`), so operators can see what the app provisioned against.
 
 #### Scenario: Settings shows versions
 
 - **WHEN** the operator opens Settings after wizard completion
-- **THEN** the resolved Terraform version and the pinned minimum are both visible
+- **THEN** the resolved Pulumi engine version and the pinned/target version are both visible
 
 ### Requirement: Responsive wizard shell layout
 

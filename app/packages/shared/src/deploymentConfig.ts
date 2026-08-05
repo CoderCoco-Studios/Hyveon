@@ -1,14 +1,16 @@
 /**
- * Typed configuration model that replaces `terraform.tfvars` as the app's
- * configuration source of truth. This is a NEW canonical model, not a mirror
- * of the Terraform HCL shape:
+ * Typed configuration model that is the app's configuration source of
+ * truth (`DeploymentConfig.gameServers` — and by extension this whole
+ * model — per `CLAUDE.md`'s invariants list). It originally replaced
+ * `terraform.tfvars` when the app still shelled out to Terraform, and is a
+ * NEW canonical model, not a mirror of the old Terraform HCL shape:
  *
  *  - Field names are idiomatic TS `camelCase` rather than HCL `snake_case`,
  *    EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
  *    {@link GameServerConfig} — the existing shared game-server shape (see
- *    `./tfvars.js`) already dictates `snake_case` field names
+ *    `./gameServerConfig.js`) already dictates `snake_case` field names
  *    (`container_path`, `connect_message`, `content_base64`) and is deeply
- *    embedded across `gameServerValidator.ts`, `TfvarsService.ts`'s JSON
+ *    embedded across `gameServerValidator.ts`, `DeploymentConfigService.ts`'s JSON
  *    read/write paths, and the Games UI, so this model reuses it as-is
  *    rather than forking a parallel `camelCase` copy.
  *  - The model is plain data — every field is JSON-serializable (`string`,
@@ -18,42 +20,45 @@
  *    directly to derive resources.
  *  - It intentionally excludes every secret input, to keep secrets out of the
  *    stack. `discord_bot_token` and `discord_public_key`
- *    (`terraform/variables.tf`) are DROPPED, not ported: the app's
- *    `DiscordConfigService` already writes those two values to AWS Secrets
- *    Manager directly over the SDK, and the standing rule is that no secret
- *    is ever sent to the renderer or persisted outside Secrets Manager;
- *    giving them a home in this model would reopen that route.
+ *    (formerly `terraform/variables.tf`, before the Terraform tree was
+ *    retired) were DROPPED, not ported: the app's `DiscordConfigService`
+ *    already writes those two values to AWS Secrets Manager directly over
+ *    the SDK, and the standing rule is that no secret is ever sent to the
+ *    renderer or persisted outside Secrets Manager; giving them a home in
+ *    this model would reopen that route.
  *
  * Field inventory: every field below (other than `gameServers`, whose
- * per-entry shape mirrors `terraform/variables.tf`'s `game_servers` object
- * type) mirrors a top-level Terraform variable that `terraform/main.tf`
- * passes into `module "cloud"` (`terraform/aws/variables.tf` is that
- * module's — and per `CLAUDE.md`'s invariants list, the app's — single
- * source of truth). Three root-only Terraform variables are deliberately
- * excluded because they never reach `module "cloud"` and describe bootstrap/
- * provider-selection concerns rather than deployment data:
- *  - `active_cloud` — selects which cloud module to instantiate; hardcoded
+ * per-entry shape mirrors the former `terraform/variables.tf`'s
+ * `game_servers` object type) mirrors a top-level Terraform variable that
+ * the old `terraform/main.tf` used to pass into `module "cloud"`
+ * (`terraform/aws/variables.tf` was that module's input surface, and — before
+ * this model and the Pulumi migration superseded it — the app's source of
+ * truth for these values). Three root-only Terraform variables were
+ * deliberately excluded because they never reached `module "cloud"` and
+ * described bootstrap/provider-selection concerns rather than deployment
+ * data:
+ *  - `active_cloud` — selected which cloud module to instantiate; hardcoded
  *    to `'aws'` everywhere in the app today (see `ConfigService.getActiveCloud()`)
  *    since only one cloud provider is supported. Revisit when multi-cloud
  *    support lands.
- *  - `tfvars_bucket_name` — names the S3 bucket this very configuration
+ *  - `tfvars_bucket_name` — named the S3 bucket this very configuration
  *    object is expected to live in. Storing it *inside* the object it
  *    locates would be circular; the config store resolves the bucket name
  *    through its own mechanism instead.
  *  - `tags` — applied via the root provider's `default_tags` block, never
- *    threaded through `module "cloud"` (`terraform/main.tf` does not pass it
- *    down); a resource-tagging concern for the Pulumi program to own
- *    directly (e.g. a fixed `Project=hyveon` tag set), not per-deployment
- *    operator input.
+ *    threaded through `module "cloud"` (`terraform/main.tf` did not pass it
+ *    down); a resource-tagging concern the Pulumi program owns directly
+ *    (e.g. a fixed `Project=hyveon` tag set), not per-deployment operator
+ *    input.
  */
 
-import type { GameServerConfig } from './tfvars.js';
+import type { GameServerConfig } from './gameServerConfig.js';
 import type { RemoteFileStore } from './cloud.js';
 
 /**
  * S3 object key the canonical {@link DeploymentConfig} JSON is stored under
- * inside the operator's configuration bucket. Shared by `TfvarsService`
- * (desktop-main) and `TerraformService`'s rollback flow (#112) — both derive
+ * inside the operator's configuration bucket. Shared by `DeploymentConfigService`
+ * (desktop-main) and `PulumiService`'s rollback flow (#112) — both derive
  * the object key from this single constant rather than a filesystem path's
  * `basename()`. A fixed constant means an env-var override to a local path
  * can never silently change the S3 key a deployment uses.
@@ -70,7 +75,7 @@ export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 export interface DeploymentConfig {
   /**
    * Project name used for resource naming (e.g. `${projectName}-audit`,
-   * `${projectName}-tfvars`). Mirrors `project_name` in
+   * `${projectName}-config`). Mirrors `project_name` in
    * `terraform/variables.tf`. Terraform default: `"hyveon"` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
@@ -131,7 +136,7 @@ export interface DeploymentConfig {
   watchdogMinPackets: number;
 
   /**
-   * Guild IDs permanently allowlisted, written to the Terraform-managed
+   * Guild IDs permanently allowlisted, written to the
    * `BASE#discord` DynamoDB row on every deploy. This is an immutable floor
    * the management UI can never remove — operators can only add/remove
    * guilds they themselves added via the UI. Mirrors `base_allowed_guilds`
@@ -169,14 +174,14 @@ export interface DeploymentConfig {
 
   /**
    * Name of the DynamoDB audit log table. Mirrors `audit_table_name` in
-   * `terraform/aws/variables.tf`. Terraform default: `""`, which the
-   * `aws` module resolves to `"${projectName}-audit"` when empty
-   * (`terraform/aws/audit_store.tf`) — {@link withDeploymentConfigDefaults}
+   * `terraform/aws/variables.tf`. Terraform default: `""`, which the old
+   * Terraform `aws` module used to resolve to `"${projectName}-audit"` when
+   * empty (`terraform/aws/audit_store.tf`) — {@link withDeploymentConfigDefaults}
    * does NOT replicate that project-name-dependent computed default; it
    * leaves an omitted value as the literal empty string, matching the
    * Terraform variable's own default, and leaves resolving `""` to the
    * computed table name to the infrastructure program, the same place
-   * Terraform itself did it.
+   * Terraform itself used to do it.
    */
   auditTableName: string;
 
@@ -203,8 +208,8 @@ export interface DeploymentConfig {
   runsTableName: string;
 
   /**
-   * Map of game name → container configuration, keyed the same way as
-   * Terraform's `game_servers` variable (`terraform/aws/variables.tf`). Each
+   * Map of game name → container configuration, keyed the same way as the
+   * old Terraform setup's `game_servers` variable (`terraform/aws/variables.tf`). Each
    * entry creates its own ECS task definition, EFS access point, log group,
    * and security-group rules; adding or removing an entry is the only edit
    * required to add or remove a game (`CLAUDE.md` invariant). Has no
@@ -212,7 +217,7 @@ export interface DeploymentConfig {
    * legitimate "no games yet" state, but the key itself must be present),
    * so it has no entry in {@link DEPLOYMENT_CONFIG_DEFAULTS} and
    * {@link withDeploymentConfigDefaults} requires it explicitly. Reuses
-   * {@link GameServerConfig} (`./tfvars.js`) — the existing shared
+   * {@link GameServerConfig} (`./gameServerConfig.js`) — the existing shared
    * game-server shape — rather than a new parallel type; see the file-level
    * doc for why its field names stay `snake_case`.
    */
@@ -223,7 +228,7 @@ export interface DeploymentConfig {
  * Every top-level {@link DeploymentConfig} field EXCEPT `gameServers` — the
  * exact slice the operator edits from the Settings page's
  * deployment-settings form, via
- * `TfvarsService.getTopLevelSettings`/`updateTopLevelSettings`
+ * `DeploymentConfigService.getTopLevelSettings`/`updateTopLevelSettings`
  * (`@hyveon/desktop-main`) and the `iac.settings.get`/`iac.settings.update`
  * IPC channels. Deliberately excludes `gameServers` — that map has its own
  * dedicated add-game-wizard/edit-game-form flow (`games.create`/`games.update`/
@@ -260,9 +265,10 @@ export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
  * {@link DeploymentConfig.runsTableName} ARE members below — their
  * Terraform default is the literal empty string (`""`), which is what's
  * stored here. That is NOT the same as their *effective* resolved value:
- * Terraform computes `"${project_name}-audit"` / `"${project_name}-runs"`
- * from an empty string downstream (`terraform/aws/audit_store.tf` /
- * `runs_store.tf`) — see those two fields' own TSDoc on
+ * the old Terraform setup used to compute `"${project_name}-audit"` /
+ * `"${project_name}-runs"` from an empty string downstream
+ * (`terraform/aws/audit_store.tf` / `runs_store.tf`) — see those two fields'
+ * own TSDoc on
  * {@link DeploymentConfig} for why that computed fallback is intentionally
  * NOT replicated here or in {@link withDeploymentConfigDefaults}.
  *
@@ -494,7 +500,7 @@ const DEPLOYMENT_CONFIG_SCALAR_FIELDS: DeploymentConfigScalarField[] = [
  * is either a flat array of primitives (order-sensitive key ordering isn't a
  * concern — arrays don't have "key order" the way objects do) or a
  * `GameServerConfig` object written exclusively by this app's own JSON
- * serialization (`TfvarsService`'s write path), which produces consistent
+ * serialization (`DeploymentConfigService`'s write path), which produces consistent
  * key order across writes rather than an externally-authored document with
  * arbitrary key ordering.
  */

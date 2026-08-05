@@ -27,10 +27,10 @@ import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
 /**
  * How many days a noncurrent configuration-bucket object version is retained
- * before expiring — matches the baseline in
+ * before expiring — matches the baseline set by the now-deleted
  * `terraform/bootstrap/main.tf`'s `aws_s3_bucket_lifecycle_configuration.tfvars`
- * rule (that module still names the resource for its Terraform-era `tfvars`
- * object; this service uses the same 90-day window for the renamed
+ * rule (that Terraform-era resource was named for the `tfvars` object it once
+ * held; this service uses the same 90-day window for the renamed
  * configuration bucket).
  */
 const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
@@ -147,14 +147,14 @@ export class BootstrapService {
    * public-access-block settings enabled.
    *
    * @remarks
-   * Matches `terraform/bootstrap/main.tf`'s `aws_s3_bucket_versioning.tfvars`
-   * / `aws_s3_bucket_lifecycle_configuration.tfvars` /
+   * Matches the now-deleted `terraform/bootstrap/main.tf`'s
+   * `aws_s3_bucket_versioning.tfvars` / `aws_s3_bucket_lifecycle_configuration.tfvars` /
    * `aws_s3_bucket_server_side_encryption_configuration.tfvars` /
    * `aws_s3_bucket_public_access_block.tfvars` resources on versioning,
    * lifecycle, encryption, and public-access-block — the resulting bucket is
    * the canonical `RemoteFileStore` holding the JSON game-server
-   * configuration. `terraform/bootstrap/` still names its bucket for the
-   * Terraform-era `terraform.tfvars` object it once held.
+   * configuration. That deleted Terraform module had named its bucket for
+   * the `terraform.tfvars` object it once held.
    *
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */
@@ -215,7 +215,7 @@ export class BootstrapService {
    *
    * @remarks
    * Fixes a Critical bootstrap gap this migration's final review round
-   * uncovered: every `TfvarsService` write path — `writeConfig` (shared by
+   * uncovered: every `DeploymentConfigService` write path — `writeConfig` (shared by
    * `addGameServer`/`updateGameServer`/`removeGameServer`) and
    * `updateTopLevelSettings` — reads the current document before writing
    * (`fetchRawConfig`), and `fetchRawConfig` throws a plain `Error` when the
@@ -227,8 +227,8 @@ export class BootstrapService {
    * from the wizard's bootstrap step, against the SAME `bucketName` that call
    * just created/confirmed — see `WizardController.bootstrapDeploymentConfig`.
    *
-   * Lives here (on `BootstrapService`) rather than on `TfvarsService`
-   * deliberately: `TfvarsService` resolves its bucket from
+   * Lives here (on `BootstrapService`) rather than on `DeploymentConfigService`
+   * deliberately: `DeploymentConfigService` resolves its bucket from
    * `ConfigService.getConfigurationBucket()`, which reads
    * `ElectronStoreService`'s persisted `bootstrap.configurationBucket` — a
    * value the wizard's bootstrap step doesn't durably save until the

@@ -1,15 +1,3 @@
-# Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/*.tfvars
-!terraform/*.tfvars.example
-terraform/.terraform.lock.hcl
-terraform/**/.terraform/
-terraform/**/*.tfstate
-terraform/**/*.tfstate.backup
-terraform/**/.terraform.lock.hcl
-
 # App runtime
 app/server_config.json
 app/.iam-bootstrap-dev
@@ -55,7 +43,9 @@ out/
 # electron-builder packaged artifacts
 release/
 
-# HYVEON bootstrap metadata (tfvars-bucket marker etc.)
+# Legacy local marker dir for the now-removed .hyveon/tfvars-bucket lookup —
+# the app resolves the S3 configuration bucket via ElectronStoreService's
+# bootstrap.configurationBucket instead. Kept ignored for any stale local copies.
 .hyveon/
 # legacy pre-rename marker dir — ignored during the .gsd -> .hyveon compat window
 .gsd/

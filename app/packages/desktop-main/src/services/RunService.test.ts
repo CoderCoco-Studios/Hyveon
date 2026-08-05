@@ -19,7 +19,7 @@ import { ConfigService } from './ConfigService.js';
 import type { StackOutputs } from '@hyveon/shared';
 
 /** Minimal `StackOutputs` stub exposing just `runsTableName`. */
-const TF: StackOutputs = {
+const STACK_OUTPUTS: StackOutputs = {
   awsRegion: 'us-east-1',
   ecsClusterName: '',
   ecsClusterArn: '',
@@ -59,7 +59,7 @@ function makeStore(): RunRecordStore {
 }
 
 /** Builds a `RunService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
-function makeService(outputs: StackOutputs | null = TF, store: RunRecordStore = makeStore()): RunService {
+function makeService(outputs: StackOutputs | null = STACK_OUTPUTS, store: RunRecordStore = makeStore()): RunService {
   const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new RunService(config, store);
 }

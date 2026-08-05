@@ -70,7 +70,7 @@ describe('AwsSecretsStore', () => {
       await expect(store.get('my-secret')).resolves.toBeUndefined();
     });
 
-    it('should return undefined when the secret still holds the Terraform placeholder', async () => {
+    it('should return undefined when the secret still holds the infra program placeholder', async () => {
       secretsMock.on(GetSecretValueCommand).resolves({ SecretString: SECRET_PLACEHOLDER });
 
       const store = makeStore();

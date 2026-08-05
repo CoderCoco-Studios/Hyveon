@@ -6,8 +6,8 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
  * provisioning seam (see its own file-level doc comment for the full
  * memoization/versioning/atomicity design). Construction is synchronous and
  * never throws — no filesystem or network work happens until `resolve()` is
- * first called — so, mirroring `TerraformModule`'s doc comment, this is
- * wired as a plain class provider rather than an async `useFactory`, and
+ * first called — so, mirroring the deleted `TerraformModule`'s doc comment,
+ * this is wired as a plain class provider rather than an async `useFactory`, and
  * `AppModule` can import this module unconditionally even on a machine with
  * no engine and no network (the "Container builds without an engine"
  * scenario in the `pulumi-engine-runtime` delta spec).

@@ -5,14 +5,14 @@ describe('defaultBootstrapResourceNames', () => {
   it('should derive resource names from the default project name when none is given', () => {
     expect(defaultBootstrapResourceNames()).toEqual({
       stateBucket: 'hyveon-tfstate',
-      configurationBucket: 'hyveon-tfvars',
+      configurationBucket: 'hyveon-config',
     });
   });
 
   it('should derive resource names from a custom project name', () => {
     expect(defaultBootstrapResourceNames('my-project')).toEqual({
       stateBucket: 'my-project-tfstate',
-      configurationBucket: 'my-project-tfvars',
+      configurationBucket: 'my-project-config',
     });
   });
 });

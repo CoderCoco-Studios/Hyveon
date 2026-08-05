@@ -10,10 +10,10 @@
  * diverge in purpose (visual completeness vs. minimal repro).
  *
  * Type provenance: the real contract types are split across two packages —
- * `@hyveon/shared` (canonical for anything Terraform/tfvars/DynamoDB-shaped:
+ * `@hyveon/shared` (canonical for anything Pulumi/deployment-config/DynamoDB-shaped:
  * `GameStatus`, `GameServer`, `GameListEntry`, `DriftReport`, `AuditEntry`,
  * etc.) and `@hyveon/desktop-preload` (canonical for the Electron IPC
- * surface: `TerraformPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
+ * surface: `IacPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
  * handful of types the web renderer consumes are not
  * re-exported by either package's public barrel (`CostEstimates`,
  * `DiscordConfigRedacted`, `AwsProfileSummary`,
@@ -40,11 +40,11 @@ import type {
   RunHistoryPageResult,
   RunHistoryRecord,
   StackInitPhaseEvent,
-  TerraformApproveAck,
-  TerraformDestroyMintAck,
-  TerraformPlanAck,
-  TerraformRunChunk,
-  TerraformRunsGetResult,
+  IacApproveAck,
+  IacDestroyMintAck,
+  IacPlanAck,
+  IacRunChunk,
+  IacRunsGetResult,
   WizardState,
 } from '@hyveon/desktop-preload';
 import type {
@@ -366,7 +366,7 @@ export const DEMO_LOG_STREAM_LINES: string[] = [
 
 export const DEMO_DIAGNOSTICS_TAIL: string[] = [
   '2026-07-26T11:55:01Z info  desktop-main started (pid 41823)',
-  '2026-07-26T11:55:01Z info  Loaded terraform.tfstate (3 games deployed)',
+  '2026-07-26T11:55:01Z info  Loaded Pulumi stack outputs (3 games deployed)',
   '2026-07-26T11:55:02Z info  ConfigService cache warmed',
   '2026-07-26T11:58:20Z info  games.start minecraft → RunTask ok, task 6f9c2a1b3d4e4f5a',
   '2026-07-26T12:03:15Z warn  watchdog: minecraft idle check 1/4',
@@ -374,15 +374,15 @@ export const DEMO_DIAGNOSTICS_TAIL: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Terraform run history — five records covering every kind/status
-// combination the history table renders differently.
+// Iac run history — five records covering every kind/status combination the
+// history table renders differently.
 // ---------------------------------------------------------------------------
 
 const RUN_9: RunHistoryRecord = {
   sk: '2026-07-26T09:32:10.000Z#run-9', runId: 'run-9', kind: 'apply', status: 'success',
   startedAt: '2026-07-26T09:32:10.000Z', completedAt: '2026-07-26T09:36:02.000Z', exitCode: 0,
   planHash: 'a1b2c3d4', approvedBy: 'chris@hyveon.example.com', approvedAt: '2026-07-26T09:31:40.000Z',
-  tfvarsVersionId: 'v48',
+  configVersionId: 'v48',
 };
 const RUN_8: RunHistoryRecord = {
   sk: '2026-07-26T09:28:00.000Z#run-8', runId: 'run-8', kind: 'plan', status: 'success',
@@ -399,67 +399,70 @@ const RUN_6: RunHistoryRecord = {
 const RUN_5: RunHistoryRecord = {
   sk: '2026-07-23T11:00:00.000Z#run-5', runId: 'run-5', kind: 'apply', status: 'success',
   startedAt: '2026-07-23T11:00:00.000Z', completedAt: '2026-07-23T11:07:15.000Z', exitCode: 0,
-  approvedBy: 'ops@hyveon.example.com', tfvarsVersionId: 'v41', rolledBackFrom: 'run-3',
+  approvedBy: 'ops@hyveon.example.com', configVersionId: 'v41', rolledBackFrom: 'run-3',
 };
 
-export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {
+export const DEMO_IAC_HISTORY: RunHistoryPageResult = {
   records: [RUN_9, RUN_8, RUN_7, RUN_6, RUN_5],
   // Omitted on purpose: with 5 records under the 25-per-page default, the
   // history page's "Load more" button should stay hidden.
 };
 
 // ---------------------------------------------------------------------------
-// Terraform streamed output — realistic ANSI-colored chunks for the
-// `terraform.runs.logs` streaming channel (a plan/apply run), keyed to line
-// up with the rest of the demo fixture set (the plan below mirrors
+// Pulumi streamed output — realistic ANSI-colored chunks for the
+// `iac.runs.logs` streaming channel (a plan/apply run), keyed to line up
+// with the rest of the demo fixture set (the plan below mirrors
 // {@link DEMO_DRIFT_REPORT}'s palworld memory drift, and the apply chunks
 // mirror the same change count so
-// `terraform-awaiting-approval.png`/`terraform-apply.png` tell one
-// consistent story). Colors use the same SGR subset `AnsiLogViewer` parses:
-// `\x1b[32m` green, `\x1b[33m` amber, `\x1b[1m` bold, `\x1b[0m` reset. The
-// wizard's stack-init step has no log output of its own to model this way —
-// see {@link DEMO_STACK_INIT_EVENTS} below.
+// `iac-awaiting-approval.png`/`iac-apply.png` tell one consistent story).
+// Colors use the same SGR subset `AnsiLogViewer` parses: `\x1b[32m` green,
+// `\x1b[33m` amber, `\x1b[1m` bold, `\x1b[0m` reset — the same subset
+// `pulumi preview`/`pulumi up` themselves emit. The wizard's stack-init step
+// has no log output of its own to model this way — see
+// {@link DEMO_STACK_INIT_EVENTS} below.
 // ---------------------------------------------------------------------------
 
-/** Streamed `terraform plan` output for the `run-plan-demo` run — ends with the summary line `TerraformPage.parsePlanSummary` scrapes. */
-export const DEMO_TERRAFORM_PLAN_CHUNKS: TerraformRunChunk[] = [
-  { stream: 'stdout', line: 'Refreshing Terraform state in-memory prior to plan...' },
-  { stream: 'stdout', line: 'module.cloud.aws_ecs_cluster.this: Refreshing state... [id=hyveon-cluster]' },
-  { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Refreshing state... [id=palworld-server]' },
+/**
+ * Streamed `pulumi preview` output for the `run-plan-demo` run. Purely
+ * illustrative log text — the resource-change badges `iac.page.tsx` renders
+ * come from the structured `changeSummary` on the `iac.runs.get` mock below
+ * (`{ create: 1, update: 1 }`), never by parsing this streamed text; nothing
+ * in the app scrapes a summary line out of the log.
+ */
+export const DEMO_IAC_PLAN_CHUNKS: IacRunChunk[] = [
+  { stream: 'stdout', line: 'Previewing update (production):' },
   { stream: 'stdout', line: '' },
-  {
-    stream: 'stdout',
-    line: 'Terraform used the selected providers to generate the following execution plan. Resource actions are indicated with the following symbols:',
-  },
-  { stream: 'stdout', line: '  \x1b[33m~\x1b[0m update in-place' },
-  { stream: 'stdout', line: '  \x1b[32m+\x1b[0m create' },
+  { stream: 'stdout', line: '     Type                         Name                     Plan       ' },
+  { stream: 'stdout', line: '     pulumi:pulumi:Stack           hyveon-production                   ' },
+  { stream: 'stdout', line: ' \x1b[33m~\x1b[0m   ├─ aws:ecs:TaskDefinition     palworld-server          \x1b[33mupdate\x1b[0m     ' },
+  { stream: 'stdout', line: ' \x1b[32m+\x1b[0m   └─ aws:cloudwatch:LogGroup    terraria-server-logs     \x1b[32mcreate\x1b[0m     ' },
   { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: 'Terraform will perform the following actions:' },
+  { stream: 'stdout', line: 'Resources:' },
+  { stream: 'stdout', line: '    \x1b[32m+\x1b[0m 1 to create' },
+  { stream: 'stdout', line: '    \x1b[33m~\x1b[0m 1 to update' },
   { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '  # module.cloud.aws_ecs_task_definition.game["palworld"] will be updated in-place' },
-  { stream: 'stdout', line: '  \x1b[33m~\x1b[0m resource "aws_ecs_task_definition" "game" {' },
-  { stream: 'stdout', line: '        id      = "palworld-server"' },
-  { stream: 'stdout', line: '      \x1b[33m~\x1b[0m memory  = "6144" -> "8192"' },
-  { stream: 'stdout', line: '        # (14 unchanged attributes hidden)' },
-  { stream: 'stdout', line: '    }' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '  # module.cloud.aws_cloudwatch_log_group.game["terraria"] will be created' },
-  { stream: 'stdout', line: '  \x1b[32m+\x1b[0m resource "aws_cloudwatch_log_group" "game" {' },
-  { stream: 'stdout', line: '      \x1b[32m+\x1b[0m name              = "/ecs/terraria-server"' },
-  { stream: 'stdout', line: '      \x1b[32m+\x1b[0m retention_in_days = 14' },
-  { stream: 'stdout', line: '    }' },
-  { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '\x1b[1mPlan: 1 to add, 1 to change, 0 to destroy.\x1b[0m' },
 ];
 
-/** Streamed `terraform apply` output for the `run-apply-demo` run — same 1 add / 1 change / 0 destroy shape as {@link DEMO_TERRAFORM_PLAN_CHUNKS}, ending with the summary line `TerraformPage.parseApplySummary` scrapes. */
-export const DEMO_TERRAFORM_APPLY_CHUNKS: TerraformRunChunk[] = [
-  { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifying... [id=palworld-server]' },
-  { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifications complete after 1s [id=palworld-server]' },
-  { stream: 'stdout', line: 'module.cloud.aws_cloudwatch_log_group.game["terraria"]: Creating...' },
-  { stream: 'stdout', line: 'module.cloud.aws_cloudwatch_log_group.game["terraria"]: Creation complete after 0s [id=/ecs/terraria-server]' },
+/**
+ * Streamed `pulumi up` output for the `run-apply-demo` run — same 1 create /
+ * 1 update shape as {@link DEMO_IAC_PLAN_CHUNKS}. Purely illustrative log
+ * text, same caveat as {@link DEMO_IAC_PLAN_CHUNKS}'s doc comment: the
+ * resource-change badges come from the mocked `iac.runs.get` record's
+ * structured `changeSummary`, not from parsing this text.
+ */
+export const DEMO_IAC_APPLY_CHUNKS: IacRunChunk[] = [
+  { stream: 'stdout', line: 'Updating (production):' },
   { stream: 'stdout', line: '' },
-  { stream: 'stdout', line: '\x1b[1m\x1b[32mApply complete! Resources: 1 added, 1 changed, 0 destroyed.\x1b[0m' },
+  { stream: 'stdout', line: '     Type                         Name                     Status     ' },
+  { stream: 'stdout', line: '     pulumi:pulumi:Stack           hyveon-production                   ' },
+  { stream: 'stdout', line: ' \x1b[33m~\x1b[0m   ├─ aws:ecs:TaskDefinition     palworld-server          \x1b[32mupdated\x1b[0m    ' },
+  { stream: 'stdout', line: ' \x1b[32m+\x1b[0m   └─ aws:cloudwatch:LogGroup    terraria-server-logs     \x1b[32mcreated\x1b[0m    ' },
+  { stream: 'stdout', line: '' },
+  { stream: 'stdout', line: 'Resources:' },
+  { stream: 'stdout', line: '    \x1b[32m+\x1b[0m 1 created' },
+  { stream: 'stdout', line: '    \x1b[33m~\x1b[0m 1 updated' },
+  { stream: 'stdout', line: '' },
+  { stream: 'stdout', line: '\x1b[1m\x1b[32mUpdate succeeded in 1m12s\x1b[0m' },
 ];
 
 /**
@@ -480,7 +483,7 @@ export const DEMO_STACK_INIT_EVENTS: StackInitPhaseEvent[] = [
 
 // ---------------------------------------------------------------------------
 // seedDemo — installs every IPC mock the routed app (dashboard, games,
-// discord, logs, costs, audit, settings, terraform) needs to render fully
+// discord, logs, costs, audit, settings, iac) needs to render fully
 // populated. Values are passed as a single serialisable argument to
 // `win.evaluate` rather than captured in the closure, since mock handlers
 // registered via `window.hyveon.__test.mock` are re-evaluated inside the
@@ -499,11 +502,11 @@ export interface DemoOverrides {
   logLines?: string[];
   /** Lines delivered over the live `logs.stream` channel, after `logLines`' snapshot is already on screen. */
   logStreamLines?: string[];
-  terraformHistory?: RunHistoryPageResult;
-  /** Streamed `terraform plan` chunks for the `run-plan-demo` run. */
-  terraformPlanChunks?: TerraformRunChunk[];
-  /** Streamed `terraform apply` chunks for the `run-apply-demo` run. */
-  terraformApplyChunks?: TerraformRunChunk[];
+  iacHistory?: RunHistoryPageResult;
+  /** Streamed `pulumi preview` chunks for the `run-plan-demo` run. */
+  iacPlanChunks?: IacRunChunk[];
+  /** Streamed `pulumi up` chunks for the `run-apply-demo` run. */
+  iacApplyChunks?: IacRunChunk[];
 }
 
 /**
@@ -529,7 +532,7 @@ export interface DemoOverrides {
  * of what's persisted in the Electron profile the harness happens to run
  * against.
  *
- * Streaming channels (`logs.stream`, `terraform.runs.logs`, `iac.stack.initialize`)
+ * Streaming channels (`logs.stream`, `iac.runs.logs`, `iac.stack.initialize`)
  * are registered with a **plain-object async-iterable** mock (built by the
  * local `toIterable` helper below), not a real `async function*` — a real
  * generator instance returned from a mock handler still can't cross the
@@ -560,9 +563,9 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     audit: overrides.audit ?? DEMO_AUDIT,
     logLines: overrides.logLines ?? DEMO_LOG_LINES,
     logStreamLines: overrides.logStreamLines ?? DEMO_LOG_STREAM_LINES,
-    terraformHistory: overrides.terraformHistory ?? DEMO_TERRAFORM_HISTORY,
-    terraformPlanChunks: overrides.terraformPlanChunks ?? DEMO_TERRAFORM_PLAN_CHUNKS,
-    terraformApplyChunks: overrides.terraformApplyChunks ?? DEMO_TERRAFORM_APPLY_CHUNKS,
+    iacHistory: overrides.iacHistory ?? DEMO_IAC_HISTORY,
+    iacPlanChunks: overrides.iacPlanChunks ?? DEMO_IAC_PLAN_CHUNKS,
+    iacApplyChunks: overrides.iacApplyChunks ?? DEMO_IAC_APPLY_CHUNKS,
     stackInitEvents: DEMO_STACK_INIT_EVENTS,
     diagnosticsLines: DEMO_DIAGNOSTICS_TAIL,
     diagnosticsPath: '/home/hyveon/.config/Hyveon/logs/desktop-main.log',
@@ -637,7 +640,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('diagnostics.tail', () => Promise.resolve({ lines: d.diagnosticsLines }));
     mock('diagnostics.path', () => Promise.resolve({ path: d.diagnosticsPath }));
 
-    // ---- Terraform ----
+    // ---- Iac ----
     mock('iac.plan', () => Promise.resolve({ started: true, runId: 'run-plan-demo' }));
     mock('iac.approve', () =>
       Promise.resolve({ approved: true, approvedBy: 'chris@hyveon.example.com', approvedAt: new Date().toISOString() }),
@@ -662,7 +665,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
             // Structured resource-change summary — see `ChangeSummary`'s
             // TSDoc (`@hyveon/shared/src/changeSummary.ts`): the UI reads
             // this directly (`ChangeSummaryStatus` in `iac.page.tsx`), never
-            // by parsing `DEMO_TERRAFORM_PLAN_CHUNKS`'s streamed text, even
+            // by parsing `DEMO_IAC_PLAN_CHUNKS`'s streamed text, even
             // though the two are kept in the same 1 create / 1 update shape
             // so the log and the badges tell one consistent story.
             changeSummary: { create: 1, update: 1 },
@@ -685,14 +688,14 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       }
       return Promise.resolve({ found: false });
     });
-    mock('iac.runs.list', () => Promise.resolve(d.terraformHistory));
+    mock('iac.runs.list', () => Promise.resolve(d.iacHistory));
     mock('iac.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
     // Keyed on `runId` (the preload calls this handler with `(runId, signal)`
-    // — see `streamTerraformRunLogs` in `preload.ts`) so the plan and apply
+    // — see `streamIacRunLogs` in `preload.ts`) so the plan and apply
     // runs each stream their own realistic output.
     mock('iac.runs.logs', (runId: unknown) => {
-      if (runId === 'run-plan-demo') return toIterable(d.terraformPlanChunks);
-      if (runId === 'run-apply-demo') return toIterable(d.terraformApplyChunks);
+      if (runId === 'run-plan-demo') return toIterable(d.iacPlanChunks);
+      if (runId === 'run-apply-demo') return toIterable(d.iacApplyChunks);
       return toIterable([]);
     });
     mock('iac.stack.initialize', () => toIterable(d.stackInitEvents));
@@ -788,4 +791,4 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
   }, data);
 }
 
-export type { TerraformApproveAck, TerraformDestroyMintAck, TerraformPlanAck, TerraformRunsGetResult };
+export type { IacApproveAck, IacDestroyMintAck, IacPlanAck, IacRunsGetResult };

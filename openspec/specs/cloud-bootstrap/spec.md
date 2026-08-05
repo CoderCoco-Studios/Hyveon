@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the Terraform state bucket, the state-lock table, and the tfvars bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
+Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the state bucket and the configuration bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
 
 ## Requirements
 
 ### Requirement: SDK-only bootstrap in the main process
 
-All backend bootstrap operations (state bucket, lock table, tfvars bucket, IAM simulation) SHALL be performed via AWS SDK v3 clients in the desktop main process — never by shelling out to the `aws` CLI or Terraform. The renderer MUST NOT import any `@aws-sdk/*` package; an ESLint rule SHALL enforce this ban for `@hyveon/web`. SDK clients MUST be constructed with the credentials and region selected in the credentials step (profile via the SDK credential chain, or paste-flow values decrypted in the main process).
+All backend bootstrap operations (state bucket, configuration bucket, IAM simulation) SHALL be performed via AWS SDK v3 clients in the desktop main process — never by shelling out to the `aws` CLI or Terraform. The renderer MUST NOT import any `@aws-sdk/*` package; an ESLint rule SHALL enforce this ban for `@hyveon/web`. SDK clients MUST be constructed with the credentials and region selected in the credentials step (profile via the SDK credential chain, or paste-flow values decrypted in the main process).
 
 #### Scenario: Bootstrap uses SDK clients only
 
@@ -20,9 +20,9 @@ All backend bootstrap operations (state bucket, lock table, tfvars bucket, IAM s
 - **WHEN** a file under `app/packages/web/` imports from `@aws-sdk/*`
 - **THEN** `npm run app:lint` fails on that import
 
-### Requirement: Terraform state bucket bootstrap
+### Requirement: State bucket bootstrap
 
-The bootstrap service SHALL create the Terraform S3 state bucket when it does not exist, then enable bucket versioning (`PutBucketVersioning`) and default server-side encryption (`PutBucketEncryption`). The operation MUST be idempotent: an already-existing bucket owned by the caller (`BucketAlreadyOwnedByYou`, or a successful existence check) is a success no-op, while a bucket owned by another account surfaces a clear error.
+The bootstrap service SHALL create the S3 bucket backing the self-managed infrastructure state backend (`BootstrapService.ensureStateBucket`) when it does not exist, then enable bucket versioning (`PutBucketVersioning`) and default server-side encryption (`PutBucketEncryption`). The operation MUST be idempotent: an already-existing bucket owned by the caller (`BucketAlreadyOwnedByYou`, or a successful existence check) is a success no-op, while a bucket owned by another account surfaces a clear error.
 
 #### Scenario: Fresh bucket
 
@@ -39,32 +39,18 @@ The bootstrap service SHALL create the Terraform S3 state bucket when it does no
 - **WHEN** `CreateBucket` fails because the name is owned elsewhere
 - **THEN** the wizard surfaces an actionable error and does not mark the step complete
 
-### Requirement: Terraform lock table bootstrap
+### Requirement: Configuration bucket bootstrap
 
-The bootstrap service SHALL create the DynamoDB state-lock table via `CreateTable` with a `LockID` string hash key (the schema Terraform's S3 backend locking requires), and SHALL wait until the table is `ACTIVE` before reporting success. The operation MUST be idempotent — `ResourceInUseException` (table already exists) is a success no-op.
+The bootstrap service SHALL create the versioned configuration bucket (`BootstrapService.ensureConfigurationBucket`) when missing, enable versioning, and apply a lifecycle configuration expiring noncurrent object versions after 90 days, so the bucket is usable as the canonical `RemoteFileStore` holding the JSON deployment-config object. The operation MUST be idempotent.
 
-#### Scenario: Fresh lock table
+#### Scenario: Fresh configuration bucket
 
-- **WHEN** the lock table does not exist
-- **THEN** the service creates it with the `LockID` hash key and reports success once the table is `ACTIVE`
-
-#### Scenario: Lock table already exists
-
-- **WHEN** `CreateTable` throws `ResourceInUseException`
-- **THEN** the step succeeds without error
-
-### Requirement: Tfvars bucket bootstrap
-
-The bootstrap service SHALL create the versioned tfvars bucket when missing, enable versioning, and apply a lifecycle configuration expiring noncurrent object versions after 90 days — matching what the `terraform/bootstrap/` module provisions, so the bucket is usable as the canonical `RemoteFileStore`. The operation MUST be idempotent.
-
-#### Scenario: Fresh tfvars bucket
-
-- **WHEN** the tfvars bucket does not exist
+- **WHEN** the configuration bucket does not exist
 - **THEN** the service creates it with versioning enabled and a 90-day noncurrent-version-expiration lifecycle rule
 
-#### Scenario: Tfvars bucket already exists
+#### Scenario: Configuration bucket already exists
 
-- **WHEN** the tfvars bucket already exists in the caller's account
+- **WHEN** the configuration bucket already exists in the caller's account
 - **THEN** the step succeeds and versioning plus the lifecycle rule are ensured
 
 ### Requirement: IAM permission simulation
@@ -88,9 +74,9 @@ After credentials are wired, the wizard SHALL run a best-effort dry-run via `iam
 
 ### Requirement: Bootstrap IPC and progress reporting
 
-Each bootstrap operation (state bucket, lock table, tfvars bucket, IAM check) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress.
+Each bootstrap resource (state bucket, configuration bucket, deployment config, runs table) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress. IAM permission simulation is invoked separately, under `wizard.iam.simulate`.
 
 #### Scenario: Renderer runs the bootstrap step
 
-- **WHEN** the renderer invokes the bootstrap IPC methods for the three resources
+- **WHEN** the renderer invokes the bootstrap IPC methods for the four resources
 - **THEN** each resolves with a per-resource status the step renders, and a failure in one resource reports `failed` with its error message without masking the others

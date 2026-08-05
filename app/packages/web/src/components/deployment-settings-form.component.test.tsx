@@ -132,7 +132,7 @@ describe('DeploymentSettingsForm', () => {
   describe('defensive defaulting for an incomplete settings object', () => {
     it('should render without crashing when the three base-allowlist arrays are absent from the fetched settings', async () => {
       // Simulates a stored document that predates these fields — the
-      // backend now defaults them too (TfvarsService.getTopLevelSettings),
+      // backend now defaults them too (DeploymentConfigService.getTopLevelSettings),
       // but this pins the renderer's OWN independent defense, since
       // `iac.settings.get()`'s declared return type is a compile-time
       // promise only, not a runtime guarantee for every possible caller

@@ -25,7 +25,7 @@ import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
 
 /** Minimal `StackOutputs` stub exposing just `runsTableName`. */
-const TF: StackOutputs = {
+const STACK_OUTPUTS: StackOutputs = {
   awsRegion: 'us-east-1',
   ecsClusterName: '',
   ecsClusterArn: '',
@@ -111,7 +111,7 @@ function makeRemoteFileStore(config?: { projectName?: string; runsTableName?: st
 
 /** Builds a `RunRecordService` with a `ConfigService` stub returning `outputs` and the given (or default) store/run-service/remote-file-store stubs. */
 function makeService(
-  outputs: StackOutputs | null = TF,
+  outputs: StackOutputs | null = STACK_OUTPUTS,
   store: RunRecordStore = makeStore(),
   runService: RunService = makeRunService(),
   remoteFileStore: RemoteFileStore = makeRemoteFileStore(),
@@ -161,7 +161,7 @@ describe('RunRecordService', () => {
     it('should embed a small log directly on the record and never call store.putLog', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
-      const smallLog = 'terraform plan output\nPlan: 1 to add, 0 to change, 0 to destroy.';
+      const smallLog = 'pulumi preview output\nResources: 1 to create, 0 unchanged, 0 to delete.';
 
       await service.persist(makeParams(), writeLogFile(smallLog));
 
@@ -263,14 +263,14 @@ describe('RunRecordService', () => {
       expect(record.status).toBe('aborted');
     });
 
-    it('should include tfvarsVersionId on the record when present on params', async () => {
+    it('should include configVersionId on the record when present on params', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
-      await service.persist(makeParams({ tfvarsVersionId: 'v-1' }), null);
+      await service.persist(makeParams({ configVersionId: 'v-1' }), null);
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record.tfvarsVersionId).toBe('v-1');
+      expect(record.configVersionId).toBe('v-1');
     });
 
     it('should include planHash on the record when present on params', async () => {
@@ -431,32 +431,32 @@ describe('RunRecordService', () => {
       expect(record.completedAt).toBe('2026-07-17T00:00:00.000Z');
     });
 
-    it('should carry tfvarsVersionId, planHash, and engineVersion onto the record when provided', async () => {
+    it('should carry configVersionId, planHash, and engineVersion onto the record when provided', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
       await service.writePreflightMarker({
         runId: 'run-123',
         startedAt: '2026-07-17T00:00:00.000Z',
-        tfvarsVersionId: 'v-1',
+        configVersionId: 'v-1',
         planHash: 'a'.repeat(64),
         engineVersion: '3.255.0',
       });
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record.tfvarsVersionId).toBe('v-1');
+      expect(record.configVersionId).toBe('v-1');
       expect(record.planHash).toBe('a'.repeat(64));
       expect(record.engineVersion).toBe('3.255.0');
     });
 
-    it('should omit tfvarsVersionId, planHash, and engineVersion from the record when absent from params', async () => {
+    it('should omit configVersionId, planHash, and engineVersion from the record when absent from params', async () => {
       putRecordMock.mockResolvedValue(undefined);
       const service = makeService();
 
       await service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' });
 
       const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
-      expect(record).not.toHaveProperty('tfvarsVersionId');
+      expect(record).not.toHaveProperty('configVersionId');
       expect(record).not.toHaveProperty('planHash');
       expect(record).not.toHaveProperty('engineVersion');
     });

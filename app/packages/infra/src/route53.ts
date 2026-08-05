@@ -16,7 +16,7 @@
  *
  * This file declares NO `aws.route53.Record` resource, matching the
  * CLAUDE.md invariant "DNS records are Lambda-managed, never
- * Terraform-managed." Per-game DNS records are written exclusively by the
+ * infra-program-managed." Per-game DNS records are written exclusively by the
  * update-dns Lambda at runtime — `UPSERT` on `RUNNING`, `DELETE` on
  * `STOPPED` — and a Pulumi-owned record for the same name would fight those
  * writes on every `pulumi up`/refresh. See `route53.test.ts`'s negative

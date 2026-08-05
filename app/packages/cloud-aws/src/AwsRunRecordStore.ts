@@ -15,14 +15,16 @@ import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
 /**
  * The single DynamoDB partition every run record lives under (`pk = RUN`).
  * The table's sort key (`sk`, see `buildRunSk` in `@hyveon/shared/runs.js`)
- * is `<ISO startedAt>#<runId>`, matching `terraform/aws/runs_store.tf`.
+ * is `<ISO startedAt>#<runId>`, matching the runs table schema documented in
+ * `app/packages/infra/src/dynamodb.ts` and created by
+ * `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`).
  */
 const PARTITION_KEY = 'RUN';
 
 /**
  * Name of the `status-index` GSI (hash key `status`, range key `startedAt`)
  * that status-filtered {@link AwsRunRecordStore.listRuns} queries switch to
- * — see `terraform/aws/runs_store.tf`.
+ * — see the runs table schema documented in `app/packages/infra/src/dynamodb.ts`.
  */
 const STATUS_INDEX_NAME = 'status-index';
 
@@ -30,8 +32,9 @@ const STATUS_INDEX_NAME = 'status-index';
  * The single, well-known item the apply lock lives under: a dedicated
  * partition (`pk = "LOCK"`) separate from the `pk = "RUN"` partition ordinary
  * {@link RunRecord} items live in, with a fixed sort key (`sk = "CURRENT"`)
- * since there is ever only one outstanding lock (see `terraform/aws/runs_store.tf`
- * and `RunRecordStore.acquireRunLock` in `@hyveon/shared/cloud.js`).
+ * since there is ever only one outstanding lock (see the runs table schema
+ * documented in `app/packages/infra/src/dynamodb.ts` and
+ * `RunRecordStore.acquireRunLock` in `@hyveon/shared/cloud.js`).
  */
 const LOCK_PK = 'LOCK';
 const LOCK_SK = 'CURRENT';
@@ -70,9 +73,10 @@ function parseStartedAtFromSk(sk: string): string {
 
 /**
  * AWS implementation of the cloud-agnostic {@link RunRecordStore} contract,
- * backed by the DynamoDB run-history table provisioned in
- * `terraform/aws/runs_store.tf` (`pk = RUN`, `sk` = `buildRunSk()`) for
- * record metadata, and an S3 bucket for offloaded run logs (see
+ * backed by the DynamoDB run-history table created by
+ * `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`) and documented
+ * in `app/packages/infra/src/dynamodb.ts` (`pk = RUN`, `sk` = `buildRunSk()`)
+ * for record metadata, and an S3 bucket for offloaded run logs (see
  * {@link buildLogKey}). No `@aws-sdk/*` shapes appear outside this class's
  * private fields/method bodies, so callers depend only on
  * {@link RunRecordStore}.
@@ -86,8 +90,8 @@ export class AwsRunRecordStore implements RunRecordStore {
   /**
    * @param getConfig - Resolves the DynamoDB table and S3 bucket (and
    *   optional region) this store reads/writes, on every call — so a
-   *   rename picked up between calls (e.g. after a Terraform re-apply)
-   *   isn't stuck targeting a stale table/bucket. Optional so the class
+   *   rename picked up between calls (e.g. after a Pulumi apply run through
+   *   `PulumiService`) isn't stuck targeting a stale table/bucket. Optional so the class
    *   remains constructible with no arguments, mirroring
    *   `AwsAuditLogStore`/`AwsRemoteFileStore`'s zero-arg-constructible
    *   pattern. When omitted (or when it returns no `tableName`/`bucket`),
@@ -194,7 +198,7 @@ export class AwsRunRecordStore implements RunRecordStore {
           startedAt: record.startedAt,
           completedAt: record.completedAt,
           exitCode: record.exitCode,
-          ...(record.tfvarsVersionId !== undefined ? { tfvarsVersionId: record.tfvarsVersionId } : {}),
+          ...(record.configVersionId !== undefined ? { configVersionId: record.configVersionId } : {}),
           ...(record.planHash !== undefined ? { planHash: record.planHash } : {}),
           ...(record.approvedBy !== undefined ? { approvedBy: record.approvedBy } : {}),
           ...(record.approvedAt !== undefined ? { approvedAt: record.approvedAt } : {}),
@@ -211,7 +215,8 @@ export class AwsRunRecordStore implements RunRecordStore {
   /**
    * Looks up a previously persisted run record by its `runId`. The table's
    * sort key is `<startedAt>#<runId>` (see `buildRunSk`) rather than `runId`
-   * alone, and there is no GSI keyed on `runId` (see `terraform/aws/runs_store.tf`),
+   * alone, and there is no GSI keyed on `runId` (see the runs table schema
+   * documented in `app/packages/infra/src/dynamodb.ts`),
    * so this queries the fixed `pk = RUN` partition and filters on `runId`,
    * paging through `LastEvaluatedKey` until a match is found or the
    * partition is exhausted — acceptable at the run-history table's expected
@@ -257,7 +262,8 @@ export class AwsRunRecordStore implements RunRecordStore {
    * constraining to `sk < :before` when a cursor is supplied (mirrors
    * `AwsAuditLogStore.listEntries`). The status-filtered path switches to
    * the {@link STATUS_INDEX_NAME} GSI (hash key `status`, range key
-   * `startedAt`, `projection_type = ALL` per `terraform/aws/runs_store.tf`)
+   * `startedAt`, `projection_type = ALL` per the runs table schema documented
+   * in `app/packages/infra/src/dynamodb.ts`)
    * instead, resuming via `ExclusiveStartKey` rather than a `startedAt < :before`
    * boundary condition — a boundary condition would drop the remaining rows
    * of any same-`startedAt` group that got split across a page boundary,
@@ -336,8 +342,8 @@ export class AwsRunRecordStore implements RunRecordStore {
       completedAt: item['completedAt'] as string,
       exitCode: item['exitCode'] as number | null,
     };
-    if (item['tfvarsVersionId'] !== undefined) {
-      record.tfvarsVersionId = item['tfvarsVersionId'] as string;
+    if (item['configVersionId'] !== undefined) {
+      record.configVersionId = item['configVersionId'] as string;
     }
     if (item['rolledBackFrom'] !== undefined) {
       record.rolledBackFrom = item['rolledBackFrom'] as string;

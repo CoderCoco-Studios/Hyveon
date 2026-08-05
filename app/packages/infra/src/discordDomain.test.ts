@@ -16,8 +16,8 @@ const EXPECTED_CERTIFICATE_ARN = 'arn:aws:acm:us-east-1:123456789012:certificate
 
 /**
  * No test in this file exercises a conditionality gate: unlike
- * `escapes.ts`'s two DynamoDB table items, `discord-domain.tf` has no
- * top-level `count`/`for_each` gate — every resource here is declared
+ * `escapes.ts`'s two DynamoDB table items, `discordDomain.ts` has no
+ * top-level conditional gate — every resource here is declared
  * unconditionally on every deploy (see `discordDomain.ts`'s file doc, "No
  * conditionality gate"). There is therefore no on/off permutation to assert
  * against `DeploymentConfig`.

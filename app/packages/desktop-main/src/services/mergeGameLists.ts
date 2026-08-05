@@ -1,8 +1,8 @@
 import type { GameListEntry, GameServer } from '@hyveon/shared';
 
 /**
- * Merges the declared view of games (`terraform.tfvars` `game_servers` map,
- * via {@link GameServer}) with the deployed view (the deployed stack's
+ * Merges the declared view of games (`deployment-config.json`'s `gameServers`
+ * map, via {@link GameServer}) with the deployed view (the deployed stack's
  * `gameNames` output) into the union `GameListEntry[]` shape returned by the
  * `games.list` IPC channel / `/api/games` HTTP route — see issue #92.
  *
@@ -12,10 +12,10 @@ import type { GameListEntry, GameServer } from '@hyveon/shared';
  * "both". `config` is only populated for declared games.
  *
  * Pure function — no I/O, no side effects. Ordering is deterministic: entries
- * appear in `declared` (tfvars) order first, followed by any deployed-only
+ * appear in `declared` (`deployment-config.json`) order first, followed by any deployed-only
  * entries (present in `deployed` but not `declared`) in `deployed` order.
  *
- * @param declared - Games parsed from `terraform.tfvars` (`TfvarsService.getGameServers()`).
+ * @param declared - Games parsed from `deployment-config.json` (`DeploymentConfigService.getGameServers()`).
  * @param deployed - Game names present in the deployed stack's outputs (`ConfigService.getStackOutputs()?.gameNames`).
  */
 export function mergeGameLists(declared: GameServer[], deployed: string[]): GameListEntry[] {

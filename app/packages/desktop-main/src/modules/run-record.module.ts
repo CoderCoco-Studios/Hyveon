@@ -7,12 +7,12 @@ import { CloudProviderModule } from './cloud-provider.module.js';
 
 /**
  * Feature module for `RunService` (the in-memory + DynamoDB apply lock
- * guarding `terraform`/Pulumi plan/apply/destroy submissions) and
- * `RunRecordService` (run-history persistence), which both
- * `TerraformService` and `PulumiService` write their run records through.
- * `terraform.module.ts` imports this module rather than declaring
- * `RunService`/`RunRecordService` as its own providers, so both consumers
- * share the exact same singletons — a second module-level provider
+ * guarding Pulumi plan/apply/destroy submissions) and `RunRecordService`
+ * (run-history persistence), which `PulumiService` writes its run records
+ * through (the deleted `TerraformService` formerly did too). `AppModule`
+ * imports this module directly rather than declaring
+ * `RunService`/`RunRecordService` as its own providers, so every consumer
+ * shares the exact same singletons — a second module-level provider
  * declaration for the same class would create a second instance, splitting
  * `RunService`'s in-memory `currentLock` state across two injectors and
  * breaking the "only one lock in-process" invariant.
@@ -45,7 +45,7 @@ import { CloudProviderModule } from './cloud-provider.module.js';
  * `getRemoteFileStore`. A strict-false `ModuleRef.get()` lookup searches the
  * whole application's provider container rather than following a
  * compile-time `imports:` edge, so as long as *some* module reachable from
- * the real `AppModule` (this one, via `terraform.module.ts`) provides
+ * the real `AppModule` (this module, imported directly — see above) provides
  * `RUN_RECORD_PERSISTER`, `PulumiService` finds the same singleton every
  * other `RunRecordService` consumer uses, without `PulumiServiceModule` ever
  * needing a static edge back to this module and without

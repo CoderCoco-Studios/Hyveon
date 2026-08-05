@@ -102,8 +102,8 @@ export interface SaveWizardStateInput {
  * `openspec/changes/add-first-run-wizard`). Every handler is a plain
  * request/response `@MessagePattern` — no HTTP routes, and no streaming
  * side-channels of its own (the wizard's one streaming step reuses the
- * already-shipped `terraform.init` channel instead of adding a second one
- * here).
+ * already-shipped `iac.stack.initialize` channel instead of adding a second
+ * one here).
  */
 @Controller()
 export class WizardController {
@@ -124,7 +124,7 @@ export class WizardController {
    *
    * @remarks
    * The Electron e2e specs that land on the dashboard (`dashboard`, `costs`,
-   * `logs`, `discord`, `terraform`) launch the real packaged app and don't
+   * `logs`, `discord`, `iac`) launch the real packaged app and don't
    * register a `wizard.state.get` mock (most seed their own IPC responses
    * inline per test, not through the shared `applyHyveonMocks` helper), so a
    * `false` default here would route every one of them into the wizard
@@ -209,7 +209,7 @@ export class WizardController {
   }
 
   /**
-   * Idempotently creates/ensures the Terraform S3 state bucket (versioning +
+   * Idempotently creates/ensures the Pulumi S3 state bucket (versioning +
    * default encryption). See `BootstrapService.ensureStateBucket` for the
    * full idempotency mapping.
    */

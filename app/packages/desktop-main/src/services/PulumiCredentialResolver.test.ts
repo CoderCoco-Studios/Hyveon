@@ -149,7 +149,7 @@ describe('resolveCredentialEnvVars — no credential source configured', () => {
  * it builds the *identical* shallow-spread object that formula produces
  * (ambient env spread first, resolver output spread on top) and hands that
  * exact object to Node's own `child_process.execFile` — the same
- * `node:child_process` primitive `TerraformService.ts` already uses
+ * `node:child_process` primitive the deleted `TerraformService.ts` used
  * elsewhere in this codebase, and the same primitive `execa` itself uses
  * once it has built that merged `env` object. What's under test is real
  * process spawning with a real OS-level environment table, not a hand-wavy

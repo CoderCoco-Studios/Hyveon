@@ -14,7 +14,9 @@
  * {@link InfraResources}), or an explicit omission with its reason. Zero
  * blocks are unaccounted for.
  *
- * Re-verification command: `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`.
+ * Verified via `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`,
+ * run against the `terraform/` tree before its deletion; the tree no longer exists on disk, so this count
+ * is historical and the command can't be re-run today.
  *
  * | # | HCL address | Pulumi counterpart | Notes |
  * | --- | --- | --- | --- |
@@ -82,11 +84,11 @@
  * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
  * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
  * | 64 | `aws_dynamodb_table.runs` | **omitted from this program** | Not Pulumi-managed: `RunRecordService`'s approve/apply gates need this table to exist before the very FIRST Pulumi apply of a fresh install ever succeeds, which a Pulumi-managed resource structurally cannot guarantee. Ported to `BootstrapService.ensureRunsTable` (AWS SDK, wizard-bootstrap-time) instead — see `dynamodb.ts`'s file doc for the full rationale, which is the same "Lambda-managed, never Terraform-managed" pattern CLAUDE.md documents for DNS records. |
- * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureTfvarsBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
- * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
- * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
- * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
- * | 69 | `aws_s3_bucket_lifecycle_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureTfvarsBucket`. |
+ * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureConfigurationBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
+ * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 69 | `aws_s3_bucket_lifecycle_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
  *
  * **Not the Pulumi state bucket.** `BootstrapService` also provisions a
  * SEPARATE bucket, `ensureStateBucket`, that backs the Pulumi `s3://`

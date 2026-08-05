@@ -2,7 +2,7 @@ import type { Page, ElectronApplication } from '../fixtures/index.js';
 import { test, expect, launchElectron, applyHyveonMocks } from '../fixtures/index.js';
 import { IacPage } from '../pages/index.js';
 import type { ChangeSummary } from '@hyveon/shared';
-import type { TerraformStaleLockInfo } from '@hyveon/desktop-preload';
+import type { IacStaleLockInfo } from '@hyveon/desktop-preload';
 
 /**
  * `/iac` route specs (issue #110), driven via `_electron.launch()` and
@@ -15,26 +15,26 @@ const PLAN_RUN_ID = 'run-1';
 const APPLY_RUN_ID = 'apply-1';
 
 interface IacMockOptions {
-  planAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: TerraformStaleLockInfo };
+  planAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: IacStaleLockInfo };
   planLines?: string[];
   planStatus?: string;
   planHash?: string;
   /**
    * Structured resource-change counts attached to the scripted plan run's
-   * `iac.runs.get` record (`TerraformRunRecord.changeSummary`) — drives
+   * `iac.runs.get` record (`IacRunRecord.changeSummary`) — drives
    * `ChangeSummaryStatus`'s badge rendering. Omitted by default, matching a
    * run whose structured summary event was never observed.
    */
   planChangeSummary?: ChangeSummary;
   approveAck?: { approved: boolean; approvedBy?: string; approvedAt?: string; error?: string };
-  applyAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: TerraformStaleLockInfo };
+  applyAck?: { started: boolean; runId?: string; error?: string; conflict?: string; staleLock?: IacStaleLockInfo };
   applyLines?: string[];
   applyStatus?: string;
   /** Structured resource-change counts attached to the scripted apply run's `iac.runs.get` record — see {@link planChangeSummary}. */
   applyChangeSummary?: ChangeSummary;
   /**
    * `partialApply` flag attached to the scripted apply run's `iac.runs.get`
-   * record (`TerraformRunRecord.partialApply`) — drives `PartialApplyBanner`'s
+   * record (`IacRunRecord.partialApply`) — drives `PartialApplyBanner`'s
    * rendering in place of the generic apply-failure banner. Omitted by
    * default.
    */
@@ -51,9 +51,9 @@ interface IacMockOptions {
  * `logs.spec.ts` — but its yielded chunks never actually reach the page: an
  * async generator object returned across Electron's `contextBridge` function
  * proxy (crossing back from this main-world mock into the isolated-world
- * `streamTerraformRunLogs`) fails with "An object could not be cloned",
+ * `streamIacRunLogs`) fails with "An object could not be cloned",
  * regardless of which streaming channel or generator body is used — verified
- * against `logs.stream`'s own proven-working mock too. `useTerraformRunLog`'s
+ * against `logs.stream`'s own proven-working mock too. `useIacRunLog`'s
  * `try/catch` silently absorbs that failure and still flips `ended`, so the
  * page behaves as if the run produced no output — good enough to drive the
  * `runs.get`-derived states below (BUSY, approve, apply, success) end to end.

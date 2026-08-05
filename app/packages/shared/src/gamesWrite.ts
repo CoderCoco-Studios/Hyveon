@@ -6,7 +6,7 @@
  * discriminated union without either package importing the other.
  */
 
-import type { GameServer, GameListEntry } from './tfvars.js';
+import type { GameServer, GameListEntry } from './gameServerConfig.js';
 import type { GameServerValidationIssue } from './gameServerValidator.js';
 
 /**
@@ -23,9 +23,9 @@ export interface GameWriteSuccess {
 
 /**
  * The write was rejected because the caller's `expectedVersionId` didn't
- * match the current tfvars file version — someone else edited
- * `terraform.tfvars` since the caller last read it. `currentVersionId` lets
- * the caller re-fetch and retry.
+ * match the current `DeploymentConfig` version — someone else edited the
+ * configuration since the caller last read it. `currentVersionId` lets the
+ * caller re-fetch and retry.
  */
 export interface GameWriteConflict {
   ok: false;
@@ -54,8 +54,8 @@ export interface GameWriteNotFound {
  * has somehow un-finished) the First-Run Wizard's bootstrap step. Distinct
  * from {@link GameWriteFailure} so a caller can route the operator toward
  * setup instead of showing a generic "something went wrong" message (see
- * `TfvarsService.ConfigurationNotConfiguredError` in `desktop-main`, thrown
- * by every `TfvarsService` write method when
+ * `DeploymentConfigService.ConfigurationNotConfiguredError` in `desktop-main`, thrown
+ * by every `DeploymentConfigService` write method when
  * `ConfigService.getConfigurationBucket()` resolves `null`).
  */
 export interface GameWriteSetupIncomplete {
@@ -86,7 +86,7 @@ export type GameWriteResult =
 
 /**
  * Request payload for `games.create`. `expectedVersionId`, when supplied,
- * is checked against the current tfvars file version and a
+ * is checked against the current `DeploymentConfig` version and a
  * {@link GameWriteConflict} is returned on mismatch.
  */
 export interface CreateGamePayload {

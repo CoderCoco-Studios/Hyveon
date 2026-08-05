@@ -9,8 +9,9 @@
 import type { RunLock } from './runs.js';
 
 /**
- * Thrown by tfvars write helpers (e.g. `TfvarsService.updateGameServer`)
- * when an optimistic-concurrency check fails: the caller supplied the etag
+ * Thrown by `DeploymentConfig` write helpers (e.g.
+ * `DeploymentConfigService.updateGameServer`) when an optimistic-concurrency
+ * check fails: the caller supplied the etag
  * it last read, but the remote file has since moved to a different etag.
  * Carries both etags so the UI can surface a clear "remote moved — refresh"
  * message instead of a generic write failure.
@@ -44,7 +45,8 @@ export class OptimisticLockError extends Error {
 
 /**
  * Thrown by `RunService.createRun()` (desktop-main, #106) when a caller
- * tries to start a new `terraform` plan/apply/destroy while another
+ * tries to start a new plan/apply/destroy run (see `RunKind`'s doc in
+ * `runs.ts` for the retained Terraform-subcommand vocabulary) while another
  * non-terminal run is already holding the apply lock. Carries the current
  * {@link RunLock} so the HTTP layer can respond `409 Conflict` with details
  * of who holds the lock (initiator, kind, when it was acquired) instead of a

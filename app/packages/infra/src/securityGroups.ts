@@ -126,7 +126,7 @@ export interface GamePort {
  * port/protocol pair.
  *
  * `https` follows the `undefined ≡ false` contract documented on
- * `GameServerConfig.https` (`@hyveon/shared`'s `tfvars.ts`) — a config entry
+ * `GameServerConfig.https` (`@hyveon/shared`'s `gameServerConfig.ts`) — a config entry
  * with `https` omitted is treated as non-HTTPS and contributes its ports,
  * matching Terraform's `optional(bool, false)` default and the HCL's
  * `!cfg.https` filter.

@@ -89,10 +89,10 @@
  *    (`testing/pulumiMocks.ts`) intercepts every resource registration
  *    before any real engine or upload is involved, so no test needs a real
  *    bundle file to exist on disk.
- *  - **`PulumiService`** (`desktop-main`, not yet built) must resolve a real
+ *  - **`PulumiService`** (`desktop-main`) must resolve a real
  *    directory before calling `defineAll`/`createInfraProgram`, following the
- *    same three-tier pattern `ConfigService.getTfStatePath()` establishes for
- *    `terraform.tfstate` (the configuration bucket's
+ *    same three-tier pattern the old, pre-Pulumi `ConfigService.getTfStatePath()`
+ *    established for `terraform.tfstate` (the configuration bucket's
  *    `getConfigurationBucket()` resolves a bucket *name* from
  *    `ElectronStoreService`, not a filesystem path, so it isn't an
  *    applicable precedent here): an env var override, then `app.isPackaged`

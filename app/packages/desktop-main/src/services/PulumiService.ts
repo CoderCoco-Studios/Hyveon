@@ -192,36 +192,36 @@ export interface ConfigCacheInvalidator {
 }
 
 /**
- * DI token for the narrow slice of `TfvarsService`'s public surface
+ * DI token for the narrow slice of `DeploymentConfigService`'s public surface
  * {@link PulumiService.confirmRollback} depends on — the
  * byte-for-byte restore write (see
- * `TfvarsService.restoreRawTfvars`'s own doc comment). Bound to the real
- * `TfvarsService` singleton via `useExisting` in `tfvars.module.ts`,
+ * `DeploymentConfigService.restoreRawConfig`'s own doc comment). Bound to the real
+ * `DeploymentConfigService` singleton via `useExisting` in `deployment-config.module.ts`,
  * resolved lazily by `PulumiService` via a `strict: false` `ModuleRef.get()`
  * lookup — mirrors {@link RUN_RECORD_PERSISTER}/{@link REMOTE_FILE_STORE}
- * exactly, and for the same reason: a value-level import of `TfvarsService`
- * here would be a real circular `import`, since `TfvarsService.ts` imports
+ * exactly, and for the same reason: a value-level import of `DeploymentConfigService`
+ * here would be a real circular `import`, since `DeploymentConfigService.ts` imports
  * `ConfigService.ts`, which imports THIS file (`PulumiService.ts`) for its
  * `getStackOutputs()` delegate.
  *
  * A dedicated `Symbol` token bound via `useExisting` (this file's own
  * established pattern for every other lazily-resolved dependency) avoids
- * that cycle entirely: this file only ever needs the `TfvarsRestorer`
+ * that cycle entirely: this file only ever needs the `DeploymentConfigRestorer`
  * *interface* (safe — no runtime import) and this plain `Symbol` (safe — no
- * import of `TfvarsService.ts` at all). Referencing the `TfvarsService`
+ * import of `DeploymentConfigService.ts` at all). Referencing the `DeploymentConfigService`
  * class itself as the `ModuleRef` token would still require a value import
- * of `TfvarsService` purely to have something to pass as the token/type
+ * of `DeploymentConfigService` purely to have something to pass as the token/type
  * argument, which is exactly the import this token exists to avoid.
  */
-export const TFVARS_SERVICE = Symbol('TFVARS_SERVICE');
+export const DEPLOYMENT_CONFIG_SERVICE = Symbol('DEPLOYMENT_CONFIG_SERVICE');
 
 /**
- * The slice of `TfvarsService`'s public surface {@link PulumiService.confirmRollback}
- * depends on — see {@link TFVARS_SERVICE}'s doc comment. Structurally
- * identical to `TfvarsService.restoreRawTfvars`'s own signature.
+ * The slice of `DeploymentConfigService`'s public surface {@link PulumiService.confirmRollback}
+ * depends on — see {@link DEPLOYMENT_CONFIG_SERVICE}'s doc comment. Structurally
+ * identical to `DeploymentConfigService.restoreRawConfig`'s own signature.
  */
-export interface TfvarsRestorer {
-  restoreRawTfvars(rawConfig: string): Promise<{ etag: string; versionId?: string }>;
+export interface DeploymentConfigRestorer {
+  restoreRawConfig(rawConfig: string): Promise<{ etag: string; versionId?: string }>;
 }
 
 /**
@@ -247,9 +247,9 @@ export interface TfvarsRestorer {
  * (`TerraformPlanHashError` → {@link PulumiPlanHashError} — see that class's
  * own doc comment); 1 was renamed for terminology
  * (`RollbackNoTfvarsVersionError` → {@link RollbackNoConfigVersionError} —
- * "tfvars" is retired as the configuration-store noun, though
- * `RunRecord.tfvarsVersionId` keeps its field name, so the field and class
- * names now intentionally diverge); 4 were reshaped and renamed to the
+ * "tfvars" is retired as the configuration-store noun, and
+ * `RunRecord.tfvarsVersionId` was renamed to `configVersionId` to match, so
+ * the field and class names stay aligned); 4 were reshaped and renamed to the
  * `Pulumi*Error` convention because their shape changed with the engine
  * (`TerraformPlanError`/`TerraformApplyError`/`TerraformDestroyError` lost
  * their `exitCode` field — Automation API throws a `CommandError`, not a
@@ -421,7 +421,7 @@ interface PulumiPendingLockClearConfirmation {
 /**
  * A single line of streamed stdout/stderr output from a Pulumi Automation
  * API operation, tagged with the stream it came from. Mirrors
- * `TerraformService.ts`'s `TerraformRunChunk` exactly — same shape, same
+ * `TerraformService.ts`'s `IacRunChunk` exactly — same shape, same
  * role (yielded by `preview`/`up`/`destroy` as the operation produces
  * output, consumed by {@link PulumiService.streamRunOutput}'s subscribers)
  * — renamed for this file's `Pulumi*` convention.
@@ -516,9 +516,9 @@ export type PulumiPreviewOutcome =
  * (and, later, `up`/`destroy`) run has settled — the local run-history
  * counterpart to the DynamoDB write {@link PulumiService.persistRunRecord}
  * makes through {@link RunRecordPersister}. Mirrors `TerraformService.ts`'s
- * `TerraformRunRecord` field-for-field, plus `changeSummary`/`engineVersion`.
+ * `IacRunRecord` field-for-field, plus `changeSummary`/`engineVersion`.
  * `kind` reuses the SAME `RunKind` union (`'plan'`/`'apply'`/`'destroy'`)
- * `TerraformRunRecord` used — this vocabulary was deliberately not renamed,
+ * `IacRunRecord` used — this vocabulary was deliberately not renamed,
  * so a Pulumi `preview` run is still recorded as a `'plan'` kind.
  */
 export interface PulumiRunRecord {
@@ -530,10 +530,10 @@ export interface PulumiRunRecord {
   startedAt: string;
   /** ISO-8601 timestamp captured immediately after the operation settled. */
   completedAt: string;
-  /** `0` on success, `null` if aborted, a nonzero sentinel (`1`) on a genuine failure — mirrors `TerraformRunRecord.exitCode`'s three-way meaning even though there is no real process exit code to report for an Automation API call. */
+  /** `0` on success, `null` if aborted, a nonzero sentinel (`1`) on a genuine failure — mirrors `IacRunRecord.exitCode`'s three-way meaning even though there is no real process exit code to report for an Automation API call. */
   exitCode: number | null;
   /** The deployment-config object's S3 version id this run ran against. */
-  tfvarsVersionId?: string;
+  configVersionId?: string;
   /** SHA-256 hex digest of the persisted plan artifact plus the config version id — see {@link PulumiService.computePlanHash}. */
   planHash?: string;
   /** The `runId` of the `apply` run this plan rolled back, if this run was started via the rollback flow (see {@link PulumiService.confirmRollback}). */
@@ -549,7 +549,7 @@ export interface PulumiRunRecord {
    * from a partial apply. Deliberately an ADDITIVE field
    * alongside `exitCode`/`status` rather than a fourth `RunStatus` value:
    * `RunStatus` is also the hash key of the `status-index` DynamoDB GSI
-   * (`terraform/aws/runs_store.tf`), so widening its value set is an
+   * (`defineDynamoDb` in `app/packages/infra/src/dynamodb.ts`), so widening its value set is an
    * infra-affecting change — an additive boolean lets the UI/later logic
    * check "is this a partial apply" without touching the GSI's key schema at
    * all.
@@ -759,7 +759,7 @@ export class PulumiService {
    * (and {@link PulumiOperationInFlightError.inFlight}'s) declared union to a
    * fifth `'stack-init'` value would ripple into every place that already
    * types itself against the current four-value union verbatim —
-   * `IacController`'s `conflict` mapping and the `TerraformPlanAck.conflict`
+   * `IacController`'s `conflict` mapping and the `IacPlanAck.conflict`
    * type it feeds (`iac.controller.ts`, mirrored in
    * `@hyveon/desktop-preload/src/hyveon-api.ts`), and `iac.page.tsx`'s own
    * `Conflict`/`CONFLICT_LABELS` — none of which `initializeStack` has any
@@ -934,23 +934,23 @@ export class PulumiService {
   }
 
   /**
-   * Lazily resolves the real `TfvarsService` singleton (bound to
-   * {@link TFVARS_SERVICE} by `tfvars.module.ts`) — mirrors
+   * Lazily resolves the real `DeploymentConfigService` singleton (bound to
+   * {@link DEPLOYMENT_CONFIG_SERVICE} by `deployment-config.module.ts`) — mirrors
    * {@link getRemoteFileStore} exactly, including the same loud-failure
    * shape on a missing binding. {@link confirmRollback} is the
    * only caller — the byte-for-byte restore write it makes through
-   * {@link TfvarsRestorer.restoreRawTfvars} is as load-bearing to a rollback
+   * {@link DeploymentConfigRestorer.restoreRawConfig} is as load-bearing to a rollback
    * as reading the configuration object is to {@link previewCore}, so a
    * missing binding here is correctly a hard failure, not a best-effort
    * side-write (unlike {@link getConfigCacheInvalidator}'s failure policy).
    */
-  private getTfvarsService(): TfvarsRestorer {
+  private getDeploymentConfigService(): DeploymentConfigRestorer {
     try {
-      return this.moduleRef.get<TfvarsRestorer>(TFVARS_SERVICE, { strict: false });
+      return this.moduleRef.get<DeploymentConfigRestorer>(DEPLOYMENT_CONFIG_SERVICE, { strict: false });
     } catch (err) {
       throw new Error(
-        'PulumiService: TFVARS_SERVICE is not registered anywhere in the application\'s DI ' +
-          `container — this is a wiring bug (see tfvars.module.ts), not a runtime condition: ` +
+        'PulumiService: DEPLOYMENT_CONFIG_SERVICE is not registered anywhere in the application\'s DI ' +
+          `container — this is a wiring bug (see deployment-config.module.ts), not a runtime condition: ` +
           `${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -959,9 +959,9 @@ export class PulumiService {
   /**
    * Reads every value the app cares about off the deployed Pulumi stack,
    * replacing `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`.
-   * Returns `null` — NEVER throws, full stop — mirroring `getTfOutputs()`'s
-   * exact contract: that method had three separate catch-alls
-   * (`ConfigService.ts`'s old `getTfOutputs()`) that swallowed
+   * Returns `null` — NEVER throws, full stop — mirroring the old
+   * `getTfOutputs()`'s exact contract: that method had three separate
+   * catch-alls (`ConfigService.ts`'s old `getTfOutputs()`) that swallowed
    * every failure — a missing file, unparseable JSON, a thrown projection
    * error — and returned `null`/logged rather than ever propagating. Every
    * one of the ~14 call sites that use `getStackOutputs()`
@@ -1096,7 +1096,7 @@ export class PulumiService {
       });
       outputs = await stack.outputs();
     } catch (err) {
-      // Restores `getTfOutputs()`'s never-throw contract in full — see this
+      // Restores the old `getTfOutputs()`'s never-throw contract in full — see this
       // method's doc comment for why every kind of failure here (not just a
       // missing backend) degrades to `null` rather than propagating.
       logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
@@ -2192,7 +2192,7 @@ export class PulumiService {
         // to reading the configuration object) — that variable is
         // block-scoped inside the `try` above and unreachable here; this
         // mirrors `TerraformService.plan()`'s identical force-killed
-        // fallback, which threads its own caller-supplied `tfvarsVersionId`
+        // fallback, which threads its own caller-supplied `configVersionId`
         // through for the same reason.
         try {
           this.writeRunRecord(runId, 'plan', startedAt, completedAt, null, configVersionId, undefined, rolledBackFrom);
@@ -2240,7 +2240,7 @@ export class PulumiService {
    *    being parseable":
    *    - 6a. The configuration object's CURRENT head version id
    *      (`RemoteFileStore.listVersions`) is compared directly against
-   *      `record.tfvarsVersionId` (the version the plan actually ran
+   *      `record.configVersionId` (the version the plan actually ran
    *      against). A mismatch means the configuration has been written
    *      again since the plan was reviewed — throws {@link StalePlanError}
    *      (reused, not reinvented: this is exactly the condition that class
@@ -2558,7 +2558,7 @@ export class PulumiService {
    * Once gate step 8 succeeds, every settlement (success, failure, partial
    * failure, or abort) goes through the same
    * `writeRunLog`/`endActiveRun`/`writeRunRecord`/`persistRunRecord`
-   * sequence {@link preview} uses — `kind: 'apply'`, `tfvarsVersionId`/
+   * sequence {@link preview} uses — `kind: 'apply'`, `configVersionId`/
    * `planHash`/`engineVersion` passed through from the validated plan
    * record (not re-derived), plus the new `partialApply` indicator. As
    * documented on {@link persistRunRecord}, `RunRecordService.persist`'s own
@@ -2677,13 +2677,13 @@ export class PulumiService {
     // throwing, which skips `persistRunRecord` entirely (see the backstop's
     // own comment).
     let lockReleased = false;
-    // The gate-validated tfvarsVersionId/engineVersion, hoisted the instant
+    // The gate-validated configVersionId/engineVersion, hoisted the instant
     // the plan record is fetched (well before the lock is acquired) so the
     // outer `finally`'s force-closed fallback can still thread them through
     // its own best-effort run-record write — mirrors why `runId`/`startedAt`
     // are hoisted, just for record-persistence completeness rather than
     // control flow.
-    let tfvarsVersionId: string | undefined;
+    let configVersionId: string | undefined;
     let engineVersion: string | undefined;
     // Hoisted so the outer `finally`'s force-closed fallback
     // can persist real changeSummary/partial-apply data instead of nothing —
@@ -2755,7 +2755,7 @@ export class PulumiService {
       if (!record.planHash || record.planHash !== planHash) {
         throw new PulumiPlanHashMismatchError(planRunId, record.planHash, planHash);
       }
-      tfvarsVersionId = record.tfvarsVersionId;
+      configVersionId = record.configVersionId;
       engineVersion = record.engineVersion;
 
       if (internalController.signal.aborted) {
@@ -2773,8 +2773,8 @@ export class PulumiService {
       const versions = await this.getRemoteFileStore().listVersions(key);
       const currentConfigVersionId = versions[0]?.versionId;
 
-      if (tfvarsVersionId !== undefined && currentConfigVersionId !== tfvarsVersionId) {
-        throw new StalePlanError(key, bucket, tfvarsVersionId, currentConfigVersionId);
+      if (configVersionId !== undefined && currentConfigVersionId !== configVersionId) {
+        throw new StalePlanError(key, bucket, configVersionId, currentConfigVersionId);
       }
 
       const artifactPath = join(this.getRunsDir(), planRunId, `${planRunId}.plan.json`);
@@ -2920,7 +2920,7 @@ export class PulumiService {
         await this.getRunRecordPersister().writePreflightMarker({
           runId,
           startedAt,
-          tfvarsVersionId,
+          configVersionId,
           planHash: record.planHash,
           engineVersion,
         });
@@ -3169,7 +3169,7 @@ export class PulumiService {
           startedAt,
           completedAt,
           exitCode,
-          tfvarsVersionId,
+          configVersionId,
           record.planHash,
           undefined,
           resultChangeSummary,
@@ -3213,7 +3213,7 @@ export class PulumiService {
         startedAt,
         completedAt,
         exitCode,
-        tfvarsVersionId,
+        configVersionId,
         record.planHash,
         undefined,
         resultChangeSummary,
@@ -3290,7 +3290,7 @@ export class PulumiService {
             startedAt,
             completedAt,
             null,
-            tfvarsVersionId,
+            configVersionId,
             planHash,
             undefined,
             capturedChangeSummary,
@@ -3307,7 +3307,7 @@ export class PulumiService {
           startedAt,
           completedAt,
           null,
-          tfvarsVersionId,
+          configVersionId,
           planHash,
           undefined,
           capturedChangeSummary,
@@ -3671,7 +3671,7 @@ export class PulumiService {
    * ## Persistence
    *
    * `kind: 'destroy'`, same `writeRunLog`/`endActiveRun`/`writeRunRecord`/
-   * `persistRunRecord` sequence `preview`/`apply` use. No `tfvarsVersionId`,
+   * `persistRunRecord` sequence `preview`/`apply` use. No `configVersionId`,
    * `planHash`, or `engineVersion` is recorded — mirrors
    * `TerraformService.destroy`'s identical `undefined` for all three (there
    * is no configuration version or plan artifact this run ran against — see
@@ -4194,11 +4194,11 @@ export class PulumiService {
    * between the two calls is still caught before anything is written.
    *
    * Looks up `applyRunId` via {@link getRunRecordPersister}, validates it's
-   * an `apply` run with a recorded `tfvarsVersionId`, then walks the
+   * an `apply` run with a recorded `configVersionId`, then walks the
    * complete `listVersions` history for the configuration object: since
    * {@link RemoteFileStore.listVersions} returns versions newest-first, the
    * version "live before" the apply run is the entry immediately *after*
-   * the apply's own `tfvarsVersionId` in that array (one step further back
+   * the apply's own `configVersionId` in that array (one step further back
    * in time).
    *
    * @param applyRunId - The `runId` of the `apply` run to resolve a rollback target for.
@@ -4215,31 +4215,31 @@ export class PulumiService {
     if (record.kind !== 'apply') {
       throw new RollbackNotApplyRunError(applyRunId, record.kind);
     }
-    if (!record.tfvarsVersionId) {
+    if (!record.configVersionId) {
       throw new RollbackNoConfigVersionError(applyRunId);
     }
 
     const key = CONFIGURATION_OBJECT_KEY;
     const versions = await this.getRemoteFileStore().listVersions(key);
-    const index = versions.findIndex((v) => v.versionId === record.tfvarsVersionId);
+    const index = versions.findIndex((v) => v.versionId === record.configVersionId);
     const prior = index === -1 ? undefined : versions[index + 1];
     if (!prior) {
-      throw new RollbackVersionMissingError(record.tfvarsVersionId);
+      throw new RollbackVersionMissingError(record.configVersionId);
     }
     return prior;
   }
 
   /**
    * Best-effort parse of a raw configuration-object JSON document into a
-   * {@link DeploymentConfig}. Mirrors `TfvarsService.parseConfigContents`'s
+   * {@link DeploymentConfig}. Mirrors `DeploymentConfigService.parseConfigContents`'s
    * body exactly (`JSON.parse` plus an object-shape check — HCL parsing was
    * dropped entirely, see `deploymentConfig.ts`'s file doc) but returns
    * `undefined` instead of throwing on either a malformed-JSON or
    * wrong-shape document, so its only caller, {@link computeRollbackDiff},
    * can degrade to "no diff" with a single `undefined` check rather than a
-   * `try`/`catch` per parse. Not shared with `TfvarsService` — see
+   * `try`/`catch` per parse. Not shared with `DeploymentConfigService` — see
    * {@link computeRollbackDiff}'s own TSDoc for why this class doesn't take
-   * a `TfvarsService` dependency just for this.
+   * a `DeploymentConfigService` dependency just for this.
    */
   private static parseDeploymentConfigOrUndefined(raw: string): DeploymentConfig | undefined {
     let parsed: unknown;
@@ -4391,7 +4391,7 @@ export class PulumiService {
    *
    * ## Compensating semantics: record-and-surface, not restore-previous-head
    *
-   * Once {@link TfvarsRestorer.restoreRawTfvars} has resolved successfully,
+   * Once {@link DeploymentConfigRestorer.restoreRawConfig} has resolved successfully,
    * anything that fails afterward — a missing `versionId` in its result, or
    * {@link previewCore} itself throwing (engine provisioning, network, or
    * local/cloud run-record persistence — the spec's own enumerated causes)
@@ -4421,8 +4421,8 @@ export class PulumiService {
    * plus the thrown, richly-typed error — no polling mechanism, no IPC
    * channel, no auto-retry.
    *
-   * Failures BEFORE `restoreRawTfvars` resolves (a stale/missing rollback
-   * target, a missing historic version, or `restoreRawTfvars` itself
+   * Failures BEFORE `restoreRawConfig` resolves (a stale/missing rollback
+   * target, a missing historic version, or `restoreRawConfig` itself
    * throwing) are NOT treated as compensating-semantics cases — nothing was
    * written in any of those cases, so the current head is untouched and the
    * pre-existing typed errors ({@link RollbackTargetNotFoundError} etc.)
@@ -4498,12 +4498,12 @@ export class PulumiService {
       // was before this call started. Everything below, once this resolves,
       // is inside the compensating-semantics boundary — see this method's
       // TSDoc, "Compensating semantics".
-      const restored = await this.getTfvarsService().restoreRawTfvars(rawConfig);
+      const restored = await this.getDeploymentConfigService().restoreRawConfig(rawConfig);
 
       try {
         if (!restored.versionId) {
           throw new Error(
-            'PulumiService.confirmRollback: TfvarsService.restoreRawTfvars did not return a versionId — ' +
+            'PulumiService.confirmRollback: DeploymentConfigService.restoreRawConfig did not return a versionId — ' +
               'is the configuration bucket versioned?',
           );
         }
@@ -4947,7 +4947,7 @@ export class PulumiService {
    * Callers that need to distinguish "still running" from "unknown run"
    * should also consult `RunService.getCurrentLock()` (the durable apply
    * lock) or attempt a live {@link streamRunOutput} subscription —
-   * exactly like `TerraformRunsController.get()` already does, unchanged by
+   * exactly like `IacRunsController.get()` already does, unchanged by
    * this port.
    *
    * @throws A plain `Error` synchronously if `runId` isn't a bare path
@@ -4970,7 +4970,7 @@ export class PulumiService {
    * `TerraformService.hasPlanArtifact`, adapted from that method's
    * `.tfplan`-suffixed artifact-path convention to `previewCore`'s own
    * `.plan.json`-suffixed one (Pulumi's `--save-plan` JSON artifact, not a
-   * Terraform binary plan file). Used by `TerraformRunsController.get()` to
+   * Terraform binary plan file). Used by `IacRunsController.get()` to
    * distinguish a `plan` record that's still applyable from one whose
    * artifact has since been cleaned up.
    *
@@ -5181,7 +5181,7 @@ export class PulumiService {
     startedAt: string,
     completedAt: string,
     exitCode: number | null,
-    tfvarsVersionId: string | undefined,
+    configVersionId: string | undefined,
     planHash: string | undefined = undefined,
     rolledBackFrom: string | undefined = undefined,
     changeSummary: ChangeSummary | undefined = undefined,
@@ -5196,7 +5196,7 @@ export class PulumiService {
       startedAt,
       completedAt,
       exitCode,
-      tfvarsVersionId,
+      configVersionId,
       planHash,
       rolledBackFrom,
       changeSummary,
@@ -5233,7 +5233,7 @@ export class PulumiService {
     startedAt: string,
     completedAt: string,
     exitCode: number | null,
-    tfvarsVersionId: string | undefined,
+    configVersionId: string | undefined,
     planHash: string | undefined = undefined,
     rolledBackFrom: string | undefined = undefined,
     changeSummary: ChangeSummary | undefined = undefined,
@@ -5248,7 +5248,7 @@ export class PulumiService {
           startedAt,
           completedAt,
           exitCode,
-          tfvarsVersionId,
+          configVersionId,
           planHash,
           rolledBackFrom,
           changeSummary,
@@ -5282,7 +5282,7 @@ export class PulumiService {
    * identical rationale).
    */
   private getConfigurationBucket(): string | null {
-    const envOverride = process.env['HYVEON_TFVARS_BUCKET'];
+    const envOverride = process.env['HYVEON_CONFIG_BUCKET'];
     if (envOverride) return envOverride;
     return this.store.get('bootstrap')?.configurationBucket ?? null;
   }
@@ -5324,7 +5324,7 @@ export class PulumiService {
    * search that phrase):
    *
    *  1. `HYVEON_LAMBDA_BUNDLES_DIR` env var — wins when set (dev/CI
-   *     convenience, mirrors `getConfigurationBucket`'s `HYVEON_TFVARS_BUCKET`
+   *     convenience, mirrors `getConfigurationBucket`'s `HYVEON_CONFIG_BUCKET`
    *     override).
    *  2. Electron packaged app (`app.isPackaged`) — `<resourcesPath>/lambda`.
    *  3. Dev/test fallback — `<repo>/app/packages/lambda` (each
@@ -5413,7 +5413,7 @@ export class PulumiService {
  * `operationInFlight` busy check when another operation is already running
  * against the shared workspace. A typed error (rather than a plain `Error`)
  * lets a controller map {@link inFlight} straight onto
- * `TerraformPlanAck.conflict` (which `terraform.page.tsx` reads to drive
+ * `IacPlanAck.conflict` (which `iac.page.tsx` reads to drive
  * the renderer's busy-banner UX) without parsing a message string.
  */
 export class PulumiOperationInFlightError extends Error {
@@ -5932,12 +5932,10 @@ export class RollbackNotApplyRunError extends Error {
  * history to roll back against.
  *
  * Renamed from `TerraformService.ts`'s `RollbackNoTfvarsVersionError`:
- * "tfvars" is retired as the noun for the configuration store everywhere
- * except the one field this class describes. That field,
- * `RunRecord.tfvarsVersionId`, intentionally keeps its name — so this
- * class's name and the field it describes now use different terminology on
- * purpose; a future rename of the field should update this class's doc
- * comment's cross-reference too.
+ * "tfvars" is retired as the noun for the configuration store, including the
+ * field this class describes — `RunRecord.configVersionId` (itself renamed
+ * from `tfvarsVersionId`) — so the class's name and the field it describes
+ * now use consistent terminology.
  */
 export class RollbackNoConfigVersionError extends Error {
   constructor(public readonly applyRunId: string) {

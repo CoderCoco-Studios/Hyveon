@@ -213,54 +213,54 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('readEnvTfvarsCacheTtlMs', () => {
+  describe('readEnvConfigCacheTtlMs', () => {
     afterEach(() => {
-      delete process.env['TFVARS_CACHE_TTL_MS'];
+      delete process.env['CONFIG_CACHE_TTL_MS'];
     });
 
-    it('should default to 30000 when TFVARS_CACHE_TTL_MS is unset', () => {
-      delete process.env['TFVARS_CACHE_TTL_MS'];
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+    it('should default to 30000 when CONFIG_CACHE_TTL_MS is unset', () => {
+      delete process.env['CONFIG_CACHE_TTL_MS'];
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
-    it('should default to 30000 when TFVARS_CACHE_TTL_MS is empty', () => {
-      process.env['TFVARS_CACHE_TTL_MS'] = '';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+    it('should default to 30000 when CONFIG_CACHE_TTL_MS is empty', () => {
+      process.env['CONFIG_CACHE_TTL_MS'] = '';
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
-    it('should parse a valid TFVARS_CACHE_TTL_MS value', () => {
-      process.env['TFVARS_CACHE_TTL_MS'] = '60000';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(60000);
+    it('should parse a valid CONFIG_CACHE_TTL_MS value', () => {
+      process.env['CONFIG_CACHE_TTL_MS'] = '60000';
+      expect(service.readEnvConfigCacheTtlMs()).toBe(60000);
     });
 
-    it('should default to 30000 and warn when TFVARS_CACHE_TTL_MS is not a number', () => {
-      process.env['TFVARS_CACHE_TTL_MS'] = 'not-a-number';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+    it('should default to 30000 and warn when CONFIG_CACHE_TTL_MS is not a number', () => {
+      process.env['CONFIG_CACHE_TTL_MS'] = 'not-a-number';
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
-    it('should default to 30000 when TFVARS_CACHE_TTL_MS is negative', () => {
-      process.env['TFVARS_CACHE_TTL_MS'] = '-1';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+    it('should default to 30000 when CONFIG_CACHE_TTL_MS is negative', () => {
+      process.env['CONFIG_CACHE_TTL_MS'] = '-1';
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
 
-    it('should default to 30000 when TFVARS_CACHE_TTL_MS is zero', () => {
-      process.env['TFVARS_CACHE_TTL_MS'] = '0';
-      expect(service.readEnvTfvarsCacheTtlMs()).toBe(30000);
+    it('should default to 30000 when CONFIG_CACHE_TTL_MS is zero', () => {
+      process.env['CONFIG_CACHE_TTL_MS'] = '0';
+      expect(service.readEnvConfigCacheTtlMs()).toBe(30000);
     });
   });
 
   describe('getConfigurationBucket', () => {
     afterEach(() => {
-      delete process.env['HYVEON_TFVARS_BUCKET'];
+      delete process.env['HYVEON_CONFIG_BUCKET'];
     });
 
-    it('should return the HYVEON_TFVARS_BUCKET env var value when set, even when a configuration bucket is also stored', () => {
-      process.env['HYVEON_TFVARS_BUCKET'] = 'my-project-tfvars';
+    it('should return the HYVEON_CONFIG_BUCKET env var value when set, even when a configuration bucket is also stored', () => {
+      process.env['HYVEON_CONFIG_BUCKET'] = 'my-project-config';
       const configuredService = new ConfigService(makeElectronStore('stored-bucket'), makePulumiService());
-      expect(configuredService.getConfigurationBucket()).toBe('my-project-tfvars');
+      expect(configuredService.getConfigurationBucket()).toBe('my-project-config');
     });
 
-    it('should return the configured bootstrap.configurationBucket from ElectronStoreService when HYVEON_TFVARS_BUCKET is unset', () => {
+    it('should return the configured bootstrap.configurationBucket from ElectronStoreService when HYVEON_CONFIG_BUCKET is unset', () => {
       const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'), makePulumiService());
       expect(configuredService.getConfigurationBucket()).toBe('operator-configured-bucket');
     });

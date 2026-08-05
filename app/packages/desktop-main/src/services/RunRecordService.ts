@@ -1,7 +1,9 @@
 /**
  * Write/read facade over the cloud-agnostic `RunRecordStore` contract (see
- * `@hyveon/shared/cloud.js`), backing the `terraform` plan/apply/destroy run
- * history table (`terraform/aws/runs_store.tf`).
+ * `@hyveon/shared/cloud.js`), backing the Pulumi plan/apply/destroy run
+ * history table (created via `BootstrapService.ensureRunsTable`, an AWS SDK
+ * call made at wizard-bootstrap time — not a Pulumi-managed resource; see
+ * `app/packages/infra/src/dynamodb.ts`'s file doc for why).
  *
  * `persist()` decides, per call, whether a run's captured log is small
  * enough to embed directly on the `RunRecord.logInline` attribute or must be
@@ -10,7 +12,7 @@
  * `RunRecord.logS3Key` instead — see {@link INLINE_LOG_LIMIT_BYTES}. The two
  * attributes are mutually exclusive; a record never has both set. It is
  * intentionally best-effort: a run-history write failure must never mask
- * (or retroactively fail) an otherwise-successful `terraform` run, so every
+ * (or retroactively fail) an otherwise-successful Pulumi run, so every
  * failure path logs a winston warning and falls back to the least-lossy
  * option it can rather than throwing — mirrors `AuditService.record`'s
  * swallow-on-error contract.
@@ -20,7 +22,7 @@
  * in a `finally` so it happens unconditionally — whether the table-not-
  * deployed guard short-circuits the method, the write succeeds, or any of
  * the best-effort log/record writes fails — since a lock left held after its
- * run has finished would wedge every subsequent `terraform` submission.
+ * run has finished would wedge every subsequent Pulumi submission.
  */
 import { readFileSync } from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
@@ -135,15 +137,15 @@ function clampLimit(limit?: number): number {
 
 /**
  * Input to {@link RunRecordService.persist} — everything about a finished
- * `terraform` run except its derived `status`, sort key, and captured log,
+ * Pulumi run except its derived `status`, sort key, and captured log,
  * which the service fills in / reads itself (`status` via
  * {@link deriveRunStatus}, `sk` via {@link buildRunSk}, log contents from the
  * `logFilePath` passed alongside these params).
  */
 export interface PersistRunRecordParams {
-  /** Unique identifier of the run — matches the `runId` minted by `TerraformService` when the subcommand was spawned. */
+  /** Unique identifier of the run — matches the `runId` minted by `PulumiService` when the subcommand was spawned. */
   runId: string;
-  /** Which `terraform` subcommand produced this run. */
+  /** Which Pulumi subcommand produced this run. */
   kind: RunKind;
   /** ISO-8601 timestamp captured immediately before the process was spawned. */
   startedAt: string;
@@ -151,11 +153,11 @@ export interface PersistRunRecordParams {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one (e.g. killed via abort signal). */
   exitCode: number | null;
-  /** The tfvars version id the run was executed against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the run was executed against, if the caller supplied one. */
+  configVersionId?: string;
   /**
    * SHA-256 hex digest of the `.tfplan` artifact this run produced (a
-   * successful `plan` run only — see `TerraformService.computePlanHash` and
+   * successful `plan` run only — see `PulumiService.computePlanHash` and
    * issue #109), if the caller supplied one.
    */
   planHash?: string;
@@ -212,8 +214,8 @@ export interface PreflightMarkerParams {
    * leaving two records behind for one attempt.
    */
   startedAt: string;
-  /** The tfvars version id the approved plan ran against, if known. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the approved plan ran against, if known. */
+  configVersionId?: string;
   /** The approved plan's stored `planHash`, if known. */
   planHash?: string;
   /** The approved plan's stamped `engineVersion`, if known. */
@@ -221,7 +223,7 @@ export interface PreflightMarkerParams {
 }
 
 /**
- * Persists `terraform` plan/apply/destroy run history to (and resolves
+ * Persists Pulumi plan/apply/destroy run history to (and resolves
  * presigned log URLs from) the run-history DynamoDB table + remote log
  * storage via the injected {@link RunRecordStore}. See the file-level doc
  * comment above for the best-effort-write contract.
@@ -279,13 +281,14 @@ export class RunRecordService {
    * `store.putRecord`.
    *
    * Never throws, and never lets a run-history write failure mask (or
-   * retroactively fail) the `terraform` run it describes:
+   * retroactively fail) the Pulumi run it describes:
    *
-   * - When `runs_table_name` isn't in the Terraform outputs yet (table not
-   *   deployed — the same chicken-and-egg case `AuditService.record` guards
-   *   against, since the very `terraform apply` that creates the table
-   *   can't itself be recorded to it), a winston warning is logged and the
-   *   method returns without touching `store` at all.
+   * - When {@link resolveRunsTableName} can't resolve a table name yet (no
+   *   deployed stack's `runsTableName` output AND no persisted
+   *   `DeploymentConfig` to derive it from — i.e. the wizard's bootstrap step,
+   *   which creates the table via `BootstrapService.ensureRunsTable`, hasn't
+   *   run yet), a winston warning is logged and the method returns without
+   *   touching `store` at all.
    * - `logFilePath`, when non-`null`, is read via the filesystem and
    *   embedded on `RunRecord.logInline` when at or under
    *   {@link INLINE_LOG_LIMIT_BYTES} (UTF-8 encoded), or offloaded first via
@@ -367,7 +370,7 @@ export class RunRecordService {
           startedAt: params.startedAt,
           completedAt: params.completedAt,
           exitCode: params.exitCode,
-          ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
+          ...(params.configVersionId !== undefined ? { configVersionId: params.configVersionId } : {}),
           ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
           ...(params.rolledBackFrom !== undefined ? { rolledBackFrom: params.rolledBackFrom } : {}),
           ...(params.changeSummary !== undefined ? { changeSummary: params.changeSummary } : {}),
@@ -454,7 +457,7 @@ export class RunRecordService {
       completedAt: params.startedAt,
       exitCode: null,
       partialApply: true,
-      ...(params.tfvarsVersionId !== undefined ? { tfvarsVersionId: params.tfvarsVersionId } : {}),
+      ...(params.configVersionId !== undefined ? { configVersionId: params.configVersionId } : {}),
       ...(params.planHash !== undefined ? { planHash: params.planHash } : {}),
       ...(params.engineVersion !== undefined ? { engineVersion: params.engineVersion } : {}),
     };
@@ -485,10 +488,10 @@ export class RunRecordService {
    * consumers such as the apply IPC handler (#109) depend only on
    * `RunRecordService`.
    *
-   * Guarded by the same `runs_table_name`-not-configured check as
-   * {@link persist}: when the run-history table isn't in the Terraform
-   * outputs yet, a winston warning is logged and `undefined` is returned
-   * without calling `store.getRecordByRunId`.
+   * Guarded by the same {@link resolveRunsTableName}-can't-resolve-yet check
+   * as {@link persist}: when no table name can be resolved yet, a winston
+   * warning is logged and `undefined` is returned without calling
+   * `store.getRecordByRunId`.
    *
    * @param runId - Unique identifier of the run to look up.
    * @returns The matching {@link RunRecord}, or `undefined` if no record with
@@ -511,9 +514,9 @@ export class RunRecordService {
    * Lists run records newest-first, delegating to `store.listRuns` after
    * clamping `opts.limit` via {@link clampLimit}.
    *
-   * Mirrors {@link getByRunId}'s missing-table guard: when `runs_table_name`
-   * isn't in the Terraform outputs yet (table not deployed), a winston
-   * warning is logged and an empty page is returned rather than letting
+   * Mirrors {@link getByRunId}'s missing-table guard: when
+   * {@link resolveRunsTableName} can't resolve a table name yet (table not
+   * deployed), a winston warning is logged and an empty page is returned rather than letting
    * `store.listRuns` throw — the apply-history page should render its empty
    * state on pre-runs-table deployments, not an error state.
    *

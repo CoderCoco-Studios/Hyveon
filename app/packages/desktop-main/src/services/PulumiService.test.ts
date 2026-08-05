@@ -2,8 +2,8 @@
  * Unit tests for `PulumiService` (tasks 7.4/7.8/7.9 of `migrate-iac-to-pulumi`):
  * the ported/reshaped error classes, and `getStackOutputs()`'s "never
  * deployed yet degrades to null, and — per the follow-up review that caught
- * this — NEVER throws for ANY failure, restoring `getTfOutputs()`'s exact
- * catch-all contract" behaviour.
+ * this — NEVER throws for ANY failure, restoring the old `getTfOutputs()`'s
+ * exact catch-all contract" behaviour.
  *
  * `PulumiWorkspaceService` is stubbed directly (not the underlying Pulumi
  * SDK) — `getStackOutputs()`'s own logic (the three pre-flight short-circuits
@@ -293,7 +293,7 @@ describe('PulumiService.getStackOutputs', () => {
   });
 
   it('should return null (not throw) when getOrCreateStack throws PulumiPassphraseUnavailableError', async () => {
-    // Restores getTfOutputs()'s never-throw contract for every failure kind,
+    // Restores the old getTfOutputs()'s never-throw contract for every failure kind,
     // not just PulumiBackendNotBootstrappedError — see the follow-up review
     // that caught RunService/AuditService/RunRecordService assuming this
     // method could never reject. PulumiPassphraseUnavailableError is a

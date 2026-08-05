@@ -47,8 +47,9 @@ export interface DeploymentSettingsValidationIssue {
  * rule below REJECTS a wrong-typed value rather than silently passing it
  * through; see "Type safety" below):
  *  - `hostedZoneName`, `projectName`, `awsRegion`: must be a string when
- *    present, and non-empty. `hostedZoneName` has no Terraform default and
- *    is required in every real deployment (see its own TSDoc on
+ *    present, and non-empty. `hostedZoneName` has no default in
+ *    `DEPLOYMENT_CONFIG_DEFAULTS` and is required in every real
+ *    deployment (see its own TSDoc on
  *    {@link DeploymentConfig}); `projectName`/`awsRegion` do have defaults
  *    but an empty value is never a usable one (resource naming / region
  *    selection).
@@ -82,7 +83,7 @@ export interface DeploymentSettingsValidationIssue {
  * silently accepting a number, an object, or `null` for the same field — is
  * not actually independent of the client in the type-safety sense: it would
  * let `{ hostedZoneName: 42 }` or `{ baseAdminUserIds: "everyone" }` reach
- * `TfvarsService.updateTopLevelSettings()` and get written into
+ * `DeploymentConfigService.updateTopLevelSettings()` and get written into
  * `deployment-config.json` verbatim, corrupting every downstream consumer
  * that assumes the declared `TopLevelDeploymentSettings` types (e.g.
  * `infra/src/escapes.ts`'s `baseAllowedGuilds.length` — a string also has a
@@ -134,7 +135,8 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 /**
  * Matches an IPv4 CIDR block: four dot-separated 0-255 octets, a `/`, and a
  * 0-32 prefix length. Deliberately simple (no IPv6 support — `vpcCidr`'s own
- * TSDoc and Terraform default are both IPv4-only) and not exhaustive about
+ * TSDoc and default in `DEPLOYMENT_CONFIG_DEFAULTS` are both
+ * IPv4-only) and not exhaustive about
  * every malformed edge case (e.g. `010.0.0.0/16` with a leading zero passes)
  * — "prevent obviously malformed input", not a full IP-address validator.
  */
@@ -210,7 +212,7 @@ function checkSnowflakeArray<K extends keyof TopLevelDeploymentSettings>(
  * Successful read of the top-level settings — the `iac.settings.get`
  * result shape. `etag` is the `RemoteFileStore` etag to round-trip as
  * `expectedVersionId` on the follow-up `iac.settings.update` call, mirroring
- * `TfvarsService.getRawConfig()`'s own `{ config, etag }` shape.
+ * `DeploymentConfigService.getRawConfig()`'s own `{ config, etag }` shape.
  */
 export interface DeploymentSettingsGetSuccess {
   ok: true;
@@ -293,7 +295,7 @@ export type DeploymentSettingsWriteResult =
  * `expectedVersionId`, when supplied, is checked against the current
  * deployment-config object version and a {@link DeploymentSettingsConflict}
  * is returned on mismatch. The renderer always supplies it — it's optional
- * here only because `TfvarsService.updateTopLevelSettings`'s own
+ * here only because `DeploymentConfigService.updateTopLevelSettings`'s own
  * unconditional-write convention (mirroring `addGameServer`/
  * `updateGameServer`) requires the parameter to stay optional at the type
  * level.

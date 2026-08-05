@@ -81,7 +81,7 @@ interface StackInitializeAck {
  * every `onPhase(phase, status)` call `PulumiService.initializeStack` makes.
  * `streamId` ties the event back to the `initializeStack()` call that
  * produced it — the same id already handed back in
- * {@link StackInitializeAck.streamId} — mirrors {@link TerraformPlanChunkMessage}.
+ * {@link StackInitializeAck.streamId} — mirrors {@link IacPlanChunkMessage}.
  */
 interface StackInitializePhaseMessage {
   streamId: string;
@@ -117,12 +117,12 @@ interface StackInitializeEndMessage {
  * see {@link IacController.output}'s own TSDoc for why it's now
  * ignored rather than removed.
  */
-interface TerraformOutputPayload {
+interface IacOutputPayload {
   force?: boolean;
 }
 
 /**
- * Payload accepted by {@link IacController.plan}. `tfvarsVersionId`,
+ * Payload accepted by {@link IacController.plan}. `configVersionId`,
  * when the configured configuration source is S3-backed, is forwarded
  * verbatim to `PulumiService.preview`'s pre-spawn staleness check against
  * the current head version of the configuration object. `rolledBackFrom`,
@@ -130,8 +130,8 @@ interface TerraformOutputPayload {
  * plan's `PulumiRunRecord` so history can tag it as a rollback of that
  * `runId`.
  */
-interface TerraformPlanPayload {
-  tfvarsVersionId?: string;
+interface IacPlanPayload {
+  configVersionId?: string;
   rolledBackFrom?: string;
 }
 
@@ -139,10 +139,10 @@ interface TerraformPlanPayload {
  * Message payload sent, in order, on {@link PLAN_CHUNK_CHANNEL} for every
  * chunk `PulumiService.preview` yields. `runId` ties the chunk back to the
  * `plan()` call that produced it — the same id already handed back in
- * {@link TerraformPlanAck.runId} — so the renderer (and a second, rejected
+ * {@link IacPlanAck.runId} — so the renderer (and a second, rejected
  * concurrent call) can never mix up output from two overlapping runs.
  */
-interface TerraformPlanChunkMessage {
+interface IacPlanChunkMessage {
   runId: string;
   chunk: PulumiRunChunk;
 }
@@ -151,13 +151,13 @@ interface TerraformPlanChunkMessage {
  * Message payload sent once on {@link PLAN_END_CHANNEL} when a
  * `iac.plan` run finishes. `exitCode` is `0` on success, or `null` on
  * failure — the Pulumi Automation API has no real process exit code to
- * report (unlike the spawned `terraform` CLI this channel originally
+ * report (unlike the spawned CLI process this channel originally
  * bridged), so `null` uniformly represents "this run did not succeed" here,
  * rather than trying to recover a synthetic non-zero number. `result` is
  * present only on a successful run — the structured `changeSummary` and
  * artifact/hash/engine-version fields `PulumiService.preview` resolved.
  */
-interface TerraformPlanEndMessage {
+interface IacPlanEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
@@ -225,7 +225,7 @@ function serializeStaleLock(err: PulumiUnrecognizedLockError): StaleLockInfo {
  * yet, or the clear attempt itself failed (`PulumiLockClearError`) — `error`
  * is always a human-readable description of why.
  */
-interface TerraformLockClearAck {
+interface IacLockClearAck {
   cleared: boolean;
   error?: string;
 }
@@ -234,9 +234,9 @@ interface TerraformLockClearAck {
  * Result {@link IacController.mintLockClearToken} resolves with — delegates
  * directly to `PulumiService.mintLockClearConfirmationToken()`, which the
  * operator must then supply back on {@link IacController.clearStaleLock}'s
- * payload within its short expiry window. Mirrors {@link TerraformDestroyMintAck}.
+ * payload within its short expiry window. Mirrors {@link IacDestroyMintAck}.
  */
-interface TerraformLockClearMintAck {
+interface IacLockClearMintAck {
   token: string;
 }
 
@@ -247,11 +247,11 @@ interface TerraformLockClearMintAck {
  * server-side by `PulumiService.clearStaleLock`'s own token gate (see
  * `LockClearNotConfirmedError`).
  *
- * Mirrors `TerraformLockClearPayload` in
+ * Mirrors `IacLockClearPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
-interface TerraformLockClearPayload {
+interface IacLockClearPayload {
   confirmationToken: string;
 }
 
@@ -270,7 +270,7 @@ interface TerraformLockClearPayload {
  * `apply`/`destroy` gate-step failure whose lock conflict couldn't be proven
  * to be this installation's own orphaned run) — see {@link StaleLockInfo}.
  */
-interface TerraformPlanAck {
+interface IacPlanAck {
   started: boolean;
   runId?: string;
   error?: string;
@@ -289,7 +289,7 @@ interface TerraformPlanAck {
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
-interface TerraformApprovePayload {
+interface IacApprovePayload {
   planRunId: string;
 }
 
@@ -302,7 +302,7 @@ interface TerraformApprovePayload {
  * isn't a successful `plan` run) — `error` is always a human-readable
  * description of why, and `approvedBy`/`approvedAt` are omitted.
  */
-interface TerraformApproveAck {
+interface IacApproveAck {
   approved: boolean;
   approvedBy?: string;
   approvedAt?: string;
@@ -314,7 +314,7 @@ interface TerraformApproveAck {
  * {@link IacController.confirmRollback} — both key off the `apply` run
  * being rolled back.
  */
-interface TerraformRollbackPayload {
+interface IacRollbackPayload {
   applyRunId: string;
 }
 
@@ -336,7 +336,7 @@ interface TerraformRollbackPayload {
  * `resolved: true` result is NOT an error condition; the confirmation dialog
  * must render normally without it (see `RollbackAction`'s own doc comment).
  */
-interface TerraformRollbackResolveAck {
+interface IacRollbackResolveAck {
   resolved: boolean;
   versionId?: string;
   lastModified?: string;
@@ -349,7 +349,7 @@ interface TerraformRollbackResolveAck {
  * historic configuration content was restored as a new head version AND the
  * follow-up plan `PulumiService.confirmRollback` runs against it internally
  * completed successfully — `versionId` is the restored version's id, ready
- * to pass to `iac.plan`'s `tfvarsVersionId` (alongside
+ * to pass to `iac.plan`'s `configVersionId` (alongside
  * `rolledBackFrom: applyRunId`) for a renderer that still drives the
  * existing two-call flow (see {@link IacController.confirmRollback}'s
  * own TSDoc, "Streaming vs. the renderer's existing one-shot contract").
@@ -363,7 +363,7 @@ interface TerraformRollbackResolveAck {
  * it (e.g. offer "plan against the restored version" as a next step) instead
  * of only reading it out of `error`'s prose.
  */
-interface TerraformRollbackConfirmAck {
+interface IacRollbackConfirmAck {
   confirmed: boolean;
   versionId?: string;
   error?: string;
@@ -373,9 +373,9 @@ interface TerraformRollbackConfirmAck {
  * Message payload sent, in order, on {@link ROLLBACK_CONFIRM_CHUNK_CHANNEL}
  * for every chunk the plan run inside `PulumiService.confirmRollback` yields.
  * `applyRunId` ties the chunk back to the `confirmRollback()` call that
- * produced it, mirroring {@link TerraformPlanChunkMessage}.
+ * produced it, mirroring {@link IacPlanChunkMessage}.
  */
-interface TerraformRollbackConfirmChunkMessage {
+interface IacRollbackConfirmChunkMessage {
   applyRunId: string;
   chunk: PulumiRunChunk;
 }
@@ -389,11 +389,11 @@ interface TerraformRollbackConfirmChunkMessage {
  * gate — this controller does not re-derive or pre-check any of that
  * itself; see {@link apply}'s own TSDoc.
  *
- * Mirrors `TerraformApplyPayload` in
+ * Mirrors `IacApplyPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
-interface TerraformApplyPayload {
+interface IacApplyPayload {
   planRunId: string;
   planHash: string;
 }
@@ -403,9 +403,9 @@ interface TerraformApplyPayload {
  * chunk `PulumiService.apply` yields. `runId` ties the chunk back to the
  * `apply()` call that produced it — the same id already handed back in the
  * ack `IacController.apply` resolves — mirrors
- * {@link TerraformPlanChunkMessage}.
+ * {@link IacPlanChunkMessage}.
  */
-interface TerraformApplyChunkMessage {
+interface IacApplyChunkMessage {
   runId: string;
   chunk: PulumiRunChunk;
 }
@@ -413,15 +413,15 @@ interface TerraformApplyChunkMessage {
 /**
  * Message payload sent once on {@link APPLY_END_CHANNEL} when a
  * `iac.apply` run finishes. `exitCode` is `0` on success, or `null` on
- * failure — see {@link TerraformPlanEndMessage}'s doc comment for why there
+ * failure — see {@link IacPlanEndMessage}'s doc comment for why there
  * is no real numeric exit code to report under the Pulumi Automation API.
  * `result` is present only on a successful run. `staleLock` is present when
  * the failure was `PulumiUnrecognizedLockError` — see {@link StaleLockInfo}.
- * Unlike {@link TerraformPlanAck}, `PulumiUnrecognizedLockError` can surface
+ * Unlike {@link IacPlanAck}, `PulumiUnrecognizedLockError` can surface
  * here (rather than on the immediate ack) because `stack.up()`'s lock
  * conflict is only discovered once the operation has already been streaming.
  */
-interface TerraformApplyEndMessage {
+interface IacApplyEndMessage {
   runId: string;
   exitCode: number | null;
   error?: string;
@@ -435,7 +435,7 @@ interface TerraformApplyEndMessage {
  * which the operator must then supply back on {@link IacController.destroy}'s
  * payload within its short expiry window (see that method's TSDoc).
  */
-interface TerraformDestroyMintAck {
+interface IacDestroyMintAck {
   token: string;
 }
 
@@ -446,11 +446,11 @@ interface TerraformDestroyMintAck {
  * server-side by `PulumiService.destroy`'s own token gate (see
  * `DestroyNotConfirmedError`).
  *
- * Mirrors `TerraformDestroyPayload` in
+ * Mirrors `IacDestroyPayload` in
  * `@hyveon/desktop-preload/src/hyveon-api.ts` — keep this shape in sync with
  * that sibling contract.
  */
-interface TerraformDestroyPayload {
+interface IacDestroyPayload {
   confirmationToken: string;
 }
 
@@ -459,9 +459,9 @@ interface TerraformDestroyPayload {
  * chunk `PulumiService.destroy` yields. `runId` ties the chunk back to the
  * `destroy()` call that produced it — the same id already handed back in the
  * ack `IacController.destroy` resolves — mirrors
- * {@link TerraformApplyChunkMessage}.
+ * {@link IacApplyChunkMessage}.
  */
-interface TerraformDestroyChunkMessage {
+interface IacDestroyChunkMessage {
   runId: string;
   chunk: PulumiRunChunk;
 }
@@ -469,13 +469,13 @@ interface TerraformDestroyChunkMessage {
 /**
  * Message payload sent once on {@link DESTROY_END_CHANNEL} when a
  * `iac.destroy` run finishes. `exitCode` is `0` on success, or `null`
- * on failure — see {@link TerraformPlanEndMessage}'s doc comment for why.
+ * on failure — see {@link IacPlanEndMessage}'s doc comment for why.
  * `result` is present only on a successful run. `staleLock` is present when
  * the failure was `PulumiUnrecognizedLockError` — see
- * {@link TerraformApplyEndMessage}'s identical field for why this surfaces
+ * {@link IacApplyEndMessage}'s identical field for why this surfaces
  * here rather than on the immediate ack.
  */
-interface TerraformDestroyEndMessage {
+interface IacDestroyEndMessage {
   runId: string;
   exitCode: number | null;
   staleLock?: StaleLockInfo;
@@ -484,7 +484,7 @@ interface TerraformDestroyEndMessage {
 }
 
 /**
- * IPC-only Terraform controller. Handles Electron main-process messages via
+ * IPC-only Iac controller. Handles Electron main-process messages via
  * `@MessagePattern` — no HTTP routes are registered here. Every
  * orchestration call site delegates to `PulumiService`, the
  * Automation-API-backed provisioning engine; where its methods are
@@ -609,7 +609,7 @@ export class IacController implements OnModuleInit {
     // Remove any existing handler first so hot-reload re-registration does
     // not throw "IPC channel already registered".
     ipcMain.removeHandler('iac.plan');
-    ipcMain.handle('iac.plan', (evt, payload: TerraformPlanPayload) =>
+    ipcMain.handle('iac.plan', (evt, payload: IacPlanPayload) =>
       this.plan(payload, { evt: evt as IpcMainInvokeEvent }),
     );
     // `iac.apply` streams chunk/end messages the same way
@@ -617,7 +617,7 @@ export class IacController implements OnModuleInit {
     // `../ipc-main-bridge.ts`, which excludes it from the generic bridge for
     // the same reason.
     ipcMain.removeHandler('iac.apply');
-    ipcMain.handle('iac.apply', (evt, payload: TerraformApplyPayload) =>
+    ipcMain.handle('iac.apply', (evt, payload: IacApplyPayload) =>
       this.apply(payload, { evt: evt as IpcMainInvokeEvent }),
     );
     // `iac.destroy` streams chunk/end messages the same way
@@ -627,7 +627,7 @@ export class IacController implements OnModuleInit {
     // (it resolves a single value), so the generic bridge wires it
     // automatically — no entry here.
     ipcMain.removeHandler('iac.destroy');
-    ipcMain.handle('iac.destroy', (evt, payload: TerraformDestroyPayload) =>
+    ipcMain.handle('iac.destroy', (evt, payload: IacDestroyPayload) =>
       this.destroy(payload, { evt: evt as IpcMainInvokeEvent }),
     );
     // `iac.rollback.confirm` streams chunk messages the same way
@@ -636,7 +636,7 @@ export class IacController implements OnModuleInit {
     // the same reason (see this method's own TSDoc for why the undecorated
     // `ctx` parameter needs manual bridging).
     ipcMain.removeHandler('iac.rollback.confirm');
-    ipcMain.handle('iac.rollback.confirm', (evt, payload: TerraformRollbackPayload) =>
+    ipcMain.handle('iac.rollback.confirm', (evt, payload: IacRollbackPayload) =>
       this.confirmRollback(payload, { evt: evt as IpcMainInvokeEvent }),
     );
     // `iac.stack.initialize` streams phase-event/end messages the same way
@@ -650,7 +650,7 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Replacement for the `iac.init` channel — Pulumi has no `terraform init`
+   * Replacement for the `iac.init` channel — Pulumi has no one-shot CLI init
    * analogue, so this streams `PulumiService.initializeStack`'s phase-by-phase
    * provisioning instead of a one-shot init call.
    * Kicks off `PulumiService.initializeStack` and streams its `onPhase`
@@ -762,8 +762,8 @@ export class IacController implements OnModuleInit {
   }
 
   /**
-   * Kicks off a Pulumi preview (`terraform plan`'s successor) and streams its
-   * output back to the renderer — pre-mints a `runId` since
+   * Kicks off a Pulumi preview and streams its output back to the
+   * renderer — pre-mints a `runId` since
    * `PulumiService.preview` already needs one to name its saved plan
    * artifact directory.
    *
@@ -818,15 +818,15 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.plan')
   async plan(
-    @Payload() payload: TerraformPlanPayload = {},
+    @Payload() payload: IacPlanPayload = {},
     ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformPlanAck> {
+  ): Promise<IacPlanAck> {
     const inFlight = this.pulumi.getOperationInFlight();
     if (inFlight) {
       const error =
-        `terraform plan refused: ${inFlight} is already in flight; wait for it to finish ` +
+        `plan refused: ${inFlight} is already in flight; wait for it to finish ` +
         'before submitting another plan';
-      logger.error('terraform plan rejected: workspace busy', { inFlight });
+      logger.error('plan rejected: workspace busy', { inFlight });
       return { started: false, error, conflict: inFlight };
     }
 
@@ -834,7 +834,7 @@ export class IacController implements OnModuleInit {
     const runId = randomUUID();
     const ac = new AbortController();
 
-    const stream = this.pulumi.preview(payload.tfvarsVersionId, ac.signal, runId, payload.rolledBackFrom);
+    const stream = this.pulumi.preview(payload.configVersionId, ac.signal, runId, payload.rolledBackFrom);
     const firstStep = stream.next();
     firstStep.catch(() => { /* handled in the streaming loop below */ });
 
@@ -860,7 +860,7 @@ export class IacController implements OnModuleInit {
       game: '',
       before: null,
       after: null,
-      ...(payload.tfvarsVersionId !== undefined ? { versionId: payload.tfvarsVersionId } : {}),
+      ...(payload.configVersionId !== undefined ? { versionId: payload.configVersionId } : {}),
     });
 
     // Fire-and-forget the streaming loop. Chunks are pushed back to the
@@ -875,18 +875,18 @@ export class IacController implements OnModuleInit {
             await stream.return(undefined);
             return;
           }
-          const chunkMessage: TerraformPlanChunkMessage = { runId, chunk: next.value };
+          const chunkMessage: IacPlanChunkMessage = { runId, chunk: next.value };
           sender.send(PLAN_CHUNK_CHANNEL, chunkMessage);
           next = await stream.next();
         }
         if (!sender.isDestroyed()) {
-          const message: TerraformPlanEndMessage = { runId, exitCode: 0, result: next.value };
+          const message: IacPlanEndMessage = { runId, exitCode: 0, result: next.value };
           sender.send(PLAN_END_CHANNEL, message);
         }
       } catch (err) {
-        logger.error('terraform plan error', { err });
+        logger.error('plan error', { err });
         if (!sender.isDestroyed()) {
-          const message: TerraformPlanEndMessage = { runId, exitCode: null, error: String(err) };
+          const message: IacPlanEndMessage = { runId, exitCode: null, error: String(err) };
           sender.send(PLAN_END_CHANNEL, message);
         }
       } finally {
@@ -945,7 +945,7 @@ export class IacController implements OnModuleInit {
    * single terminal message is sent on {@link APPLY_END_CHANNEL}:
    * `{ runId, exitCode: 0, result }` on success, or
    * `{ runId, exitCode: null, error }` on failure — see
-   * {@link TerraformPlanEndMessage}'s doc comment for why `exitCode` is a
+   * {@link IacPlanEndMessage}'s doc comment for why `exitCode` is a
    * plain `0`/`null` pair now rather than a recovered process exit code.
    *
    * There is no `RunService.createRun`/`releaseRun` call anywhere in this
@@ -963,12 +963,12 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.apply')
   async apply(
-    @Payload() payload: TerraformApplyPayload,
+    @Payload() payload: IacApplyPayload,
     ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformPlanAck> {
+  ): Promise<IacPlanAck> {
     const validationError = IacController.validateApplyPayload(payload);
     if (validationError) {
-      logger.error('terraform apply rejected: invalid payload', { error: validationError });
+      logger.error('apply rejected: invalid payload', { error: validationError });
       return { started: false, error: validationError };
     }
 
@@ -982,7 +982,7 @@ export class IacController implements OnModuleInit {
       first = await stream.next();
     } catch (err) {
       if (err instanceof RunLockHeldError) {
-        logger.error('terraform apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
+        logger.error('apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
         return { started: false, error: err.message, conflict: 'up' };
       }
       if (err instanceof PulumiOperationInFlightError) {
@@ -990,9 +990,9 @@ export class IacController implements OnModuleInit {
         // operationInFlight mutex is a cheaper, earlier-checked guard than
         // the durable RunLockHeldError race above, but a busy refusal from it
         // must populate `conflict` exactly the same way — the renderer's
-        // busy banner (terraform.page.tsx) reads ack.conflict regardless of
+        // busy banner (iac.page.tsx) reads ack.conflict regardless of
         // which of the two guards refused the submission.
-        logger.error('terraform apply rejected: workspace busy', { planRunId: payload.planRunId, inFlight: err.inFlight });
+        logger.error('apply rejected: workspace busy', { planRunId: payload.planRunId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
       if (err instanceof PulumiUnrecognizedLockError) {
@@ -1002,14 +1002,14 @@ export class IacController implements OnModuleInit {
         // once operationSettled) — see the streaming loop's identical catch
         // below for the more common case where it surfaces after streaming
         // has already begun.
-        logger.error('terraform apply rejected: unrecognized stale stack lock', {
+        logger.error('apply rejected: unrecognized stale stack lock', {
           planRunId: payload.planRunId,
           stackName: err.stackName,
         });
         return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
       }
       const error = err instanceof Error ? err.message : String(err);
-      logger.error('terraform apply rejected', { planRunId: payload.planRunId, error });
+      logger.error('apply rejected', { planRunId: payload.planRunId, error });
       return { started: false, error };
     }
 
@@ -1044,18 +1044,18 @@ export class IacController implements OnModuleInit {
             await stream.return(undefined);
             return;
           }
-          const chunkMessage: TerraformApplyChunkMessage = { runId, chunk: next.value };
+          const chunkMessage: IacApplyChunkMessage = { runId, chunk: next.value };
           sender.send(APPLY_CHUNK_CHANNEL, chunkMessage);
           next = await stream.next();
         }
         if (!sender.isDestroyed()) {
-          const message: TerraformApplyEndMessage = { runId, exitCode: 0, result: next.value };
+          const message: IacApplyEndMessage = { runId, exitCode: 0, result: next.value };
           sender.send(APPLY_END_CHANNEL, message);
         }
       } catch (err) {
-        logger.error('terraform apply error', { err });
+        logger.error('apply error', { err });
         if (!sender.isDestroyed()) {
-          const message: TerraformApplyEndMessage = {
+          const message: IacApplyEndMessage = {
             runId,
             exitCode: null,
             error: String(err),
@@ -1088,7 +1088,7 @@ export class IacController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.destroy.mintToken`).
    */
   @MessagePattern('iac.destroy.mintToken')
-  mintDestroyToken(): TerraformDestroyMintAck {
+  mintDestroyToken(): IacDestroyMintAck {
     return { token: this.pulumi.mintDestroyConfirmationToken() };
   }
 
@@ -1100,7 +1100,7 @@ export class IacController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.lock.clear.mintToken`).
    */
   @MessagePattern('iac.lock.clear.mintToken')
-  mintLockClearToken(): TerraformLockClearMintAck {
+  mintLockClearToken(): IacLockClearMintAck {
     return { token: this.pulumi.mintLockClearConfirmationToken() };
   }
 
@@ -1143,7 +1143,7 @@ export class IacController implements OnModuleInit {
    * loop shape exactly. Each chunk is forwarded via `sender.send` on
    * {@link DESTROY_CHUNK_CHANNEL} as `{ runId, chunk }`; once the run settles
    * a single terminal message is sent on {@link DESTROY_END_CHANNEL}, mirroring
-   * {@link TerraformApplyEndMessage}'s `exitCode` convention.
+   * {@link IacApplyEndMessage}'s `exitCode` convention.
    *
    * There is no `RunService.createRun`/`releaseRun` call anywhere in this
    * controller — `PulumiService.destroy`'s own gate and persistence path own
@@ -1157,12 +1157,12 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.destroy')
   async destroy(
-    @Payload() payload: TerraformDestroyPayload,
+    @Payload() payload: IacDestroyPayload,
     ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformPlanAck> {
+  ): Promise<IacPlanAck> {
     const validationError = IacController.validateDestroyPayload(payload);
     if (validationError) {
-      logger.error('terraform destroy rejected: invalid payload', { error: validationError });
+      logger.error('destroy rejected: invalid payload', { error: validationError });
       return { started: false, error: validationError };
     }
 
@@ -1176,28 +1176,28 @@ export class IacController implements OnModuleInit {
       first = await stream.next();
     } catch (err) {
       if (err instanceof RunLockHeldError) {
-        logger.error('terraform destroy rejected: apply lock already held', { runId, lock: err.lock });
+        logger.error('destroy rejected: apply lock already held', { runId, lock: err.lock });
         return { started: false, error: err.message, conflict: 'destroy' };
       }
       if (err instanceof PulumiOperationInFlightError) {
         // Mirrors apply()'s equivalent branch — see that catch block's
         // comment for why the in-process mutex needs the same `conflict`
         // treatment as the durable RunLockHeldError race above.
-        logger.error('terraform destroy rejected: workspace busy', { runId, inFlight: err.inFlight });
+        logger.error('destroy rejected: workspace busy', { runId, inFlight: err.inFlight });
         return { started: false, error: err.message, conflict: err.inFlight };
       }
       if (err instanceof PulumiUnrecognizedLockError) {
         // Mirrors apply()'s identical branch — see that catch block's
         // comment for why this can surface here, before any streaming ever
         // started, rather than only on the end-of-stream catch below.
-        logger.error('terraform destroy rejected: unrecognized stale stack lock', {
+        logger.error('destroy rejected: unrecognized stale stack lock', {
           runId,
           stackName: err.stackName,
         });
         return { started: false, error: err.message, staleLock: serializeStaleLock(err) };
       }
       const error = err instanceof Error ? err.message : String(err);
-      logger.error('terraform destroy rejected', { runId, error });
+      logger.error('destroy rejected', { runId, error });
       return { started: false, error };
     }
 
@@ -1224,18 +1224,18 @@ export class IacController implements OnModuleInit {
             await stream.return(undefined);
             return;
           }
-          const chunkMessage: TerraformDestroyChunkMessage = { runId, chunk: next.value };
+          const chunkMessage: IacDestroyChunkMessage = { runId, chunk: next.value };
           sender.send(DESTROY_CHUNK_CHANNEL, chunkMessage);
           next = await stream.next();
         }
         if (!sender.isDestroyed()) {
-          const message: TerraformDestroyEndMessage = { runId, exitCode: 0, result: next.value };
+          const message: IacDestroyEndMessage = { runId, exitCode: 0, result: next.value };
           sender.send(DESTROY_END_CHANNEL, message);
         }
       } catch (err) {
-        logger.error('terraform destroy error', { err });
+        logger.error('destroy error', { err });
         if (!sender.isDestroyed()) {
-          const message: TerraformDestroyEndMessage = {
+          const message: IacDestroyEndMessage = {
             runId,
             exitCode: null,
             error: String(err),
@@ -1258,9 +1258,9 @@ export class IacController implements OnModuleInit {
    * `../ipc-main-bridge.ts` wires `ipcRenderer.invoke('iac.output', ...)`
    * to this handler automatically.
    *
-   * ## Return shape: `StackOutputs`, not a Terraform-tfstate shape
+   * ## Return shape: `StackOutputs`, not a raw state-file shape
    *
-   * There is no local `terraform.tfstate` file to read — a
+   * There is no local state file to read — a
    * Pulumi-orchestrated stack's state lives in the DIY S3 backend, never as
    * a local file this app reads directly — so this method returns
    * `StackOutputs` (`@hyveon/shared`), the type
@@ -1274,7 +1274,7 @@ export class IacController implements OnModuleInit {
    *
    * ## `force` is accepted but ignored
    *
-   * `payload.force` is kept in {@link TerraformOutputPayload} for payload
+   * `payload.force` is kept in {@link IacOutputPayload} for payload
    * compatibility but is otherwise unused: `PulumiService.apply`/`.destroy`
    * both call `ConfigService.invalidateCache()` on a successful settlement
    * (see those methods' own TSDoc, "Cache invalidation"), so the next
@@ -1292,7 +1292,7 @@ export class IacController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.output`).
    */
   @MessagePattern('iac.output')
-  async output(@Payload() payload: TerraformOutputPayload = {}): Promise<StackOutputs | null> {
+  async output(@Payload() payload: IacOutputPayload = {}): Promise<StackOutputs | null> {
     void payload;
     return this.config ? this.config.getStackOutputs() : this.pulumi.getStackOutputs();
   }
@@ -1329,16 +1329,16 @@ export class IacController implements OnModuleInit {
    * `../ipc-main-bridge.ts`.
    */
   @MessagePattern('iac.approve')
-  async approve(@Payload() payload: TerraformApprovePayload): Promise<TerraformApproveAck> {
+  async approve(@Payload() payload: IacApprovePayload): Promise<IacApproveAck> {
     const validationError = IacController.validateApprovePayload(payload);
     if (validationError) {
-      logger.error('terraform approve rejected: invalid payload', { error: validationError });
+      logger.error('approve rejected: invalid payload', { error: validationError });
       return { approved: false, error: validationError };
     }
 
     if (!this.runRecord) {
       const error = 'iac.approve requires a configured RunRecordService';
-      logger.error('terraform approve rejected: no RunRecordService available', { planRunId: payload.planRunId });
+      logger.error('approve rejected: no RunRecordService available', { planRunId: payload.planRunId });
       return { approved: false, error };
     }
 
@@ -1358,7 +1358,7 @@ export class IacController implements OnModuleInit {
 
       return { approved: true, approvedBy: record.approvedBy, approvedAt: record.approvedAt };
     } catch (err) {
-      logger.error('terraform approve error', { err, planRunId: payload.planRunId });
+      logger.error('approve error', { err, planRunId: payload.planRunId });
       const error = err instanceof Error ? err.message : String(err);
       return { approved: false, error };
     }
@@ -1386,10 +1386,10 @@ export class IacController implements OnModuleInit {
    * field is omitted.
    */
   @MessagePattern('iac.rollback.resolve')
-  async resolveRollback(@Payload() payload: TerraformRollbackPayload): Promise<TerraformRollbackResolveAck> {
+  async resolveRollback(@Payload() payload: IacRollbackPayload): Promise<IacRollbackResolveAck> {
     const validationError = IacController.validateRollbackPayload(payload);
     if (validationError) {
-      logger.error('terraform rollback resolve rejected: invalid payload', { error: validationError });
+      logger.error('rollback resolve rejected: invalid payload', { error: validationError });
       return { resolved: false, error: validationError };
     }
 
@@ -1400,7 +1400,7 @@ export class IacController implements OnModuleInit {
       try {
         diff = await this.pulumi.computeRollbackDiff(target.versionId);
       } catch (err) {
-        logger.warn('terraform rollback resolve: diff computation failed — continuing without it', {
+        logger.warn('rollback resolve: diff computation failed — continuing without it', {
           err,
           applyRunId: payload.applyRunId,
         });
@@ -1413,7 +1413,7 @@ export class IacController implements OnModuleInit {
         ...(diff ? { diff } : {}),
       };
     } catch (err) {
-      logger.error('terraform rollback resolve error', { err, applyRunId: payload.applyRunId });
+      logger.error('rollback resolve error', { err, applyRunId: payload.applyRunId });
       const error = err instanceof Error ? err.message : String(err);
       return { resolved: false, error };
     }
@@ -1429,12 +1429,12 @@ export class IacController implements OnModuleInit {
    * `operationInFlight` lock for its entire duration — it's an
    * `AsyncGenerator` that streams a real plan run internally, exactly like
    * {@link plan} does, not a one-shot `Promise` (see that method's own
-   * TSDoc, "The old `TerraformService` gap this closes").
+   * TSDoc for the gap this design closes).
    *
    * The renderer expects `iac.rollback.confirm` to resolve a single
-   * `TerraformRollbackConfirmAck`, with a SEPARATE `iac.plan` call still
+   * `IacRollbackConfirmAck`, with a SEPARATE `iac.plan` call still
    * queuing the plan the operator watches (see `@hyveon/web`'s
-   * `terraform.page.tsx`, `RollbackNavState`). This method reconciles the
+   * `iac.page.tsx`, `RollbackNavState`). This method reconciles the
    * two: it drives `PulumiService.confirmRollback`'s generator to completion
    * INTERNALLY (via a manual `.next()` loop, mirroring {@link plan}'s
    * manual-drive shape so `PulumiPreviewResult` — the generator's return
@@ -1444,7 +1444,7 @@ export class IacController implements OnModuleInit {
    * `Promise` once the WHOLE restore+plan unit has settled.
    *
    * **Known, accepted consequence, not silently swallowed**: because the
-   * renderer's `RollbackAction`/`TerraformPage` still submit a follow-up
+   * renderer's `RollbackAction`/`IacPage` still submit a follow-up
    * `iac.plan` call after a successful `confirmRollback` ack, and
    * `PulumiService.confirmRollback` also runs a real plan internally as part
    * of the restore, a successful rollback produces TWO `PulumiRunRecord`s
@@ -1460,17 +1460,17 @@ export class IacController implements OnModuleInit {
    * instead of re-submitting one.
    *
    * The restored configuration version id the renderer needs
-   * (`TerraformRollbackConfirmAck.versionId`) is NOT a field of
+   * (`IacRollbackConfirmAck.versionId`) is NOT a field of
    * `PulumiPreviewResult` (which describes the plan artifact, not the
    * configuration version it ran against) — it's recovered via
    * `PulumiService.readRunRecord(result.runId)` once the generator settles,
-   * reading back the `PulumiRunRecord.tfvarsVersionId` that `PulumiService`'s
+   * reading back the `PulumiRunRecord.configVersionId` that `PulumiService`'s
    * internal `previewCore` call persisted for this exact run (guaranteed
    * present: `previewCore` always records the configuration version id it
    * actually observed for a successful plan before returning).
    *
    * Reachable via the Electron IPC transport (`iac.rollback.confirm`).
-   * Despite ultimately resolving a single `TerraformRollbackConfirmAck`, this
+   * Despite ultimately resolving a single `IacRollbackConfirmAck`, this
    * channel is bridged manually by {@link onModuleInit}, not by the generic
    * `ipcMain.handle` bridge — see that method's own TSDoc and
    * `SELF_BRIDGED_PATTERNS` in `../ipc-main-bridge.ts` for why: the
@@ -1480,12 +1480,12 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.rollback.confirm')
   async confirmRollback(
-    @Payload() payload: TerraformRollbackPayload,
+    @Payload() payload: IacRollbackPayload,
     ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformRollbackConfirmAck> {
+  ): Promise<IacRollbackConfirmAck> {
     const validationError = IacController.validateRollbackPayload(payload);
     if (validationError) {
-      logger.error('terraform rollback confirm rejected: invalid payload', { error: validationError });
+      logger.error('rollback confirm rejected: invalid payload', { error: validationError });
       return { confirmed: false, error: validationError };
     }
 
@@ -1499,7 +1499,7 @@ export class IacController implements OnModuleInit {
       let next = await stream.next();
       while (!next.done) {
         if (!sender.isDestroyed()) {
-          const chunkMessage: TerraformRollbackConfirmChunkMessage = {
+          const chunkMessage: IacRollbackConfirmChunkMessage = {
             applyRunId: payload.applyRunId,
             chunk: next.value,
           };
@@ -1520,14 +1520,14 @@ export class IacController implements OnModuleInit {
       }
 
       const record = this.pulumi.readRunRecord(result.runId);
-      const versionId = record?.tfvarsVersionId;
+      const versionId = record?.configVersionId;
       if (!versionId) {
-        // Should not happen — previewCore always writes tfvarsVersionId for
+        // Should not happen — previewCore always writes configVersionId for
         // a successful plan run before returning (see this method's own
         // TSDoc). Defensive fallback so a genuinely unexpected gap surfaces
         // as a clear ack error rather than a "confirmed" ack the renderer
         // can't actually act on (it has nowhere to plan against next).
-        logger.error('terraform rollback confirm: missing persisted tfvarsVersionId after a successful rollback plan', {
+        logger.error('rollback confirm: missing persisted configVersionId after a successful rollback plan', {
           applyRunId: payload.applyRunId,
           runId: result.runId,
         });
@@ -1550,7 +1550,7 @@ export class IacController implements OnModuleInit {
 
       return { confirmed: true, versionId };
     } catch (err) {
-      logger.error('terraform rollback confirm error', { err, applyRunId: payload.applyRunId });
+      logger.error('rollback confirm error', { err, applyRunId: payload.applyRunId });
       if (err instanceof PulumiRollbackPlanFailedError) {
         // The restore write DID succeed — err.restoredVersionId is now the
         // new head — only the follow-up plan failed. Surface it
@@ -1588,7 +1588,7 @@ export class IacController implements OnModuleInit {
    * `iac.rollback.resolve`.
    */
   @MessagePattern('iac.lock.clear')
-  async clearStaleLock(@Payload() payload: TerraformLockClearPayload): Promise<TerraformLockClearAck> {
+  async clearStaleLock(@Payload() payload: IacLockClearPayload): Promise<IacLockClearAck> {
     const validationError = IacController.validateLockClearPayload(payload);
     if (validationError) {
       logger.error('iac lock clear rejected: invalid payload', { error: validationError });
@@ -1622,7 +1622,7 @@ export class IacController implements OnModuleInit {
    * descriptive error message when validation fails, or `null` when
    * `payload` is valid.
    */
-  private static validateApprovePayload(payload: TerraformApprovePayload): string | null {
+  private static validateApprovePayload(payload: IacApprovePayload): string | null {
     const isNonEmptyString = (value: unknown): value is string =>
       typeof value === 'string' && value.length > 0;
 
@@ -1637,7 +1637,7 @@ export class IacController implements OnModuleInit {
    * Returns a descriptive error message when validation fails, or `null`
    * when `payload` is valid.
    */
-  private static validateDestroyPayload(payload: TerraformDestroyPayload): string | null {
+  private static validateDestroyPayload(payload: IacDestroyPayload): string | null {
     const isNonEmptyString = (value: unknown): value is string =>
       typeof value === 'string' && value.length > 0;
 
@@ -1652,7 +1652,7 @@ export class IacController implements OnModuleInit {
    * Mirrors {@link validateDestroyPayload} exactly, for the lock-clear
    * confirmation gate.
    */
-  private static validateLockClearPayload(payload: TerraformLockClearPayload): string | null {
+  private static validateLockClearPayload(payload: IacLockClearPayload): string | null {
     const isNonEmptyString = (value: unknown): value is string =>
       typeof value === 'string' && value.length > 0;
 
@@ -1668,7 +1668,7 @@ export class IacController implements OnModuleInit {
    * `payload` is valid. Shared by {@link resolveRollback} and
    * {@link confirmRollback} — both key off the same field.
    */
-  private static validateRollbackPayload(payload: TerraformRollbackPayload): string | null {
+  private static validateRollbackPayload(payload: IacRollbackPayload): string | null {
     const isNonEmptyString = (value: unknown): value is string =>
       typeof value === 'string' && value.length > 0;
 
@@ -1683,7 +1683,7 @@ export class IacController implements OnModuleInit {
    * non-empty strings. Returns a descriptive error message when validation
    * fails, or `null` when `payload` is valid.
    */
-  private static validateApplyPayload(payload: TerraformApplyPayload): string | null {
+  private static validateApplyPayload(payload: IacApplyPayload): string | null {
     const isNonEmptyString = (value: unknown): value is string =>
       typeof value === 'string' && value.length > 0;
 

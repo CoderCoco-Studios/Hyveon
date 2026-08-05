@@ -69,7 +69,7 @@ function gameListFromEnv(): string[] {
   return (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** Per-game connect message templates from Terraform, keyed by game name. */
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). */
 const CONNECT_MESSAGES: Record<string, string> = JSON.parse(process.env['CONNECT_MESSAGES'] ?? '{}');
 
 /** First container port per game, used to resolve the `{port}` placeholder. */

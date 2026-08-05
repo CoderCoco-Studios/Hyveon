@@ -20,7 +20,6 @@ This page is documentation over the top of them, not a replacement.
 Hyveon/
 ├── package.json                         # npm-workspaces ROOT — `npm run` scripts fan out from here
 ├── tsconfig.base.json                   # shared TS config
-├── scripts/                             # @hyveon/scripts — tfvars-sync.ts (legacy, maintainer-only)
 ├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs
 ├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
 ├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
@@ -48,7 +47,7 @@ Hyveon/
 
 The repository **root** `package.json` is the npm-workspaces root — its
 `workspaces` array lists `app`, `app/packages/*`, `app/packages/desktop-preload`,
-`app/packages/lambda/*`, and `scripts`. One `npm install` at the root installs
+and `app/packages/lambda/*`. One `npm install` at the root installs
 everything; `app/` itself is just one workspace (`@hyveon/app`) among several,
 not a nested workspaces root. There is no `terraform/` tree — `app/packages/infra`
 (`@hyveon/infra`) is a Pulumi Automation API program, ordinary TypeScript.
@@ -121,8 +120,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | `npm run app:test:e2e` | Builds `shared` + `cloud-aws`, then runs the Playwright e2e suite (`chromium` + `electron` projects) in `@hyveon/web`. |
 | `npm run app:test:integration` | Builds `desktop-main`, then runs the tier-2 Playwright integration suite in `@hyveon/web`. |
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
-| `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package → `scripts`. Required before opening a PR. |
-| `npm run scripts:tfvars-sync` | The `tfvars-sync` CLI (`pull`/`push`/`diff`/`status`/`check`) — legacy tooling that syncs a `terraform.tfvars`-shaped object nothing in the app reads any more (the app exclusively uses `deployment-config.json` in the same bucket). See `scripts/README.md`. |
+| `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package. Required before opening a PR. |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
 
 ## Test + naming conventions (short form)
@@ -198,7 +196,7 @@ with `StopTask`. Adding `aws_ecs_service` anywhere means you pay for a task
 ### 2. `DeploymentConfig.gameServers` is the single source of truth
 
 It's persisted as the JSON object `deployment-config.json` in the
-operator's S3 configuration bucket, read and written through `TfvarsService`
+operator's S3 configuration bucket, read and written through `DeploymentConfigService`
 (`REMOTE_FILE_STORE`). Every per-game resource — task definition, EFS
 access point, CloudWatch log group, security-group rules, the `GAME_NAMES`
 env var on four Lambdas (interactions, followup, update-dns, watchdog) — is

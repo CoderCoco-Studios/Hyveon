@@ -1,36 +1,42 @@
 import type { ChangeSummary } from './changeSummary.js';
 
 /**
- * Which `terraform` subcommand a {@link RunRecord} describes. Mirrors the
- * subset of `TerraformService`'s public surface that produces a run worth
- * tracking in history (`init` is idempotent/frequent and is intentionally
- * excluded).
+ * Which operation a {@link RunRecord} describes, encoded with the vocabulary
+ * of `terraform`'s subcommands (`plan`/`apply`/`destroy`) — deliberately not
+ * renamed when the app moved off Terraform onto Pulumi, so a Pulumi
+ * `preview` run is still recorded as `'plan'` and an `up` run as `'apply'`
+ * (see `PulumiService`'s `PulumiRunRecord` for the exact mapping). Mirrors
+ * the subset of `PulumiService`'s public surface that produces a run worth
+ * tracking in history — Automation API workspace setup (the analogue of
+ * Terraform's `init`) is idempotent/frequent and is intentionally excluded.
  */
 export type RunKind = 'plan' | 'apply' | 'destroy';
 
 /**
  * Lifecycle status of a {@link RunRecord}, derived (never stored ad hoc) via
  * {@link deriveRunStatus}. Also the hash key of the `status-index` GSI on the
- * `${project_name}-runs` DynamoDB table (see `terraform/aws/runs_store.tf`),
- * so callers can list all runs in a given status ordered by `startedAt`
- * without scanning the table. There is no `pending` status — a
- * {@link RunRecord} is only persisted once the subcommand has finished.
+ * `${project_name}-runs` DynamoDB table (schema originally defined in the
+ * retired `terraform/aws/runs_store.tf`), so callers can list all runs in a
+ * given status ordered by `startedAt` without scanning the table. There is
+ * no `pending` status — a {@link RunRecord} is only persisted once the
+ * operation has finished.
  */
 export type RunStatus = 'success' | 'failed' | 'aborted';
 
 /**
  * A single row in the DynamoDB run-history table (`${project_name}-runs`,
- * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one `terraform`
- * plan/apply/destroy invocation driven through the management app's
- * apply-history view — see `terraform/aws/runs_store.tf` for the table
- * definition and issue #179 for the field list this mirrors.
+ * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one plan/apply/destroy
+ * invocation (see {@link RunKind}'s doc for the retained Terraform-subcommand
+ * vocabulary) driven through the management app's apply-history view —
+ * schema originally defined in the retired `terraform/aws/runs_store.tf`,
+ * field list per issue #179.
  */
 export interface RunRecord {
   /** Sort key: `<startedAt>#<runId>` — see {@link buildRunSk}. */
   sk: string;
-  /** Unique identifier for the run — matches the `runId` minted by `TerraformService` when the subcommand was spawned. */
+  /** Unique identifier for the run — matches the `runId` minted by `PulumiService` when the run was started. */
   runId: string;
-  /** Which `terraform` subcommand produced this record. */
+  /** Which operation produced this record — see {@link RunKind}'s doc. */
   kind: RunKind;
   /** Lifecycle status, derived via {@link deriveRunStatus} from the process's exit code rather than set directly by callers. */
   status: RunStatus;
@@ -40,21 +46,20 @@ export interface RunRecord {
   completedAt: string;
   /** The process's exit code, or `null` if it never reported one (e.g. killed via abort signal). */
   exitCode: number | null;
-  /** The tfvars version id the run was executed against, if the caller supplied one. */
-  tfvarsVersionId?: string;
+  /** The configuration version id the run was executed against, if the caller supplied one. */
+  configVersionId?: string;
   /**
-   * Hash of the plan artifact this record's `terraform` invocation produced
-   * (for a `plan` run) or was gated against (for an `apply` run) — see #109.
-   * The apply IPC handler compares the caller-supplied `planHash` against the
-   * plan run's stored value before allowing the apply to proceed, ensuring
-   * the tfvars/plan an admin approved is exactly what gets applied.
+   * Hash of the plan artifact this record's run produced (for a `plan` run)
+   * or was gated against (for an `apply` run) — see #109. The apply IPC
+   * handler compares the caller-supplied `planHash` against the plan run's
+   * stored value before allowing the apply to proceed, ensuring the
+   * configuration/plan an admin approved is exactly what gets applied.
    */
   planHash?: string;
   /**
    * Opaque identifier (e.g. username) of the admin who approved this plan
-   * run for apply. Set only by the approve endpoint
-   * (`POST /api/terraform/runs/:id/approve`, #109) and only ever on `plan`
-   * records — an unapproved plan has this unset.
+   * run for apply. Set only by the `iac.approve` IPC channel (#109) and only
+   * ever on `plan` records — an unapproved plan has this unset.
    */
   approvedBy?: string;
   /**
@@ -86,7 +91,7 @@ export interface RunRecord {
    * The `runId` of the `apply` {@link RunRecord} this run rolled back, when
    * this run was started by the rollback flow (#112) rather than an ordinary
    * plan submission. Set only on the `plan` record produced when an operator
-   * restores a prior tfvars version from history — the plan runs against the
+   * restores a prior configuration version from history — the plan runs against the
    * restored version, which becomes the new head, so no other field
    * distinguishes a rollback plan from an ordinary one. Absent for every
    * other run.
@@ -210,9 +215,9 @@ export function deriveRunStatus(exitCode: number | null): RunStatus {
  * Describes the single non-terminal run currently holding the apply lock —
  * the value returned by `RunService.getCurrentLock()` (desktop-main, #106).
  * Only one {@link RunLock} can be outstanding at a time: `RunService.createRun`
- * checks for an existing, unexpired lock before starting a new `terraform`
- * subcommand and rejects with a {@link RunLockHeldError} (see `errors.ts`) if
- * one is found, mirroring CodeBuild's `concurrent_build_limit = 1`.
+ * checks for an existing, unexpired lock before starting a new run and
+ * rejects with a {@link RunLockHeldError} (see `errors.ts`) if one is found,
+ * mirroring CodeBuild's `concurrent_build_limit = 1`.
  *
  * `expiresAt` exists so a crashed/orphaned process (one that started a run
  * but never wrote a terminal {@link RunStatus}) doesn't wedge the lock
@@ -222,7 +227,7 @@ export function deriveRunStatus(exitCode: number | null): RunStatus {
 export interface RunLock {
   /** Unique identifier of the run holding the lock — matches {@link RunRecord.runId}. */
   runId: string;
-  /** Which `terraform` subcommand holds the lock. */
+  /** Which operation holds the lock — see {@link RunKind}'s doc. */
   kind: RunKind;
   /** Opaque identifier (e.g. username or API caller) of who started the run, surfaced to the UI as the current lock holder. */
   initiator: string;
@@ -253,7 +258,7 @@ export function isRunLockExpired(lock: RunLock, now: Date = new Date()): boolean
  * before the apply IPC handler (#109) must reject it and require
  * re-approval. Fixed at 15 minutes — long enough to review a plan and click
  * apply, short enough that a stale approval can't be used to apply against
- * drifted tfvars long after the reviewer looked at it.
+ * drifted configuration long after the reviewer looked at it.
  */
 export const APPROVAL_WINDOW_MS = 15 * 60 * 1000;
 
@@ -275,14 +280,14 @@ export function isApprovalExpired(approvedAt: string, now: Date = new Date()): b
 }
 
 /**
- * Status surfaced by the run-detail view (`GET /api/terraform/runs/:id`,
+ * Status surfaced by the run-detail view (the `iac.runs.get` IPC channel,
  * issue #108) — a superset of the persisted {@link RunStatus} with two
  * additional, non-persisted values computed at read time by
  * {@link computeRunDetailStatus}:
  *
  * - `running` — no {@link RunRecord} exists yet for this run, because (per
  *   {@link RunRecord}'s own doc) a record is only ever persisted once the
- *   subcommand has finished.
+ *   operation has finished.
  * - `awaiting_approval` — a `plan` run finished successfully but, per the
  *   epic's design (#83), an `apply` may not proceed until an operator
  *   explicitly approves it (#109), so a bare `success` would be misleading.
@@ -301,7 +306,7 @@ export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
  * Rules, applied in order:
  * 1. `isInFlight` (the run's id matches the currently held {@link RunLock}
  *    and hasn't expired) always maps to `running`, since {@link RunRecord} is
- *    only ever persisted once the subcommand has finished (there is no
+ *    only ever persisted once the operation has finished (there is no
  *    `pending` status to store).
  * 2. A `plan` run that exited `0` maps to `awaiting_approval` only while its
  *    `.tfplan` artifact still exists on disk — because the epic's design
@@ -311,7 +316,7 @@ export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
  *    future approval flow (#109), which is expected to delete the `.tfplan`
  *    file once consumed; as of this writing nothing does, so this rule's
  *    actual escape hatch is rule ordering, not artifact deletion —
- *    `TerraformService.apply` writes its own {@link TerraformRunRecord}
+ *    `PulumiService.apply` writes its own {@link PulumiRunRecord}
  *    (`kind: 'apply'`) to the same `<runsDir>/<runId>/run.json` that the
  *    plan run used, so once an apply has run for this `runId` the caller
  *    observes `kind === 'apply'` (not `'plan'`) and this rule no longer
@@ -321,7 +326,7 @@ export type RunDetailStatus = RunStatus | 'running' | 'awaiting_approval';
  *
  * @param input - The run's current state:
  * - `isInFlight` - Whether this run is the one currently holding an unexpired {@link RunLock} (i.e. hasn't produced a persisted {@link RunRecord} yet).
- * - `kind` - Which `terraform` subcommand the run is/was, or `null` if unknown.
+ * - `kind` - Which operation the run is/was (see {@link RunKind}'s doc), or `null` if unknown.
  * - `exitCode` - The process's exit code, or `null` if it never reported one.
  * - `planArtifactExists` - Whether the run's `.tfplan` artifact still exists on disk (only meaningful for `plan` runs).
  * @returns The computed {@link RunDetailStatus}.

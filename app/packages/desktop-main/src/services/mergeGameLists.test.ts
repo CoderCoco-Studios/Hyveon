@@ -15,7 +15,7 @@ function buildGameServer(name: string): GameServer {
 }
 
 describe('mergeGameLists', () => {
-  it('should mark a game declared-only when it appears only in tfvars', () => {
+  it('should mark a game declared-only when it appears only in the deployment config', () => {
     const palworld = buildGameServer('palworld');
 
     const result = mergeGameLists([palworld], []);
@@ -57,7 +57,7 @@ describe('mergeGameLists', () => {
     expect(mergeGameLists([], [])).toEqual([]);
   });
 
-  it('should order results as declared entries first (in tfvars order), then deployed-only entries (in tfstate order)', () => {
+  it('should order results as declared entries first (in declared-config order), then deployed-only entries (in tfstate order)', () => {
     const ark = buildGameServer('ark');
     const rust = buildGameServer('rust');
 

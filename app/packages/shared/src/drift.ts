@@ -1,16 +1,15 @@
 /**
  * Shared types for drift detection — comparing the declared game server
- * configuration (`terraform.tfvars`, via `TfvarsService.getGameServers()`)
- * against the live deployed state (`terraform.tfstate`, via
- * `ConfigService.getTfOutputs()`). See issue #94.
+ * configuration (`deployment-config.json`, via `DeploymentConfigService.getGameServers()`)
+ * against the live deployed state (read off the deployed Pulumi stack, via
+ * `ConfigService.getStackOutputs()`). See issue #94.
  */
 
 /**
- * Category of mismatch between a game's declared (tfvars) and deployed
- * (tfstate) state.
+ * Category of mismatch between a game's declared and deployed state.
  *
- * - `pending_create` — declared in tfvars but not yet applied/deployed.
- * - `pending_delete` — deployed but no longer present in tfvars.
+ * - `pending_create` — declared but not yet applied/deployed.
+ * - `pending_delete` — deployed but no longer present in the declared config.
  * - `config_drift`   — present in both, but one or more fields (ports,
  *   image, CPU, memory, volume mounts, etc.) differ between the declared
  *   and deployed configuration.
@@ -19,7 +18,7 @@ export type DriftKind = 'pending_create' | 'pending_delete' | 'config_drift';
 
 /**
  * Name of a top-level game server config field that can differ between the
- * declared (tfvars) and deployed (tfstate) configuration for a
+ * declared and deployed configuration for a
  * `'config_drift'` finding. Deliberately a closed set of field names — no
  * declared/deployed config payloads are echoed back, only which fields
  * changed.
@@ -28,10 +27,10 @@ export type DriftChangedField = 'ports' | 'image' | 'cpu' | 'memory' | 'volumes'
 
 /**
  * A single per-game drift finding, produced by comparing a game's declared
- * tfvars configuration against its live tfstate configuration.
+ * configuration against its live deployed configuration.
  */
 export interface DriftEntry {
-  /** Game key (matches the `game_servers` map key / tfstate game name). */
+  /** Game key (matches the `game_servers` map key / deployed game name). */
   game: string;
   /** Category of drift detected for this game. */
   kind: DriftKind;

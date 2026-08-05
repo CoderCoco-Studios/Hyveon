@@ -36,7 +36,7 @@ const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.tri
 const DNS_TTL = parseInt(process.env['DNS_TTL'] ?? '30', 10);
 const TABLE_NAME = process.env['TABLE_NAME'] ?? '';
 
-/** Per-game connect message templates from Terraform, keyed by game name. */
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). */
 const CONNECT_MESSAGES: Record<string, string> = JSON.parse(process.env['CONNECT_MESSAGES'] ?? '{}');
 
 /** First container port per game, used to resolve the `{port}` placeholder. */
@@ -271,7 +271,7 @@ async function handleDirect(
 /**
  * Fired by an EventBridge rule on `ECS Task State Change`. UPSERTs a Route 53 record
  * for `{game}.{hosted_zone_name}` on RUNNING and DELETEs on STOPPED — DNS is owned by
- * this Lambda rather than Terraform so records follow ephemeral task IPs without
+ * this Lambda rather than the infra program so records follow ephemeral task IPs without
  * fighting state. HTTPS games terminate TLS in-task via a Caddy sidecar sharing the
  * task's public IP, so they follow the same A-record path as every other game. On
  * RUNNING this also PATCHes any `PENDING#{taskArn}` Discord interaction in DynamoDB

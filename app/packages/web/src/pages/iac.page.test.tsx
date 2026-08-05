@@ -95,7 +95,7 @@ function seedSuccessfulPlan() {
   });
 }
 
-/** A `TerraformStaleLockInfo`-shaped fixture for one lock holder, "started" 5 minutes before `now`. */
+/** A `IacStaleLockInfo`-shaped fixture for one lock holder, "started" 5 minutes before `now`. */
 function makeStaleLockInfo() {
   return {
     stackName: 'production',
@@ -392,7 +392,7 @@ describe('IacPage', () => {
       hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
       hyveonMock.iac.destroy.mockResolvedValue({
         started: false,
-        error: 'terraform destroy refused: apply is already in flight',
+        error: 'pulumi destroy refused: apply is already in flight',
         conflict: 'up',
       });
       renderPage(<IacPage />);
@@ -563,13 +563,13 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 
       await waitFor(() =>
         expect(hyveonMock.iac.plan).toHaveBeenCalledWith({
-          tfvarsVersionId: 'v-new-head',
+          configVersionId: 'v-new-head',
           rolledBackFrom: 'apply-1',
         }),
       );
@@ -599,7 +599,7 @@ describe('IacPage', () => {
 
       renderPage(<IacPage />, {
         initialEntries: [
-          { pathname: '/iac', state: { tfvarsVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
+          { pathname: '/iac', state: { configVersionId: 'v-new-head', rolledBackFrom: 'apply-1' } },
         ],
       });
 

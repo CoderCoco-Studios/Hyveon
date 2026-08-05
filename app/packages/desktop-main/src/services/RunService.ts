@@ -1,5 +1,5 @@
 /**
- * Owns the single apply lock that guards `terraform` plan/apply/destroy
+ * Owns the single apply lock that guards Pulumi plan/apply/destroy
  * submissions (issue #106): only one non-terminal run may be in flight at a
  * time. Two layers cooperate:
  *
@@ -14,8 +14,8 @@
  *   `RunRecordStore.acquireRunLock`/`getRunLock`/`releaseRunLock` (see
  *   `@hyveon/shared/cloud.js`), which makes the lock durable across app
  *   restarts and consistent if more than one desktop-main process is ever
- *   run against the same deploy. When `runs_table_name` isn't in the
- *   Terraform outputs yet (table not deployed — the same chicken-and-egg
+ *   run against the same deploy. When `runsTableName` isn't in the
+ *   Pulumi stack outputs yet (table not deployed — the same chicken-and-egg
  *   case `RunRecordService.persist`/`AuditService.record` guard against),
  *   the DynamoDB call is skipped entirely and the in-memory lock alone
  *   enforces exclusivity.
@@ -32,14 +32,14 @@ import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
  * How long an acquired {@link RunLock} remains valid, in milliseconds, before
  * {@link isRunLockExpired} treats it as stale even if the run that acquired
  * it never released it (e.g. the process crashed mid-run). One hour comfortably
- * covers the longest `terraform apply` this project's game-server stack is
+ * covers the longest Pulumi apply this project's game-server stack is
  * expected to take, while still bounding how long a crashed run can wedge
  * the lock.
  */
 export const DEFAULT_LOCK_TTL_MS = 60 * 60 * 1000;
 
 /**
- * Owns the apply lock guarding `terraform` plan/apply/destroy submissions.
+ * Owns the apply lock guarding Pulumi plan/apply/destroy submissions.
  * See the file-level doc comment above for the in-memory + DynamoDB
  * two-layer contract.
  */
@@ -67,7 +67,7 @@ export class RunService {
   ) {}
 
   /**
-   * Attempts to acquire the apply lock on behalf of a new `terraform`
+   * Attempts to acquire the apply lock on behalf of a new Pulumi
    * plan/apply/destroy run and returns the acquired {@link RunLock}
    * (`runId` freshly minted via `randomUUID()`).
    *
@@ -83,7 +83,7 @@ export class RunService {
    * not deployed), the DynamoDB call is skipped and the in-memory lock
    * alone enforces exclusivity.
    *
-   * @param kind - Which `terraform` subcommand the caller is about to run.
+   * @param kind - Which Pulumi subcommand the caller is about to run.
    * @param initiator - Opaque identifier (e.g. username or API caller) of
    *   who is starting the run, surfaced to the UI as the current lock holder.
    * @param runId - Optional pre-minted run identifier to use instead of a

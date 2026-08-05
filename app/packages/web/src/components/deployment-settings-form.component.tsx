@@ -78,7 +78,7 @@ interface SettingsDraft {
  *
  * Every field falls back to `DEPLOYMENT_CONFIG_DEFAULTS` (or `[]` for the
  * three array fields, `''` for `hostedZoneName`, which has no default) when
- * absent — defense in depth on top of `TfvarsService.getTopLevelSettings()`
+ * absent — defense in depth on top of `DeploymentConfigService.getTopLevelSettings()`
  * already running the parsed document through `withDeploymentConfigDefaults`
  * server-side: `window.hyveon.iac.settings.get()`'s declared return type is
  * exactly that, a TYPE, not a runtime guarantee — a stale preload build, an
@@ -285,7 +285,7 @@ export function DeploymentSettingsForm() {
    * operator doesn't lose their edits.
    *
    * Refuses to save outright when `etag` is falsy:
-   * `TfvarsService.putRawConfig()` omits the conditional-put `ifMatch` guard
+   * `DeploymentConfigService.putRawConfig()` omits the conditional-put `ifMatch` guard
    * entirely when `expectedVersionId` is falsy, turning the write into a
    * SILENT unconditional overwrite — exactly what optimistic locking exists
    * to prevent for this form. In practice `iac.settings.get()` always

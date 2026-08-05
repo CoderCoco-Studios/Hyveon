@@ -5,10 +5,10 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiService } from './PulumiService.js';
 
 /**
- * Default in-memory cache TTL (milliseconds) `TfvarsService` uses for the
- * parsed tfvars payload when `TFVARS_CACHE_TTL_MS` is unset or invalid.
+ * Default in-memory cache TTL (milliseconds) `DeploymentConfigService` uses for the
+ * parsed configuration payload when `CONFIG_CACHE_TTL_MS` is unset or invalid.
  */
-const DEFAULT_TFVARS_CACHE_TTL_MS = 30000;
+const DEFAULT_CONFIG_CACHE_TTL_MS = 30000;
 
 /**
  * Identifier for the cloud provider the app is currently driving. A union
@@ -180,22 +180,22 @@ export class ConfigService {
   }
 
   /**
-   * Read the tfvars in-memory cache TTL override (milliseconds) from
-   * `TFVARS_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
+   * Read the in-memory cache TTL override (milliseconds) from
+   * `CONFIG_CACHE_TTL_MS`. Extracted for test-stubbing, mirroring
    * {@link readEnvRegion}.
    *
-   * Defaults to {@link DEFAULT_TFVARS_CACHE_TTL_MS} (30s) when the env var is
+   * Defaults to {@link DEFAULT_CONFIG_CACHE_TTL_MS} (30s) when the env var is
    * unset, empty, not a finite number, or non-positive (zero included) — the
    * default is applied here rather than pushed onto callers.
    */
-  readEnvTfvarsCacheTtlMs(): number {
-    const raw = process.env['TFVARS_CACHE_TTL_MS'];
-    if (raw === undefined || raw.length === 0) return DEFAULT_TFVARS_CACHE_TTL_MS;
+  readEnvConfigCacheTtlMs(): number {
+    const raw = process.env['CONFIG_CACHE_TTL_MS'];
+    if (raw === undefined || raw.length === 0) return DEFAULT_CONFIG_CACHE_TTL_MS;
 
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      logger.warn('Invalid TFVARS_CACHE_TTL_MS value, using default', { raw });
-      return DEFAULT_TFVARS_CACHE_TTL_MS;
+      logger.warn('Invalid CONFIG_CACHE_TTL_MS value, using default', { raw });
+      return DEFAULT_CONFIG_CACHE_TTL_MS;
     }
     return parsed;
   }
@@ -211,15 +211,14 @@ export class ConfigService {
 
   /**
    * Resolve the configured S3 configuration bucket name — the sole source of
-   * `TfvarsService`'s configuration JSON. Returns `null` when no bucket is
+   * `DeploymentConfigService`'s configuration JSON. Returns `null` when no bucket is
    * configured, which callers MUST treat as "setup incomplete" — there is no
-   * local-file fallback (see `TfvarsService.isConfigured()`).
+   * local-file fallback (see `DeploymentConfigService.isConfigured()`).
    *
    * Resolution order:
-   *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set. A dev/CI convenience
-   *     override (mirrors `scripts/tfvars-sync.ts`'s own independent env-var
-   *     read for that CLI), not how the packaged app resolves the bucket in
-   *     normal operator use.
+   *  1. `HYVEON_CONFIG_BUCKET` env var — wins when set. A dev/CI convenience
+   *     override, not how the packaged app resolves the bucket in normal
+   *     operator use.
    *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
    *     operator-configured value, submitted by the First-Run Wizard's
    *     bootstrap step (`WizardController.saveState`) and read back via
@@ -227,18 +226,18 @@ export class ConfigService {
    *  3. `null` — no backend configured.
    */
   getConfigurationBucket(): string | null {
-    const envOverride = this.readEnvTfvarsBucket();
+    const envOverride = this.readEnvConfigBucketOverride();
     if (envOverride) return envOverride;
 
     return this.electronStore.get('bootstrap')?.configurationBucket ?? null;
   }
 
   /**
-   * Read the `HYVEON_TFVARS_BUCKET` override from the process environment.
+   * Read the `HYVEON_CONFIG_BUCKET` override from the process environment.
    * Extracted for test-stubbing, mirroring {@link readEnvRegion}.
    */
-  readEnvTfvarsBucket(): string | undefined {
-    return process.env['HYVEON_TFVARS_BUCKET'];
+  readEnvConfigBucketOverride(): string | undefined {
+    return process.env['HYVEON_CONFIG_BUCKET'];
   }
 
   /**

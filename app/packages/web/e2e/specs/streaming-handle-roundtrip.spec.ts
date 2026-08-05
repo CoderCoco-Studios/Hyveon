@@ -25,14 +25,14 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  *
  * Each test still seeds its channel's *data source* via
  * `window.hyveon.__test.mock(channel, handler)`, since there is no real
- * AWS/Terraform backend available in this test environment — but the mock
+ * AWS/Pulumi backend available in this test environment — but the mock
  * handler here returns a **plain object** implementing the async-iterator
  * protocol (`next()` + `[Symbol.asyncIterator]()`), not a real
  * `async function*`. A real generator instance run from a mock handler has
  * its own, separate crossing to make — the mock handler itself lives in the
  * renderer (registered via `win.evaluate`) and is invoked *from* preload via
  * a reverse proxy, so whatever it returns has to cross renderer→preload
- * before `streamLogs`/`streamStackInitialize`/`streamTerraformRunLogs` can
+ * before `streamLogs`/`streamStackInitialize`/`streamIacRunLogs` can
  * `yield*` it — and a raw `AsyncGenerator` doesn't survive that crossing
  * either, for the same underlying reason. That reverse-direction mock
  * limitation is a pre-existing property of the `__test.mock` convenience
@@ -40,7 +40,7 @@ import { electronMain, electronEnv } from '../../playwright.config.js';
  * by the fix), so every mock below is written as a plain-object iterable to
  * stay clear of it. What's actually under test — never bypassed or mocked —
  * is the `HyveonStreamHandle` wrapping `openLogsStream` /
- * `openStackInitializeStream` / `openTerraformRunLogsStream` return from the
+ * `openStackInitializeStream` / `openIacRunLogsStream` return from the
  * real preload script, and their trip across the real `contextBridge` back
  * to this renderer. This mirrors `electron-ipc-roundtrip.spec.ts`'s own use
  * of `electronEnv` (which sets `HYVEON_TEST_MODE=1`) while still calling
@@ -191,7 +191,7 @@ test.describe('streaming IPC handle round-trip (contextBridge clone)', () => {
   /**
    * `cancel()`'s full functional behaviour (it aborts the handle's internal
    * `AbortController`, which drives `streamLogs`/`streamStackInitialize`/
-   * `streamTerraformRunLogs`'s own `signal.aborted` checks and
+   * `streamIacRunLogs`'s own `signal.aborted` checks and
    * `signal.addEventListener('abort', …)` listeners) is exercised
    * deterministically in `preload.test.ts`, entirely within the preload
    * process — no contextBridge crossing involved there, since Vitest calls

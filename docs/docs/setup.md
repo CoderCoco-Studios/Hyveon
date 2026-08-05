@@ -119,8 +119,8 @@ the IAM user by hand instead:
         "s3:PutBucketPublicAccessBlock"
       ],
       "Resource": [
-        "arn:aws:s3:::${project_name}-tfvars",
-        "arn:aws:s3:::${project_name}-tfvars/*"
+        "arn:aws:s3:::${project_name}-config",
+        "arn:aws:s3:::${project_name}-config/*"
       ]
     },
     {
@@ -157,9 +157,8 @@ the IAM user by hand instead:
 
 > **`HyveonConfigurationBucket` scopes access to the JSON configuration
 > bucket** the setup wizard's bootstrap step creates (default name
-> `${project_name}-tfvars` — the name predates this migration and is kept
-> for continuity; it holds the versioned `deployment-config.json` object,
-> not a `.tfvars` file). It grants object read/write/list/versioning access
+> `${project_name}-config`; it holds the versioned `deployment-config.json`
+> object). It grants object read/write/list/versioning access
 > plus the bucket-config actions (`PutLifecycleConfiguration`,
 > `PutEncryptionConfiguration`, `PutBucketPublicAccessBlock`,
 > `PutBucketVersioning`/`GetBucketVersioning`, `GetBucketLocation`) the
@@ -299,7 +298,7 @@ steps, none of them a CLI command:
    (no CLI, no Terraform, and none of the three is Pulumi-managed): a
    **state bucket** (default `hyveon-tfstate`, versioned, AES-256 encrypted)
    that Pulumi's self-managed S3 backend reads and writes state to; a
-   **configuration bucket** (default `hyveon-tfvars`, versioned, 90-day
+   **configuration bucket** (default `hyveon-config`, versioned, 90-day
    noncurrent-version expiry, AES-256 encrypted) that holds the JSON
    configuration object your game servers are declared in; and a
    **run-history table** (default

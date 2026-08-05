@@ -11,7 +11,7 @@ Defines what the Hyveon documentation site must contain and must not claim: a "U
 The documentation site SHALL contain a "Using the app" section at `docs/docs/app/` with one page
 per operator-facing screen. Each screen page MUST describe what the operator sees, every action
 the screen exposes, and the screen's empty, loading, and error states. The section MUST cover the
-first-run wizard, dashboard, games (list and detail), terraform (plan/apply/destroy, history, run
+first-run wizard, dashboard, games (list and detail), iac (plan/apply/destroy, history, run
 detail), discord, logs, costs, audit, and settings.
 
 #### Scenario: Section covers every route
@@ -61,7 +61,8 @@ load-balancer targets.
 
 - **WHEN** `docs/docs/**`, `docs/diagrams/*.d2`, and the regenerated `docs/static/diagrams/*.svg`
   are searched for ALB, target group, or ACM references presented as current architecture
-- **THEN** no such reference remains, and `terraform/aws/alb.tf` is referenced nowhere
+- **THEN** no such reference remains, and no page references any file under the now-removed
+  `terraform/` tree
 
 #### Scenario: Watchdog behaviour is stated correctly
 
@@ -77,14 +78,14 @@ load-balancer targets.
 ### Requirement: Documented counts and paths match the codebase
 
 Documentation SHALL NOT state counts, file lists, or repository paths that contradict the
-codebase. This covers the Lambda count, the `module "cloud"` input count, the CI workflow list,
-the minimum Node version, the npm workspaces root, the `terraform/aws/` file table, the repository
-maps, and the root npm script table.
+codebase. This covers the Lambda count, the CI workflow list,
+the minimum Node version, the npm workspaces root, the infra program's file/resource table, the
+repository maps, and the root npm script table.
 
 #### Scenario: Lambda count is correct
 
 - **WHEN** `docs/docs/intro.md`, `architecture.md`, `components/index.md`, `components/lambdas.md`,
-  `components/terraform.md`, and `guides/maintainer.md` describe the Lambda packages
+  `components/infra.md`, and `guides/maintainer.md` describe the Lambda packages
 - **THEN** they state five, and `components/lambdas.md` documents `@hyveon/lambda-efs-seeder`
   alongside the other four
 
@@ -104,24 +105,24 @@ maps, and the root npm script table.
 #### Scenario: Maintainer invariants are true
 
 - **WHEN** the invariants in `docs/docs/guides/maintainer.md` are read
-- **THEN** no invariant claims that any Route 53 record is Terraform-managed, and the
-  `terraform/aws/` layout lists only files that exist
+- **THEN** no invariant claims that any per-game Route 53 record is infra-program-managed, and the
+  infra program's file/resource table lists only files that exist
 
 ### Requirement: Previously undocumented subsystems are documented
 
 Documentation SHALL cover the operator-facing and maintainer-facing subsystems that shipped
-without documentation: the first-run setup wizard, the in-app Terraform plan/apply/destroy
+without documentation: the first-run setup wizard, the in-app IaC plan/apply/destroy
 pipeline with run history and rollback, game create/edit/delete from the UI, drift detection, the
 audit log, the cloud-provider abstraction, the `@hyveon/desktop-preload` package, the
-`efs-seeder` Lambda, credential storage via ElectronStore/SafeStorage, the tfvars module, and the
-full set of CI workflows.
+`efs-seeder` Lambda, credential storage via ElectronStore/SafeStorage, the configuration-bucket
+bootstrap flow, and the full set of CI workflows.
 
 #### Scenario: Game CRUD replaces hand-editing guidance
 
 - **WHEN** `docs/docs/guides/user.md` and `docs/docs/guides/maintainer.md` describe adding a game
 - **THEN** they direct the operator to the in-app Games screen and state that the write only
-  updates `terraform.tfvars` and requires a separate Terraform apply, rather than instructing the
-  operator to hand-edit `terraform.tfvars` as the primary path
+  updates the deployment-config JSON and requires a separate infrastructure apply (via `/iac`),
+  rather than instructing the operator to hand-edit the deployment-config JSON directly
 
 #### Scenario: Cloud-provider abstraction is documented
 

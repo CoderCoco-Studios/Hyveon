@@ -53,9 +53,10 @@ export class CostsController {
    * (`Amazon Elastic Container Service`, `AWS Fargate`) with no `GroupBy` and
    * no tag filter, so these figures are **account-wide ECS + Fargate spend**,
    * not scoped to this project. Any other ECS or Fargate workload in the same
-   * AWS account inflates them. The `Project` cost-allocation tag that
-   * Terraform applies is useful for grouping in the AWS console, but this
-   * query does not reference it.
+   * AWS account inflates them. The `Project` cost-allocation tag that the
+   * Pulumi program applies to every managed resource (`DEFAULT_TAGS` in
+   * `app/packages/infra/src/program.ts`) is useful for grouping in the AWS
+   * console, but this query does not reference it.
    *
    * The IPC payload supplies `days` as a bare string or number; the
    * `parseInt(String(...))` coercion tolerates either.

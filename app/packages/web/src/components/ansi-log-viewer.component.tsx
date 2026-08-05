@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '../lib/utils.utils.js';
 
-/** A single line of output from a streamed `terraform` subcommand run. Mirrors `TerraformRunChunk`. */
+/** A single line of output from a streamed Pulumi plan/apply/destroy run. Mirrors `IacRunChunk`. */
 export interface AnsiLogChunk {
   stream: 'stdout' | 'stderr';
   line: string;
@@ -16,7 +16,7 @@ export interface AnsiSegment {
 }
 
 /** Matches an SGR ("Select Graphic Rendition") ANSI escape sequence, e.g. `\x1b[1;32m`. */
-// eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte terraform's colorized output uses to start every SGR sequence.
+// eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte Pulumi's colorized output uses to start every SGR sequence.
 const SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
 
 /**
@@ -44,9 +44,9 @@ const FG_COLOR_CLASS: Record<number, string> = {
 };
 
 /**
- * Parses a single line of `terraform` output containing SGR ANSI escape
+ * Parses a single line of Pulumi output containing SGR ANSI escape
  * codes into an ordered list of styled segments. Supports the subset
- * `terraform`'s own colorized output actually emits: the 16 standard
+ * Pulumi's own colorized output actually emits: the 16 standard
  * foreground colors, bold (`1`) / normal-intensity (`22`), and reset
  * (`0`/`39`). Unrecognized SGR codes are ignored rather than rejected, so an
  * unsupported sequence degrades to plain, unstyled text instead of throwing.
@@ -99,7 +99,7 @@ export interface AnsiLogViewerProps {
 const BOTTOM_PIN_THRESHOLD_PX = 24;
 
 /**
- * Renders streamed `terraform` output chunks as ANSI-colored HTML, in order,
+ * Renders streamed Pulumi output chunks as ANSI-colored HTML, in order,
  * inside a scrollable box.
  *
  * Auto-scrolls to the bottom as new chunks arrive. Scrolling away from the
