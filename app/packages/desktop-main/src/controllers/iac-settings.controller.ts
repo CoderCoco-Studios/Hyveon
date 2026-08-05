@@ -24,7 +24,7 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
  * keeps its own dedicated `GamesController`/`GamesWriteService` flow,
  * untouched here). Every handler is bound to an IPC channel via
  * `@MessagePattern` / `@Payload` — no HTTP routes are registered here.
- * Mirrors `ConfigController`'s minimal shape (business logic inline in the
+ * Mirrors `EnvController`'s minimal shape (business logic inline in the
  * controller, no dedicated write-service class) rather than
  * `GamesController`'s heavier `GamesWriteService` delegation — this surface
  * has no audit-log requirement and a much smaller error-mapping surface, so

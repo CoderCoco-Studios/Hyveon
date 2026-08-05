@@ -16,7 +16,7 @@
  * surface: `TerraformPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
  * handful of types the web renderer consumes are not
  * re-exported by either package's public barrel (`CostEstimates`,
- * `WatchdogConfig`, `DiscordConfigRedacted`, `AwsProfileSummary`,
+ * `DiscordConfigRedacted`, `AwsProfileSummary`,
  * `BootstrapResult`, `IamCheckResult`, `WizardProgress`, …) — those are
  * imported from `@hyveon/web`'s own `api.service.ts` where already defined,
  * or re-declared locally below with a "mirrors X — keep in sync" comment,
@@ -53,7 +53,6 @@ import type {
   DiscordConfigRedacted,
   EnvInfo,
   GameEstimate,
-  WatchdogConfig,
 } from '../../src/api.service.js';
 
 // ---------------------------------------------------------------------------
@@ -246,12 +245,6 @@ export function demoActualCosts(days: number): ActualCosts {
   const total = Math.round(daily.reduce((sum, d) => sum + d.cost, 0) * 100) / 100;
   return { daily, total, currency: 'USD', days };
 }
-
-export const DEMO_WATCHDOG_CONFIG: WatchdogConfig = {
-  watchdog_interval_minutes: 15,
-  watchdog_idle_checks: 4,
-  watchdog_min_packets: 100,
-};
 
 // ---------------------------------------------------------------------------
 // Discord
@@ -500,7 +493,6 @@ export interface DemoOverrides {
   statuses?: GameStatus[];
   games?: GameListEntry[];
   costEstimates?: CostEstimates;
-  watchdog?: WatchdogConfig;
   discord?: DiscordConfigRedacted;
   drift?: DriftReport;
   audit?: AuditPageResult;
@@ -563,7 +555,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       '30': demoActualCosts(30),
       '60': demoActualCosts(60),
     } as Record<string, ActualCosts>,
-    watchdog: overrides.watchdog ?? DEMO_WATCHDOG_CONFIG,
     discord: overrides.discord ?? DEMO_DISCORD_CONFIG,
     drift: overrides.drift ?? DEMO_DRIFT_REPORT,
     audit: overrides.audit ?? DEMO_AUDIT,
@@ -630,9 +621,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('discord.getPermissions', () => Promise.resolve(d.discord.gamePermissions));
     mock('discord.putPermission', () => Promise.resolve({ success: true, permissions: d.discord.gamePermissions }));
     mock('discord.deletePermission', () => Promise.resolve({ success: true, permissions: d.discord.gamePermissions }));
-
-    mock('config.get', () => Promise.resolve(d.watchdog));
-    mock('config.update', () => Promise.resolve({ success: true, config: d.watchdog }));
 
     mock('drift.get', () => Promise.resolve(d.drift));
     mock('audit.list', () => Promise.resolve(d.audit));

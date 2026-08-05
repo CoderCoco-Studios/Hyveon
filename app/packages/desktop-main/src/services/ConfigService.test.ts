@@ -1,12 +1,5 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import path from 'path';
-
-vi.mock('fs', () => ({
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  existsSync: vi.fn(),
-}));
 
 vi.mock('../logger.js', () => ({
   logger: {
@@ -17,7 +10,6 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
@@ -34,11 +26,6 @@ function makePulumiService(): PulumiService {
   return { getStackOutputs: vi.fn().mockResolvedValue(null) } as unknown as PulumiService;
 }
 
-/** Strongly-typed mock handles for the `fs` module. */
-const mockExists = vi.mocked(existsSync);
-const mockRead = vi.mocked(readFileSync);
-const mockWrite = vi.mocked(writeFileSync);
-
 /**
  * Builds a real `ElectronStoreService` (outside Electron, so it's backed by
  * an in-memory `Map` rather than a real on-disk store — no mocking needed)
@@ -53,25 +40,6 @@ function makeElectronStore(configurationBucket?: string): ElectronStoreService {
     store.set('bootstrap', { stateBucket: '', configurationBucket });
   }
   return store;
-}
-
-/**
- * Test-only subclass that re-exposes `ConfigService`'s protected
- * environment-probing methods as public members so `vi.spyOn` can target
- * them directly, without resorting to `as unknown as` double assertions.
- */
-class TestableConfigService extends ConfigService {
-  public override readIsPackaged(): boolean {
-    return super.readIsPackaged();
-  }
-
-  public override readResourcesPath(): string | undefined {
-    return super.readResourcesPath();
-  }
-
-  public override readUserDataPath(): string | null {
-    return super.readUserDataPath();
-  }
 }
 
 describe('ConfigService', () => {
@@ -245,52 +213,6 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('getConfig', () => {
-    it('should return defaults when the config file is missing', () => {
-      mockExists.mockReturnValue(false);
-      expect(service.getConfig()).toEqual({
-        watchdog_interval_minutes: 15,
-        watchdog_idle_checks: 4,
-        watchdog_min_packets: 100,
-      });
-    });
-
-    it('should merge saved config over defaults', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue(
-        JSON.stringify({ watchdog_idle_checks: 10, watchdog_min_packets: 250 }),
-      );
-      expect(service.getConfig()).toEqual({
-        watchdog_interval_minutes: 15,
-        watchdog_idle_checks: 10,
-        watchdog_min_packets: 250,
-      });
-    });
-
-    it('should return defaults when the config file is malformed', () => {
-      mockExists.mockReturnValue(true);
-      mockRead.mockReturnValue('{bad json');
-      const config = service.getConfig();
-      expect(config.watchdog_interval_minutes).toBe(15);
-      expect(config.watchdog_idle_checks).toBe(4);
-      expect(config.watchdog_min_packets).toBe(100);
-    });
-  });
-
-  describe('saveConfig', () => {
-    it('should write JSON-stringified config to disk', () => {
-      const config = {
-        watchdog_interval_minutes: 30,
-        watchdog_idle_checks: 6,
-        watchdog_min_packets: 500,
-      };
-      service.saveConfig(config);
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-      const [, payload] = mockWrite.mock.calls[0]!;
-      expect(JSON.parse(payload as string)).toEqual(config);
-    });
-  });
-
   describe('readEnvTfvarsCacheTtlMs', () => {
     afterEach(() => {
       delete process.env['TFVARS_CACHE_TTL_MS'];
@@ -327,74 +249,9 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('path resolution', () => {
-    /** Subclass instance exposing protected internals for direct `vi.spyOn` stubbing. */
-    let testableService: TestableConfigService;
-
-    beforeEach(() => {
-      testableService = new TestableConfigService(makeElectronStore(), makePulumiService());
-    });
-
+  describe('getConfigurationBucket', () => {
     afterEach(() => {
-      vi.restoreAllMocks();
-      delete process.env['SERVER_CONFIG_PATH'];
       delete process.env['HYVEON_TFVARS_BUCKET'];
-    });
-
-    it('should return packaged server_config path when readIsPackaged returns true', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue('/fake/userData');
-      expect(testableService.getServerConfigPath()).toBe(
-        path.join('/fake/userData', 'server_config.json'),
-      );
-    });
-
-    it('should return the repo-relative fallback when readIsPackaged returns false', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(false);
-      const result = testableService.getServerConfigPath();
-      expect(result).toMatch(/server_config\.json$/);
-      expect(path.isAbsolute(result)).toBe(true);
-    });
-
-    it('should return the SERVER_CONFIG_PATH env var verbatim when set, without consulting readIsPackaged', () => {
-      process.env['SERVER_CONFIG_PATH'] = '/custom/server_config.json';
-      const isPackagedSpy = vi.spyOn(testableService, 'readIsPackaged');
-      expect(testableService.getServerConfigPath()).toBe('/custom/server_config.json');
-      expect(isPackagedSpy).not.toHaveBeenCalled();
-    });
-
-    it('should return the repo-relative fallback when packaged but readUserDataPath returns null', () => {
-      vi.spyOn(testableService, 'readIsPackaged').mockReturnValue(true);
-      vi.spyOn(testableService, 'readUserDataPath').mockReturnValue(null);
-      const result = testableService.getServerConfigPath();
-      expect(result).toMatch(/server_config\.json$/);
-      expect(result).not.toContain('userData');
-    });
-
-    describe('outside an Electron process', () => {
-      it('should return false from readIsPackaged when process.versions.electron is unset', () => {
-        expect(testableService.readIsPackaged()).toBe(false);
-      });
-
-      it('should return null from readUserDataPath when process.versions.electron is unset', () => {
-        expect(testableService.readUserDataPath()).toBeNull();
-      });
-    });
-
-    describe('with process.versions.electron set but the electron module unusable (matches a plain Node test process)', () => {
-      afterEach(() => {
-        delete (process.versions as Record<string, string | undefined>)['electron'];
-      });
-
-      it('should return false from readIsPackaged when requiring "electron" does not yield a usable app object', () => {
-        (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
-        expect(testableService.readIsPackaged()).toBe(false);
-      });
-
-      it('should return null from readUserDataPath when requiring "electron" does not yield a usable app object', () => {
-        (process.versions as Record<string, string | undefined>)['electron'] = '30.0.0';
-        expect(testableService.readUserDataPath()).toBeNull();
-      });
     });
 
     it('should return the HYVEON_TFVARS_BUCKET env var value when set, even when a configuration bucket is also stored', () => {
@@ -410,15 +267,6 @@ describe('ConfigService', () => {
 
     it('should return null when neither the env var nor a stored bootstrap.configurationBucket resolve', () => {
       expect(service.getConfigurationBucket()).toBeNull();
-    });
-
-    it('should not touch the filesystem when resolving the configuration bucket', () => {
-      const configuredService = new ConfigService(makeElectronStore('operator-configured-bucket'), makePulumiService());
-      configuredService.getConfigurationBucket();
-      service.getConfigurationBucket();
-
-      expect(mockExists).not.toHaveBeenCalled();
-      expect(mockRead).not.toHaveBeenCalled();
     });
   });
 });

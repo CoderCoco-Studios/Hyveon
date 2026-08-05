@@ -5,16 +5,17 @@ sidebar_position: 10
 
 # Settings
 
-The Settings screen (route `/settings`) holds the watchdog tuning knobs, the
-entry point back into the cloud setup wizard, the deployment-settings editor,
-and the app's own diagnostic log.
+The Settings screen (route `/settings`) holds a read-only watchdog summary,
+the entry point back into the cloud setup wizard, the deployment-settings
+editor, and the app's own diagnostic log.
 
-![The Settings page showing the Watchdog Settings panel with three numeric fields, a Cloud Setup row with a Reconfigure button, a General placeholder, and the Diagnostics log viewer](/img/app/settings.png)
+![The Settings page showing the Watchdog Settings panel, a Cloud Setup row with a Reconfigure button, a General placeholder, and the Diagnostics log viewer](/img/app/settings.png)
 
 :::note Screenshot pending an update
-The screenshot above predates the **General** section described below — it
-still shows the old placeholder text rather than the deployment-settings
-form.
+The screenshot above predates both the **General** section described below
+(it still shows the old placeholder text rather than the deployment-settings
+form) and the read-only Watchdog Configuration panel described next (it
+still shows the old three-field editor with a Save button).
 :::
 
 Four sections, in order: **Watchdog Configuration**, **Cloud Setup**,
@@ -27,83 +28,19 @@ traffic each running game server is seeing, and stops tasks that have been
 idle for long enough. It is what stops you paying for a server everyone forgot
 to shut down.
 
-Three fields:
+This panel is read-only — a pointer, not an editor:
 
-| Field | Unit | Default | What it means |
-|---|---|---|---|
-| **Check interval (min)** | minutes | `15` | How often the watchdog inspects each running task. Lower means faster shutdown but more Lambda invocations |
-| **Idle checks before shutdown** | count | `4` | How many *consecutive* idle checks must pass before the task is stopped |
-| **Min packets (activity threshold)** | packets | `100` | A task receiving fewer than this many network packets during an interval counts as idle |
+> Check interval, idle checks, and the min-packets activity threshold are
+> configured in the **General** section below ("Watchdog tuning") and take
+> effect on the next apply from the Infrastructure page.
 
-Each field has a `?` icon with a tooltip explaining it.
-
-Below the fields, a derived line updates live as you type:
-
-> Auto-shutdown after 60 minutes idle (15 min × 4 checks). Update deployment
-> settings to change the Lambda schedule.
-
-The formula is simply **interval × idle checks**. With the defaults, a server
-with no players stops an hour after the last packet.
-
-### Tuning advice
-
-- **Min packets** is the one to adjust first if servers are being stopped
-  while people are still connected. Some games send keepalive traffic even
-  when idle; if the baseline chatter exceeds 100 packets per interval the
-  server will never look idle, and if a connected-but-quiet player generates
-  fewer, they will be cut off.
-- **Interval × idle checks** is your grace period. Shortening the interval
-  makes shutdown more responsive but also makes a brief network lull more
-  likely to trip the counter — which is why the counter requires
-  *consecutive* idle checks rather than a single one.
-
-The idle counter is stored as a tag on the ECS task itself, so it resets
-naturally whenever a task starts.
-
-### Saving
-
-One **Save** button. Success shows `Watchdog settings saved`.
-
-Each field is validated as you type, and **Save** stays disabled while any of
-them is invalid:
-
-| What you typed | Message under the field |
-|---|---|
-| Nothing — the field is empty | `Required` |
-| Anything that is not a whole number | `Whole number required` |
-| Below the field's floor | `Must be N or greater` |
-
-The floor is `1` for the check interval and the idle-check count — either at
-zero describes no watchdog at all — and `0` for the packet threshold, where
-zero is meaningful: it makes every task read as busy. There is no maximum.
-
-While the interval or the idle-check count is invalid, the idle-window summary
-under the fields is replaced by `Fix the highlighted fields to see the idle
-window.`
-
-:::danger Saving here does not change the watchdog
-
-**These fields tune the app's stored configuration. The watchdog Lambda does
-not read that configuration.**
-
-The Lambda gets all three values from the deployment configuration: its
-EventBridge schedule is generated as `rate(<interval> minutes)` at apply time,
-and the idle-check and packet thresholds are baked into its environment
-variables. Both come from the top-level deployment settings
-(`deployment-config.json`), not from this panel's local settings file.
-
-So pressing **Save** writes a local file and shows a success toast while
-changing nothing in AWS. The panel says as much in its own footnote — *"Update
-deployment settings to change the Lambda schedule."*
-
-**To actually change the watchdog:** set the watchdog fields in
-[Settings → General](#general) (see the
-[infra program reference](/components/infra)), then run a plan and apply from
-the [Infrastructure](/app/iac) page.
-
-There is no indication in the UI when the values saved here and the applied
-deployment settings disagree, so keep them in sync by hand.
-:::
+An earlier version of this panel had its own three input fields and a **Save**
+button that wrote to a local `server_config.json` file the deployed watchdog
+Lambda never read — pressing **Save** showed a success toast while changing
+nothing in AWS. That dead flow was removed (#348); the three real tunables are
+now read and written in exactly one place — see
+[General → Watchdog tuning](#watchdog-tuning) below for what each field means,
+its default, and tuning advice.
 
 ## Cloud Setup
 
@@ -171,24 +108,44 @@ values without hand-editing the JSON object in S3.
 | **Hosted zone name** | The Route 53 hosted zone domain (must already exist). Required — there is no default |
 | **DNS TTL (seconds)** | TTL on the per-game DNS A records the watchdog Lambda writes |
 | **Discord application ID** | The bot's public Application (Client) ID — can also be set from the Discord page's Credentials tab |
-| **Watchdog tuning (3 fields)** | `dnsTtl`'s siblings — check interval, idle checks, min packets — see the callout below |
+| **Watchdog tuning (3 fields)** | `dnsTtl`'s siblings — check interval, idle checks, min packets — see below |
 | **Base allowed guild IDs / admin user IDs / admin role IDs** | See below |
 | **Audit table name / Runs table name** | See below |
 
-### Watchdog tuning here vs. the Watchdog Configuration panel above
+### Watchdog tuning
 
-This section has its own **check interval / idle checks / min packets**
-fields, distinct from the **Watchdog Configuration** panel at the top of the
-page. They edit different things:
+The three fields that actually reach the deployed watchdog Lambda — the
+**Watchdog Configuration** panel at the top of the page only points here, it
+has no editable fields of its own (see that section above).
 
-- The **Watchdog Configuration** panel (above) writes to the app's own local
-  `server_config.json` — it never reaches the deployed watchdog Lambda (see
-  that section's own danger callout).
-- The three fields here write into the deployment configuration itself —
-  the same values Terraform/Pulumi bakes into the watchdog Lambda's
-  EventBridge schedule and environment variables at apply time. Saving here
-  only takes effect after the next `apply` from the [Infrastructure](/app/iac)
-  page, same as any other field in this section.
+| Field | Unit | Default | What it means |
+|---|---|---|---|
+| **Check interval (min)** | minutes | `15` | How often the watchdog inspects each running task. Lower means faster shutdown but more Lambda invocations |
+| **Idle checks before shutdown** | count | `4` | How many *consecutive* idle checks must pass before the task is stopped |
+| **Min packets (activity threshold)** | packets | `100` | A task receiving fewer than this many network packets during an interval counts as idle |
+
+Saving here writes into the deployment configuration itself — the same values
+Pulumi bakes into the watchdog Lambda's EventBridge schedule
+(`rate(<interval> minutes)`) and environment variables at apply time (see the
+[infra program reference](/components/infra)). It only takes effect after the
+next `apply` from the [Infrastructure](/app/iac) page, same as any other field
+in this section.
+
+**Tuning advice:**
+
+- **Min packets** is the one to adjust first if servers are being stopped
+  while people are still connected. Some games send keepalive traffic even
+  when idle; if the baseline chatter exceeds 100 packets per interval the
+  server will never look idle, and if a connected-but-quiet player generates
+  fewer, they will be cut off.
+- **Interval × idle checks** is your grace period — with the defaults, a
+  server with no players stops an hour after the last packet. Shortening the
+  interval makes shutdown more responsive but also makes a brief network lull
+  more likely to trip the counter — which is why the counter requires
+  *consecutive* idle checks rather than a single one.
+
+The idle counter is stored as a tag on the ECS task itself, so it resets
+naturally whenever a task starts.
 
 ### Discord admin allowlists
 

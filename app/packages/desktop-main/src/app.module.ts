@@ -12,7 +12,6 @@ import { PulumiServiceModule } from './modules/pulumi-service.module.js';
 import { WizardModule } from './modules/wizard.module.js';
 import { ElectronStoreModule } from './modules/electron-store.module.js';
 import { GamesController } from './controllers/games.controller.js';
-import { ConfigController } from './controllers/config.controller.js';
 import { CostsController } from './controllers/costs.controller.js';
 import { LogsController } from './controllers/logs.controller.js';
 import { FilesController } from './controllers/files.controller.js';
@@ -71,7 +70,6 @@ import { AuditService } from './services/AuditService.js';
   ],
   controllers: [
     GamesController,
-    ConfigController,
     CostsController,
     LogsController,
     FilesController,

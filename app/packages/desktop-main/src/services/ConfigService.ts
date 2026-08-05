@@ -1,40 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 import type { StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { PulumiService } from './PulumiService.js';
-
-/** Absolute path to the `dist/services/` directory at runtime. */
-const _dirname = dirname(fileURLToPath(import.meta.url));
-
-/**
- * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in Docker).
- * Derived by walking 4 levels up from `dist/services/`.
- * Used only as a private dev-mode fallback inside instance methods — callers
- * should use `getServerConfigPath()` instead.
- */
-const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
-
-/**
- * User-editable watchdog tuning knobs persisted to `server_config.json`.
- * Consumed by the watchdog Lambda via Terraform variables; the UI only
- * displays/edits them — changes require `terraform apply` to take effect.
- */
-export interface WatchdogConfig {
-  watchdog_interval_minutes: number;
-  watchdog_idle_checks: number;
-  watchdog_min_packets: number;
-}
-
-const DEFAULT_CONFIG: WatchdogConfig = {
-  watchdog_interval_minutes: 15,
-  watchdog_idle_checks: 4,
-  watchdog_min_packets: 100,
-};
 
 /**
  * Default in-memory cache TTL (milliseconds) `TfvarsService` uses for the
@@ -51,21 +19,19 @@ export type ActiveCloud = 'aws';
 
 /**
  * Owns every runtime configuration source the management app reads:
- *  - `server_config.json` — user-editable watchdog tunables. Path resolved
- *    by {@link ConfigService.getServerConfigPath}.
  *  - The deployed Pulumi stack's outputs — read via {@link getStackOutputs},
  *    a memoised delegate to {@link PulumiService.getStackOutputs}. Nothing
  *    reads a local `terraform.tfstate` file under the Pulumi engine.
  *  - A handful of process env vars (`AWS_DEFAULT_REGION`).
  *
- * `getServerConfigPath()` follows a three-tier priority:
- *  1. Env var override (`SERVER_CONFIG_PATH`) — always wins.
- *  2. Electron packaged build (`electron.app.isPackaged`) — `userData` for
- *     server config.
- *  3. Dev/test fallback — repo-relative path when not in a packaged build.
+ * Every other service injects this one instead of touching `process.env`
+ * directly, so tests can stub env access cleanly.
  *
- * Every other service injects this one instead of touching `process.env` or
- * reading files directly, so tests can stub env/file access cleanly.
+ * The watchdog tuning knobs this class used to read/write via a local
+ * `server_config.json` were removed (#348): the deployed watchdog Lambda
+ * never read that file — its real tunables come from `DeploymentConfig`
+ * (see `app/packages/infra/src/lambdas.ts`), edited through
+ * `DeploymentSettingsForm` instead.
  */
 @Injectable()
 export class ConfigService {
@@ -244,66 +210,6 @@ export class ConfigService {
   }
 
   /**
-   * Return whether the app is running as a packaged Electron build
-   * (`electron.app.isPackaged`). `process.resourcesPath` is set in both dev
-   * and packaged Electron processes, so it cannot be used as a packaged-build
-   * guard — this method is the reliable alternative. Extracted as a protected
-   * method so tests can stub it via `vi.spyOn`.
-   */
-  protected readIsPackaged(): boolean {
-    if (!process.versions['electron']) return false;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { isPackaged: boolean } };
-      return electron.app.isPackaged;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Return the Electron `userData` directory when running inside an Electron
-   * process, or `null` otherwise. The `electron` module is required lazily at
-   * call-time (keyed on `process.versions['electron']` being truthy) so that
-   * importing this module in a plain Node/test context never triggers an
-   * unresolved-module error. Extracted as a protected method so tests can stub
-   * it via `vi.spyOn`.
-   */
-  protected readUserDataPath(): string | null {
-    if (!process.versions['electron']) return null;
-    try {
-      const _require = createRequire(import.meta.url);
-      const electron = _require('electron') as { app: { getPath(name: string): string } };
-      return electron.app.getPath('userData');
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Resolve the absolute path to `server_config.json`.
-   *
-   * Resolution order:
-   *  1. `SERVER_CONFIG_PATH` env var — wins when set.
-   *  2. Electron packaged app (`app.isPackaged`) — `<userData>/server_config.json`
-   *     (user-writable location that survives app updates).
-   *  3. Dev/test fallback — `<APP_ROOT>/server_config.json`.
-   */
-  getServerConfigPath(): string {
-    const envOverride = process.env['SERVER_CONFIG_PATH'];
-    if (envOverride) return envOverride;
-
-    if (this.readIsPackaged()) {
-      const userData = this.readUserDataPath();
-      if (userData) {
-        return join(userData, 'server_config.json');
-      }
-    }
-
-    return join(_APP_ROOT, 'server_config.json');
-  }
-
-  /**
    * Resolve the configured S3 configuration bucket name — the sole source of
    * `TfvarsService`'s configuration JSON. Returns `null` when no bucket is
    * configured, which callers MUST treat as "setup incomplete" — there is no
@@ -365,32 +271,5 @@ export class ConfigService {
    */
   getActiveCloud(): ActiveCloud {
     return 'aws';
-  }
-
-  /**
-   * Load the watchdog tunables from `server_config.json`, merged over the
-   * built-in defaults so partially-populated files still work. Returns a
-   * fresh object on every call — safe for callers to mutate.
-   */
-  getConfig(): WatchdogConfig {
-    const serverConfigPath = this.getServerConfigPath();
-    if (!existsSync(serverConfigPath)) return { ...DEFAULT_CONFIG };
-    try {
-      const saved = JSON.parse(readFileSync(serverConfigPath, 'utf-8')) as Partial<WatchdogConfig>;
-      return { ...DEFAULT_CONFIG, ...saved };
-    } catch (err) {
-      logger.warn('Could not read config file, using defaults', { err });
-      return { ...DEFAULT_CONFIG };
-    }
-  }
-
-  /**
-   * Persist the full watchdog config to `server_config.json`. Note: the
-   * watchdog Lambda only reads these values via Terraform variables, so a
-   * save here is not effective until the next `terraform apply`.
-   */
-  saveConfig(config: WatchdogConfig): void {
-    writeFileSync(this.getServerConfigPath(), JSON.stringify(config, null, 2));
-    logger.info('Config saved', config);
   }
 }

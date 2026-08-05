@@ -2,7 +2,6 @@ import type {
   GameStatus,
   CostEstimates,
   EnvInfo,
-  WatchdogConfig,
   ActualCosts,
   DiscordConfigRedacted,
 } from '@/api.service.js';
@@ -42,12 +41,6 @@ export const ERROR_GAME: GameStatus = {
   message: 'Task failed to start: insufficient capacity',
 };
 
-/** Stub response for `GET /api/config` (the watchdog tuning panel). */
-export const WATCHDOG_CONFIG: WatchdogConfig = {
-  watchdog_interval_minutes: 15,
-  watchdog_idle_checks: 4,
-  watchdog_min_packets: 100,
-};
 
 /** Stub response for `GET /api/costs/estimate`. */
 export const COST_DATA: CostEstimates = {

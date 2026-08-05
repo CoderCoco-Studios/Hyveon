@@ -4,7 +4,6 @@ import type {
   CostEstimates,
   EnvInfo,
   ActionResult,
-  WatchdogConfig,
   ActualCosts,
   DiscordConfigRedacted,
   GameListEntry,
@@ -15,7 +14,6 @@ import {
   ENV_DATA,
   STOPPED_GAME,
   COST_DATA,
-  WATCHDOG_CONFIG,
   CONFIGURED_DISCORD_CONFIG,
   makeActualCosts,
 } from './game-data.js';
@@ -27,7 +25,6 @@ export type {
   CostEstimates,
   EnvInfo,
   ActionResult,
-  WatchdogConfig,
   ActualCosts,
   DiscordConfigRedacted,
   GameListEntry,
@@ -42,7 +39,6 @@ export {
   ERROR_GAME,
   COST_DATA,
   MULTI_GAME_COST_DATA,
-  WATCHDOG_CONFIG,
   ACTUAL_COSTS,
   makeActualCosts,
   FIRST_RUN_DISCORD_CONFIG,
@@ -69,8 +65,6 @@ export interface StubOptions {
   actualCosts?: ActualCosts | ((days: number) => ActualCosts);
   /** Env info returned by `GET /api/env`. */
   env?: EnvInfo;
-  /** Watchdog config returned by `GET /api/config`. */
-  config?: WatchdogConfig;
   /** Override for `POST /api/start/:game` response. */
   startResult?: ActionResult;
   /**
@@ -141,7 +135,6 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   const statuses = opts.statuses ?? [STOPPED_GAME];
   const costs = opts.costs ?? COST_DATA;
   const env = opts.env ?? ENV_DATA;
-  const config = opts.config ?? WATCHDOG_CONFIG;
   const startResult: ActionResult = opts.startResult ?? { success: true, message: 'Started' };
   const discord = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
   const games = opts.games ?? statuses.map((s) => s.game);
@@ -189,13 +182,6 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   await page.route('**/api/costs/actual*', (route) => {
     const days = parseInt(new URL(route.request().url()).searchParams.get('days') ?? '7', 10);
     return route.fulfill({ json: actualCostsFn(days) });
-  });
-
-  await page.route('**/api/config', (route) => {
-    if (route.request().method() === 'POST') {
-      return route.fulfill({ json: { success: true, config } });
-    }
-    return route.fulfill({ json: config });
   });
 
   await page.route('**/api/drift', (route) => route.fulfill({ json: drift }));

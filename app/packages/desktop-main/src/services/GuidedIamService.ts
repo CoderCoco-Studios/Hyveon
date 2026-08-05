@@ -671,10 +671,9 @@ export class GuidedIamService {
 
   /**
    * Resolve the absolute path {@link renderTemplate} writes the rendered
-   * template to, following `ConfigService.getServerConfigPath()`'s exact
-   * packaged/dev-fallback resolution order (no env-var override here, since
-   * this is a scratch render output rather than an operator-configured
-   * path):
+   * template to (no env-var override here, since this is a scratch render
+   * output rather than an operator-configured path), using a
+   * packaged/dev-fallback resolution order:
    *  1. Electron packaged app (`readIsPackaged()`) —
    *     `<userData>/iam-bootstrap-rendered.yaml` (a user-writable location
    *     that survives app updates).

@@ -79,13 +79,6 @@ async function seedBaseMocks(
         })),
       }),
     );
-    hyveon.__test.mock('config.get', () =>
-      Promise.resolve({
-        watchdog_interval_minutes: 15,
-        watchdog_idle_checks: 4,
-        watchdog_min_packets: 100,
-      }),
-    );
     hyveon.__test.mock('costs.estimate', () =>
       Promise.resolve({ games: {}, totalPerHourIfAllOn: 0 }),
     );

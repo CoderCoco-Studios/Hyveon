@@ -20,13 +20,6 @@ export interface ActionResult {
   taskArn?: string;
 }
 
-/** Watchdog tuning knobs persisted in `server_config.json` and read/written via `/api/config`. */
-export interface WatchdogConfig {
-  watchdog_interval_minutes: number;
-  watchdog_idle_checks: number;
-  watchdog_min_packets: number;
-}
-
 /** Per-game Fargate cost breakdown used by `CostsPage` and `GameCard` to surface hourly/monthly estimates. */
 export interface GameEstimate {
   vcpu: number;
@@ -456,9 +449,6 @@ export const api = {
   statusGame: async (game: string): Promise<GameStatus> => hyveon().games.getStatus(game),
   start: async (game: string): Promise<ActionResult> => hyveon().games.start(game),
   stop: async (game: string): Promise<ActionResult> => hyveon().games.stop(game),
-  config: async (): Promise<WatchdogConfig> => hyveon().config.get(),
-  saveConfig: async (cfg: WatchdogConfig): Promise<{ success: boolean; config: WatchdogConfig }> =>
-    hyveon().config.update(cfg),
   costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
   costsActual: async (days = 7): Promise<ActualCosts> => hyveon().costs.actual(days),
   filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),

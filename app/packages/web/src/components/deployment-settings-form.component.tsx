@@ -52,8 +52,8 @@ import { Label } from './ui/label.component.js';
  * Draft form of {@link TopLevelDeploymentSettings}: every field held as a
  * raw string (scalars) or `string[]` (the three Discord ID lists) so an
  * in-progress or cleared field can be represented and re-parsed on submit —
- * mirrors `WatchdogPanel`'s own raw-string draft convention
- * (`watchdog-panel.component.tsx`).
+ * mirrors `EditGameForm`'s own raw-string draft convention
+ * (`edit-game-form.component.tsx`).
  */
 interface SettingsDraft {
   projectName: string;
@@ -441,8 +441,7 @@ export function DeploymentSettingsForm() {
         <h4 className="text-sm font-medium">Watchdog tuning</h4>
         <p className="text-xs text-[var(--color-muted-foreground)]">
           Baked into the watchdog Lambda at deploy time — a change here only takes effect after
-          the next apply. Day-to-day tuning of the in-app-only behaviour lives in the Watchdog
-          Configuration section above.
+          the next apply.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
