@@ -184,6 +184,11 @@ Things worth knowing:
   up — only the auth gap is closed here, not the exposure. Narrowing the
   security group to the operator's own IP is a known, separately-tracked
   follow-up.
+- The connection is plain `http://`, not `https://` — there is no TLS in
+  front of the helper task, so the one-time password (and the FileBrowser
+  session it starts) travels in cleartext. Treat the link as you would any
+  unencrypted admin panel: fine for a quick trusted-network session, not for
+  browsing it over an untrusted network.
 - Startup takes roughly 30 seconds; the modal polls every 5 seconds while the
   task is transitioning and stops polling once it settles.
 - If infrastructure has not been deployed you get `Infrastructure not
