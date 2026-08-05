@@ -74,9 +74,9 @@ After credentials are wired, the wizard SHALL run a best-effort dry-run via `iam
 
 ### Requirement: Bootstrap IPC and progress reporting
 
-Each bootstrap operation (state bucket, configuration bucket, IAM check) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress.
+Each bootstrap resource (state bucket, configuration bucket, deployment config, runs table) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress. IAM permission simulation is invoked separately, under `wizard.iam.simulate`.
 
 #### Scenario: Renderer runs the bootstrap step
 
-- **WHEN** the renderer invokes the bootstrap IPC methods for the two resources
+- **WHEN** the renderer invokes the bootstrap IPC methods for the four resources
 - **THEN** each resolves with a per-resource status the step renders, and a failure in one resource reports `failed` with its error message without masking the others
