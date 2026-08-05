@@ -4,33 +4,33 @@ import type { CreateGamePayload, DeleteGamePayload, GameListEntry, GameWriteResu
 import { ConfigService } from '../services/ConfigService.js';
 import { EcsService } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
-import { TfvarsService } from '../services/TfvarsService.js';
+import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { mergeGameLists } from '../services/mergeGameLists.js';
 
 /**
  * IPC-only game-server controller. Handles Electron main-process messages via
  * `@MessagePattern` / `@Payload` — no HTTP routes are registered here. It
  * delegates to the {@link ConfigService}, {@link EcsService},
- * {@link TfvarsService}, and {@link GamesWriteService} providers.
+ * {@link DeploymentConfigService}, and {@link GamesWriteService} providers.
  */
 @Controller()
 export class GamesController {
   constructor(
     private readonly config: ConfigService,
     private readonly ecs: EcsService,
-    private readonly tfvars: TfvarsService,
+    private readonly tfvars: DeploymentConfigService,
     private readonly gamesWrite: GamesWriteService,
   ) {}
 
   /**
    * Lists games merged from the declared view (`terraform.tfvars`
-   * `game_servers` map, via {@link TfvarsService}) and the deployed view
+   * `game_servers` map, via {@link DeploymentConfigService}) and the deployed view
    * (the deployed stack's `gameNames` output, via {@link ConfigService}) —
    * see {@link mergeGameLists}. This surfaces games that are declared but not
    * yet applied (`declared: true, deployed: false`) alongside live games, so
    * the renderer can distinguish the two states.
    *
-   * Invalidates only the `TfvarsService` cache (cheap — an in-memory S3
+   * Invalidates only the `DeploymentConfigService` cache (cheap — an in-memory S3
    * object cache with its own short TTL), NOT {@link ConfigService}'s stack-
    * outputs cache. `ConfigService.getStackOutputs()` is a genuinely expensive
    * round-trip (Pulumi engine resolution, passphrase, S3 backend), and this
@@ -55,7 +55,7 @@ export class GamesController {
   /**
    * Returns the current ECS status of every game in parallel.
    *
-   * Invalidates only the `TfvarsService` cache, NOT {@link ConfigService}'s
+   * Invalidates only the `DeploymentConfigService` cache, NOT {@link ConfigService}'s
    * stack-outputs cache — this channel backs the dashboard's 20-second
    * status poller (`GAME_STATUS_INTERVAL_MS`), so eagerly invalidating a
    * cache that now fronts an expensive Pulumi round-trip would turn an idle

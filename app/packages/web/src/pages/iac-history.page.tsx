@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import type { RunHistoryRecord, RunHistoryStatus, TerraformRunKind } from '@hyveon/desktop-preload';
+import type { RunHistoryRecord, RunHistoryStatus, IacRunKind } from '@hyveon/desktop-preload';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -17,7 +17,7 @@ const PAGE_SIZE = 25;
 const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
 
 /** `kind` filter options, `'all'` meaning no filter is applied. */
-type KindFilter = TerraformRunKind | 'all';
+type KindFilter = IacRunKind | 'all';
 
 /** `status` filter options, `'all'` meaning no filter is applied (i.e. the unfiltered `hyveon.iac.runs.list` path). */
 type StatusFilter = RunHistoryStatus | 'all';

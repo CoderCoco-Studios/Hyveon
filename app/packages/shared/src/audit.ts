@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import type { GameServer } from './tfvars.js';
+import type { GameServer } from './gameServerConfig.js';
 
 /**
  * The kind of mutation an {@link AuditEntry} records. Mirrors the CRUD verbs

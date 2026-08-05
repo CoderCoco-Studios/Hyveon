@@ -15,7 +15,7 @@ import type { GameListEntry, GameServer } from '@hyveon/shared';
  * appear in `declared` (tfvars) order first, followed by any deployed-only
  * entries (present in `deployed` but not `declared`) in `deployed` order.
  *
- * @param declared - Games parsed from `terraform.tfvars` (`TfvarsService.getGameServers()`).
+ * @param declared - Games parsed from `terraform.tfvars` (`DeploymentConfigService.getGameServers()`).
  * @param deployed - Game names present in the deployed stack's outputs (`ConfigService.getStackOutputs()?.gameNames`).
  */
 export function mergeGameLists(declared: GameServer[], deployed: string[]): GameListEntry[] {

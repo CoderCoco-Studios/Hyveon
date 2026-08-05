@@ -6,7 +6,7 @@
  * discriminated union without either package importing the other.
  */
 
-import type { GameServer, GameListEntry } from './tfvars.js';
+import type { GameServer, GameListEntry } from './gameServerConfig.js';
 import type { GameServerValidationIssue } from './gameServerValidator.js';
 
 /**
@@ -54,8 +54,8 @@ export interface GameWriteNotFound {
  * has somehow un-finished) the First-Run Wizard's bootstrap step. Distinct
  * from {@link GameWriteFailure} so a caller can route the operator toward
  * setup instead of showing a generic "something went wrong" message (see
- * `TfvarsService.ConfigurationNotConfiguredError` in `desktop-main`, thrown
- * by every `TfvarsService` write method when
+ * `DeploymentConfigService.ConfigurationNotConfiguredError` in `desktop-main`, thrown
+ * by every `DeploymentConfigService` write method when
  * `ConfigService.getConfigurationBucket()` resolves `null`).
  */
 export interface GameWriteSetupIncomplete {

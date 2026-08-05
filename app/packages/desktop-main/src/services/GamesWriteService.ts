@@ -5,15 +5,15 @@
  * Each operation follows the same shape:
  *  1. Validate the proposed entry via `validateGameServer()` (skipped for
  *     `deleteGame`, which has no config to validate), using the current
- *     declared `gameServers` list (`TfvarsService.getGameServers()`) as the
+ *     declared `gameServers` list (`DeploymentConfigService.getGameServers()`) as the
  *     sibling set for the cross-game port-collision check.
- *  2. Delegate the actual config mutation to `TfvarsService.addGameServer()` /
+ *  2. Delegate the actual config mutation to `DeploymentConfigService.addGameServer()` /
  *     `updateGameServer()` / `removeGameServer()`, forwarding
  *     `expectedVersionId` so the S3-mode conditional-put guard is honoured.
  *  3. Translate the handful of error shapes those calls can throw into the
  *     matching `GameWriteResult` failure variant (see the per-method docs
  *     below for the exact mapping).
- *  4. On success, invalidate both the `TfvarsService` and `ConfigService`
+ *  4. On success, invalidate both the `DeploymentConfigService` and `ConfigService`
  *     caches, emit a structured audit log entry (both the winston log line
  *     and a persisted `AuditService.record()` call carrying the before/after
  *     game config and the write's `versionId`), and return the updated game
@@ -33,7 +33,7 @@ import { OptimisticLockError, validateGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
-import { ConfigurationNotConfiguredError, GameServerEntryError, TfvarsService } from './TfvarsService.js';
+import { ConfigurationNotConfiguredError, GameServerEntryError, DeploymentConfigService } from './DeploymentConfigService.js';
 import { mergeGameLists } from './mergeGameLists.js';
 
 /** The three write operations this service performs — used to tag the audit log entry. */
@@ -49,7 +49,7 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
 /**
  * Validates and writes `gameServers` create/update/delete requests — see
  * the file-level doc comment above for the full flow. A thin orchestration
- * layer over `TfvarsService` (the actual config mutation) and
+ * layer over `DeploymentConfigService` (the actual config mutation) and
  * `validateGameServer` (the shared structural/business-rule validator);
  * holds no state of its own.
  */
@@ -57,7 +57,7 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
 export class GamesWriteService {
   constructor(
     private readonly config: ConfigService,
-    private readonly tfvars: TfvarsService,
+    private readonly tfvars: DeploymentConfigService,
     private readonly audit: AuditService,
   ) {}
 
@@ -65,7 +65,7 @@ export class GamesWriteService {
    * Adds a brand-new `gameServers` entry. Validates `payload.config` via
    * `validateGameServer()` against every currently-declared game (so a port
    * collision against an existing game is caught), then delegates to
-   * `TfvarsService.addGameServer()`.
+   * `DeploymentConfigService.addGameServer()`.
    *
    * Failure mapping:
    *  - Structural/business-rule validation failure → `{ code: 'validation' }`
@@ -79,7 +79,7 @@ export class GamesWriteService {
    *    config document parsed but its `gameServers` map is missing/not an
    *    object) → the catch-all `{ code: 'error' }`, since it isn't a name
    *    problem at all. A malformed-JSON parse failure lands here too, but as
-   *    a plain `Error` (from `TfvarsService.parseConfigContents()`), never a
+   *    a plain `Error` (from `DeploymentConfigService.parseConfigContents()`), never a
    *    `GameServerEntryError` — it's mentioned here only because it produces
    *    the same `{ code: 'error' }` outcome, not because it shares the type.
    *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
@@ -119,7 +119,7 @@ export class GamesWriteService {
    * `payload.config` via `validateGameServer()` against every declared game
    * (the entry being edited is skipped for self-collisions by
    * `validateGameServer()` itself), then delegates to
-   * `TfvarsService.updateGameServer()`.
+   * `DeploymentConfigService.updateGameServer()`.
    *
    * Failure mapping:
    *  - Structural/business-rule validation failure → `{ code: 'validation' }`
@@ -134,7 +134,7 @@ export class GamesWriteService {
    *    known-good, being an existing key), so any error here means
    *    "couldn't find/apply the update." Note this does NOT cover malformed
    *    JSON itself (a `JSON.parse` failure) — that's a plain `Error` from
-   *    `TfvarsService.parseConfigContents()`, not a `GameServerEntryError`,
+   *    `DeploymentConfigService.parseConfigContents()`, not a `GameServerEntryError`,
    *    and falls through to the generic `{ code: 'error' }` below instead.
    *  - `ConfigurationNotConfiguredError` (no configuration bucket configured)
    *    → `{ code: 'setup_incomplete' }`, distinct from the generic
@@ -173,7 +173,7 @@ export class GamesWriteService {
   /**
    * Removes a `gameServers` entry. Skips `validateGameServer()` entirely —
    * there's no proposed config to validate — and delegates straight to
-   * `TfvarsService.removeGameServer()`.
+   * `DeploymentConfigService.removeGameServer()`.
    *
    * Failure mapping:
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
@@ -214,7 +214,7 @@ export class GamesWriteService {
 
   /**
    * Shared success path for all three operations: invalidates both the
-   * `TfvarsService` and `ConfigService` caches so the next read reflects the
+   * `DeploymentConfigService` and `ConfigService` caches so the next read reflects the
    * write, emits the existing structured winston log line (action, game
    * name), persists an `AuditService.record()` entry carrying
    * `audit.before`/`audit.after`/
@@ -234,7 +234,7 @@ export class GamesWriteService {
     this.tfvars.invalidateCache();
     this.config.invalidateCache();
 
-    // A write only reaches this point once `TfvarsService.writeConfig()` has
+    // A write only reaches this point once `DeploymentConfigService.writeConfig()` has
     // already succeeded, which requires a configured configuration bucket
     // (`ConfigurationNotConfiguredError` otherwise) — so `mode` is always
     // `'s3'` here; there is no local-file mode.
@@ -270,7 +270,7 @@ export class GamesWriteService {
    * Builds a `GameWriteSetupIncomplete` from a caught
    * `ConfigurationNotConfiguredError` — no configuration bucket is
    * configured, so this write was never going to reach `RemoteFileStore` at
-   * all. Logged at `warn` (not `error`, mirroring `TfvarsService`'s own
+   * all. Logged at `warn` (not `error`, mirroring `DeploymentConfigService`'s own
    * "expected pre-wizard-completion state" treatment of this error) so a
    * routine "setup incomplete" attempt doesn't read as a genuine incident.
    */

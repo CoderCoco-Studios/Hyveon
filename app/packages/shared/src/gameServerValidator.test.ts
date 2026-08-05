@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateGameServer, getFargateCpuOptions, getFargateMemoryOptions } from './gameServerValidator.js';
-import type { GameServer } from './tfvars.js';
+import type { GameServer } from './gameServerConfig.js';
 
 /** Build a minimal, fully-valid proposed entry; override any fields per test. */
 function makeProposed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -14,7 +14,7 @@ function makeProposed(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
-/** Build a minimal existing GameServer entry (as returned by TfvarsService.getGameServers()); override any fields per test. */
+/** Build a minimal existing GameServer entry (as returned by DeploymentConfigService.getGameServers()); override any fields per test. */
 function makeExisting(overrides: Partial<GameServer> = {}): GameServer {
   return {
     name: 'valheim',

@@ -9,8 +9,8 @@ import { OptimisticLockError } from '@hyveon/shared';
 import { GamesWriteService } from './GamesWriteService.js';
 import type { AuditService } from './AuditService.js';
 import type { ConfigService } from './ConfigService.js';
-import type { TfvarsService } from './TfvarsService.js';
-import { ConfigurationNotConfiguredError, GameServerEntryError } from './TfvarsService.js';
+import type { DeploymentConfigService } from './DeploymentConfigService.js';
+import { ConfigurationNotConfiguredError, GameServerEntryError } from './DeploymentConfigService.js';
 import { logger } from '../logger.js';
 
 /** Minimal, valid `GameServer` fixture matching the Fargate cpu/memory pairing table. */
@@ -42,20 +42,20 @@ function makeConfig(options: { outputs?: Partial<StackOutputs> | null } = {}): C
 }
 
 /**
- * Build a TfvarsService stub with every method `GamesWriteService` touches
+ * Build a DeploymentConfigService stub with every method `GamesWriteService` touches
  * pre-wired to succeed. The write methods (`addGameServer`/`updateGameServer`/
  * `removeGameServer`) resolve to `{ etag, versionId }` matching the real
  * service's return shape, defaulting `versionId` to `'v-new'` so audit
  * assertions have a concrete value to check against.
  */
-function makeTfvars(declared: GameServer[] = [], versionId: string | undefined = 'v-new'): TfvarsService {
+function makeTfvars(declared: GameServer[] = [], versionId: string | undefined = 'v-new'): DeploymentConfigService {
   return {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
     addGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
     updateGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
     removeGameServer: vi.fn().mockResolvedValue({ etag: 'etag-new', versionId }),
-  } as Partial<TfvarsService> as TfvarsService;
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
 }
 
 /** Build an AuditService stub with `record()` pre-wired to a no-op `vi.fn()`. */

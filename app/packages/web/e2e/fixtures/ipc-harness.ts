@@ -131,7 +131,7 @@ export interface IpcHarness {
  * plan/apply/destroy records, apply lock, and configuration content never
  * leak into a freshly built context.
  *
- * The configuration-bucket mock backs `TfvarsService`'s `RemoteFileStore`
+ * The configuration-bucket mock backs `DeploymentConfigService`'s `RemoteFileStore`
  * reads/writes for specs that configure a bucket — installing it here
  * unconditionally is inert for every spec that doesn't, since
  * `AwsRemoteFileStore` throws its own "bucket not configured" error before

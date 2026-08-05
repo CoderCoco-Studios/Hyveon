@@ -7,10 +7,10 @@ import type {
   HyveonStreamHandle,
   OpType,
   RunDetailStatus,
-  TerraformPlanPayload,
-  TerraformRunChunk,
-  TerraformRunRecord,
-  TerraformStaleLockInfo,
+  IacPlanPayload,
+  IacRunChunk,
+  IacRunRecord,
+  IacStaleLockInfo,
 } from '@hyveon/desktop-preload';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -64,14 +64,14 @@ const DESTROY_CONFIRM_PHRASE = 'destroy infrastructure';
 
 /** Live state of a single streamed `terraform` run, backed by `hyveon.iac.runs.streamLogs`. */
 interface RunLogState {
-  chunks: TerraformRunChunk[];
+  chunks: IacRunChunk[];
   /** True once the stream's `for await` loop has completed — the run reached a terminal status (or the run was never attached). */
   ended: boolean;
   /**
    * Set when the stream itself threw before completing — distinct from the
    * run's own failed/aborted terminal status, which is derived separately
    * (once `ended` flips true) via a follow-up `runs.get` call. A `null`
-   * `TerraformRunChunk` stream failure (e.g. the local run artifacts
+   * `IacRunChunk` stream failure (e.g. the local run artifacts
    * disappeared mid-tail) would otherwise vanish silently, leaving the
    * operator staring at a log that just stops with no explanation.
    */
@@ -85,7 +85,7 @@ interface RunLogState {
  * automatically if `runId` changes; tears the previous subscription down
  * first.
  */
-function useTerraformRunLog(runId: string | null): RunLogState {
+function useIacRunLog(runId: string | null): RunLogState {
   // The accumulated log is tagged with the run it belongs to, so switching
   // runs discards the previous output at render time. Previously the effect
   // cleared `chunks`/`ended` synchronously on every `runId` change, which is
@@ -93,11 +93,11 @@ function useTerraformRunLog(runId: string | null): RunLogState {
   // way so a stream failure on one run cannot bleed onto the next.
   const [log, setLog] = useState<{
     runId: string;
-    chunks: TerraformRunChunk[];
+    chunks: IacRunChunk[];
     ended: boolean;
     error: string | null;
   } | null>(null);
-  const streamRef = useRef<HyveonStreamHandle<TerraformRunChunk> | null>(null);
+  const streamRef = useRef<HyveonStreamHandle<IacRunChunk> | null>(null);
 
   const isCurrent = log !== null && log.runId === runId;
   const chunks = isCurrent ? log.chunks : [];
@@ -119,8 +119,8 @@ function useTerraformRunLog(runId: string | null): RunLogState {
      * itself on top of the new run's output.
      */
     const update = (
-      apply: (prev: { chunks: TerraformRunChunk[]; ended: boolean; error: string | null }) => {
-        chunks: TerraformRunChunk[];
+      apply: (prev: { chunks: IacRunChunk[]; ended: boolean; error: string | null }) => {
+        chunks: IacRunChunk[];
         ended: boolean;
         error: string | null;
       },
@@ -238,7 +238,7 @@ function formatLockAge(lockedAt: string, nowMs: number): string {
  * Shown INSTEAD OF {@link BusyBanner}/{@link ErrorBanner} when a
  * plan/apply/destroy submission was rejected because the Pulumi backend is
  * locked by something this installation cannot prove is its own crashed run
- * (`ack.staleLock` — see `TerraformPlanAck.staleLock`'s doc comment in
+ * (`ack.staleLock` — see `IacPlanAck.staleLock`'s doc comment in
  * `hyveon-api.ts`). `iac.controller.ts`'s own error-handling never populates
  * both `conflict` and `staleLock` on the same rejection (each catch branch
  * `return`s independently), so this banner and `BusyBanner` are always
@@ -269,7 +269,7 @@ function formatLockAge(lockedAt: string, nowMs: number): string {
  * for another attempt.
  */
 interface StaleLockBannerProps {
-  staleLock: TerraformStaleLockInfo;
+  staleLock: IacStaleLockInfo;
   /** Current time in ms (the page's own 30s-ticking clock) — drives {@link formatLockAge}'s "ago" display. */
   nowMs: number;
   /** Called once `hyveon.iac.lock.clear()` reports `cleared: true`. */
@@ -509,12 +509,12 @@ export function IacPage() {
 
   const [planRunId, setPlanRunId] = useState<string | null>(null);
   const [planConflict, setPlanConflict] = useState<Conflict | null>(null);
-  const [planStaleLock, setPlanStaleLock] = useState<TerraformStaleLockInfo | null>(null);
+  const [planStaleLock, setPlanStaleLock] = useState<IacStaleLockInfo | null>(null);
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
   const [planStatus, setPlanStatus] = useState<RunDetailStatus | null>(null);
-  const [planRecord, setPlanRecord] = useState<TerraformRunRecord | null>(null);
+  const [planRecord, setPlanRecord] = useState<IacRunRecord | null>(null);
 
   const [approval, setApproval] = useState<{ approvedBy: string; approvedAt: string } | null>(null);
   const [approving, setApproving] = useState(false);
@@ -522,27 +522,27 @@ export function IacPage() {
 
   const [applyRunId, setApplyRunId] = useState<string | null>(null);
   const [applyConflict, setApplyConflict] = useState<Conflict | null>(null);
-  const [applyStaleLock, setApplyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
+  const [applyStaleLock, setApplyStaleLock] = useState<IacStaleLockInfo | null>(null);
   const [applySubmitError, setApplySubmitError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
   const [applyStatus, setApplyStatus] = useState<RunDetailStatus | null>(null);
-  const [applyRecord, setApplyRecord] = useState<TerraformRunRecord | null>(null);
+  const [applyRecord, setApplyRecord] = useState<IacRunRecord | null>(null);
 
   const [destroyConfirmOpen, setDestroyConfirmOpen] = useState(false);
   const [destroyRunId, setDestroyRunId] = useState<string | null>(null);
   const [destroyConflict, setDestroyConflict] = useState<Conflict | null>(null);
-  const [destroyStaleLock, setDestroyStaleLock] = useState<TerraformStaleLockInfo | null>(null);
+  const [destroyStaleLock, setDestroyStaleLock] = useState<IacStaleLockInfo | null>(null);
   const [destroySubmitError, setDestroySubmitError] = useState<string | null>(null);
   const [destroying, setDestroying] = useState(false);
   const [destroyStatus, setDestroyStatus] = useState<RunDetailStatus | null>(null);
-  const [destroyRecord, setDestroyRecord] = useState<TerraformRunRecord | null>(null);
+  const [destroyRecord, setDestroyRecord] = useState<IacRunRecord | null>(null);
 
   const [now, setNow] = useState(() => Date.now());
 
-  const planLog = useTerraformRunLog(planRunId);
-  const applyLog = useTerraformRunLog(applyRunId);
-  const destroyLog = useTerraformRunLog(destroyRunId);
+  const planLog = useIacRunLog(planRunId);
+  const applyLog = useIacRunLog(applyRunId);
+  const destroyLog = useIacRunLog(destroyRunId);
 
   // Tick every 30s so the approval-staleness hint stays roughly fresh.
   useEffect(() => {
@@ -602,7 +602,7 @@ export function IacPage() {
     };
   }, [destroyRunId, destroyLog.ended]);
 
-  const submitPlan = useCallback((payload?: TerraformPlanPayload) => {
+  const submitPlan = useCallback((payload?: IacPlanPayload) => {
     if (!window.hyveon) {
       setPlanSubmitError('IPC bridge (window.hyveon) is not available in this context.');
       return;

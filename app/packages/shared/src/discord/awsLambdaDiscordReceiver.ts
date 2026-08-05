@@ -1,9 +1,10 @@
 import type { DiscordEventReceiver } from '../cloud.js';
 
 /**
- * Minimal subset of a TfOutputs-shaped object that this receiver needs.
- * Keeping this narrow avoids importing ConfigService or any desktop-main
- * package — `@hyveon/shared` must not depend on application packages.
+ * Minimal subset of a {@link StackOutputs}-shaped object that this receiver
+ * needs. Keeping this narrow avoids importing ConfigService or any
+ * desktop-main package — `@hyveon/shared` must not depend on application
+ * packages.
  */
 export interface DiscordReceiverConfig {
   /** The public custom-domain URL for the Discord interactions endpoint

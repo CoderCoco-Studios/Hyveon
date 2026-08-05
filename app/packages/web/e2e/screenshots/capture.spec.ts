@@ -266,7 +266,7 @@ test('iac-awaiting-approval.png', async () => {
     // resolves `{started:true, runId:'run-plan-demo'}` (mocked), the plan
     // run's log stream attaches and delivers `DEMO_TERRAFORM_PLAN_CHUNKS`
     // (see `demo-data.ts`) through the real `HyveonStreamHandle`, which flips
-    // `useTerraformRunLog`'s `ended` flag once the iterable completes and
+    // `useIacRunLog`'s `ended` flag once the iterable completes and
     // triggers the one-shot `iac.runs.get(runId)` follow-up (mocked to
     // `awaiting_approval`, with a `changeSummary` of `{ create: 1, update: 1 }`).
     // The resource-change summary badges ("N to create" / "N to update") are

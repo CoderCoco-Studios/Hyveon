@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '../lib/utils.utils.js';
 
-/** A single line of output from a streamed `terraform` subcommand run. Mirrors `TerraformRunChunk`. */
+/** A single line of output from a streamed `terraform` subcommand run. Mirrors `IacRunChunk`. */
 export interface AnsiLogChunk {
   stream: 'stdout' | 'stderr';
   line: string;

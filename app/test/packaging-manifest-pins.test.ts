@@ -17,7 +17,7 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
  *
  * (`@cdktf/hcl2json` was externalized here too, for the same reason, before
  * the `migrate-iac-to-pulumi` change removed it from the dependency tree
- * entirely — see `TfvarsService.ts`'s JSON-only configuration model.)
+ * entirely — see `DeploymentConfigService.ts`'s JSON-only configuration model.)
  *
  * So the same packages are pinned in multiple manifests, for different reasons:
  *

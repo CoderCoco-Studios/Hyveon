@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { GameServer, StackOutputs } from '@hyveon/shared';
 import { DriftService, computeDrift } from './DriftService.js';
 import type { ConfigService } from './ConfigService.js';
-import type { TfvarsService } from './TfvarsService.js';
+import type { DeploymentConfigService } from './DeploymentConfigService.js';
 
 /** Minimal, valid `GameServer` fixture for a single declared game. */
 function buildGameServer(name: string, overrides: Partial<GameServer> = {}): GameServer {
@@ -42,12 +42,12 @@ function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): Co
   } as Partial<ConfigService> as ConfigService;
 }
 
-/** Build a TfvarsService stub with `invalidateCache` and `getGameServers` pre-wired. */
-function makeTfvars(declared: GameServer[] = []): TfvarsService {
+/** Build a DeploymentConfigService stub with `invalidateCache` and `getGameServers` pre-wired. */
+function makeTfvars(declared: GameServer[] = []): DeploymentConfigService {
   return {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
-  } as Partial<TfvarsService> as TfvarsService;
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
 }
 
 describe('computeDrift', () => {
@@ -213,7 +213,7 @@ describe('DriftService', () => {
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
-    it('should invalidate the TfvarsService cache before reading state', async () => {
+    it('should invalidate the DeploymentConfigService cache before reading state', async () => {
       const tfvars = makeTfvars();
       await new DriftService(tfvars, makeConfig()).getDrift();
       expect(tfvars.invalidateCache).toHaveBeenCalledOnce();

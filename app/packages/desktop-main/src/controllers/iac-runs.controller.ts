@@ -16,18 +16,18 @@ import { logger } from '../logger.js';
 const RUN_STATUSES: readonly RunStatus[] = ['success', 'failed', 'aborted'];
 
 /** Result of {@link IacRunsController.logUrl}: a presigned/temporary URL the renderer can fetch the offloaded log from directly. */
-export interface TerraformRunsLogUrlResult {
+export interface IacRunsLogUrlResult {
   url: string;
 }
 
 /** Payload accepted by {@link IacRunsController.logUrl}. */
-export interface TerraformRunsLogUrlPayload {
+export interface IacRunsLogUrlPayload {
   logKey: string;
   expiresInSeconds?: number;
 }
 
 /** Payload accepted by {@link IacRunsController.get}. */
-export interface TerraformRunsGetPayload {
+export interface IacRunsGetPayload {
   runId: string;
 }
 
@@ -40,12 +40,12 @@ export interface TerraformRunsGetPayload {
  * run in flight hasn't closed its process yet — see `PulumiRunRecord`'s doc
  * comment), read from the local `run.json` via `PulumiService.readRunRecord`.
  */
-export type TerraformRunsGetResult =
+export type IacRunsGetResult =
   | { found: false }
   | { found: true; status: RunDetailStatus; record?: PulumiRunRecord };
 
 /** Payload accepted by {@link IacRunsController.logs}. */
-export interface TerraformRunsLogsPayload {
+export interface IacRunsLogsPayload {
   runId: string;
 }
 
@@ -59,10 +59,10 @@ const LOGS_END_CHANNEL = 'iac.runs.logs.end';
  * Message payload sent, in order, on {@link LOGS_CHUNK_CHANNEL} for every
  * chunk `PulumiService.streamRunOutput` yields. `streamId` ties the chunk
  * back to the `logs()` call that produced it (see
- * {@link TerraformRunsLogsAck.streamId}) so the renderer can never mix up
+ * {@link IacRunsLogsAck.streamId}) so the renderer can never mix up
  * output from two overlapping subscriptions.
  */
-interface TerraformRunsLogsChunkMessage {
+interface IacRunsLogsChunkMessage {
   streamId: string;
   chunk: PulumiRunChunk;
 }
@@ -75,7 +75,7 @@ interface TerraformRunsLogsChunkMessage {
  * (`error` carries the stringified failure). `streamId` identifies which
  * `logs()` call this terminates.
  */
-interface TerraformRunsLogsEndMessage {
+interface IacRunsLogsEndMessage {
   streamId: string;
   error?: string;
 }
@@ -85,7 +85,7 @@ interface TerraformRunsLogsEndMessage {
  * subsequent chunk/end message pushed for this subscription on
  * {@link LOGS_CHUNK_CHANNEL} / {@link LOGS_END_CHANNEL}.
  */
-interface TerraformRunsLogsAck {
+interface IacRunsLogsAck {
   streamId: string;
 }
 
@@ -145,7 +145,7 @@ export class IacRunsController implements OnModuleInit {
     // Remove any existing handler first so hot-reload re-registration does
     // not throw "IPC channel already registered".
     ipcMain.removeHandler('iac.runs.logs');
-    ipcMain.handle('iac.runs.logs', (evt, payload: TerraformRunsLogsPayload) =>
+    ipcMain.handle('iac.runs.logs', (evt, payload: IacRunsLogsPayload) =>
       this.logs(payload, { evt: evt as IpcMainInvokeEvent }),
     );
   }
@@ -172,7 +172,7 @@ export class IacRunsController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.runs.get`).
    */
   @MessagePattern('iac.runs.get')
-  async get(@Payload() payload: TerraformRunsGetPayload): Promise<TerraformRunsGetResult> {
+  async get(@Payload() payload: IacRunsGetPayload): Promise<IacRunsGetResult> {
     const runId = payload?.runId;
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
@@ -233,9 +233,9 @@ export class IacRunsController implements OnModuleInit {
    */
   @MessagePattern('iac.runs.logs')
   async logs(
-    @Payload() payload: TerraformRunsLogsPayload,
+    @Payload() payload: IacRunsLogsPayload,
     ctx: { evt: IpcMainInvokeEvent },
-  ): Promise<TerraformRunsLogsAck> {
+  ): Promise<IacRunsLogsAck> {
     const runId = payload?.runId;
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
@@ -258,17 +258,17 @@ export class IacRunsController implements OnModuleInit {
       try {
         for await (const chunk of this.pulumi.streamRunOutput(runId, ac.signal)) {
           if (sender.isDestroyed()) { ac.abort(); return; }
-          const chunkMessage: TerraformRunsLogsChunkMessage = { streamId, chunk };
+          const chunkMessage: IacRunsLogsChunkMessage = { streamId, chunk };
           sender.send(LOGS_CHUNK_CHANNEL, chunkMessage);
         }
         if (!sender.isDestroyed()) {
-          const message: TerraformRunsLogsEndMessage = { streamId };
+          const message: IacRunsLogsEndMessage = { streamId };
           sender.send(LOGS_END_CHANNEL, message);
         }
       } catch (err) {
         logger.error('iac.runs.logs error', { err, runId, streamId });
         if (!sender.isDestroyed()) {
-          const message: TerraformRunsLogsEndMessage = { streamId, error: String(err) };
+          const message: IacRunsLogsEndMessage = { streamId, error: String(err) };
           sender.send(LOGS_END_CHANNEL, message);
         }
       } finally {
@@ -312,7 +312,7 @@ export class IacRunsController implements OnModuleInit {
    * Reachable via the Electron IPC transport (`iac.runs.logUrl`).
    */
   @MessagePattern('iac.runs.logUrl')
-  async logUrl(@Payload() payload: TerraformRunsLogUrlPayload): Promise<TerraformRunsLogUrlResult> {
+  async logUrl(@Payload() payload: IacRunsLogUrlPayload): Promise<IacRunsLogUrlResult> {
     const logKey = payload?.logKey;
     if (typeof logKey !== 'string' || logKey.length === 0) {
       throw new BadRequestException({

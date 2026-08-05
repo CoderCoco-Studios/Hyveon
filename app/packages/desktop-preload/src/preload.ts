@@ -20,12 +20,12 @@
  * channel below is therefore split into two layers:
  *
  * - A **preload-internal** `async function*` (`streamLogs`,
- *   `streamStackInitialize`, `streamTerraformRunLogs`) that does the real IPC
+ *   `streamStackInitialize`, `streamIacRunLogs`) that does the real IPC
  *   listener wiring and still accepts a real `AbortSignal` — this signal is
  *   always minted *inside* preload by a `bridgeStream` wrapper, so it never
  *   itself crosses the bridge.
  * - A thin **bridge-facing wrapper** (`openLogsStream`, `openStackInitializeStream`,
- *   `openTerraformRunLogsStream`) that mints an `AbortController`, calls the
+ *   `openIacRunLogsStream`) that mints an `AbortController`, calls the
  *   internal generator with its signal, and hands the renderer a
  *   {@link HyveonStreamHandle} — a plain object with an own `next()`, an own
  *   `cancel()`, and an own `[Symbol.asyncIterator]` returning itself. This
@@ -56,7 +56,7 @@
  * to completion regardless).
  *
  * `iac.plan(opts)` is a plain `invoke` — unlike `iac.stack.initialize`, it
- * does not itself stream progress. It resolves the immediate `TerraformPlanAck`
+ * does not itself stream progress. It resolves the immediate `IacPlanAck`
  * `IacController.plan` returns: `{ started: true, runId }` once the run
  * has been kicked off in the background, or `{ started: false, error, conflict?, staleLock? }`
  * when the submission was rejected outright (e.g. the shared workspace was
@@ -64,8 +64,8 @@
  * lock conflict was hit).
  *
  * `iac.runs.get(runId)` is a plain `invoke('iac.runs.get', { runId })`
- * call — it resolves a single `TerraformRunsGetResult` snapshot with no
- * streaming involved. `openTerraformRunLogsStream(runId)` mirrors
+ * call — it resolves a single `IacRunsGetResult` snapshot with no
+ * streaming involved. `openIacRunLogsStream(runId)` mirrors
  * `openStackInitializeStream`'s fixed-side-channel streaming shape: `IacRunsController.logs`
  * pushes chunk/end messages on fixed `iac.runs.logs.chunk` /
  * `iac.runs.logs.end` side channels shared by every call, each tagged
@@ -84,7 +84,7 @@
  * `PulumiUpResult`/`PulumiDestroyResult`) but nothing here subscribes to
  * them; `iac.runs.get`/`iac.runs.list`'s `changeSummary`/`engineVersion`/
  * `partialApply` fields are the intended path to that same structured data
- * once a run has settled (see `TerraformRunRecord`/`RunHistoryRecord` in
+ * once a run has settled (see `IacRunRecord`/`RunHistoryRecord` in
  * `hyveon-api.ts`).
  */
 
@@ -100,23 +100,22 @@ import type {
   HyveonTestApi,
   LogChunk,
   PulumiEngineVersionResult,
-  TerraformApplyPayload,
-  TerraformApproveAck,
-  TerraformDestroyMintAck,
-  TerraformDestroyPayload,
-  TerraformLockClearAck,
-  TerraformLockClearMintAck,
-  TerraformLockClearPayload,
-  TerraformPlanAck,
-  TerraformPlanPayload,
-  TerraformRollbackConfirmAck,
-  TerraformRollbackResolveAck,
-  TerraformRunChunk,
-  TerraformRunsGetResult,
-  TerraformRunsListOpts,
+  IacApplyPayload,
+  IacApproveAck,
+  IacDestroyMintAck,
+  IacDestroyPayload,
+  IacLockClearAck,
+  IacLockClearMintAck,
+  IacLockClearPayload,
+  IacPlanAck,
+  IacPlanPayload,
+  IacRollbackConfirmAck,
+  IacRollbackResolveAck,
+  IacRunChunk,
+  IacRunsGetResult,
+  IacRunsListOpts,
   RunHistoryPageResult,
   StackInitPhaseEvent,
-  TfOutputs,
   UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
   AwsProfileSummary,
@@ -140,6 +139,7 @@ import type {
   RevokeBootstrapKeyInput,
   RevokeBootstrapKeyResult,
 } from './hyveon-api.js';
+import type { StackOutputs } from '@hyveon/shared';
 
 /** Fixed side-channel `IacController.initializeStack` pushes streamed phase events on. */
 const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
@@ -455,10 +455,10 @@ async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<Stac
 
 /**
  * Preload-internal — never exposed to the renderer directly (see
- * {@link openTerraformRunLogsStream}, its bridge-facing wrapper). Bridges
+ * {@link openIacRunLogsStream}, its bridge-facing wrapper). Bridges
  * `IacRunsController.logs`'s fixed `iac.runs.logs.chunk` /
  * `iac.runs.logs.end` side channels into an {@link AsyncIterable} of
- * {@link TerraformRunChunk} for a single run identified by `runId`.
+ * {@link IacRunChunk} for a single run identified by `runId`.
  *
  * Mirrors {@link streamStackInitialize}'s streaming shape: `IacRunsController.logs`
  * tags every chunk/end payload with the `streamId` it minted for this call and
@@ -468,7 +468,7 @@ async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<Stac
  *
  * When a mock is registered for the `'iac.runs.logs'` channel (test mode
  * only), the mock handler is called with `(runId, signal)` and its return
- * value is treated as an `AsyncIterable<TerraformRunChunk>` — the real IPC
+ * value is treated as an `AsyncIterable<IacRunChunk>` — the real IPC
  * listener path is never touched.
  *
  * In production (no mock registered), the `iac.runs.logs.chunk` /
@@ -490,16 +490,16 @@ async function* streamStackInitialize(signal?: AbortSignal): AsyncGenerator<Stac
  * its log tailing in the main process) keeps going in the background; only
  * this caller's consumption stops.
  */
-async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): AsyncGenerator<TerraformRunChunk> {
+async function* streamIacRunLogs(runId: string, signal?: AbortSignal): AsyncGenerator<IacRunChunk> {
   const logsMock = mockRegistry.get('iac.runs.logs');
   if (logsMock !== undefined) {
-    const mockIterable = logsMock(runId, signal) as AsyncIterable<TerraformRunChunk>;
+    const mockIterable = logsMock(runId, signal) as AsyncIterable<IacRunChunk>;
     yield* mockIterable;
     return;
   }
 
   /** Chunks received but not yet yielded. */
-  const buffer: TerraformRunChunk[] = [];
+  const buffer: IacRunChunk[] = [];
   let ended = false;
   let endError: string | undefined;
   let aborted = false;
@@ -510,7 +510,7 @@ async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): Asy
    */
   let ownStreamId: string | null = null;
   /** Chunk events observed before `ownStreamId` is known. */
-  const rawChunkBuffer: Array<{ streamId: string; chunk: TerraformRunChunk }> = [];
+  const rawChunkBuffer: Array<{ streamId: string; chunk: IacRunChunk }> = [];
   /** End events observed before `ownStreamId` is known. */
   const rawEndBuffer: Array<{ streamId: string; error?: string }> = [];
   /** Resolves the pending `await` when a chunk arrives, the stream ends, or the signal aborts. */
@@ -524,7 +524,7 @@ async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): Asy
   };
 
   /** Applies a chunk event, discarding it if it belongs to a different run's log subscription. */
-  const applyChunk = (data: { streamId: string; chunk: TerraformRunChunk }) => {
+  const applyChunk = (data: { streamId: string; chunk: IacRunChunk }) => {
     if (data.streamId !== ownStreamId) return;
     buffer.push(data.chunk);
     signalWake();
@@ -537,7 +537,7 @@ async function* streamTerraformRunLogs(runId: string, signal?: AbortSignal): Asy
     signalWake();
   };
 
-  const onChunk = (_evt: IpcRendererEvent, data: { streamId: string; chunk: TerraformRunChunk }) => {
+  const onChunk = (_evt: IpcRendererEvent, data: { streamId: string; chunk: IacRunChunk }) => {
     if (ownStreamId === null) {
       rawChunkBuffer.push(data);
       return;
@@ -653,14 +653,14 @@ function openStackInitializeStream(): HyveonStreamHandle<StackInitPhaseEvent> {
 }
 
 /**
- * Bridge-facing wrapper for {@link streamTerraformRunLogs}. Mints an
+ * Bridge-facing wrapper for {@link streamIacRunLogs}. Mints an
  * `AbortController` that never leaves preload and returns a
  * {@link HyveonStreamHandle} in place of the raw async generator — see
  * {@link bridgeStream}.
  */
-function openTerraformRunLogsStream(runId: string): HyveonStreamHandle<TerraformRunChunk> {
+function openIacRunLogsStream(runId: string): HyveonStreamHandle<IacRunChunk> {
   const controller = new AbortController();
-  return bridgeStream(streamTerraformRunLogs(runId, controller.signal), controller);
+  return bridgeStream(streamIacRunLogs(runId, controller.signal), controller);
 }
 
 const api: HyveonApi = {
@@ -761,28 +761,28 @@ const api: HyveonApi = {
     stack: {
       initialize: openStackInitializeStream,
     },
-    plan: (opts?: TerraformPlanPayload) => invoke<TerraformPlanAck>('iac.plan', opts),
-    approve: (opts: { planRunId: string }) => invoke<TerraformApproveAck>('iac.approve', opts),
-    apply: (payload: TerraformApplyPayload) => invoke<TerraformPlanAck>('iac.apply', payload),
-    mintDestroyToken: () => invoke<TerraformDestroyMintAck>('iac.destroy.mintToken'),
-    destroy: (payload: TerraformDestroyPayload) => invoke<TerraformPlanAck>('iac.destroy', payload),
-    output: (force?: boolean) => invoke<TfOutputs | null>('iac.output', { force }),
+    plan: (opts?: IacPlanPayload) => invoke<IacPlanAck>('iac.plan', opts),
+    approve: (opts: { planRunId: string }) => invoke<IacApproveAck>('iac.approve', opts),
+    apply: (payload: IacApplyPayload) => invoke<IacPlanAck>('iac.apply', payload),
+    mintDestroyToken: () => invoke<IacDestroyMintAck>('iac.destroy.mintToken'),
+    destroy: (payload: IacDestroyPayload) => invoke<IacPlanAck>('iac.destroy', payload),
+    output: (force?: boolean) => invoke<StackOutputs | null>('iac.output', { force }),
     runs: {
-      get: (runId: string) => invoke<TerraformRunsGetResult>('iac.runs.get', { runId }),
-      streamLogs: openTerraformRunLogsStream,
-      list: (opts?: TerraformRunsListOpts) => invoke<RunHistoryPageResult>('iac.runs.list', opts),
+      get: (runId: string) => invoke<IacRunsGetResult>('iac.runs.get', { runId }),
+      streamLogs: openIacRunLogsStream,
+      list: (opts?: IacRunsListOpts) => invoke<RunHistoryPageResult>('iac.runs.list', opts),
       logUrl: (logKey: string, expiresInSeconds?: number) =>
         invoke<{ url: string }>('iac.runs.logUrl', { logKey, expiresInSeconds }).then((r) => r.url),
     },
     rollback: {
       resolve: (opts: { applyRunId: string }) =>
-        invoke<TerraformRollbackResolveAck>('iac.rollback.resolve', opts),
+        invoke<IacRollbackResolveAck>('iac.rollback.resolve', opts),
       confirm: (opts: { applyRunId: string }) =>
-        invoke<TerraformRollbackConfirmAck>('iac.rollback.confirm', opts),
+        invoke<IacRollbackConfirmAck>('iac.rollback.confirm', opts),
     },
     lock: {
-      mintToken: () => invoke<TerraformLockClearMintAck>('iac.lock.clear.mintToken'),
-      clear: (payload: TerraformLockClearPayload) => invoke<TerraformLockClearAck>('iac.lock.clear', payload),
+      mintToken: () => invoke<IacLockClearMintAck>('iac.lock.clear.mintToken'),
+      clear: (payload: IacLockClearPayload) => invoke<IacLockClearAck>('iac.lock.clear', payload),
     },
     settings: {
       get: () => invoke<DeploymentSettingsGetResult>('iac.settings.get'),

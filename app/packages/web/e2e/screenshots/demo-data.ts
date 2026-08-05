@@ -13,7 +13,7 @@
  * `@hyveon/shared` (canonical for anything Terraform/tfvars/DynamoDB-shaped:
  * `GameStatus`, `GameServer`, `GameListEntry`, `DriftReport`, `AuditEntry`,
  * etc.) and `@hyveon/desktop-preload` (canonical for the Electron IPC
- * surface: `TerraformPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
+ * surface: `IacPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
  * handful of types the web renderer consumes are not
  * re-exported by either package's public barrel (`CostEstimates`,
  * `DiscordConfigRedacted`, `AwsProfileSummary`,
@@ -40,11 +40,11 @@ import type {
   RunHistoryPageResult,
   RunHistoryRecord,
   StackInitPhaseEvent,
-  TerraformApproveAck,
-  TerraformDestroyMintAck,
-  TerraformPlanAck,
-  TerraformRunChunk,
-  TerraformRunsGetResult,
+  IacApproveAck,
+  IacDestroyMintAck,
+  IacPlanAck,
+  IacRunChunk,
+  IacRunsGetResult,
   WizardState,
 } from '@hyveon/desktop-preload';
 import type {
@@ -422,7 +422,7 @@ export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {
 // ---------------------------------------------------------------------------
 
 /** Streamed `terraform plan` output for the `run-plan-demo` run — ends with the summary line `TerraformPage.parsePlanSummary` scrapes. */
-export const DEMO_TERRAFORM_PLAN_CHUNKS: TerraformRunChunk[] = [
+export const DEMO_TERRAFORM_PLAN_CHUNKS: IacRunChunk[] = [
   { stream: 'stdout', line: 'Refreshing Terraform state in-memory prior to plan...' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_cluster.this: Refreshing state... [id=hyveon-cluster]' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Refreshing state... [id=palworld-server]' },
@@ -453,7 +453,7 @@ export const DEMO_TERRAFORM_PLAN_CHUNKS: TerraformRunChunk[] = [
 ];
 
 /** Streamed `terraform apply` output for the `run-apply-demo` run — same 1 add / 1 change / 0 destroy shape as {@link DEMO_TERRAFORM_PLAN_CHUNKS}, ending with the summary line `TerraformPage.parseApplySummary` scrapes. */
-export const DEMO_TERRAFORM_APPLY_CHUNKS: TerraformRunChunk[] = [
+export const DEMO_TERRAFORM_APPLY_CHUNKS: IacRunChunk[] = [
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifying... [id=palworld-server]' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifications complete after 1s [id=palworld-server]' },
   { stream: 'stdout', line: 'module.cloud.aws_cloudwatch_log_group.game["terraria"]: Creating...' },
@@ -501,9 +501,9 @@ export interface DemoOverrides {
   logStreamLines?: string[];
   terraformHistory?: RunHistoryPageResult;
   /** Streamed `terraform plan` chunks for the `run-plan-demo` run. */
-  terraformPlanChunks?: TerraformRunChunk[];
+  terraformPlanChunks?: IacRunChunk[];
   /** Streamed `terraform apply` chunks for the `run-apply-demo` run. */
-  terraformApplyChunks?: TerraformRunChunk[];
+  terraformApplyChunks?: IacRunChunk[];
 }
 
 /**
@@ -688,7 +688,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('iac.runs.list', () => Promise.resolve(d.terraformHistory));
     mock('iac.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
     // Keyed on `runId` (the preload calls this handler with `(runId, signal)`
-    // — see `streamTerraformRunLogs` in `preload.ts`) so the plan and apply
+    // — see `streamIacRunLogs` in `preload.ts`) so the plan and apply
     // runs each stream their own realistic output.
     mock('iac.runs.logs', (runId: unknown) => {
       if (runId === 'run-plan-demo') return toIterable(d.terraformPlanChunks);
@@ -788,4 +788,4 @@ export async function seedWizard(win: Page, resumeStep: WizardStep = 'pick-cloud
   }, data);
 }
 
-export type { TerraformApproveAck, TerraformDestroyMintAck, TerraformPlanAck, TerraformRunsGetResult };
+export type { IacApproveAck, IacDestroyMintAck, IacPlanAck, IacRunsGetResult };

@@ -4,7 +4,7 @@ import { GamesController } from './games.controller.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { GamesWriteService } from '../services/GamesWriteService.js';
-import type { TfvarsService } from '../services/TfvarsService.js';
+import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
@@ -50,16 +50,16 @@ function buildGameServer(name: string): GameServer {
 }
 
 /**
- * Build a TfvarsService stub with `invalidateCache` and `getGameServers`
+ * Build a DeploymentConfigService stub with `invalidateCache` and `getGameServers`
  * pre-wired. Defaults `getGameServers()` to an empty declared list so
  * existing specs that only care about the deployed (tfstate) view don't have
  * to know about the declared merge.
  */
-function makeTfvars(declared: GameServer[] = []): TfvarsService {
+function makeTfvars(declared: GameServer[] = []): DeploymentConfigService {
   return {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
-  } as Partial<TfvarsService> as TfvarsService;
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
 }
 
 /** A representative successful `GameWriteResult` used as the default stub return value. */
@@ -138,7 +138,7 @@ describe('GamesController', () => {
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
-    it('should invalidate the TfvarsService cache before reading game names', async () => {
+    it('should invalidate the DeploymentConfigService cache before reading game names', async () => {
       const tfvars = makeTfvars();
       await new GamesController(makeConfig(), makeEcs(), tfvars, makeGamesWrite()).listGames();
       expect(tfvars.invalidateCache).toHaveBeenCalledOnce();
@@ -184,7 +184,7 @@ describe('GamesController', () => {
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
-    it('should invalidate the TfvarsService cache before querying ECS', async () => {
+    it('should invalidate the DeploymentConfigService cache before querying ECS', async () => {
       const tfvars = makeTfvars();
       await new GamesController(makeConfig(), makeEcs(), tfvars, makeGamesWrite()).listStatus();
       expect(tfvars.invalidateCache).toHaveBeenCalledOnce();

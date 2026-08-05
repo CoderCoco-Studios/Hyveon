@@ -5,7 +5,7 @@ import {
   diffDeploymentConfig,
   type DeploymentConfig,
 } from './deploymentConfig.js';
-import type { GameServerConfig } from './tfvars.js';
+import type { GameServerConfig } from './gameServerConfig.js';
 
 /**
  * A fully-populated `https = true` game server entry — every optional field
@@ -57,7 +57,7 @@ function buildPlainGameServer(): GameServerConfig {
 /**
  * A game server entry with `https` entirely omitted — the third state the
  * field's type (`https?: boolean`) allows alongside explicit `true`/`false`.
- * Per `GameServerConfig`'s (`./tfvars.js`) TSDoc, an absent `https` MUST be
+ * Per `GameServerConfig`'s (`./gameServerConfig.js`) TSDoc, an absent `https` MUST be
  * read as `false` (Terraform's own `optional(bool, false)` default), never
  * as an unresolved state — this fixture exists to prove that reading holds
  * through a JSON round-trip: the key must come back genuinely absent (not

@@ -215,7 +215,7 @@ export class BootstrapService {
    *
    * @remarks
    * Fixes a Critical bootstrap gap this migration's final review round
-   * uncovered: every `TfvarsService` write path — `writeConfig` (shared by
+   * uncovered: every `DeploymentConfigService` write path — `writeConfig` (shared by
    * `addGameServer`/`updateGameServer`/`removeGameServer`) and
    * `updateTopLevelSettings` — reads the current document before writing
    * (`fetchRawConfig`), and `fetchRawConfig` throws a plain `Error` when the
@@ -227,8 +227,8 @@ export class BootstrapService {
    * from the wizard's bootstrap step, against the SAME `bucketName` that call
    * just created/confirmed — see `WizardController.bootstrapDeploymentConfig`.
    *
-   * Lives here (on `BootstrapService`) rather than on `TfvarsService`
-   * deliberately: `TfvarsService` resolves its bucket from
+   * Lives here (on `BootstrapService`) rather than on `DeploymentConfigService`
+   * deliberately: `DeploymentConfigService` resolves its bucket from
    * `ConfigService.getConfigurationBucket()`, which reads
    * `ElectronStoreService`'s persisted `bootstrap.configurationBucket` — a
    * value the wizard's bootstrap step doesn't durably save until the

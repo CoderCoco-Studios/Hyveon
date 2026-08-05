@@ -1,8 +1,8 @@
 /**
- * S3-path tests for `TfvarsService`, exercised against the real
+ * S3-path tests for `DeploymentConfigService`, exercised against the real
  * `AwsRemoteFileStore` (rather than a hand-rolled `RemoteFileStore` stub) with
  * the underlying `S3Client` intercepted via `aws-sdk-client-mock`. This proves
- * the S3 mode wiring end-to-end: `TfvarsService` resolves a bucket from
+ * the S3 mode wiring end-to-end: `DeploymentConfigService` resolves a bucket from
  * `ConfigService`, delegates to `AwsRemoteFileStore.get()`, which in turn
  * issues a real `GetObjectCommand` against the mocked S3 client — mirroring
  * `AwsRemoteFileStore.test.ts`'s use of `mockClient(S3Client)`.
@@ -22,7 +22,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { AwsRemoteFileStore } from '@hyveon/cloud-aws';
 import type { DeploymentConfig } from '@hyveon/shared';
-import { TfvarsService } from './TfvarsService.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { ConfigService } from './ConfigService.js';
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
@@ -58,7 +58,7 @@ const FIXTURE_CONFIG: DeploymentConfig = {
   },
 };
 
-/** {@link FIXTURE_CONFIG} serialized exactly as `TfvarsService` would write/read it. */
+/** {@link FIXTURE_CONFIG} serialized exactly as `DeploymentConfigService` would write/read it. */
 const FIXTURE_JSON = JSON.stringify(FIXTURE_CONFIG, null, 2) + '\n';
 
 /** Builds a fake S3 `Body` stream whose `transformToByteArray()` resolves to the given bytes. */
@@ -67,7 +67,7 @@ function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint
 }
 
 /**
- * Builds a `ConfigService` stub exposing just the methods `TfvarsService`
+ * Builds a `ConfigService` stub exposing just the methods `DeploymentConfigService`
  * reads: a configured S3 bucket. The S3 object key is always the fixed
  * `CONFIGURATION_OBJECT_KEY` constant (`'deployment-config.json'`) — no
  * longer derived from any path.
@@ -75,12 +75,12 @@ function fakeBody(bytes: Uint8Array): { transformToByteArray: () => Promise<Uint
 function makeConfig(opts: { bucket: string }): ConfigService {
   const stub: Partial<ConfigService> = {
     getConfigurationBucket: () => opts.bucket,
-    readEnvTfvarsCacheTtlMs: () => 30000,
+    readEnvConfigCacheTtlMs: () => 30000,
   };
   return stub as ConfigService;
 }
 
-describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
+describe('DeploymentConfigService (S3 path, real AwsRemoteFileStore)', () => {
   beforeEach(() => {
     s3Mock.reset();
   });
@@ -92,7 +92,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
     });
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
-    const service = new TfvarsService(
+    const service = new DeploymentConfigService(
       makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
@@ -123,7 +123,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
     s3Mock.on(GetObjectCommand).resolves({});
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
-    const service = new TfvarsService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
+    const service = new DeploymentConfigService(makeConfig({ bucket: 'my-tfvars-bucket' }), remoteFileStore);
 
     await expect(service.getGameServers()).resolves.toEqual([]);
     expect(s3Mock.commandCalls(GetObjectCommand)).toHaveLength(1);
@@ -140,7 +140,7 @@ describe('TfvarsService (S3 path, real AwsRemoteFileStore)', () => {
     });
 
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: 'my-tfvars-bucket' }));
-    const service = new TfvarsService(
+    const service = new DeploymentConfigService(
       makeConfig({ bucket: 'my-tfvars-bucket' }),
       remoteFileStore,
     );
