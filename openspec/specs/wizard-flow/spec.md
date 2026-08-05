@@ -36,7 +36,7 @@ A `FirstRunWizardService` in the desktop main process SHALL own wizard progress,
 
 ### Requirement: Pick-cloud step
 
-The second wizard step SHALL present the cloud choice as a single-option selection hard-coded to "AWS" for v1, with a "more clouds coming" footer, and persist the choice to electron-store as `activeCloud: 'aws'` via `ElectronStoreService`. The step's data model MUST be structured so additional options (`gcp`, `azure`) can be added without reworking the step (options driven by a list, not a hard-coded single control).
+The first wizard step SHALL present the cloud choice as a single-option selection hard-coded to "AWS" for v1, with a "more clouds coming" footer, and persist the choice to electron-store as `activeCloud: 'aws'` via `ElectronStoreService`. The step's data model MUST be structured so additional options (`gcp`, `azure`) can be added without reworking the step (options driven by a list, not a hard-coded single control).
 
 #### Scenario: Choosing AWS
 
@@ -73,7 +73,7 @@ On finishing the final step, the wizard SHALL persist all answers (via `Electron
 
 ### Requirement: Reconfigure entry point in Settings
 
-The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, re-running steps 2–5 (cloud, credentials, bootstrap, init) — prerequisite detection is step 1 and is not repeated. Steps already satisfied by existing state SHALL render as completed with a per-step "Edit" affordance rather than forcing re-entry. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
+The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, pre-marking the pick-cloud, credentials, and bootstrap steps as completed (rendered with a per-step "Edit" affordance) since existing state already satisfies them, while the guided-IAM and stack-initialization steps render fresh. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
 
 #### Scenario: Reconfigure with one change
 

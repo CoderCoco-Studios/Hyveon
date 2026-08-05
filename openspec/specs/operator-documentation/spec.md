@@ -78,7 +78,7 @@ load-balancer targets.
 ### Requirement: Documented counts and paths match the codebase
 
 Documentation SHALL NOT state counts, file lists, or repository paths that contradict the
-codebase. This covers the Lambda count, the `module "cloud"` input count, the CI workflow list,
+codebase. This covers the Lambda count, the CI workflow list,
 the minimum Node version, the npm workspaces root, the infra program's file/resource table, the
 repository maps, and the root npm script table.
 
