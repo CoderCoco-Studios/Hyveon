@@ -7,8 +7,9 @@ The repository SHALL provide a committed, generated data file
 `@hyveon/shared`) listing commercial-partition AWS regions as
 `{ code, name, continent }` entries, produced by a manually-triggered
 generator script and npm command rather than fetched at application
-runtime. The data set MUST exclude GovCloud, China, and non-region
-entries (Local Zones, Wavelength Zones).
+runtime. The data set MUST exclude GovCloud and China regions by region-code
+prefix (`us-gov-`, `cn-`), and MUST otherwise include every entry AWS's
+published region-location feed itself classifies with `type: "AWS Region"`.
 
 #### Scenario: Data set is available without network access
 
