@@ -132,7 +132,7 @@ async function advanceToCredentials(): Promise<void> {
   hyveonMock.wizard.saveState.mockResolvedValue({ wizardCompleted: false, activeCloud: 'aws' });
   await advanceToPickCloud();
   await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-  await screen.findByText(/provision aws access/i);
+  await screen.findByText(/provision aws access/i, { selector: 'p' });
   await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
   await screen.findByText(/choose the aws credentials/i);
 }
@@ -178,6 +178,12 @@ describe('FirstRunWizard', () => {
   it('should render the pick-cloud step as the first step', async () => {
     await advanceToPickCloud();
     expect(screen.getByRole('radio', { name: /Amazon Web Services/i })).toBeInTheDocument();
+  });
+
+  it('should render the step-progress sidebar in first-run mode', async () => {
+    await advanceToPickCloud();
+
+    expect(screen.getByRole('navigation', { name: 'Wizard progress' })).toBeInTheDocument();
   });
 
   it('should persist the selected cloud via wizard.state.save when advancing past pick-cloud', async () => {
@@ -558,7 +564,7 @@ describe('FirstRunWizard', () => {
       render(<FirstRunWizard onComplete={onComplete} />);
       await screen.findByText(/choose the cloud provider/i);
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
-      await screen.findByText(/provision aws access/i);
+      await screen.findByText(/provision aws access/i, { selector: 'p' });
       await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
       await screen.findByText(/choose the aws credentials/i);
       await userEvent.selectOptions(await screen.findByLabelText('Profile'), 'default');
@@ -780,6 +786,20 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
       expect(await screen.findByText(/provision aws access is already configured/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('reconfigure mode — layout', () => {
+    it('should not render the step-progress sidebar in reconfigure mode', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+      render(<FirstRunWizard mode="reconfigure" />);
+      await screen.findByText(/choose your cloud is already configured/i);
+
+      expect(screen.queryByRole('navigation', { name: 'Wizard progress' })).not.toBeInTheDocument();
     });
   });
 });

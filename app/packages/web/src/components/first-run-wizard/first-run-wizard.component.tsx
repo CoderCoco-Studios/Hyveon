@@ -22,22 +22,15 @@ import { CredentialsStep, type CredentialMode, type PasteField } from './credent
 import { BootstrapStep } from './bootstrap-step.component.js';
 import { GuidedIamStep } from './guided-iam-step.component.js';
 import { StackInitializationStep } from './stack-init-step.component.js';
+import { WizardStepSidebar } from './wizard-step-sidebar.component.js';
 import {
+  STEP_LABELS,
   WIZARD_STEPS,
   defaultBootstrapResourceNames,
   type BootstrapResourceKey,
   type BootstrapResourceState,
   type WizardStep,
 } from './wizard.utils.js';
-
-/** Human-readable heading for each {@link WizardStep}. */
-const STEP_LABELS: Record<WizardStep, string> = {
-  'pick-cloud': 'Choose your cloud',
-  'guided-iam': 'Provision AWS access',
-  credentials: 'AWS credentials',
-  bootstrap: 'Bootstrap AWS resources',
-  'stack-init': 'Finish setup',
-};
 
 /**
  * Steps in this list start collapsed to a completed summary (with an Edit
@@ -768,7 +761,9 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-xl rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8 space-y-6">
+      <div className="flex w-full max-w-[min(92vw,2000px)] justify-center gap-6">
+        {mode === 'first-run' && <WizardStepSidebar steps={steps} currentIndex={stepIndex} labels={STEP_LABELS} />}
+        <div className="w-full max-w-xl md:max-w-[clamp(672px,55vw,1500px)] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-1)] p-8 space-y-6">
         <div>
           <h1 className="text-xl font-semibold">{mode === 'reconfigure' ? 'Reconfigure Hyveon' : 'Welcome to Hyveon'}</h1>
           <p className="text-sm text-muted-foreground">
@@ -880,6 +875,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               Next
             </Button>
           )}
+        </div>
         </div>
       </div>
     </div>
