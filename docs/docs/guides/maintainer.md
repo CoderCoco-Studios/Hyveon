@@ -47,7 +47,7 @@ Hyveon/
 
 The repository **root** `package.json` is the npm-workspaces root — its
 `workspaces` array lists `app`, `app/packages/*`, `app/packages/desktop-preload`,
-`app/packages/lambda/*`, and `scripts`. One `npm install` at the root installs
+and `app/packages/lambda/*`. One `npm install` at the root installs
 everything; `app/` itself is just one workspace (`@hyveon/app`) among several,
 not a nested workspaces root. There is no `terraform/` tree — `app/packages/infra`
 (`@hyveon/infra`) is a Pulumi Automation API program, ordinary TypeScript.
