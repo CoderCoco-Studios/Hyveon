@@ -57,7 +57,7 @@ const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
 export class GamesWriteService {
   constructor(
     private readonly config: ConfigService,
-    private readonly tfvars: DeploymentConfigService,
+    private readonly deploymentConfig: DeploymentConfigService,
     private readonly audit: AuditService,
   ) {}
 
@@ -88,7 +88,7 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
-    const siblings = await this.tfvars.getGameServers();
+    const siblings = await this.deploymentConfig.getGameServers();
     const validation = validateGameServer(payload.name, payload.config, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
@@ -97,7 +97,7 @@ export class GamesWriteService {
     const { name, ...config } = validation.data;
     let write: { etag: string; versionId?: string };
     try {
-      write = await this.tfvars.addGameServer(name, config, payload.expectedVersionId);
+      write = await this.deploymentConfig.addGameServer(name, config, payload.expectedVersionId);
     } catch (err) {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
@@ -142,7 +142,7 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
-    const siblings = await this.tfvars.getGameServers();
+    const siblings = await this.deploymentConfig.getGameServers();
     const validation = validateGameServer(payload.name, payload.config, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
@@ -153,7 +153,7 @@ export class GamesWriteService {
     const { name, ...config } = validation.data;
     let write: { etag: string; versionId?: string };
     try {
-      write = await this.tfvars.updateGameServer(name, config, payload.expectedVersionId);
+      write = await this.deploymentConfig.updateGameServer(name, config, payload.expectedVersionId);
     } catch (err) {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
@@ -190,12 +190,12 @@ export class GamesWriteService {
    *    setup wizard instead of a generic failure message.
    */
   async deleteGame(payload: DeleteGamePayload): Promise<GameWriteResult> {
-    const siblings = await this.tfvars.getGameServers();
+    const siblings = await this.deploymentConfig.getGameServers();
     const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
     let write: { etag: string; versionId?: string };
     try {
-      write = await this.tfvars.removeGameServer(payload.name, payload.expectedVersionId);
+      write = await this.deploymentConfig.removeGameServer(payload.name, payload.expectedVersionId);
     } catch (err) {
       if (err instanceof OptimisticLockError) {
         return this.conflictResult(err);
@@ -231,7 +231,7 @@ export class GamesWriteService {
     game: GameServer | undefined,
     audit: { before: GameServer | null; after: GameServer | null; versionId?: string },
   ): Promise<GameWriteResult> {
-    this.tfvars.invalidateCache();
+    this.deploymentConfig.invalidateCache();
     this.config.invalidateCache();
 
     // A write only reaches this point once `DeploymentConfigService.writeConfig()` has
@@ -248,7 +248,7 @@ export class GamesWriteService {
       versionId: audit.versionId,
     });
 
-    const declared = await this.tfvars.getGameServers();
+    const declared = await this.deploymentConfig.getGameServers();
     const outputs = await this.config.getStackOutputs();
     const games = mergeGameLists(declared, outputs?.gameNames ?? []);
 

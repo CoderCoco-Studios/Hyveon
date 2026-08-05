@@ -97,12 +97,12 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
 
   it('should let updateTopLevelSettings and addGameServer succeed after BootstrapService.ensureDeploymentConfig seeds a bucket that starts with no deployment-config.json object', async () => {
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: BUCKET, region: 'us-west-2' }));
-    const tfvars = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
+    const deploymentConfig = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
 
     // 1. Seed absent — reproduces the bug's precondition for real, not by
     // assumption: every write path calls fetchRawConfig() first, and it
     // rejects when the object genuinely doesn't exist.
-    await expect(tfvars.getRawConfig()).rejects.toThrow(/not found/i);
+    await expect(deploymentConfig.getRawConfig()).rejects.toThrow(/not found/i);
 
     // 2. The fix: BootstrapService seeds the initial document into the SAME
     // bucket DeploymentConfigService reads/writes, via the SAME mocked S3Client.
@@ -112,18 +112,18 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
 
     // 3. Seed present — a Settings save (a real hostedZoneName, exactly what
     // the Settings form submits) now succeeds instead of throwing.
-    const { etag } = await tfvars.getRawConfig();
-    const settingsWrite = await tfvars.updateTopLevelSettings({ hostedZoneName: 'example.com' }, etag);
+    const { etag } = await deploymentConfig.getRawConfig();
+    const settingsWrite = await deploymentConfig.updateTopLevelSettings({ hostedZoneName: 'example.com' }, etag);
     expect(settingsWrite.etag).toBeTruthy();
 
-    const { settings } = await tfvars.getTopLevelSettings();
+    const { settings } = await deploymentConfig.getTopLevelSettings();
     expect(settings.hostedZoneName).toBe('example.com');
     // Every other field still carries the seed's Terraform-parity defaults —
     // the settings write only touched hostedZoneName.
     expect(settings.projectName).toBe('hyveon');
 
     // 4. Adding a game (the Games UI's write path) now succeeds too.
-    await tfvars.addGameServer('minecraft', {
+    await deploymentConfig.addGameServer('minecraft', {
       image: 'itzg/minecraft-server',
       cpu: 1024,
       memory: 2048,
@@ -131,25 +131,25 @@ describe('fresh-install config seed (final-review round 2, finding 1)', () => {
       volumes: [{ name: 'data', container_path: '/data' }],
     });
 
-    const servers = await tfvars.getGameServers();
+    const servers = await deploymentConfig.getGameServers();
     expect(servers.map((s) => s.name)).toEqual(['minecraft']);
   });
 
   it('should report exists (not created) and never overwrite an operator-edited document when ensureDeploymentConfig is re-run after a Settings save', async () => {
     const remoteFileStore = new AwsRemoteFileStore(() => ({ bucket: BUCKET, region: 'us-west-2' }));
-    const tfvars = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
+    const deploymentConfig = new DeploymentConfigService(makeConfig(BUCKET), remoteFileStore);
     const bootstrap = new BootstrapService(makeStore({ region: 'us-west-2' }));
 
     await bootstrap.ensureDeploymentConfig(BUCKET);
-    const { etag } = await tfvars.getRawConfig();
-    await tfvars.updateTopLevelSettings({ hostedZoneName: 'example.com' }, etag);
+    const { etag } = await deploymentConfig.getRawConfig();
+    await deploymentConfig.updateTopLevelSettings({ hostedZoneName: 'example.com' }, etag);
 
     // Re-running bootstrap (e.g. a wizard resume, or Reconfigure) must not
     // clobber the operator's edit.
     const secondSeed = await bootstrap.ensureDeploymentConfig(BUCKET);
     expect(secondSeed).toEqual({ status: 'exists' });
 
-    const { settings } = await tfvars.getTopLevelSettings();
+    const { settings } = await deploymentConfig.getTopLevelSettings();
     expect(settings.hostedZoneName).toBe('example.com');
   });
 });

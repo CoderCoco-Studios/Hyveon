@@ -4,16 +4,16 @@ import type { GameServer } from './gameServerConfig.js';
 /**
  * The kind of mutation an {@link AuditEntry} records. Mirrors the CRUD verbs
  * exposed by the `game_servers` write endpoints in `@hyveon/desktop-main`,
- * plus `plan` for a dry-run `terraform plan` invocation that touched no
+ * plus `plan` for a dry-run plan invocation that touched no
  * infrastructure, `approve` for marking a successful `plan` run approved
- * for a later `apply` (see `TerraformController.approve`, issue #109),
- * `apply` for a `terraform apply` invocation that actually mutated
- * infrastructure (see `TerraformController.apply`, issue #109), and
- * `destroy` for a confirmed `terraform destroy` invocation that was
+ * for a later `apply` (see `IacController.approve`, issue #109),
+ * `apply` for an apply invocation that actually mutated
+ * infrastructure (see `IacController.apply`, issue #109), and
+ * `destroy` for a confirmed destroy invocation that was
  * initiated to tear down every managed resource — recorded once the run
- * starts, not once it's confirmed successful (see `TerraformController.destroy`, issue #307), and
- * `rollback` for restoring a historic tfvars version as a new head (see
- * `TerraformController.confirmRollback`, issue #112).
+ * starts, not once it's confirmed successful (see `IacController.destroy`, issue #307), and
+ * `rollback` for restoring a historic deployment-config version as a new head (see
+ * `IacController.confirmRollback`, issue #112).
  */
 export type AuditAction =
   | 'add'
@@ -28,8 +28,8 @@ export type AuditAction =
 /**
  * A single row in the DynamoDB audit log (`${project_name}-audit` table,
  * `pk = AUDIT`, `sk = ` {@link buildAuditSk}). Records who changed a game
- * server's configuration, what changed, and the resulting `terraform.tfvars`
- * S3 version — see `terraform/aws/audit.tf` for the table definition.
+ * server's configuration, what changed, and the resulting `deployment-config.json`
+ * S3 object version — see `app/packages/infra/src/dynamodb.ts` for the table definition.
  */
 export interface AuditEntry {
   /** Sort key: `<ISO timestamp>#<ULID>` — see {@link buildAuditSk}. */
@@ -46,7 +46,7 @@ export interface AuditEntry {
   before: GameServer | null;
   /** The game's configuration after the mutation, or `null` for `remove`. */
   after: GameServer | null;
-  /** S3 object version id of `terraform.tfvars` produced by the write, if known. */
+  /** S3 object version id of `deployment-config.json` produced by the write, if known. */
   versionId?: string;
 }
 

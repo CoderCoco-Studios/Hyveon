@@ -17,9 +17,9 @@ export interface AwsDiscordEventReceiverConfig {
  * pattern so a value that changes between calls (e.g. re-applied Terraform
  * state) is always read fresh rather than captured once at construction.
  * Callers typically source `interactionsInvokeUrl` from
- * `ConfigService.getTfOutputs()`'s `interactions_invoke_url` field (parsed
- * from `terraform.tfstate`, S3 backend), the same Terraform-derived value
- * `DiscordConfigService` reads elsewhere.
+ * `ConfigService.getStackOutputs()`'s `interactionsInvokeUrl` field (read
+ * off the deployed Pulumi stack), the same value `DiscordConfigService`
+ * reads elsewhere.
  */
 export class AwsDiscordEventReceiver implements DiscordEventReceiver {
   /**

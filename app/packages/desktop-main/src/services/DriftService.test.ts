@@ -43,7 +43,7 @@ function makeConfig(outputs: Partial<StackOutputs> | null = DEFAULT_OUTPUTS): Co
 }
 
 /** Build a DeploymentConfigService stub with `invalidateCache` and `getGameServers` pre-wired. */
-function makeTfvars(declared: GameServer[] = []): DeploymentConfigService {
+function makeDeploymentConfig(declared: GameServer[] = []): DeploymentConfigService {
   return {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
@@ -209,20 +209,20 @@ describe('DriftService', () => {
   describe('getDrift', () => {
     it('should NOT invalidate the stack-outputs cache — this method backs a 30-second dashboard poll, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
-      await new DriftService(makeTfvars(), config).getDrift();
+      await new DriftService(makeDeploymentConfig(), config).getDrift();
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the DeploymentConfigService cache before reading state', async () => {
-      const tfvars = makeTfvars();
-      await new DriftService(tfvars, makeConfig()).getDrift();
-      expect(tfvars.invalidateCache).toHaveBeenCalledOnce();
+      const deploymentConfig = makeDeploymentConfig();
+      await new DriftService(deploymentConfig, makeConfig()).getDrift();
+      expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
     it('should report every declared game as pending_create when terraform.tfstate has never been applied', async () => {
       const ark = buildGameServer('ark');
 
-      const result = await new DriftService(makeTfvars([ark]), makeConfig(null)).getDrift();
+      const result = await new DriftService(makeDeploymentConfig([ark]), makeConfig(null)).getDrift();
 
       expect(result).toEqual({ entries: [{ game: 'ark', kind: 'pending_create' }] });
     });
@@ -231,7 +231,7 @@ describe('DriftService', () => {
       const minecraft = buildGameServer('minecraft');
       const outputs: Partial<StackOutputs> = { gameNames: ['minecraft'], appliedGameServers: null };
 
-      const result = await new DriftService(makeTfvars([minecraft]), makeConfig(outputs)).getDrift();
+      const result = await new DriftService(makeDeploymentConfig([minecraft]), makeConfig(outputs)).getDrift();
 
       expect(result).toEqual({ entries: [] });
     });
@@ -239,7 +239,7 @@ describe('DriftService', () => {
     it('should report pending_delete from game_names when applied_game_servers is null and the game is no longer declared', async () => {
       const outputs: Partial<StackOutputs> = { gameNames: ['minecraft'], appliedGameServers: null };
 
-      const result = await new DriftService(makeTfvars([]), makeConfig(outputs)).getDrift();
+      const result = await new DriftService(makeDeploymentConfig([]), makeConfig(outputs)).getDrift();
 
       expect(result).toEqual({ entries: [{ game: 'minecraft', kind: 'pending_delete' }] });
     });
@@ -247,7 +247,7 @@ describe('DriftService', () => {
     it('should report config_drift when the declared config no longer matches the applied config', async () => {
       const minecraft = buildGameServer('minecraft', { cpu: 4096 });
 
-      const result = await new DriftService(makeTfvars([minecraft]), makeConfig()).getDrift();
+      const result = await new DriftService(makeDeploymentConfig([minecraft]), makeConfig()).getDrift();
 
       expect(result).toEqual({
         entries: [{ game: 'minecraft', kind: 'config_drift', changedFields: ['cpu'] }],
@@ -277,7 +277,7 @@ describe('DriftService', () => {
         },
       };
 
-      const result = await new DriftService(makeTfvars([ark, minecraft]), makeConfig(outputs)).getDrift();
+      const result = await new DriftService(makeDeploymentConfig([ark, minecraft]), makeConfig(outputs)).getDrift();
 
       expect(result).toEqual({
         entries: [

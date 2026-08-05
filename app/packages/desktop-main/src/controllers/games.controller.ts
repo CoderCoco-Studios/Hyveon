@@ -18,13 +18,13 @@ export class GamesController {
   constructor(
     private readonly config: ConfigService,
     private readonly ecs: EcsService,
-    private readonly tfvars: DeploymentConfigService,
+    private readonly deploymentConfig: DeploymentConfigService,
     private readonly gamesWrite: GamesWriteService,
   ) {}
 
   /**
-   * Lists games merged from the declared view (`terraform.tfvars`
-   * `game_servers` map, via {@link DeploymentConfigService}) and the deployed view
+   * Lists games merged from the declared view (the `deployment-config.json`
+   * `gameServers` map, via {@link DeploymentConfigService}) and the deployed view
    * (the deployed stack's `gameNames` output, via {@link ConfigService}) —
    * see {@link mergeGameLists}. This surfaces games that are declared but not
    * yet applied (`declared: true, deployed: false`) alongside live games, so
@@ -46,8 +46,8 @@ export class GamesController {
    */
   @MessagePattern('games.list')
   async listGames(): Promise<{ games: GameListEntry[] }> {
-    this.tfvars.invalidateCache();
-    const declared = await this.tfvars.getGameServers();
+    this.deploymentConfig.invalidateCache();
+    const declared = await this.deploymentConfig.getGameServers();
     const outputs = await this.config.getStackOutputs();
     return { games: mergeGameLists(declared, outputs?.gameNames ?? []) };
   }
@@ -66,15 +66,15 @@ export class GamesController {
    */
   @MessagePattern('games.status')
   async listStatus() {
-    this.tfvars.invalidateCache();
+    this.deploymentConfig.invalidateCache();
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return [];
     return Promise.all(outputs.gameNames.map((g) => this.ecs.getStatus(g)));
   }
 
   /**
-   * Returns status for a single game. Does not invalidate the tfstate cache
-   * (kept cheap for frequent polling).
+   * Returns status for a single game. Does not invalidate the
+   * DeploymentConfigService cache (kept cheap for frequent polling).
    *
    * Reachable via the Electron IPC transport (`games.getStatus`).
    */
