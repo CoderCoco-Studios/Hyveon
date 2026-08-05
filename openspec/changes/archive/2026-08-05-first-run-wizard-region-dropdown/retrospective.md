@@ -20,7 +20,7 @@
 
 Commit chain (chronological):
 
-```
+```text
 2a7d144 docs: propose first-run wizard AWS region dropdown
 2b73ace feat(shared): add generated AWS region location data set
 4bd4bb7 feat(web): render guided-IAM region step as a grouped dropdown
