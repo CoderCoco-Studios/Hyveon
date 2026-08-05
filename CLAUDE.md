@@ -43,6 +43,7 @@ npm run desktop:dev             # Electron dev mode: renderer HMR, auto-restart 
 npm run app:build                # compile shared → cloud-aws → desktop-main → preload → web
 npm run desktop:build           # electron-vite build → out/main, out/preload, out/renderer
 npm run app:start                # launch the built app (requires desktop:build first)
+npm run desktop:run              # one-shot: app:build → desktop:build → app:start
 npm run desktop:package         # electron-builder installers → release/ (Win NSIS, macOS DMG, Linux AppImage)
 
 npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
