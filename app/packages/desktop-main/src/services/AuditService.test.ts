@@ -20,7 +20,7 @@ vi.mock('node:os', async () => {
 });
 
 /** Minimal `StackOutputs` stub exposing just `auditTableName`. */
-const TF: StackOutputs = {
+const STACK_OUTPUTS: StackOutputs = {
   awsRegion: 'us-east-1',
   ecsClusterName: '',
   ecsClusterArn: '',
@@ -62,7 +62,7 @@ function makeStore(): AuditLogStore {
 }
 
 /** Builds an `AuditService` with a `ConfigService` stub returning `outputs` and the given (or default) store stub. */
-function makeService(outputs: StackOutputs | null = TF, store: AuditLogStore = makeStore()): AuditService {
+function makeService(outputs: StackOutputs | null = STACK_OUTPUTS, store: AuditLogStore = makeStore()): AuditService {
   const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
   return new AuditService(config, store);
 }

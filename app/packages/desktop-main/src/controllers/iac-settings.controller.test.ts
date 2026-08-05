@@ -29,7 +29,7 @@ const SETTINGS: TopLevelDeploymentSettings = {
 };
 
 /** Build a `DeploymentConfigService` stub exposing just the methods `IacSettingsController` calls. */
-function makeTfvars(): DeploymentConfigService {
+function makeDeploymentConfig(): DeploymentConfigService {
   return {
     getTopLevelSettings: vi.fn().mockResolvedValue({ settings: SETTINGS, etag: 'etag-1' }),
     updateTopLevelSettings: vi.fn().mockResolvedValue({ etag: 'etag-2', versionId: 'v-2' }),
@@ -65,25 +65,25 @@ describe('IacSettingsController', () => {
 
   describe('get', () => {
     it('should return the top-level settings and etag from DeploymentConfigService.getTopLevelSettings', async () => {
-      const tfvars = makeTfvars();
-      const result = await new IacSettingsController(tfvars).get();
+      const deploymentConfig = makeDeploymentConfig();
+      const result = await new IacSettingsController(deploymentConfig).get();
       expect(result).toEqual({ ok: true, settings: SETTINGS, etag: 'etag-1' });
     });
 
     it('should return code: "setup_incomplete" when no configuration bucket is configured', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.getTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
 
-      const result = await new IacSettingsController(tfvars).get();
+      const result = await new IacSettingsController(deploymentConfig).get();
 
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
     });
 
     it('should return the catch-all code: "error" for any other failure', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.getTopLevelSettings).mockRejectedValue(new Error('S3 unreachable'));
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockRejectedValue(new Error('S3 unreachable'));
 
-      const result = await new IacSettingsController(tfvars).get();
+      const result = await new IacSettingsController(deploymentConfig).get();
 
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
@@ -97,19 +97,19 @@ describe('IacSettingsController', () => {
     };
 
     it('should delegate to DeploymentConfigService.updateTopLevelSettings with the patch and expectedVersionId', async () => {
-      const tfvars = makeTfvars();
-      await new IacSettingsController(tfvars).update(PAYLOAD);
-      expect(tfvars.updateTopLevelSettings).toHaveBeenCalledWith({ dnsTtl: 60 }, 'etag-1');
+      const deploymentConfig = makeDeploymentConfig();
+      await new IacSettingsController(deploymentConfig).update(PAYLOAD);
+      expect(deploymentConfig.updateTopLevelSettings).toHaveBeenCalledWith({ dnsTtl: 60 }, 'etag-1');
     });
 
     it('should return ok: true with the re-read settings and the write result etag/versionId on success', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.getTopLevelSettings).mockResolvedValue({
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockResolvedValue({
         settings: { ...SETTINGS, dnsTtl: 60 },
         etag: 'etag-2',
       });
 
-      const result = await new IacSettingsController(tfvars).update(PAYLOAD);
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
       expect(result).toEqual({
         ok: true,
@@ -120,39 +120,39 @@ describe('IacSettingsController', () => {
     });
 
     it('should re-read the settings AFTER the write so the returned settings reflect the persisted document', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const calls: string[] = [];
-      vi.mocked(tfvars.updateTopLevelSettings).mockImplementation(async () => {
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockImplementation(async () => {
         calls.push('update');
         return { etag: 'etag-2', versionId: 'v-2' };
       });
-      vi.mocked(tfvars.getTopLevelSettings).mockImplementation(async () => {
+      vi.mocked(deploymentConfig.getTopLevelSettings).mockImplementation(async () => {
         calls.push('get');
         return { settings: SETTINGS, etag: 'etag-2' };
       });
 
-      await new IacSettingsController(tfvars).update(PAYLOAD);
+      await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
       expect(calls).toEqual(['update', 'get']);
     });
 
     it('should never call DeploymentConfigService.updateTopLevelSettings when the patch fails validation', async () => {
-      const tfvars = makeTfvars();
-      const result = await new IacSettingsController(tfvars).update({ patch: { hostedZoneName: '' } });
+      const deploymentConfig = makeDeploymentConfig();
+      const result = await new IacSettingsController(deploymentConfig).update({ patch: { hostedZoneName: '' } });
 
       expect(result).toEqual({
         ok: false,
         code: 'validation',
         issues: [{ path: 'hostedZoneName', message: 'Must not be empty.' }],
       });
-      expect(tfvars.updateTopLevelSettings).not.toHaveBeenCalled();
+      expect(deploymentConfig.updateTopLevelSettings).not.toHaveBeenCalled();
     });
 
     it('should return code: "conflict" with both etags on OptimisticLockError', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.updateTopLevelSettings).mockRejectedValue(new OptimisticLockError('etag-1', 'etag-current'));
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new OptimisticLockError('etag-1', 'etag-current'));
 
-      const result = await new IacSettingsController(tfvars).update(PAYLOAD);
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
       expect(result).toEqual({
         ok: false,
@@ -164,21 +164,21 @@ describe('IacSettingsController', () => {
     });
 
     it('should return code: "setup_incomplete" when no configuration bucket is configured', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.updateTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new ConfigurationNotConfiguredError());
 
-      const result = await new IacSettingsController(tfvars).update(PAYLOAD);
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
       expect(result).toEqual({ ok: false, code: 'setup_incomplete', message: expect.any(String) });
     });
 
     it('should return code: "validation" with one issue per affected field on RunsTableRenameError (final-review round 2, finding 2)', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.updateTopLevelSettings).mockRejectedValue(
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(
         new RunsTableRenameError('hyveon-runs', 'other-runs', ['projectName', 'runsTableName']),
       );
 
-      const result = await new IacSettingsController(tfvars).update({
+      const result = await new IacSettingsController(deploymentConfig).update({
         patch: { projectName: 'other', runsTableName: 'other-runs' },
         expectedVersionId: 'etag-1',
       });
@@ -194,16 +194,16 @@ describe('IacSettingsController', () => {
     });
 
     it('should return the catch-all code: "error" for any other failure', async () => {
-      const tfvars = makeTfvars();
-      vi.mocked(tfvars.updateTopLevelSettings).mockRejectedValue(new Error('malformed config JSON'));
+      const deploymentConfig = makeDeploymentConfig();
+      vi.mocked(deploymentConfig.updateTopLevelSettings).mockRejectedValue(new Error('malformed config JSON'));
 
-      const result = await new IacSettingsController(tfvars).update(PAYLOAD);
+      const result = await new IacSettingsController(deploymentConfig).update(PAYLOAD);
 
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
 
     it('should return the catch-all code: "error" (never throw) for a malformed payload envelope', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
 
       // `payload.patch` absent entirely — nothing upstream of this handler
       // guarantees the IPC envelope is well-formed. Cast through `unknown`
@@ -211,12 +211,12 @@ describe('IacSettingsController', () => {
       // `UpdateDeploymentSettingsPayload` construction.
       const malformedPayload = {} as unknown as UpdateDeploymentSettingsPayload;
 
-      await expect(new IacSettingsController(tfvars).update(malformedPayload)).resolves.toEqual({
+      await expect(new IacSettingsController(deploymentConfig).update(malformedPayload)).resolves.toEqual({
         ok: false,
         code: 'error',
         message: expect.any(String),
       });
-      expect(tfvars.updateTopLevelSettings).not.toHaveBeenCalled();
+      expect(deploymentConfig.updateTopLevelSettings).not.toHaveBeenCalled();
     });
   });
 
@@ -230,18 +230,18 @@ describe('IacSettingsController', () => {
 
     it('should return the resolved version reported by PulumiEngineService.getResolvedVersion', () => {
       const engine = makeEngine('3.255.0');
-      const result = new IacSettingsController(makeTfvars(), engine).engineVersion();
+      const result = new IacSettingsController(makeDeploymentConfig(), engine).engineVersion();
       expect(result).toEqual({ resolvedVersion: '3.255.0' });
     });
 
     it('should return resolvedVersion: null when the engine has not been provisioned yet', () => {
       const engine = makeEngine(null);
-      const result = new IacSettingsController(makeTfvars(), engine).engineVersion();
+      const result = new IacSettingsController(makeDeploymentConfig(), engine).engineVersion();
       expect(result).toEqual({ resolvedVersion: null });
     });
 
     it('should return resolvedVersion: null without throwing when no engine was injected', () => {
-      const result = new IacSettingsController(makeTfvars()).engineVersion();
+      const result = new IacSettingsController(makeDeploymentConfig()).engineVersion();
       expect(result).toEqual({ resolvedVersion: null });
     });
   });

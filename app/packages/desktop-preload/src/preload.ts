@@ -148,10 +148,10 @@ const STACK_INIT_CHUNK_CHANNEL = 'iac.stack.initialize.chunk';
 const STACK_INIT_END_CHANNEL = 'iac.stack.initialize.end';
 
 /** Fixed side-channel `IacRunsController.logs` pushes streamed run output on. */
-const TERRAFORM_RUNS_LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';
+const IAC_RUNS_LOGS_CHUNK_CHANNEL = 'iac.runs.logs.chunk';
 
 /** Fixed side-channel `IacRunsController.logs` sends its terminal message on. */
-const TERRAFORM_RUNS_LOGS_END_CHANNEL = 'iac.runs.logs.end';
+const IAC_RUNS_LOGS_END_CHANNEL = 'iac.runs.logs.end';
 
 /**
  * Per-channel mock registry populated by tests via `window.hyveon.__test.mock(channel, handler)`.
@@ -564,8 +564,8 @@ async function* streamIacRunLogs(runId: string, signal?: AbortSignal): AsyncGene
   // its end event on this same fixed channel before our own, and a `once`
   // listener would consume and discard it, missing our own end event
   // entirely.
-  ipcRenderer.on(TERRAFORM_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
-  ipcRenderer.on(TERRAFORM_RUNS_LOGS_END_CHANNEL, onEnd);
+  ipcRenderer.on(IAC_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
+  ipcRenderer.on(IAC_RUNS_LOGS_END_CHANNEL, onEnd);
   if (signal) {
     if (signal.aborted) aborted = true;
     else signal.addEventListener('abort', onAbort, { once: true });
@@ -599,8 +599,8 @@ async function* streamIacRunLogs(runId: string, signal?: AbortSignal): AsyncGene
       });
     }
   } finally {
-    ipcRenderer.removeListener(TERRAFORM_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
-    ipcRenderer.removeListener(TERRAFORM_RUNS_LOGS_END_CHANNEL, onEnd);
+    ipcRenderer.removeListener(IAC_RUNS_LOGS_CHUNK_CHANNEL, onChunk);
+    ipcRenderer.removeListener(IAC_RUNS_LOGS_END_CHANNEL, onEnd);
     signal?.removeEventListener('abort', onAbort);
   }
 }

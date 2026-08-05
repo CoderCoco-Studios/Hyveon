@@ -25,7 +25,7 @@ import { ConfigService } from './ConfigService.js';
 import { RunService } from './RunService.js';
 
 /** Minimal `StackOutputs` stub exposing just `runsTableName`. */
-const TF: StackOutputs = {
+const STACK_OUTPUTS: StackOutputs = {
   awsRegion: 'us-east-1',
   ecsClusterName: '',
   ecsClusterArn: '',
@@ -111,7 +111,7 @@ function makeRemoteFileStore(config?: { projectName?: string; runsTableName?: st
 
 /** Builds a `RunRecordService` with a `ConfigService` stub returning `outputs` and the given (or default) store/run-service/remote-file-store stubs. */
 function makeService(
-  outputs: StackOutputs | null = TF,
+  outputs: StackOutputs | null = STACK_OUTPUTS,
   store: RunRecordStore = makeStore(),
   runService: RunService = makeRunService(),
   remoteFileStore: RemoteFileStore = makeRemoteFileStore(),

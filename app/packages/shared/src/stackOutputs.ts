@@ -1,6 +1,6 @@
 /**
  * Typed contract for the values `PulumiService` (a `@hyveon/desktop-main`
- * service) reads back off a deployed Pulumi stack, in place of
+ * service) reads back off a deployed Pulumi stack, in place of the old
  * `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`. This module
  * defines the TYPE ONLY — no reading/parsing logic lives here; `PulumiService`
  * owns turning a stack's `outputs` map into a {@link StackOutputs} value.
@@ -8,7 +8,7 @@
  * Field inventory: every field mirrors an `output` block in
  * `terraform/aws/outputs.tf` (re-exported unchanged by the root
  * `terraform/outputs.tf`) that the app actually reads today via
- * `ConfigService.getTfOutputs()` and its consumers (`EcsService`,
+ * `ConfigService.getStackOutputs()` and its consumers (`EcsService`,
  * `FileManagerService`, `DriftService`, `discord.controller.ts`,
  * `AwsDiscordEventReceiver`) — confirmed by grepping every consumer's field
  * accesses against the full output list. Six declared Terraform outputs are
@@ -30,7 +30,7 @@ import type { GameServerConfig } from './gameServerConfig.js';
 /**
  * Every value the app reads off a deployed Pulumi stack. `PulumiService`
  * returns this shape (or `null` for a never-deployed stack, mirroring
- * `ConfigService.getTfOutputs()`'s existing "not deployed yet" contract) in
+ * `ConfigService.getStackOutputs()`'s "not deployed yet" contract) in
  * place of parsing `terraform.tfstate`.
  */
 export interface StackOutputs {

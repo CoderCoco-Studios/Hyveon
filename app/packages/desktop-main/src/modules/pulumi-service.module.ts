@@ -14,8 +14,8 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * ever invoking Pulumi (see `PulumiService.getStackOutputs`'s doc comment).
  *
  * `ConfigModule` imports this module so `ConfigService.getStackOutputs()`
- * (the thin delegate every existing `getTfOutputs()` call site now calls)
- * can inject `PulumiService`.
+ * (the thin delegate that replaced the old `getTfOutputs()` at every one of
+ * its call sites) can inject `PulumiService`.
  *
  * Also imports `PulumiEngineModule` directly — `PulumiService.apply`'s
  * `PulumiEngineService` constructor dependency, needed for the gate's

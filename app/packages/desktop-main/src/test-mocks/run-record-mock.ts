@@ -16,9 +16,8 @@ const LOCK_SK = 'CURRENT';
  *
  * Exposed separately from the SDK interceptor (mirrors `mock-store.ts`'s
  * split from `ecs-mock.ts`) so integration specs can directly patch a stored
- * record's `approvedAt` to simulate an expired approval without fake timers
- * — which, per the design doc, never reach the spawned fake-terraform child
- * process.
+ * record's `approvedAt` to simulate an expired approval without relying on
+ * fake timers.
  */
 class RunRecordMockStore {
   private items: Record<string, unknown>[] = [];
@@ -94,7 +93,7 @@ class RunRecordMockStore {
 /**
  * Shared backing store for {@link installRunRecordDynamoMock}'s interceptors.
  * Integration specs reach for this directly (e.g. `runRecordMockStore.patchApprovedAt(...)`)
- * to seed state the real `TerraformController.approve` flow can't produce on
+ * to seed state the real `IacController.approve` flow can't produce on
  * its own — see {@link RunRecordMockStore.patchApprovedAt}.
  */
 export const runRecordMockStore = new RunRecordMockStore();
@@ -106,8 +105,9 @@ export const runRecordMockStore = new RunRecordMockStore();
  * queues, this backs a stateful table: `AwsRunRecordStore.putRecord`/
  * `getRecordByRunId` and `RunService`'s `acquireRunLock`/`releaseRunLock`
  * calls all operate against the same in-memory item set, so a plan run
- * persisted via `TerraformService.plan` is genuinely retrievable by a
- * subsequent `TerraformController.approve`/`apply` call in the same spec.
+ * persisted via `IacController.plan` (which drives `PulumiService.preview`)
+ * is genuinely retrievable by a subsequent `IacController.approve`/`apply`
+ * call in the same spec.
  *
  * `AwsRunRecordStore` builds its `DynamoDBDocumentClient` lazily (on first
  * `send()` call), so patching the *prototype* is sufficient — this only

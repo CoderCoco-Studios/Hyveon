@@ -402,7 +402,7 @@ const RUN_5: RunHistoryRecord = {
   approvedBy: 'ops@hyveon.example.com', configVersionId: 'v41', rolledBackFrom: 'run-3',
 };
 
-export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {
+export const DEMO_IAC_HISTORY: RunHistoryPageResult = {
   records: [RUN_9, RUN_8, RUN_7, RUN_6, RUN_5],
   // Omitted on purpose: with 5 records under the 25-per-page default, the
   // history page's "Load more" button should stay hidden.
@@ -422,7 +422,7 @@ export const DEMO_TERRAFORM_HISTORY: RunHistoryPageResult = {
 // ---------------------------------------------------------------------------
 
 /** Streamed `terraform plan` output for the `run-plan-demo` run — ends with the summary line `TerraformPage.parsePlanSummary` scrapes. */
-export const DEMO_TERRAFORM_PLAN_CHUNKS: IacRunChunk[] = [
+export const DEMO_IAC_PLAN_CHUNKS: IacRunChunk[] = [
   { stream: 'stdout', line: 'Refreshing Terraform state in-memory prior to plan...' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_cluster.this: Refreshing state... [id=hyveon-cluster]' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Refreshing state... [id=palworld-server]' },
@@ -452,8 +452,8 @@ export const DEMO_TERRAFORM_PLAN_CHUNKS: IacRunChunk[] = [
   { stream: 'stdout', line: '\x1b[1mPlan: 1 to add, 1 to change, 0 to destroy.\x1b[0m' },
 ];
 
-/** Streamed `terraform apply` output for the `run-apply-demo` run — same 1 add / 1 change / 0 destroy shape as {@link DEMO_TERRAFORM_PLAN_CHUNKS}, ending with the summary line `TerraformPage.parseApplySummary` scrapes. */
-export const DEMO_TERRAFORM_APPLY_CHUNKS: IacRunChunk[] = [
+/** Streamed `terraform apply` output for the `run-apply-demo` run — same 1 add / 1 change / 0 destroy shape as {@link DEMO_IAC_PLAN_CHUNKS}, ending with the summary line `TerraformPage.parseApplySummary` scrapes. */
+export const DEMO_IAC_APPLY_CHUNKS: IacRunChunk[] = [
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifying... [id=palworld-server]' },
   { stream: 'stdout', line: 'module.cloud.aws_ecs_task_definition.game["palworld"]: Modifications complete after 1s [id=palworld-server]' },
   { stream: 'stdout', line: 'module.cloud.aws_cloudwatch_log_group.game["terraria"]: Creating...' },
@@ -499,11 +499,11 @@ export interface DemoOverrides {
   logLines?: string[];
   /** Lines delivered over the live `logs.stream` channel, after `logLines`' snapshot is already on screen. */
   logStreamLines?: string[];
-  terraformHistory?: RunHistoryPageResult;
+  iacHistory?: RunHistoryPageResult;
   /** Streamed `terraform plan` chunks for the `run-plan-demo` run. */
-  terraformPlanChunks?: IacRunChunk[];
+  iacPlanChunks?: IacRunChunk[];
   /** Streamed `terraform apply` chunks for the `run-apply-demo` run. */
-  terraformApplyChunks?: IacRunChunk[];
+  iacApplyChunks?: IacRunChunk[];
 }
 
 /**
@@ -560,9 +560,9 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     audit: overrides.audit ?? DEMO_AUDIT,
     logLines: overrides.logLines ?? DEMO_LOG_LINES,
     logStreamLines: overrides.logStreamLines ?? DEMO_LOG_STREAM_LINES,
-    terraformHistory: overrides.terraformHistory ?? DEMO_TERRAFORM_HISTORY,
-    terraformPlanChunks: overrides.terraformPlanChunks ?? DEMO_TERRAFORM_PLAN_CHUNKS,
-    terraformApplyChunks: overrides.terraformApplyChunks ?? DEMO_TERRAFORM_APPLY_CHUNKS,
+    iacHistory: overrides.iacHistory ?? DEMO_IAC_HISTORY,
+    iacPlanChunks: overrides.iacPlanChunks ?? DEMO_IAC_PLAN_CHUNKS,
+    iacApplyChunks: overrides.iacApplyChunks ?? DEMO_IAC_APPLY_CHUNKS,
     stackInitEvents: DEMO_STACK_INIT_EVENTS,
     diagnosticsLines: DEMO_DIAGNOSTICS_TAIL,
     diagnosticsPath: '/home/hyveon/.config/Hyveon/logs/desktop-main.log',
@@ -662,7 +662,7 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
             // Structured resource-change summary — see `ChangeSummary`'s
             // TSDoc (`@hyveon/shared/src/changeSummary.ts`): the UI reads
             // this directly (`ChangeSummaryStatus` in `iac.page.tsx`), never
-            // by parsing `DEMO_TERRAFORM_PLAN_CHUNKS`'s streamed text, even
+            // by parsing `DEMO_IAC_PLAN_CHUNKS`'s streamed text, even
             // though the two are kept in the same 1 create / 1 update shape
             // so the log and the badges tell one consistent story.
             changeSummary: { create: 1, update: 1 },
@@ -685,14 +685,14 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
       }
       return Promise.resolve({ found: false });
     });
-    mock('iac.runs.list', () => Promise.resolve(d.terraformHistory));
+    mock('iac.runs.list', () => Promise.resolve(d.iacHistory));
     mock('iac.runs.logUrl', () => Promise.resolve({ url: 'https://example-logs.s3.amazonaws.com/demo-run.log' }));
     // Keyed on `runId` (the preload calls this handler with `(runId, signal)`
     // — see `streamIacRunLogs` in `preload.ts`) so the plan and apply
     // runs each stream their own realistic output.
     mock('iac.runs.logs', (runId: unknown) => {
-      if (runId === 'run-plan-demo') return toIterable(d.terraformPlanChunks);
-      if (runId === 'run-apply-demo') return toIterable(d.terraformApplyChunks);
+      if (runId === 'run-plan-demo') return toIterable(d.iacPlanChunks);
+      if (runId === 'run-apply-demo') return toIterable(d.iacApplyChunks);
       return toIterable([]);
     });
     mock('iac.stack.initialize', () => toIterable(d.stackInitEvents));

@@ -180,7 +180,7 @@ export class FileManagerService {
       logger.error('Could not get execution role ARN', { game, taskDef });
       return {
         success: false,
-        message: `Could not get execution role for '${game}'. Ensure the game's task definition exists (run terraform apply).`,
+        message: `Could not get execution role for '${game}'. Ensure the game's task definition exists — run plan and apply on the Infrastructure page to deploy it.`,
       };
     }
 

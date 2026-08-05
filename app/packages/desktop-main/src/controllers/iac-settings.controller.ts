@@ -41,7 +41,7 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
 export class IacSettingsController {
   /**
    * `engine` is typed optional (`?`) purely so existing test call sites that
-   * construct `new IacSettingsController(tfvars)` directly (bypassing Nest's
+   * construct `new IacSettingsController(deploymentConfig)` directly (bypassing Nest's
    * DI container) keep compiling without also stubbing it — mirrors
    * `IacController`'s identical `audit`/`runRecord`/`config` optionality (see
    * that class's own constructor doc comment). Every real bootstrap through
@@ -50,7 +50,7 @@ export class IacSettingsController {
    * `engine` the same as "not yet provisioned" rather than throwing.
    */
   constructor(
-    private readonly tfvars: DeploymentConfigService,
+    private readonly deploymentConfig: DeploymentConfigService,
     private readonly engine?: PulumiEngineService,
   ) {}
 
@@ -64,7 +64,7 @@ export class IacSettingsController {
   @MessagePattern('iac.settings.get')
   async get(): Promise<DeploymentSettingsGetResult> {
     try {
-      const { settings, etag } = await this.tfvars.getTopLevelSettings();
+      const { settings, etag } = await this.deploymentConfig.getTopLevelSettings();
       return { ok: true, settings, etag };
     } catch (err) {
       if (err instanceof ConfigurationNotConfiguredError) {
@@ -120,8 +120,8 @@ export class IacSettingsController {
         return { ok: false, code: 'validation', issues };
       }
 
-      const write = await this.tfvars.updateTopLevelSettings(payload.patch, payload.expectedVersionId);
-      const { settings } = await this.tfvars.getTopLevelSettings();
+      const write = await this.deploymentConfig.updateTopLevelSettings(payload.patch, payload.expectedVersionId);
+      const { settings } = await this.deploymentConfig.getTopLevelSettings();
       return { ok: true, settings, etag: write.etag, versionId: write.versionId };
     } catch (err) {
       if (err instanceof RunsTableRenameError) {

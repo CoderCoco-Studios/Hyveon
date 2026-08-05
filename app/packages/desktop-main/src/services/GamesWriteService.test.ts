@@ -48,7 +48,7 @@ function makeConfig(options: { outputs?: Partial<StackOutputs> | null } = {}): C
  * service's return shape, defaulting `versionId` to `'v-new'` so audit
  * assertions have a concrete value to check against.
  */
-function makeTfvars(declared: GameServer[] = [], versionId: string | undefined = 'v-new'): DeploymentConfigService {
+function makeDeploymentConfig(declared: GameServer[] = [], versionId: string | undefined = 'v-new'): DeploymentConfigService {
   return {
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
@@ -72,15 +72,15 @@ describe('GamesWriteService', () => {
 
   describe('createGame', () => {
     it('should write the new entry and return the updated game plus the refreshed games list on success', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
       const audit = makeAudit();
-      const service = new GamesWriteService(config, tfvars, audit);
+      const service = new GamesWriteService(config, deploymentConfig, audit);
 
       const result = await service.createGame({ name: 'ark', config: buildConfig(), expectedVersionId: 'v1' });
 
-      expect(tfvars.addGameServer).toHaveBeenCalledWith('ark', buildConfig(), 'v1');
-      expect(tfvars.invalidateCache).toHaveBeenCalledOnce();
+      expect(deploymentConfig.addGameServer).toHaveBeenCalledWith('ark', buildConfig(), 'v1');
+      expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
       expect(config.invalidateCache).toHaveBeenCalledOnce();
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -90,9 +90,9 @@ describe('GamesWriteService', () => {
     });
 
     it('should record an audit entry exactly once with a null before, the validated after, and the write versionId', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       await service.createGame({ name: 'ark', config: buildConfig(), expectedVersionId: 'v1' });
 
@@ -107,7 +107,7 @@ describe('GamesWriteService', () => {
     });
 
     it('should emit a structured audit log entry noting s3 mode (the only mode; there is no local-file fallback)', async () => {
-      const service = new GamesWriteService(makeConfig(), makeTfvars(), makeAudit());
+      const service = new GamesWriteService(makeConfig(), makeDeploymentConfig(), makeAudit());
 
       await service.createGame({ name: 'ark', config: buildConfig() });
 
@@ -115,9 +115,9 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a validation failure without writing or recording an audit entry when the proposed config fails business-rule validation', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.createGame({ name: 'ark', config: buildConfig({ cpu: 256, memory: 4096 }) });
 
@@ -126,15 +126,15 @@ describe('GamesWriteService', () => {
         code: 'validation',
         issues: expect.arrayContaining([expect.objectContaining({ path: 'memory' })]),
       });
-      expect(tfvars.addGameServer).not.toHaveBeenCalled();
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
     });
 
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
-      const tfvars = makeTfvars();
-      tfvars.addGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
+      const deploymentConfig = makeDeploymentConfig();
+      deploymentConfig.addGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.createGame({ name: 'ark', config: buildConfig(), expectedVersionId: 'old-etag' });
 
@@ -148,8 +148,8 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a validation failure with a name-path issue without recording an audit entry when the entry name already exists', async () => {
-      const tfvars = makeTfvars();
-      tfvars.addGameServer = vi
+      const deploymentConfig = makeDeploymentConfig();
+      deploymentConfig.addGameServer = vi
         .fn()
         .mockRejectedValue(
           new GameServerEntryError(
@@ -158,7 +158,7 @@ describe('GamesWriteService', () => {
           ),
         );
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.createGame({ name: 'ark', config: buildConfig() });
 
@@ -171,11 +171,11 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a catch-all error result without recording an audit entry when the write raises an unexpected error', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const originalError = new Error('disk full');
-      tfvars.addGameServer = vi.fn().mockRejectedValue(originalError);
+      deploymentConfig.addGameServer = vi.fn().mockRejectedValue(originalError);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
       const loggerErrorSpy = vi.spyOn(logger, 'error');
 
       const result = await service.createGame({ name: 'ark', config: buildConfig() });
@@ -190,11 +190,11 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a catch-all error result (not a name-validation issue) without recording an audit entry when addGameServer() throws a structural GameServerEntryError', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const structuralError = new GameServerEntryError('"gameServers" map not found in the deployment config JSON.', 'structural');
-      tfvars.addGameServer = vi.fn().mockRejectedValue(structuralError);
+      deploymentConfig.addGameServer = vi.fn().mockRejectedValue(structuralError);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
       const loggerErrorSpy = vi.spyOn(logger, 'error');
 
       const result = await service.createGame({ name: 'ark', config: buildConfig() });
@@ -209,11 +209,11 @@ describe('GamesWriteService', () => {
     });
 
     it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when addGameServer() throws ConfigurationNotConfiguredError', async () => {
-      const tfvars = makeTfvars();
+      const deploymentConfig = makeDeploymentConfig();
       const notConfiguredError = new ConfigurationNotConfiguredError();
-      tfvars.addGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      deploymentConfig.addGameServer = vi.fn().mockRejectedValue(notConfiguredError);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.createGame({ name: 'ark', config: buildConfig() });
 
@@ -231,15 +231,15 @@ describe('GamesWriteService', () => {
 
   describe('updateGame', () => {
     it('should write the updated entry and return the updated game plus the refreshed games list on success', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const config = makeConfig({ outputs: { gameNames: ['minecraft'] } });
-      const service = new GamesWriteService(config, tfvars, makeAudit());
+      const service = new GamesWriteService(config, deploymentConfig, makeAudit());
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
 
       const result = await service.updateGame({ name: 'minecraft', config: newConfig, expectedVersionId: 'v1' });
 
-      expect(tfvars.updateGameServer).toHaveBeenCalledWith('minecraft', newConfig, 'v1');
-      expect(tfvars.invalidateCache).toHaveBeenCalledOnce();
+      expect(deploymentConfig.updateGameServer).toHaveBeenCalledWith('minecraft', newConfig, 'v1');
+      expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
       expect(config.invalidateCache).toHaveBeenCalledOnce();
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -248,9 +248,9 @@ describe('GamesWriteService', () => {
     });
 
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, the validated after, and the write versionId', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
       const newConfig = buildConfig({ cpu: 2048, memory: 4096 });
 
       await service.updateGame({ name: 'minecraft', config: newConfig, expectedVersionId: 'v1' });
@@ -266,9 +266,9 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a validation failure without writing or recording an audit entry when the proposed config fails business-rule validation', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.updateGame({
         name: 'minecraft',
@@ -276,15 +276,15 @@ describe('GamesWriteService', () => {
       });
 
       expect(result).toMatchObject({ ok: false, code: 'validation' });
-      expect(tfvars.updateGameServer).not.toHaveBeenCalled();
+      expect(deploymentConfig.updateGameServer).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
     });
 
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      tfvars.updateGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.updateGame({
         name: 'minecraft',
@@ -302,10 +302,10 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      tfvars.updateGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.updateGame({
         name: 'ark',
@@ -317,11 +317,11 @@ describe('GamesWriteService', () => {
     });
 
     it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when updateGameServer() throws ConfigurationNotConfiguredError', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const notConfiguredError = new ConfigurationNotConfiguredError();
-      tfvars.updateGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      deploymentConfig.updateGameServer = vi.fn().mockRejectedValue(notConfiguredError);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.updateGame({ name: 'minecraft', config: buildConfig() });
 
@@ -333,14 +333,14 @@ describe('GamesWriteService', () => {
 
   describe('deleteGame', () => {
     it('should remove the entry and return the refreshed games list without a game field on success', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const config = makeConfig({ outputs: { gameNames: [] } });
-      const service = new GamesWriteService(config, tfvars, makeAudit());
+      const service = new GamesWriteService(config, deploymentConfig, makeAudit());
 
       const result = await service.deleteGame({ name: 'minecraft', expectedVersionId: 'v1' });
 
-      expect(tfvars.removeGameServer).toHaveBeenCalledWith('minecraft', 'v1');
-      expect(tfvars.invalidateCache).toHaveBeenCalledOnce();
+      expect(deploymentConfig.removeGameServer).toHaveBeenCalledWith('minecraft', 'v1');
+      expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
       expect(config.invalidateCache).toHaveBeenCalledOnce();
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -349,9 +349,9 @@ describe('GamesWriteService', () => {
     });
 
     it('should record an audit entry exactly once with the pre-mutation sibling entry as before, a null after, and the write versionId', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       await service.deleteGame({ name: 'minecraft', expectedVersionId: 'v1' });
 
@@ -366,8 +366,8 @@ describe('GamesWriteService', () => {
     });
 
     it('should emit a structured audit log entry with the game name even though no game object is returned', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      const service = new GamesWriteService(makeConfig(), tfvars, makeAudit());
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, makeAudit());
 
       await service.deleteGame({ name: 'minecraft' });
 
@@ -375,10 +375,10 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a conflict result without recording an audit entry when the write raises OptimisticLockError', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
-      tfvars.removeGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
+      deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(new OptimisticLockError('old-etag', 'new-etag'));
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.deleteGame({ name: 'minecraft', expectedVersionId: 'old-etag' });
 
@@ -392,10 +392,10 @@ describe('GamesWriteService', () => {
     });
 
     it('should return a not_found result without recording an audit entry when the target game does not exist in gameServers', async () => {
-      const tfvars = makeTfvars([]);
-      tfvars.removeGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
+      const deploymentConfig = makeDeploymentConfig([]);
+      deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(new GameServerEntryError('Entry "ark" not found in "gameServers".', 'not-found'));
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.deleteGame({ name: 'ark' });
 
@@ -404,11 +404,11 @@ describe('GamesWriteService', () => {
     });
 
     it('should surface a distinct setup_incomplete code (not the generic error code) without recording an audit entry when removeGameServer() throws ConfigurationNotConfiguredError', async () => {
-      const tfvars = makeTfvars([buildGameServer('minecraft')]);
+      const deploymentConfig = makeDeploymentConfig([buildGameServer('minecraft')]);
       const notConfiguredError = new ConfigurationNotConfiguredError();
-      tfvars.removeGameServer = vi.fn().mockRejectedValue(notConfiguredError);
+      deploymentConfig.removeGameServer = vi.fn().mockRejectedValue(notConfiguredError);
       const audit = makeAudit();
-      const service = new GamesWriteService(makeConfig(), tfvars, audit);
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
 
       const result = await service.deleteGame({ name: 'minecraft' });
 

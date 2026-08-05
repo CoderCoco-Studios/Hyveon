@@ -959,9 +959,9 @@ export class PulumiService {
   /**
    * Reads every value the app cares about off the deployed Pulumi stack,
    * replacing `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`.
-   * Returns `null` — NEVER throws, full stop — mirroring `getTfOutputs()`'s
-   * exact contract: that method had three separate catch-alls
-   * (`ConfigService.ts`'s old `getTfOutputs()`) that swallowed
+   * Returns `null` — NEVER throws, full stop — mirroring the old
+   * `getTfOutputs()`'s exact contract: that method had three separate
+   * catch-alls (`ConfigService.ts`'s old `getTfOutputs()`) that swallowed
    * every failure — a missing file, unparseable JSON, a thrown projection
    * error — and returned `null`/logged rather than ever propagating. Every
    * one of the ~14 call sites that use `getStackOutputs()`
@@ -1096,7 +1096,7 @@ export class PulumiService {
       });
       outputs = await stack.outputs();
     } catch (err) {
-      // Restores `getTfOutputs()`'s never-throw contract in full — see this
+      // Restores the old `getTfOutputs()`'s never-throw contract in full — see this
       // method's doc comment for why every kind of failure here (not just a
       // missing backend) degrades to `null` rather than propagating.
       logger.warn('PulumiService.getStackOutputs: failed to read stack outputs, treating as not deployed', {
