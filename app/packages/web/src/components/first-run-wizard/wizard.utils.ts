@@ -7,6 +7,15 @@ import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
 
 export { WIZARD_STEPS, type WizardStep };
 
+/** Human-readable heading for each {@link WizardStep}. */
+export const STEP_LABELS: Record<WizardStep, string> = {
+  'pick-cloud': 'Choose your cloud',
+  'guided-iam': 'Provision AWS access',
+  credentials: 'AWS credentials',
+  bootstrap: 'Bootstrap AWS resources',
+  'stack-init': 'Finish setup',
+};
+
 /**
  * A backend bootstrap resource name tracked by the wizard's bootstrap step.
  *
