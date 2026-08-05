@@ -404,6 +404,91 @@ describe('RunRecordService', () => {
     });
   });
 
+  describe('writePreflightMarker', () => {
+    it('should write a durable kind:"apply", partialApply:true, status:"aborted" marker via store.putRecord', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' });
+
+      expect(putRecordMock).toHaveBeenCalledTimes(1);
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.kind).toBe('apply');
+      expect(record.partialApply).toBe(true);
+      expect(record.status).toBe('aborted');
+      expect(record.exitCode).toBeNull();
+    });
+
+    it('should build sk from startedAt and runId, and set completedAt equal to startedAt', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' });
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.sk).toBe('2026-07-17T00:00:00.000Z#run-123');
+      expect(record.startedAt).toBe('2026-07-17T00:00:00.000Z');
+      expect(record.completedAt).toBe('2026-07-17T00:00:00.000Z');
+    });
+
+    it('should carry tfvarsVersionId, planHash, and engineVersion onto the record when provided', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.writePreflightMarker({
+        runId: 'run-123',
+        startedAt: '2026-07-17T00:00:00.000Z',
+        tfvarsVersionId: 'v-1',
+        planHash: 'a'.repeat(64),
+        engineVersion: '3.255.0',
+      });
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record.tfvarsVersionId).toBe('v-1');
+      expect(record.planHash).toBe('a'.repeat(64));
+      expect(record.engineVersion).toBe('3.255.0');
+    });
+
+    it('should omit tfvarsVersionId, planHash, and engineVersion from the record when absent from params', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' });
+
+      const record = putRecordMock.mock.calls[0]?.[0] as RunRecord;
+      expect(record).not.toHaveProperty('tfvarsVersionId');
+      expect(record).not.toHaveProperty('planHash');
+      expect(record).not.toHaveProperty('engineVersion');
+    });
+
+    it('should propagate a store.putRecord failure rather than swallowing it', async () => {
+      putRecordMock.mockRejectedValue(new Error('DynamoDB is down'));
+      const service = makeService();
+
+      await expect(
+        service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' }),
+      ).rejects.toThrow('DynamoDB is down');
+    });
+
+    it('should throw, rather than silently no-op, when runs_table_name is not configured', async () => {
+      const service = makeService(null, undefined, undefined, makeRemoteFileStore(undefined));
+
+      await expect(
+        service.writePreflightMarker({ runId: 'run-123', startedAt: '2026-07-17T00:00:00.000Z' }),
+      ).rejects.toThrow(/runs_table_name not configured/);
+      expect(putRecordMock).not.toHaveBeenCalled();
+    });
+
+    it('should NOT release the apply lock — unlike persist(), this write happens while the lock must remain held', async () => {
+      putRecordMock.mockResolvedValue(undefined);
+      const service = makeService();
+
+      await service.writePreflightMarker({ runId: 'run-still-locked', startedAt: '2026-07-17T00:00:00.000Z' });
+
+      expect(releaseRunMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getLogUrl', () => {
     it("should return the store's presigned URL for a given log key", async () => {
       getLogUrlMock.mockResolvedValue('https://example.com/signed');

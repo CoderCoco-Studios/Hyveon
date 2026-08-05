@@ -61,6 +61,7 @@ import {
   PulumiPartialApplyError,
   PulumiPlanRunNotFoundError,
   PulumiPlanRunWrongKindError,
+  PulumiPartialApplyRetryBlockedError,
   PulumiPlanNotApprovedError,
   PulumiApprovalExpiredError,
   PulumiPlanHashMismatchError,
@@ -68,6 +69,7 @@ import {
   PulumiEngineVersionMismatchError,
   StalePlanError,
   PulumiRunPersistError,
+  PulumiPreflightMarkerError,
   RUN_RECORD_PERSISTER,
   RUN_LOCK_SERVICE,
   CONFIG_CACHE_INVALIDATOR,
@@ -166,13 +168,18 @@ function makeApprovedPlanRecord(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
-/** `RunRecordPersister` stub — `getByRunId` resolves `record` by default, `persist` is a directly-inspectable mock. */
+/** `RunRecordPersister` stub — `getByRunId` resolves `record` by default, `persist`/`writePreflightMarker` are directly-inspectable mocks. */
 function makeRunRecordPersister(
   record: RunRecord | undefined = makeApprovedPlanRecord(),
-): RunRecordPersister & { persist: ReturnType<typeof vi.fn>; getByRunId: ReturnType<typeof vi.fn> } {
+): RunRecordPersister & {
+  persist: ReturnType<typeof vi.fn>;
+  getByRunId: ReturnType<typeof vi.fn>;
+  writePreflightMarker: ReturnType<typeof vi.fn>;
+} {
   return {
     getByRunId: vi.fn().mockResolvedValue(record),
     persist: vi.fn().mockResolvedValue(undefined),
+    writePreflightMarker: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -346,6 +353,19 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
+  it('should reject with PulumiPartialApplyRetryBlockedError, and never call getOrCreateStack, when a prior attempt left an apply-kind record with partialApply: true for this planRunId', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runRecordPersister = makeRunRecordPersister(
+      makeApprovedPlanRecord({ kind: 'apply', status: 'aborted', exitCode: null, partialApply: true }),
+    );
+    const service = makeService({ workspace, runRecordPersister });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(
+      PulumiPartialApplyRetryBlockedError,
+    );
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+  });
+
   it('should reject with PulumiPlanNotApprovedError when approvedBy/approvedAt are unset', async () => {
     const workspace = makeWorkspace(makeHappyPathUp());
     const runRecordPersister = makeRunRecordPersister(makeApprovedPlanRecord({ approvedBy: undefined, approvedAt: undefined }));
@@ -450,6 +470,95 @@ describe('PulumiService.apply gate', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
     // No run was ever reserved, so no run record is written for the rejected attempt.
     expect(runRecordPersister.persist).not.toHaveBeenCalled();
+  });
+});
+
+describe('PulumiService.apply pre-flight marker (issue #399)', () => {
+  it('should write the pre-flight marker AFTER the durable lock is acquired but BEFORE stack.up() is called, carrying the gate-validated tfvarsVersionId/planHash/engineVersion', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runLockService = makeRunLockService();
+    const runRecordPersister = makeRunRecordPersister();
+    const service = makeService({ workspace, runLockService, runRecordPersister });
+
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+
+    expect(runRecordPersister.writePreflightMarker).toHaveBeenCalledTimes(1);
+    const markerParams = runRecordPersister.writePreflightMarker.mock.calls[0]![0];
+    expect(markerParams).toMatchObject({
+      runId: PLAN_RUN_ID,
+      tfvarsVersionId: CONFIG_VERSION_ID,
+      planHash: PLAN_HASH,
+      engineVersion: ENGINE_VERSION,
+    });
+    expect(typeof markerParams.startedAt).toBe('string');
+
+    const createRunOrder = runLockService.createRun.mock.invocationCallOrder[0]!;
+    const markerOrder = runRecordPersister.writePreflightMarker.mock.invocationCallOrder[0]!;
+    const upOrder = workspace.getOrCreateStack.mock.invocationCallOrder[0]!;
+    expect(markerOrder).toBeGreaterThan(createRunOrder);
+    expect(markerOrder).toBeLessThan(upOrder);
+  });
+
+  it('should abort BEFORE calling stack.up() and release the durable apply lock explicitly, without falling through to the ordinary post-apply release, when the pre-flight marker write itself fails', async () => {
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const runLockService = makeRunLockService();
+    const runRecordPersister = makeRunRecordPersister();
+    runRecordPersister.writePreflightMarker.mockRejectedValue(new Error('DynamoDB is down'));
+    const service = makeService({ workspace, runLockService, runRecordPersister });
+
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(
+      PulumiPreflightMarkerError,
+    );
+
+    expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
+    expect(runLockService.releaseRun).toHaveBeenCalledWith(PLAN_RUN_ID);
+    // The failed settlement never reaches the ordinary persist() write.
+    expect(runRecordPersister.persist).not.toHaveBeenCalled();
+  });
+
+  it('should refuse a second apply() call for the same planRunId once the pre-flight marker from a first attempt is the newest record — reproducing the exact persist-failure retry gap issue #399 fixes, and proving stack.up() is never reached on the retry', async () => {
+    // A stateful fake standing in for the real RunRecordStore: writePreflightMarker
+    // durably lands a record; persist() (the settlement write) simulates the
+    // exact failure mode issue #399 describes — it resolves without ever
+    // updating the stored record, mirroring `persistRunRecord`'s real
+    // swallow-and-warn contract on a genuine RunRecordStore.putRecord failure.
+    let stored: RunRecord = makeApprovedPlanRecord();
+    const runRecordPersister: RunRecordPersister & {
+      persist: ReturnType<typeof vi.fn>;
+      getByRunId: ReturnType<typeof vi.fn>;
+      writePreflightMarker: ReturnType<typeof vi.fn>;
+    } = {
+      getByRunId: vi.fn(async () => stored),
+      persist: vi.fn().mockResolvedValue(undefined),
+      writePreflightMarker: vi.fn(async (params: Parameters<RunRecordPersister['writePreflightMarker']>[0]) => {
+        stored = {
+          ...stored,
+          kind: 'apply',
+          status: 'aborted',
+          exitCode: null,
+          partialApply: true,
+          startedAt: params.startedAt,
+          completedAt: params.startedAt,
+        };
+      }),
+    };
+    const workspace = makeWorkspace(makeHappyPathUp());
+    const service = makeService({ workspace, runRecordPersister });
+
+    // First attempt: gate passes against the original plan record, the
+    // marker lands (mutating `stored`), stack.up() runs and succeeds, but
+    // the settlement `persist()` call — per this test's stub — never
+    // overwrites `stored`, leaving the marker as the newest record.
+    await collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH));
+    expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
+
+    // Second attempt against the SAME planRunId: the gate now sees the
+    // marker (kind: 'apply', partialApply: true) instead of the original
+    // plan record, and must refuse — never reaching stack.up() again.
+    await expect(collectApplyChunks(service.apply(PLAN_RUN_ID, PLAN_HASH))).rejects.toBeInstanceOf(
+      PulumiPartialApplyRetryBlockedError,
+    );
+    expect(workspace.getOrCreateStack).toHaveBeenCalledTimes(1);
   });
 });
 
