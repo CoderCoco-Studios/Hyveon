@@ -61,10 +61,16 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `npm run app:lint` — clean.
-- [ ] 4.2 `npm run app:typecheck` — clean.
-- [ ] 4.3 `npm run app:test` — full unit suite green.
+- [x] 4.1 `npm run app:lint` — clean.
+- [x] 4.2 `npm run app:typecheck` — clean.
+- [x] 4.3 `npm run app:test` — full unit suite green.
 - [ ] 4.4 Manually run the first-run wizard (`npm run desktop:dev`),
       reach the guided-IAM region screen, and confirm the dropdown renders
       grouped regions, a selection advances normally, and
       "Other (enter manually)" still accepts a typed region code.
+      **Not run this cycle** — no display/GUI access in this
+      environment. This is a real coverage gap (Radix `Portal`
+      positioning and `SelectContent` z-index/overflow against the
+      wizard's actual layout are not exercised by jsdom); left
+      unchecked deliberately rather than marked done. Requires a
+      human or a GUI-capable session to close.
