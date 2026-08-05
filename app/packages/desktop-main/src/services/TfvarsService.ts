@@ -263,8 +263,7 @@ export class TfvarsService {
   /**
    * Drop the in-memory cache so the next `getGameServers()` call re-reads
    * from disk/S3 instead of returning a stale parse. Called after a config
-   * write (e.g. via `scripts/tfvars-sync.ts pull`) and by tests between
-   * scenarios.
+   * write and by tests between scenarios.
    */
   invalidateCache(): void {
     this.cache = null;

@@ -217,9 +217,8 @@ export class ConfigService {
    *
    * Resolution order:
    *  1. `HYVEON_TFVARS_BUCKET` env var — wins when set. A dev/CI convenience
-   *     override (mirrors `scripts/tfvars-sync.ts`'s own independent env-var
-   *     read for that CLI), not how the packaged app resolves the bucket in
-   *     normal operator use.
+   *     override, not how the packaged app resolves the bucket in normal
+   *     operator use.
    *  2. `ElectronStoreService`'s `bootstrap.configurationBucket` — the actual
    *     operator-configured value, submitted by the First-Run Wizard's
    *     bootstrap step (`WizardController.saveState`) and read back via

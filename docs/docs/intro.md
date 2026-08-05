@@ -96,7 +96,6 @@ Hyveon/
 │           ├── update-dns/     # Route 53 on task state change
 │           ├── watchdog/       # idle detection + auto-stop
 │           └── efs-seeder/     # writes declarative file_seeds to a game's EFS volume
-├── scripts/                    # @hyveon/scripts — tfvars-sync.ts (legacy, maintainer-only)
 ├── build/                      # icon source art + generator for packaging
 ├── docs/                       # this site
 ├── openspec/                   # OpenSpec change proposals/specs for this repo

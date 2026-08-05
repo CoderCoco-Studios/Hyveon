@@ -68,9 +68,6 @@ export default defineConfig({
             'packages/desktop-preload/**/*.test.{ts,tsx}',
             // Top-level test helpers (e.g. packaging-manifest-pins.test.ts) live outside packages/.
             'test/**/*.test.{ts,tsx}',
-            // The tfvars-sync helper lives in the top-level @hyveon/scripts workspace
-            // (outside packages/), so it needs its own explicit include entry.
-            '../scripts/tfvars-sync.test.ts',
           ],
           // Spread the built-in excludes (node_modules, dist, …) before adding
           // ours — assigning `exclude` replaces the defaults rather than

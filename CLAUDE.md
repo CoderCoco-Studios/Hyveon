@@ -33,8 +33,8 @@ through a change, not straight into `openspec/specs/`.
 
 Single **npm-workspaces** tree rooted at the repo root. Workspaces: `app`,
 `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/desktop-main`,
-`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, five Lambda packages
-under `app/packages/lambda/*`, and `@hyveon/scripts`.
+`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, and five Lambda
+packages under `app/packages/lambda/*`.
 
 ```bash
 npm install                     # install every workspace (run from repo root)
@@ -48,7 +48,6 @@ npm run desktop:package         # electron-builder installers → release/ (Win 
 
 npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
 npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
-npm run scripts:tfvars-sync      # sync the legacy tfvars object to/from S3 (maintainer-only; see scripts/README.md)
 
 npm run app:lint                 # eslint (flat config at app/eslint.config.js)
 npm run app:lint:fix
