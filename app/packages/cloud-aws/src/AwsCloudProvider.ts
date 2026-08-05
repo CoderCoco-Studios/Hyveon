@@ -58,8 +58,8 @@ function sleepInterruptible(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Thrown by {@link AwsCloudProvider.startWorkload} / {@link
  * AwsCloudProvider.stopWorkload} for expected precondition refusals — a task
- * is already running, nothing is running to stop, or Terraform hasn't been
- * applied yet — as opposed to a genuine AWS/SDK failure. Callers (e.g.
+ * is already running, nothing is running to stop, or the infra program
+ * hasn't been applied yet — as opposed to a genuine AWS/SDK failure. Callers (e.g.
  * `EcsService`) can `instanceof`-check for this type to route these refusals
  * to `warn`-level logging instead of `error`, without relying on message
  * string matching that would silently break if the message wording changes.
@@ -92,12 +92,12 @@ export class WorkloadLaunchError extends Error {
 }
 
 /**
- * Narrow, Terraform-outputs-shaped subset of configuration
+ * Narrow, Pulumi-stack-outputs-shaped subset of configuration
  * {@link AwsCloudProvider} needs to drive ECS + EC2 for the workload methods.
  * Kept local to this package (not imported from desktop-main's
  * `ConfigService`) so `@hyveon/cloud-aws` has zero dependency on the desktop
  * app — callers are responsible for resolving these fields from wherever
- * they live (`terraform.tfstate` today) and handing them to
+ * they live (a deployed Pulumi stack's outputs today) and handing them to
  * {@link AwsCloudProvider} via its constructor.
  */
 export interface AwsCloudProviderConfig {
@@ -113,7 +113,7 @@ export interface AwsCloudProviderConfig {
   domainName?: string;
   /**
    * Names of the games to include in {@link AwsCloudProvider.getCostEstimate}'s
-   * per-game breakdown (mirrors `terraform.tfstate`'s `game_names` output).
+   * per-game breakdown (mirrors the Pulumi stack's `gameNames` output).
    * Optional so the class remains constructible without it; `getCostEstimate`
    * returns a zeroed {@link CostBreakdown} when it's missing or empty.
    */
@@ -208,8 +208,8 @@ export class AwsCloudProvider implements CloudProvider {
   /**
    * Lazily constructs the ECS client, recreating it whenever `region` differs
    * from the region the cached client was built with — otherwise a stale
-   * client (e.g. left over from a Terraform re-apply that changed regions)
-   * would keep targeting the old region indefinitely.
+   * client (e.g. left over from a Pulumi apply run through `PulumiService`
+   * that changed regions) would keep targeting the old region indefinitely.
    */
   private getEcsClient(region: string): ECSClient {
     if (!this.ecsClient || this.ecsClientRegion !== region) {
@@ -333,7 +333,7 @@ export class AwsCloudProvider implements CloudProvider {
 
   /**
    * Locate the current non-stopped task for a game, keyed by the `{game}-server`
-   * task-definition family Terraform provisions. `ListTasks` is filtered to
+   * task-definition family the infra program provisions. `ListTasks` is filtered to
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
    * out of the describe result — leaving the single active task, if any.
    */
@@ -460,7 +460,7 @@ export class AwsCloudProvider implements CloudProvider {
    * Retrieves the current status of a game workload on AWS.
    *
    * Mirrors `EcsService.getStatus`'s state transitions exactly: `not_deployed`
-   * when Terraform hasn't been applied, `running` with resolved IP/hostname
+   * when the infra program hasn't been applied, `running` with resolved IP/hostname
    * once the task's ENI is up, `starting` while the task is still
    * provisioning, `stopped` when no task is found, and `error` on failure.
    *
@@ -497,7 +497,7 @@ export class AwsCloudProvider implements CloudProvider {
    * Streams log chunks for a running game workload on AWS.
    *
    * Reproduces `LogsService.streamLogs`'s polling behaviour: polls
-   * `FilterLogEvents` against the Terraform-provisioned `/ecs/{game}-server`
+   * `FilterLogEvents` against the infra-program-provisioned `/ecs/{game}-server`
    * log group every `pollInterval` ms (default 2000, matching the SSE
    * client's expected cadence), de-duplicates by `eventId` (falling back to
    * `{timestamp}-{message}` when a CloudWatch event has no `eventId`) so
@@ -563,8 +563,8 @@ export class AwsCloudProvider implements CloudProvider {
    * previous `CostsController.estimate` + `CostService.estimateForSpec`
    * behaviour), keyed by game name in `breakdown`, with `total` set to the
    * sum-if-everything-were-running-simultaneously. Returns a zeroed {@link
-   * CostBreakdown} when Terraform hasn't been applied (`getConfig` returns
-   * nothing) or `config.gameNames` is missing/empty.
+   * CostBreakdown} when the infra program hasn't been applied (`getConfig`
+   * returns nothing) or `config.gameNames` is missing/empty.
    */
   async getCostEstimate(): Promise<CostBreakdown> {
     const config = (await this.getConfig?.()) ?? null;

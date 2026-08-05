@@ -17,7 +17,7 @@
  * It is instead created via the AWS SDK directly at
  * first-run-wizard bootstrap time (`BootstrapService.ensureRunsTable`,
  * `@hyveon/desktop-main`), mirroring how CLAUDE.md's own invariants already
- * treat DNS records as "Lambda-managed, never Terraform-managed" for the
+ * treat DNS records as "Lambda-managed, never infra-program-managed" for the
  * same reason — a resource whose lifecycle genuinely can't wait on this
  * program's own apply. Its schema below is preserved as documentation of
  * what `ensureRunsTable` must match exactly; this file declares no resource

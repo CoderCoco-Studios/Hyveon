@@ -14,7 +14,9 @@
  * {@link InfraResources}), or an explicit omission with its reason. Zero
  * blocks are unaccounted for.
  *
- * Re-verification command: `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`.
+ * Verified via `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`,
+ * run against the `terraform/` tree before its deletion; the tree no longer exists on disk, so this count
+ * is historical and the command can't be re-run today.
  *
  * | # | HCL address | Pulumi counterpart | Notes |
  * | --- | --- | --- | --- |
