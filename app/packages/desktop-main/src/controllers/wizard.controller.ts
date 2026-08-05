@@ -209,7 +209,7 @@ export class WizardController {
   }
 
   /**
-   * Idempotently creates/ensures the Terraform S3 state bucket (versioning +
+   * Idempotently creates/ensures the Pulumi S3 state bucket (versioning +
    * default encryption). See `BootstrapService.ensureStateBucket` for the
    * full idempotency mapping.
    */

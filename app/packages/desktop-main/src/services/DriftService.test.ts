@@ -219,7 +219,7 @@ describe('DriftService', () => {
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
-    it('should report every declared game as pending_create when terraform.tfstate has never been applied', async () => {
+    it('should report every declared game as pending_create when the stack has never been applied', async () => {
       const ark = buildGameServer('ark');
 
       const result = await new DriftService(makeDeploymentConfig([ark]), makeConfig(null)).getDrift();
