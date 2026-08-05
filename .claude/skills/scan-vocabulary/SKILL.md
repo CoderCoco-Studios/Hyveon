@@ -1,6 +1,7 @@
 ---
 name: scan-vocabulary
 description: Deterministically sweep the whole repo for leftover references to specific terms — old class/service names, retired tooling vocabulary (e.g. "terraform", "tfvars"), a deprecated env var, a renamed field — using a parallel worker_threads scanner instead of ad hoc grep. Use this to independently verify a rename/removal actually reached every file before calling a cleanup complete, or any time you need a repeatable, reviewable "did we miss anything" pass over the codebase.
+disable-model-invocation: true
 ---
 
 # Scanning for leftover vocabulary
