@@ -98,6 +98,7 @@ export function DashboardPage() {
           game={fileMgr.activeGame}
           status={fileMgr.status}
           message={fileMgr.message}
+          credentials={fileMgr.credentials}
           onClose={fileMgr.close}
           onStart={fileMgr.start}
           onStop={fileMgr.stop}

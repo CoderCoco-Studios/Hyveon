@@ -256,6 +256,18 @@ export interface FileMgrStatus {
   taskArn?: string;
 }
 
+/** The plaintext credential a FileBrowser launch was just seeded with — shown to the operator exactly once, in {@link FileMgrResult.credentials}. */
+export interface FileMgrCredentials {
+  username: string;
+  password: string;
+}
+
+/** Result of a file-manager start/stop operation — {@link ActionResult} plus the one-time credential a successful start seeds the task with. */
+export interface FileMgrResult extends ActionResult {
+  /** Only present on a successful start — never on a stop result. */
+  credentials?: FileMgrCredentials;
+}
+
 /** Discord slash-command action a user can be permitted to invoke on a game. */
 export type DiscordAction = 'start' | 'stop' | 'status';
 
@@ -450,8 +462,8 @@ export const api = {
   costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
   costsActual: async (days = 7): Promise<ActualCosts> => hyveon().costs.actual(days),
   filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
-  filesMgrStart: async (game: string): Promise<ActionResult> => hyveon().files.start(game),
-  filesMgrStop: async (game: string): Promise<ActionResult> => hyveon().files.stop(game),
+  filesMgrStart: async (game: string): Promise<FileMgrResult> => hyveon().files.start(game),
+  filesMgrStop: async (game: string): Promise<FileMgrResult> => hyveon().files.stop(game),
   createGame: async (payload: CreateGamePayload): Promise<GameWriteResult> =>
     hyveon().games.create(payload) as Promise<GameWriteResult>,
   updateGame: async (payload: UpdateGamePayload): Promise<GameWriteResult> =>

@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
-import { type FileMgrStatus } from '../api.service.js';
+import { type FileMgrStatus, type FileMgrCredentials } from '../api.service.js';
 
 interface Props {
   game: string | null;
   status: FileMgrStatus | null;
   message: string;
+  /** The one-time login credential from the most recent successful launch, if any — shown inline alongside the connection link, never re-fetched or persisted. */
+  credentials?: FileMgrCredentials | null;
   onClose: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -16,7 +18,7 @@ interface Props {
  * polling loop live in `useFileManager` — this component is purely presentational,
  * driven by the status/message props and invoking the start/stop/close callbacks.
  */
-export function FileManagerModal({ game, status, message, onClose, onStart, onStop }: Props) {
+export function FileManagerModal({ game, status, message, credentials, onClose, onStart, onStop }: Props) {
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -50,6 +52,22 @@ export function FileManagerModal({ game, status, message, onClose, onStart, onSt
                style={{ color: 'var(--accent)', fontSize: '0.9rem', textDecoration: 'none' }}>
               Open FileBrowser at {status.url} ↗
             </a>
+          </div>
+        )}
+
+        {credentials && (
+          <div style={{
+            marginBottom: '1rem',
+            padding: '0.6rem 0.75rem',
+            borderRadius: '8px',
+            border: '1px solid var(--border)',
+            fontSize: '0.8rem',
+          }}>
+            <div style={{ color: 'var(--text-dim)', marginBottom: '0.25rem' }}>
+              Login (shown once — copy it now):
+            </div>
+            <div>Username: <code>{credentials.username}</code></div>
+            <div>Password: <code>{credentials.password}</code></div>
           </div>
         )}
 

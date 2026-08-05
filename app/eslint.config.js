@@ -137,6 +137,12 @@ export default tseslint.config(
       'packages/desktop-main/src/services/FileManagerService.test.ts',
       'packages/desktop-main/src/services/EcsService.ts',
       'packages/desktop-main/src/services/EcsService.test.ts',
+      // EventBridge Scheduler has no cloud-agnostic interface in
+      // @hyveon/shared/cloud.js (unlike Secrets Manager's SecretsStore) — the
+      // FileBrowser auto-stop schedule is AWS-specific by design, same
+      // AWS-SDK-direct reasoning as EcsService/Ec2Service above.
+      'packages/desktop-main/src/services/SchedulerService.ts',
+      'packages/desktop-main/src/services/SchedulerService.test.ts',
       // First-run wizard bootstrap (epic #139): deliberately AWS-SDK-direct,
       // not part of the cloud-agnostic RunTask/StopTask contract — see
       // openspec/changes/add-first-run-wizard/design.md decision 6.

@@ -21,18 +21,20 @@ const DEFERRED_ARN_VALUES = {
   discordPublicKeySecretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-discord-public-key-abc123',
   followupLambdaArn: 'arn:aws:lambda:us-east-1:123456789012:function:hyveon-followup',
   hostedZoneId: 'Z1234567890ABC',
+  ecsClusterName: 'hyveon-cluster',
 };
 
 /** The deferred-ARN parameters passed to every `defineIamPolicies` call under test — see {@link DEFERRED_ARN_VALUES}'s doc. */
 const DEFERRED_ARGS: Pick<
   DefineIamPoliciesArgs,
-  'efsFileSystemArn' | 'dynamodbDiscordTableArn' | 'discordPublicKeySecretArn' | 'followupLambdaArn' | 'hostedZoneId'
+  'efsFileSystemArn' | 'dynamodbDiscordTableArn' | 'discordPublicKeySecretArn' | 'followupLambdaArn' | 'hostedZoneId' | 'ecsClusterName'
 > = {
   efsFileSystemArn: DEFERRED_ARN_VALUES.efsFileSystemArn,
   dynamodbDiscordTableArn: pulumi.output(DEFERRED_ARN_VALUES.dynamodbDiscordTableArn),
   discordPublicKeySecretArn: DEFERRED_ARN_VALUES.discordPublicKeySecretArn,
   followupLambdaArn: DEFERRED_ARN_VALUES.followupLambdaArn,
   hostedZoneId: DEFERRED_ARN_VALUES.hostedZoneId,
+  ecsClusterName: DEFERRED_ARN_VALUES.ecsClusterName,
 };
 
 /** Resolves every leaf role/attachment `defineIamRoles` declares, guaranteeing the mock recorder has captured the full role set before assertions run (see `pulumiMocks.ts`'s `promiseOf` doc). */
@@ -44,6 +46,7 @@ async function runDefineIamRoles(args: Parameters<typeof defineIamRoles>[0]): Pr
     promiseOf(roles.followupLambdaRole.id),
     promiseOf(roles.interactionsLambdaRole.id),
     promiseOf(roles.dnsUpdaterLambdaRole.id),
+    promiseOf(roles.fileBrowserSchedulerRole.id),
     ...Object.values(roles.efsSeederRoles).map((role) => promiseOf(role.id)),
   ]);
   return roles;
@@ -57,6 +60,7 @@ async function runDefineIamPolicies(args: Parameters<typeof defineIamPolicies>[0
     promiseOf(policies.followupLambdaPolicy.id),
     promiseOf(policies.interactionsLambdaPolicy.id),
     promiseOf(policies.dnsUpdaterLambdaPolicy.id),
+    promiseOf(policies.fileBrowserSchedulerPolicy.id),
     ...Object.values(policies.efsSeederPolicies).map((policy) => promiseOf(policy.id)),
   ]);
   return policies;
@@ -187,6 +191,19 @@ describe('defineIamRoles', () => {
       Statement: [{ Action: 'sts:AssumeRole', Effect: 'Allow', Principal: { Service: 'lambda.amazonaws.com' } }],
     });
   });
+
+  it('should declare the FileBrowser scheduler role with the scheduler.amazonaws.com trust policy', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
+
+    const role = findByName(mocks.resources, 'hyveon-filebrowser-scheduler');
+    expect(role.type).toBe('aws:iam/role:Role');
+    expect(role.inputs.name).toBe('hyveon-filebrowser-scheduler');
+    expect(parsedPolicy(role, 'assumeRolePolicy')).toEqual({
+      Version: '2012-10-17',
+      Statement: [{ Action: 'sts:AssumeRole', Effect: 'Allow', Principal: { Service: 'scheduler.amazonaws.com' } }],
+    });
+  });
 });
 
 describe('defineIamPolicies', () => {
@@ -311,6 +328,25 @@ describe('defineIamPolicies', () => {
           Effect: 'Allow',
           Action: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
           Resource: DEFERRED_ARN_VALUES.efsFileSystemArn,
+        },
+      ],
+    });
+  });
+
+  it('should grant the FileBrowser scheduler policy only ecs:StopTask, scoped to tasks in the deferred ECS cluster', async () => {
+    const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
+    await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
+
+    const policy = findByName(mocks.resources, 'hyveon-filebrowser-scheduler-policy');
+    expect(policy.type).toBe('aws:iam/rolePolicy:RolePolicy');
+    expect(policy.inputs.role).toBe(await promiseOf(roles.fileBrowserSchedulerRole.id));
+    expect(parsedPolicy(policy, 'policy')).toEqual({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Action: ['ecs:StopTask'],
+          Resource: `arn:aws:ecs:*:*:task/${DEFERRED_ARN_VALUES.ecsClusterName}/*`,
         },
       ],
     });

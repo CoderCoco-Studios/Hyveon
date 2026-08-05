@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type FileMgrStatus } from '../api.service.js';
+import { api, type FileMgrStatus, type FileMgrCredentials } from '../api.service.js';
 import { usePollingActions } from '../polling/polling-provider.component.js';
 
 /** Name under which the file-manager helper poll registers in the polling registry. */
@@ -9,8 +9,9 @@ export const FILE_MANAGER_INTERVAL_MS = 5000;
 
 /**
  * Manages the FileBrowser helper-task lifecycle for the file-manager modal.
- * Owns the currently-active game, the latest `FileMgrStatus`, and a user-facing
- * message, plus start/stop/close actions that drive `/api/files/:game/*`.
+ * Owns the currently-active game, the latest `FileMgrStatus`, a user-facing
+ * message, and the one-time login credential a successful `start()` returns,
+ * plus start/stop/close actions that drive `/api/files/:game/*`.
  *
  * Polling is reactive rather than interval-based: we register a 5-second
  * poller with the shared {@link PollingProvider} only while the helper task
@@ -35,6 +36,12 @@ export function useFileManager() {
   const [message, setMessage] = useState('');
   const [pendingStart, setPendingStart] = useState(false);
   const [pendingStop, setPendingStop] = useState(false);
+  // Held in its own piece of state, deliberately NOT part of `status`:
+  // `fetchOnce` overwrites `status` from `api.filesMgrStatus()` on every poll
+  // tick, which carries no credentials field at all (see `FileMgrStatus`'s
+  // doc) — folding credentials into `status` would make them vanish on the
+  // very next poll instead of staying visible for the rest of the session.
+  const [credentials, setCredentials] = useState<FileMgrCredentials | null>(null);
 
   // Latest `activeGame` used inside the registered poller closure — keeps
   // the registration stable when the consumer toggles between games.
@@ -72,6 +79,7 @@ export function useFileManager() {
       setMessage('');
       setPendingStart(false);
       setPendingStop(false);
+      setCredentials(null);
       void fetchOnce(game);
     },
     [fetchOnce],
@@ -83,6 +91,7 @@ export function useFileManager() {
     setMessage('');
     setPendingStart(false);
     setPendingStop(false);
+    setCredentials(null);
   }, []);
 
   const start = useCallback(async () => {
@@ -92,6 +101,7 @@ export function useFileManager() {
     setMessage(result.message);
     if (result.success) {
       setPendingStart(true);
+      setCredentials(result.credentials ?? null);
       void fetchOnce(activeGame);
     }
   }, [activeGame, fetchOnce]);
@@ -100,7 +110,10 @@ export function useFileManager() {
     if (!activeGame) return;
     const result = await api.filesMgrStop(activeGame);
     setMessage(result.message);
-    if (result.success) setPendingStop(true);
+    if (result.success) {
+      setPendingStop(true);
+      setCredentials(null);
+    }
     void fetchOnce(activeGame);
   }, [activeGame, fetchOnce]);
 
@@ -122,5 +135,5 @@ export function useFileManager() {
     );
   }, [register, activeGame, status?.state, pendingStart, pendingStop, fetchOnce]);
 
-  return { activeGame, status, message, open, close, start, stop };
+  return { activeGame, status, message, credentials, open, close, start, stop };
 }
