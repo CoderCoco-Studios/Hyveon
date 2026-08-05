@@ -10,7 +10,7 @@
  * diverge in purpose (visual completeness vs. minimal repro).
  *
  * Type provenance: the real contract types are split across two packages —
- * `@hyveon/shared` (canonical for anything Terraform/tfvars/DynamoDB-shaped:
+ * `@hyveon/shared` (canonical for anything Pulumi/deployment-config/DynamoDB-shaped:
  * `GameStatus`, `GameServer`, `GameListEntry`, `DriftReport`, `AuditEntry`,
  * etc.) and `@hyveon/desktop-preload` (canonical for the Electron IPC
  * surface: `IacPlanAck`, `RunHistoryRecord`, `WizardState`, etc.). A
