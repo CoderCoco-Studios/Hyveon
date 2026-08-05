@@ -164,9 +164,10 @@ when no Pulumi stack output is available yet).
 
 If you previously deployed the Terraform-based version of this stack,
 see the [maintainer guide's legacy-teardown note](/guides/maintainer#legacy-terraform-teardown-one-off)
-before running `pulumi up` for the first time — the new program reuses the
-same physical resource names, and deploying both stacks against the same AWS
-account risks duplicate or conflicting infrastructure.
+before running the first apply from the app's [Infrastructure page](/app/iac) —
+the new program reuses the same physical resource names, and deploying both
+stacks against the same AWS account risks duplicate or conflicting
+infrastructure.
 
 ## Dependencies
 

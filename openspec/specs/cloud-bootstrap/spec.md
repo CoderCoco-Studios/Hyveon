@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the state bucket, the state-lock table, and the configuration bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
+Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the state bucket and the configuration bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
 
 ## Requirements
 
 ### Requirement: SDK-only bootstrap in the main process
 
-All backend bootstrap operations (state bucket, lock table, configuration bucket, IAM simulation) SHALL be performed via AWS SDK v3 clients in the desktop main process — never by shelling out to the `aws` CLI or Terraform. The renderer MUST NOT import any `@aws-sdk/*` package; an ESLint rule SHALL enforce this ban for `@hyveon/web`. SDK clients MUST be constructed with the credentials and region selected in the credentials step (profile via the SDK credential chain, or paste-flow values decrypted in the main process).
+All backend bootstrap operations (state bucket, configuration bucket, IAM simulation) SHALL be performed via AWS SDK v3 clients in the desktop main process — never by shelling out to the `aws` CLI or Terraform. The renderer MUST NOT import any `@aws-sdk/*` package; an ESLint rule SHALL enforce this ban for `@hyveon/web`. SDK clients MUST be constructed with the credentials and region selected in the credentials step (profile via the SDK credential chain, or paste-flow values decrypted in the main process).
 
 #### Scenario: Bootstrap uses SDK clients only
 
@@ -38,20 +38,6 @@ The bootstrap service SHALL create the S3 bucket backing the self-managed infras
 
 - **WHEN** `CreateBucket` fails because the name is owned elsewhere
 - **THEN** the wizard surfaces an actionable error and does not mark the step complete
-
-### Requirement: Terraform lock table bootstrap
-
-The bootstrap service SHALL create the DynamoDB state-lock table via `CreateTable` with a `LockID` string hash key (the schema Terraform's S3 backend locking requires), and SHALL wait until the table is `ACTIVE` before reporting success. The operation MUST be idempotent — `ResourceInUseException` (table already exists) is a success no-op.
-
-#### Scenario: Fresh lock table
-
-- **WHEN** the lock table does not exist
-- **THEN** the service creates it with the `LockID` hash key and reports success once the table is `ACTIVE`
-
-#### Scenario: Lock table already exists
-
-- **WHEN** `CreateTable` throws `ResourceInUseException`
-- **THEN** the step succeeds without error
 
 ### Requirement: Configuration bucket bootstrap
 
@@ -88,9 +74,9 @@ After credentials are wired, the wizard SHALL run a best-effort dry-run via `iam
 
 ### Requirement: Bootstrap IPC and progress reporting
 
-Each bootstrap operation (state bucket, lock table, configuration bucket, IAM check) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress.
+Each bootstrap operation (state bucket, configuration bucket, IAM check) SHALL be invocable from the renderer through IPC-only controller message patterns under a `wizard.bootstrap.*` namespace, mirrored in the typed preload API, reporting per-resource status (`pending` / `creating` / `exists` / `created` / `failed` with an error message) so the wizard step can render granular progress.
 
 #### Scenario: Renderer runs the bootstrap step
 
-- **WHEN** the renderer invokes the bootstrap IPC methods for the three resources
+- **WHEN** the renderer invokes the bootstrap IPC methods for the two resources
 - **THEN** each resolves with a per-resource status the step renders, and a failure in one resource reports `failed` with its error message without masking the others
