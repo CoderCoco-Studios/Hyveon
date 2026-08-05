@@ -7,6 +7,7 @@ import {
   STOPPED_GAME,
   RUNNING_GAME,
   MULTI_GAME_STATUSES,
+  ERROR_GAME,
 } from '../fixtures/index.js';
 import { DashboardPage, AppLayout } from '../pages/index.js';
 
@@ -126,6 +127,18 @@ test.describe('dashboard', () => {
     // disabling the inactive button — Start should not exist while running.
     await expect(dashboard.stopButton()).toBeEnabled();
     await expect(dashboard.startButton()).toHaveCount(0);
+  });
+
+  test('should show the error reason and an enabled Start button for a game in the error state', async () => {
+    await applyHyveonMocks(win, { statuses: [ERROR_GAME] });
+    await dashboard.gotoElectron();
+
+    // Issue #78: an errored server previously had no recovery path — Start
+    // rendered but stayed permanently disabled, and the failure reason was
+    // never shown.
+    await expect(dashboard.statusBadge('ERROR')).toBeVisible();
+    await expect(dashboard.gameCardErrorMessage('minecraft')).toHaveText(ERROR_GAME.message ?? '');
+    await expect(dashboard.startButton()).toBeEnabled();
   });
 
   test('should filter game cards by name in real time', async () => {

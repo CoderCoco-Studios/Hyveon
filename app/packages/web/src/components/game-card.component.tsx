@@ -125,15 +125,21 @@ function Stat({ label, value, mono }: StatRowProps) {
  * 1. Gradient top-accent rule colored by state.
  * 2. Header — game name (Outfit 17/700) above hostname (DM Mono) with copy
  *    button, right-aligned status badge (icon + text + pulsing dot).
- * 3. 3-column stats grid — Last run, $/hr, Task short-id.
- * 4. Actions — Start / Stop primary (gradient) + Files / Logs secondary.
+ * 3. Error reason — shown only in the `error` state, when `status.message`
+ *    is present.
+ * 4. 3-column stats grid — Last run, $/hr, Task short-id.
+ * 5. Actions — Start / Stop primary (gradient) + Files / Logs secondary.
  *
  * After Start/Stop the card schedules a 3-second `onRefresh` to give the
  * backend time to pick up the ECS state change before re-polling
  * `/api/status/:game`.
+ *
+ * @remarks
+ * `error` counts as a startable state (`canStart`) so the operator can
+ * retry from a failed server without navigating away from the dashboard.
  */
 export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
-  const { game, state } = status;
+  const { game, state, message } = status;
   const [busy, setBusy] = useState(false);
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [stateAnnouncement, setStateAnnouncement] = useState('');
@@ -146,7 +152,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
     }
   }, [state, game]);
 
-  const canStart = state === 'stopped' || state === 'not_deployed';
+  const canStart = state === 'stopped' || state === 'not_deployed' || state === 'error';
   const canStop  = state === 'running'  || state === 'starting';
 
   async function handleStart() {
@@ -254,6 +260,17 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
           </Badge>
         </div>
 
+        {/* Error reason — only shown while the server is in the error state */}
+        {state === 'error' && message && (
+          <div
+            data-testid={`game-card-error-${game}`}
+            className="px-5 pb-3 -mt-2 flex items-start gap-1.5 text-xs text-[var(--color-red)]"
+          >
+            <AlertTriangle className="size-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>{message}</span>
+          </div>
+        )}
+
         {/* 3-column stats grid */}
         <div className="px-5 pb-4 grid grid-cols-3 gap-x-4 gap-y-3 border-t border-[var(--color-border)] pt-4">
           <Stat label="Last run" value={lastRunLabel(state)} />
@@ -263,7 +280,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
 
         {/* Actions */}
         <div className="px-5 pb-4 mt-auto flex flex-wrap gap-2">
-          {canStart || !canStop ? (
+          {canStart ? (
             <Button
               variant="start"
               size="sm"
