@@ -124,7 +124,6 @@ Hyveon/                        # npm-workspaces root — one `npm install` insta
 │           ├── watchdog/      # Idle detection + auto-stop
 │           └── efs-seeder/    # Conditional, per game with file_seeds
 ├── docs/                      # Documentation site (published via GH Pages)
-├── scripts/                   # Helper scripts (tfvars-sync.ts, legacy/maintainer-only)
 ├── CLAUDE.md                  # Project instructions + invariants
 ├── CONTRIBUTING.md            # PR conventions, local checks
 └── README.md                  # this file

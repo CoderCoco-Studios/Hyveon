@@ -13,9 +13,7 @@ that happen to look similar.
 `eslint-plugin-tsdoc` in `app/package.json`) precisely because malformed or
 non-standard tags silently produce garbage in generated docs and editor
 tooltips instead of failing loudly. A comment that passes casual review but
-uses invalid tag names or ordering still fails `npm run app:lint` — for
-workspaces `app:lint` doesn't reach (`@hyveon/scripts` has no lint script of
-its own), this remains a convention to apply by hand, not a lint-enforced one.
+uses invalid tag names or ordering still fails `npm run app:lint`.
 
 **How to apply:**
 
@@ -50,4 +48,4 @@ its own), this remains a convention to apply by hand, not a lint-enforced one.
   merely "looking right."
 - Applies repo-wide: `app/`, `@hyveon/shared`, `@hyveon/cloud-aws`,
   `@hyveon/desktop-main`, `@hyveon/desktop-preload`, `@hyveon/infra`,
-  `@hyveon/web`, the Lambda packages, and `@hyveon/scripts`.
+  `@hyveon/web`, and the Lambda packages.
