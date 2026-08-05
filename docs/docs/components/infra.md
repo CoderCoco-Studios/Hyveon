@@ -84,6 +84,15 @@ removing a game means adding or removing exactly one map entry — every
 per-game resource across every file below still fans out from that one
 object.
 
+Each game's `environment` values (container environment variables declared
+in the deployment configuration) are echoed verbatim into the stack outputs
+Pulumi's engine prints (`program.ts`'s `appliedGameServers`) — `PulumiService`
+redacts every sufficiently long (4+ characters) value, drawn from the
+current deployment configuration, out of `preview`/`apply`'s streamed
+stdout/stderr before it reaches the run-log viewer or the persisted
+`pulumi.log`. Shorter values pass through unredacted. See
+[Infrastructure — Run plan](/app/iac#run-plan).
+
 ## Files
 
 Every source file under `app/packages/infra/src/` and what it declares.
