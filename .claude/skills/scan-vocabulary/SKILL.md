@@ -26,7 +26,7 @@ versus legitimate (e.g. a comment correctly explaining old-name history).
 ## Running it
 
 ```bash
-node .claude/skills/scan-vocabulary/scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--json]
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs <rootDir> --terms=term1,term2,... [--boundary=term1] [--exclude=path1,path2] [--json]
 ```
 
 - `<rootDir>` — directory to scan (required, positional). Usually the repo root.
@@ -38,6 +38,11 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs <rootDir> --terms=term1,
   a PascalCase word-segment variant, so a boundary term like `tf` additionally catches
   camelCase identifiers such as `TfOutputs`/`getTfOutputs` that a strict boundary
   check alone would miss.
+- `--exclude` — comma-separated paths (relative to `<rootDir>`) to skip for this run
+  only, on top of the built-in defaults. Use this for directories a specific sweep
+  doesn't need — e.g. `openspec` when its historical change/spec docs are expected to
+  cite retired names — or a generated path the defaults don't already cover. Matches
+  the path itself and everything under it; not persisted, scoped to the one invocation.
 - `--json` — emit the full match list as JSON instead of a human-readable report.
 
 Examples:
@@ -50,6 +55,9 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfva
 # matching inside unrelated words (plain substring would hit "outfit")
 node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfvars,tf --boundary=tf
 
+# Skip openspec's historical change docs, which are expected to cite retired terms
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfvars --exclude=openspec
+
 # Verify a class rename reached everywhere
 node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
 ```
@@ -57,18 +65,24 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
 ## What it excludes by default
 
 - `node_modules`, `.git`, `dist`, `out`, `release`, `coverage`, `.docusaurus`,
-  `.cache`, `.turbo`, `.next` — build output and vendored code, never source.
+  `.cache`, `.turbo`, `.next`, `playwright-report` — build output and vendored code,
+  never source.
 - `.claude/worktrees`, `.worktrees` — nested worktree copies of this same repo (would
   otherwise multiply every result and slow the scan down enormously).
 - `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` — machine-generated lockfiles
   whose base64/hex integrity hashes produce meaningless matches, especially for short
   boundary terms (a hash substring coincidentally containing "Tf" is not a reference
   to anything).
-- Common binary/asset extensions (images, fonts, archives, `.wasm`, `.map`, `.lock`).
+- Common binary/asset extensions (images, fonts, archives, `.wasm`, `.map`, `.lock`,
+  `.tsbuildinfo`).
 
-If a future sweep needs a different exclusion, edit the `EXCLUDED_DIR_NAMES`,
-`EXCLUDED_PATH_PREFIXES`, `EXCLUDED_FILE_NAMES`, or `BINARY_EXTENSIONS` sets at the top
-of the script directly — there's no config file layer, the constants are the config.
+These defaults cover generated output that's true for *every* sweep. For a directory
+that's only noise for *this particular* sweep — e.g. `openspec`'s archived change docs
+when checking for retired terms — use `--exclude` instead of touching the script (see
+above). If a future sweep needs a different **permanent** default, edit the
+`EXCLUDED_DIR_NAMES`, `EXCLUDED_PATH_PREFIXES`, `EXCLUDED_FILE_NAMES`, or
+`BINARY_EXTENSIONS` sets at the top of the script directly — there's no config file
+layer, the constants are the config.
 
 ## Workflow for a "did we miss anything" check
 
