@@ -6,7 +6,6 @@ import { RemoteFileConflictError } from './cloud.js';
 import type {
   CloudProvider,
   CostBreakdown,
-  DateRange,
   DiscordEventReceiver,
   LogChunk,
   RemoteFileStore,
@@ -28,7 +27,7 @@ describe('cloud.ts interface file', () => {
 });
 
 describe('CloudProvider', () => {
-  it('should be implementable with a plain object satisfying all six methods', () => {
+  it('should be implementable with a plain object satisfying all five methods', () => {
     /**
      * Compile-time check: this object must satisfy CloudProvider or tsc/vitest
      * will fail. The runtime assertion just confirms the object is truthy.
@@ -43,9 +42,6 @@ describe('CloudProvider', () => {
       },
       async *streamWorkloadLogs(_game: string, _signal: AbortSignal): AsyncIterable<LogChunk> {},
       async getCostEstimate(): Promise<CostBreakdown> {
-        return { total: 0, currency: 'USD', breakdown: {} };
-      },
-      async getActualCosts(_range: DateRange): Promise<CostBreakdown> {
         return { total: 0, currency: 'USD', breakdown: {} };
       },
     } satisfies CloudProvider;
