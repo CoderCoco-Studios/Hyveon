@@ -2,9 +2,8 @@
  * Tests for `DeploymentConfigService` — the S3-backed deployment-config reader/parser.
  *
  * The config is plain JSON, so fixtures are inline `DeploymentConfig`-shaped
- * objects `JSON.stringify`d — no fixture files needed, unlike the retired
- * HCL fixtures this file used to load from `__fixtures__/*.tfvars` (there's
- * no comment/heredoc complexity to fixture-test with JSON).
+ * objects `JSON.stringify`d — no fixture files needed (there's no
+ * comment/heredoc complexity to fixture-test with JSON).
  *
  * There is no local-file fallback — every test that used to select "local mode" via a
  * `null` bucket now exercises the "unconfigured" behaviour instead (see the
@@ -17,10 +16,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DeploymentConfig, RemoteFileStore } from '@hyveon/shared';
 
 // Shared mock instances behind both the bare `'fs'` specifier and the
-// `'node:fs'` specifier — Node treats these as distinct module ids, and the
-// deleted TerraformService.ts used to import the latter, so mocking only
-// `'fs'` would let a reintroduced local-disk fallback via `node:fs` slip past
-// this file's "no disk fallback reachable" assertions unnoticed.
+// `'node:fs'` specifier — Node treats these as distinct module ids, so
+// mocking only `'fs'` would let a reintroduced local-disk fallback via
+// `node:fs` slip past this file's "no disk fallback reachable" assertions
+// unnoticed.
 const { mockExists, mockRead, mockWrite } = vi.hoisted(() => ({
   mockExists: vi.fn(),
   mockRead: vi.fn(),

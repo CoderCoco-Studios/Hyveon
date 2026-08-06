@@ -70,7 +70,7 @@ If a comment would fit into any of the categories above, **do not post it**. Sil
 
 - **Framework**: Nest.js (on `@nestjs/platform-express`) + TypeScript backend, React/Vite frontend, Pulumi (Automation API, TypeScript) + AWS.
 - **DI**: Nest's built-in `@Injectable()` providers. Do not suggest switching to tsyringe, InversifyJS, or manual wiring — we just migrated off tsyringe deliberately.
-- **ESLint runs in CI.** Don't post style comments the linter would catch — those will surface in the lint job. Do flag genuine bugs the linter misses. There is no `tflint` job — the `terraform/` tree was deleted; the infra program is TypeScript, linted by the same ESLint job as everything else.
+- **ESLint runs in CI.** Don't post style comments the linter would catch — those will surface in the lint job. Do flag genuine bugs the linter misses. There is no separate IaC-lint job — the infra program is plain TypeScript, linted by the same ESLint job as everything else (see CLAUDE.md's Commands table for the full picture).
 - **Test naming**: `it('should …')`. Don't suggest `it('does …')` or the reverse — the repo convention is `should`.
 - **No `as unknown as T` casts in tests.** Prefer `vi.mocked(fn)` or `Partial<T>` + single `as T`.
 - **ESM-only.** The project is `"type": "module"`. Imports must use `.js` extensions. Don't suggest removing them.

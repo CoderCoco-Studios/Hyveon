@@ -16,8 +16,7 @@ import { logger } from '../logger.js';
 
 /**
  * Narrows an unknown thrown value to a human-readable message for the
- * provisioning error classes below — mirrors the `instanceof Error` message-
- * extraction idiom used throughout the deleted `TerraformService`.
+ * provisioning error classes below.
  */
 function describeCause(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -265,11 +264,10 @@ function removeDirBestEffort(path: string, context: string): void {
  * `pulumi` binary.
  *
  * Construction is synchronous and never throws — no filesystem or network
- * work happens until {@link resolve} is first called — mirroring the deleted
- * `TerraformService`'s "binary lookup and version resolution are deferred to
- * first use" pattern so `PulumiEngineModule` can be imported by `AppModule`
- * unconditionally even on a machine with no engine and no network, per the
- * "Container builds without an engine" scenario.
+ * work happens until {@link resolve} is first called — so `PulumiEngineModule`
+ * can be imported by `AppModule` unconditionally even on a machine with no
+ * engine and no network, per the "Container builds without an engine"
+ * scenario.
  *
  * ## Version-namespaced cache, not detect-and-clear
  *
@@ -355,18 +353,15 @@ function removeDirBestEffort(path: string, context: string): void {
  * share exactly one provisioning attempt whether it ultimately succeeds or
  * fails (verified in `PulumiEngineService.test.ts` by asserting
  * `PulumiCommand.install` is called exactly once across concurrent
- * `resolve()` calls, in both the success and failure case) — mirroring the
- * deleted `TerraformService.resolve()`. Unlike that method, though,
- * a **rejected** attempt is deliberately not left memoized: the field is
- * reset to `null` the moment the shared promise rejects, so the *next*
- * `resolve()` call (after this one has settled) starts a fresh provisioning
- * attempt instead of replaying the same stale rejection forever. The deleted
- * `TerraformService` could afford to memoize a lookup failure permanently
- * because "no `terraform` on PATH" is a static fact about the machine;
- * engine provisioning failures (no network, a momentarily locked cache
- * directory) are often transient, and the "Provisioning fails with no
- * network" scenario explicitly requires "a retry is offered" — a retry that
- * only re-attempts anything if the failure wasn't memoized.
+ * `resolve()` calls, in both the success and failure case). A **rejected**
+ * attempt is deliberately not left memoized: the field is reset to `null`
+ * the moment the shared promise rejects, so the *next* `resolve()` call
+ * (after this one has settled) starts a fresh provisioning attempt instead
+ * of replaying the same stale rejection forever — engine provisioning
+ * failures (no network, a momentarily locked cache directory) are often
+ * transient, and the "Provisioning fails with no network" scenario
+ * explicitly requires "a retry is offered" — a retry that only re-attempts
+ * anything if the failure wasn't memoized.
  */
 @Injectable()
 export class PulumiEngineService {

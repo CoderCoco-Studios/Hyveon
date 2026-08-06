@@ -1,7 +1,7 @@
 /**
  * Typed contract for the values `PulumiService` (a `@hyveon/desktop-main`
- * service) reads back off a deployed Pulumi stack, in place of the old
- * `ConfigService.getTfOutputs()`'s parse of `terraform.tfstate`. This module
+ * service) reads back off a deployed Pulumi stack, in place of the app's
+ * original config-reading method's parse of its old state file. This module
  * defines the TYPE ONLY — no reading/parsing logic lives here; `PulumiService`
  * owns turning a stack's `outputs` map into a {@link StackOutputs} value.
  *
@@ -10,21 +10,22 @@
  * `FileManagerService`, `DriftService`, `discord.controller.ts`,
  * `AwsDiscordEventReceiver`) — confirmed by grepping every consumer's field
  * accesses against the full output list. Each one historically mirrored an
- * `output` block in the former `terraform/aws/outputs.tf` (re-exported
- * unchanged by the root `terraform/outputs.tf`); the same field set is now
- * emitted by the Pulumi program instead (`@hyveon/infra`'s `program.ts`,
- * `buildStackOutputs`). Six declared Terraform outputs were deliberately NOT
- * carried forward because no consumer reads them today:
+ * output declared by the app's original, now fully retired IaC tool (the
+ * same declarations were re-exported unchanged at that tool's root level);
+ * the same field set is now emitted by the Pulumi program instead
+ * (`@hyveon/infra`'s `program.ts`, `buildStackOutputs`). Six declared
+ * outputs from that original tool were deliberately NOT carried forward
+ * because no consumer reads them today:
  * `vpc_id`, `task_definitions`, `hosted_zone_id`, `dns_records`,
- * `watchdog_function_name`, and the root-only `tfvars_bucket_name` (whose
+ * `watchdog_function_name`, and the root-only bucket-name output (whose
  * bucket-naming role the configuration store resolves independently — see
- * `deploymentConfig.js`'s file doc for the parallel `tfvars_bucket_name`
- * exclusion on the input side). Add a field here when a consumer needs one.
+ * `deploymentConfig.js`'s file doc for the parallel exclusion on the input
+ * side). Add a field here when a consumer needs one.
  *
  * Naming and data-shape conventions match `deploymentConfig.js`: idiomatic
  * `camelCase` field names (this is a new canonical type, not a literal
- * mirror of the Terraform output keys), and plain, JSON-serializable data
- * (no `Date`, `Map`, `Set`, or class instances) throughout.
+ * mirror of the original tool's output keys), and plain, JSON-serializable
+ * data (no `Date`, `Map`, `Set`, or class instances) throughout.
  */
 
 import type { GameServerConfig } from './gameServerConfig.js';
@@ -33,14 +34,14 @@ import type { GameServerConfig } from './gameServerConfig.js';
  * Every value the app reads off a deployed Pulumi stack. `PulumiService`
  * returns this shape (or `null` for a never-deployed stack, mirroring
  * `ConfigService.getStackOutputs()`'s "not deployed yet" contract) in
- * place of parsing `terraform.tfstate`.
+ * place of parsing the app's original state-file format.
  */
 export interface StackOutputs {
   /**
-   * AWS region the stack is deployed into. Mirrors the `aws_region` output
-   * (`terraform/aws/outputs.tf`), itself echoing the `aws_region` input
-   * variable. Consumed by `ConfigService.getRegion()` as the preferred
-   * region source for AWS SDK clients.
+   * AWS region the stack is deployed into. Mirrors the original `aws_region`
+   * output, itself echoing the `aws_region` input variable. Consumed by
+   * `ConfigService.getRegion()` as the preferred region source for AWS SDK
+   * clients.
    */
   awsRegion: string;
 
@@ -52,8 +53,8 @@ export interface StackOutputs {
 
   /**
    * Public subnet IDs the game-server and file-manager tasks run in.
-   * Mirrors the `subnet_ids` output — an array here rather than the old
-   * Terraform output's comma-joined string, since this is a new canonical
+   * Mirrors the `subnet_ids` output — an array here rather than the
+   * original tool's comma-joined string, since this is a new canonical
    * type with no legacy-format constraint: `FileManagerService` and every
    * other consumer read the array directly, with no `,`-splitting step.
    */
@@ -143,8 +144,8 @@ export interface StackOutputs {
    * Custom-domain URL for the Discord interactions endpoint. Mirrors the
    * `discord_interactions_url` output — a second, `discord.<domain>`-rooted
    * URL alongside {@link interactionsInvokeUrl} (the two already overlapped
-   * in the retired Terraform module; carried forward as-is for consumer
-   * parity). `null` when absent from the stack's outputs.
+   * in the app's original, retired IaC module; carried forward as-is for
+   * consumer parity). `null` when absent from the stack's outputs.
    */
   discordInteractionsUrl: string | null;
 

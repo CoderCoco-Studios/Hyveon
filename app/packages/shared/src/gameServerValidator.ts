@@ -1,12 +1,13 @@
 /**
  * Zod-backed structural schema + business-rule validator for a single
- * `game_servers` map entry (historically `terraform/variables.tf:game_servers`;
+ * `game_servers` map entry (historically the app's original
+ * `game_servers` config input;
  * see the {@link GameServer} mirror in `./gameServerConfig.js`).
  *
  * This module is deliberately split in two:
- *  - {@link gameServerSchema} mirrors the former Terraform `game_servers`
+ *  - {@link gameServerSchema} mirrors the app's original `game_servers`
  *    object type field-for-field (it does NOT include `name` — like that
- *    Terraform object, `name` is the map key, not an attribute of the entry).
+ *    original object, `name` is the map key, not an attribute of the entry).
  *  - {@link validateGameServer} layers the custom business rules that can't
  *    be expressed as a pure per-field zod refinement because they either
  *    need the sibling `game_servers` entries (port collisions) or are
@@ -72,8 +73,8 @@ export const gameServerEnvironmentVariableSchema = z.object({
 
 /**
  * Zod schema mirroring `GameServerVolume`. `name` and `container_path` must
- * be non-empty, matching the requirement the former Terraform validation
- * block on `game_servers` (`terraform/variables.tf`) used to enforce.
+ * be non-empty, matching the requirement the app's original validation
+ * block on `game_servers` used to enforce.
  */
 export const gameServerVolumeSchema = z.object({
   name: z.string().min(1, 'volumes[].name must not be empty.'),
@@ -90,7 +91,8 @@ export const gameServerFileSeedSchema = z.object({
 
 /**
  * Zod schema mirroring {@link GameServer} field-for-field, minus `name`
- * (which is the `game_servers` map key, not a Terraform object attribute —
+ * (which is the `game_servers` map key, not an attribute of the app's
+ * original config-input object —
  * see {@link GameServer}'s own doc comment). Enforces only structural/shape
  * rules; the four business rules (Fargate CPU/memory pairing, absolute
  * paths, connect-message placeholders, port collisions) live in
@@ -272,7 +274,7 @@ function checkAbsolutePaths(entry: GameServerEntryInput): GameServerValidationIs
   return issues;
 }
 
-/** Placeholder tokens allowed inside `connect_message`, matching the former Terraform variable's doc comment. */
+/** Placeholder tokens allowed inside `connect_message`, matching the app's original config input's doc comment. */
 export const ALLOWED_CONNECT_MESSAGE_PLACEHOLDERS: ReadonlySet<string> = new Set(['host', 'ip', 'port', 'game']);
 
 /** Matches every `{token}` occurrence in a string, capturing the token itself. */
@@ -360,12 +362,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Mirrors the `game_servers` variable validation block that used to live in
- * the now-retired `terraform/aws/variables.tf` and gated on `cfg.https`: a
+ * the app's now-retired original config input and gated on `cfg.https`: a
  * game with `https = true` must declare at least one port, its first port
  * must use protocol `tcp` (exact, lowercase), every port protocol must be
  * `tcp` or `udp`, and no port may use container port 80 or 443 (reserved for
  * the in-task Caddy sidecar). This function is now the sole source of truth
- * for these rules — there is no Terraform variable left to stay in sync with.
+ * for these rules — there is no other declared config input left to stay in sync with.
  *
  * Only needs `ports` to be structurally valid — like {@link checkPortCollisions},
  * it's called independently of whether the rest of the entry parses, so a

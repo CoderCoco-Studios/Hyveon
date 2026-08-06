@@ -2,21 +2,22 @@ import type { ChangeSummary } from './changeSummary.js';
 
 /**
  * Which operation a {@link RunRecord} describes, encoded with the vocabulary
- * of `terraform`'s subcommands (`plan`/`apply`/`destroy`) — deliberately not
- * renamed when the app moved off Terraform onto Pulumi, so a Pulumi
+ * of the app's original IaC tool's subcommands (`plan`/`apply`/`destroy`) —
+ * deliberately not renamed when the app moved onto Pulumi, so a Pulumi
  * `preview` run is still recorded as `'plan'` and an `up` run as `'apply'`
  * (see `PulumiService`'s `PulumiRunRecord` for the exact mapping). Mirrors
  * the subset of `PulumiService`'s public surface that produces a run worth
  * tracking in history — Automation API workspace setup (the analogue of
- * Terraform's `init`) is idempotent/frequent and is intentionally excluded.
+ * that original tool's `init`) is idempotent/frequent and is intentionally
+ * excluded.
  */
 export type RunKind = 'plan' | 'apply' | 'destroy';
 
 /**
  * Lifecycle status of a {@link RunRecord}, derived (never stored ad hoc) via
  * {@link deriveRunStatus}. Also the hash key of the `status-index` GSI on the
- * `${project_name}-runs` DynamoDB table (schema originally defined in the
- * retired `terraform/aws/runs_store.tf`), so callers can list all runs in a
+ * `${project_name}-runs` DynamoDB table (schema originally defined by the
+ * app's original, now retired IaC tool), so callers can list all runs in a
  * given status ordered by `startedAt` without scanning the table. There is
  * no `pending` status — a {@link RunRecord} is only persisted once the
  * operation has finished.
@@ -26,9 +27,9 @@ export type RunStatus = 'success' | 'failed' | 'aborted';
 /**
  * A single row in the DynamoDB run-history table (`${project_name}-runs`,
  * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one plan/apply/destroy
- * invocation (see {@link RunKind}'s doc for the retained Terraform-subcommand
+ * invocation (see {@link RunKind}'s doc for the retained subcommand
  * vocabulary) driven through the management app's apply-history view —
- * schema originally defined in the retired `terraform/aws/runs_store.tf`,
+ * schema originally defined by the app's original, retired IaC tool,
  * field list per issue #179.
  */
 export interface RunRecord {

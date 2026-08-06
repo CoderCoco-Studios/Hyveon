@@ -5,7 +5,7 @@ import { PulumiWorkspaceModule } from './pulumi-workspace.module.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 
 /**
- * Feature module for `PulumiService`, the deleted `TerraformService.ts`'s successor.
+ * Feature module for `PulumiService`.
  *
  * Imports `PulumiWorkspaceModule` for the `getOrCreateStack` seam
  * `getStackOutputs()`/`preview()` read through, and `ElectronStoreModule`
@@ -14,8 +14,7 @@ import { ElectronStoreModule } from './electron-store.module.js';
  * ever invoking Pulumi (see `PulumiService.getStackOutputs`'s doc comment).
  *
  * `ConfigModule` imports this module so `ConfigService.getStackOutputs()`
- * (the thin delegate that replaced the old `getTfOutputs()` at every one of
- * its call sites) can inject `PulumiService`.
+ * can inject `PulumiService`.
  *
  * Also imports `PulumiEngineModule` directly — `PulumiService.apply`'s
  * `PulumiEngineService` constructor dependency, needed for the gate's

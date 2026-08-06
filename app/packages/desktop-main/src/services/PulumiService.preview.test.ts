@@ -1,14 +1,12 @@
 /**
- * Unit tests for `PulumiService.preview`
- * — the first real Pulumi operation, replacing `TerraformService.plan()`.
- * Mirrors `TerraformService.plan.test.ts`'s coverage breadth (spawn/artifact
- * persistence, streaming, run-log capture, `run.json` persistence,
- * `RunRecordService` persistence, structured summary, abort handling) plus
- * the Pulumi-specific additions: the config-version-aware plan hash,
- * engine-version stamping, and leaked-promise recovery.
+ * Unit tests for `PulumiService.preview` — the first real Pulumi operation.
+ * Covers spawn/artifact persistence, streaming, run-log capture, `run.json`
+ * persistence, `RunRecordService` persistence, structured summary, abort
+ * handling, the config-version-aware plan hash, engine-version stamping,
+ * and leaked-promise recovery.
  *
- * `node:fs` is fully mocked (mirrors `TerraformService.plan.test.ts` exactly)
- * so no test touches the real filesystem. `node:crypto`'s `randomUUID` is
+ * `node:fs` is fully mocked so no test touches the real filesystem.
+ * `node:crypto`'s `randomUUID` is
  * mocked for deterministic `runId`s; `createHash` is delegated to the real
  * implementation so `computePlanHash`'s SHA-256 digest is independently
  * verifiable. `PulumiWorkspaceService.getOrCreateStack` is stubbed to
@@ -46,10 +44,10 @@ vi.mock('node:fs', () => ({
   readFileSync: readFileSyncMock,
 }));
 
-// `createHash` is delegated to the real `node:crypto` implementation (mirrors
-// `TerraformService.plan.test.ts`) so `computePlanHash`'s SHA-256 digest is a
-// real, independently-verifiable hash of whatever bytes `readFileSyncMock`
-// returns — only `randomUUID` needs to be deterministically controlled.
+// `createHash` is delegated to the real `node:crypto` implementation so
+// `computePlanHash`'s SHA-256 digest is a real, independently-verifiable
+// hash of whatever bytes `readFileSyncMock` returns — only `randomUUID`
+// needs to be deterministically controlled.
 vi.mock('node:crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:crypto')>();
   return { ...actual, randomUUID: randomUUIDMock };
@@ -761,10 +759,8 @@ describe('PulumiService.preview abort handling', () => {
   });
 
   it('should abort the in-flight stack.preview() call and await its settlement before releasing the concurrency guard when the generator is force-closed', async () => {
-    // Mirrors TerraformService.plan.test.ts's "should kill the child process
-    // and wait for it to close when the generator is force-closed early"
-    // (this file's own regression coverage for the same class of bug: a
-    // force-closed generator must not report itself finished while the
+    // Regression coverage for a force-closed generator: it must not report
+    // itself finished while the
     // underlying operation is still genuinely running). Crucially — like
     // that test — the generator must first be driven to an actual `yield`
     // suspension point before `.return()` is called: an async generator
@@ -797,10 +793,9 @@ describe('PulumiService.preview abort handling', () => {
     const service = makeService({ workspace });
 
     const gen = service.preview();
-    // Drive the generator to its first yielded chunk (mirrors
-    // TerraformService.plan.test.ts's `await first` after `child.emitStdout`)
-    // — by the time this resolves, `stack.preview()` has been called and its
-    // returned promise is genuinely pending.
+    // Drive the generator to its first yielded chunk — by the time this
+    // resolves, `stack.preview()` has been called and its returned promise
+    // is genuinely pending.
     const first = await gen.next();
     expect(first.done).toBe(false);
     expect(first.value).toEqual({ stream: 'stdout', line: 'Previewing update...' });

@@ -2,21 +2,22 @@
  * The Pulumi inline-program factory — the `@hyveon/infra` package's public
  * entry point (re-exported from `index.ts`). Establishes the pattern every
  * resource-area module (EFS, ECS, IAM, Lambdas, ...) follows: one
- * `defineX(...)` module per Terraform-file-shaped resource area, all wired
+ * `defineX(...)` module per HCL-file-shaped resource area, all wired
  * together inside the closure {@link createInfraProgram} returns.
  *
  * ## Resource-inventory audit
  *
  * This package's `defineAll` (below) is the FULL Pulumi resource graph for
- * the retired `terraform/` tree's 69 `resource` blocks (21 `.tf` files, 2837
- * lines, independently verified below). Every block maps to exactly one
- * entry in the table below: a Pulumi counterpart (file + field on
+ * the retired legacy infrastructure-as-code tree's 69 `resource` blocks (21
+ * HCL files, 2837 lines, independently verified below). Every block maps to
+ * exactly one entry in the table below: a Pulumi counterpart (file + field on
  * {@link InfraResources}), or an explicit omission with its reason. Zero
  * blocks are unaccounted for.
  *
- * Verified via `grep -rn '^resource "' terraform/*.tf terraform/aws/*.tf terraform/bootstrap/*.tf | wc -l` → `69`,
- * run against the `terraform/` tree before its deletion; the tree no longer exists on disk, so this count
- * is historical and the command can't be re-run today.
+ * Verified by grep-counting every top-level `resource "..." "..." {` block
+ * across the legacy tree's 21 HCL files → `69`, run before that tree was
+ * deleted; the tree no longer exists on disk, so this count is historical
+ * and can't be re-derived from the repository today.
  *
  * | # | HCL address | Pulumi counterpart | Notes |
  * | --- | --- | --- | --- |
@@ -73,7 +74,7 @@
  * | 51 | `aws_secretsmanager_secret_version.discord_bot_token` | `secrets.discordBotTokenSecretVersion` | |
  * | 52 | `aws_secretsmanager_secret.discord_public_key` | `secrets.discordPublicKeySecret` | |
  * | 53 | `aws_secretsmanager_secret_version.discord_public_key` | `secrets.discordPublicKeySecretVersion` | |
- * | 54 | `terraform_data.discord_register_commands` | **omitted** | Requires the live Discord bot token as an input, which this program's "no secret material enters the stack" invariant forbids; `DeploymentConfig` has no such field. Permanent, not deferred — the app's existing per-guild "Register commands" UI (`DiscordCommandRegistrar.ts`) is the surviving manual path. See `escapes.ts`'s file doc, "Why `terraform_data.discord_register_commands` has no Pulumi analogue." |
+ * | 54 | legacy no-op trigger resource for Discord command registration | **omitted** | Requires the live Discord bot token as an input, which this program's "no secret material enters the stack" invariant forbids; `DeploymentConfig` has no such field. Permanent, not deferred — the app's existing per-guild "Register commands" UI (`DiscordCommandRegistrar.ts`) is the surviving manual path. See `escapes.ts`'s file doc, the section on why this trigger resource has no Pulumi analogue. |
  * | 55 | `aws_dynamodb_table_item.discord_base_config` | `discordTableItems.discordBaseConfigItem` | |
  * | 56 | `aws_dynamodb_table_item.discord_config_seed` | `discordTableItems.discordConfigSeedItem` | |
  * | 57 | `aws_acm_certificate.discord` | `discordDomain.certificate` | |
@@ -83,40 +84,39 @@
  * | 61 | `aws_route53_record.discord` | `discordDomain.aliasRecord` | |
  * | 62 | `aws_route53_record.discord_aaaa` | `discordDomain.aliasRecordAaaa` | |
  * | 63 | `aws_dynamodb_table.audit` | `dynamoDb.auditTable` | |
- * | 64 | `aws_dynamodb_table.runs` | **omitted from this program** | Not Pulumi-managed: `RunRecordService`'s approve/apply gates need this table to exist before the very FIRST Pulumi apply of a fresh install ever succeeds, which a Pulumi-managed resource structurally cannot guarantee. Ported to `BootstrapService.ensureRunsTable` (AWS SDK, wizard-bootstrap-time) instead — see `dynamodb.ts`'s file doc for the full rationale, which is the same "Lambda-managed, never Terraform-managed" pattern CLAUDE.md documents for DNS records. |
- * | 65 | `aws_s3_bucket.tfvars` (`terraform/bootstrap/main.tf`) | **omitted from this program** | Ported to `BootstrapService.ensureConfigurationBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
- * | 66 | `aws_s3_bucket_versioning.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 67 | `aws_s3_bucket_server_side_encryption_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 68 | `aws_s3_bucket_public_access_block.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
- * | 69 | `aws_s3_bucket_lifecycle_configuration.tfvars` | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 64 | `aws_dynamodb_table.runs` | **omitted from this program** | Not Pulumi-managed: `RunRecordService`'s approve/apply gates need this table to exist before the very FIRST Pulumi apply of a fresh install ever succeeds, which a Pulumi-managed resource structurally cannot guarantee. Ported to `BootstrapService.ensureRunsTable` (AWS SDK, wizard-bootstrap-time) instead — see `dynamodb.ts`'s file doc for the full rationale, which is the same "bootstrap-managed, never infra-program-managed" pattern CLAUDE.md documents for DNS records (there it's Lambda-managed; here it's SDK-managed by `BootstrapService`, but the "never infra-program-managed" invariant is identical). |
+ * | 65 | legacy bootstrap module: config bucket | **omitted from this program** | Ported to `BootstrapService.ensureConfigurationBucket` over the AWS SDK instead, not into this Pulumi stack. This bucket is the operator's configuration bucket and holds `DeploymentConfig`, this program's own input, so it must exist and be populated before `defineAll`/`createInfraProgram` can be invoked with a real config. It is NOT the Pulumi state bucket — see the note below the table for that distinct resource. |
+ * | 66 | legacy bootstrap module: config bucket versioning | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 67 | legacy bootstrap module: config bucket encryption | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 68 | legacy bootstrap module: config bucket public-access block | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
+ * | 69 | legacy bootstrap module: config bucket lifecycle rule | **omitted from this program** | Same reason as #65 — `BootstrapService.ensureConfigurationBucket`. |
  *
  * **Not the Pulumi state bucket.** `BootstrapService` also provisions a
  * SEPARATE bucket, `ensureStateBucket`, that backs the Pulumi `s3://`
- * state backend this program's own stack persists to. That bucket has NO
- * Terraform HCL counterpart at all — confirmed by `BootstrapService.ts`'s
- * own TSDoc on `ensureStateBucket`: "Mirrors the intent of
- * `terraform/bootstrap/` (which provisions the tfvars bucket, not this one
- * — there is no Terraform resource for the state bucket itself, since
- * Terraform can't manage the backend it also reads from)." It is therefore
+ * state backend this program's own stack persists to. That bucket has no
+ * counterpart in the legacy resource inventory at all — confirmed by
+ * `BootstrapService.ts`'s own TSDoc on `ensureStateBucket`: there is no
+ * Pulumi resource for this bucket either, since the infrastructure program
+ * can't provision the backend it also reads state from. It is therefore
  * out of scope for this 69-resource audit entirely — not one of the 69
  * rows, not an omission from this program, a pre-existing SDK-only
- * resource with no HCL history to diff against.
+ * resource with no legacy-tool history to diff against.
  *
  * ## Other intentional omissions (not tied to a single numbered HCL block)
  *
- * - **`Environment`/`ManagedBy` default tags.** `terraform/variables.tf`'s
- *   root-only `tags` variable default carried an `Environment` entry and a
- *   `ManagedBy` entry set to the literal string `terraform`, alongside
+ * - **`Environment`/`ManagedBy` default tags.** The legacy tool's root-only
+ *   `tags` variable default carried an `Environment` entry and a
+ *   `ManagedBy` entry naming the legacy tool itself, alongside
  *   `Project = "hyveon"`. Neither is replicated in {@link DEFAULT_TAGS}
- *   below: a `ManagedBy` value of `terraform` would be actively wrong
+ *   below: a `ManagedBy` value naming a retired tool would be actively wrong
  *   post-migration, and nothing in the app reads
  *   `Environment` (no Lambda, service, or cost-tooling filters on it) — only
  *   the tag CLAUDE.md documents as load-bearing (AWS Cost-allocation tag
  *   activation) is preserved. `tags` itself was never operator-configurable
  *   and is deliberately excluded from `DeploymentConfig` — see
  *   {@link DEFAULT_TAGS}'s own doc for the full rationale.
- * - **`applied_game_servers` was `sensitive = true` in the HCL**
- *   (`terraform/aws/outputs.tf`), a marking this program's
+ * - **`applied_game_servers` was marked `sensitive = true` in the legacy
+ *   tool's HCL outputs**, a marking this program's
  *   {@link StackOutputValues.appliedGameServers} does NOT replicate — Pulumi
  *   stack outputs have no per-field sensitivity marking in the
  *   `Record<string, any>` a `PulumiFn` returns (sensitivity is an
@@ -125,7 +125,7 @@
  *   (the value's element type) carries `environment` — operator-set
  *   container environment variables, which may hold values the operator
  *   considers sensitive even though they are not routed through Secrets
- *   Manager. Pulumi prints stack outputs by default where Terraform
+ *   Manager. Pulumi prints stack outputs by default where the legacy tool
  *   redacted this one, so whatever surfaces `appliedGameServers` downstream
  *   (`PulumiService`, CLI-equivalent logging, `pulumi up` output) must apply
  *   its own redaction — this program cannot provide it at the
@@ -153,22 +153,23 @@ import { defineDiscordDomain, type DiscordDomainResources } from './discordDomai
 
 /**
  * Fixed AWS tag set applied to every resource via the provider's
- * `defaultTags`, replicating the `Project = "hyveon"` entry of
- * `terraform/variables.tf`'s `tags` variable default (the one CLAUDE.md
- * documents as an invariant: "All AWS resources are tagged Project=hyveon").
+ * `defaultTags`, replicating the `Project = "hyveon"` entry of the legacy
+ * infrastructure-as-code tool's root `tags` variable default (the one
+ * CLAUDE.md documents as an invariant: "All AWS resources are tagged
+ * Project=hyveon").
  *
  * Deliberately NOT derived from `config.projectName`: `deploymentConfig.ts`'s
  * file doc excludes `tags` from `DeploymentConfig` specifically because tag
  * value is "a resource-tagging concern for the Pulumi program to own
  * directly (e.g. a fixed Project=hyveon tag set)" — a fixed value,
  * independent of the (renameable, used for resource *naming* only)
- * `projectName`. The Terraform default also carried an `Environment` entry
- * and a `ManagedBy` entry set to the literal string "terraform"; neither is
- * replicated here: a `ManagedBy` value of "terraform" would be actively
- * wrong post-migration, and `Environment` has no reader in the app (no
- * Lambda, service, or cost-tooling filters on it) — only the tag CLAUDE.md
- * documents as load-bearing (AWS Cost-allocation tag activation) is
- * preserved.
+ * `projectName`. The legacy tool's default tag set also carried an
+ * `Environment` entry and a `ManagedBy` entry naming the legacy tool itself;
+ * neither is replicated here: a `ManagedBy` value naming a retired tool
+ * would be actively wrong post-migration, and `Environment` has no reader in
+ * the app (no Lambda, service, or cost-tooling filters on it) — only the tag
+ * CLAUDE.md documents as load-bearing (AWS Cost-allocation tag activation)
+ * is preserved.
  */
 const DEFAULT_TAGS: Record<string, string> = { Project: 'hyveon' };
 
@@ -270,8 +271,8 @@ export interface InfraResources {
  *
  * The AWS provider is constructed once per call, with its region taken from
  * `config.awsRegion` (never an ambient env var) and {@link DEFAULT_TAGS}
- * applied via `defaultTags` — the mechanism Pulumi provides for Terraform's
- * provider-level `default_tags` block. It is threaded explicitly into every
+ * applied via `defaultTags` — the mechanism Pulumi provides for the legacy
+ * tool's provider-level `default_tags` block. It is threaded explicitly into every
  * `defineX(...)` call (as `provider` in each function's args) rather than
  * relying on Pulumi's implicit default-provider resolution, so every
  * resource's region/tags are traceably wired rather than picked up
@@ -292,7 +293,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   });
 
   // CloudFront's ACM certificate must live in us-east-1 regardless of
-  // `config.awsRegion` — mirrors `terraform/main.tf`'s aliased
+  // `config.awsRegion` — mirrors the legacy tool's aliased
   // `provider "aws" { alias = "us_east_1" }` block. Threaded ONLY into
   // `discordDomain`'s certificate + certificate-validation resources below;
   // every other resource in this program uses the regional `provider` above.
@@ -491,7 +492,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * Only four fields are plain (not `Output`-wrapped), because they are
  * already known synchronously from `config` with no resource round-trip
  * needed: {@link awsRegion}, {@link domainName}, {@link gameNames}, and
- * {@link appliedGameServers} — mirroring the four Terraform outputs
+ * {@link appliedGameServers} — mirroring the four legacy-tool outputs
  * (`aws_region`, `domain_name`, `game_names`, `applied_game_servers`) whose
  * HCL `value` is a bare `var.*`/`keys(var.*)` expression, never a resource
  * attribute.
@@ -505,7 +506,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
  * declares beyond what `StackOutputs` has.
  */
 export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
-  /** Mirrors {@link StackOutputs.awsRegion} — `terraform/aws/outputs.tf`'s `aws_region` output is a bare `var.aws_region` echo, so this is `config.awsRegion` directly, no resource involved. */
+  /** Mirrors {@link StackOutputs.awsRegion} — the legacy tool's outputs file's `aws_region` output was a bare `var.aws_region` echo, so this is `config.awsRegion` directly, no resource involved. */
   awsRegion: string;
   /** Mirrors {@link StackOutputs.ecsClusterName} — `ecs.cluster.name`. */
   ecsClusterName: pulumi.Output<string>;
@@ -522,14 +523,14 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   /**
    * Mirrors {@link StackOutputs.efsAccessPoints} — game name → that game's
    * FIRST volume's access point id (`efs.gameAccessPoints["${game}-${firstVolumeName}"].id`),
-   * matching `terraform/aws/outputs.tf`'s `efs_access_points` output exactly
+   * matching the legacy tool's outputs file's `efs_access_points` output exactly
    * (`aws_efs_access_point.game["${game}-${cfg.volumes[0].name}"].id`) — NOT
    * every `(game, volume)` access point `efs.gameAccessPoints` holds.
    */
   efsAccessPoints: pulumi.Output<Record<string, string>>;
-  /** Mirrors {@link StackOutputs.domainName} — `terraform/aws/outputs.tf`'s `domain_name` output is a bare `var.hosted_zone_name` echo, so this is `config.hostedZoneName` directly. */
+  /** Mirrors {@link StackOutputs.domainName} — the legacy tool's outputs file's `domain_name` output was a bare `var.hosted_zone_name` echo, so this is `config.hostedZoneName` directly. */
   domainName: string;
-  /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED to match Terraform's `keys(map)` (always lexicographic, regardless of definition order). */
+  /** Mirrors {@link StackOutputs.gameNames} — `Object.keys(config.gameServers)`, SORTED to match the legacy tool's `keys(map)` (always lexicographic, regardless of definition order). */
   gameNames: string[];
   /** Mirrors {@link StackOutputs.discordTableName} — `dynamoDb.discordTable.name`. */
   discordTableName: pulumi.Output<string>;
@@ -572,7 +573,7 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   fileBrowserSchedulerRoleArn: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.interactionsInvokeUrl}. Per `discordDomain.ts`'s
-   * file doc: `terraform/aws/outputs.tf`'s `interactions_invoke_url` output
+   * file doc: the legacy tool's outputs file's `interactions_invoke_url` output
    * resolves to the CUSTOM DOMAIN (`"https://discord.${var.hosted_zone_name}/"`),
    * NEVER the raw Lambda Function URL — so this reads
    * `discordDomain.aliasRecord.name` (the literal `discord.{hostedZoneName}`
@@ -582,9 +583,9 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
   interactionsInvokeUrl: pulumi.Output<string>;
   /**
    * Mirrors {@link StackOutputs.discordInteractionsUrl}. Per the same HCL
-   * source (`terraform/aws/outputs.tf`'s `discord_interactions_url` output,
+   * source (the legacy tool's outputs file's `discord_interactions_url` output,
    * `"https://${local.discord_domain}/"`), this resolves to the IDENTICAL
-   * value as {@link interactionsInvokeUrl} — both Terraform outputs already
+   * value as {@link interactionsInvokeUrl} — both legacy-tool outputs already
    * overlap in the retired module; carried forward as-is for consumer parity
    * per `StackOutputs.discordInteractionsUrl`'s own doc, not resolved here.
    */
@@ -595,8 +596,8 @@ export interface StackOutputValues extends Record<keyof StackOutputs, unknown> {
 
 /**
  * Builds every {@link StackOutputValues} field off the resources
- * {@link defineAll} declared, field-by-field against `terraform/aws/outputs.tf`
- * — see {@link StackOutputValues}'s own doc for the full per-field mapping and
+ * {@link defineAll} declared, field-by-field against the legacy tool's
+ * outputs file — see {@link StackOutputValues}'s own doc for the full per-field mapping and
  * why resource-derived fields stay `pulumi.Output`-wrapped rather than
  * pre-resolved. `createInfraProgram`'s closure calls this immediately after
  * `defineAll` and returns the result as-is.

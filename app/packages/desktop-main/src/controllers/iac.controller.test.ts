@@ -66,7 +66,7 @@ vi.mock('node:os', async () => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** A `PulumiPreviewResult` fixture, overridable per-test. Mirrors the old file's `TerraformPlanResult` builder. */
+/** A `PulumiPreviewResult` fixture, overridable per-test. */
 function buildPreviewResult(overrides: Partial<PulumiPreviewResult> = {}): PulumiPreviewResult {
   return {
     runId: 'plan-run-1',
@@ -78,7 +78,7 @@ function buildPreviewResult(overrides: Partial<PulumiPreviewResult> = {}): Pulum
   };
 }
 
-/** A `PulumiUpResult` fixture, overridable per-test. Mirrors the old file's `TerraformApplyResult` builder. */
+/** A `PulumiUpResult` fixture, overridable per-test. */
 function buildUpResult(overrides: Partial<PulumiUpResult> = {}): PulumiUpResult {
   return {
     runId: 'plan-run-1',
@@ -87,7 +87,7 @@ function buildUpResult(overrides: Partial<PulumiUpResult> = {}): PulumiUpResult 
   };
 }
 
-/** A `PulumiDestroyResult` fixture, overridable per-test. Mirrors the old file's `TerraformDestroyResult` builder. */
+/** A `PulumiDestroyResult` fixture, overridable per-test. */
 function buildDestroyResult(overrides: Partial<PulumiDestroyResult> = {}): PulumiDestroyResult {
   return {
     runId: 'destroy-run-1',

@@ -1,6 +1,6 @@
 ---
 name: scan-vocabulary
-description: Deterministically sweep the whole repo for leftover references to specific terms — old class/service names, retired tooling vocabulary (e.g. "terraform", "tfvars"), a deprecated env var, a renamed field — using a parallel worker_threads scanner instead of ad hoc grep. Use this to independently verify a rename/removal actually reached every file before calling a cleanup complete, or any time you need a repeatable, reviewable "did we miss anything" pass over the codebase.
+description: Deterministically sweep the whole repo for leftover references to specific terms — old class/service names, retired tooling vocabulary, a deprecated env var, a renamed field — using a parallel worker_threads scanner instead of ad hoc grep. Use this to independently verify a rename/removal actually reached every file before calling a cleanup complete, or any time you need a repeatable, reviewable "did we miss anything" pass over the codebase.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ grep: the output is reviewable and diffable across runs.
 
 Reach for this whenever you (or a prior session) claim "we renamed X everywhere" or
 "Y is fully removed" and want a ground-truth check that isn't just "the agent said
-so". This repo's post-Pulumi-migration Terraform/tfvars naming cleanup needed five
+so". This repo's own retired-tooling naming cleanups have repeatedly needed several
 independent validation rounds before a sweep came back clean — each round's
 self-reported "found everything" turned out incomplete on the next check. That
 pattern is the reason this tool exists: repeated independent sweeps converge toward
@@ -35,8 +35,8 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs <rootDir> --terms=term1,
 - `--boundary` — comma-separated subset of `--terms` to search with **word-boundary**
   matching instead of plain substring, for short/generic terms (2-4 letters) that
   would otherwise produce noise matching inside unrelated words. Also auto-generates
-  a PascalCase word-segment variant, so a boundary term like `tf` additionally catches
-  camelCase identifiers such as `TfOutputs`/`getTfOutputs` that a strict boundary
+  a PascalCase word-segment variant, so a boundary term like `id` additionally catches
+  camelCase identifiers such as `IdToken`/`getIdToken` that a strict boundary
   check alone would miss.
 - `--exclude` — comma-separated paths (relative to `<rootDir>`) to skip for this run
   only, on top of the built-in defaults. Use this for directories a specific sweep
@@ -49,14 +49,14 @@ Examples:
 
 ```bash
 # Simple sweep for a couple of retired terms, plain substring for both
-node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfvars
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig
 
-# Same, but "tf" is short/generic enough to need boundary matching to avoid
-# matching inside unrelated words (plain substring would hit "outfit")
-node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfvars,tf --boundary=tf
+# Same, but "id" is short/generic enough to need boundary matching to avoid
+# matching inside unrelated words (plain substring would hit "hidden")
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig,id --boundary=id
 
 # Skip openspec's historical change docs, which are expected to cite retired terms
-node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=terraform,tfvars --exclude=openspec
+node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=oldServiceName,oldServiceConfig --exclude=openspec
 
 # Verify a class rename reached everywhere
 node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
@@ -71,8 +71,12 @@ node .claude/skills/scan-vocabulary/scan-vocabulary.mjs . --terms=OldServiceName
   otherwise multiply every result and slow the scan down enormously).
 - `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` — machine-generated lockfiles
   whose base64/hex integrity hashes produce meaningless matches, especially for short
-  boundary terms (a hash substring coincidentally containing "Tf" is not a reference
+  boundary terms (a hash substring coincidentally containing "Id" is not a reference
   to anything).
+- A worktree's `.git` file — a plain-text `gitdir:` pointer, not the `.git` directory
+  the exclusion above skips. Its path embeds the worktree directory name, so a search
+  term that happens to appear there (e.g. because the worktree itself is named after
+  what it's cleaning up) produces an unfixable false positive otherwise.
 - Common binary/asset extensions (images, fonts, archives, `.wasm`, `.map`, `.lock`,
   `.tsbuildinfo`).
 

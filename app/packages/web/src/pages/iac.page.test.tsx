@@ -101,7 +101,7 @@ function makeStaleLockInfo() {
     stackName: 'production',
     locks: [
       {
-        lockUrl: 's3://hyveon-tf-state/.pulumi/locks/production/lock-1.json',
+        lockUrl: 's3://hyveon-state/.pulumi/locks/production/lock-1.json',
         username: 'alice',
         hostname: 'alice-laptop',
         pid: 4242,

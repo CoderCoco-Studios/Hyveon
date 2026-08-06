@@ -59,12 +59,11 @@ npm run app:test:e2e             # Playwright tier 1 (chromium + electron projec
 npm run app:test:integration     # Playwright tier 2 (in-process Nest DI container)
 ```
 
-There is no `terraform`/`tflint` command — the `terraform/` tree was deleted
-by the `migrate-iac-to-pulumi` change. AWS is provisioned by
+There is no CLI-based IaC step — AWS is provisioned entirely by
 `app/packages/infra`, a Pulumi Automation API program driven entirely from
-inside the packaged app (`PulumiService`); there is no CLI step, and no
-host-installed `pulumi` binary either — the app provisions its own pinned
-engine. See [Infra program](docs/docs/components/infra.md).
+inside the packaged app (`PulumiService`); there is no host-installed
+`pulumi` binary either — the app provisions its own pinned engine. See
+[Infra program](docs/docs/components/infra.md).
 
 All AWS resources are tagged `Project=hyveon`; activate the `Project` tag in AWS
 Billing → Cost allocation tags for Cost Explorer breakdowns.
@@ -155,10 +154,9 @@ Then confirm documentation is current **in the same PR**:
 - **OpenSpec** — if required behaviour changed, the change's delta specs must be synced
   (`/opsx:sync`) or the change archived (`/opsx:archive`) so `openspec/specs/` matches reality.
 - **Deployment-config fields** — there is no five-file checklist any more; the old one
-  (`terraform/variables.tf` + `terraform/aws/variables.tf` + `terraform/main.tf`'s
-  `module "cloud"` passthrough + `terraform.tfvars.example` + the components doc) existed
-  because Terraform variables had to be declared twice and threaded through a module
-  boundary by hand. A TypeScript type has no such duplication. Adding a field to
+  existed because the previous IaC tooling required each variable declared
+  redundantly across several files and threaded through a module boundary by
+  hand. A TypeScript type has no such duplication. Adding a field to
   `DeploymentConfig`/`GameServerConfig` (`@hyveon/shared`) means:
   1. The type itself, in `@hyveon/shared`.
   2. Wherever `app/packages/infra` needs to consume it (the relevant `defineX()` function).
