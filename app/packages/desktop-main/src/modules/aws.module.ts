@@ -10,7 +10,7 @@ import { SchedulerService } from '../services/SchedulerService.js';
 
 /**
  * Feature module grouping every AWS-facing service (ECS, EC2, CloudWatch
- * Logs, Cost Explorer, EventBridge Scheduler, the FileBrowser task helper).
+ * Logs, EventBridge Scheduler, the FileBrowser task helper).
  * Imported by `AppModule`
  * so controllers get these via Nest's DI without wiring each provider
  * individually.

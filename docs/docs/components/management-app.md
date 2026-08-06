@@ -102,7 +102,8 @@ never speaks HTTP to this process.
   by touching this module's provider definitions.
 - **`AwsModule`** — imports `ConfigModule` and `CloudProviderModule`
   (re-exporting both); provides and exports `Ec2Service`, `EcsService`,
-  `LogsService`, `CostService`, `FileManagerService`. It no longer provides
+  `LogsService`, `CostService`, `SchedulerService`, `FileManagerService`. It
+  no longer provides
   `ConfigService` directly (that's `ConfigModule`'s job — `AwsModule`
   re-exports it for existing consumers that import `AwsModule` expecting
   `ConfigService` to be available) and no longer wires `AwsCloudProvider`/
@@ -164,7 +165,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 | Controller | Representative channels | Purpose |
 |---|---|---|
 | `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `DeploymentConfigService`. Invalidates `DeploymentConfigService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. |
-| `CostsController` | `costs.estimate`, `costs.actual` | Per-game Fargate estimates; Cost Explorer actuals filtered on the `SERVICE` dimension (ECS + Fargate) — account-wide, **not** scoped by the `Project` tag. See [Costs](/app/costs#activate-the-project-cost-allocation-tag). |
+| `CostsController` | `costs.estimate` | Per-game Fargate estimates, derived from each game's `{game}-server` task-definition CPU/memory. The app makes no AWS Cost Explorer API calls — see [Costs](/app/costs). |
 | `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. `files.start` seeds a random per-launch password (bcrypt-hashed into the container's `--password` flag), returns the one-time plaintext credential in its response, and creates an EventBridge Scheduler one-time schedule that auto-stops the task after 2 hours; `files.stop` cancels that schedule. |
 | `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
@@ -201,18 +202,23 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   `PUT https://discord.com/api/v10/applications/{clientId}/guilds/{guildId}/commands`.
   Validates `guildId` as a 17–20-digit Discord snowflake before calling out
   (no path traversal, no SSRF).
-- **`EcsService` / `Ec2Service` / `LogsService` / `CostService` /
-  `FileManagerService`** — cloud-facing services. `EcsService` routes
-  ECS run/stop/status calls through the injected `CLOUD_PROVIDER` token
-  (a `CloudProvider` implementation from `@hyveon/cloud-aws`) rather than
-  instantiating an `@aws-sdk/client-ecs` client directly; `Ec2Service` /
-  `LogsService` / `CostService` / `FileManagerService` still call the AWS
-  SDK v3 clients (CloudWatch Logs, Cost Explorer, EC2) directly, since
-  those aren't yet behind a cloud-agnostic contract. New cloud-facing code
-  should prefer adding to (or consuming) the `CLOUD_PROVIDER` /
-  `SECRETS_STORE` / `REMOTE_FILE_STORE` / `DISCORD_RECEIVER` /
-  `AUDIT_LOG_STORE` / `RUN_RECORD_STORE` tokens over reaching for a new AWS
-  SDK client directly — see the [maintainer guide](/guides/maintainer#when-you-touch-the-nest-server).
+- **`EcsService` / `Ec2Service` / `LogsService` / `SchedulerService` /
+  `CostService` / `FileManagerService`** — cloud-facing services.
+  `EcsService` routes ECS run/stop/status calls through the injected
+  `CLOUD_PROVIDER` token (a `CloudProvider` implementation from
+  `@hyveon/cloud-aws`) rather than instantiating an `@aws-sdk/client-ecs`
+  client directly; `Ec2Service` / `LogsService` / `SchedulerService` still
+  call the AWS SDK v3 clients (EC2, CloudWatch Logs, EventBridge Scheduler)
+  directly, since those aren't yet behind a cloud-agnostic contract.
+  `FileManagerService` composes `EcsService`/`Ec2Service`/`SchedulerService`
+  rather than calling any SDK client itself. `CostService` is pure
+  arithmetic — no AWS SDK client at all — since the Cost Explorer call
+  chain was removed (see `openspec/changes/remove-cost-explorer-calls`).
+  New cloud-facing code should prefer adding to (or consuming) the
+  `CLOUD_PROVIDER` / `SECRETS_STORE` / `REMOTE_FILE_STORE` /
+  `DISCORD_RECEIVER` / `AUDIT_LOG_STORE` / `RUN_RECORD_STORE` tokens over
+  reaching for a new AWS SDK client directly — see the [maintainer
+  guide](/guides/maintainer#when-you-touch-the-nest-server).
   `LogsService.streamLogs(game, signal)` is an `AsyncGenerator` that polls
   `FilterLogEvents` every 2 s; `getRecentLogs` remains the snapshot path.
 - **`DriftService`** — see [Drift detection](#drift-detection) below.
@@ -405,7 +411,7 @@ dashboard screen. `app.component.tsx` declares:
 | `/iac`, `/iac/history`, `/iac/history/:runId` | Plan/apply/destroy, run history, run detail | [`/app/iac`](/app/iac) |
 | `/discord` | Discord bot credentials, guilds, admins, per-game permissions | [`/app/discord`](/app/discord) |
 | `/logs` | Live log viewer | [`/app/logs`](/app/logs) |
-| `/costs` | Cost estimates and actuals | [`/app/costs`](/app/costs) |
+| `/costs` | Per-game Fargate cost estimates, AWS Cost Explorer link-out | [`/app/costs`](/app/costs) |
 | `/audit` | Audit log entries | [`/app/audit`](/app/audit) |
 | `/settings` | Watchdog summary, deployment settings, cloud setup, diagnostics | [`/app/settings`](/app/settings) |
 | — | First-run setup wizard, shown in place of the router until `wizardCompleted` | [`/app/first-run-wizard`](/app/first-run-wizard) |
