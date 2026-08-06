@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, Server, ExternalLink } from 'lucide-react';
 import { useGameStatus } from '../polling/game-status-provider.component.js';
 import { useFileManager } from '../hooks/use-file-manager.hook.js';
-import { api, type ActualCosts } from '../api.service.js';
 import { GameCard } from '../components/game-card.component.js';
 import { KpiStrip } from '../components/kpi-strip.component.js';
 import { FileManagerModal } from '../components/file-manager-modal.component.js';
@@ -22,13 +21,6 @@ export function DashboardPage() {
   const { statuses, estimates, loading, refreshGame } = useGameStatus();
   const fileMgr = useFileManager();
   const [query, setQuery] = useState('');
-  // Single Cost Explorer fetch shared with `KpiStrip` — Cost Explorer bills
-  // per request, so don't double-call.
-  const [actualCosts, setActualCosts] = useState<ActualCosts | null>(null);
-
-  useEffect(() => {
-    void api.costsActual().then(setActualCosts).catch(() => undefined);
-  }, []);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -46,7 +38,7 @@ export function DashboardPage() {
         <PendingChangesBanner />
 
         {/* KPI strip */}
-        <KpiStrip statuses={statuses} estimates={estimates} actualCosts={actualCosts} />
+        <KpiStrip statuses={statuses} estimates={estimates} />
 
         {/* Search filter + polling indicator */}
         <div className="mb-4 flex items-center justify-between gap-4">
