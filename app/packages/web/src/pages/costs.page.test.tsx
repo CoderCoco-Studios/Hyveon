@@ -47,4 +47,14 @@ describe('CostsPage', () => {
     expect(screen.queryByText(/vs prior|no prior period/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Daily spend, stacked by game/)).not.toBeInTheDocument();
   });
+
+  it('should show a link to AWS Cost Explorer and no in-app chart or total claiming to be actual billed spend', async () => {
+    renderPage(<CostsPage />, { initialEntries: ['/costs'] });
+
+    const link = await screen.findByRole('link', { name: /Open AWS Cost Explorer/i });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://console.aws.amazon.com/cost-management/home#/cost-explorer',
+    );
+  });
 });

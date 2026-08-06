@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from 'lucide-react';
 import { api, type CostEstimates, type GameEstimate } from '../api.service.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
@@ -31,6 +31,9 @@ const GAME_COLOR_VARS = [
   '--color-green',
   '--color-red',
 ] as const;
+
+/** Static AWS Cost Explorer console home URL — no query-string filters (design.md D4: undocumented deep-link params could break silently on an AWS console update). */
+const AWS_COST_EXPLORER_URL = 'https://console.aws.amazon.com/cost-management/home#/cost-explorer';
 
 /** Sortable column keys for the estimates table. */
 type SortKey = 'game' | 'vcpu' | 'memoryGb' | 'costPerHour' | 'costPerDay24h' | 'costPerMonth4hpd';
@@ -99,8 +102,36 @@ export function CostsPage() {
         <PollingIndicator />
       </header>
 
+      <CostExplorerCallout />
+
       <EstimatesTable estimates={estimates} colorByGame={colorByGame} />
     </div>
+  );
+}
+
+/** Callout card linking out to the real AWS Cost Explorer console — the app itself renders no actual-billed-spend figures. */
+function CostExplorerCallout() {
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-foreground)]">Want real billed spend?</p>
+          <p className="text-sm text-[var(--color-muted-foreground)]">
+            The table below is a Fargate-spec estimate, not a bill. See actual dollars charged to
+            your AWS account in Cost Explorer.
+          </p>
+        </div>
+        <a
+          href={AWS_COST_EXPLORER_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex shrink-0 items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
+        >
+          Open AWS Cost Explorer
+          <ExternalLink className="size-3.5" aria-hidden="true" />
+        </a>
+      </CardContent>
+    </Card>
   );
 }
 
