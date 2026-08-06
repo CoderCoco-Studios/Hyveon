@@ -680,7 +680,6 @@ const api: HyveonApi = {
 
   costs: {
     estimate: () => invoke('costs.estimate'),
-    actual: (days?: number) => invoke('costs.actual', days),
   },
 
   logs: {

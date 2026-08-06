@@ -101,21 +101,6 @@ export interface CostEstimates {
   totalPerHourIfAllOn: number;
 }
 
-/** Historical daily cost entry from Cost Explorer. */
-export interface DailyCost {
-  date: string;
-  cost: number;
-}
-
-/** Actual billed costs pulled from AWS Cost Explorer. */
-export interface ActualCosts {
-  daily: DailyCost[];
-  total: number;
-  currency: string;
-  days: number;
-  error?: string;
-}
-
 /** Log lines for a game's ECS task. */
 export interface GameLogs {
   game: string;
@@ -1125,12 +1110,10 @@ export interface HyveonGamesApi {
   delete: (payload: DeleteGamePayload) => Promise<GameWriteResult>;
 }
 
-/** Cost endpoints: forward-looking Fargate estimates and historical CE data. */
+/** Cost endpoints: forward-looking Fargate estimates. The app makes no AWS Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`. */
 export interface HyveonCostsApi {
   /** Estimates per-game and total hourly Fargate cost. */
   estimate: () => Promise<CostEstimates>;
-  /** Returns actual costs over a trailing window via Cost Explorer. */
-  actual: (days?: number) => Promise<ActualCosts>;
 }
 
 /** CloudWatch log endpoints: poll recent lines or open a live IPC stream. */
