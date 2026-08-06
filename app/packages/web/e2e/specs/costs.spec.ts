@@ -1,15 +1,16 @@
-import { test, expect, _electron, makeActualCosts, COST_DATA, MULTI_GAME_COST_DATA, STOPPED_GAME } from '../fixtures/index.js';
+import { test, expect, _electron, COST_DATA, MULTI_GAME_COST_DATA, STOPPED_GAME } from '../fixtures/index.js';
 import { electronMain, electronEnv } from '../../playwright.config.js';
 import { CostsPage } from '../pages/index.js';
-import type { ActualCosts, CostEstimates, GameStatus } from '../fixtures/index.js';
+import type { CostEstimates, GameStatus } from '../fixtures/index.js';
 
 /**
- * Specs for the `/costs` route added in CoderCoco/Hyveon#61.
+ * Specs for the `/costs` route. Each test launches its own Electron shell,
+ * mocks the two IPC channels consumed by the Costs page (`costs.estimate`,
+ * `games.status`) via `window.hyveon.__test.mock`, then navigates to `/costs`
+ * via history injection (`CostsPage.gotoElectron`).
  *
- * Each test launches its own Electron shell, mocks the three IPC channels
- * consumed by the Costs page (`costs.estimate`, `costs.actual`, `games.status`)
- * via `window.hyveon.__test.mock`, then navigates to `/costs` via history injection
- * (`CostsPage.gotoElectron`).
+ * The app makes no AWS Cost Explorer API calls — there is no `costs.actual`
+ * channel any more (see `openspec/changes/remove-cost-explorer-calls`).
  *
  * Filter / sort exercises pass `MULTI_GAME_COST_DATA` so the table has more
  * than one row to interact with; the default `COST_DATA` only contains
@@ -29,9 +30,6 @@ test.describe('costs page', () => {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', (days: unknown) =>
-            Promise.resolve({ daily: [], total: 0, currency: 'USD', days: days as number }),
-          );
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
         { estimate: COST_DATA, statuses: [STOPPED_GAME] },
@@ -45,124 +43,31 @@ test.describe('costs page', () => {
     }
   });
 
-  // Asserts the total-spend card, removed by this PR's costs.page.tsx rewrite.
-  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should display the trailing-window total spend KPI', async () => {
+  test('should link out to the AWS Cost Explorer console', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
       const win = await app.firstWindow();
       const costs = new CostsPage(win);
 
-      // The page fetches `days*2 = 14` and uses the newer 7 entries as the
-      // current window. `makeActualCosts(14)` puts $1.00/day in the second
-      // half, so the current total is 7 × $1.00 = $7.00.
-      const actual14 = makeActualCosts(14);
       await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual: ActualCosts;
-        }) => {
+        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
           const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
-        { estimate: COST_DATA, statuses: [STOPPED_GAME], actual: actual14 },
+        { estimate: COST_DATA, statuses: [STOPPED_GAME] },
       );
 
       await costs.gotoElectron();
 
-      await expect(costs.totalLabel(7)).toBeVisible();
-      await expect(costs.kpiValue('$7.00')).toBeVisible();
-    } finally {
-      await app.close();
-    }
-  });
-
-  // Asserts the delta pill, removed by this PR's costs.page.tsx rewrite.
-  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should render a delta-vs-prior pill', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
-
-    try {
-      const win = await app.firstWindow();
-      const costs = new CostsPage(win);
-
-      // Two-tier daily cost makes current > prior, so the pill shows "vs prior"
-      // rather than the "no prior period" fallback.
-      const actualCosts14 = makeActualCosts(14);
-      await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual14,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual14: ActualCosts;
-        }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
+      await expect(costs.costExplorerLink()).toBeVisible();
+      await expect(costs.costExplorerLink()).toHaveAttribute(
+        'href',
+        'https://console.aws.amazon.com/cost-management/home#/cost-explorer',
       );
-
-      await costs.gotoElectron();
-
-      await expect(costs.deltaPill()).toBeVisible();
-    } finally {
-      await app.close();
-    }
-  });
-
-  // Asserts the stacked bar chart, removed by this PR's costs.page.tsx rewrite.
-  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should render stacked bar segments for each game', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
-
-    try {
-      const win = await app.firstWindow();
-      const costs = new CostsPage(win);
-
-      const actualCosts14 = makeActualCosts(14);
-      await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual14,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual14: ActualCosts;
-        }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
-      );
-
-      await costs.gotoElectron();
-
-      await expect(costs.chartTitle()).toBeVisible();
-      await expect(costs.chartSegment('minecraft').first()).toBeVisible();
-      await expect(costs.chartSegment('valheim').first()).toBeVisible();
-      await expect(costs.chartSegment('palworld').first()).toBeVisible();
     } finally {
       await app.close();
     }
@@ -175,25 +80,15 @@ test.describe('costs page', () => {
       const win = await app.firstWindow();
       const costs = new CostsPage(win);
 
-      const actualCosts14 = makeActualCosts(14);
       await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual14,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual14: ActualCosts;
-        }) => {
+        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
           const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
+        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
       );
 
       await costs.gotoElectron();
@@ -216,25 +111,15 @@ test.describe('costs page', () => {
       const win = await app.firstWindow();
       const costs = new CostsPage(win);
 
-      const actualCosts14 = makeActualCosts(14);
       await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual14,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual14: ActualCosts;
-        }) => {
+        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
           const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
+        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
       );
 
       await costs.gotoElectron();
@@ -257,25 +142,15 @@ test.describe('costs page', () => {
       const win = await app.firstWindow();
       const costs = new CostsPage(win);
 
-      const actualCosts14 = makeActualCosts(14);
       await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          actual14,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          actual14: ActualCosts;
-        }) => {
+        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
           const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
             __test: { mock: (channel: string, handler: unknown) => void };
           };
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', () => Promise.resolve(actual14));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME], actual14: actualCosts14 },
+        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
       );
 
       await costs.gotoElectron();
@@ -284,54 +159,6 @@ test.describe('costs page', () => {
       await expect(costs.tableCell(/valheim/)).toBeVisible();
       await expect(costs.tableCell(/minecraft/)).toHaveCount(0);
       await expect(costs.tableCell(/palworld/)).toHaveCount(0);
-    } finally {
-      await app.close();
-    }
-  });
-
-  // Asserts the 7d/30d range selector, removed by this PR's costs.page.tsx rewrite.
-  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should switch the active window when clicking 30d', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
-
-    try {
-      const win = await app.firstWindow();
-      const costs = new CostsPage(win);
-
-      // Register a days-aware mock: days=14 for the initial 7d view,
-      // days=60 for the 30d view. makeActualCosts(N) is called in the
-      // Playwright process and the payload is serialised per call.
-      const actual14 = makeActualCosts(14);
-      const actual60 = makeActualCosts(60);
-      await win.evaluate(
-        ({
-          estimate,
-          statuses,
-          a14,
-          a60,
-        }: {
-          estimate: CostEstimates;
-          statuses: GameStatus[];
-          a14: ActualCosts;
-          a60: ActualCosts;
-        }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('costs.actual', (days: unknown) =>
-            Promise.resolve((days as number) >= 30 ? a60 : a14),
-          );
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: COST_DATA, statuses: [STOPPED_GAME], a14: actual14, a60: actual60 },
-      );
-
-      await costs.gotoElectron();
-
-      await expect(costs.totalLabel(7)).toBeVisible();
-      await costs.selectRange('30d', 30);
-      await expect(costs.totalLabel(30)).toBeVisible();
     } finally {
       await app.close();
     }
