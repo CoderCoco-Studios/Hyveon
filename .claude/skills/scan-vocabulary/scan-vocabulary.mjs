@@ -19,9 +19,9 @@
  *               word-boundary matching instead of plain substring — use
  *               this for short/generic terms (2-4 letters) that would
  *               otherwise produce noise matching inside unrelated words
- *               (e.g. "tf" plain-substring-matches inside "outfit").
+ *               (e.g. "id" plain-substring-matches inside "hidden").
  *               Boundary mode also auto-generates a PascalCase word-segment
- *               variant (so "tf" also catches "TfOutputs"/"getTfOutputs").
+ *               variant (so "id" also catches "IdToken"/"getIdToken").
  *   --exclude   Comma-separated list of paths (relative to rootDir) to skip
  *               for this run only, on top of the built-in defaults — e.g. a
  *               directory that's expected to hold historical references
@@ -32,14 +32,14 @@
  *
  * Examples:
  *   # Simple sweep for a couple of retired terms
- *   node scan-vocabulary.mjs ../.. --terms=terraform,tfvars
+ *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig
  *
- *   # Same, but treat the short/generic term "tf" as boundary-only to
+ *   # Same, but treat the short/generic term "id" as boundary-only to
  *   # avoid matching inside unrelated words
- *   node scan-vocabulary.mjs ../.. --terms=terraform,tfvars,tf --boundary=tf
+ *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig,id --boundary=id
  *
  *   # Skip a directory that's expected to hold historical references
- *   node scan-vocabulary.mjs ../.. --terms=terraform,tfvars --exclude=openspec
+ *   node scan-vocabulary.mjs ../.. --terms=oldServiceName,oldServiceConfig --exclude=openspec
  *
  * No external dependencies — Node builtins only.
  */
@@ -69,8 +69,17 @@ const EXCLUDED_DIR_NAMES = new Set([
 const EXCLUDED_PATH_PREFIXES = ['.claude/worktrees', '.worktrees'];
 
 /** Exact filenames to skip anywhere in the tree — machine-generated lockfiles whose
- * base64/hex hash content produces meaningless matches, especially for short terms. */
-const EXCLUDED_FILE_NAMES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']);
+ * base64/hex hash content produces meaningless matches, especially for short terms, plus
+ * git's own plumbing files. */
+const EXCLUDED_FILE_NAMES = new Set([
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  // A worktree's ".git" is a plain text pointer file (`gitdir: /path/to/.git/worktrees/<name>`),
+  // not the ".git" directory — the directory-name exclusion above never catches it, so a
+  // worktree whose path happens to contain a search term produces an unfixable false positive.
+  '.git',
+]);
 
 /** File extensions that are never useful to scan as text (binary/generated assets). */
 const BINARY_EXTENSIONS = new Set([
@@ -90,7 +99,7 @@ function escapeRegExp(s) {
  * `boundaryTerms` instead get a word-boundary pattern (excludes matches
  * embedded in unrelated words) plus a PascalCase word-segment pattern
  * (catches camelCase/PascalCase identifiers a boundary check alone would
- * miss, e.g. "getTfOutputs").
+ * miss, e.g. "getIdToken").
  */
 function buildPatterns(terms, boundaryTerms) {
   const patterns = [];

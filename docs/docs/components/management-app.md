@@ -132,8 +132,8 @@ never speaks HTTP to this process.
   `getOrCreateStack()`.
 - **`PulumiServiceModule`** — imports `PulumiWorkspaceModule`,
   `PulumiEngineModule`, and `ElectronStoreModule`; provides `PulumiService`,
-  the plan/apply/destroy/rollback + `getStackOutputs()` engine service that
-  replaced `TerraformService`. It deliberately does **not** import
+  the plan/apply/destroy/rollback + `getStackOutputs()` engine service. It
+  deliberately does **not** import
   `RunRecordModule`, `CloudProviderModule`, or `DeploymentConfigModule` — those would
   close a native-ESM module cycle through `ConfigModule` — so `PulumiService`
   resolves `RUN_RECORD_PERSISTER`, `REMOTE_FILE_STORE`, and the `DeploymentConfigService`
@@ -181,13 +181,13 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   which reads the deployed Pulumi stack's outputs (`StackOutputs` from
   `@hyveon/shared` — cluster ARN, subnets, security groups, EFS access
   points, game names, hosted zone, Discord table + secret ARNs, interactions
-  URL) via the Automation API against the S3 backend, not a local
-  `terraform.tfstate`. The in-flight promise is cached so concurrent callers
+  URL) via the Automation API against the S3 backend, not a local state
+  file. The in-flight promise is cached so concurrent callers
   coalesce; a resolved `null` (infra not yet deployed) expires after 20 s, a
   resolved value is cached until `invalidateCache()` — called by the games
   controller on list/status so a fresh `pulumi up` is picked up without an
-  app restart. The old `getTfOutputs()`/`getTfStatePath()`/`TF_STATE_PATH`
-  path was removed as dead code — nothing reads a local tfstate file under
+  app restart. The old local-file-parsing path was removed as dead code —
+  nothing reads a local state file under
   the Pulumi engine. `getConfigurationBucket()` (the configuration S3 bucket
   name) is a different, unrelated resolution path — see
   [`DeploymentConfigModule` / `DeploymentConfigService`](#deploymentconfigmodule--deploymentconfigservice) below.

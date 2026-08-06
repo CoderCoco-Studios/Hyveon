@@ -1,12 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 import type { WizardProgress } from '@hyveon/desktop-preload';
+import { AWS_REGIONS, type AwsRegionInfo } from '@hyveon/shared';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select.component';
 
 /** Reported whenever an action in this step is attempted outside Electron, where there is no IPC bridge to drive the guided flow through. */
 const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
+
+/** Sentinel `SelectItem` value for "enter a region manually" — Radix Select forbids an empty-string item value. */
+const OTHER_REGION_VALUE = '__other__';
+
+/** {@link AWS_REGIONS} grouped by continent, preserving the generated file's continent-then-name sort order. Computed once at module load since the source data is static. */
+const REGIONS_BY_CONTINENT: Array<[string, AwsRegionInfo[]]> = (() => {
+  const groups = new Map<string, AwsRegionInfo[]>();
+  for (const region of AWS_REGIONS) {
+    const list = groups.get(region.continent) ?? [];
+    list.push(region);
+    groups.set(region.continent, list);
+  }
+  return [...groups.entries()];
+})();
 
 /**
  * Internal screen this step renders. Unlike `stack-init-step.component.tsx`'s
@@ -104,6 +128,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
 
   const [region, setRegion] = useState('');
   const [regionError, setRegionError] = useState<string | null>(null);
+  const [manualRegionEntry, setManualRegionEntry] = useState(false);
 
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -473,12 +498,44 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
 
         <div className="space-y-2">
           <Label htmlFor="wizard-guided-iam-region">AWS region</Label>
-          <Input
-            id="wizard-guided-iam-region"
-            value={region}
-            placeholder="us-east-1"
-            onChange={(e) => setRegion(e.target.value)}
-          />
+          {manualRegionEntry ? (
+            <Input
+              id="wizard-guided-iam-region"
+              value={region}
+              placeholder="us-east-1"
+              onChange={(e) => setRegion(e.target.value)}
+              autoFocus
+            />
+          ) : (
+            <Select
+              value={region}
+              onValueChange={(value) => {
+                if (value === OTHER_REGION_VALUE) {
+                  setManualRegionEntry(true);
+                  setRegion('');
+                  return;
+                }
+                setRegion(value);
+              }}
+            >
+              <SelectTrigger id="wizard-guided-iam-region">
+                <SelectValue placeholder="Select a region…" />
+              </SelectTrigger>
+              <SelectContent>
+                {REGIONS_BY_CONTINENT.map(([continent, regions]) => (
+                  <SelectGroup key={continent}>
+                    <SelectLabel>{continent}</SelectLabel>
+                    {regions.map((r) => (
+                      <SelectItem key={r.code} value={r.code}>
+                        {r.name} — {r.code}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+                <SelectItem value={OTHER_REGION_VALUE}>Other (enter manually)</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {regionError && (
             <p role="alert" className="text-sm text-[var(--color-red)]">
               {regionError}

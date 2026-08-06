@@ -46,7 +46,7 @@ Conventional Commits style, that's fine — see the format above.
 ## Local checks before opening a PR
 
 From the repo root (a single npm-workspaces tree — there is no separate
-`terraform/` directory to run tooling from any more; infrastructure is a
+infrastructure directory to run tooling from; infrastructure is a
 Pulumi program under `app/packages/infra`, exercised by the same Vitest/ESLint
 commands as the rest of the app):
 
@@ -76,10 +76,10 @@ commands first still means a faster review loop.
 - **CodeQL** — security analysis on JS/TS and Actions, via GitHub's default
   code-scanning setup rather than a checked-in `.github/workflows` file.
 
-There is no Terraform/tflint CI job — the `terraform/` directory and its
-tflint config were removed as part of the `migrate-iac-to-pulumi` change; the
-Pulumi program under `app/packages/infra` is typechecked and unit-tested
-alongside the rest of the app instead.
+There is no separate IaC-lint CI job — the infra program under
+`app/packages/infra` is plain TypeScript, so it's typechecked and
+unit-tested alongside the rest of the app instead (see CLAUDE.md's Commands
+section for the full picture).
 
 ## Code conventions
 

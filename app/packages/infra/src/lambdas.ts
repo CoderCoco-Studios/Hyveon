@@ -2,10 +2,11 @@
  * The five Lambda functions, their log groups, permissions, the interactions
  * Function URL, and the two EventBridge (CloudWatch Events) rule/target pairs
  * that trigger the watchdog and DNS-updater Lambdas. Functionally equivalent
- * to `terraform/aws/interactions.tf`, `followup.tf`, `watchdog.tf`,
- * `route53.tf` (its Lambda + EventBridge blocks only — the hosted-zone
- * data-source lookup lives in `route53.ts`), and `efs-seeder.tf` (its Lambda
- * block only — the shared security group is constructed in
+ * to the legacy infrastructure-as-code tool's interactions, followup,
+ * watchdog, and DNS-updater resource areas (the latter's Lambda + EventBridge
+ * blocks only — the hosted-zone data-source lookup lives in `route53.ts`),
+ * and its EFS-seeder resource area (its Lambda block only — the shared
+ * security group is constructed in
  * `securityGroups.ts`, see that file's doc for why, and the per-game IAM
  * role/policy pair lives in `iam.ts`'s `IamRoleResources.efsSeederRoles` /
  * `IamPolicyResources.efsSeederPolicies`).
@@ -39,13 +40,14 @@
  * trigger) is NOT ported in this file — `escapes.ts`'s
  * `defineEfsSeederInvocations` owns it, alongside the rest of the HCL's
  * other "imperative escape" resources
- * (`aws_dynamodb_table_item`/`terraform_data`/`aws_secretsmanager_secret_version`;
+ * (`aws_dynamodb_table_item`/the legacy no-op trigger resource for Discord
+ * command registration/`aws_secretsmanager_secret_version`;
  * see that file's doc for the full inventory and rationale). Unlike this
  * file's four other functions (see "Lambda role/policy creation order"
  * below), the seeder invocation carries an explicit `dependsOn` on
  * `efsSeederPolicies[game]` — the HCL invokes `aws_lambda_invocation.efs_seeder`
  * within the same `apply` as `aws_iam_role_policy.efs_seeder`, relying on
- * Terraform's `depends_on` for ordering, and this program's policies attach
+ * the legacy tool's `depends_on` for ordering, and this program's policies attach
  * strictly AFTER the functions exist (see below), so the invocation has no
  * automatic Pulumi dependency edge onto the policy it actually needs at
  * invoke time. `program.ts`'s `defineAll` calls `defineEfsSeederInvocations`
@@ -91,8 +93,9 @@
  *    bundle file to exist on disk.
  *  - **`PulumiService`** (`desktop-main`) must resolve a real
  *    directory before calling `defineAll`/`createInfraProgram`, following the
- *    same three-tier pattern the old, pre-Pulumi `ConfigService.getTfStatePath()`
- *    established for `terraform.tfstate` (the configuration bucket's
+ *    same three-tier pattern the app's pre-Pulumi configuration service
+ *    historically used to locate its local state file on disk (the
+ *    configuration bucket's
  *    `getConfigurationBucket()` resolves a bucket *name* from
  *    `ElectronStoreService`, not a filesystem path, so it isn't an
  *    applicable precedent here): an env var override, then `app.isPackaged`
@@ -129,7 +132,7 @@
  * ## Lambda role/policy creation order — a deliberate deviation from the HCL
  *
  * Every `aws_lambda_function` in the HCL carries
- * `depends_on = [aws_iam_role_policy.<x>]`, forcing Terraform to attach each
+ * `depends_on = [aws_iam_role_policy.<x>]`, forcing the legacy tool to attach each
  * function's inline policy before creating the function itself. This
  * program's call order is the opposite: `defineIamRoles` runs first,
  * `defineLambdas` runs next referencing only each role's ARN (never its
@@ -319,7 +322,7 @@ export function bundlePath(lambdaBundlesDir: string, lambdaDirName: string): str
 
 /**
  * Builds the `code` archive every `aws_lambda_function` in the HCL sources
- * from `data.archive_file`'s zip output. Terraform's `archive_file` with a
+ * from `data.archive_file`'s zip output. The legacy tool's `archive_file` with a
  * `source_file` (no `source_dir`) zips that single file at the archive root
  * under its own basename — since every bundle here is already named
  * `handler.cjs` on disk (matching {@link LAMBDA_HANDLER}'s `handler.<fn>`
@@ -335,7 +338,7 @@ function lambdaCode(bundleFilePath: string): pulumi.asset.AssetArchive {
 }
 
 /**
- * Comma-joined game names in Terraform's `keys(map)` order — always
+ * Comma-joined game names in the legacy tool's `keys(map)` order — always
  * lexicographically sorted, regardless of the map's definition/iteration
  * order — reproducing every `GAME_NAMES = join(",", keys(var.game_servers))`
  * environment variable across the HCL exactly (`Object.keys` alone would
@@ -352,7 +355,7 @@ function gameNamesCsv(gameServers: Record<string, GameServerConfig>): string {
  * Builds the `CONNECT_MESSAGES` JSON object shared by the followup and
  * dns-updater functions, mirroring
  * `jsonencode({ for g, cfg in var.game_servers : g => cfg.connect_message if cfg.connect_message != null })` —
- * entries iterated in Terraform's sorted-key order (see {@link gameNamesCsv}'s
+ * entries iterated in the legacy tool's sorted-key order (see {@link gameNamesCsv}'s
  * doc) so the emitted JSON's key order matches exactly.
  *
  * @param gameServers - The configured game-server map.
@@ -445,7 +448,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     );
   }
 
-  // ── Followup Lambda (followup.tf) — declared before interactions so its
+  // ── Followup Lambda — declared before interactions so its
   // function name is in scope for interactions' FOLLOWUP_LAMBDA_NAME below,
   // matching the HCL's own reference direction. ─────────────────────────────
   const followupFunction = new aws.lambda.Function(
@@ -486,7 +489,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  // ── Interactions Lambda (interactions.tf) ─────────────────────────────────
+  // ── Interactions Lambda ─────────────────────────────────────────────────────
   const interactionsFunction = new aws.lambda.Function(
     `${projectName}-interactions`,
     {
@@ -565,7 +568,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  // ── Watchdog Lambda + EventBridge schedule (watchdog.tf) ──────────────────
+  // ── Watchdog Lambda + EventBridge schedule ─────────────────────────────────
   const watchdogFunction = new aws.lambda.Function(
     `${projectName}-watchdog`,
     {
@@ -637,7 +640,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  // ── DNS-updater Lambda + EventBridge ECS-state-change rule (route53.tf) ───
+  // ── DNS-updater Lambda + EventBridge ECS-state-change rule ────────────────
   const dnsUpdaterFunction = new aws.lambda.Function(
     `${projectName}-dns-updater`,
     {
@@ -719,7 +722,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
-  // ── Per-game EFS-seeder Lambdas (efs-seeder.tf) ────────────────────────────
+  // ── Per-game EFS-seeder Lambdas ─────────────────────────────────────────────
   // Iterates `roles.efsSeederRoles` (not a freshly-recomputed
   // `gamesWithFileSeeds`) so this set can never drift from the roles
   // `defineIamRoles` actually created — the same "never drift" argument

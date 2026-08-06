@@ -1,12 +1,13 @@
 /**
  * Per-game container configuration shape, historically a straight
  * TypeScript mirror of the `game_servers` map entry object type declared in
- * the former `terraform/variables.tf` — that retired Terraform variable
- * (`terraform/aws/variables.tf:game_servers`) is this shape's historical
- * field-inventory source; `DeploymentConfig.gameServers` (`./deploymentConfig.js`)
+ * the app's original, now fully retired IaC config input — that retired
+ * config input is this shape's historical field-inventory source;
+ * `DeploymentConfig.gameServers` (`./deploymentConfig.js`)
  * is the CURRENT source of truth per `CLAUDE.md`'s invariants list.
  * `DeploymentConfigService` parses this shape out of `deployment-config.json`
- * today (originally out of `terraform.tfvars`, before the Pulumi migration).
+ * today (originally out of the app's per-deployment IaC values file, before
+ * the Pulumi migration).
  *
  * `GameServer` (via the key-less {@link GameServerConfig} alias below) is
  * the CANONICAL per-game shape embedded in `DeploymentConfig.gameServers`.
@@ -24,8 +25,8 @@ export interface GameServerPort {
   /**
    * Transport protocol. Must be the exact lowercase string `"tcp"` or
    * `"udp"` — passed straight through to ECS `portMappings`, which rejects
-   * anything else. Inherited from the former Terraform `game_servers`
-   * validation block's same requirement (`terraform/aws/variables.tf`).
+   * anything else. Inherited from the app's original `game_servers`
+   * validation block's same requirement.
    */
   protocol: string;
 }
@@ -44,7 +45,7 @@ export interface GameServerVolume {
    * Volume identifier, unique within the entry. Each `(game, name)` pair
    * gets its own EFS access point rooted at `/${game}/${name}`. Must be
    * non-empty — enforced by `gameServerValidator.ts`'s `gameServerVolumeSchema`,
-   * mirroring the former Terraform `game_servers` validation block's same
+   * mirroring the app's original `game_servers` validation block's same
    * requirement.
    */
   name: string;
@@ -72,19 +73,19 @@ export interface GameServerFileSeed {
   content?: string;
   /** Base64-encoded binary content to write (e.g. mods) — for files that aren't valid UTF-8. Mutually exclusive with {@link content} in practice. */
   content_base64?: string;
-  /** chmod octal string applied to the written file (e.g. `"0644"`). Terraform default when omitted: `"0644"`. */
+  /** chmod octal string applied to the written file (e.g. `"0644"`). Default when omitted: `"0644"`. */
   mode?: string;
 }
 
 /**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers`'s `game_servers` map (historically the
- * former Terraform `game_servers` variable, `terraform/variables.tf`).
+ * app's original `game_servers` config input).
  */
 export interface GameServer {
   /**
    * The `game_servers` map key for this entry. Not an attribute of the map
-   * value itself (mirroring the former Terraform object's own shape) —
+   * value itself (mirroring that original config input's own shape) —
    * flattened onto the entry here so a list of `GameServer` values is
    * self-describing without a separate keys array.
    */
@@ -97,7 +98,7 @@ export interface GameServer {
    * and paired with a valid {@link memory} for that tier — the exact table
    * is enforced by `gameServerValidator.ts`'s `checkFargateCpuMemoryPairing`,
    * mirroring AWS's Fargate task-size documentation (not expressible as a
-   * Terraform variable validation, so it lives only in that validator).
+   * declarative config-input validation, so it lives only in that validator).
    */
   cpu: number;
   /**
@@ -107,20 +108,20 @@ export interface GameServer {
   memory: number;
   /** Container ports to expose. An `https: true` entry has additional constraints on this list — see {@link https}. */
   ports: GameServerPort[];
-  /** Environment variables injected into the container. Terraform default when omitted: `[]`. */
+  /** Environment variables injected into the container. Default when omitted: `[]`. */
   environment?: GameServerEnvironmentVariable[];
   /**
    * EFS-backed volume mounts. Must contain at least one entry with a
    * non-empty `name` and `container_path` — enforced by
-   * `gameServerValidator.ts`, mirroring the former Terraform
+   * `gameServerValidator.ts`, mirroring the app's original
    * `game_servers` validation block's same requirement; there is no
-   * Terraform default, this field is required.
+   * default, this field is required.
    */
   volumes: GameServerVolume[];
   /**
    * When `true`, an in-task Caddy sidecar terminates TLS via Let's Encrypt
    * in front of the game server. Defaults to `false` whenever this field is
-   * omitted (inherited from the former Terraform `optional(bool, false)`
+   * omitted (inherited from the app's original `optional(bool, false)`
    * declaration) — an absent `https` MUST be read as `false`, never as an
    * unresolved third state; `DeploymentConfigService.ts`'s JSON write path
    * preserves this (it round-trips whatever `https` value — present or
@@ -132,21 +133,21 @@ export interface GameServer {
    * `checkHttpsPortRules` requires: at least one entry in {@link ports}; the
    * first port's `protocol` is exactly `"tcp"`; every port's `protocol` is
    * `"tcp"` or `"udp"`; and no port uses container port `80` or `443`
-   * (reserved for the sidecar) — mirroring the same rules the former,
-   * retired Terraform `game_servers` validation block used to enforce.
+   * (reserved for the sidecar) — mirroring the same rules the app's
+   * original, retired `game_servers` validation block used to enforce.
    */
   https?: boolean;
   /**
    * Discord connect hint shown when the server is running. Supports the
    * placeholders `{host}`, `{ip}`, `{port}` (first port), and `{game}` —
    * any other `{token}` is rejected by
-   * `gameServerValidator.ts`'s `checkConnectMessagePlaceholders`. Terraform
-   * default when omitted: unset (no hint shown).
+   * `gameServerValidator.ts`'s `checkConnectMessagePlaceholders`. Default
+   * when omitted: unset (no hint shown).
    */
   connect_message?: string;
   /**
    * Files pre-seeded onto the EFS volume before the server starts (e.g.
-   * server config, mods). Terraform default when omitted: `[]`. Re-applies
+   * server config, mods). Default when omitted: `[]`. Re-applies
    * only when seed content changes; removed entries are NOT deleted from
    * EFS.
    */

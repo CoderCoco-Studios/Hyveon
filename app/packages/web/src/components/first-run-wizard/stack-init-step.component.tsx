@@ -62,7 +62,7 @@ function pendingPhases(): Record<StackInitPhase, StackInitPhaseState> {
  * app manages via `hyveon.iac.stack.initialize()`, rendering a
  * 3-step progress checklist (engine resolution → plugin install → stack
  * creation) as `StackInitPhaseEvent`s stream in, rather than the scrolling
- * ANSI log the deleted `terraform init` step rendered — there is no log
+ * ANSI log the deleted pre-migration `init` step rendered — there is no log
  * output to show here, only coarse start/end phase transitions (see
  * `PulumiService.initializeStack`'s own TSDoc for why the reporting is
  * necessarily coarse). The Finish button enables only once every phase
@@ -76,7 +76,7 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
 
   /**
    * State of one `iac.stack.initialize()` attempt, tagged with the `attempt`
-   * that produced it — mirrors the deleted `TerraformInitStep`'s identical
+   * that produced it — mirrors the deleted pre-migration init step's identical
    * tagging so Retry presents a clean slate without the effect synchronously
    * clearing state on the way in (`react-hooks/set-state-in-effect`).
    */

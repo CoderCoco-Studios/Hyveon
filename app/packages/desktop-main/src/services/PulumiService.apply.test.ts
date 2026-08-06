@@ -1,17 +1,14 @@
 /**
- * Unit tests for `PulumiService.apply`
- * — the self-contained 8-step plan-hash gate plus the
- * plan-constrained `stack.up()` call, replacing `TerraformController.apply`
- * + `TerraformService.apply`'s split gate/spawn. Mirrors
- * `TerraformService.apply.test.ts`'s coverage breadth (spawning, streaming,
- * run persistence, abort/force-close handling, concurrency guard) plus this
- * dispatch's own additions: the gate's 8 ordered steps, partial-apply
+ * Unit tests for `PulumiService.apply` — the self-contained 8-step
+ * plan-hash gate plus the plan-constrained `stack.up()` call. Covers
+ * spawning, streaming, run persistence, abort/force-close handling,
+ * concurrency guard, the gate's 8 ordered steps, partial-apply
  * detection, backend-lock recovery (reclaim-and-retry vs unrecognized), the
  * leaked-promise `recoverResult`, and cache invalidation on success.
  *
- * `node:fs` is fully mocked (mirrors `PulumiService.preview.test.ts` and
- * `TerraformService.apply.test.ts`) so no test touches the real filesystem.
- * `node:os`'s `userInfo`/`hostname` are mocked to fixed values so both
+ * `node:fs` is fully mocked (mirrors `PulumiService.preview.test.ts`) so no
+ * test touches the real filesystem. `node:os`'s `userInfo`/`hostname` are
+ * mocked to fixed values so both
  * `PulumiService.resolveInitiator()` and `PulumiLockRecovery.classifyStackLockConflict`'s
  * default identity are deterministic and mutually consistent — `tmpdir` is
  * delegated to the real implementation via `importOriginal` since it's

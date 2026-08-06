@@ -2,6 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+// Radix Select's pointer-capture and scroll handling aren't implemented in
+// jsdom — without these no-op stubs, opening/selecting from the dropdown
+// throws "target.hasPointerCapture is not a function" mid-test.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 const hyveonMock = {
   wizard: {
     getState: vi.fn(),
@@ -28,11 +40,17 @@ function stubHappyPathDefaults() {
 
 /** Drives the component from the region screen through the template screen into the key-intake form. */
 async function advanceToIntake() {
-  await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+  await chooseRegion('US East (N. Virginia) — us-east-1');
   await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
   await screen.findByLabelText('Template path');
   await userEvent.click(screen.getByRole('button', { name: /continue to key entry/i }));
   await screen.findByLabelText('Access key ID');
+}
+
+/** Opens the region dropdown and selects the option with the given accessible label (e.g. `"US East (N. Virginia) — us-east-1"`). */
+async function chooseRegion(label: string) {
+  await userEvent.click(screen.getByLabelText('AWS region'));
+  await userEvent.click(await screen.findByRole('option', { name: label }));
 }
 
 beforeEach(() => {
@@ -77,7 +95,7 @@ describe('GuidedIamStep', () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
 
       await waitFor(() =>
@@ -88,6 +106,46 @@ describe('GuidedIamStep', () => {
       );
       await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
     });
+
+    it('should render regions grouped by continent with location labels', async () => {
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await userEvent.click(screen.getByLabelText('AWS region'));
+
+      expect(await screen.findByRole('option', { name: 'US East (N. Virginia) — us-east-1' })).toBeInTheDocument();
+      expect(screen.getByText('North America')).toBeInTheDocument();
+      expect(screen.getByText('Europe')).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Other (enter manually)' })).toBeInTheDocument();
+    });
+
+    it('should set the region and enable continuing once a dropdown option is selected', async () => {
+      stubHappyPathDefaults();
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await chooseRegion('EU (Ireland) — eu-west-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+
+      await waitFor(() =>
+        expect(hyveonMock.wizard.saveProgress).toHaveBeenCalledWith({
+          step: 'guided-iam',
+          guidedIam: { subState: 'not-started', hasBootstrapKey: false },
+        }),
+      );
+      await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
+    });
+
+    it('should fall back to free-text entry for a region not in the static list, and accept it', async () => {
+      stubHappyPathDefaults();
+      render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
+
+      await userEvent.click(screen.getByLabelText('AWS region'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Other (enter manually)' }));
+      await userEvent.type(screen.getByLabelText('AWS region'), 'xx-newregion-1');
+      await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.guidedIamPrepareTemplate).toHaveBeenCalledTimes(1));
+      expect(await screen.findByLabelText('Template path')).toBeInTheDocument();
+    });
   });
 
   describe('template screen', () => {
@@ -95,7 +153,7 @@ describe('GuidedIamStep', () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
 
       expect(await screen.findByLabelText('Template path')).toHaveValue('/tmp/iam-bootstrap-rendered.yaml');
@@ -115,7 +173,7 @@ describe('GuidedIamStep', () => {
       hyveonMock.wizard.guidedIamPrepareTemplate.mockRejectedValueOnce(new Error('disk full'));
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent('disk full');
@@ -131,7 +189,7 @@ describe('GuidedIamStep', () => {
       stubHappyPathDefaults();
       Object.assign(navigator, { clipboard: undefined });
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
       await screen.findByLabelText('Template path');
 
@@ -144,7 +202,7 @@ describe('GuidedIamStep', () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
       await screen.findByLabelText('Template path');
 
@@ -162,7 +220,7 @@ describe('GuidedIamStep', () => {
       });
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
       await screen.findByLabelText('Template path');
 
@@ -180,7 +238,7 @@ describe('GuidedIamStep', () => {
       hyveonMock.wizard.guidedIamOpenConsole.mockRejectedValue(new Error('failed to launch browser'));
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
       await screen.findByLabelText('Template path');
 
@@ -194,7 +252,7 @@ describe('GuidedIamStep', () => {
       stubHappyPathDefaults();
       render(<GuidedIamStep onComplete={vi.fn()} onSkipToManual={vi.fn()} />);
 
-      await userEvent.type(screen.getByLabelText('AWS region'), 'us-east-1');
+      await chooseRegion('US East (N. Virginia) — us-east-1');
       await userEvent.click(screen.getByRole('button', { name: /continue with guided setup/i }));
       await screen.findByLabelText('Template path');
 

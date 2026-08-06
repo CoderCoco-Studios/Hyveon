@@ -9,8 +9,7 @@ import { CloudProviderModule } from './cloud-provider.module.js';
  * Feature module for `RunService` (the in-memory + DynamoDB apply lock
  * guarding Pulumi plan/apply/destroy submissions) and `RunRecordService`
  * (run-history persistence), which `PulumiService` writes its run records
- * through (the deleted `TerraformService` formerly did too). `AppModule`
- * imports this module directly rather than declaring
+ * through. `AppModule` imports this module directly rather than declaring
  * `RunService`/`RunRecordService` as its own providers, so every consumer
  * shares the exact same singletons — a second module-level provider
  * declaration for the same class would create a second instance, splitting

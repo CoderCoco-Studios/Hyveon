@@ -68,7 +68,7 @@ export interface DefineEfsArgs {
 
 /**
  * Filters a game-server map down to `[game, config]` entries with
- * `https: true`, mirroring `terraform/aws/main.tf`'s `local.https_games`
+ * `https: true`, mirroring the legacy tool's `local.https_games`
  * local (`if cfg.https`). Follows the same `undefined ≡ false` contract as
  * `securityGroups.ts`'s `hasHttpsGame` (`config.https === true` excludes
  * both `false` and `undefined`).

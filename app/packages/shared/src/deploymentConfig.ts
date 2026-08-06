@@ -1,12 +1,14 @@
 /**
  * Typed configuration model that is the app's configuration source of
  * truth (`DeploymentConfig.gameServers` — and by extension this whole
- * model — per `CLAUDE.md`'s invariants list). It originally replaced
- * `terraform.tfvars` when the app still shelled out to Terraform, and is a
- * NEW canonical model, not a mirror of the old Terraform HCL shape:
+ * model — per `CLAUDE.md`'s invariants list). It replaced the app's
+ * original, now fully retired Infrastructure-as-Code (IaC) tool's
+ * per-deployment values file, back when the app still shelled out to that
+ * tool, and is a NEW canonical model, not a mirror of that tool's old
+ * HCL-shaped config:
  *
- *  - Field names are idiomatic TS `camelCase` rather than HCL `snake_case`,
- *    EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
+ *  - Field names are idiomatic TS `camelCase` rather than that tool's
+ *    `snake_case`, EXCEPT for {@link DeploymentConfig.gameServers}, whose value type reuses
  *    {@link GameServerConfig} — the existing shared game-server shape (see
  *    `./gameServerConfig.js`) already dictates `snake_case` field names
  *    (`container_path`, `connect_message`, `content_base64`) and is deeply
@@ -20,36 +22,34 @@
  *    directly to derive resources.
  *  - It intentionally excludes every secret input, to keep secrets out of the
  *    stack. `discord_bot_token` and `discord_public_key`
- *    (formerly `terraform/variables.tf`, before the Terraform tree was
- *    retired) were DROPPED, not ported: the app's `DiscordConfigService`
- *    already writes those two values to AWS Secrets Manager directly over
- *    the SDK, and the standing rule is that no secret is ever sent to the
- *    renderer or persisted outside Secrets Manager; giving them a home in
- *    this model would reopen that route.
+ *    (formerly declared inputs of the app's original IaC tool, before that
+ *    tool's config tree was retired) were DROPPED, not ported: the app's
+ *    `DiscordConfigService` already writes those two values to AWS Secrets
+ *    Manager directly over the SDK, and the standing rule is that no secret
+ *    is ever sent to the renderer or persisted outside Secrets Manager;
+ *    giving them a home in this model would reopen that route.
  *
  * Field inventory: every field below (other than `gameServers`, whose
- * per-entry shape mirrors the former `terraform/variables.tf`'s
- * `game_servers` object type) mirrors a top-level Terraform variable that
- * the old `terraform/main.tf` used to pass into `module "cloud"`
- * (`terraform/aws/variables.tf` was that module's input surface, and — before
- * this model and the Pulumi migration superseded it — the app's source of
- * truth for these values). Three root-only Terraform variables were
- * deliberately excluded because they never reached `module "cloud"` and
- * described bootstrap/provider-selection concerns rather than deployment
- * data:
+ * per-entry shape mirrors the original IaC tool's own `game_servers` object
+ * type) mirrors a top-level input the app's old root IaC configuration used
+ * to pass into its AWS module (that module's own variables declaration was
+ * the app's source of truth for these values, before this model and the
+ * Pulumi migration superseded it). Three root-only inputs from that old
+ * setup were deliberately excluded because they never reached the AWS
+ * module and described bootstrap/provider-selection concerns rather than
+ * deployment data:
  *  - `active_cloud` — selected which cloud module to instantiate; hardcoded
  *    to `'aws'` everywhere in the app today (see `ConfigService.getActiveCloud()`)
  *    since only one cloud provider is supported. Revisit when multi-cloud
  *    support lands.
- *  - `tfvars_bucket_name` — named the S3 bucket this very configuration
- *    object is expected to live in. Storing it *inside* the object it
- *    locates would be circular; the config store resolves the bucket name
- *    through its own mechanism instead.
- *  - `tags` — applied via the root provider's `default_tags` block, never
- *    threaded through `module "cloud"` (`terraform/main.tf` did not pass it
- *    down); a resource-tagging concern the Pulumi program owns directly
- *    (e.g. a fixed `Project=hyveon` tag set), not per-deployment operator
- *    input.
+ *  - the old per-deployment-values bucket-name input — named the S3 bucket
+ *    this very configuration object is expected to live in. Storing it
+ *    *inside* the object it locates would be circular; the config store
+ *    resolves the bucket name through its own mechanism instead.
+ *  - `tags` — applied via the old setup's root-level default-tags block,
+ *    never threaded down to the AWS module; a resource-tagging concern the
+ *    Pulumi program owns directly (e.g. a fixed `Project=hyveon` tag set),
+ *    not per-deployment operator input.
  */
 
 import type { GameServerConfig } from './gameServerConfig.js';
@@ -75,63 +75,61 @@ export const CONFIGURATION_OBJECT_KEY = 'deployment-config.json';
 export interface DeploymentConfig {
   /**
    * Project name used for resource naming (e.g. `${projectName}-audit`,
-   * `${projectName}-config`). Mirrors `project_name` in
-   * `terraform/variables.tf`. Terraform default: `"hyveon"` — see
-   * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
+   * `${projectName}-config`). Mirrors the app's original `project_name`
+   * config input. Default: `"hyveon"` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   projectName: string;
 
   /**
-   * AWS region to deploy into (e.g. `"us-east-1"`). Mirrors `aws_region` in
-   * `terraform/variables.tf`. Terraform default: `"us-east-1"` — see
+   * AWS region to deploy into (e.g. `"us-east-1"`). Mirrors the app's
+   * original `aws_region` config input. Default: `"us-east-1"` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   awsRegion: string;
 
   /**
-   * CIDR block for the VPC (e.g. `"10.0.0.0/16"`). Mirrors `vpc_cidr` in
-   * `terraform/aws/variables.tf`. Terraform default: `"10.0.0.0/16"` — see
+   * CIDR block for the VPC (e.g. `"10.0.0.0/16"`). Mirrors the app's
+   * original `vpc_cidr` config input. Default: `"10.0.0.0/16"` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   vpcCidr: string;
 
   /**
    * Route 53 hosted zone domain (must already exist, e.g. `"example.com"`).
-   * Mirrors `hosted_zone_name` in `terraform/aws/variables.tf`. Has no
-   * Terraform default — required in every deployment, so it has no entry in
-   * {@link DEPLOYMENT_CONFIG_DEFAULTS} and {@link withDeploymentConfigDefaults}
-   * requires it explicitly.
+   * Mirrors the app's original `hosted_zone_name` config input. Had no
+   * default in that setup either — required in every deployment, so it has
+   * no entry in {@link DEPLOYMENT_CONFIG_DEFAULTS} and
+   * {@link withDeploymentConfigDefaults} requires it explicitly.
    */
   hostedZoneName: string;
 
   /**
    * TTL in seconds for DNS A records — kept low so updates propagate fast
-   * after a server starts/stops. Mirrors `dns_ttl` in
-   * `terraform/aws/variables.tf`. Terraform default: `30` — see
-   * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
+   * after a server starts/stops. Mirrors the app's original `dns_ttl`
+   * config input. Default: `30` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   dnsTtl: number;
 
   /**
    * How often the watchdog checks for idle servers, in minutes. Mirrors
-   * `watchdog_interval_minutes` in `terraform/aws/variables.tf`. Terraform
-   * default: `15` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}. Total idle time
-   * before auto-shutdown is `watchdogIntervalMinutes * watchdogIdleChecks`.
+   * the app's original `watchdog_interval_minutes` config input. Default:
+   * `15` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}. Total idle time before
+   * auto-shutdown is `watchdogIntervalMinutes * watchdogIdleChecks`.
    */
   watchdogIntervalMinutes: number;
 
   /**
-   * Consecutive idle checks before auto-shutdown. Mirrors
-   * `watchdog_idle_checks` in `terraform/aws/variables.tf`. Terraform
-   * default: `4` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}. Total idle time
-   * before auto-shutdown is `watchdogIntervalMinutes * watchdogIdleChecks`.
+   * Consecutive idle checks before auto-shutdown. Mirrors the app's
+   * original `watchdog_idle_checks` config input. Default: `4` — see
+   * {@link DEPLOYMENT_CONFIG_DEFAULTS}. Total idle time before
+   * auto-shutdown is `watchdogIntervalMinutes * watchdogIdleChecks`.
    */
   watchdogIdleChecks: number;
 
   /**
    * Minimum inbound packets per check interval to consider a server active.
-   * Mirrors `watchdog_min_packets` in `terraform/aws/variables.tf`.
-   * Terraform default: `100` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
+   * Mirrors the app's original `watchdog_min_packets` config input.
+   * Default: `100` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   watchdogMinPackets: number;
 
@@ -139,8 +137,8 @@ export interface DeploymentConfig {
    * Guild IDs permanently allowlisted, written to the
    * `BASE#discord` DynamoDB row on every deploy. This is an immutable floor
    * the management UI can never remove — operators can only add/remove
-   * guilds they themselves added via the UI. Mirrors `base_allowed_guilds`
-   * in `terraform/aws/variables.tf`. Terraform default: `[]` — see
+   * guilds they themselves added via the UI. Mirrors the app's original
+   * `base_allowed_guilds` config input. Default: `[]` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   baseAllowedGuilds: string[];
@@ -148,8 +146,8 @@ export interface DeploymentConfig {
   /**
    * Discord user IDs with permanent, server-wide admin privileges (bypass
    * per-game permission checks), written to the same `BASE#discord` row as
-   * {@link baseAllowedGuilds}. Mirrors `base_admin_user_ids` in
-   * `terraform/aws/variables.tf`. Terraform default: `[]` — see
+   * {@link baseAllowedGuilds}. Mirrors the app's original
+   * `base_admin_user_ids` config input. Default: `[]` — see
    * {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   baseAdminUserIds: string[];
@@ -157,8 +155,8 @@ export interface DeploymentConfig {
   /**
    * Discord role IDs with permanent, server-wide admin privileges, written
    * to the same `BASE#discord` row as {@link baseAllowedGuilds}. Mirrors
-   * `base_admin_role_ids` in `terraform/aws/variables.tf`. Terraform
-   * default: `[]` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
+   * the app's original `base_admin_role_ids` config input. Default:
+   * `[]` — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   baseAdminRoleIds: string[];
 
@@ -166,29 +164,28 @@ export interface DeploymentConfig {
    * Discord application (client) ID — a public value (goes to DynamoDB, not
    * Secrets Manager), unlike the bot token and public key which are
    * deliberately excluded from this model entirely (see the file-level
-   * doc). Mirrors `discord_application_id` in `terraform/aws/variables.tf`.
-   * Terraform default: `""` (empty until configured, either here or via the
+   * doc). Mirrors the app's original `discord_application_id` config
+   * input. Default: `""` (empty until configured, either here or via the
    * web UI's Credentials tab) — see {@link DEPLOYMENT_CONFIG_DEFAULTS}.
    */
   discordApplicationId: string;
 
   /**
-   * Name of the DynamoDB audit log table. Mirrors `audit_table_name` in
-   * `terraform/aws/variables.tf`. Terraform default: `""`, which the old
-   * Terraform `aws` module used to resolve to `"${projectName}-audit"` when
-   * empty (`terraform/aws/audit_store.tf`) — {@link withDeploymentConfigDefaults}
-   * does NOT replicate that project-name-dependent computed default; it
-   * leaves an omitted value as the literal empty string, matching the
-   * Terraform variable's own default, and leaves resolving `""` to the
-   * computed table name to the infrastructure program, the same place
-   * Terraform itself used to do it.
+   * Name of the DynamoDB audit log table. Mirrors the app's original
+   * `audit_table_name` config input. Default: `""`, which the app's
+   * original AWS module used to resolve to `"${projectName}-audit"` when
+   * empty — {@link withDeploymentConfigDefaults} does NOT replicate that
+   * project-name-dependent computed default; it leaves an omitted value as
+   * the literal empty string, matching that original input's own default,
+   * and leaves resolving `""` to the computed table name to the
+   * infrastructure program, the same place that resolution used to happen.
    */
   auditTableName: string;
 
   /**
    * Name of the DynamoDB table holding Pulumi preview/apply run records.
-   * Mirrors `runs_table_name` in `terraform/aws/variables.tf`. Terraform
-   * default: `""`, resolved to `"${projectName}-runs"` when empty — see
+   * Mirrors the app's original `runs_table_name` config input. Default:
+   * `""`, resolved to `"${projectName}-runs"` when empty — see
    * {@link auditTableName}'s doc for why {@link withDeploymentConfigDefaults}
    * does not replicate that resolution.
    *
@@ -198,7 +195,7 @@ export interface DeploymentConfig {
    * SDK directly at first-run-wizard bootstrap time, before any
    * `DeploymentConfig` (and therefore before any Pulumi apply) can exist, so
    * that the app's own run-history table is never itself gated behind a
-   * `terraform`/Pulumi apply it needs to already exist to record (see the
+   * Pulumi apply it needs to already exist to record (see the
    * `migrate-iac-to-pulumi` change's bootstrap-deadlock fix). Use
    * {@link resolveRunsTableName} to compute this field's effective value —
    * both `BootstrapService.ensureRunsTable` (desktop-main) and
@@ -209,11 +206,11 @@ export interface DeploymentConfig {
 
   /**
    * Map of game name → container configuration, keyed the same way as the
-   * old Terraform setup's `game_servers` variable (`terraform/aws/variables.tf`). Each
-   * entry creates its own ECS task definition, EFS access point, log group,
-   * and security-group rules; adding or removing an entry is the only edit
-   * required to add or remove a game (`CLAUDE.md` invariant). Has no
-   * Terraform default — required in every deployment (an empty object is a
+   * app's original per-game config input. Each entry creates its own ECS
+   * task definition, EFS access point, log group, and security-group
+   * rules; adding or removing an entry is the only edit required to add or
+   * remove a game (`CLAUDE.md` invariant). Had no default in that original
+   * setup either — required in every deployment (an empty object is a
    * legitimate "no games yet" state, but the key itself must be present),
    * so it has no entry in {@link DEPLOYMENT_CONFIG_DEFAULTS} and
    * {@link withDeploymentConfigDefaults} requires it explicitly. Reuses
@@ -240,19 +237,18 @@ export interface DeploymentConfig {
 export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
 
 /**
- * Every {@link DeploymentConfig} field that (a) has a static Terraform
- * default AND (b) is safe to expose as a single shared frozen constant
- * value. Two groups of fields are deliberately NOT members, for two
- * different reasons — this list is not simply "every field with a Terraform
- * default":
+ * Every {@link DeploymentConfig} field that (a) has a static default
+ * AND (b) is safe to expose as a single shared frozen constant value. Two
+ * groups of fields are deliberately NOT members, for two different
+ * reasons — this list is not simply "every field with a static default":
  *
  *  - {@link DeploymentConfig.hostedZoneName} and
- *    {@link DeploymentConfig.gameServers} have no Terraform default at all
+ *    {@link DeploymentConfig.gameServers} have no static default at all
  *    (both required in every real deployment), so there is no value to put
  *    here.
  *  - {@link DeploymentConfig.baseAllowedGuilds},
  *    {@link DeploymentConfig.baseAdminUserIds}, and
- *    {@link DeploymentConfig.baseAdminRoleIds} DO have a static Terraform
+ *    {@link DeploymentConfig.baseAdminRoleIds} DO have a static
  *    default (`[]` each) but are excluded anyway: a frozen array value
  *    stored here would still be a single shared reference every caller of
  *    {@link withDeploymentConfigDefaults} would receive unless defensively
@@ -263,17 +259,16 @@ export type TopLevelDeploymentSettings = Omit<DeploymentConfig, 'gameServers'>;
  *
  * {@link DeploymentConfig.auditTableName} and
  * {@link DeploymentConfig.runsTableName} ARE members below — their
- * Terraform default is the literal empty string (`""`), which is what's
- * stored here. That is NOT the same as their *effective* resolved value:
- * the old Terraform setup used to compute `"${project_name}-audit"` /
- * `"${project_name}-runs"` from an empty string downstream
- * (`terraform/aws/audit_store.tf` / `runs_store.tf`) — see those two fields'
- * own TSDoc on
+ * default is the literal empty string (`""`), which is what's stored here.
+ * That is NOT the same as their *effective* resolved value: the app's
+ * original config setup used to compute `"${project_name}-audit"` /
+ * `"${project_name}-runs"` from an empty string downstream — see those two
+ * fields' own TSDoc on
  * {@link DeploymentConfig} for why that computed fallback is intentionally
  * NOT replicated here or in {@link withDeploymentConfigDefaults}.
  *
- * Values are taken verbatim from `terraform/variables.tf` /
- * `terraform/aws/variables.tf`'s `default = ...` declarations.
+ * Values are taken verbatim from the app's original config inputs' own
+ * default declarations.
  *
  * Consumed by {@link withDeploymentConfigDefaults}. Exported separately so
  * callers that only need to know a single default value (e.g. a form
@@ -308,8 +303,8 @@ export const DEPLOYMENT_CONFIG_DEFAULTS: Readonly<
 
 /**
  * Resolves {@link DeploymentConfig.runsTableName}'s effective table name —
- * mirrors the retired Terraform variable's own
- * `var.runs_table_name != "" ? var.runs_table_name : "${var.project_name}-runs"`
+ * mirrors the app's original config input's own
+ * `runs_table_name != "" ? runs_table_name : "${project_name}-runs"`
  * ternary (now ported to `@hyveon/infra`'s `dynamodb.ts` for documentation
  * purposes only — see {@link DeploymentConfig.runsTableName}'s doc for why
  * that table is no longer Pulumi-managed).
@@ -372,13 +367,13 @@ export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileSt
 }
 
 /**
- * Fills in every {@link DeploymentConfig} field that has a Terraform default
+ * Fills in every {@link DeploymentConfig} field that has a static default
  * (see {@link DEPLOYMENT_CONFIG_DEFAULTS}) when the caller omits it, while
  * requiring {@link DeploymentConfig.hostedZoneName} and
- * {@link DeploymentConfig.gameServers} explicitly — both are required in
- * every real Terraform deployment (no `default = ...` in
- * `terraform/aws/variables.tf`), so silently defaulting them here would mask
- * an incomplete configuration rather than surface it.
+ * {@link DeploymentConfig.gameServers} explicitly — both were required in
+ * every real deployment under the app's original config setup too (neither
+ * had a declared default there), so silently defaulting them here would
+ * mask an incomplete configuration rather than surface it.
  *
  * The three "base" allowlist/admin arrays (`baseAllowedGuilds`,
  * `baseAdminUserIds`, `baseAdminRoleIds`) are defaulted to a **freshly
@@ -392,7 +387,7 @@ export async function resolvePreApplyRunsTableName(remoteFileStore: RemoteFileSt
  *
  * @param partial - The caller-supplied fields. `hostedZoneName` and
  *   `gameServers` are required; every other {@link DeploymentConfig} field is
- *   optional and falls back to its Terraform default.
+ *   optional and falls back to its static default.
  * @returns A fully-populated {@link DeploymentConfig}.
  */
 export function withDeploymentConfigDefaults(
