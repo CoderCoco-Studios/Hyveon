@@ -1,14 +1,15 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { MessagePattern } from '@nestjs/microservices';
 import { ConfigService } from '../services/ConfigService.js';
 import { CostService } from '../services/CostService.js';
 import { EcsService } from '../services/EcsService.js';
 
 /**
  * Cost endpoints for the Electron main-process host. Every handler is bound to
- * an IPC channel via `@MessagePattern` / `@Payload` — no HTTP routes are
- * registered here. It delegates to the {@link ConfigService}, {@link CostService},
- * and {@link EcsService} providers.
+ * an IPC channel via `@MessagePattern` — no HTTP routes are registered here.
+ * It delegates to the {@link ConfigService}, {@link CostService}, and
+ * {@link EcsService} providers. The app makes no AWS Cost Explorer API
+ * calls — see `openspec/changes/remove-cost-explorer-calls`.
  */
 @Controller()
 export class CostsController {
@@ -43,27 +44,5 @@ export class CostsController {
       games: estimates,
       totalPerHourIfAllOn: Math.round(totalPerHourIfAllOn * 10000) / 10000,
     };
-  }
-
-  /**
-   * Returns actual costs over the trailing `days` window (default 7) via Cost
-   * Explorer.
-   *
-   * The underlying query filters on the `SERVICE` dimension
-   * (`Amazon Elastic Container Service`, `AWS Fargate`) with no `GroupBy` and
-   * no tag filter, so these figures are **account-wide ECS + Fargate spend**,
-   * not scoped to this project. Any other ECS or Fargate workload in the same
-   * AWS account inflates them. The `Project` cost-allocation tag that the
-   * Pulumi program applies to every managed resource (`DEFAULT_TAGS` in
-   * `app/packages/infra/src/program.ts`) is useful for grouping in the AWS
-   * console, but this query does not reference it.
-   *
-   * The IPC payload supplies `days` as a bare string or number; the
-   * `parseInt(String(...))` coercion tolerates either.
-   */
-  @MessagePattern('costs.actual')
-  actual(@Payload() daysRaw?: string | number) {
-    const days = parseInt(String(daysRaw ?? '7'), 10);
-    return this.costs.getActualCosts(days);
   }
 }
