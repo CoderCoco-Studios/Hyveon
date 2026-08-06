@@ -34,45 +34,72 @@
 
 ## 2. Backend — delete the Cost Explorer call chain (PR: `costexplorer-2-backend`, base: PR 1's branch)
 
-- [ ] 2.1 `@hyveon/shared/src/cloud.ts`: remove `getActualCosts` from the
+- [x] 2.1 `@hyveon/shared/src/cloud.ts`: remove `getActualCosts` from the
       `CloudProvider` interface and the `ActualCosts`/`CostBreakdown` types.
-      Update `cloud.test.ts`.
-- [ ] 2.2 `cloud-aws/src/AwsCloudProvider.ts`: delete the `getActualCosts`
+      Update `cloud.test.ts`. (Landed as: only `DateRange` + `getActualCosts`
+      removed — `CostBreakdown` stays, it's the unrelated `getCostEstimate()`
+      return type; the earlier phrasing above was imprecise.)
+- [x] 2.2 `cloud-aws/src/AwsCloudProvider.ts`: delete the `getActualCosts`
       implementation and the `CostExplorerClient`/`GetCostAndUsageCommand`
       import; remove `@aws-sdk/client-cost-explorer` from
       `cloud-aws/package.json`. Update `AwsCloudProvider.test.ts` and
-      `index.test.ts`.
-- [ ] 2.3 `desktop-main/src/services/CostService.ts`: delete
+      `index.test.ts`. Also removed the same stray dependency from
+      `desktop-main/package.json` (zero direct imports there — found during
+      review, not in the original scope).
+- [x] 2.3 `desktop-main/src/services/CostService.ts`: delete
       `getActualCosts` (keep `estimateForSpec`). Update `CostService.test.ts`.
-- [ ] 2.4 `desktop-main/src/controllers/costs.controller.ts`: delete the
+      Also removed the now-dead `CLOUD_PROVIDER` constructor injection
+      (its only consumer was `getActualCosts`).
+- [x] 2.4 `desktop-main/src/controllers/costs.controller.ts`: delete the
       `costs.actual` `@MessagePattern` handler. Update
       `costs.controller.test.ts` and `cloud-provider.module.test.ts`.
-- [ ] 2.5 `desktop-preload/src/hyveon-api.ts` and `preload.ts`: remove the
+- [x] 2.5 `desktop-preload/src/hyveon-api.ts` and `preload.ts`: remove the
       `costs.actual` bridge method.
-- [ ] 2.6 `web/src/api.service.ts`: remove `costsActual()`. Update
+- [x] 2.6 `web/src/api.service.ts`: remove `costsActual()`. Update
       `api.service.test.ts`.
-- [ ] 2.7 Run `npm run app:lint`, `npm run app:typecheck`, `npm run
+- [x] 2.6a (Pulled forward from PR 3 — this repo's own `app:typecheck` gate
+      reaches `e2e/**` via `tsconfig.typecheck.json`, so PR 2 can't be
+      typecheck-clean without these.) Removed dead `ActualCosts`/
+      `makeActualCosts`/`costs.actual` references — pure deletions, no new
+      test behavior — from `web/e2e/fixtures/game-data.ts`, `index.ts`,
+      `hyveon-http-bridge.ts`, `electron-launch.ts`, and
+      `web/e2e/screenshots/demo-data.ts` (= old items 3.1 and 3.3b, done
+      here instead). `web/e2e/specs/costs.spec.ts` is deliberately NOT
+      included — it needs a real rewrite depending on PR 3's Task 18
+      page-object locator, not a pure deletion; left as PR 2's one
+      documented typecheck exception, fixed by 3.2 below.
+- [x] 2.7 Run `npm run app:lint`, `npm run app:typecheck` (clean except the
+      documented `costs.spec.ts` exception above), `npm run
       app:test`, `npm run app:test:integration` (controller/IPC surface
       changed) — all clean.
-- [ ] 2.8 Open PR `costexplorer-2-backend` against `costexplorer-1-frontend`.
+- [x] 2.8 Open PR `costexplorer-2-backend` against `costexplorer-1-frontend`.
+      → [#431](https://github.com/CoderCoco/Hyveon/pull/431)
 
 ## 3. E2E — update fixtures and specs (PR: `costexplorer-3-e2e`, base: PR 2's branch)
 
-- [ ] 3.1 Update `web/e2e/fixtures/electron-launch.ts`,
-      `web/e2e/fixtures/game-data.ts`, `web/e2e/fixtures/index.ts`, and
-      `web/e2e/screenshots/demo-data.ts` to drop actual-cost mock data and
-      any `costs.actual` IPC stubbing.
+- [x] 3.1 ~~Update `web/e2e/fixtures/electron-launch.ts`, `game-data.ts`,
+      `index.ts`, and `web/e2e/screenshots/demo-data.ts`~~ — done early as
+      2.6a above (PR 2, not PR 3).
 - [ ] 3.2 Update `web/e2e/specs/costs.spec.ts` to assert the new Costs page
       (estimates table + CE link-out card, no chart/total-spend card, no
-      range selector).
+      range selector). Depends on 3.2a (`CostsPage.ts`) below.
+- [ ] 3.2a Update `web/e2e/pages/CostsPage.ts`: drop range/chart/delta-pill
+      locators (`chartTitle()`, `chartSegment()`, `deltaPill()`,
+      `totalLabel()`, range-selector locators), add a `costExplorerLink()`
+      locator for 3.2's new link-out test. Also fixes the stale
+      `chartTitle()` locator that `web/e2e/screenshots/capture.spec.ts`'s
+      `costs.png` test depends on — found during PR 2's Task 22 (a
+      regression from PR 1's `costs.page.tsx` change, not in the original
+      plan scope; `docs:screenshots` isn't part of the required
+      `app:test:e2e` gate, so it didn't block PR 1/2, but fix it here since
+      this task already touches the same page object).
 - [ ] 3.3 Update `web/e2e/specs/discord.spec.ts` if it depends on
       dashboard/costs mock data affected by the removal.
 - [ ] 3.3a Update `web/e2e/specs/dashboard.spec.ts` — it asserts the literal
       old `'Spend today'`/`'Forecast MTD'` tile labels; update to the new
       `'Current run rate'`/`'Est. month cap'` labels.
-- [ ] 3.3b Update `web/e2e/fixtures/hyveon-http-bridge.ts` — it hardcodes a
-      `costs.actual` → `/api/costs/actual` HTTP mapping for the chromium
-      e2e tier; remove it alongside the IPC channel removal.
+- [x] 3.3b ~~Update `web/e2e/fixtures/hyveon-http-bridge.ts`~~ — done early
+      as 2.6a above (PR 2, not PR 3).
 - [ ] 3.4 Run `npm run app:test:e2e` — all clean.
 - [ ] 3.5 Open PR `costexplorer-3-e2e` against `costexplorer-2-backend`.
 
