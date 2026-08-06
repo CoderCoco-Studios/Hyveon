@@ -538,20 +538,21 @@ describe('GuidedIamService', () => {
       expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([1000, 2000]);
     });
 
-    it('should log one warning per failed verification attempt plus one final warning once all attempts are exhausted', async () => {
+    it('should log one warning per failed verification attempt plus one final error once all attempts are exhausted', async () => {
       stubCreateAccessKeySuccess();
       const verifyError = new Error('The security token included in the request is invalid');
       verifyError.name = 'InvalidClientTokenId';
       stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
       iamMock.on(DeleteAccessKeyCommand).resolves({});
       const warnSpy = vi.spyOn(logger, 'warn');
+      const errorSpy = vi.spyOn(logger, 'error');
 
       await service.rotate(ROTATION_INPUT);
 
       const perAttemptWarnings = warnSpy.mock.calls.filter((call) => /verification attempt failed/.test(String(call[0])));
-      const exhaustedWarnings = warnSpy.mock.calls.filter((call) => /exhausting all retry attempts/.test(String(call[0])));
+      const exhaustedErrors = errorSpy.mock.calls.filter((call) => /exhausting all retry attempts/.test(String(call[0])));
       expect(perAttemptWarnings).toHaveLength(6);
-      expect(exhaustedWarnings).toHaveLength(1);
+      expect(exhaustedErrors).toHaveLength(1);
     });
 
     it('should clean up the orphaned new key (not the bootstrap key) using the bootstrap key client when verification fails', async () => {

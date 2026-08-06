@@ -10,6 +10,7 @@ import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
+import { sleep } from './sleep.js';
 
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
@@ -330,7 +331,7 @@ export class AwsProfileService {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn('AwsProfileService.rotateActiveCredentials: verification failed for newly minted key after exhausting all retry attempts', {
+      logger.error('AwsProfileService.rotateActiveCredentials: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newAccessKeyId,
         error: message,
       });
@@ -411,16 +412,18 @@ export class AwsProfileService {
   }
 
   /**
-   * Sleep for `ms` milliseconds. Mirrors `GuidedIamService.sleep` exactly —
-   * extracted as a protected seam so tests can stub it to resolve
-   * immediately and exercise {@link rotateActiveCredentials}'s retry loop
-   * without real elapsed wall-clock time. Used only by
+   * Sleep for `ms` milliseconds, delegating to the shared `sleep` utility
+   * (`./sleep.js`). Extracted as a protected seam — rather than calling
+   * that utility directly from {@link rotateActiveCredentials} — so tests
+   * can stub it to resolve immediately and exercise the retry loop without
+   * real elapsed wall-clock time. Used only by
    * {@link rotateActiveCredentials}, via {@link verifyAccessKeyWithRetry}.
+   * Mirrors `GuidedIamService.sleep`.
    *
    * @param ms - Milliseconds to sleep for.
    */
   protected sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return sleep(ms);
   }
 
   /**

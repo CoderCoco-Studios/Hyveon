@@ -13,6 +13,7 @@ import { SafeStorageService } from './SafeStorageService.js';
 import { SafeStorageUnavailableError } from './AwsProfileService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
+import { sleep } from './sleep.js';
 
 /** Absolute path to the `dist/services/` directory at runtime. */
 const _dirname = dirname(fileURLToPath(import.meta.url));
@@ -433,7 +434,7 @@ export class GuidedIamService {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn('GuidedIamService.rotate: verification failed for newly minted key after exhausting all retry attempts', {
+      logger.error('GuidedIamService.rotate: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newKey.AccessKeyId,
         error: message,
       });
@@ -600,7 +601,8 @@ export class GuidedIamService {
   }
 
   /**
-   * Sleep for `ms` milliseconds. Extracted as a protected seam — mirrors
+   * Sleep for `ms` milliseconds, delegating to the shared `sleep` utility
+   * (`./sleep.js`). Extracted as a protected seam — mirrors
    * {@link createStsClient}/{@link createIamClient} — so tests can stub it to
    * resolve immediately and exercise {@link rotate}'s retry loop without real
    * elapsed wall-clock time. Used only by {@link rotate}, via
@@ -609,7 +611,7 @@ export class GuidedIamService {
    * @param ms - Milliseconds to sleep for.
    */
   protected sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return sleep(ms);
   }
 
   /**
