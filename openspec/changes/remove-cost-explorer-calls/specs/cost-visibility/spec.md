@@ -11,9 +11,8 @@ IPC channel SHALL expose a method that calls the Cost Explorer API.
 - **THEN** no AWS Cost Explorer API request is made, on this or any
   subsequent mount
 
-#### Scenario: Navigating to or interacting with the Costs page
-- **WHEN** an operator navigates to the Costs page (`/costs`) or toggles
-  the 7d/30d range selector
+#### Scenario: Navigating to the Costs page
+- **WHEN** an operator navigates to the Costs page (`/costs`)
 - **THEN** no AWS Cost Explorer API request is made
 
 #### Scenario: Repeated navigation over a session

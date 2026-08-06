@@ -1311,7 +1311,7 @@ Expected: all four clean/green. (`app:test:integration` is required — the cont
 - [ ] **Step 2: Open the PR**
 ```bash
 git push -u origin costexplorer-2-backend
-gh pr create --title "refactor(shared,cloud-aws,desktop-main,desktop-preload,web): delete the Cost Explorer call chain" --base costexplorer-1-frontend --body "$(cat <<'EOF'
+gh pr create --title "refactor(backend): delete the Cost Explorer call chain" --base costexplorer-1-frontend --body "$(cat <<'EOF'
 ## Summary
 - Remove `CloudProvider.getActualCosts` + `DateRange` (`@hyveon/shared`) — `CostBreakdown` is retained, still used by `getCostEstimate`.
 - Remove `AwsCloudProvider.getActualCosts` + the `CostExplorerClient` and drop the `@aws-sdk/client-cost-explorer` dependency (`@hyveon/cloud-aws`).
@@ -1552,9 +1552,8 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       startRes: ActionResult;
       discordConfig: DiscordConfigRedacted;
     }) => {
-      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
 
       hyveon.__test.mock('env.get', () => Promise.resolve(envData));
       hyveon.__test.mock('games.status', () => Promise.resolve(statusList));
@@ -1733,9 +1732,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -1759,9 +1757,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -1789,9 +1786,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -1820,9 +1816,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -1851,9 +1846,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -2311,7 +2305,7 @@ Expected: all three clean/green. (`app:test:e2e`/`app:test:integration` are not 
 - [ ] **Step 2: Open the PR**
 ```bash
 git push -u origin costexplorer-4-docs-iam
-gh pr create --title "docs: document Cost Explorer removal and drop ce:* from the deploy policy" --base costexplorer-3-e2e --body "$(cat <<'EOF'
+gh pr create --title "docs: document Cost Explorer removal, drop ce:* from IAM policy" --base costexplorer-3-e2e --body "$(cat <<'EOF'
 ## Summary
 - Rewrite `costs.md` and `dashboard.md` for the estimate-only display + AWS Cost Explorer link-out.
 - Update `management-app.md`'s `CostsController` row and `CostService` description.
