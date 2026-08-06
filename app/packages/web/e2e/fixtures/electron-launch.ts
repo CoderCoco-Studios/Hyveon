@@ -111,9 +111,8 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       startRes: ActionResult;
       discordConfig: DiscordConfigRedacted;
     }) => {
-      const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-        __test: { mock: (channel: string, handler: unknown) => void };
-      };
+      const hyveon = window.hyveon;
+      if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
 
       hyveon.__test.mock('env.get', () => Promise.resolve(envData));
       hyveon.__test.mock('games.status', () => Promise.resolve(statusList));
