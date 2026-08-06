@@ -34,11 +34,13 @@ fully green while `npm run app:typecheck`/`npm run app:test:integration`
 - If a build/typecheck error inside a worktree references a type or field
   that is clearly present in the file you're reading, suspect this before
   debugging the code: check whether `node_modules/@hyveon/<pkg>` inside the
-  worktree resolves to a path under the worktree itself
-  (`readlink -f node_modules/@hyveon/<pkg>`) rather than to a different
-  checkout — if it resolves elsewhere (or the worktree's `node_modules` is
-  missing/empty), run `npm install` and re-check before assuming the source
-  is wrong.
+  worktree resolves to a path under the worktree itself — run
+  `node -e "console.log(require('fs').realpathSync('node_modules/@hyveon/<pkg>'))"`
+  from the worktree root (portable across Linux/macOS/Windows, unlike
+  `readlink -f`, which BSD/macOS `readlink` doesn't support) — rather than
+  to a different checkout. If it resolves elsewhere (or the worktree's
+  `node_modules` is missing/empty), run `npm install` and re-check before
+  assuming the source is wrong.
 - This applies to every worktree-based workflow in this repo — ad hoc
   worktrees, PR-stacking groups (see `.claude/rules/pr-stacking.md`), and any
   change opened via `EnterWorktree`.
