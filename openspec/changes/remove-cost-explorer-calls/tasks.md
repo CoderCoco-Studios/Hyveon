@@ -1,30 +1,30 @@
 ## 1. Frontend — swap actuals UI for free-data UI (PR: `costexplorer-1-frontend`, base: `main`)
 
-- [ ] 1.1 `kpi-strip.component.tsx`: drop the `actualCosts` prop; compute
+- [x] 1.1 `kpi-strip.component.tsx`: drop the `actualCosts` prop; compute
       "Current run rate" (Σ `costPerHour` over games with
       `state === 'running'`, from the existing `estimates` prop) and "Est.
       month cap" (`totalPerHourIfAllOn × 24 × daysInMonth`, already
       computed today as `budgetText`) as the two cost tiles.
-- [ ] 1.2 `dashboard.page.tsx`: remove the `api.costsActual()` fetch-on-mount
+- [x] 1.2 `dashboard.page.tsx`: remove the `api.costsActual()` fetch-on-mount
       effect and the `actualCosts` state; stop passing `actualCosts` into
       `KpiStrip`.
-- [ ] 1.3 `costs.page.tsx`: remove the total-spend card, delta-vs-prior
+- [x] 1.3 `costs.page.tsx`: remove the total-spend card, delta-vs-prior
       pill, and the stacked daily-by-game bar chart (and their supporting
       helpers — `sumDaily`, `splitDailyByGame`, `DeltaPill`,
       `StackedBarChart`, the `useCostsData` actuals-fetch branch — keep the
       per-game estimates fetch/table). The 7d/30d `RangeSelector` is also
       removed — its only purpose was choosing the Cost Explorer fetch
       window, which no longer exists.
-- [ ] 1.4 `costs.page.tsx`: add a callout card — "See real billed spend →
+- [x] 1.4 `costs.page.tsx`: add a callout card — "See real billed spend →
       AWS Cost Explorer" — linking to the plain AWS Cost Explorer console
       home URL (no query-string filters).
-- [ ] 1.5 Update `kpi-strip.component.test.tsx`, `costs.page.test.tsx`,
+- [x] 1.5 Update `kpi-strip.component.test.tsx`, `costs.page.test.tsx`,
       `dashboard.page.test.tsx` for the new tiles/UI; delete assertions
       referencing removed elements (stacked chart, delta pill, total-spend
       card).
-- [ ] 1.6 Run `npm run app:lint`, `npm run app:typecheck`, `npm run
+- [x] 1.6 Run `npm run app:lint`, `npm run app:typecheck`, `npm run
       app:test`, `npm run app:test:e2e` (renderer changed) — all clean.
-- [ ] 1.7 Open PR `costexplorer-1-frontend` against `main`.
+- [x] 1.7 Open PR `costexplorer-1-frontend` against `main`.
 
 ## 2. Backend — delete the Cost Explorer call chain (PR: `costexplorer-2-backend`, base: PR 1's branch)
 
