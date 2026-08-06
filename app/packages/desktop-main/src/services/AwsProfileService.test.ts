@@ -217,6 +217,10 @@ class TestableAwsProfileService extends AwsProfileService {
   public override buildIamSecurityCredentialsConsoleUrl(): string {
     return super.buildIamSecurityCredentialsConsoleUrl();
   }
+
+  public override sleep(ms: number): Promise<void> {
+    return super.sleep(ms);
+  }
 }
 
 /**
@@ -289,6 +293,9 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     service = new TestableAwsProfileService(stubSafeStorage(true), store);
     stsMock.reset();
     iamMock.reset();
+    // Zero-delay by default so the retry loop never adds real elapsed
+    // wall-clock time to tests that don't specifically assert on it.
+    vi.spyOn(TestableAwsProfileService.prototype, 'sleep').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -451,6 +458,83 @@ describe('AwsProfileService.rotateActiveCredentials', () => {
     expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
     // The OLD credentials remain active — the store is never overwritten.
     expect(store.setPastedCredentials).not.toHaveBeenCalled();
+  });
+
+  it('should retry verification and succeed once GetCallerIdentity succeeds within the retry window', async () => {
+    stubCreateAccessKeySuccess();
+    const verifyError = new Error('The security token included in the request is invalid');
+    verifyError.name = 'InvalidClientTokenId';
+    stsMock
+      .on(GetCallerIdentityCommand)
+      .rejectsOnce(verifyError)
+      .rejectsOnce(verifyError)
+      .resolves({ Account: '123456789012' });
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+    const result = await service.rotateActiveCredentials();
+
+    expect(result).toEqual({ status: 'complete' });
+    expect(stsMock.commandCalls(GetCallerIdentityCommand)).toHaveLength(3);
+    // No orphan cleanup of the NEW key — verification eventually succeeded.
+    expect(iamMock.commandCalls(DeleteAccessKeyCommand)[0]!.args[0].input).toEqual({
+      AccessKeyId: CURRENT_ACCESS_KEY_ID,
+    });
+  });
+
+  it('should attempt verification up to 6 times total before returning verification-failed when GetCallerIdentity fails every time', async () => {
+    stubCreateAccessKeySuccess();
+    const verifyError = new Error('The security token included in the request is invalid');
+    verifyError.name = 'InvalidClientTokenId';
+    stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+    const result = await service.rotateActiveCredentials();
+
+    expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+    expect(stsMock.commandCalls(GetCallerIdentityCommand)).toHaveLength(6);
+  });
+
+  it('should sleep with the exact backoff schedule between failed verification attempts', async () => {
+    stubCreateAccessKeySuccess();
+    const verifyError = new Error('The security token included in the request is invalid');
+    verifyError.name = 'InvalidClientTokenId';
+    stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    const sleepSpy = vi.spyOn(TestableAwsProfileService.prototype, 'sleep').mockResolvedValue(undefined);
+
+    await service.rotateActiveCredentials();
+
+    expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([1000, 2000, 4000, 8000, 8000]);
+  });
+
+  it('should stop sleeping once verification succeeds on a retry', async () => {
+    stubCreateAccessKeySuccess();
+    const verifyError = new Error('The security token included in the request is invalid');
+    verifyError.name = 'InvalidClientTokenId';
+    stsMock.on(GetCallerIdentityCommand).rejectsOnce(verifyError).rejectsOnce(verifyError).resolves({ Account: '123456789012' });
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    const sleepSpy = vi.spyOn(TestableAwsProfileService.prototype, 'sleep').mockResolvedValue(undefined);
+
+    await service.rotateActiveCredentials();
+
+    expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([1000, 2000]);
+  });
+
+  it('should log one warning per failed verification attempt plus one final error once all attempts are exhausted', async () => {
+    stubCreateAccessKeySuccess();
+    const verifyError = new Error('The security token included in the request is invalid');
+    verifyError.name = 'InvalidClientTokenId';
+    stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+    iamMock.on(DeleteAccessKeyCommand).resolves({});
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    await service.rotateActiveCredentials();
+
+    const perAttemptWarnings = warnSpy.mock.calls.filter((call) => /verification attempt failed/.test(String(call[0])));
+    const exhaustedErrors = errorSpy.mock.calls.filter((call) => /exhausting all retry attempts/.test(String(call[0])));
+    expect(perAttemptWarnings).toHaveLength(6);
+    expect(exhaustedErrors).toHaveLength(1);
   });
 
   it('should clean up the orphaned new key (not the old key) using the CURRENT key client when verification fails', async () => {
