@@ -50,7 +50,7 @@ A single row showing the app-managed Pulumi engine's version:
 > Pulumi engine v3.255.0 · pinned to v3.255.0
 
 The app provisions and runs against exactly one pinned Pulumi engine version
-(`PULUMI_ENGINE_VERSION` in `@hyveon/shared`) — unlike the old Terraform
+(`PULUMI_ENGINE_VERSION` in `@hyveon/shared`) — unlike the old CLI
 prerequisite check this row replaced, there is no "detected vs. minimum"
 comparison to make, because there is no host binary to detect: the engine is
 downloaded and cached by the app itself (`PulumiEngineService`), not installed

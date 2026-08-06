@@ -8,7 +8,7 @@ sidebar_position: 4
 The Games screen (route `/games`) is where you declare what servers exist. It
 is the app's editor for `gameServers` in the versioned JSON configuration
 object (`deployment-config.json`, in your S3 configuration bucket) — there
-is no `terraform.tfvars` any more.
+is no separate variables file any more.
 
 :::danger The rule that governs this whole screen
 

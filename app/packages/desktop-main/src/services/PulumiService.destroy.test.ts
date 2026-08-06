@@ -1,12 +1,11 @@
 /**
  * Unit tests for `PulumiService.destroy`
- * — the token-gated infrastructure destruction operation, replacing
- * `TerraformController.destroy` + `TerraformService.destroy`'s split
- * lock/token gate with one self-contained method (mirrors `apply`'s own
- * "no controller yet, so the method owns its whole gate" ruling).
+ * — the token-gated infrastructure destruction operation, a self-contained
+ * method that owns its whole gate (mirrors `apply`'s own "no controller
+ * yet, so the method owns its whole gate" ruling).
  *
- * Coverage mirrors `TerraformService.destroy.test.ts`'s breadth (confirmation
- * gate: missing/wrong/expired/already-consumed token; spawning; streaming;
+ * Covers the confirmation
+ * gate (missing/wrong/expired/already-consumed token; spawning; streaming;
  * run persistence; abort/force-close handling; concurrency guard) PLUS this
  * dispatch's own additions: target binding (the new "bound to a different
  * stack/workspace" rejection), the token-first gate ordering that makes the

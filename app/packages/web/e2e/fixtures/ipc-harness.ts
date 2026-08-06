@@ -122,7 +122,7 @@ export interface IpcHarness {
  * as a result; specs that need deployed-stack data script
  * `harness.mocks.pulumi` directly instead of relying on a fixture file, since
  * every real consumer reads `ConfigService.getStackOutputs()`, which
- * delegates to this stub, not a parsed `terraform.tfstate` file.
+ * delegates to this stub, not a parsed legacy state file.
  *
  * Also installs the ECS, run-record DynamoDB, and configuration-bucket S3
  * mock interceptors. The run-record mock's backing store

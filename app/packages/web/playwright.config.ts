@@ -56,7 +56,7 @@ export const electronEnv: Record<string, string> = {
  * `electron-ipc-roundtrip.spec.ts`, `ipc-mock.spec.ts`,
  * `dashboard.spec.ts`, `costs.spec.ts` (migrated in #193), `logs.spec.ts`
  * (migrated in #191), `discord.spec.ts` (migrated in #194),
- * `iac.spec.ts` (new route, issue #110; renamed from `terraform.spec.ts`),
+ * `iac.spec.ts` (new route, issue #110; renamed from the pre-migration IaC spec),
  * `streaming-handle-roundtrip.spec.ts` (regression guard for the streaming-IPC
  * contextBridge clone bug — see its own doc comment), and
  * `guided-iam-wizard.spec.ts` (`add-one-click-aws-bootstrap`'s guided-IAM
@@ -73,8 +73,8 @@ const ELECTRON_SPECS = [
   '**/costs.spec.ts',
   '**/logs.spec.ts',
   '**/discord.spec.ts',
-  // Renamed from `terraform.spec.ts` (the IPC channels were renamed from
-  // `terraform.*` to `iac.*`, see `iac.spec.ts`'s own header comment) — this
+  // Renamed from the pre-migration IaC spec (the IPC channels were renamed
+  // to `iac.*`, see `iac.spec.ts`'s own header comment) — this
   // glob was left stale, which silently routed the file to the `chromium`
   // project instead. Harmless in practice (`launchElectron()` calls
   // `_electron.launch()` directly, independent of which project's `use`

@@ -20,7 +20,7 @@ This page is documentation over the top of them, not a replacement.
 Hyveon/
 ├── package.json                         # npm-workspaces ROOT — `npm run` scripts fan out from here
 ├── tsconfig.base.json                   # shared TS config
-├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs
+├── build/                               # icon source art (icon.svg, icon-small.svg) + generate-icons.mjs, generate-aws-regions.mjs
 ├── electron.vite.config.ts              # electron-vite build config (main/preload/renderer pipelines)
 ├── electron-builder.yml                 # packaged-installer config (NSIS/DMG/AppImage)
 ├── openspec/                            # OpenSpec change proposals/specs for this repo
@@ -49,7 +49,8 @@ The repository **root** `package.json` is the npm-workspaces root — its
 `workspaces` array lists `app`, `app/packages/*`, `app/packages/desktop-preload`,
 and `app/packages/lambda/*`. One `npm install` at the root installs
 everything; `app/` itself is just one workspace (`@hyveon/app`) among several,
-not a nested workspaces root. There is no `terraform/` tree — `app/packages/infra`
+not a nested workspaces root. There is no separate infrastructure-as-code
+directory outside the npm workspace tree — `app/packages/infra`
 (`@hyveon/infra`) is a Pulumi Automation API program, ordinary TypeScript.
 Lambdas are built via esbuild to single-file CJS bundles at
 `app/packages/lambda/*/dist/handler.cjs`; the infra program's `lambdas.ts`
@@ -59,7 +60,7 @@ local dev must build them before any apply.
 ## The infra program, at a glance
 
 `app/packages/infra` is a Pulumi Automation API program — TypeScript, no
-`.tf` files. One function per file, each declaring a slice of the stack;
+separate config-file format. One function per file, each declaring a slice of the stack;
 `program.ts`'s `defineAll()` calls them in dependency order. Full detail,
 including the exact resource each file declares, is in the
 [infra program reference](/components/infra) — the short version:
@@ -122,6 +123,7 @@ npm run app:lint && npm run app:test && npm run app:build
 | `npm run app:lint` / `app:lint:fix` | ESLint flat config over all packages. |
 | `npm run app:typecheck` | Full cross-workspace `tsc` pass — `shared` → `cloud-aws` → `infra` → `desktop-preload` → `desktop-main` → `web` → every Lambda package. Required before opening a PR. |
 | `npm run icons:generate` | Regenerates `build/icon.png`/`.ico`/`.icns` and the web favicons from `build/icon.svg` + `build/icon-small.svg`. |
+| `npm run aws-regions:generate` | Rewrites `app/packages/shared/src/awsRegions.ts` from AWS's published region-location data — run this to pick up newly-launched regions. |
 
 ## Test + naming conventions (short form)
 
@@ -156,10 +158,9 @@ Seven workflows live in `.github/workflows/`:
 
 - **`lint.yml`** — two jobs: ESLint (`npm run app:lint`) and a full
   cross-workspace typecheck (`npm run app:typecheck`). Runs on every
-  push/PR. Node 24. There is no `tflint` job — the `terraform/` tree is
-  gone, and there's no `.tf` code left for it to lint; the infra program is
-  ordinary TypeScript, covered by the same ESLint/typecheck jobs as
-  everything else.
+  push/PR. Node 24. There is no separate infra-linting job — the infra
+  program is ordinary TypeScript, covered by the same ESLint/typecheck jobs
+  as everything else.
 - **`test.yml`** — `vitest run --coverage` across all workspaces. Node 24.
 - **`e2e.yml`** — `npm run app:test:e2e`, the Playwright tier-1 suite
   (`chromium` + `electron` projects) against a built app, under `xvfb`.
@@ -403,49 +404,6 @@ then plan/approve/apply from the app's Infrastructure page, and then
 packaging/running the Electron app (`npm run desktop:package`, or
 `npm run desktop:run` to build and launch without producing an installer)
 from whatever machine holds the AWS credentials.
-
-## Legacy Terraform teardown (one-off)
-
-If you deployed the **old, Terraform-based** version of this stack before
-the `migrate-iac-to-pulumi` change, you must fully tear that stack down
-before running your first Pulumi apply against the same AWS account. This
-is a **one-time migration step**, not an ongoing workflow — once the old
-stack is destroyed and the new one is up, this section no longer applies to
-you.
-
-The Pulumi port reused the old stack's physical resource names verbatim, so
-deploying both at once is not a "mostly fine, minor overlap" situation — it
-ranges from a loud failure to a silent, dangerous double-deployment:
-
-- **Hard collisions (the apply fails outright).** Both stacks would create
-  identically-named DynamoDB tables (`hyveon-discord`, `hyveon-runs`,
-  `hyveon-audit`), Lambda functions (`hyveon-interactions`, `-followup`,
-  `-watchdog`, `-dns-updater`, `-efs-seeder-{game}`), IAM roles, CloudWatch
-  log groups, Secrets Manager secrets, the EFS filesystem's creation token,
-  and the Discord custom domain's CloudFront alias + Route 53 A/AAAA
-  records. AWS rejects the second create for all of these.
-- **Silent adoption (no error, but two states now think they own one
-  resource).** The ECS cluster name, the two EventBridge rules, and the
-  `{game}-server` task-definition family are all upsert-like or
-  revision-versioned — a second stack quietly takes over or appends to the
-  first stack's resource rather than failing. If you later `terraform
-  destroy` the old stack, it deletes the resource out from under the live
-  Pulumi stack.
-- **Don't "fix" the collisions by renaming the project.** Changing the
-  project name sidesteps every failure above, but converts them into a
-  **silent duplicate deployment**: two live `update-dns` Lambdas and two
-  live `watchdog` Lambdas, both reacting to the same ECS task-state events
-  and both writing/deleting the same `{game}.{hostedZoneName}` DNS record —
-  each stack's Lambda fights the other's. This is strictly worse than the
-  loud failures above, because nothing tells you it's happening.
-
-**The correct order is always: destroy the old Terraform stack completely,
-then run your first Pulumi apply.** If you no longer have the old
-`terraform/` tree available to run `terraform destroy` with, tear the
-resources down manually from the AWS console/CLI before proceeding, and
-confirm in particular that the two Discord Secrets Manager secrets are
-actually gone (their zero-day recovery window means the delete completes
-immediately, but a still-pending delete blocks a same-named `CreateSecret`).
 
 ## Useful references
 
