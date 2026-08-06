@@ -12,6 +12,8 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { SafeStorageUnavailableError } from './AwsProfileService.js';
 import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCredentialSource.js';
+import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
+import { sleep } from './sleep.js';
 
 /** Absolute path to the `dist/services/` directory at runtime. */
 const _dirname = dirname(fileURLToPath(import.meta.url));
@@ -91,7 +93,8 @@ export type RotationResult =
   /** The new key pair is active and the bootstrap key has been revoked. */
   | { status: 'complete' }
   /**
-   * `sts:GetCallerIdentity` failed for the newly minted key. Nothing became
+   * `sts:GetCallerIdentity` failed for the newly minted key on every retry
+   * attempt (see {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}). Nothing became
    * active (`ElectronStoreService.set('aws', ...)` was never called) and the
    * bootstrap key was never deleted. {@link GuidedIamService.rotate} also
    * attempts to delete the orphaned new key (using the still-valid bootstrap
@@ -321,8 +324,11 @@ export class GuidedIamService {
    *    {@link GUIDED_PROFILE_NAME}. This alone does **not** make the new key
    *    active — `aws.profile` is untouched at this point.
    * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
-   *    client built from the *new* key. On failure, best-effort deletes the
-   *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
+   *    client built from the *new* key, retrying with backoff (see
+   *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb the propagation
+   *    delay newly minted IAM access keys can have. Once all attempts are
+   *    exhausted, best-effort deletes the orphaned new key
+   *    (`iam:DeleteAccessKey`, using an IAM client built
    *    from the still-untouched *bootstrap* key — it still has
    *    `HyveonSelfRotate` permissions and nothing has touched it yet) and,
    *    once that delete succeeds, also clears the entry staged under
@@ -356,21 +362,6 @@ export class GuidedIamService {
    *
    * Never logs `secretAccessKey` (bootstrap or newly minted) — only
    * non-secret access key IDs and step-progress messages.
-   *
-   * **Known limitation (deliberate deferral):** newly created IAM access
-   * keys can take a few seconds to propagate across AWS before
-   * `sts:GetCallerIdentity` reliably succeeds for them. Step 3 above makes
-   * exactly one verification attempt with no retry/backoff, so a freshly
-   * minted, otherwise-healthy key can spuriously produce
-   * `verification-failed` purely due to propagation delay — not because the
-   * key is actually bad. A bounded retry/backoff around step 3 would
-   * mitigate this, but is intentionally out of scope here: it needs
-   * timing/backoff design validated against real AWS behavior rather than
-   * guessed in unit tests, so it is left as a follow-up rather than bundled
-   * into this task. See the `add-one-click-aws-bootstrap` Group 2 PR
-   * description / this task's report for the reasoning. The cleanup-delete
-   * behavior documented at step 3 keeps a caller-driven retry safe in the
-   * meantime, which is what makes deferring the backoff acceptable for now.
    *
    * @param input - The validated bootstrap key pair (from
    *   {@link intakeBootstrapKey}) and the region to build every client
@@ -418,13 +409,32 @@ export class GuidedIamService {
 
     const newCreds = { accessKeyId: newKey.AccessKeyId, secretAccessKey: newKey.SecretAccessKey, region: input.region };
 
-    // Step 3: verify the new key pair works before relying on it.
+    // Step 3: verify the new key pair works before relying on it, retrying
+    // with backoff (see VERIFY_ACCESS_KEY_RETRY_DELAYS_MS) since newly
+    // minted keys can take a few seconds to propagate across AWS before
+    // GetCallerIdentity reliably succeeds for them.
     try {
       const verifyClient = this.createStsClient(newCreds);
-      await verifyClient.send(new GetCallerIdentityCommand({}));
+      await verifyAccessKeyWithRetry(
+        async () => {
+          await verifyClient.send(new GetCallerIdentityCommand({}));
+        },
+        {
+          sleep: (ms) => this.sleep(ms),
+          onAttemptFailed: (attempt, totalAttempts, attemptErr) => {
+            const attemptMessage = attemptErr instanceof Error ? attemptErr.message : String(attemptErr);
+            logger.warn('GuidedIamService.rotate: verification attempt failed for newly minted key', {
+              accessKeyId: newKey.AccessKeyId,
+              attempt,
+              totalAttempts,
+              error: attemptMessage,
+            });
+          },
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn('GuidedIamService.rotate: verification failed for newly minted key', {
+      logger.error('GuidedIamService.rotate: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newKey.AccessKeyId,
         error: message,
       });
@@ -588,6 +598,20 @@ export class GuidedIamService {
       region: creds.region,
       credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
     });
+  }
+
+  /**
+   * Sleep for `ms` milliseconds, delegating to the shared `sleep` utility
+   * (`./sleep.js`). Extracted as a protected seam — mirrors
+   * {@link createStsClient}/{@link createIamClient} — so tests can stub it to
+   * resolve immediately and exercise {@link rotate}'s retry loop without real
+   * elapsed wall-clock time. Used only by {@link rotate}, via
+   * {@link verifyAccessKeyWithRetry}.
+   *
+   * @param ms - Milliseconds to sleep for.
+   */
+  protected sleep(ms: number): Promise<void> {
+    return sleep(ms);
   }
 
   /**

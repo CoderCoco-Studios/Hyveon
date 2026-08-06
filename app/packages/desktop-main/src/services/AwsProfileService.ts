@@ -9,6 +9,8 @@ import { logger } from '../logger.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
+import { sleep } from './sleep.js';
 
 /**
  * Summary of a single AWS CLI profile discovered in `~/.aws/credentials` or
@@ -104,7 +106,8 @@ export type AwsProfileRotationResult =
   /** The new key pair is stored/active and the old key has been revoked. */
   | { status: 'complete' }
   /**
-   * `sts:GetCallerIdentity` failed for the newly minted key. The stored
+   * `sts:GetCallerIdentity` failed for the newly minted key on every retry
+   * attempt (see {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}). The stored
    * credentials were never overwritten — the previously active key remains
    * stored and in the keychain. See
    * {@link AwsProfileService.rotateActiveCredentials}'s doc comment for the
@@ -221,7 +224,10 @@ export class AwsProfileService {
    * 2. `iam:CreateAccessKey` using an IAM client built from the *current*
    *    (about-to-be-superseded) key pair.
    * 3. Verifies the new key pair with `sts:GetCallerIdentity`, using an STS
-   *    client built from the *new* key. On failure, best-effort deletes the
+   *    client built from the *new* key, retrying with backoff (see
+   *    {@link VERIFY_ACCESS_KEY_RETRY_DELAYS_MS}) to absorb the propagation
+   *    delay newly minted IAM access keys can have. Once all attempts are
+   *    exhausted, best-effort deletes the
    *    orphaned new key (`iam:DeleteAccessKey`, using an IAM client built
    *    from the still-valid *current* key — nothing has touched it yet),
    *    then returns `{ status: 'verification-failed', error }` without
@@ -249,17 +255,6 @@ export class AwsProfileService {
    *
    * Never logs `secretAccessKey` (current or newly minted) — only
    * non-secret access key IDs and step-progress messages.
-   *
-   * **Known limitation (deliberate deferral):** same as
-   * {@link GuidedIamService.rotate}'s own documented limitation — newly
-   * created IAM access keys can take a few seconds to propagate across AWS
-   * before `sts:GetCallerIdentity` reliably succeeds for them, so step 3
-   * above can spuriously return `verification-failed` for an otherwise-healthy
-   * key purely due to propagation delay. A bounded retry/backoff around step 3
-   * would mitigate this but needs timing/backoff design validated against real
-   * AWS behavior rather than guessed in unit tests, so it stays a follow-up
-   * here too. The orphan-cleanup documented at step 3 keeps a caller-driven
-   * retry safe in the meantime.
    *
    * @throws {@link SafeStorageUnavailableError} if the OS keychain is
    *   unavailable — nothing is attempted in that case (step 0).
@@ -312,13 +307,31 @@ export class AwsProfileService {
     const newAccessKeyId = newKey.AccessKeyId;
     const newSecretAccessKey = newKey.SecretAccessKey;
 
-    // Step 3: verify the new key pair works before relying on it.
+    // Step 3: verify the new key pair works before relying on it, retrying
+    // with backoff (see VERIFY_ACCESS_KEY_RETRY_DELAYS_MS) — mirrors
+    // GuidedIamService.rotate's own step 3 exactly.
     try {
       const verifyClient = this.createStsClient({ accessKeyId: newAccessKeyId, secretAccessKey: newSecretAccessKey, region });
-      await verifyClient.send(new GetCallerIdentityCommand({}));
+      await verifyAccessKeyWithRetry(
+        async () => {
+          await verifyClient.send(new GetCallerIdentityCommand({}));
+        },
+        {
+          sleep: (ms) => this.sleep(ms),
+          onAttemptFailed: (attempt, totalAttempts, attemptErr) => {
+            const attemptMessage = attemptErr instanceof Error ? attemptErr.message : String(attemptErr);
+            logger.warn('AwsProfileService.rotateActiveCredentials: verification attempt failed for newly minted key', {
+              accessKeyId: newAccessKeyId,
+              attempt,
+              totalAttempts,
+              error: attemptMessage,
+            });
+          },
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn('AwsProfileService.rotateActiveCredentials: verification failed for newly minted key', {
+      logger.error('AwsProfileService.rotateActiveCredentials: verification failed for newly minted key after exhausting all retry attempts', {
         accessKeyId: newAccessKeyId,
         error: message,
       });
@@ -396,6 +409,21 @@ export class AwsProfileService {
       region: creds.region,
       credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
     });
+  }
+
+  /**
+   * Sleep for `ms` milliseconds, delegating to the shared `sleep` utility
+   * (`./sleep.js`). Extracted as a protected seam — rather than calling
+   * that utility directly from {@link rotateActiveCredentials} — so tests
+   * can stub it to resolve immediately and exercise the retry loop without
+   * real elapsed wall-clock time. Used only by
+   * {@link rotateActiveCredentials}, via {@link verifyAccessKeyWithRetry}.
+   * Mirrors `GuidedIamService.sleep`.
+   *
+   * @param ms - Milliseconds to sleep for.
+   */
+  protected sleep(ms: number): Promise<void> {
+    return sleep(ms);
   }
 
   /**

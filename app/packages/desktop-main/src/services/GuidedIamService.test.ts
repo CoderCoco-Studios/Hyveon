@@ -111,6 +111,10 @@ class TestableGuidedIamService extends GuidedIamService {
   public override createIamClient(creds: { accessKeyId: string; secretAccessKey: string; region: string }): IAMClient {
     return super.createIamClient(creds);
   }
+
+  public override sleep(ms: number): Promise<void> {
+    return super.sleep(ms);
+  }
 }
 
 describe('GuidedIamService', () => {
@@ -127,6 +131,9 @@ describe('GuidedIamService', () => {
     mockWrite.mockReset();
     stsMock.reset();
     iamMock.reset();
+    // Zero-delay by default so `rotate`'s retry loop never adds real
+    // elapsed wall-clock time to tests that don't specifically assert on it.
+    vi.spyOn(TestableGuidedIamService.prototype, 'sleep').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -471,6 +478,81 @@ describe('GuidedIamService', () => {
       expect(store.set).not.toHaveBeenCalled();
       // Staging (step 2) still happened — retrying is safe since it just overwrites the same entry.
       expect(store.setPastedCredentials).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry verification and succeed once GetCallerIdentity succeeds within the retry window', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock
+        .on(GetCallerIdentityCommand)
+        .rejectsOnce(verifyError)
+        .rejectsOnce(verifyError)
+        .resolves({ Account: '123456789012' });
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'complete' });
+      expect(stsMock.commandCalls(GetCallerIdentityCommand)).toHaveLength(3);
+      // No orphan cleanup — verification eventually succeeded.
+      expect(iamMock.commandCalls(DeleteAccessKeyCommand)[0]!.args[0].input).toEqual({
+        AccessKeyId: BOOTSTRAP_ACCESS_KEY_ID,
+      });
+    });
+
+    it('should attempt verification up to 6 times total before returning verification-failed when GetCallerIdentity fails every time', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+
+      const result = await service.rotate(ROTATION_INPUT);
+
+      expect(result).toEqual({ status: 'verification-failed', error: verifyError.message });
+      expect(stsMock.commandCalls(GetCallerIdentityCommand)).toHaveLength(6);
+    });
+
+    it('should sleep with the exact backoff schedule between failed verification attempts', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      const sleepSpy = vi.spyOn(TestableGuidedIamService.prototype, 'sleep').mockResolvedValue(undefined);
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([1000, 2000, 4000, 8000, 8000]);
+    });
+
+    it('should stop sleeping once verification succeeds on a retry', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejectsOnce(verifyError).rejectsOnce(verifyError).resolves({ Account: '123456789012' });
+      const sleepSpy = vi.spyOn(TestableGuidedIamService.prototype, 'sleep').mockResolvedValue(undefined);
+
+      await service.rotate(ROTATION_INPUT);
+
+      expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([1000, 2000]);
+    });
+
+    it('should log one warning per failed verification attempt plus one final error once all attempts are exhausted', async () => {
+      stubCreateAccessKeySuccess();
+      const verifyError = new Error('The security token included in the request is invalid');
+      verifyError.name = 'InvalidClientTokenId';
+      stsMock.on(GetCallerIdentityCommand).rejects(verifyError);
+      iamMock.on(DeleteAccessKeyCommand).resolves({});
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const errorSpy = vi.spyOn(logger, 'error');
+
+      await service.rotate(ROTATION_INPUT);
+
+      const perAttemptWarnings = warnSpy.mock.calls.filter((call) => /verification attempt failed/.test(String(call[0])));
+      const exhaustedErrors = errorSpy.mock.calls.filter((call) => /exhausting all retry attempts/.test(String(call[0])));
+      expect(perAttemptWarnings).toHaveLength(6);
+      expect(exhaustedErrors).toHaveLength(1);
     });
 
     it('should clean up the orphaned new key (not the bootstrap key) using the bootstrap key client when verification fails', async () => {
