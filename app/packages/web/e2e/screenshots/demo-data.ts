@@ -48,7 +48,6 @@ import type {
   WizardState,
 } from '@hyveon/desktop-preload';
 import type {
-  ActualCosts,
   CostEstimates,
   DiscordConfigRedacted,
   EnvInfo,
@@ -223,28 +222,6 @@ export const DEMO_COST_ESTIMATES: CostEstimates = {
   games: { minecraft: MINECRAFT_ESTIMATE, valheim: VALHEIM_ESTIMATE, palworld: PALWORLD_ESTIMATE },
   totalPerHourIfAllOn: MINECRAFT_ESTIMATE.costPerHour + VALHEIM_ESTIMATE.costPerHour + PALWORLD_ESTIMATE.costPerHour,
 };
-
-/**
- * Builds a deterministic `ActualCosts` window ending at {@link DEMO_NOW},
- * for a given number of trailing days. Pure (no `Date.now()`/`Math.random()`)
- * so repeat harness runs produce byte-identical output. The sinusoidal
- * `base` term gives the Costs page's stacked bar chart and delta-vs-prior
- * pill visibly non-flat, non-zero data without hand-authoring every day.
- */
-export function demoActualCosts(days: number): ActualCosts {
-  const end = new Date(DEMO_NOW);
-  const daily: { date: string; cost: number }[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(end);
-    d.setUTCDate(d.getUTCDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    const base = 9 + 4 * Math.sin(i / 3.2) + (i % 5 === 0 ? 1.5 : 0);
-    const cost = Math.round(base * 100) / 100;
-    daily.push({ date: dateStr, cost });
-  }
-  const total = Math.round(daily.reduce((sum, d) => sum + d.cost, 0) * 100) / 100;
-  return { daily, total, currency: 'USD', days };
-}
 
 // ---------------------------------------------------------------------------
 // Discord
@@ -552,12 +529,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     statuses: overrides.statuses ?? DEMO_STATUSES,
     games: overrides.games ?? DEMO_GAMES,
     costEstimates: overrides.costEstimates ?? DEMO_COST_ESTIMATES,
-    actualCostsByDays: {
-      '7': demoActualCosts(7),
-      '14': demoActualCosts(14),
-      '30': demoActualCosts(30),
-      '60': demoActualCosts(60),
-    } as Record<string, ActualCosts>,
     discord: overrides.discord ?? DEMO_DISCORD_CONFIG,
     drift: overrides.drift ?? DEMO_DRIFT_REPORT,
     audit: overrides.audit ?? DEMO_AUDIT,
@@ -608,10 +579,6 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
     mock('games.stop', (game: unknown) => Promise.resolve({ success: true, message: `${String(game)} is stopping` }));
 
     mock('costs.estimate', () => Promise.resolve(d.costEstimates));
-    mock('costs.actual', (days: unknown) => {
-      const key = String(typeof days === 'number' ? days : 7);
-      return Promise.resolve(d.actualCostsByDays[key] ?? d.actualCostsByDays['7']);
-    });
 
     mock('discord.getConfig', () => Promise.resolve(d.discord));
     mock('discord.putConfig', () => Promise.resolve({ success: true, config: d.discord }));
