@@ -108,22 +108,37 @@
 
 ## 4. Docs and IAM cleanup (PR: `costexplorer-4-docs-iam`, base: PR 3's branch)
 
-- [ ] 4.1 Rewrite `docs/docs/app/costs.md` to describe estimate-only
-      display plus the AWS Cost Explorer link-out; remove references to the
+- [x] 4.1 Rewrite `docs/docs/app/costs.md` to describe estimate-only
+      display plus the AWS Cost Explorer link-out; removed references to the
       removed chart/total-spend card and the "Cost Explorer must be
       enabled" caveat section (no longer applicable — the app never calls
       it).
-- [ ] 4.2 Rewrite `docs/docs/app/dashboard.md`'s KPI tile descriptions
+- [x] 4.2 Rewrite `docs/docs/app/dashboard.md`'s KPI tile descriptions
       ("Spend today" / "Forecast MTD" → "Current run rate" / "Est. month
       cap").
-- [ ] 4.3 Update `docs/docs/components/management-app.md`'s
-      `CostsController` row (drop the `costs.actual` channel and its Cost
-      Explorer description).
-- [ ] 4.4 Remove `"ce:*"` from the `HyveonDeployAll` IAM policy in
-      `docs/docs/setup.md`.
-- [ ] 4.5 Run the `write-docs` skill's evaluator agents (accuracy,
-      coverage, style) over the changed docs pages.
-- [ ] 4.6 Open PR `costexplorer-4-docs-iam` against `costexplorer-3-e2e`.
+- [x] 4.3 Update `docs/docs/components/management-app.md`'s
+      `CostsController` row (dropped the `costs.actual` channel and its
+      Cost Explorer description).
+- [x] 4.4 Remove `"ce:*"` from the `HyveonDeployAll` IAM policy in
+      `docs/docs/setup.md`. Also removed it from
+      `app/packages/shared/src/iamPolicy.ts` — the machine-readable source
+      of truth `setup.md`'s JSON is test-locked against
+      (`iamPolicy.test.ts`), found by `docs-accuracy-auditor` and not in
+      the original plan scope (which only checked `iam-bootstrap.yaml`).
+- [x] 4.5 Ran `docs-accuracy-auditor`, `docs-coverage-auditor`,
+      `docs-style-reviewer` over every changed docs page, across two
+      re-verification rounds. Found and fixed beyond the original scope:
+      `docs/docs/app/index.md`'s stale "Watch the costs" section + nav-map
+      row, regenerated `costs.png`/`dashboard.png` (still showed the
+      pre-PR1 UI), a stale scenario in this change's own
+      `specs/cost-visibility/spec.md` referencing the removed 7d/30d range
+      selector, a stale `aws.module.ts` docstring mention of Cost Explorer,
+      an inaccurate `FileManagerService` SDK-client claim, a missing
+      `SchedulerService` in two `management-app.md` enumerations, and a
+      stale/dangling KPI-tile-cadence note in `dashboard.md`'s Polling
+      section. Final pass clean.
+- [x] 4.6 Open PR `costexplorer-4-docs-iam` against `costexplorer-3-e2e`.
+      → [#433](https://github.com/CoderCoco/Hyveon/pull/433)
 
 ## 5. Close out
 
