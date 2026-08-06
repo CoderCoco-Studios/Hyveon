@@ -26,9 +26,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -52,9 +51,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -82,9 +80,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -113,9 +110,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
@@ -144,9 +140,8 @@ test.describe('costs page', () => {
 
       await win.evaluate(
         ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
-            __test: { mock: (channel: string, handler: unknown) => void };
-          };
+          const hyveon = window.hyveon;
+          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
           hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
           hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
         },
