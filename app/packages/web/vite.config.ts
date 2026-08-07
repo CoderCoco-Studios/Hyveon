@@ -22,5 +22,28 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Loaded once from local disk by the packaged Electron app, not fetched
+    // per-visit over a network — the default 500 kB warning targets
+    // network-loaded SPAs and doesn't reflect this app's cost model. Vendor
+    // deps are still split out below; this only covers the remaining
+    // first-party app-code chunk.
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          'radix-ui': [
+            '@radix-ui/react-alert-dialog',
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-label',
+            '@radix-ui/react-select',
+            '@radix-ui/react-slot',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-tooltip',
+          ],
+        },
+      },
+    },
   },
 });
