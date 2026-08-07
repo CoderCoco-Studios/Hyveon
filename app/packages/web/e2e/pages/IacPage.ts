@@ -8,9 +8,13 @@ import type { Page, Locator } from '@playwright/test';
 export class IacPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to `/iac` directly via URL. */
+  /**
+   * Navigate to `/iac` directly via URL. Targets `/#/iac`, not `/iac` — the
+   * app routes via `HashRouter` (see `app.component.tsx`'s doc comment), so
+   * a plain path with no hash resolves to the root route instead.
+   */
   async goto(): Promise<void> {
-    await this.page.goto('/iac');
+    await this.page.goto('/#/iac');
   }
 
   /**

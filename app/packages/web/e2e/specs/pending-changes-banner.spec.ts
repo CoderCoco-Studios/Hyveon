@@ -39,7 +39,10 @@ test.describe('pending changes banner', () => {
 
     await dashboard.viewPendingLink().click();
 
-    await dashboard.page.waitForURL((url) => url.pathname === '/games');
+    // Matches on `url.hash`, not `url.pathname` — the app routes via
+    // `HashRouter` (see `app.component.tsx`'s doc comment), so the active
+    // route lives after the `#`.
+    await dashboard.page.waitForURL((url) => url.hash === '#/games');
   });
 
   test('should dismiss the banner when the dismiss button is clicked', async ({ dashboard }) => {

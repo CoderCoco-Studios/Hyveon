@@ -7,9 +7,13 @@ import type { Page, Locator } from '@playwright/test';
 export class SettingsPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to the settings route. */
+  /**
+   * Navigate to the settings route. Targets `/#/settings`, not `/settings`
+   * — the app routes via `HashRouter` (see `app.component.tsx`'s doc
+   * comment), so a plain path with no hash resolves to the root route instead.
+   */
   async goto(): Promise<void> {
-    await this.page.goto('/settings');
+    await this.page.goto('/#/settings');
   }
 
   /**

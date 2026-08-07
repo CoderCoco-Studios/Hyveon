@@ -12,7 +12,7 @@
  * once when the app boots and reads `wizard.state.get`/`wizard.progress.get`
  * exactly once, on that mount — unlike routed pages, there is no
  * navigation/remount lever (`discord.spec.ts`'s per-test isolation actually
- * comes from `DiscordPage.goto()`'s `pushState`/`popstate` dance forcing a
+ * comes from `DiscordPage.goto()`'s `location.hash` dance forcing a
  * fresh mount, not from clearing the mock registry) to make a second test's
  * fresh mocks actually get re-read against a shared app. A fresh app per test
  * sidesteps that: there is nothing stale to clear, and each test seeds its

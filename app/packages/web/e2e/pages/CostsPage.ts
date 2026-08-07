@@ -8,23 +8,29 @@ import type { Page, Locator } from '@playwright/test';
 export class CostsPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to `/costs` directly (the route isn't yet linked from the sidebar). */
+  /**
+   * Navigate to `/costs` directly (the route isn't yet linked from the
+   * sidebar). Targets `/#/costs`, not `/costs` — the app routes via
+   * `HashRouter` (see `app.component.tsx`'s doc comment), so a plain path
+   * with no hash resolves to the root route instead.
+   */
   async goto(): Promise<void> {
-    await this.page.goto('/costs');
+    await this.page.goto('/#/costs');
   }
 
   /**
    * Navigate to `/costs` inside the Electron shell where `page.goto()` cannot
-   * change the React Router route. Pushes the path via `history.pushState` and
-   * dispatches a synthetic `popstate` event so React Router picks up the change.
+   * change the React Router route. Sets `location.hash` directly, which
+   * fires a native `hashchange` event — the event `HashRouter` actually
+   * listens for (a `pushState` + synthetic `popstate` dispatch, this
+   * method's previous approach, does not trigger it at all).
    *
    * TODO(#190): replace with a sidebar navigation click once the Costs link is
    * wired into the sidebar in the Electron project.
    */
   async gotoElectron(): Promise<void> {
     await this.page.evaluate(() => {
-      window.history.pushState({}, '', '/costs');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      window.location.hash = '/costs';
     });
     await this.heading().waitFor();
   }

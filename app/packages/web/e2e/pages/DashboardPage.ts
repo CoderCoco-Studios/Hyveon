@@ -29,7 +29,11 @@ export class DashboardPage {
    *  1. Returns to the `/` route via in-app history navigation (a full reload
    *     would re-run the preload and wipe the `window.hyveon.__test` mock registry
    *     that the test just seeded), so it works even after a sidebar-nav test
-   *     left the app on another route.
+   *     left the app on another route. Sets `location.hash` directly rather
+   *     than `pushState` + a synthetic `popstate` dispatch — the app routes
+   *     via `HashRouter` (see `app.component.tsx`'s doc comment), which
+   *     listens for the native `hashchange` event a `location.hash`
+   *     assignment fires, not `popstate`.
    *  2. Clicks the top-bar "Refresh all" button. The app-level status poller
    *     fires once at launch — before the test registers its IPC mocks — so the
    *     grid must be re-fetched for the seeded `games.status` mock to take
@@ -39,8 +43,7 @@ export class DashboardPage {
    */
   async gotoElectron(): Promise<void> {
     await this.page.evaluate(() => {
-      window.history.pushState({}, '', '/');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      window.location.hash = '/';
     });
     // Wait for the launch-time status poll to settle before refreshing. While
     // a poll is in flight the registry's `inFlight` guard would silently drop

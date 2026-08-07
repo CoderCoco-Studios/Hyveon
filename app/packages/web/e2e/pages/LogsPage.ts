@@ -13,9 +13,13 @@ export type LogLevelLabel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 export class LogsPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to `/logs` directly via URL. */
+  /**
+   * Navigate to `/logs` directly via URL. Targets `/#/logs`, not `/logs` —
+   * the app routes via `HashRouter` (see `app.component.tsx`'s doc
+   * comment), so a plain path with no hash resolves to the root route instead.
+   */
   async goto(): Promise<void> {
-    await this.page.goto('/logs');
+    await this.page.goto('/#/logs');
   }
 
   /**
