@@ -1,13 +1,21 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
+import { logger } from '../logger.js';
+
+/** Payload accepted by `diagnostics.reportError`. */
+export interface ReportRendererErrorInput {
+  message: string;
+  stack?: string;
+  source: 'boundary' | 'window-error' | 'unhandled-rejection';
+}
 
 /**
  * IPC-only controller for local application log data.
  *
- * Registers the `diagnostics.tail` and `diagnostics.path` Electron IPC
- * channels so the renderer can reach them through `window.hyveon.diagnostics.*`.
- * No HTTP routes are declared here.
+ * Registers the `diagnostics.tail`, `diagnostics.path`, and
+ * `diagnostics.reportError` Electron IPC channels so the renderer can reach
+ * them through `window.hyveon.diagnostics.*`. No HTTP routes are declared here.
  */
 @Controller()
 export class DiagnosticsController {
@@ -16,6 +24,7 @@ export class DiagnosticsController {
   /** Returns the last 500 lines from today's local log file. */
   @MessagePattern('diagnostics.tail')
   async getTail(): Promise<{ lines: string[] }> {
+    logger.debug('DiagnosticsController: diagnostics.tail invoked');
     const lines = await this.diagnostics.readTail(500);
     return { lines };
   }
@@ -23,6 +32,14 @@ export class DiagnosticsController {
   /** Returns the absolute path of today's local log file. */
   @MessagePattern('diagnostics.path')
   getPath(): { path: string } {
+    logger.debug('DiagnosticsController: diagnostics.path invoked');
     return { path: this.diagnostics.getTodayLogPath() };
+  }
+
+  /** Forwards a renderer-side crash into the local winston log file. Never rejects. */
+  @MessagePattern('diagnostics.reportError')
+  reportError(@Payload() body: ReportRendererErrorInput): void {
+    logger.debug('DiagnosticsController: diagnostics.reportError invoked');
+    this.diagnostics.logRendererError(body.message, body.stack, body.source);
   }
 }

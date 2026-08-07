@@ -5,7 +5,12 @@ vi.mock('node:fs/promises', () => ({
   open: vi.fn(),
 }));
 
+vi.mock('../logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 import * as fsPromises from 'node:fs/promises';
+import { logger } from '../logger.js';
 import { DiagnosticsService } from './DiagnosticsService.js';
 
 /** The tail window constant duplicated here so tests can construct oversized content. */
@@ -144,5 +149,23 @@ describe('DiagnosticsService.readTail', () => {
     const result = await service.readTail(10);
     expect(result).toContain('boundary-line');
     expect(result).toContain('next-line');
+  });
+});
+
+describe('DiagnosticsService.logRendererError', () => {
+  it('should log the error at the error level with the source tag in the message', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererError('boom', 'Error: boom\n  at x', 'boundary');
+
+    expect(logger.error).toHaveBeenCalledWith('renderer error (boundary): boom', { stack: 'Error: boom\n  at x' });
+  });
+
+  it('should log a stack of undefined unchanged', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererError('unhandled', undefined, 'unhandled-rejection');
+
+    expect(logger.error).toHaveBeenCalledWith('renderer error (unhandled-rejection): unhandled', { stack: undefined });
   });
 });

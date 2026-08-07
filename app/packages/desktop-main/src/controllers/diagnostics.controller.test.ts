@@ -12,6 +12,7 @@ function makeDiagnostics(): DiagnosticsService {
   return {
     readTail: vi.fn().mockResolvedValue(['line1', 'line2', 'line3']),
     getTodayLogPath: vi.fn().mockReturnValue('/var/log/app/main-2026-05-23.log'),
+    logRendererError: vi.fn(),
   } as unknown as DiagnosticsService;
 }
 
@@ -41,6 +42,39 @@ describe('DiagnosticsController', () => {
       const svc = makeDiagnostics();
       new DiagnosticsController(svc).getPath();
       expect(svc.getTodayLogPath).toHaveBeenCalled();
+    });
+  });
+
+  describe('reportError', () => {
+    it('should call DiagnosticsService.logRendererError with the payload fields', () => {
+      const svc = makeDiagnostics();
+      new DiagnosticsController(svc).reportError({
+        message: 'boom',
+        stack: 'Error: boom\n  at x',
+        source: 'boundary',
+      });
+
+      expect(svc.logRendererError).toHaveBeenCalledWith('boom', 'Error: boom\n  at x', 'boundary');
+    });
+
+    it('should pass through an undefined stack unchanged', () => {
+      const svc = makeDiagnostics();
+      new DiagnosticsController(svc).reportError({
+        message: 'unhandled rejection',
+        source: 'unhandled-rejection',
+      });
+
+      expect(svc.logRendererError).toHaveBeenCalledWith('unhandled rejection', undefined, 'unhandled-rejection');
+    });
+
+    it('should return undefined', () => {
+      const svc = makeDiagnostics();
+      const result = new DiagnosticsController(svc).reportError({
+        message: 'boom',
+        source: 'window-error',
+      });
+
+      expect(result).toBeUndefined();
     });
   });
 });
