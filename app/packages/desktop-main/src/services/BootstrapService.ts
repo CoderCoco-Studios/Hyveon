@@ -113,7 +113,10 @@ export class BootstrapService {
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureStateBucket: createBucket failed', { bucketName, err });
+      logger.warn('BootstrapService.ensureStateBucket: createBucket failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
@@ -140,7 +143,10 @@ export class BootstrapService {
 
       await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureStateBucket: post-create configuration failed', { bucketName, err });
+      logger.warn('BootstrapService.ensureStateBucket: post-create configuration failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
@@ -169,7 +175,10 @@ export class BootstrapService {
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureConfigurationBucket: createBucket failed', { bucketName, err });
+      logger.warn('BootstrapService.ensureConfigurationBucket: createBucket failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
@@ -220,7 +229,7 @@ export class BootstrapService {
     } catch (err) {
       logger.warn('BootstrapService.ensureConfigurationBucket: post-create configuration failed', {
         bucketName,
-        err,
+        error: this.describeError(err),
       });
       return { status: 'failed', message: this.describeError(err) };
     }
@@ -308,7 +317,10 @@ export class BootstrapService {
       logger.debug('BootstrapService.ensureDeploymentConfig: initial document seeded', { bucketName });
       return { status: 'created' };
     } catch (err) {
-      logger.warn('BootstrapService.ensureDeploymentConfig: failed', { bucketName, err });
+      logger.warn('BootstrapService.ensureDeploymentConfig: failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
   }
@@ -386,7 +398,10 @@ export class BootstrapService {
     try {
       created = await this.createRunsTable(client, tableName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureRunsTable: createRunsTable failed', { tableName, err });
+      logger.warn('BootstrapService.ensureRunsTable: createRunsTable failed', {
+        tableName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
@@ -408,7 +423,10 @@ export class BootstrapService {
       );
       logger.debug('BootstrapService.ensureRunsTable: point-in-time recovery enabled', { tableName });
     } catch (err) {
-      logger.warn('BootstrapService.ensureRunsTable: post-create configuration failed', { tableName, err });
+      logger.warn('BootstrapService.ensureRunsTable: post-create configuration failed', {
+        tableName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 

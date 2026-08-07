@@ -337,7 +337,6 @@ export class WizardController {
   async complete(): Promise<WizardState> {
     logger.debug('WizardController: wizard.complete invoked');
     await this.firstRunWizard.complete();
-    logger.info('WizardController: wizard marked complete');
     return this.getState();
   }
 

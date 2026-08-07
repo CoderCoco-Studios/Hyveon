@@ -557,14 +557,13 @@ describe('WizardController', () => {
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws', aws: undefined });
     });
 
-    it('should log at info once FirstRunWizardService.complete resolves, in addition to the entry debug line', async () => {
+    it('should log the entry debug line', async () => {
       const firstRunWizard = makeFirstRunWizard();
       const store = makeStore({ wizardCompleted: true });
 
       await makeController({ firstRunWizard, store }).complete();
 
       expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.complete invoked');
-      expect(loggerMock.info).toHaveBeenCalledWith('WizardController: wizard marked complete');
     });
   });
 

@@ -173,7 +173,6 @@ export class FirstRunWizardService {
    * leaves the wizard genuinely incomplete, matching what the caller was told.
    */
   async complete(): Promise<void> {
-    logger.info('FirstRunWizardService: marking wizard complete');
     await rm(this.stateFilePath(), { force: true });
     this.store.set('wizardCompleted', true);
     logger.info('FirstRunWizardService: wizard marked complete');

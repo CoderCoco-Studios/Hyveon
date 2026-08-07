@@ -267,10 +267,9 @@ describe('FirstRunWizardService', () => {
       await expect(service.complete()).resolves.toBeUndefined();
     });
 
-    it('should log at info both before and after marking the wizard complete', async () => {
+    it('should log at info once the wizard is marked complete', async () => {
       await service.complete();
 
-      expect(vi.mocked(logger.info)).toHaveBeenCalledWith('FirstRunWizardService: marking wizard complete');
       expect(vi.mocked(logger.info)).toHaveBeenCalledWith('FirstRunWizardService: wizard marked complete');
     });
   });
