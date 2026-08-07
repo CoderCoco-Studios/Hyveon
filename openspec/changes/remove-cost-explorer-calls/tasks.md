@@ -23,10 +23,13 @@
       referencing removed elements (stacked chart, delta pill, total-spend
       card).
 - [x] 1.6 Run `npm run app:lint`, `npm run app:typecheck`, `npm run
-      app:test`, `npm run app:test:e2e` (renderer changed) — lint/typecheck/
-      unit all clean; e2e has 5 anticipated failures (`costs.spec.ts` x4,
-      `dashboard.spec.ts` x1 — old-UI assertions, fixed in PR 3), confirmed
-      to be exactly those and no other regressions.
+      app:test`, `npm run app:test:e2e` (renderer changed) — all clean,
+      including e2e (91 passed, 0 failed). Per this repo's rule that no PR
+      may ship with a broken build/CI, the 5 e2e tests that assert the
+      removed UI (`costs.spec.ts` x4, `dashboard.spec.ts` x1) are marked
+      `test.fixme()` with a comment pointing at PR 3
+      (`costexplorer-3-e2e`), which rewrites/removes each one — not left
+      failing with a "known/anticipated" note.
 - [x] 1.7 Open PR `costexplorer-1-frontend` against `main`.
 
 ## 2. Backend — delete the Cost Explorer call chain (PR: `costexplorer-2-backend`, base: PR 1's branch)

@@ -45,7 +45,9 @@ test.describe('costs page', () => {
     }
   });
 
-  test('should display the trailing-window total spend KPI', async () => {
+  // Asserts the total-spend card, removed by this PR's costs.page.tsx rewrite.
+  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
+  test.fixme('should display the trailing-window total spend KPI', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -85,7 +87,9 @@ test.describe('costs page', () => {
     }
   });
 
-  test('should render a delta-vs-prior pill', async () => {
+  // Asserts the delta pill, removed by this PR's costs.page.tsx rewrite.
+  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
+  test.fixme('should render a delta-vs-prior pill', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -123,7 +127,9 @@ test.describe('costs page', () => {
     }
   });
 
-  test('should render stacked bar segments for each game', async () => {
+  // Asserts the stacked bar chart, removed by this PR's costs.page.tsx rewrite.
+  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
+  test.fixme('should render stacked bar segments for each game', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -283,7 +289,9 @@ test.describe('costs page', () => {
     }
   });
 
-  test('should switch the active window when clicking 30d', async () => {
+  // Asserts the 7d/30d range selector, removed by this PR's costs.page.tsx rewrite.
+  // Spec is rewritten in PR 3 (costexplorer-3-e2e) — see openspec/changes/remove-cost-explorer-calls.
+  test.fixme('should switch the active window when clicking 30d', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
