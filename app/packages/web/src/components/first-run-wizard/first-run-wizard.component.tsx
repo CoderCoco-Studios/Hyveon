@@ -663,11 +663,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // below) into the same `ElectronStoreService.aws.region` field every
   // `PulumiService` operation — including `initializeStack`, the stack-init
   // step's own IPC call — reads at call time, so an empty region here would
-  // otherwise silently reach that method as a missing region.
+  // otherwise silently reach that method as a missing region. A non-null
+  // `guidedCredentials` short-circuits the form-field check: guided-IAM
+  // completion never populates `selectedProfileName`/`region` (it persists
+  // `aws.profile`/`aws.region` directly via `GuidedIamService.rotate`), so
+  // without this term Next stayed disabled on the satisfied-summary render.
   const credentialsChosen =
-    credentialMode === 'profile'
+    guidedCredentials !== null ||
+    (credentialMode === 'profile'
       ? selectedProfileName !== '' && region !== ''
-      : pastedProfileName !== null && pasteRegion !== '';
+      : pastedProfileName !== null && pasteRegion !== '');
 
   // A collapsed (completed, not being edited) Reconfigure step already has a
   // real answer on record — Next should never be gated on this render's
@@ -695,9 +700,40 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const hideNextButton = step === 'stack-init' || (step === 'guided-iam' && !stepCollapsed);
 
   /**
+   * Saves one step's answer via `wizard.state.save`, centralizing the
+   * bridge-availability check, `saving`/`saveError` bookkeeping, and
+   * fallback error message shared by every `goNext` save branch below.
+   *
+   * @param payload - Passed straight through to `wizard.state.save`.
+   * @param fallbackErrorMessage - Shown when the rejection isn't an `Error`.
+   * @returns Whether the save succeeded — `goNext` early-returns on `false`
+   * so a failed save leaves the operator on the current step.
+   */
+  async function saveWizardState(
+    payload: Parameters<NonNullable<typeof window.hyveon>['wizard']['saveState']>[0],
+    fallbackErrorMessage: string,
+  ): Promise<boolean> {
+    if (!window.hyveon) {
+      setSaveError('IPC bridge (window.hyveon) is not available in this context.');
+      return false;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await window.hyveon.wizard.saveState(payload);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : fallbackErrorMessage);
+      setSaving(false);
+      return false;
+    }
+    setSaving(false);
+    return true;
+  }
+
+  /**
    * Advances past the current step. In `'first-run'` mode, leaving
    * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via
-   * `wizard.state.save` immediately and stays put if that fails (the
+   * {@link saveWizardState} immediately and stays put if that fails (the
    * `bootstrap` save is fire-and-forget, matching how `resourceNames` itself
    * has no failure UI — the resource-creation calls it feeds are what
    * actually gate progression). In `'reconfigure'` mode these answers are
@@ -707,38 +743,25 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
-      if (!window.hyveon) {
-        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
-      setSaving(true);
-      setSaveError(null);
-      try {
-        await window.hyveon.wizard.saveState({ activeCloud: selectedCloud });
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : 'Failed to save your cloud choice.');
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
+      const saved = await saveWizardState({ activeCloud: selectedCloud }, 'Failed to save your cloud choice.');
+      if (!saved) return;
     }
-    if (mode === 'first-run' && step === 'credentials') {
-      if (!window.hyveon) {
-        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
+    // Skipped when `guidedCredentials` is still set: the satisfied-by-guided-
+    // provisioning summary has no local form state to save — `credentialMode`/
+    // `selectedProfileName`/`region` are still untouched defaults — and
+    // `GuidedIamService.rotate` already persisted `aws.profile`/`aws.region`
+    // directly. Saving here would overwrite that with `{ profile: '', region:
+    // undefined }`. "Switch to a different source" clears `guidedCredentials`
+    // first, so this branch still runs normally once the operator picks
+    // something else.
+    if (mode === 'first-run' && step === 'credentials' && !guidedCredentials) {
       const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
       const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
-      setSaving(true);
-      setSaveError(null);
-      try {
-        await window.hyveon.wizard.saveState({ aws: { profile, region: chosenRegion || undefined } });
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : 'Failed to save your AWS credentials choice.');
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
+      const saved = await saveWizardState(
+        { aws: { profile, region: chosenRegion || undefined } },
+        'Failed to save your AWS credentials choice.',
+      );
+      if (!saved) return;
     }
     if (mode === 'first-run' && step === 'bootstrap' && window.hyveon) {
       // Durably records the (possibly operator-renamed) resource names so a
