@@ -157,7 +157,12 @@ export async function registerIpcMainBridges(transport: BridgedElectronIPCTransp
       try {
         return await handler(payload, { evt });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'object' && err !== null && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err);
         logger.error(`ipc-main-bridge: handler for "${pattern}" failed: ${message}`, {
           pattern,
           stack: err instanceof Error ? err.stack : undefined,

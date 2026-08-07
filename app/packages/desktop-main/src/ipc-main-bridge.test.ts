@@ -209,7 +209,7 @@ describe('registerIpcMainBridges', () => {
     expect(mockLoggerError).not.toHaveBeenCalled();
   });
 
-  it('should normalize a non-Error rejection (e.g. an AWS SDK exception) to a plain, cloneable Error and log it', async () => {
+  it('should normalize an Error with non-cloneable custom fields to a plain, cloneable Error and log it', async () => {
     const { transport, handlers } = makeTransport(['wizard.guidedIam.submitBootstrapKey']);
     // Mirrors an AWS SDK exception: extends Error but carries non-plain
     // fields ($metadata, symbol-keyed internals) that fail Electron's
@@ -253,5 +253,17 @@ describe('registerIpcMainBridges', () => {
     ) as [string, (evt: unknown, payload: unknown) => unknown];
 
     await expect(registeredCallback({ sender: {} }, {})).rejects.toThrow('a bare string rejection');
+  });
+
+  it('should preserve the message from an error-like object rejection instead of stringifying it', async () => {
+    const { transport, handlers } = makeTransport(['games.list']);
+    vi.mocked(handlers.get('games.list')!).mockRejectedValue({ message: 'error-like object rejection' });
+
+    await registerIpcMainBridges(transport);
+    const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+      ([pattern]) => pattern === 'games.list',
+    ) as [string, (evt: unknown, payload: unknown) => unknown];
+
+    await expect(registeredCallback({ sender: {} }, {})).rejects.toThrow('error-like object rejection');
   });
 });
