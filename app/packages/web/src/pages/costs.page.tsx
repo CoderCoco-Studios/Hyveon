@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
-import {
-  api,
-  type ActualCosts,
-  type CostEstimates,
-  type GameEstimate,
-} from '../api.service.js';
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from 'lucide-react';
+import { api, type CostEstimates, type GameEstimate } from '../api.service.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
-import { Badge } from '@/components/ui/badge.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import {
@@ -18,33 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table.component';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip.component';
 import { cn } from '@/lib/utils.utils';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 
-// Sub-day granularities (1h, 24h) are intentionally absent — AWS Cost Explorer
-// only exposes daily granularity. Add entries here when a finer-grain source lands.
-type RangeKey = '7d' | '30d';
-interface RangeOption {
-  key: RangeKey;
-  label: string;
-  days: number;
-}
-
-const RANGES: RangeOption[] = [
-  { key: '7d', label: '7d', days: 7 },
-  { key: '30d', label: '30d', days: 30 },
-];
-
 /**
- * Per-game color tokens used by the stacked bar chart and table swatches.
- * Order is the spec recommendation (cyan, purple, orange, pink), with extra
- * accents appended so we don't run out as new games are added.
+ * Per-game color tokens used by the estimates table's game swatches. Order is
+ * the spec recommendation (cyan, purple, orange, pink), with extra accents
+ * appended so we don't run out as new games are added.
  */
 const GAME_COLOR_VARS = [
   '--color-cyan',
@@ -57,6 +31,9 @@ const GAME_COLOR_VARS = [
   '--color-green',
   '--color-red',
 ] as const;
+
+/** Static AWS Cost Explorer console home URL — no query-string filters (design.md D4: undocumented deep-link params could break silently on an AWS console update). */
+const AWS_COST_EXPLORER_URL = 'https://console.aws.amazon.com/cost-management/home#/cost-explorer';
 
 /** Sortable column keys for the estimates table. */
 type SortKey = 'game' | 'vcpu' | 'memoryGb' | 'costPerHour' | 'costPerDay24h' | 'costPerMonth4hpd';
@@ -72,112 +49,12 @@ function formatUsd(value: number, opts: { precise?: boolean } = {}): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
-/** Format a date string (YYYY-MM-DD) as a short month/day label for chart axes. */
-function formatShortDate(iso: string): string {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return iso;
-  // Format in UTC so negative-offset timezones don't display the prior calendar
-  // day for the UTC-midnight Date we constructed above.
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-/** Sum the `cost` field of every entry in an `ActualCosts.daily` array. */
-function sumDaily(daily: ActualCosts['daily']): number {
-  return daily.reduce((acc, d) => acc + d.cost, 0);
-}
-
 /**
- * The Cost Explorer endpoint only returns daily totals (no per-service split),
- * so we approximate the per-game contribution by dividing each day's total
- * evenly across the configured games. When backend per-game data lands
- * (tracked as a follow-up), this helper can be replaced with the real split.
+ * Fetches the per-game Fargate cost estimates once on mount. The app makes no
+ * AWS Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`.
  */
-function splitDailyByGame(
-  daily: ActualCosts['daily'],
-  games: string[],
-): { date: string; perGame: Record<string, number>; total: number }[] {
-  const share = games.length > 0 ? 1 / games.length : 0;
-  return daily.map((d) => {
-    const perGame: Record<string, number> = {};
-    for (const g of games) perGame[g] = d.cost * share;
-    return { date: d.date, perGame, total: d.cost };
-  });
-}
-
-/**
- * Fetches the doubled actuals window once per range change (sliced into
- * current/prior halves) and the per-game estimates once on mount. Estimates
- * are kept across range changes — the backend hits ECS `getTaskDefinition()`
- * per game and the values don't depend on `days`, so refetching on every
- * range switch would be wasted AWS calls and cause table flicker.
- */
-function useCostsData(days: number): {
-  actual: ActualCosts | null;
-  prior: ActualCosts | null;
-  estimates: CostEstimates | null;
-  loading: boolean;
-} {
-  // The actuals are stored together with the `days` window they were fetched
-  // for, plus a `settled` flag saying whether that fetch has come back. This
-  // replaces a separate `loading` state that an effect had to reset on every
-  // range change: `loading` and the "clear the stale numbers" behaviour are
-  // now both derived at render, so the effect no longer calls setState
-  // synchronously (`react-hooks/set-state-in-effect`).
-  //
-  // Storing the window alongside the data is what makes the derivation safe —
-  // a response for the previous range can never be mistaken for the current
-  // one while a new fetch is in flight.
-  const [window_, setWindow] = useState<{
-    days: number;
-    settled: boolean;
-    actual: ActualCosts | null;
-    prior: ActualCosts | null;
-  }>({ days, settled: false, actual: null, prior: null });
+function useCostEstimates(): { estimates: CostEstimates | null } {
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
-
-  const isCurrent = window_.days === days;
-  const actual = isCurrent ? window_.actual : null;
-  const prior = isCurrent ? window_.prior : null;
-  const loading = !isCurrent || !window_.settled;
-
-  useEffect(() => {
-    let cancelled = false;
-    api.costsActual(days * 2)
-      .then((doubled) => {
-        if (cancelled) return;
-        const splitAt = Math.max(doubled.daily.length - days, 0);
-        const priorDaily = doubled.daily.slice(0, splitAt);
-        const currentDaily = doubled.daily.slice(splitAt);
-        setWindow({
-          days,
-          settled: true,
-          actual: {
-            daily: currentDaily,
-            total: Math.round(sumDaily(currentDaily) * 100) / 100,
-            currency: doubled.currency,
-            days,
-            error: doubled.error,
-          },
-          prior: {
-            daily: priorDaily,
-            total: Math.round(sumDaily(priorDaily) * 100) / 100,
-            currency: doubled.currency,
-            days,
-          },
-        });
-      })
-      .catch(() => {
-        // Settle the window with no data so the page leaves its loading state
-        // and renders the empty/error view rather than spinning forever.
-        if (!cancelled) setWindow({ days, settled: true, actual: null, prior: null });
-      });
-    return () => { cancelled = true; };
-  }, [days]);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,23 +66,17 @@ function useCostsData(days: number): {
     return () => { cancelled = true; };
   }, []);
 
-  return { actual, prior, estimates, loading };
+  return { estimates };
 }
 
 /**
- * Cost analysis route (`/costs`). Renders the headline 7-day stacked-by-game
- * spend chart, a sortable per-game estimates table, the trailing-window total
- * with a delta-vs-prior pill, and a time-range selector.
- *
- * Per-game split for the historical chart is currently a uniform fallback
- * because `/api/costs/actual` only returns daily totals — see CoderCoco/Hyveon#61.
+ * Cost analysis route (`/costs`). Renders a sortable per-game Fargate cost
+ * estimate table plus a callout linking out to the AWS Cost Explorer console
+ * for real billed spend. The app makes no AWS Cost Explorer API calls, ever —
+ * see `openspec/changes/remove-cost-explorer-calls`.
  */
 export function CostsPage() {
-  const [range, setRange] = useState<RangeKey>('7d');
-
-  const activeRange = RANGES.find((r) => r.key === range) ?? RANGES[0]!;
-  const days = activeRange.days;
-  const { actual, prior, estimates, loading } = useCostsData(days);
+  const { estimates } = useCostEstimates();
 
   const games = useMemo(
     () => (estimates ? Object.keys(estimates.games).sort() : []),
@@ -219,247 +90,48 @@ export function CostsPage() {
     return map;
   }, [games]);
 
-  const stacked = useMemo(
-    () => (actual ? splitDailyByGame(actual.daily, games) : []),
-    [actual, games],
-  );
-  const maxBarTotal = Math.max(0.0001, ...stacked.map((d) => d.total));
-
-  const total = actual?.total ?? 0;
-  const priorTotal = prior?.total ?? 0;
-  const delta = total - priorTotal;
-  const deltaPct = priorTotal > 0 ? (delta / priorTotal) * 100 : null;
-
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Cost Analysis</h2>
-            <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
-              ECS + Fargate spend, per-game estimates, and trailing-window deltas.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <PollingIndicator />
-            <RangeSelector active={range} onChange={setRange} />
-          </div>
-        </header>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-              Total spend · trailing {days} {days === 1 ? 'day' : 'days'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-end gap-6">
-            <div className="bg-gradient-to-r from-[var(--color-primary-light)] via-[var(--color-cyan)] to-[var(--color-pink)] bg-clip-text text-transparent text-5xl font-semibold font-[var(--font-mono)] leading-none">
-              {formatUsd(total)}
-            </div>
-            <DeltaPill delta={delta} deltaPct={deltaPct} priorTotal={priorTotal} />
-            {actual?.error && (
-              <span className="text-xs text-[var(--color-red)]">
-                Cost Explorer: {actual.error}
-              </span>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3 flex flex-row items-center justify-between gap-4">
-            <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-              Daily spend, stacked by game
-            </CardTitle>
-            <Legend games={games} colorByGame={colorByGame} />
-          </CardHeader>
-          <CardContent>
-            {loading && !actual ? (
-              <div className="h-48 flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-                Loading…
-              </div>
-            ) : stacked.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-                No cost data available.
-              </div>
-            ) : (
-              <StackedBarChart
-                data={stacked}
-                games={games}
-                colorByGame={colorByGame}
-                maxTotal={maxBarTotal}
-              />
-            )}
-            {games.length > 0 && (
-              <p className="mt-3 text-[0.7rem] text-[var(--color-muted-foreground)]">
-                Per-game split is a uniform approximation — Cost Explorer returns
-                daily totals only. See CoderCoco/Hyveon#61.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <EstimatesTable estimates={estimates} colorByGame={colorByGame} />
-      </div>
-    </TooltipProvider>
-  );
-}
-
-/** Segmented selector for the active time range. */
-function RangeSelector({
-  active,
-  onChange,
-}: {
-  active: RangeKey;
-  onChange: (key: RangeKey) => void;
-}) {
-  return (
-    <div className="inline-flex rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-1">
-      {RANGES.map((r) => (
-        <button
-          key={r.key}
-          type="button"
-          onClick={() => onChange(r.key)}
-          className={cn(
-            'px-3 py-1 text-xs font-medium rounded-[var(--radius-sm)] transition-colors',
-            r.key === active
-              ? 'bg-[var(--color-surface)] text-[var(--color-foreground)] shadow'
-              : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]',
-          )}
-        >
-          {r.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Pill showing absolute and percentage delta vs the prior window. Green if down, red if up, secondary if no prior data. */
-function DeltaPill({
-  delta,
-  deltaPct,
-  priorTotal,
-}: {
-  delta: number;
-  deltaPct: number | null;
-  priorTotal: number;
-}) {
-  if (priorTotal <= 0) {
-    return (
-      <Badge variant="secondary" className="font-[var(--font-mono)]">
-        no prior period
-      </Badge>
-    );
-  }
-  const decreased = delta < 0;
-  const ArrowIcon = decreased ? ArrowDown : ArrowUp;
-  return (
-    <Badge variant={decreased ? 'success' : 'destructive'} className="font-[var(--font-mono)] gap-1">
-      <ArrowIcon className="size-3" aria-hidden="true" />
-      {formatUsd(Math.abs(delta))}
-      {deltaPct !== null && ` (${Math.abs(deltaPct).toFixed(1)}%)`}
-      <span className="opacity-80 ml-1">vs prior</span>
-    </Badge>
-  );
-}
-
-/** Color-swatch legend mapping each game to its chart color. */
-function Legend({
-  games,
-  colorByGame,
-}: {
-  games: string[];
-  colorByGame: Record<string, string>;
-}) {
-  if (games.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1">
-      {games.map((g) => (
-        <div key={g} className="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)]">
-          <span
-            className="size-2.5 rounded-sm"
-            style={{ background: colorByGame[g] }}
-            aria-hidden
-          />
-          <span className="capitalize">{g}</span>
+    <div className="max-w-6xl mx-auto space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Cost Analysis</h2>
+          <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
+            Per-game Fargate cost estimates. For real billed spend, see AWS Cost Explorer.
+          </p>
         </div>
-      ))}
+        <PollingIndicator />
+      </header>
+
+      <CostExplorerCallout />
+
+      <EstimatesTable estimates={estimates} colorByGame={colorByGame} />
     </div>
   );
 }
 
-interface StackedRow {
-  date: string;
-  total: number;
-  perGame: Record<string, number>;
-}
-
-/** Vertical stacked-bar chart. Each day is one column; each segment within is a per-game share with a hover tooltip. */
-function StackedBarChart({
-  data,
-  games,
-  colorByGame,
-  maxTotal,
-}: {
-  data: StackedRow[];
-  games: string[];
-  colorByGame: Record<string, string>;
-  maxTotal: number;
-}) {
+/** Callout card linking out to the real AWS Cost Explorer console — the app itself renders no actual-billed-spend figures. */
+function CostExplorerCallout() {
   return (
-    <div>
-      <div className="flex items-end gap-1 h-48">
-        {data.map((d) => {
-          const heightPct = Math.max((d.total / maxTotal) * 100, 1);
-          return (
-            <div key={d.date} className="flex-1 flex flex-col items-center gap-1 h-full">
-              <div
-                className="w-full flex flex-col-reverse rounded-[var(--radius-sm)] overflow-hidden"
-                style={{ height: `${heightPct}%`, minHeight: '2px' }}
-              >
-                {games.map((g) => {
-                  const value = d.perGame[g] ?? 0;
-                  if (value <= 0 || d.total <= 0) return null;
-                  const segmentPct = (value / d.total) * 100;
-                  return (
-                    <Tooltip key={g}>
-                      <TooltipTrigger asChild>
-                        <div
-                          role="img"
-                          className="w-full transition-opacity hover:opacity-80"
-                          style={{
-                            height: `${segmentPct}%`,
-                            background: colorByGame[g],
-                          }}
-                          aria-label={`${g}: ${formatUsd(value, { precise: true })}`}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <div className="font-[var(--font-mono)]">
-                          <div className="capitalize font-semibold">{g}</div>
-                          <div className="text-[var(--color-muted-foreground)]">
-                            {formatShortDate(d.date)} · {formatUsd(value, { precise: true })}
-                          </div>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex gap-1 mt-2">
-        {data.map((d) => (
-          <div
-            key={d.date}
-            className="flex-1 text-center text-[0.65rem] text-[var(--color-muted-foreground)] font-[var(--font-mono)] truncate"
-          >
-            {formatShortDate(d.date)}
-          </div>
-        ))}
-      </div>
-    </div>
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-foreground)]">Want real billed spend?</p>
+          <p className="text-sm text-[var(--color-muted-foreground)]">
+            The table below is a Fargate-spec estimate, not a bill. See actual dollars charged to
+            your AWS account in Cost Explorer.
+          </p>
+        </div>
+        <a
+          href={AWS_COST_EXPLORER_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex shrink-0 items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
+        >
+          Open AWS Cost Explorer
+          <ExternalLink className="size-3.5" aria-hidden="true" />
+        </a>
+      </CardContent>
+    </Card>
   );
 }
 

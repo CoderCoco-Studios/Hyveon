@@ -37,7 +37,6 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue(STATUSES);
     apiMock.costsEstimate.mockResolvedValue(ESTIMATES);
-    apiMock.costsActual.mockResolvedValue({ daily: [], total: 0, currency: 'USD', days: 7 });
     apiMock.drift.mockResolvedValue({ entries: [] });
   });
 
@@ -63,6 +62,14 @@ describe('DashboardPage', () => {
 
     expect(screen.getByLabelText('Filter games')).toBeInTheDocument();
     expect(await screen.findByText(/^Updated\b/)).toBeInTheDocument();
+  });
+
+  it('should not call api.costsActual on mount', async () => {
+    renderPage(<DashboardPage />);
+
+    await screen.findByRole('heading', { name: 'minecraft' });
+
+    expect(apiMock.costsActual).not.toHaveBeenCalled();
   });
 
   it('should render a card for every game returned by /api/status', async () => {
