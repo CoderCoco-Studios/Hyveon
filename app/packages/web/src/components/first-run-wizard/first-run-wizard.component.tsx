@@ -107,6 +107,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   /** First-run-only "Start over" affordance — see {@link handleReset}. */
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  /** True while {@link GuidedIamStep} has an AWS-mutating IPC call in flight — see its `onBusyChange` prop's doc comment. Gates "Start over" so a reset can't race guided-IAM rotation's key mint/delete calls. */
+  const [guidedIamBusy, setGuidedIamBusy] = useState(false);
 
   const [profiles, setProfiles] = useState<AwsProfileSummary[] | null>(null);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -383,7 +385,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    * re-derives everything from on load.
    */
   async function handleReset() {
-    if (!window.hyveon) return;
+    if (!window.hyveon) {
+      setResetConfirmOpen(false);
+      setSaveError('IPC bridge (window.hyveon) is not available in this context.');
+      return;
+    }
     setResetting(true);
     try {
       await window.hyveon.wizard.reset();
@@ -823,6 +829,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               onComplete={handleGuidedIamComplete}
               onSkipToManual={handleGuidedIamSkipToManual}
               initialProgress={guidedIamInitialProgress}
+              onBusyChange={setGuidedIamBusy}
             />
           ))}
         {step === 'credentials' &&
@@ -901,7 +908,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
               </Button>
             )}
             {mode === 'first-run' && (
-              <Button type="button" variant="ghost" onClick={() => setResetConfirmOpen(true)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setResetConfirmOpen(true)}
+                disabled={guidedIamBusy}
+              >
                 Start over
               </Button>
             )}
