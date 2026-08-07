@@ -4,6 +4,7 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { createRequire } from 'module';
 import { WIZARD_STEPS, type WizardStep } from '@hyveon/shared';
+import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 
 /** A single first-run wizard step name (see {@link WIZARD_STEPS} in `@hyveon/shared`, the single source of truth for step ordering). */
@@ -125,6 +126,7 @@ export class FirstRunWizardService {
       ? { step, guidedIam: { subState: guidedIam.subState, hasBootstrapKey: guidedIam.hasBootstrapKey } }
       : { step };
     await writeFile(path, JSON.stringify(progress), 'utf-8');
+    logger.info(`FirstRunWizardService: wizard advanced to step "${step}"${guidedIam ? ` (guided-IAM: ${guidedIam.subState})` : ''}`);
   }
 
   /**
@@ -169,6 +171,30 @@ export class FirstRunWizardService {
   async complete(): Promise<void> {
     await rm(this.stateFilePath(), { force: true });
     this.store.set('wizardCompleted', true);
+    logger.info('FirstRunWizardService: wizard marked complete');
+  }
+
+  /**
+   * Resets the wizard back to its pre-first-run state: removes the resumable
+   * `wizard-state.json` and clears every wizard-collected answer from
+   * `ElectronStoreService` (`wizardCompleted`, `activeCloud`, `aws`,
+   * `bootstrap`, `creds` — the pasted-credentials profiles from the
+   * credentials/guided-IAM steps). The operator-facing escape hatch for a
+   * wizard stuck in a bad state with no other way to start over.
+   *
+   * Deliberately does **not** touch `pulumi.*` (passphrase, lock-ownership
+   * records, orphaned-rollback marker) — that state belongs to an
+   * already-provisioned Pulumi stack, not wizard progress, and clearing the
+   * passphrase would make that stack's encrypted state undecryptable.
+   */
+  async reset(): Promise<void> {
+    await rm(this.stateFilePath(), { force: true });
+    this.store.set('wizardCompleted', false);
+    this.store.delete('activeCloud');
+    this.store.delete('aws');
+    this.store.delete('bootstrap');
+    this.store.delete('creds');
+    logger.warn('FirstRunWizardService: wizard state reset (operator-initiated)');
   }
 
   /** Absolute path to the resumable state file. Extracted as a seam so tests can `vi.spyOn` it. */
