@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { GUIDED_PROFILE_NAME, type AwsProfileSummary, type IamCheckResult, type WizardProgress } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
+import { ConfirmDialog } from '../confirm-dialog.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
 import { CredentialsStep, type CredentialMode, type PasteField } from './credentials-step.component.js';
 import { BootstrapStep } from './bootstrap-step.component.js';
@@ -102,6 +103,10 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const [selectedCloud, setSelectedCloud] = useState<CloudOption>('aws');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  /** First-run-only "Start over" affordance — see {@link handleReset}. */
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const [profiles, setProfiles] = useState<AwsProfileSummary[] | null>(null);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -362,6 +367,32 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
 
   function handleFinished() {
     onComplete?.();
+  }
+
+  /**
+   * First-run-only "Start over" affordance — the operator-facing escape
+   * hatch for a wizard stuck in a bad state, with no other route to recover
+   * short of manually deleting files on disk. Not offered in `'reconfigure'`
+   * mode, which already has its own Cancel action and operates on an
+   * already-completed wizard.
+   *
+   * Reloads the window afterward rather than resetting this component's own
+   * local state field-by-field: this component owns ~20 pieces of local
+   * state across five steps, and `window.hyveon.wizard.getState()` /
+   * `getProgress()` are the single source of truth a fresh mount already
+   * re-derives everything from on load.
+   */
+  async function handleReset() {
+    if (!window.hyveon) return;
+    setResetting(true);
+    try {
+      await window.hyveon.wizard.reset();
+      window.location.reload();
+    } catch {
+      setResetting(false);
+      setResetConfirmOpen(false);
+      setSaveError('Failed to reset the wizard. Try again.');
+    }
   }
 
   /**
@@ -869,6 +900,11 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
                 Cancel
               </Button>
             )}
+            {mode === 'first-run' && (
+              <Button type="button" variant="ghost" onClick={() => setResetConfirmOpen(true)}>
+                Start over
+              </Button>
+            )}
           </div>
           {!hideNextButton && (
             <Button type="button" onClick={goNext} disabled={advanceDisabled || saving}>
@@ -877,6 +913,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           )}
         </div>
         </div>
+        <ConfirmDialog
+          open={resetConfirmOpen}
+          onOpenChange={setResetConfirmOpen}
+          title="Start over?"
+          description="Clears everything entered so far in this wizard — the chosen cloud, credentials, and bootstrap resource names — and returns to the first step. This does not touch any AWS resources already created."
+          confirmLabel={resetting ? 'Resetting…' : 'Start over'}
+          onConfirm={handleReset}
+        />
       </div>
     </div>
   );
