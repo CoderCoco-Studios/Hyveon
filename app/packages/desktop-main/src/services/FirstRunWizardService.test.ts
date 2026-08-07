@@ -6,6 +6,10 @@ import { tmpdir } from 'os';
 import { FirstRunWizardService } from './FirstRunWizardService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 
+vi.mock('../logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 /** Test-only subclass exposing the protected `stateFilePath`/`userDataPath` seams so tests can point them at a real scratch directory or assert their composition directly. */
 class TestableFirstRunWizardService extends FirstRunWizardService {
   public override stateFilePath(): string {
@@ -16,9 +20,9 @@ class TestableFirstRunWizardService extends FirstRunWizardService {
   }
 }
 
-/** Build an `ElectronStoreService` stub whose `set()` calls are observable. */
+/** Build an `ElectronStoreService` stub whose `set()`/`delete()` calls are observable. */
 function makeStore(): ElectronStoreService {
-  const store: Partial<ElectronStoreService> = { set: vi.fn() };
+  const store: Partial<ElectronStoreService> = { set: vi.fn(), delete: vi.fn() };
   return store as ElectronStoreService;
 }
 
@@ -238,6 +242,44 @@ describe('FirstRunWizardService', () => {
 
     it('should not throw when the resume file never existed', async () => {
       await expect(service.complete()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('reset', () => {
+    it('should clear the resume file', async () => {
+      await service.recordStep('bootstrap');
+      expect(existsSync(statePath)).toBe(true);
+
+      await service.reset();
+
+      expect(existsSync(statePath)).toBe(false);
+      expect(await service.getProgress()).toEqual({ step: 'pick-cloud' });
+    });
+
+    it('should set wizardCompleted to false rather than deleting it', async () => {
+      await service.reset();
+
+      expect(store.set).toHaveBeenCalledWith('wizardCompleted', false);
+    });
+
+    it('should delete activeCloud, aws, bootstrap, and creds from the store', async () => {
+      await service.reset();
+
+      expect(store.delete).toHaveBeenCalledWith('activeCloud');
+      expect(store.delete).toHaveBeenCalledWith('aws');
+      expect(store.delete).toHaveBeenCalledWith('bootstrap');
+      expect(store.delete).toHaveBeenCalledWith('creds');
+    });
+
+    it('should never touch pulumi state — passphrase and lock-ownership records belong to an already-provisioned stack, not wizard progress', async () => {
+      await service.reset();
+
+      expect(store.delete).not.toHaveBeenCalledWith('pulumi');
+      expect(store.set).not.toHaveBeenCalledWith('pulumi', expect.anything());
+    });
+
+    it('should not throw when the resume file never existed', async () => {
+      await expect(service.reset()).resolves.toBeUndefined();
     });
   });
 

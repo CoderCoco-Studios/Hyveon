@@ -1,5 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 import { WizardController } from './wizard.controller.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
 import { SafeStorageUnavailableError } from '../services/AwsProfileService.js';
@@ -64,6 +69,7 @@ function makeFirstRunWizard(progress: WizardProgress = { step: 'pick-cloud' }): 
     getProgress: vi.fn().mockResolvedValue(progress),
     recordStep: vi.fn().mockResolvedValue(undefined),
     complete: vi.fn().mockResolvedValue(undefined),
+    reset: vi.fn().mockResolvedValue(undefined),
   };
   return service as FirstRunWizardService;
 }
@@ -166,6 +172,11 @@ describe('WizardController', () => {
     it('should register complete on the "wizard.complete" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.complete);
       expect(pattern).toEqual(['wizard.complete']);
+    });
+
+    it('should register reset on the "wizard.reset" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.reset);
+      expect(pattern).toEqual(['wizard.reset']);
     });
 
     it('should register prepareGuidedIamTemplate on the "wizard.guidedIam.prepareTemplate" IPC channel', () => {
@@ -508,6 +519,18 @@ describe('WizardController', () => {
 
       expect(firstRunWizard.complete).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws', aws: undefined });
+    });
+  });
+
+  describe('reset', () => {
+    it('should call FirstRunWizardService.reset and return the resulting wizard state', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const store = makeStore({ wizardCompleted: false });
+
+      const result = await makeController({ firstRunWizard, store }).reset();
+
+      expect(firstRunWizard.reset).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ wizardCompleted: false, activeCloud: undefined });
     });
   });
 });

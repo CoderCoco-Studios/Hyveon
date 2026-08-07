@@ -21,6 +21,7 @@ import {
   type RevokeBootstrapKeyResult,
 } from '../services/GuidedIamService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
+import { logger } from '../logger.js';
 
 /** Payload accepted by {@link WizardController.bootstrapStateBucket}. */
 export interface BootstrapStateBucketInput {
@@ -104,6 +105,13 @@ export interface SaveWizardStateInput {
  * side-channels of its own (the wizard's one streaming step reuses the
  * already-shipped `iac.stack.initialize` channel instead of adding a second
  * one here).
+ *
+ * Every handler logs a `logger.debug` line on entry (pattern name only —
+ * never payload contents, which can carry pasted AWS credentials), so the
+ * daily log file traces the full wizard flow step by step. Failures don't
+ * need a matching log call here: `ipc-main-bridge.ts`'s generic bridge logs
+ * every rejection from every `@MessagePattern` handler in the app, this
+ * controller included.
  */
 @Controller()
 export class WizardController {
@@ -139,6 +147,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.state.get')
   getState(): WizardState {
+    logger.debug('WizardController: wizard.state.get invoked');
     const stored = this.store.get('wizardCompleted');
     const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
     return {
@@ -164,6 +173,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.state.save')
   saveState(@Payload() body: SaveWizardStateInput): WizardState {
+    logger.debug('WizardController: wizard.state.save invoked');
     if (body.activeCloud !== undefined) {
       // The `SaveWizardStateInput` union only constrains compile-time
       // callers — an IPC payload is runtime data, so a malformed or
@@ -195,6 +205,7 @@ export class WizardController {
   /** Lists AWS CLI profiles discovered in `~/.aws/credentials` and `~/.aws/config`. */
   @MessagePattern('wizard.aws.listProfiles')
   listAwsProfiles(): Promise<AwsProfileSummary[]> {
+    logger.debug('WizardController: wizard.aws.listProfiles invoked');
     return this.awsProfiles.listProfiles();
   }
 
@@ -205,6 +216,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.aws.saveCredentials')
   saveCredentials(@Payload() body: SavePastedCredentialsInput): { profileName: string } {
+    logger.debug('WizardController: wizard.aws.saveCredentials invoked');
     return this.awsProfiles.savePastedCredentials(body);
   }
 
@@ -215,6 +227,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.stateBucket')
   bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
+    logger.debug('WizardController: wizard.bootstrap.stateBucket invoked');
     return this.bootstrap.ensureStateBucket(body.bucketName);
   }
 
@@ -235,6 +248,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.configurationBucket')
   bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
+    logger.debug('WizardController: wizard.bootstrap.configurationBucket invoked');
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
@@ -250,6 +264,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.deploymentConfig')
   bootstrapDeploymentConfig(@Payload() body: BootstrapDeploymentConfigInput): Promise<BootstrapResult> {
+    logger.debug('WizardController: wizard.bootstrap.deploymentConfig invoked');
     return this.bootstrap.ensureDeploymentConfig(body.bucketName);
   }
 
@@ -270,6 +285,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.runsTable')
   bootstrapRunsTable(): Promise<BootstrapResult> {
+    logger.debug('WizardController: wizard.bootstrap.runsTable invoked');
     return this.bootstrap.ensureRunsTable(resolveRunsTableName(DEPLOYMENT_CONFIG_DEFAULTS.projectName, ''));
   }
 
@@ -280,12 +296,14 @@ export class WizardController {
    */
   @MessagePattern('wizard.iam.simulate')
   simulateIamPermissions(): Promise<IamCheckResult> {
+    logger.debug('WizardController: wizard.iam.simulate invoked');
     return this.iamCheck.checkPermissions();
   }
 
   /** Returns the last-recorded resumable step, defaulting to `pick-cloud` if unset/corrupt. */
   @MessagePattern('wizard.progress.get')
   getProgress(): Promise<WizardProgress> {
+    logger.debug('WizardController: wizard.progress.get invoked');
     return this.firstRunWizard.getProgress();
   }
 
@@ -296,6 +314,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.progress.save')
   saveProgress(@Payload() body: SaveWizardProgressInput): Promise<void> {
+    logger.debug('WizardController: wizard.progress.save invoked');
     return this.firstRunWizard.recordStep(body.step, body.guidedIam);
   }
 
@@ -306,7 +325,23 @@ export class WizardController {
    */
   @MessagePattern('wizard.complete')
   async complete(): Promise<WizardState> {
+    logger.debug('WizardController: wizard.complete invoked');
     await this.firstRunWizard.complete();
+    return this.getState();
+  }
+
+  /**
+   * Resets the wizard back to its pre-first-run state — see
+   * {@link FirstRunWizardService.reset} for exactly what gets cleared. The
+   * operator-facing escape hatch for a wizard stuck in a bad state, with no
+   * other route to recover short of manually editing files on disk. Returns
+   * the same shape as {@link getState} so the renderer can update its local
+   * state directly.
+   */
+  @MessagePattern('wizard.reset')
+  async reset(): Promise<WizardState> {
+    logger.debug('WizardController: wizard.reset invoked');
+    await this.firstRunWizard.reset();
     return this.getState();
   }
 
@@ -317,6 +352,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.prepareTemplate')
   prepareGuidedIamTemplate(): RenderedTemplateResult {
+    logger.debug('WizardController: wizard.guidedIam.prepareTemplate invoked');
     return this.guidedIam.renderTemplate();
   }
 
@@ -333,6 +369,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.openConsole')
   openGuidedIamConsole(@Payload() body: OpenGuidedIamConsoleInput): Promise<OpenConsoleResult> {
+    logger.debug('WizardController: wizard.guidedIam.openConsole invoked');
     const url = this.guidedIam.buildCloudFormationConsoleUrl(body.region);
     return this.guidedIam.openConsole(url);
   }
@@ -345,6 +382,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.submitBootstrapKey')
   submitGuidedIamBootstrapKey(@Payload() body: BootstrapKeyIntakeInput): Promise<BootstrapKeyIntakeResult> {
+    logger.debug('WizardController: wizard.guidedIam.submitBootstrapKey invoked');
     return this.guidedIam.intakeBootstrapKey(body);
   }
 
@@ -356,6 +394,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.rotate')
   rotateGuidedIamKey(@Payload() body: RotationInput): Promise<RotationResult> {
+    logger.debug('WizardController: wizard.guidedIam.rotate invoked');
     return this.guidedIam.rotate(body);
   }
 
@@ -368,6 +407,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.revokeBootstrapKey')
   revokeGuidedIamBootstrapKey(@Payload() body: RevokeBootstrapKeyInput): Promise<RevokeBootstrapKeyResult> {
+    logger.debug('WizardController: wizard.guidedIam.revokeBootstrapKey invoked');
     return this.guidedIam.revokeBootstrapKey(body);
   }
 }

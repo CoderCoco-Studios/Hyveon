@@ -733,6 +733,7 @@ const api: HyveonApi = {
     getProgress: () => invoke<WizardProgress>('wizard.progress.get'),
     saveProgress: (input: SaveWizardProgressInput) => invoke<void>('wizard.progress.save', input),
     complete: () => invoke<WizardState>('wizard.complete'),
+    reset: () => invoke<WizardState>('wizard.reset'),
     guidedIamPrepareTemplate: () => invoke<RenderedTemplateResult>('wizard.guidedIam.prepareTemplate'),
     guidedIamOpenConsole: (input: OpenGuidedIamConsoleInput) =>
       invoke<OpenConsoleResult>('wizard.guidedIam.openConsole', input),

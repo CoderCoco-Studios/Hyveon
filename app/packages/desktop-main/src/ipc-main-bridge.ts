@@ -1,6 +1,7 @@
 import type { MessageHandler } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
+import { logger } from './logger.js';
 
 /**
  * IPC channels that manage their own `ipcMain.handle` registration and must
@@ -120,6 +121,19 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * `ElectronIPCTransport.onMessage` passes today so controller method
  * signatures do not need to change.
  *
+ * A rejected handler promise is caught and normalized to a plain `Error`
+ * carrying only `.message` before it is rethrown. This app has no NestJS
+ * exception filter anywhere, and this bridge is the one structural choke
+ * point every `@MessagePattern` handler passes through — without this
+ * normalization, a handler that lets a raw SDK/Node error escape (e.g. an
+ * AWS SDK exception with non-plain fields like `$metadata` or symbol-keyed
+ * internals) fails Electron's structured-clone when the rejection is
+ * marshalled back to the renderer, surfacing as a generic "object could not
+ * be cloned" failure and leaving the renderer's `invoke()` promise
+ * unresolved instead of the real error message. Every failure is logged
+ * here too, so the daily log file has a record of which channel failed and
+ * why even when a caller doesn't handle the rejection.
+ *
  * Silent no-op outside a real Electron main process
  * (`process.versions.electron` undefined) — matching the guard
  * `LogsController.onModuleInit` uses — so the plain-Node integration test
@@ -139,8 +153,22 @@ export async function registerIpcMainBridges(transport: BridgedElectronIPCTransp
     }
 
     ipcMain.removeHandler(pattern);
-    ipcMain.handle(pattern, (evt: IpcMainInvokeEvent, payload: unknown) =>
-      handler(payload, { evt }),
-    );
+    ipcMain.handle(pattern, async (evt: IpcMainInvokeEvent, payload: unknown) => {
+      try {
+        return await handler(payload, { evt });
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'object' && err !== null && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err);
+        logger.error(`ipc-main-bridge: handler for "${pattern}" failed: ${message}`, {
+          pattern,
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw new Error(message);
+      }
+    });
   }
 }
