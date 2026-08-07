@@ -240,6 +240,20 @@ export class ElectronStoreService {
   }
 
   /**
+   * Remove a top-level key from the store entirely (unlike {@link set}, which
+   * requires a replacement value). A no-op if the key was never set.
+   *
+   * @param key - One of the top-level keys defined in {@link AppStoreSchema}.
+   */
+  delete<K extends keyof AppStoreSchema>(key: K): void {
+    if (this._store !== null) {
+      this._store.delete(key);
+    } else {
+      this._map!.delete(key);
+    }
+  }
+
+  /**
    * Read `aws.accessKeyId`, decrypting the stored blob via
    * {@link SafeStorageService}.
    *

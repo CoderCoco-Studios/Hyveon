@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GUIDED_PROFILE_NAME, type AwsProfileSummary } from '@hyveon/desktop-preload';
 import { toStreamHandleMock } from '../../test-utils/stream-handle.test-utils.js';
@@ -38,6 +38,7 @@ const hyveonMock = {
     getProgress: vi.fn(),
     saveProgress: vi.fn(),
     complete: vi.fn(),
+    reset: vi.fn(),
     // Guided-IAM step (Group 7, Task 4): only exercised by tests that don't
     // click straight through via "I already have credentials" — the shared
     // `advanceToCredentials()` helper below skips guided provisioning
@@ -95,6 +96,7 @@ beforeEach(() => {
   hyveonMock.wizard.getProgress.mockReset().mockResolvedValue({ step: 'pick-cloud' });
   hyveonMock.wizard.saveProgress.mockReset().mockResolvedValue(undefined);
   hyveonMock.wizard.complete.mockReset();
+  hyveonMock.wizard.reset.mockReset().mockResolvedValue({ wizardCompleted: false });
   // Defaulted (not just reset): the shell's `refreshGuidedCredentials`
   // effect calls this on every mount to decide the credentials step's
   // `satisfiedByGuidedProvisioning` prop — an unmocked call would otherwise
@@ -800,6 +802,59 @@ describe('FirstRunWizard', () => {
       await screen.findByText(/choose your cloud is already configured/i);
 
       expect(screen.queryByRole('navigation', { name: 'Wizard progress' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('start over', () => {
+    it('should render a "Start over" action in first-run mode', async () => {
+      await advanceToPickCloud();
+
+      expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument();
+    });
+
+    it('should not render a "Start over" action in reconfigure mode, which has its own Cancel', async () => {
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+      });
+      render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+
+      expect(screen.queryByRole('button', { name: 'Start over' })).not.toBeInTheDocument();
+    });
+
+    it('should call wizard.reset and reload the window once the operator confirms', async () => {
+      // jsdom's `window.location.reload` isn't a configurable own property,
+      // so `vi.spyOn` can't redefine it directly — replace `window.location`
+      // itself with a stub carrying the same fields plus a mockable `reload`.
+      const originalLocation = window.location;
+      const reloadSpy = vi.fn();
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...originalLocation, reload: reloadSpy },
+      });
+      const user = userEvent.setup();
+      await advanceToPickCloud();
+
+      await user.click(screen.getByRole('button', { name: 'Start over' }));
+      const dialog = await screen.findByRole('alertdialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }));
+
+      await waitFor(() => expect(hyveonMock.wizard.reset).toHaveBeenCalledTimes(1));
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    });
+
+    it('should not call wizard.reset when the operator cancels the confirm dialog', async () => {
+      const user = userEvent.setup();
+      await advanceToPickCloud();
+
+      await user.click(screen.getByRole('button', { name: 'Start over' }));
+      const dialog = await screen.findByRole('alertdialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      expect(hyveonMock.wizard.reset).not.toHaveBeenCalled();
     });
   });
 });

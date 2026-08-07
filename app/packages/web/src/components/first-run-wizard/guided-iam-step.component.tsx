@@ -81,6 +81,15 @@ export interface GuidedIamStepProps {
    * the region screen.
    */
   initialProgress?: WizardProgress['guidedIam'];
+  /**
+   * Fires whenever this step has an AWS-mutating IPC call in flight
+   * (key intake, mint/verify/activate rotation, or bootstrap-key revocation)
+   * — lets the shell disable actions like "Start over" that would otherwise
+   * race a reset against these calls, most critically `rotating`, which
+   * irreversibly deletes the old bootstrap key from AWS regardless of what
+   * the shell does locally in the meantime.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /**
@@ -105,7 +114,7 @@ export interface GuidedIamStepProps {
  * to submit it and drive rotation/retry — it is never written to
  * `saveProgress`, which only ever receives the `hasBootstrapKey` boolean.
  */
-export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: GuidedIamStepProps) {
+export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onBusyChange }: GuidedIamStepProps) {
   /**
    * Whether this mount needs to resolve a resumed screen before rendering
    * anything interactive — true only when `initialProgress.subState` names a
@@ -175,6 +184,15 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress }: G
       mountedRef.current = false;
     };
   }, []);
+
+  /** Reports {@link GuidedIamStepProps.onBusyChange} whenever an AWS-mutating IPC call is in flight — see that prop's own doc comment. */
+  const busy = submitting || phase === 'rotating' || revoking;
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
+  useEffect(() => {
+    return () => onBusyChange?.(false);
+  }, [onBusyChange]);
 
   /**
    * Persists this step's sub-state via `wizard.saveProgress`, per the plan's

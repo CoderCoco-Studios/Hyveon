@@ -67,6 +67,17 @@ boot sequence in `src/main.ts` (invoked from `electron-entry.ts` after
    real `ipcMain.handle` registration, so `ipcRenderer.invoke` calls from
    the renderer resolve instead of hanging.
 
+This app has no NestJS exception filter — `registerIpcMainBridges` is the one
+structural choke point every bridged handler passes through, so it also
+catches any rejection there and normalizes it to a plain `Error` (message
+only) before rethrowing, logging the pattern name and original message/stack
+via the winston `logger`. Without this, a handler that lets a raw SDK/Node
+error escape (e.g. an AWS SDK exception carrying non-plain fields like
+`$metadata`) fails Electron's structured-clone when the rejection is
+marshalled back to the renderer, surfacing as `Error: An object could not be
+cloned` and leaving the caller's `invoke()` promise unresolved instead of
+the real error message.
+
 There is no listen port, no `NODE_ENV=production` bearer-token check, and no
 static-file serving — the renderer is a separate Electron `BrowserWindow`
 loading the built Vite bundle (or the Vite dev server in dev mode), and it
