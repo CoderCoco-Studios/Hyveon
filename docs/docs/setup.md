@@ -84,7 +84,6 @@ the IAM user by hand instead:
         "events:*",
         "scheduler:*",
         "route53:*",
-        "ce:*",
         "dynamodb:*",
         "secretsmanager:*",
         "s3:*",

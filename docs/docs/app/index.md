@@ -83,10 +83,10 @@ and pause when you want to read something without it scrolling away. See
 
 ### 7. Watch the costs
 
-**Costs** shows trailing ECS + Fargate spend for the last 7 or 30 days, a
-delta against the previous window of the same length, and a per-game table of
-what each server costs per hour, per day and per month at the assumed usage.
-See [Costs](/app/costs).
+**Costs** shows a per-game table of what each server costs per hour, per day
+and per month, estimated from its declared Fargate CPU and memory — the app
+makes no AWS Cost Explorer API calls, ever. For real billed spend, a callout
+links out to the AWS Cost Explorer console. See [Costs](/app/costs).
 
 ### 8. Stop it
 
@@ -108,7 +108,7 @@ happening; **Configuration** is where you change it.
 |---|---|---|---|
 | Dashboard | `/` | Start and stop servers, see status at a glance, open a server's save files | [Dashboard](/app/dashboard) |
 | Logs | `/logs` | Live CloudWatch tail for one game at a time | [Logs](/app/logs) |
-| Costs | `/costs` | Trailing spend, daily chart, per-game rate table | [Costs](/app/costs) |
+| Costs | `/costs` | Per-game Fargate cost estimates, AWS Cost Explorer link-out | [Costs](/app/costs) |
 | Games | `/games` | Declare, edit and remove game servers in the JSON configuration object | [Games](/app/games) |
 | Discord | `/discord` | Bot credentials, guild allowlist, admins, per-game permissions | [Discord](/app/discord) |
 | Infrastructure | `/iac` | Plan, approve, apply, destroy; run history and rollback | [Infrastructure](/app/iac) |
