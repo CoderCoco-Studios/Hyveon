@@ -26,10 +26,12 @@ card, unchanged from narrower layouts.
 | 4 | Bootstrap AWS resources | Creates the S3 state bucket, S3 configuration bucket, and DynamoDB run-history table |
 | 5 | Finish setup | Initializes the Pulumi stack against that new backend |
 
-At the bottom of every step: **Back** (disabled on step 1) and **Next**. Step 5
-has no Next — it has its own **Finish setup** button instead. Step 2 also has
-no shared Next button of its own (see that step's walkthrough below) except
-when Reconfigure has collapsed it to an already-completed summary.
+At the bottom of every step: **Back** (disabled on step 1), **Start over**,
+and **Next**. Step 5 has no Next — it has its own **Finish setup** button
+instead. Step 2 also has no shared Next button of its own (see that step's
+walkthrough below) except when Reconfigure has collapsed it to an
+already-completed summary. **Start over** is first-run only — see
+[Starting over](#starting-over) below.
 
 ## Step 1 — Choose your cloud
 
@@ -107,6 +109,14 @@ stack's outputs and press **Validate and rotate key**. Hyveon then, in order:
 
 The secret you pasted is held in memory only for this sequence — it is never
 written to disk or logged.
+
+The bootstrap key pair is **single-use**: step 5 deletes it the moment
+rotation completes successfully. If you re-paste it afterward — for example
+after restarting guided setup from scratch, or reusing a key you had saved
+somewhere — AWS correctly rejects it (`InvalidClientTokenId`, "The security
+token included in the request is invalid"). That's expected; get a fresh key
+by running through the CloudFormation stack again, or use **Start over**
+(below) if the wizard itself looks stuck.
 
 ### Two ways rotation can fail
 
@@ -342,6 +352,27 @@ Two other resume caveats worth knowing:
   breaks.
 
 Finishing the wizard deletes the resume file.
+
+## Starting over
+
+Every first-run step (not shown in Reconfigure, which already has its own
+**Cancel**) has a **Start over** action next to **Back**. It's the recovery
+path for a wizard that's stuck or in a state you don't trust — a failed step
+that won't clear, or credentials you want to abandon and re-enter from
+scratch.
+
+Confirming it:
+
+- Deletes the resume file, so the wizard restarts at step 1.
+- Clears your chosen cloud, credential source, and bootstrap resource names
+  from durable storage — including any pasted AWS credentials.
+- Does **not** touch any AWS resources already created (buckets, tables, the
+  CloudFormation stack, a rotated IAM key) — those stay exactly as they are.
+  It also does not touch an already-initialized Pulumi stack's own state or
+  secrets passphrase, since that belongs to infrastructure you may already be
+  running, not to wizard progress.
+
+The window reloads once the reset completes.
 
 ## Reconfigure
 
