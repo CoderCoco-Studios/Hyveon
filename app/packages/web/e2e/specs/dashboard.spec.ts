@@ -162,10 +162,7 @@ test.describe('dashboard', () => {
     await expect(dashboard.emptySearchMessage()).toBeVisible();
   });
 
-  // Asserts the old 'Spend today'/'Forecast MTD' tile labels, renamed by this
-  // PR's KpiStrip rewrite. Spec is updated in PR 3 (costexplorer-3-e2e) —
-  // see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should render the KPI strip with the four ops tiles', async () => {
+  test('should render the KPI strip with the four ops tiles', async () => {
     await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
