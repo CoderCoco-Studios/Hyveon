@@ -751,6 +751,8 @@ const api: HyveonApi = {
   diagnostics: {
     tail: () => invoke('diagnostics.tail'),
     path: () => invoke('diagnostics.path'),
+    reportError: (message: string, stack: string | undefined, source: 'boundary' | 'window-error' | 'unhandled-rejection') =>
+      invoke('diagnostics.reportError', { message, stack, source }),
   },
 
   audit: {

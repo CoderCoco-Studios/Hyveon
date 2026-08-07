@@ -1566,6 +1566,11 @@ export interface HyveonDiagnosticsApi {
   tail: () => Promise<{ lines: string[] }>;
   /** Returns the absolute path of today's local log file. */
   path: () => Promise<{ path: string }>;
+  /**
+   * Forwards a renderer-side crash to the main process, where it is written
+   * into today's local log file via `DiagnosticsService.logRendererError`.
+   */
+  reportError: (message: string, stack: string | undefined, source: 'boundary' | 'window-error' | 'unhandled-rejection') => Promise<void>;
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
