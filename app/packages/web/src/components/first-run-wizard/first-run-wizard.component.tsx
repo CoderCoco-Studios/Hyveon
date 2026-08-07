@@ -663,9 +663,40 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   const hideNextButton = step === 'stack-init' || (step === 'guided-iam' && !stepCollapsed);
 
   /**
+   * Saves one step's answer via `wizard.state.save`, centralizing the
+   * bridge-availability check, `saving`/`saveError` bookkeeping, and
+   * fallback error message shared by every `goNext` save branch below.
+   *
+   * @param payload - Passed straight through to `wizard.state.save`.
+   * @param fallbackErrorMessage - Shown when the rejection isn't an `Error`.
+   * @returns Whether the save succeeded — `goNext` early-returns on `false`
+   * so a failed save leaves the operator on the current step.
+   */
+  async function saveWizardState(
+    payload: Parameters<NonNullable<typeof window.hyveon>['wizard']['saveState']>[0],
+    fallbackErrorMessage: string,
+  ): Promise<boolean> {
+    if (!window.hyveon) {
+      setSaveError('IPC bridge (window.hyveon) is not available in this context.');
+      return false;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await window.hyveon.wizard.saveState(payload);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : fallbackErrorMessage);
+      setSaving(false);
+      return false;
+    }
+    setSaving(false);
+    return true;
+  }
+
+  /**
    * Advances past the current step. In `'first-run'` mode, leaving
    * `pick-cloud`, `credentials`, or `bootstrap` persists the choice via
-   * `wizard.state.save` immediately and stays put if that fails (the
+   * {@link saveWizardState} immediately and stays put if that fails (the
    * `bootstrap` save is fire-and-forget, matching how `resourceNames` itself
    * has no failure UI — the resource-creation calls it feeds are what
    * actually gate progression). In `'reconfigure'` mode these answers are
@@ -675,20 +706,8 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
    */
   async function goNext() {
     if (mode === 'first-run' && step === 'pick-cloud') {
-      if (!window.hyveon) {
-        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
-      setSaving(true);
-      setSaveError(null);
-      try {
-        await window.hyveon.wizard.saveState({ activeCloud: selectedCloud });
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : 'Failed to save your cloud choice.');
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
+      const saved = await saveWizardState({ activeCloud: selectedCloud }, 'Failed to save your cloud choice.');
+      if (!saved) return;
     }
     // Skipped when `guidedCredentials` is still set: the satisfied-by-guided-
     // provisioning summary has no local form state to save — `credentialMode`/
@@ -699,22 +718,13 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     // first, so this branch still runs normally once the operator picks
     // something else.
     if (mode === 'first-run' && step === 'credentials' && !guidedCredentials) {
-      if (!window.hyveon) {
-        setSaveError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
       const profile = credentialMode === 'profile' ? selectedProfileName : (pastedProfileName ?? undefined);
       const chosenRegion = credentialMode === 'profile' ? region : pasteRegion;
-      setSaving(true);
-      setSaveError(null);
-      try {
-        await window.hyveon.wizard.saveState({ aws: { profile, region: chosenRegion || undefined } });
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : 'Failed to save your AWS credentials choice.');
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
+      const saved = await saveWizardState(
+        { aws: { profile, region: chosenRegion || undefined } },
+        'Failed to save your AWS credentials choice.',
+      );
+      if (!saved) return;
     }
     if (mode === 'first-run' && step === 'bootstrap' && window.hyveon) {
       // Durably records the (possibly operator-renamed) resource names so a
