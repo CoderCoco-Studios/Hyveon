@@ -438,7 +438,7 @@ describe('FirstRunWizard', () => {
       expect(await screen.findByText('Run-history table')).toBeInTheDocument();
     });
 
-    it('should not block Next when the run-history table bootstrap fails — only the two buckets gate progression', async () => {
+    it('should block Next when the run-history table bootstrap fails', async () => {
       hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
       hyveonMock.wizard.bootstrapRunsTable.mockRejectedValue(new Error('AccessDenied creating table'));
@@ -447,7 +447,7 @@ describe('FirstRunWizard', () => {
       await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
 
       expect(await screen.findByText('AccessDenied creating table')).toBeInTheDocument();
-      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled());
     });
 
     describe('initial configuration seed (fresh-install-bricking fix)', () => {
@@ -481,7 +481,7 @@ describe('FirstRunWizard', () => {
         ).toBeInTheDocument();
       });
 
-      it('should not block Next when the initial configuration seed fails — only the two buckets gate progression', async () => {
+      it('should block Next when the initial configuration seed fails', async () => {
         hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
         hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
         hyveonMock.wizard.bootstrapDeploymentConfig.mockRejectedValue(new Error('AccessDenied seeding configuration'));
@@ -490,7 +490,7 @@ describe('FirstRunWizard', () => {
         await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
 
         expect(await screen.findByText('AccessDenied seeding configuration')).toBeInTheDocument();
-        await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+        await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled());
       });
     });
 

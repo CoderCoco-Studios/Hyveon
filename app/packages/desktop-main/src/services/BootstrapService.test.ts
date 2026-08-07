@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
   S3Client,
@@ -17,6 +17,7 @@ import {
   CreateTableCommand,
   DescribeTableCommand,
   UpdateContinuousBackupsCommand,
+  ContinuousBackupsUnavailableException,
   ResourceNotFoundException,
   ResourceInUseException,
 } from '@aws-sdk/client-dynamodb';
@@ -53,6 +54,17 @@ function awsError(name: string): Error {
   return err;
 }
 
+/**
+ * Exposes {@link BootstrapService}'s protected `sleep` seam as `public` so
+ * the `ensureRunsTable` retry tests below can stub it — mirrors
+ * `GuidedIamService.test.ts`'s identical `TestableGuidedIamService` pattern.
+ */
+class TestableBootstrapService extends BootstrapService {
+  public override sleep(ms: number): Promise<void> {
+    return super.sleep(ms);
+  }
+}
+
 beforeEach(() => {
   s3Mock.reset();
   dynamoMock.reset();
@@ -60,6 +72,10 @@ beforeEach(() => {
   vi.mocked(logger.info).mockClear();
   vi.mocked(logger.warn).mockClear();
   vi.mocked(logger.error).mockClear();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('BootstrapService', () => {
@@ -611,6 +627,57 @@ describe('BootstrapService', () => {
       const result = await service.ensureRunsTable('hyveon-runs');
 
       expect(result).toEqual({ status: 'failed', message: 'access denied' });
+    });
+
+    it('should retry UpdateContinuousBackupsCommand and succeed when AWS reports backups are still being enabled', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock
+        .on(UpdateContinuousBackupsCommand)
+        .rejectsOnce(
+          new ContinuousBackupsUnavailableException({
+            message: 'Backups are being enabled for the table: hyveon-runs. Please retry later',
+            $metadata: {},
+          }),
+        )
+        .resolves({});
+      const service = new TestableBootstrapService(makeStore({ region: 'us-west-2' }));
+      const sleepSpy = vi.spyOn(TestableBootstrapService.prototype, 'sleep').mockResolvedValue(undefined);
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({ status: 'created' });
+      expect(dynamoMock.commandCalls(UpdateContinuousBackupsCommand)).toHaveLength(2);
+      expect(sleepSpy).toHaveBeenCalledTimes(1);
+      expect(sleepSpy).toHaveBeenCalledWith(2000);
+    });
+
+    it('should report failure with the AWS message after exhausting all retries when backups remain unavailable', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock.on(UpdateContinuousBackupsCommand).rejects(
+        new ContinuousBackupsUnavailableException({
+          message: 'Backups are being enabled for the table: hyveon-runs. Please retry later',
+          $metadata: {},
+        }),
+      );
+      const service = new TestableBootstrapService(makeStore({ region: 'us-west-2' }));
+      const sleepSpy = vi.spyOn(TestableBootstrapService.prototype, 'sleep').mockResolvedValue(undefined);
+
+      const result = await service.ensureRunsTable('hyveon-runs');
+
+      expect(result).toEqual({
+        status: 'failed',
+        message: 'Backups are being enabled for the table: hyveon-runs. Please retry later',
+      });
+      expect(dynamoMock.commandCalls(UpdateContinuousBackupsCommand)).toHaveLength(5);
+      expect(sleepSpy.mock.calls.map((call) => call[0])).toEqual([2000, 4000, 8000, 15000]);
     });
 
     it('should throw BootstrapCredentialsNotConfiguredError when no region is stored', async () => {
