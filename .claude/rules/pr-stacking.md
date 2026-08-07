@@ -46,6 +46,38 @@ diff in flight.
   `CLAUDE.md`) before opening it — a
   later group in the stack inheriting a broken earlier group compounds the
   problem.
+  - **"Pass" means the command exits 0 — never a red CI check with a
+    "known failure, fixed in a later PR" note in the PR description.**
+    Documenting *why* a check is red does not make it not red: reviewers
+    and CI dashboards still show a failing build, and a required check
+    still blocks merge if one is ever added. This applies even when the
+    later PR that lands the real fix is already written and reviewed —
+    "the fix exists, just not in this branch yet" is not a passing gate.
+  - **Why:** the `remove-cost-explorer-calls` stack (PR #430) shipped its
+    first PR with 5 e2e tests failing "as anticipated" (assertions against
+    UI the PR itself had just removed, with the real fix landing three PRs
+    later) — the PR description explained the failures, but
+    `npm run app:test:e2e` still exited 1 and GitHub Actions still showed a
+    red `e2e` check. A stacked PR one group later (`costexplorer-2-backend`)
+    then hit a *harder* version of the same anti-pattern: pulling forward a
+    dead-code deletion broke `costs.spec.ts`'s top-level import, which
+    crashed Playwright's entire test run (a `SyntaxError` before any test
+    could execute) — not "5 known failures" but zero tests able to run at
+    all, still described as an acceptable "documented typecheck exception."
+  - **How to apply:** when an earlier PR in a stack necessarily breaks
+    something only a later PR fully fixes (a UI rewrite invalidating old
+    e2e assertions, a removed export breaking a not-yet-updated test's
+    import), the earlier PR must itself neutralize the breakage — mark the
+    specific tests `test.skip()`/`test.fixme()` (with a comment naming the
+    PR that lands the real fix), or pull forward just enough of the later
+    PR's change to keep the file loadable and its still-relevant
+    assertions passing (see `remove-cost-explorer-calls`'s
+    `costexplorer-2-backend`, which pulled forward 4 of a later PR's 5
+    e2e tests rather than leaving the file's import broken). Verify with
+    the actual gate command's exit code
+    (`npm run app:test:e2e; echo $?`), not by skimming which failures
+    look expected — and check the PR's live CI run after pushing, since a
+    clean local run doesn't guarantee the same is true in CI.
 - **Documentation updates can land in a dedicated, later PR in the same
   stack** rather than every individual PR, when the design explicitly calls
   for writing docs only once the full flow is verifiable end-to-end (see
