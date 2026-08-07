@@ -13,7 +13,10 @@ export function reportRendererError(
   stack: string | undefined,
   source: 'boundary' | 'window-error' | 'unhandled-rejection',
 ): void {
-  void window.hyveon?.diagnostics?.reportError(message, stack, source)?.catch(() => undefined);
+  if (typeof window.hyveon?.diagnostics?.reportError !== 'function') {
+    return;
+  }
+  void window.hyveon.diagnostics.reportError(message, stack, source)?.catch(() => undefined);
 }
 
 /**

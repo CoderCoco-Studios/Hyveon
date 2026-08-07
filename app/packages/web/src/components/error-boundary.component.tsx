@@ -6,7 +6,7 @@ interface Props {
 }
 
 interface State {
-  error: Error | null;
+  error: unknown;
 }
 
 /**
@@ -24,10 +24,11 @@ export class ErrorBoundary extends Component<Props, State> {
    * React lifecycle hook invoked after a descendant throws during render.
    * Stores the error so the next render shows the fallback UI.
    *
-   * @param error - The error thrown by a descendant component.
+   * @param error - The value thrown by a descendant component. React does not
+   * guarantee this is an `Error` — a descendant can `throw` any value.
    * @returns The updated state.
    */
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: unknown): State {
     return { error };
   }
 
@@ -35,11 +36,17 @@ export class ErrorBoundary extends Component<Props, State> {
    * React lifecycle hook invoked after a descendant throws during render.
    * Forwards the crash to the main-process log.
    *
-   * @param error - The error thrown by a descendant component.
+   * @param error - The value thrown by a descendant component. React does not
+   * guarantee this is an `Error` — a descendant can `throw` any value.
    * @param info - React-supplied details, including the component stack.
    */
-  componentDidCatch(error: Error, info: ErrorInfo): void {
-    reportRendererError(error.message, error.stack ?? info.componentStack ?? undefined, 'boundary');
+  componentDidCatch(error: unknown, info: ErrorInfo): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    const combinedStack = [stack, info.componentStack]
+      .filter((part): part is string => Boolean(part))
+      .join('\n\nComponent stack:');
+    reportRendererError(message, combinedStack || undefined, 'boundary');
   }
 
   /** Renders the fallback UI when a descendant has thrown, otherwise the children. */
