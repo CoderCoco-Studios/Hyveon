@@ -21,7 +21,6 @@ function makeHyveonMock() {
     },
     costs: {
       estimate: vi.fn().mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 }),
-      actual: vi.fn().mockResolvedValue({ daily: [], total: 0, currency: 'USD', days: 7 }),
     },
     logs: {
       get: vi.fn().mockResolvedValue({ game: 'minecraft', lines: [] }),
@@ -109,14 +108,8 @@ describe('IPC bridge delegation', () => {
     expect(hyveon.costs.estimate).toHaveBeenCalledOnce();
   });
 
-  it('should delegate api.costsActual() to window.hyveon.costs.actual() with the days window', async () => {
-    await api.costsActual(14);
-    expect(hyveon.costs.actual).toHaveBeenCalledWith(14);
-  });
-
-  it('should default api.costsActual() to a 7-day window', async () => {
-    await api.costsActual();
-    expect(hyveon.costs.actual).toHaveBeenCalledWith(7);
+  it('should not expose a costsActual method on the api object', () => {
+    expect('costsActual' in api).toBe(false);
   });
 
   it('should delegate api.filesMgrStatus() to window.hyveon.files.list() with the game id', async () => {

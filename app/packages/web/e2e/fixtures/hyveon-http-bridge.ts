@@ -50,7 +50,6 @@ export function installHyveonHttpBridge(): void {
     },
     costs: {
       estimate: () => call('/api/costs/estimate'),
-      actual: (days = 7) => call(`/api/costs/actual?days=${days}`),
     },
     files: {
       list: (game: string) => call(`/api/files/${game}`),

@@ -20,7 +20,6 @@ import type {
   WorkloadStatus,
   LogChunk,
   CostBreakdown,
-  DateRange,
   AuditEntry,
   AuditPageResult,
   RunRecord,
@@ -77,9 +76,6 @@ class FakeCloudProvider implements CloudProvider {
     throw new Error('not implemented in fake');
   }
   getCostEstimate(): Promise<CostBreakdown> {
-    throw new Error('not implemented in fake');
-  }
-  getActualCosts(_range: DateRange): Promise<CostBreakdown> {
     throw new Error('not implemented in fake');
   }
 }
