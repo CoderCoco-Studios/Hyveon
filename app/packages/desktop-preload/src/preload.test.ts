@@ -2122,4 +2122,82 @@ describe('preload dispatcher', () => {
       }, 10_000);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // diagnostics.reportError
+  // -------------------------------------------------------------------------
+
+  describe('diagnostics.reportError', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke the diagnostics.reportError channel with the message, stack, and source', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const diagnostics = bridge['diagnostics'] as {
+          reportError: (
+            message: string,
+            stack: string | undefined,
+            source: 'boundary' | 'window-error' | 'unhandled-rejection',
+          ) => Promise<void>;
+        };
+
+        await diagnostics.reportError('boom', 'Error: boom\n  at x', 'boundary');
+
+        expect(ipcInvoke).toHaveBeenCalledWith('diagnostics.reportError', {
+          message: 'boom',
+          stack: 'Error: boom\n  at x',
+          source: 'boundary',
+        });
+      });
+
+      it('should forward an undefined stack unchanged', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const diagnostics = bridge['diagnostics'] as {
+          reportError: (
+            message: string,
+            stack: string | undefined,
+            source: 'boundary' | 'window-error' | 'unhandled-rejection',
+          ) => Promise<void>;
+        };
+
+        await diagnostics.reportError('rejected', undefined, 'unhandled-rejection');
+
+        expect(ipcInvoke).toHaveBeenCalledWith('diagnostics.reportError', {
+          message: 'rejected',
+          stack: undefined,
+          source: 'unhandled-rejection',
+        });
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when diagnostics.reportError is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const mockHandler = vi.fn().mockResolvedValue(undefined);
+        testApi.mock('diagnostics.reportError', mockHandler);
+
+        const diagnostics = bridge['diagnostics'] as {
+          reportError: (
+            message: string,
+            stack: string | undefined,
+            source: 'boundary' | 'window-error' | 'unhandled-rejection',
+          ) => Promise<void>;
+        };
+        await diagnostics.reportError('boom', undefined, 'window-error');
+
+        expect(mockHandler).toHaveBeenCalledWith({ message: 'boom', stack: undefined, source: 'window-error' });
+        expect(ipcInvoke).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

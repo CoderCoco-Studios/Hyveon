@@ -1,9 +1,8 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+const loggerMock = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ logger: loggerMock }));
 
 import { WizardController } from './wizard.controller.js';
 import type { AwsProfileService, AwsProfileSummary } from '../services/AwsProfileService.js';
@@ -118,6 +117,13 @@ function makeController(overrides: {
 const PATTERN_METADATA_KEY = 'microservices:pattern';
 
 describe('WizardController', () => {
+  beforeEach(() => {
+    loggerMock.debug.mockReset();
+    loggerMock.info.mockReset();
+    loggerMock.warn.mockReset();
+    loggerMock.error.mockReset();
+  });
+
   describe('@MessagePattern channel names', () => {
     it('should register listAwsProfiles on the "wizard.aws.listProfiles" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, WizardController.prototype.listAwsProfiles);
@@ -246,6 +252,25 @@ describe('WizardController', () => {
       expect(() =>
         makeController({ awsProfiles }).saveCredentials({ accessKeyId: 'AKID', secretAccessKey: 'SECRET' }),
       ).toThrow(SafeStorageUnavailableError);
+    });
+
+    it('should never include accessKeyId or secretAccessKey in the logged metadata', () => {
+      const awsProfiles = makeAwsProfiles();
+
+      makeController({ awsProfiles }).saveCredentials({
+        accessKeyId: 'AKID-SHOULD-NEVER-BE-LOGGED',
+        secretAccessKey: 'SECRET-SHOULD-NEVER-BE-LOGGED',
+        profileName: 'hyveon-pasted',
+        region: 'us-east-1',
+      });
+
+      const serialized = JSON.stringify(loggerMock.debug.mock.calls);
+      expect(serialized).not.toContain('AKID-SHOULD-NEVER-BE-LOGGED');
+      expect(serialized).not.toContain('SECRET-SHOULD-NEVER-BE-LOGGED');
+      expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.aws.saveCredentials invoked', {
+        profileName: 'hyveon-pasted',
+        region: 'us-east-1',
+      });
     });
   });
 
@@ -397,6 +422,17 @@ describe('WizardController', () => {
       expect(result).toEqual({ status: 'created' });
     });
 
+    it('should log at debug on entry with the bucket name, without changing the returned result', async () => {
+      const bootstrap = makeBootstrap({ status: 'created' });
+
+      const result = await makeController({ bootstrap }).bootstrapStateBucket({ bucketName: 'my-state-bucket' });
+
+      expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.bootstrap.stateBucket invoked', {
+        bucketName: 'my-state-bucket',
+      });
+      expect(result).toEqual({ status: 'created' });
+    });
+
     it('should propagate a failed result unchanged rather than throwing', async () => {
       const bootstrap = makeBootstrap({ status: 'failed', message: 'bucket taken' });
 
@@ -519,6 +555,49 @@ describe('WizardController', () => {
 
       expect(firstRunWizard.complete).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ wizardCompleted: true, activeCloud: 'aws', aws: undefined });
+    });
+
+    it('should log the entry debug line', async () => {
+      const firstRunWizard = makeFirstRunWizard();
+      const store = makeStore({ wizardCompleted: true });
+
+      await makeController({ firstRunWizard, store }).complete();
+
+      expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.complete invoked');
+    });
+  });
+
+  describe('guided-IAM key-material handlers never log payload fields', () => {
+    it('should log submitGuidedIamBootstrapKey with the bare message only, never the pasted key material', async () => {
+      const guidedIam = makeGuidedIam();
+      vi.mocked(guidedIam.intakeBootstrapKey).mockResolvedValue({ accountId: '123456789012' });
+
+      await makeController({ guidedIam }).submitGuidedIamBootstrapKey({
+        accessKeyId: 'AKID-SHOULD-NEVER-BE-LOGGED',
+        secretAccessKey: 'SECRET-SHOULD-NEVER-BE-LOGGED',
+        region: 'us-east-1',
+      });
+
+      expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.guidedIam.submitBootstrapKey invoked');
+      const serialized = JSON.stringify(loggerMock.debug.mock.calls);
+      expect(serialized).not.toContain('AKID-SHOULD-NEVER-BE-LOGGED');
+      expect(serialized).not.toContain('SECRET-SHOULD-NEVER-BE-LOGGED');
+    });
+
+    it('should log rotateGuidedIamKey with the bare message only, never the bootstrap key material', async () => {
+      const guidedIam = makeGuidedIam();
+      vi.mocked(guidedIam.rotate).mockResolvedValue({ status: 'complete' });
+
+      await makeController({ guidedIam }).rotateGuidedIamKey({
+        bootstrapAccessKeyId: 'AKID-SHOULD-NEVER-BE-LOGGED',
+        bootstrapSecretAccessKey: 'SECRET-SHOULD-NEVER-BE-LOGGED',
+        region: 'us-east-1',
+      });
+
+      expect(loggerMock.debug).toHaveBeenCalledWith('WizardController: wizard.guidedIam.rotate invoked');
+      const serialized = JSON.stringify(loggerMock.debug.mock.calls);
+      expect(serialized).not.toContain('AKID-SHOULD-NEVER-BE-LOGGED');
+      expect(serialized).not.toContain('SECRET-SHOULD-NEVER-BE-LOGGED');
     });
   });
 

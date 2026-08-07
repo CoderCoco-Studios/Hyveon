@@ -5,6 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { FirstRunWizardService } from './FirstRunWizardService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { logger } from '../logger.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -39,6 +40,10 @@ describe('FirstRunWizardService', () => {
     store = makeStore();
     service = new TestableFirstRunWizardService(store);
     vi.spyOn(service, 'stateFilePath').mockReturnValue(statePath);
+    vi.mocked(logger.debug).mockClear();
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
   });
 
   afterEach(() => {
@@ -192,6 +197,24 @@ describe('FirstRunWizardService', () => {
       expect(JSON.parse(readFileSync(statePath, 'utf-8'))).toEqual({ step: 'guided-iam' });
     });
 
+    it('should log the step name at debug before writing the state file', async () => {
+      await service.recordStep('bootstrap');
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        expect.stringContaining('bootstrap'),
+        expect.objectContaining({ step: 'bootstrap' }),
+      );
+    });
+
+    it('should include the guided-IAM sub-state in the debug log when present', async () => {
+      await service.recordStep('guided-iam', { subState: 'awaiting-key-intake', hasBootstrapKey: false });
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ step: 'guided-iam', guidedIamSubState: 'awaiting-key-intake' }),
+      );
+    });
+
     it('should reject a guidedIam sub-state outside GuidedIamSubState rather than writing it', async () => {
       await expect(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately bypassing the compile-time type to exercise the runtime guard
@@ -242,6 +265,12 @@ describe('FirstRunWizardService', () => {
 
     it('should not throw when the resume file never existed', async () => {
       await expect(service.complete()).resolves.toBeUndefined();
+    });
+
+    it('should log at info once the wizard is marked complete', async () => {
+      await service.complete();
+
+      expect(vi.mocked(logger.info)).toHaveBeenCalledWith('FirstRunWizardService: wizard marked complete');
     });
   });
 

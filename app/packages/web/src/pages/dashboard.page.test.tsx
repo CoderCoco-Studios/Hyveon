@@ -88,6 +88,21 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('link', { name: /Add a game/i })).toHaveAttribute('href', '/games');
   });
 
+  it('should render an error card with retry, not the no-games onboarding card, when the status fetch rejects', async () => {
+    apiMock.status.mockReset();
+    apiMock.status.mockRejectedValueOnce(new Error('network error')).mockResolvedValue(STATUSES);
+    const user = userEvent.setup();
+    renderPage(<DashboardPage />);
+
+    expect(await screen.findByRole('heading', { name: "Couldn't load game status" })).toBeInTheDocument();
+    expect(screen.getByText('network error')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'No games deployed' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('heading', { name: 'minecraft' })).toBeInTheDocument();
+  });
+
   it('should narrow the visible cards by the search filter without removing the indicator', async () => {
     const user = userEvent.setup();
     renderPage(<DashboardPage />);

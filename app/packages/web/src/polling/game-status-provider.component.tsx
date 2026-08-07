@@ -32,6 +32,8 @@ interface GameStatusContextValue {
   statuses: GameStatus[];
   estimates: CostEstimates | null;
   loading: boolean;
+  /** Set when the most recent `fetchStatuses` call rejected; cleared on the next successful poll. */
+  error: Error | null;
   /** Re-fetch every game (used after starts/stops if the caller wants the whole grid). */
   refresh: () => Promise<void>;
   /** Re-fetch a single game's status — used by `GameCard` after Start/Stop. */
@@ -59,11 +61,22 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<GameStatus[]>([]);
   const [estimates, setEstimates] = useState<CostEstimates | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const fetchStatuses = useCallback(async () => {
-    const s = await api.status();
-    setStatuses(s);
-    setLoading(false);
+    try {
+      const s = await api.status();
+      setStatuses(s);
+      setError(null);
+    } catch (err) {
+      // Re-thrown below so `PollingProvider.runOne`'s own catch still sees the
+      // rejection and records it on `pollers['status'].error` — this local
+      // catch exists only to guarantee `loading` clears, not to swallow it.
+      setError(err as Error);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const { refresh } = usePoller(GAME_STATUS_POLLER, fetchStatuses, GAME_STATUS_INTERVAL_MS);
@@ -78,8 +91,8 @@ export function GameStatusProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<GameStatusContextValue>(
-    () => ({ statuses, estimates, loading, refresh, refreshGame }),
-    [statuses, estimates, loading, refresh, refreshGame],
+    () => ({ statuses, estimates, loading, error, refresh, refreshGame }),
+    [statuses, estimates, loading, error, refresh, refreshGame],
   );
 
   return <GameStatusCtx.Provider value={value}>{children}</GameStatusCtx.Provider>;

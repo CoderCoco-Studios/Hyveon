@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Server, ExternalLink } from 'lucide-react';
+import { Search, Server, ExternalLink, AlertTriangle } from 'lucide-react';
 import { useGameStatus } from '../polling/game-status-provider.component.js';
 import { useFileManager } from '../hooks/use-file-manager.hook.js';
 import { GameCard } from '../components/game-card.component.js';
@@ -9,6 +9,7 @@ import { FileManagerModal } from '../components/file-manager-modal.component.js'
 import { PendingChangesBanner } from '../components/pending-changes-banner.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Input } from '@/components/ui/input.component';
+import { Button } from '@/components/ui/button.component';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.component';
 
 /**
@@ -18,7 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
  * input narrows the grid by game name or hostname client-side.
  */
 export function DashboardPage() {
-  const { statuses, estimates, loading, refreshGame } = useGameStatus();
+  const { statuses, estimates, loading, error, refresh, refreshGame } = useGameStatus();
   const fileMgr = useFileManager();
   const [query, setQuery] = useState('');
 
@@ -62,6 +63,10 @@ export function DashboardPage() {
             <div className="col-span-full text-sm text-[var(--color-muted-foreground)] py-8 text-center">
               Loading servers…
             </div>
+          ) : error && statuses.length === 0 ? (
+            <div className="col-span-full py-8 flex justify-center">
+              <StatusErrorCard error={error} onRetry={refresh} />
+            </div>
           ) : statuses.length === 0 ? (
             <div className="col-span-full py-8 flex justify-center">
               <NoGamesCard />
@@ -97,6 +102,33 @@ export function DashboardPage() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * Shown when the status poll rejects before any statuses have ever loaded —
+ * distinguishes "the fetch failed" from {@link NoGamesCard}'s "you have no
+ * games configured yet" so a transient API error can't be mistaken for an
+ * empty deployment.
+ */
+function StatusErrorCard({ error, onRetry }: { error: Error; onRetry: () => Promise<void> }) {
+  return (
+    <Card className="max-w-lg w-full border-[var(--color-red)]/40">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="p-2 rounded-lg bg-[var(--color-red)]/10">
+            <AlertTriangle className="size-5 text-[var(--color-red)]" />
+          </div>
+          <CardTitle>Couldn&apos;t load game status</CardTitle>
+        </div>
+        <CardDescription>{error.message || 'The status request failed.'}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button variant="outline" size="sm" onClick={() => void onRetry()}>
+          Retry
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

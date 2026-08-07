@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { logger } from '../logger.js';
 
 /** Maximum bytes read from the end of the log file per tail call (~200 KB covers ~500 typical log lines). */
 const TAIL_READ_BYTES = 200 * 1024;
@@ -66,5 +67,18 @@ export class DiagnosticsService {
     } finally {
       await fh?.close();
     }
+  }
+
+  /**
+   * Logs a renderer-side JS error/unhandled-rejection into the same winston
+   * log the operator already checks via `diagnostics.tail`/`diagnostics.path`.
+   * Never throws — a failure to log a crash must never itself crash anything.
+   *
+   * @param message - `Error.message`, or a string coercion for non-Error rejections.
+   * @param stack - `Error.stack`, when available.
+   * @param source - Where the report originated.
+   */
+  logRendererError(message: string, stack: string | undefined, source: 'boundary' | 'window-error' | 'unhandled-rejection'): void {
+    logger.error(`renderer error (${source}): ${message}`, { stack });
   }
 }
