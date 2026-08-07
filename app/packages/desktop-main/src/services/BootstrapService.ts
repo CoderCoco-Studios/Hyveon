@@ -22,6 +22,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
+import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
 
@@ -106,21 +107,30 @@ export class BootstrapService {
    *   wizard step's UI (#208), not this service.
    */
   async ensureStateBucket(bucketName: string): Promise<BootstrapResult> {
+    logger.debug('BootstrapService.ensureStateBucket: starting', { bucketName });
     const client = this.createS3Client();
     let created: boolean;
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
+      logger.warn('BootstrapService.ensureStateBucket: createBucket failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
     try {
+      logger.debug('BootstrapService.ensureStateBucket: enabling versioning', { bucketName });
       await client.send(
         new PutBucketVersioningCommand({
           Bucket: bucketName,
           VersioningConfiguration: { Status: 'Enabled' },
         }),
       );
+      logger.debug('BootstrapService.ensureStateBucket: versioning enabled', { bucketName });
+
+      logger.debug('BootstrapService.ensureStateBucket: enabling default encryption', { bucketName });
       await client.send(
         new PutBucketEncryptionCommand({
           Bucket: bucketName,
@@ -129,11 +139,18 @@ export class BootstrapService {
           },
         }),
       );
+      logger.debug('BootstrapService.ensureStateBucket: default encryption enabled', { bucketName });
+
       await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
+      logger.warn('BootstrapService.ensureStateBucket: post-create configuration failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
+    logger.debug('BootstrapService.ensureStateBucket: done', { bucketName, status: created ? 'created' : 'exists' });
     return { status: created ? 'created' : 'exists' };
   }
 
@@ -152,21 +169,32 @@ export class BootstrapService {
    * @param bucketName - Name of the configuration bucket to create/ensure.
    */
   async ensureConfigurationBucket(bucketName: string): Promise<BootstrapResult> {
+    logger.debug('BootstrapService.ensureConfigurationBucket: starting', { bucketName });
     const client = this.createS3Client();
     let created: boolean;
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
+      logger.warn('BootstrapService.ensureConfigurationBucket: createBucket failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
     try {
+      logger.debug('BootstrapService.ensureConfigurationBucket: enabling versioning', { bucketName });
       await client.send(
         new PutBucketVersioningCommand({
           Bucket: bucketName,
           VersioningConfiguration: { Status: 'Enabled' },
         }),
       );
+      logger.debug('BootstrapService.ensureConfigurationBucket: versioning enabled', { bucketName });
+
+      logger.debug('BootstrapService.ensureConfigurationBucket: applying noncurrent-version lifecycle rule', {
+        bucketName,
+      });
       await client.send(
         new PutBucketLifecycleConfigurationCommand({
           Bucket: bucketName,
@@ -184,6 +212,9 @@ export class BootstrapService {
           },
         }),
       );
+      logger.debug('BootstrapService.ensureConfigurationBucket: lifecycle rule applied', { bucketName });
+
+      logger.debug('BootstrapService.ensureConfigurationBucket: enabling default encryption', { bucketName });
       await client.send(
         new PutBucketEncryptionCommand({
           Bucket: bucketName,
@@ -192,11 +223,21 @@ export class BootstrapService {
           },
         }),
       );
+      logger.debug('BootstrapService.ensureConfigurationBucket: default encryption enabled', { bucketName });
+
       await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
+      logger.warn('BootstrapService.ensureConfigurationBucket: post-create configuration failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
+    logger.debug('BootstrapService.ensureConfigurationBucket: done', {
+      bucketName,
+      status: created ? 'created' : 'exists',
+    });
     return { status: created ? 'created' : 'exists' };
   }
 
@@ -256,12 +297,15 @@ export class BootstrapService {
    *   just passed to {@link ensureConfigurationBucket}.
    */
   async ensureDeploymentConfig(bucketName: string): Promise<BootstrapResult> {
+    logger.debug('BootstrapService.ensureDeploymentConfig: starting', { bucketName });
     const client = this.createS3Client();
     try {
       if (await this.deploymentConfigExists(client, bucketName)) {
+        logger.debug('BootstrapService.ensureDeploymentConfig: document already exists', { bucketName });
         return { status: 'exists' };
       }
       const seed = withDeploymentConfigDefaults({ hostedZoneName: '', gameServers: {} });
+      logger.debug('BootstrapService.ensureDeploymentConfig: seeding initial document', { bucketName });
       await client.send(
         new PutObjectCommand({
           Bucket: bucketName,
@@ -270,8 +314,13 @@ export class BootstrapService {
           ContentType: 'application/json',
         }),
       );
+      logger.debug('BootstrapService.ensureDeploymentConfig: initial document seeded', { bucketName });
       return { status: 'created' };
     } catch (err) {
+      logger.warn('BootstrapService.ensureDeploymentConfig: failed', {
+        bucketName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
   }
@@ -287,12 +336,15 @@ export class BootstrapService {
    * than risk seeding over an operator's real configuration.
    */
   private async deploymentConfigExists(client: S3Client, bucketName: string): Promise<boolean> {
+    logger.debug('BootstrapService: checking whether the deployment-config object exists', { bucketName });
     try {
       await client.send(new HeadObjectCommand({ Bucket: bucketName, Key: CONFIGURATION_OBJECT_KEY }));
+      logger.debug('BootstrapService: deployment-config object exists', { bucketName });
       return true;
     } catch (err) {
       const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
       if (status === 404 || this.isAwsErrorCode(err, 'NotFound') || this.isAwsErrorCode(err, 'NoSuchKey')) {
+        logger.debug('BootstrapService: deployment-config object does not exist yet', { bucketName });
         return false;
       }
       throw err;
@@ -340,26 +392,45 @@ export class BootstrapService {
    *   creates exactly the name it's given.
    */
   async ensureRunsTable(tableName: string): Promise<BootstrapResult> {
+    logger.debug('BootstrapService.ensureRunsTable: starting', { tableName });
     const client = this.createDynamoDbClient();
     let created: boolean;
     try {
       created = await this.createRunsTable(client, tableName);
     } catch (err) {
+      logger.warn('BootstrapService.ensureRunsTable: createRunsTable failed', {
+        tableName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
     try {
+      const startedAt = Date.now();
+      logger.info('BootstrapService.ensureRunsTable: waiting for table to become ACTIVE', { tableName });
       await waitUntilTableExists({ client, maxWaitTime: RUNS_TABLE_WAIT_TIMEOUT_SECONDS }, { TableName: tableName });
+      logger.info('BootstrapService.ensureRunsTable: table is ACTIVE', {
+        tableName,
+        elapsedMs: Date.now() - startedAt,
+      });
+
+      logger.debug('BootstrapService.ensureRunsTable: enabling point-in-time recovery', { tableName });
       await client.send(
         new UpdateContinuousBackupsCommand({
           TableName: tableName,
           PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
         }),
       );
+      logger.debug('BootstrapService.ensureRunsTable: point-in-time recovery enabled', { tableName });
     } catch (err) {
+      logger.warn('BootstrapService.ensureRunsTable: post-create configuration failed', {
+        tableName,
+        error: this.describeError(err),
+      });
       return { status: 'failed', message: this.describeError(err) };
     }
 
+    logger.debug('BootstrapService.ensureRunsTable: done', { tableName, status: created ? 'created' : 'exists' });
     return { status: created ? 'created' : 'exists' };
   }
 
@@ -376,6 +447,7 @@ export class BootstrapService {
       return false;
     }
     try {
+      logger.debug('BootstrapService: creating DynamoDB table', { tableName });
       await client.send(
         new CreateTableCommand({
           TableName: tableName,
@@ -406,9 +478,13 @@ export class BootstrapService {
           ],
         }),
       );
+      logger.debug('BootstrapService: DynamoDB table create call resolved', { tableName });
       return true;
     } catch (err) {
       if (err instanceof ResourceInUseException) {
+        logger.debug('BootstrapService: DynamoDB table already exists (race with a concurrent create)', {
+          tableName,
+        });
         return false;
       }
       throw err;
@@ -424,10 +500,13 @@ export class BootstrapService {
    * still runs — mirrors {@link bucketExists}.
    */
   private async runsTableExists(client: DynamoDBClient, tableName: string): Promise<boolean> {
+    logger.debug('BootstrapService: checking whether the DynamoDB table exists', { tableName });
     try {
       await client.send(new DescribeTableCommand({ TableName: tableName }));
+      logger.debug('BootstrapService: DynamoDB table exists', { tableName });
       return true;
     } catch {
+      logger.debug('BootstrapService: DynamoDB table does not exist yet', { tableName });
       return false;
     }
   }
@@ -461,6 +540,7 @@ export class BootstrapService {
       return false;
     }
     try {
+      logger.debug('BootstrapService: creating S3 bucket', { bucketName, region });
       await client.send(
         new CreateBucketCommand({
           Bucket: bucketName,
@@ -471,12 +551,15 @@ export class BootstrapService {
             : {}),
         }),
       );
+      logger.debug('BootstrapService: S3 bucket create call resolved', { bucketName });
       return true;
     } catch (err) {
       if (this.isAwsErrorCode(err, 'BucketAlreadyOwnedByYou')) {
+        logger.debug('BootstrapService: S3 bucket already owned by this account', { bucketName });
         return false;
       }
       if (this.isAwsErrorCode(err, 'BucketAlreadyExists')) {
+        logger.warn('BootstrapService: S3 bucket name is owned by another account', { bucketName });
         throw new Error(
           `The bucket name "${bucketName}" is already taken by another AWS account. Choose a different name.`,
         );
@@ -493,10 +576,13 @@ export class BootstrapService {
    * `CreateBucket` error handling still runs.
    */
   private async bucketExists(client: S3Client, bucketName: string): Promise<boolean> {
+    logger.debug('BootstrapService: checking whether the S3 bucket exists', { bucketName });
     try {
       await client.send(new HeadBucketCommand({ Bucket: bucketName }));
+      logger.debug('BootstrapService: S3 bucket exists', { bucketName });
       return true;
     } catch {
+      logger.debug('BootstrapService: S3 bucket does not exist yet', { bucketName });
       return false;
     }
   }
@@ -518,6 +604,7 @@ export class BootstrapService {
    * {@link ensureConfigurationBucket}.
    */
   private async ensurePublicAccessBlock(client: S3Client, bucketName: string): Promise<void> {
+    logger.debug('BootstrapService.ensurePublicAccessBlock: applying public-access-block settings', { bucketName });
     await client.send(
       new PutPublicAccessBlockCommand({
         Bucket: bucketName,
@@ -529,6 +616,7 @@ export class BootstrapService {
         },
       }),
     );
+    logger.debug('BootstrapService.ensurePublicAccessBlock: public-access-block settings applied', { bucketName });
   }
 
   private isAwsErrorCode(err: unknown, code: string): boolean {

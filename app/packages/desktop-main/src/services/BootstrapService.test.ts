@@ -23,6 +23,11 @@ import {
 import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/shared';
 import { BootstrapService, BootstrapCredentialsNotConfiguredError } from './BootstrapService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import { logger } from '../logger.js';
+
+vi.mock('../logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 /** Typed stand-in for the AWS S3 SDK client, shared across the tests below. */
 const s3Mock = mockClient(S3Client);
@@ -51,6 +56,10 @@ function awsError(name: string): Error {
 beforeEach(() => {
   s3Mock.reset();
   dynamoMock.reset();
+  vi.mocked(logger.debug).mockClear();
+  vi.mocked(logger.info).mockClear();
+  vi.mocked(logger.warn).mockClear();
+  vi.mocked(logger.error).mockClear();
 });
 
 describe('BootstrapService', () => {
@@ -608,6 +617,27 @@ describe('BootstrapService', () => {
       const service = new BootstrapService(makeStore(undefined));
 
       await expect(service.ensureRunsTable('hyveon-runs')).rejects.toThrow(BootstrapCredentialsNotConfiguredError);
+    });
+
+    it('should log before and after waitUntilTableExists, with an elapsedMs field in the completion log', async () => {
+      dynamoMock
+        .on(DescribeTableCommand)
+        .rejectsOnce(new ResourceNotFoundException({ message: 'not found', $metadata: {} }))
+        .resolves({ Table: { TableStatus: 'ACTIVE' } });
+      dynamoMock.on(CreateTableCommand).resolves({});
+      dynamoMock.on(UpdateContinuousBackupsCommand).resolves({});
+      const service = new BootstrapService(makeStore({ region: 'us-west-2' }));
+
+      await service.ensureRunsTable('hyveon-runs');
+
+      expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+        'BootstrapService.ensureRunsTable: waiting for table to become ACTIVE',
+        { tableName: 'hyveon-runs' },
+      );
+      expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+        'BootstrapService.ensureRunsTable: table is ACTIVE',
+        expect.objectContaining({ tableName: 'hyveon-runs', elapsedMs: expect.any(Number) }),
+      );
     });
   });
 });

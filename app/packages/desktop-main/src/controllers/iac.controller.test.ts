@@ -590,6 +590,45 @@ describe('IacController', () => {
 
       expect(sender.send).not.toHaveBeenCalled();
     });
+
+    it('should log a debug line for each phase transition', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.initializeStack).mockImplementation(async (onPhase) => {
+        onPhase?.('engine', 'start');
+        onPhase?.('engine', 'end');
+      });
+      const { ctx } = makeCtx();
+
+      const result = await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith('iac.stack.initialize phase transition', {
+        streamId: result.streamId,
+        phase: 'engine',
+        status: 'start',
+      });
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith('iac.stack.initialize phase transition', {
+        streamId: result.streamId,
+        phase: 'engine',
+        status: 'end',
+      });
+    });
+
+    it('should log a phase transition even when the WebContents has already been destroyed', async () => {
+      const pulumi = makePulumi();
+      vi.mocked(pulumi.initializeStack).mockImplementation(async (onPhase) => {
+        onPhase?.('engine', 'start');
+      });
+      const { ctx } = makeCtx(true);
+
+      await new IacController(pulumi).initializeStack(undefined, ctx);
+      await flushPromises();
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        'iac.stack.initialize phase transition',
+        expect.objectContaining({ phase: 'engine', status: 'start' }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

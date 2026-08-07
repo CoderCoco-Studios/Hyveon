@@ -826,6 +826,41 @@ describe('PulumiWorkspaceService.getOrCreateStack — credentials are not logged
   });
 });
 
+describe('PulumiWorkspaceService.getOrCreateStack — elapsed-time logging', () => {
+  it('should log elapsedMs around engine resolution, LocalWorkspace creation, and stack creation/selection', async () => {
+    const { service } = makeService();
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: engine resolved',
+      expect.objectContaining({ elapsedMs: expect.any(Number) }),
+    );
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: LocalWorkspace created',
+      expect.objectContaining({ elapsedMs: expect.any(Number) }),
+    );
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: stack created/selected',
+      expect.objectContaining({ elapsedMs: expect.any(Number) }),
+    );
+  });
+
+  it('should log elapsedMs around the listStacks probe on the no-local-passphrase path', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const { service } = makeService({ safeStorage, store });
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: listStacks resolved',
+      expect.objectContaining({ elapsedMs: expect.any(Number), stackCount: 0 }),
+    );
+  });
+});
+
 describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () => {
   it('should forward input.onPhase to PulumiEngineService.resolve unchanged', async () => {
     const { service, engine } = makeService();

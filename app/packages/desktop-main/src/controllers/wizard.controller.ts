@@ -106,12 +106,17 @@ export interface SaveWizardStateInput {
  * already-shipped `iac.stack.initialize` channel instead of adding a second
  * one here).
  *
- * Every handler logs a `logger.debug` line on entry (pattern name only —
- * never payload contents, which can carry pasted AWS credentials), so the
- * daily log file traces the full wizard flow step by step. Failures don't
- * need a matching log call here: `ipc-main-bridge.ts`'s generic bridge logs
- * every rejection from every `@MessagePattern` handler in the app, this
- * controller included.
+ * Every handler logs a `logger.debug` line on entry — the pattern name,
+ * plus non-secret payload fields where they're useful for tracing a run
+ * (e.g. `bucketName` on the bootstrap handlers, `step` on
+ * `wizard.progress.save`) — so the daily log file traces the full wizard
+ * flow step by step. Payload fields that can carry credential or key
+ * material (`saveCredentials`, `submitGuidedIamBootstrapKey`,
+ * `rotateGuidedIamKey`, `revokeGuidedIamBootstrapKey`) are never logged —
+ * those handlers log the bare pattern name only, or only an explicitly
+ * non-secret subset of fields. Failures don't need a matching log call
+ * here: `ipc-main-bridge.ts`'s generic bridge logs every rejection from
+ * every `@MessagePattern` handler in the app, this controller included.
  */
 @Controller()
 export class WizardController {
@@ -216,7 +221,12 @@ export class WizardController {
    */
   @MessagePattern('wizard.aws.saveCredentials')
   saveCredentials(@Payload() body: SavePastedCredentialsInput): { profileName: string } {
-    logger.debug('WizardController: wizard.aws.saveCredentials invoked');
+    // Only non-secret fields are logged — `accessKeyId`/`secretAccessKey` are
+    // never included here, per this controller's own doc comment.
+    logger.debug('WizardController: wizard.aws.saveCredentials invoked', {
+      profileName: body.profileName,
+      region: body.region,
+    });
     return this.awsProfiles.savePastedCredentials(body);
   }
 
@@ -227,7 +237,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.stateBucket')
   bootstrapStateBucket(@Payload() body: BootstrapStateBucketInput): Promise<BootstrapResult> {
-    logger.debug('WizardController: wizard.bootstrap.stateBucket invoked');
+    logger.debug('WizardController: wizard.bootstrap.stateBucket invoked', { bucketName: body.bucketName });
     return this.bootstrap.ensureStateBucket(body.bucketName);
   }
 
@@ -248,7 +258,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.configurationBucket')
   bootstrapConfigurationBucket(@Payload() body: BootstrapConfigurationBucketInput): Promise<BootstrapResult> {
-    logger.debug('WizardController: wizard.bootstrap.configurationBucket invoked');
+    logger.debug('WizardController: wizard.bootstrap.configurationBucket invoked', { bucketName: body.bucketName });
     return this.bootstrap.ensureConfigurationBucket(body.bucketName);
   }
 
@@ -264,7 +274,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.bootstrap.deploymentConfig')
   bootstrapDeploymentConfig(@Payload() body: BootstrapDeploymentConfigInput): Promise<BootstrapResult> {
-    logger.debug('WizardController: wizard.bootstrap.deploymentConfig invoked');
+    logger.debug('WizardController: wizard.bootstrap.deploymentConfig invoked', { bucketName: body.bucketName });
     return this.bootstrap.ensureDeploymentConfig(body.bucketName);
   }
 
@@ -314,7 +324,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.progress.save')
   saveProgress(@Payload() body: SaveWizardProgressInput): Promise<void> {
-    logger.debug('WizardController: wizard.progress.save invoked');
+    logger.debug('WizardController: wizard.progress.save invoked', { step: body.step });
     return this.firstRunWizard.recordStep(body.step, body.guidedIam);
   }
 
@@ -369,7 +379,7 @@ export class WizardController {
    */
   @MessagePattern('wizard.guidedIam.openConsole')
   openGuidedIamConsole(@Payload() body: OpenGuidedIamConsoleInput): Promise<OpenConsoleResult> {
-    logger.debug('WizardController: wizard.guidedIam.openConsole invoked');
+    logger.debug('WizardController: wizard.guidedIam.openConsole invoked', { region: body.region });
     const url = this.guidedIam.buildCloudFormationConsoleUrl(body.region);
     return this.guidedIam.openConsole(url);
   }
