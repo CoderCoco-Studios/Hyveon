@@ -722,6 +722,12 @@ export class IacController implements OnModuleInit {
     const sender: WebContents = ctx.evt.sender;
     const streamId = randomUUID();
     const onPhase: PulumiPhaseCallback = (phase, status) => {
+      // Logged before the `isDestroyed()` check so this phase transition is
+      // still written to the daily log file even if the renderer window has
+      // already closed — the whole point of this line is server-side
+      // traceability, independent of whether the renderer is still around to
+      // receive the corresponding chunk message below.
+      logger.debug('iac.stack.initialize phase transition', { streamId, phase, status });
       if (sender.isDestroyed()) return;
       const message: StackInitializePhaseMessage = { streamId, phase, status };
       sender.send(STACK_INIT_CHUNK_CHANNEL, message);

@@ -397,7 +397,9 @@ export class PulumiWorkspaceService {
     // resolution exactly as before — cheap, and never touches Pulumi itself.
     const credentialEnvVars = input.credentialEnvVars ?? resolveCredentialEnvVars(this.store);
 
+    const engineStartedAt = Date.now();
     const pulumiCommand = await this.engine.resolve(input.onPhase);
+    logger.debug('PulumiWorkspaceService: engine resolved', { elapsedMs: Date.now() - engineStartedAt });
     const pulumiHome = this.ensureDir(this.getPulumiHomeDir());
     const workDir = this.ensureDir(this.getWorkDir());
     logger.debug('PulumiWorkspaceService: resolved workspace paths', { pulumiHome, workDir });
@@ -442,10 +444,17 @@ export class PulumiWorkspaceService {
     };
 
     try {
+      const createStartedAt = Date.now();
       const ws = await LocalWorkspace.create(opts);
+      logger.debug('PulumiWorkspaceService: LocalWorkspace created', { elapsedMs: Date.now() - createStartedAt });
       passphrase ??= await this.resolveNewPassphrase(ws);
       ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase;
-      return await Stack.createOrSelect(PULUMI_STACK_NAME, ws);
+      const stackStartedAt = Date.now();
+      const stack = await Stack.createOrSelect(PULUMI_STACK_NAME, ws);
+      logger.debug('PulumiWorkspaceService: stack created/selected', {
+        elapsedMs: Date.now() - stackStartedAt,
+      });
+      return stack;
     } catch (err) {
       if (looksLikeMissingBucket(err)) {
         throw new PulumiBackendNotBootstrappedError(input.stateBucket, err);
@@ -571,7 +580,12 @@ export class PulumiWorkspaceService {
    *   this method returns.
    */
   private async resolveNewPassphrase(ws: LocalWorkspace): Promise<string> {
+    const startedAt = Date.now();
     const summaries = await ws.listStacks();
+    logger.debug('PulumiWorkspaceService: listStacks resolved', {
+      elapsedMs: Date.now() - startedAt,
+      stackCount: summaries.length,
+    });
     const remoteStackExists = summaries.some((summary) => summary.name === PULUMI_STACK_NAME);
     if (remoteStackExists) {
       throw new PulumiPassphraseUnavailableError('existing-stack-no-local-record');

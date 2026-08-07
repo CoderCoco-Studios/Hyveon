@@ -465,11 +465,19 @@ export class PulumiEngineService {
   private async provision(): Promise<PulumiCommand> {
     const pin = new SemVer(PULUMI_ENGINE_VERSION);
     const root = this.getEngineInstallRoot(pin);
+    const startedAt = Date.now();
+    logger.info('PulumiEngineService: resolving Pulumi engine', { pin: pin.toString(), root });
 
     const cached = await this.tryReuseCached(root, pin);
     const command = cached ?? (await this.installFresh(root, pin));
 
     this.resolvedVersion = command.version ? command.version.toString() : null;
+    logger.info('PulumiEngineService: Pulumi engine resolved', {
+      pin: pin.toString(),
+      root,
+      cacheHit: cached !== null,
+      elapsedMs: Date.now() - startedAt,
+    });
     return command;
   }
 

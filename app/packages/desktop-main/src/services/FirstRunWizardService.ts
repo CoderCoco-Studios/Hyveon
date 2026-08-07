@@ -114,6 +114,10 @@ export class FirstRunWizardService {
     if (guidedIam && typeof guidedIam.hasBootstrapKey !== 'boolean') {
       throw new Error('Unsupported guided-IAM sub-state: hasBootstrapKey must be a boolean');
     }
+    logger.debug(`FirstRunWizardService: recording wizard step "${step}"`, {
+      step,
+      guidedIamSubState: guidedIam?.subState,
+    });
     const path = this.stateFilePath();
     await mkdir(dirname(path), { recursive: true });
     // Rebuilt from only the two known fields — never the caller's
@@ -169,6 +173,7 @@ export class FirstRunWizardService {
    * leaves the wizard genuinely incomplete, matching what the caller was told.
    */
   async complete(): Promise<void> {
+    logger.info('FirstRunWizardService: marking wizard complete');
     await rm(this.stateFilePath(), { force: true });
     this.store.set('wizardCompleted', true);
     logger.info('FirstRunWizardService: wizard marked complete');

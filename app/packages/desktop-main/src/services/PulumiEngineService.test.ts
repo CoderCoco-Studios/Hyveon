@@ -502,6 +502,33 @@ describe('PulumiEngineService.resolve — typed provisioning errors', () => {
   });
 });
 
+describe('PulumiEngineService.resolve — elapsed-time logging', () => {
+  it('should log info with elapsedMs and cacheHit: false on the fresh-install path', async () => {
+    const service = makeService();
+
+    await service.resolve();
+
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      'PulumiEngineService: Pulumi engine resolved',
+      expect.objectContaining({ cacheHit: false, elapsedMs: expect.any(Number) }),
+    );
+  });
+
+  it('should log info with elapsedMs and cacheHit: true on the cache-reuse path', async () => {
+    const service = makeService();
+    existsSyncMock.mockReturnValue(true);
+    getMock.mockResolvedValue(fakeCommand(PIN_ROOT, PULUMI_ENGINE_VERSION));
+
+    await service.resolve();
+
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      'PulumiEngineService: Pulumi engine resolved',
+      expect.objectContaining({ cacheHit: true, elapsedMs: expect.any(Number) }),
+    );
+    expect(installMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('PulumiEngineService — engine cache root resolution', () => {
   const originalEnv = process.env['HYVEON_PULUMI_ENGINE_DIR'];
 
