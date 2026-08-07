@@ -1,13 +1,18 @@
-import { test, expect, _electron, COST_DATA, MULTI_GAME_COST_DATA, STOPPED_GAME } from '../fixtures/index.js';
-import { electronMain, electronEnv } from '../../playwright.config.js';
+import {
+  test,
+  expect,
+  launchElectron,
+  applyHyveonMocks,
+  COST_DATA,
+  MULTI_GAME_COST_DATA,
+  STOPPED_GAME,
+} from '../fixtures/index.js';
 import { CostsPage } from '../pages/index.js';
-import type { CostEstimates, GameStatus } from '../fixtures/index.js';
 
 /**
  * Specs for the `/costs` route. Each test launches its own Electron shell,
- * mocks the two IPC channels consumed by the Costs page (`costs.estimate`,
- * `games.status`) via `window.hyveon.__test.mock`, then navigates to `/costs`
- * via history injection (`CostsPage.gotoElectron`).
+ * seeds `costs.estimate` / `games.status` via `applyHyveonMocks`, then
+ * navigates to `/costs` via history injection (`CostsPage.gotoElectron`).
  *
  * The app makes no AWS Cost Explorer API calls — there is no `costs.actual`
  * channel any more (see `openspec/changes/remove-cost-explorer-calls`).
@@ -15,32 +20,14 @@ import type { CostEstimates, GameStatus } from '../fixtures/index.js';
  * Filter / sort exercises pass `MULTI_GAME_COST_DATA` so the table has more
  * than one row to interact with; the default `COST_DATA` only contains
  * `minecraft`.
- *
- * The "should link out to the AWS Cost Explorer console" test lands in PR 3
- * (costexplorer-3-e2e) — it needs CostsPage.costExplorerLink(), a locator
- * Task 18 adds there. This file has everything else early because PR 2
- * already removed makeActualCosts/ActualCosts from the fixtures barrel
- * (Task 2.6a), which broke this file's module-level import and crashed the
- * whole e2e run, not just this file's own tests — see
- * openspec/changes/remove-cost-explorer-calls.
  */
 test.describe('costs page', () => {
   test('should render the cost analysis heading', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const costs = new CostsPage(win);
-
-      await win.evaluate(
-        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = window.hyveon;
-          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: COST_DATA, statuses: [STOPPED_GAME] },
-      );
+      await applyHyveonMocks(win, { costs: COST_DATA, statuses: [STOPPED_GAME] });
 
       await costs.gotoElectron();
 
@@ -50,22 +37,31 @@ test.describe('costs page', () => {
     }
   });
 
-  test('should sort estimates by $/hour descending by default', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+  test('should link out to the AWS Cost Explorer console', async () => {
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const costs = new CostsPage(win);
+      await applyHyveonMocks(win, { costs: COST_DATA, statuses: [STOPPED_GAME] });
 
-      await win.evaluate(
-        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = window.hyveon;
-          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
+      await costs.gotoElectron();
+
+      await expect(costs.costExplorerLink()).toBeVisible();
+      await expect(costs.costExplorerLink()).toHaveAttribute(
+        'href',
+        'https://console.aws.amazon.com/cost-management/home#/cost-explorer',
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('should sort estimates by $/hour descending by default', async () => {
+    const { app, win } = await launchElectron();
+
+    try {
+      const costs = new CostsPage(win);
+      await applyHyveonMocks(win, { costs: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] });
 
       await costs.gotoElectron();
 
@@ -81,21 +77,11 @@ test.describe('costs page', () => {
   });
 
   test('should re-sort estimates by game name when the Game header is clicked', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const costs = new CostsPage(win);
-
-      await win.evaluate(
-        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = window.hyveon;
-          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
-      );
+      await applyHyveonMocks(win, { costs: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] });
 
       await costs.gotoElectron();
       await costs.clickSort('Game');
@@ -111,21 +97,11 @@ test.describe('costs page', () => {
   });
 
   test('should filter estimates via the search input', async () => {
-    const app = await _electron.launch({ args: [electronMain], env: electronEnv });
+    const { app, win } = await launchElectron();
 
     try {
-      const win = await app.firstWindow();
       const costs = new CostsPage(win);
-
-      await win.evaluate(
-        ({ estimate, statuses }: { estimate: CostEstimates; statuses: GameStatus[] }) => {
-          const hyveon = window.hyveon;
-          if (!hyveon?.__test) throw new Error('window.hyveon.__test unavailable — is HYVEON_TEST_MODE set?');
-          hyveon.__test.mock('costs.estimate', () => Promise.resolve(estimate));
-          hyveon.__test.mock('games.status', () => Promise.resolve(statuses));
-        },
-        { estimate: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] },
-      );
+      await applyHyveonMocks(win, { costs: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] });
 
       await costs.gotoElectron();
       await costs.filter('val');

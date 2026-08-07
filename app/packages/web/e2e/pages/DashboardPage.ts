@@ -154,7 +154,7 @@ export class DashboardPage {
 
   // ── KPI strip ────────────────────────────────────────────────────────
 
-  /** A KPI tile by its label ('Servers running', 'Spend today', etc.). */
+  /** A KPI tile by its label ('Servers running', 'Current run rate', etc.). */
   kpiTileLabel(label: string): Locator {
     return this.page.getByText(label);
   }

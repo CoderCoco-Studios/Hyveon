@@ -88,28 +88,31 @@
 - [x] 3.1 ~~Update `web/e2e/fixtures/electron-launch.ts`, `game-data.ts`,
       `index.ts`, and `web/e2e/screenshots/demo-data.ts`~~ — done early as
       2.6a above (PR 2, not PR 3).
-- [ ] 3.2 Update `web/e2e/specs/costs.spec.ts` to assert the new Costs page
+- [x] 3.2 Update `web/e2e/specs/costs.spec.ts` to assert the new Costs page
       (estimates table + CE link-out card, no chart/total-spend card, no
-      range selector). Depends on 3.2a (`CostsPage.ts`) below.
-- [ ] 3.2a Update `web/e2e/pages/CostsPage.ts`: drop range/chart/delta-pill
+      range selector). Depended on 3.2a (`CostsPage.ts`) below.
+- [x] 3.2a Update `web/e2e/pages/CostsPage.ts`: drop range/chart/delta-pill
       locators (`chartTitle()`, `chartSegment()`, `deltaPill()`,
       `totalLabel()`, range-selector locators), add a `costExplorerLink()`
-      locator for 3.2's new link-out test. Also fixes the stale
-      `chartTitle()` locator that `web/e2e/screenshots/capture.spec.ts`'s
-      `costs.png` test depends on — found during PR 2's Task 22 (a
-      regression from PR 1's `costs.page.tsx` change, not in the original
-      plan scope; `docs:screenshots` isn't part of the required
-      `app:test:e2e` gate, so it didn't block PR 1/2, but fix it here since
-      this task already touches the same page object).
-- [ ] 3.3 Update `web/e2e/specs/discord.spec.ts` if it depends on
-      dashboard/costs mock data affected by the removal.
-- [ ] 3.3a Update `web/e2e/specs/dashboard.spec.ts` — it asserts the literal
-      old `'Spend today'`/`'Forecast MTD'` tile labels; update to the new
+      locator for 3.2's new link-out test. Also fixed the stale
+      `chartTitle()`-dependent assertion in
+      `web/e2e/screenshots/capture.spec.ts`'s `costs.png` test — a
+      regression from PR 1's `costs.page.tsx` change, found during PR 2's
+      Task 22 (`docs:screenshots` isn't part of the required
+      `app:test:e2e` gate, so it didn't block PR 1/2, but fixed here since
+      this task already touches the same page).
+- [x] 3.3 Update `web/e2e/specs/discord.spec.ts` — dropped the unused
+      `costs.actual` mock from `seedBaseMocks()` (inert cleanup, no
+      behavior change — the mock was never invoked).
+- [x] 3.3a Update `web/e2e/specs/dashboard.spec.ts` — it asserts the literal
+      old `'Spend today'`/`'Forecast MTD'` tile labels; updated to the new
       `'Current run rate'`/`'Est. month cap'` labels.
 - [x] 3.3b ~~Update `web/e2e/fixtures/hyveon-http-bridge.ts`~~ — done early
       as 2.6a above (PR 2, not PR 3).
-- [ ] 3.4 Run `npm run app:test:e2e` — all clean.
-- [ ] 3.5 Open PR `costexplorer-3-e2e` against `costexplorer-2-backend`.
+- [x] 3.4 Run `npm run app:test:e2e` — 93/93 passed, first fully-green point
+      in the stack (no documented exceptions).
+- [x] 3.5 Open PR `costexplorer-3-e2e` against `costexplorer-2-backend`.
+      → [#432](https://github.com/CoderCoco/Hyveon/pull/432)
 
 ## 4. Docs and IAM cleanup (PR: `costexplorer-4-docs-iam`, base: PR 3's branch)
 

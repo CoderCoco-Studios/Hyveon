@@ -162,16 +162,13 @@ test.describe('dashboard', () => {
     await expect(dashboard.emptySearchMessage()).toBeVisible();
   });
 
-  // Asserts the old 'Spend today'/'Forecast MTD' tile labels, renamed by this
-  // PR's KpiStrip rewrite. Spec is updated in PR 3 (costexplorer-3-e2e) —
-  // see openspec/changes/remove-cost-explorer-calls.
-  test.fixme('should render the KPI strip with the four ops tiles', async () => {
+  test('should render the KPI strip with the four ops tiles', async () => {
     await applyHyveonMocks(win, { statuses: MULTI_GAME_STATUSES });
     await dashboard.gotoElectron();
 
     await expect(dashboard.kpiTileLabel('Servers running')).toBeVisible();
-    await expect(dashboard.kpiTileLabel('Spend today')).toBeVisible();
-    await expect(dashboard.kpiTileLabel('Forecast MTD')).toBeVisible();
+    await expect(dashboard.kpiTileLabel('Current run rate')).toBeVisible();
+    await expect(dashboard.kpiTileLabel('Est. month cap')).toBeVisible();
     await expect(dashboard.kpiTileLabel('Active alerts')).toBeVisible();
     // 1 of 2 games are running in MULTI_GAME_STATUSES (valheim).
     await expect(dashboard.serversRunningValue('1/2')).toBeVisible();
