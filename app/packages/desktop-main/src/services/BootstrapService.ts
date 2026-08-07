@@ -389,6 +389,15 @@ export class BootstrapService {
 
     try {
       await waitUntilTableExists({ client, maxWaitTime: RUNS_TABLE_WAIT_TIMEOUT_SECONDS }, { TableName: tableName });
+    } catch (err) {
+      logger.error('BootstrapService.ensureRunsTable: table did not reach ACTIVE status', {
+        tableName,
+        error: this.describeError(err),
+      });
+      return { status: 'failed', message: this.describeError(err) };
+    }
+
+    try {
       await this.enableContinuousBackupsWithRetry(client, tableName);
     } catch (err) {
       logger.error('BootstrapService.ensureRunsTable: failed to enable point-in-time recovery', {
