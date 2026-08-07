@@ -626,11 +626,16 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // below) into the same `ElectronStoreService.aws.region` field every
   // `PulumiService` operation — including `initializeStack`, the stack-init
   // step's own IPC call — reads at call time, so an empty region here would
-  // otherwise silently reach that method as a missing region.
+  // otherwise silently reach that method as a missing region. A non-null
+  // `guidedCredentials` short-circuits the form-field check: guided-IAM
+  // completion never populates `selectedProfileName`/`region` (it persists
+  // `aws.profile`/`aws.region` directly via `GuidedIamService.rotate`), so
+  // without this term Next stayed disabled on the satisfied-summary render.
   const credentialsChosen =
-    credentialMode === 'profile'
+    guidedCredentials !== null ||
+    (credentialMode === 'profile'
       ? selectedProfileName !== '' && region !== ''
-      : pastedProfileName !== null && pasteRegion !== '';
+      : pastedProfileName !== null && pasteRegion !== '');
 
   // A collapsed (completed, not being edited) Reconfigure step already has a
   // real answer on record — Next should never be gated on this render's
@@ -685,7 +690,15 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
       }
       setSaving(false);
     }
-    if (mode === 'first-run' && step === 'credentials') {
+    // Skipped when `guidedCredentials` is still set: the satisfied-by-guided-
+    // provisioning summary has no local form state to save — `credentialMode`/
+    // `selectedProfileName`/`region` are still untouched defaults — and
+    // `GuidedIamService.rotate` already persisted `aws.profile`/`aws.region`
+    // directly. Saving here would overwrite that with `{ profile: '', region:
+    // undefined }`. "Switch to a different source" clears `guidedCredentials`
+    // first, so this branch still runs normally once the operator picks
+    // something else.
+    if (mode === 'first-run' && step === 'credentials' && !guidedCredentials) {
       if (!window.hyveon) {
         setSaveError('IPC bridge (window.hyveon) is not available in this context.');
         return;

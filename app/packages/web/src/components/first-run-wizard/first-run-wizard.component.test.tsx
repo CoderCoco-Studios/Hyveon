@@ -739,6 +739,48 @@ describe('FirstRunWizard', () => {
       expect(screen.queryByLabelText('Profile')).not.toBeInTheDocument();
     });
 
+    it('should enable Next on the credentials step\'s satisfied summary, without requiring the normal picker/paste fields', async () => {
+      // Regression test: `credentialsChosen` used to read only the normal
+      // form's local state (`selectedProfileName`/`region`/`pastedProfileName`),
+      // which guided-IAM completion never populates — leaving Next dead even
+      // though the guided summary itself renders as satisfied.
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: false,
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+      });
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+
+      await userEvent.click(screen.getByRole('button', { name: /stub-complete/i }));
+
+      await screen.findByText(/already provisioned/i);
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+
+    it('should not overwrite the guided profile via wizard.state.save when advancing past the satisfied summary', async () => {
+      // Regression test: the credentials-step save branch used to fire
+      // unconditionally, sending the normal form's untouched defaults
+      // (`{ aws: { profile: '', region: undefined } }`) and clobbering the
+      // profile `GuidedIamService.rotate` had already persisted.
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: false,
+        aws: { profile: GUIDED_PROFILE_NAME, region: 'us-east-1' },
+      });
+      await advanceToPickCloud();
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-complete/i }));
+      await screen.findByText(/already provisioned/i);
+      hyveonMock.wizard.saveState.mockClear();
+
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      expect(hyveonMock.wizard.saveState).not.toHaveBeenCalledWith(
+        expect.objectContaining({ aws: expect.anything() }),
+      );
+    });
+
     it('should fall through to the normal form — never a dead end — when "Switch to a different source" is clicked', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
         wizardCompleted: false,
