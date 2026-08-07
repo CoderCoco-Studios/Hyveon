@@ -173,6 +173,7 @@ export class IacRunsController implements OnModuleInit {
    */
   @MessagePattern('iac.runs.get')
   async get(@Payload() payload: IacRunsGetPayload): Promise<IacRunsGetResult> {
+    logger.debug('IacRunsController: iac.runs.get invoked');
     const runId = payload?.runId;
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
@@ -236,6 +237,7 @@ export class IacRunsController implements OnModuleInit {
     @Payload() payload: IacRunsLogsPayload,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<IacRunsLogsAck> {
+    logger.debug('IacRunsController: iac.runs.logs invoked');
     const runId = payload?.runId;
     if (typeof runId !== 'string' || runId.length === 0) {
       throw new BadRequestException({
@@ -292,6 +294,7 @@ export class IacRunsController implements OnModuleInit {
    */
   @MessagePattern('iac.runs.list')
   async list(@Payload() opts: ListRunsOpts = {}): Promise<RunPageResult> {
+    logger.debug('IacRunsController: iac.runs.list invoked');
     if (opts?.status !== undefined && !RUN_STATUSES.includes(opts.status)) {
       throw new BadRequestException({
         success: false,
@@ -313,6 +316,7 @@ export class IacRunsController implements OnModuleInit {
    */
   @MessagePattern('iac.runs.logUrl')
   async logUrl(@Payload() payload: IacRunsLogUrlPayload): Promise<IacRunsLogUrlResult> {
+    logger.debug('IacRunsController: iac.runs.logUrl invoked');
     const logKey = payload?.logKey;
     if (typeof logKey !== 'string' || logKey.length === 0) {
       throw new BadRequestException({

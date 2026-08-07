@@ -6,6 +6,7 @@ import { EcsService } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import { mergeGameLists } from '../services/mergeGameLists.js';
+import { logger } from '../logger.js';
 
 /**
  * IPC-only game-server controller. Handles Electron main-process messages via
@@ -46,6 +47,7 @@ export class GamesController {
    */
   @MessagePattern('games.list')
   async listGames(): Promise<{ games: GameListEntry[] }> {
+    logger.debug('GamesController: games.list invoked');
     this.deploymentConfig.invalidateCache();
     const declared = await this.deploymentConfig.getGameServers();
     const outputs = await this.config.getStackOutputs();
@@ -66,6 +68,7 @@ export class GamesController {
    */
   @MessagePattern('games.status')
   async listStatus() {
+    logger.debug('GamesController: games.status invoked');
     this.deploymentConfig.invalidateCache();
     const outputs = await this.config.getStackOutputs();
     if (!outputs) return [];
@@ -80,6 +83,7 @@ export class GamesController {
    */
   @MessagePattern('games.getStatus')
   getStatus(@Payload() game: string) {
+    logger.debug('GamesController: games.getStatus invoked', { game });
     return this.ecs.getStatus(game);
   }
 
@@ -91,6 +95,7 @@ export class GamesController {
    */
   @MessagePattern('games.start')
   start(@Payload() game: string) {
+    logger.debug('GamesController: games.start invoked', { game });
     return this.ecs.start(game);
   }
 
@@ -102,6 +107,7 @@ export class GamesController {
    */
   @MessagePattern('games.stop')
   stop(@Payload() game: string) {
+    logger.debug('GamesController: games.stop invoked', { game });
     return this.ecs.stop(game);
   }
 
@@ -117,6 +123,7 @@ export class GamesController {
    */
   @MessagePattern('games.create')
   createGame(@Payload() payload: CreateGamePayload): Promise<GameWriteResult> {
+    logger.debug('GamesController: games.create invoked', { game: payload.name });
     return this.gamesWrite.createGame(payload);
   }
 
@@ -130,6 +137,7 @@ export class GamesController {
    */
   @MessagePattern('games.update')
   updateGame(@Payload() payload: UpdateGamePayload): Promise<GameWriteResult> {
+    logger.debug('GamesController: games.update invoked', { game: payload.name });
     return this.gamesWrite.updateGame(payload);
   }
 
@@ -143,6 +151,7 @@ export class GamesController {
    */
   @MessagePattern('games.delete')
   deleteGame(@Payload() payload: DeleteGamePayload): Promise<GameWriteResult> {
+    logger.debug('GamesController: games.delete invoked', { game: payload.name });
     return this.gamesWrite.deleteGame(payload);
   }
 }

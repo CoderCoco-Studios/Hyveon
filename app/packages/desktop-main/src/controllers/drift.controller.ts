@@ -2,6 +2,7 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
 import type { DriftReport } from '@hyveon/shared';
 import { DriftService } from '../services/DriftService.js';
+import { logger } from '../logger.js';
 
 /**
  * IPC-only controller exposing drift detection (declared `deployment-config.json`
@@ -17,6 +18,7 @@ export class DriftController {
   /** Returns the current {@link DriftReport} — see `DriftService.getDrift()`. */
   @MessagePattern('drift.get')
   get(): Promise<DriftReport> {
+    logger.debug('DriftController: drift.get invoked');
     return this.drift.getDrift();
   }
 }
