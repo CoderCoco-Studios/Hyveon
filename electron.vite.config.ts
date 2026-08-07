@@ -1,4 +1,4 @@
-import { defineConfig, externalizeDepsPlugin, swcPlugin } from 'electron-vite';
+import { defineConfig, swcPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
@@ -27,8 +27,9 @@ export default defineConfig({
     // bootstrap. SWC's decorator transform does emit that metadata, so it's
     // used here in place of esbuild. The renderer and preload builds don't
     // use Nest DI and stay on the default esbuild transform.
-    plugins: [externalizeDepsPlugin(), swcPlugin()],
+    plugins: [swcPlugin()],
     build: {
+      externalizeDeps: true,
       rollupOptions: {
         input: r('app/packages/desktop-main/src/electron-entry.ts'),
         // `@pulumi/pulumi` and `@pulumi/aws` must stay external (loaded from
@@ -52,14 +53,14 @@ export default defineConfig({
         //
         // Two mechanisms now cover these two packages, and the overlap is
         // deliberate:
-        //  - `externalizeDepsPlugin()` externalizes every root package.json
+        //  - `build.externalizeDeps` externalizes every root package.json
         //    `dependencies` entry, adding both the bare name and a
         //    `^(name1|name2)/.+` subpath regex. The root manifest declares these
         //    two packages (electron-builder only copies node_modules belonging
         //    to the app manifest's production dependency tree, and the `files`
-        //    whitelist can narrow that set but never add to it), so the plugin
+        //    whitelist can narrow that set but never add to it), so this option
         //    covers them — including subpaths. When the root manifest had no
-        //    `dependencies` at all, the plugin externalized *nothing*, which is
+        //    `dependencies` at all, it externalized *nothing*, which is
         //    why the exact-match string was the only rule in force and the
         //    subpath got bundled.
         //  - this array, which is authoritative regardless of what the root
@@ -121,8 +122,8 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
+      externalizeDeps: true,
       rollupOptions: {
         input: r('app/packages/desktop-preload/src/preload.ts'),
         output: {
