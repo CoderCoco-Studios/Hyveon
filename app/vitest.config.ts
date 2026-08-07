@@ -123,7 +123,7 @@ export default defineConfig({
       ],
       // text: printed to console after each run.
       // lcov: machine-readable format; available for future Codecov integration.
-      reporter: ['text', 'lcov'],
+      reporter: ['text', 'lcov', 'cobertura'],
       reportsDirectory: './coverage',
       thresholds: {
         statements: 80,
