@@ -33,6 +33,12 @@ static link, not a deep link with pre-filled date ranges or service filters
 (AWS's query-param format for that is undocumented and could change silently).
 Pick your own date range and filters once there.
 
+Every resource Hyveon creates is tagged `Project=hyveon`. Activate the
+**Project** tag under **AWS Billing → Cost allocation tags** so you can filter
+the console down to a Hyveon-only view — without it, Cost Explorer shows
+account-wide ECS/Fargate spend, which includes any other ECS or Fargate
+workloads in the same account.
+
 ## Per-game estimates
 
 A table of what each game costs to run, computed from its declared Fargate
