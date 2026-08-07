@@ -19,9 +19,7 @@ import {
  * methods (`startWorkload`/`stopWorkload`/`getWorkloadStatus`/
  * `streamWorkloadLogs`/`getCostEstimate`) are real `async`/async-generator
  * implementations, so their "no config supplied" branch is asserted via
- * `.rejects`/`.resolves` instead. `getActualCosts` performs a real Cost
- * Explorer call with no config-driven guard, so it isn't exercised by this
- * barrel-export smoke test — see `AwsCloudProvider.test.ts` for its coverage.
+ * `.rejects`/`.resolves` instead.
  * `AwsSecretsStore` is likewise a real Secrets-Manager-backed implementation
  * rather than a stub, so only its constructibility is asserted here — see
  * `AwsSecretsStore.test.ts` for behavioural coverage of `get`/`put`/`exists`.

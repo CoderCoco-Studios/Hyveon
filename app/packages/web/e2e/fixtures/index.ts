@@ -4,7 +4,6 @@ import type {
   CostEstimates,
   EnvInfo,
   ActionResult,
-  ActualCosts,
   DiscordConfigRedacted,
   GameListEntry,
   DriftReport,
@@ -15,7 +14,6 @@ import {
   STOPPED_GAME,
   COST_DATA,
   CONFIGURED_DISCORD_CONFIG,
-  makeActualCosts,
 } from './game-data.js';
 import { AppLayout, DashboardPage, CostsPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
 import { installHyveonHttpBridge } from './hyveon-http-bridge.js';
@@ -25,7 +23,6 @@ export type {
   CostEstimates,
   EnvInfo,
   ActionResult,
-  ActualCosts,
   DiscordConfigRedacted,
   GameListEntry,
   DriftReport,
@@ -39,8 +36,6 @@ export {
   ERROR_GAME,
   COST_DATA,
   MULTI_GAME_COST_DATA,
-  ACTUAL_COSTS,
-  makeActualCosts,
   FIRST_RUN_DISCORD_CONFIG,
   CONFIGURED_DISCORD_CONFIG,
   VALID_GUILD_ID,
@@ -56,13 +51,6 @@ export interface StubOptions {
   statuses?: GameStatus[];
   /** Cost estimates returned by `GET /api/costs/estimate`. */
   costs?: CostEstimates;
-  /**
-   * Either a fixed `ActualCosts` payload returned for every `GET /api/costs/actual`
-   * call, or a builder receiving the `days` query param so a spec can return
-   * different totals per window (the Costs page calls both `days` and `days*2`).
-   * Defaults to `makeActualCosts(days)` so the prior-period delta is non-zero.
-   */
-  actualCosts?: ActualCosts | ((days: number) => ActualCosts);
   /** Env info returned by `GET /api/env`. */
   env?: EnvInfo;
   /** Override for `POST /api/start/:game` response. */
@@ -140,12 +128,6 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   const games = opts.games ?? statuses.map((s) => s.game);
   const drift: DriftReport = opts.drift ?? { entries: [] };
   const logLines = opts.logLines ?? {};
-  const actualCostsFn: (days: number) => ActualCosts =
-    typeof opts.actualCosts === 'function'
-      ? opts.actualCosts
-      : opts.actualCosts !== undefined
-        ? () => opts.actualCosts as ActualCosts
-        : (days) => makeActualCosts(days);
   const auditFn: (opts: { limit?: number; before?: string }) => AuditPageResult =
     typeof opts.audit === 'function'
       ? opts.audit
@@ -176,18 +158,11 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
 
   await page.route('**/api/costs/estimate', (route) => route.fulfill({ json: costs }));
 
-  // Trailing `*` matches the `?days=N` query string — Playwright globs are
-  // matched against the full URL, and `*` (= `[^/]*`) covers query payloads
-  // that never contain a slash.
-  await page.route('**/api/costs/actual*', (route) => {
-    const days = parseInt(new URL(route.request().url()).searchParams.get('days') ?? '7', 10);
-    return route.fulfill({ json: actualCostsFn(days) });
-  });
-
   await page.route('**/api/drift', (route) => route.fulfill({ json: drift }));
 
-  // Trailing `*` matches the `?limit=&before=` query string, same as the
-  // costs/actual route above.
+  // Trailing `*` matches the `?limit=&before=` query string — Playwright
+  // globs are matched against the full URL, and `*` (= `[^/]*`) covers query
+  // payloads that never contain a slash.
   await page.route('**/api/audit*', (route) => {
     const url = new URL(route.request().url());
     const limitRaw = url.searchParams.get('limit');

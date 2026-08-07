@@ -1,8 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/cloud-aws';
-import type { CloudProvider } from '@hyveon/shared';
-import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
-import { logger } from '../logger.js';
 
 /** Per-game Fargate cost projection derived from its CPU/memory spec. */
 export interface GameEstimate {
@@ -20,27 +17,12 @@ export interface CostEstimates {
 }
 
 /**
- * Actual-billed-cost snapshot for the Cost Explorer tab. `error` is set when
- * the Cost Explorer call failed so the UI can show a message instead of
- * silently rendering zeros.
- */
-export interface ActualCosts {
-  daily: { date: string; cost: number }[];
-  total: number;
-  currency: string;
-  days: number;
-  error?: string;
-}
-
-/**
- * Produces the numbers that back the Cost Explorer tab: static Fargate
- * estimates derived from each game's task-definition CPU/memory, and the
- * actual billed total pulled from AWS Cost Explorer (ECS + Fargate only).
+ * Produces the numbers that back the Costs page: static Fargate estimates
+ * derived from each game's task-definition CPU/memory. The app makes no AWS
+ * Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`.
  */
 @Injectable()
 export class CostService {
-  constructor(@Inject(CLOUD_PROVIDER) private readonly provider: CloudProvider) {}
-
   /**
    * Translate a Fargate task's raw `cpu` (1024 = 1 vCPU) and `memory` (MiB)
    * into projected dollar costs. Pure arithmetic — no AWS calls — so it's
@@ -57,26 +39,5 @@ export class CostService {
       costPerDay24h: Math.round(hourly * 24 * 100) / 100,
       costPerMonth4hpd: Math.round(hourly * 4 * 30 * 100) / 100,
     };
-  }
-
-  /**
-   * Pull daily billed cost for ECS + Fargate over the trailing `days` window
-   * from Cost Explorer. Swallows errors into the returned `error` field so
-   * the UI can keep rendering the rest of the dashboard if Cost Explorer is
-   * unavailable or not yet enabled on the account.
-   */
-  async getActualCosts(days = 7): Promise<ActualCosts> {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-
-    try {
-      const { total, currency, breakdown } = await this.provider.getActualCosts({ start, end });
-      const daily = Object.entries(breakdown).map(([date, cost]) => ({ date, cost }));
-      return { daily, total, currency, days };
-    } catch (err) {
-      logger.error('Failed to fetch actual costs', { err });
-      return { daily: [], total: 0, currency: 'USD', days, error: String(err) };
-    }
   }
 }

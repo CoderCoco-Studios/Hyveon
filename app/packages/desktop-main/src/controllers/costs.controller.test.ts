@@ -30,8 +30,7 @@ function makeConfig(outputs: Partial<StackOutputs> | null = { gameNames: ['minec
 function makeCosts(): CostService {
   return {
     estimateForSpec: vi.fn().mockReturnValue(MOCK_ESTIMATE),
-    getActualCosts: vi.fn().mockResolvedValue({ daily: [], total: 0, currency: 'USD', days: 7 }),
-  } as unknown as CostService;
+  } as CostService;
 }
 
 /**
@@ -60,9 +59,9 @@ describe('CostsController', () => {
       expect(pattern).toEqual(['costs.estimate']);
     });
 
-    it('should register actual on the "costs.actual" IPC channel', () => {
-      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, CostsController.prototype.actual);
-      expect(pattern).toEqual(['costs.actual']);
+    it('should not register an actual handler', () => {
+      const controller = new CostsController(makeConfig(), makeCosts(), makeEcs());
+      expect('actual' in controller).toBe(false);
     });
   });
 
@@ -100,38 +99,6 @@ describe('CostsController', () => {
       const config = makeConfig({ gameNames: ['minecraft', 'palworld'] });
       const result = await new CostsController(config, makeCosts(), makeEcs()).estimate();
       expect(Object.keys(result.games)).toEqual(['minecraft', 'palworld']);
-    });
-  });
-
-  describe('actual', () => {
-    it('should default to 7 days when the payload is absent', () => {
-      const costs = makeCosts();
-      new CostsController(makeConfig(), costs, makeEcs()).actual(undefined);
-      expect(costs.getActualCosts).toHaveBeenCalledWith(7);
-    });
-
-    it('should parse a string days payload and forward the integer to CostService', () => {
-      const costs = makeCosts();
-      new CostsController(makeConfig(), costs, makeEcs()).actual('14');
-      expect(costs.getActualCosts).toHaveBeenCalledWith(14);
-    });
-
-    it('should accept a bare number payload from the IPC transport', () => {
-      const costs = makeCosts();
-      new CostsController(makeConfig(), costs, makeEcs()).actual(30);
-      expect(costs.getActualCosts).toHaveBeenCalledWith(30);
-    });
-
-    it('should return whatever CostService returns', async () => {
-      const costs = makeCosts();
-      vi.mocked(costs.getActualCosts).mockResolvedValue({
-        daily: [{ date: '2026-05-01', cost: 1.23 }],
-        total: 1.23,
-        currency: 'USD',
-        days: 7,
-      });
-      const result = await new CostsController(makeConfig(), costs, makeEcs()).actual('7');
-      expect(result).toMatchObject({ total: 1.23, currency: 'USD' });
     });
   });
 });

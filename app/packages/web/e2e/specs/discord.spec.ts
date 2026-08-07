@@ -82,9 +82,6 @@ async function seedBaseMocks(
     hyveon.__test.mock('costs.estimate', () =>
       Promise.resolve({ games: {}, totalPerHourIfAllOn: 0 }),
     );
-    hyveon.__test.mock('costs.actual', () =>
-      Promise.resolve({ daily: [], total: 0, currency: 'USD', days: 7 }),
-    );
   }, statuses);
 }
 

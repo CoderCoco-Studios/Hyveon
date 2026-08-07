@@ -28,8 +28,10 @@ export interface LogChunk {
 }
 
 /**
- * Cloud-agnostic cost snapshot. Shared return type for both forward-looking
- * estimates (getCostEstimate) and billed actuals (getActualCosts).
+ * Cloud-agnostic cost snapshot returned by `getCostEstimate` — a
+ * forward-looking Fargate cost projection derived from task-definition
+ * CPU/memory, not a billed-actuals lookup. The app makes no AWS Cost Explorer
+ * API calls; see `openspec/changes/remove-cost-explorer-calls`.
  */
 export interface CostBreakdown {
   /** Total cost across all items in the breakdown. */
@@ -37,12 +39,6 @@ export interface CostBreakdown {
   currency: string;
   /** Per-game or per-service cost keyed by name. */
   breakdown: Record<string, number>;
-}
-
-/** Closed date interval used by getActualCosts to scope the billing query. */
-export interface DateRange {
-  start: Date;
-  end: Date;
 }
 
 /**
@@ -56,7 +52,6 @@ export interface CloudProvider {
   getWorkloadStatus(game: string): Promise<WorkloadStatus>;
   streamWorkloadLogs(game: string, signal: AbortSignal): AsyncIterable<LogChunk>;
   getCostEstimate(): Promise<CostBreakdown>;
-  getActualCosts(range: DateRange): Promise<CostBreakdown>;
 }
 
 /**

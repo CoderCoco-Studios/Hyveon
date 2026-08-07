@@ -13,31 +13,29 @@ is in service of starting or stopping a server.
 
 ## The KPI strip
 
-Four tiles across the top. Each has a label, a large value, a small delta line
-underneath, and a seven-bar sparkline.
+Four tiles across the top. Each has a label, a large value, and a small
+delta line underneath.
 
 | Tile | Value | Delta line |
 |---|---|---|
 | **Servers running** | `2/5` — running over total declared | `all idle`, or `2 active` |
-| **Spend today** | `$3.71` | `+12.3% vs yesterday`. Green when spend went **down**, red when it went up |
-| **Forecast MTD** | `$48.20` — this month's spend extrapolated from the trailing daily average | `$418 all-on cap` — what a full month would cost with every server running 24/7 |
+| **Current run rate** | Sum of `$/hour` estimates across currently-running games, e.g. `$0.12` | `per hour` |
+| **Est. month cap** | `totalPerHourIfAllOn × 24 × days in the current month` — what a full month would cost with every server running 24/7, e.g. `$89.28` | `if every game ran all month` |
 | **Active alerts** | Count of games in the `error` state | `all healthy`, or `3 need attention` |
 
-### Em-dashes mean "no data", not zero
-
-The two cost tiles — **Spend today** and **Forecast MTD** — show an em-dash
-(`—`) rather than `$0.00` whenever Cost Explorer data is unavailable. That
-happens if Cost Explorer is not enabled on the account, if the app's IAM
-principal cannot call it, or if the call errored. Showing `$0.00` would
-falsely imply you spent nothing.
+Both cost tiles are computed entirely from the free per-game Fargate estimate
+(the `costs.estimate` IPC channel, already fetched for the game cards' `$ per hour` stat)
+and the current run state — **the app makes no AWS Cost Explorer API calls,
+ever**. There is no "no data" em-dash state for these tiles the way the old
+actuals-driven tiles had, because there is no external call that can fail:
+the underlying estimate is either available (from `costs.estimate`) or
+defaults to `$0.00`.
 
 **Servers running** shows an em-dash when no games are declared at all.
 **Active alerts** always shows a real number, including `0`.
 
-The cost figures are fetched **once when the page loads** and are not
-re-polled. Cost Explorer bills per request, so the dashboard deliberately
-makes one call and shares the result between the tiles. Reload the page to
-refresh them.
+For real dollars actually billed to your AWS account, see the
+[Costs page](/app/costs)'s link-out to the AWS Cost Explorer console.
 
 ## Game cards
 
@@ -260,6 +258,10 @@ intervals pass without a successful poll it turns into a red
 The **Refresh** button in the top bar forces every poller to run immediately.
 The `LIVE` pill next to it summarises the same health across all pollers.
 
-Note that the cost figures, the per-game cost estimates and the
-pending-changes banner are **not** part of that 20-second cycle — see the
-sections above for their own cadences.
+Note that the underlying per-game cost estimates (`costs.estimate`) are
+fetched once on mount, not part of that 20-second cycle — see
+[The KPI strip](#the-kpi-strip) above. The **Current run rate** and
+**Est. month cap** tiles still change every poll, though, since they're
+recomputed from the current run state each time. The pending-changes banner
+has its own separate cadence — see
+[The pending-changes banner](#the-pending-changes-banner) above.

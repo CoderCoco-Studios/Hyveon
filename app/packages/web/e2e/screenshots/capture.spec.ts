@@ -207,7 +207,7 @@ test('costs.png', async () => {
     await gotoRoute(win, '/costs');
     await disableMotion(win);
     await expect(win.getByRole('heading', { name: 'Cost Analysis' })).toBeVisible();
-    await expect(win.getByText('Daily spend, stacked by game')).toBeVisible();
+    await expect(win.getByRole('link', { name: /Open AWS Cost Explorer/i })).toBeVisible();
     await shot(win, 'costs.png');
   } finally {
     await app.close();

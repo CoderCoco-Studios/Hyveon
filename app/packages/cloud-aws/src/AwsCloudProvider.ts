@@ -9,11 +9,9 @@ import {
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
-import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
 import type {
   CloudProvider,
   CostBreakdown,
-  DateRange,
   LogChunk,
   StartOpts,
   WorkloadHandle,
@@ -154,9 +152,10 @@ export interface AwsCloudProviderLogger {
  * `getConfig` callback instead of `ConfigService`.
  *
  * `streamWorkloadLogs` reproduces `LogsService.streamLogs`'s CloudWatch Logs
- * polling behaviour (see the method for details). `getCostEstimate` and
- * `getActualCosts` reproduce the previous `CostService`'s Fargate-pricing
- * estimate and Cost Explorer billed-actuals lookup respectively.
+ * polling behaviour (see the method for details). `getCostEstimate`
+ * reproduces the previous `CostService`'s Fargate-pricing estimate. The
+ * app makes no AWS Cost Explorer API calls, ever — see
+ * `openspec/changes/remove-cost-explorer-calls`.
  */
 export class AwsCloudProvider implements CloudProvider {
   private ecsClient: ECSClient | null = null;
@@ -165,7 +164,6 @@ export class AwsCloudProvider implements CloudProvider {
   private ec2ClientRegion: string | null = null;
   private logsClient: CloudWatchLogsClient | null = null;
   private logsClientRegion: string | null = null;
-  private costExplorerClient: CostExplorerClient | null = null;
 
   /**
    * Per-game tail of the in-flight critical-section chain, used by {@link
@@ -243,18 +241,6 @@ export class AwsCloudProvider implements CloudProvider {
       this.logsClientRegion = region;
     }
     return this.logsClient;
-  }
-
-  /**
-   * Lazily constructs the Cost Explorer client, always pinned to `us-east-1`
-   * regardless of `config.region` — Cost Explorer is only available in that
-   * region, matching the previous `CostService.getClient`'s hardcoded region.
-   */
-  private getCostExplorerClient(): CostExplorerClient {
-    if (!this.costExplorerClient) {
-      this.costExplorerClient = new CostExplorerClient({ region: 'us-east-1' });
-    }
-    return this.costExplorerClient;
   }
 
   /**
@@ -581,54 +567,5 @@ export class AwsCloudProvider implements CloudProvider {
 
     const total = Object.values(breakdown).reduce((sum, cost) => sum + cost, 0);
     return { total: Math.round(total * 10000) / 10000, currency: 'USD', breakdown };
-  }
-
-  /**
-   * Retrieves billed actual costs over a given date range.
-   *
-   * Reproduces the previous `CostService.getActualCosts`'s Cost Explorer
-   * query (`GetCostAndUsageCommand` filtered to ECS + Fargate,
-   * `Granularity: 'DAILY'`), with `breakdown` keyed by ISO date
-   * (`r.TimePeriod?.Start`) and each entry set to that day's
-   * `UnblendedCost`, rounded to 4 decimal places — matching the previous
-   * `CostService.getActualCosts`'s per-day breakdown exactly. `total` is the
-   * sum across the whole range. Unlike the previous service, this method
-   * does **not** swallow failures — Cost Explorer/SDK errors propagate to the
-   * caller unchanged so provider-agnostic callers can decide how to surface
-   * them.
-   *
-   * @param range - The date range to scope the billing query.
-   */
-  async getActualCosts(range: DateRange): Promise<CostBreakdown> {
-    const fmt = (d: Date) => d.toISOString().split('T')[0]!;
-
-    const resp = await this.getCostExplorerClient().send(
-      new GetCostAndUsageCommand({
-        TimePeriod: { Start: fmt(range.start), End: fmt(range.end) },
-        Granularity: 'DAILY',
-        Filter: {
-          Dimensions: {
-            Key: 'SERVICE',
-            Values: ['Amazon Elastic Container Service', 'AWS Fargate'],
-          },
-        },
-        Metrics: ['UnblendedCost'],
-      }),
-    );
-
-    const breakdown: Record<string, number> = {};
-    let total = 0;
-    for (const r of resp.ResultsByTime ?? []) {
-      const day = r.TimePeriod?.Start ?? '';
-      const cost = parseFloat(r.Total?.['UnblendedCost']?.Amount ?? '0');
-      breakdown[day] = Math.round(cost * 10000) / 10000;
-      total += cost;
-    }
-
-    return {
-      total: Math.round(total * 100) / 100,
-      currency: 'USD',
-      breakdown,
-    };
   }
 }

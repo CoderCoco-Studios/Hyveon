@@ -35,15 +35,6 @@ export interface CostEstimates {
   totalPerHourIfAllOn: number;
 }
 
-/** Actual daily AWS Cost Explorer spend returned by `GET /api/costs/actual`. */
-export interface ActualCosts {
-  daily: { date: string; cost: number }[];
-  total: number;
-  currency: string;
-  days: number;
-  error?: string;
-}
-
 /**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
@@ -450,7 +441,6 @@ export const api = {
   start: async (game: string): Promise<ActionResult> => hyveon().games.start(game),
   stop: async (game: string): Promise<ActionResult> => hyveon().games.stop(game),
   costsEstimate: async (): Promise<CostEstimates> => hyveon().costs.estimate(),
-  costsActual: async (days = 7): Promise<ActualCosts> => hyveon().costs.actual(days),
   filesMgrStatus: async (game: string): Promise<FileMgrStatus> => hyveon().files.list(game),
   filesMgrStart: async (game: string): Promise<FileMgrResult> => hyveon().files.start(game),
   filesMgrStop: async (game: string): Promise<FileMgrResult> => hyveon().files.stop(game),

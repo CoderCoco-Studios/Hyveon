@@ -167,8 +167,8 @@ test.describe('dashboard', () => {
     await dashboard.gotoElectron();
 
     await expect(dashboard.kpiTileLabel('Servers running')).toBeVisible();
-    await expect(dashboard.kpiTileLabel('Spend today')).toBeVisible();
-    await expect(dashboard.kpiTileLabel('Forecast MTD')).toBeVisible();
+    await expect(dashboard.kpiTileLabel('Current run rate')).toBeVisible();
+    await expect(dashboard.kpiTileLabel('Est. month cap')).toBeVisible();
     await expect(dashboard.kpiTileLabel('Active alerts')).toBeVisible();
     // 1 of 2 games are running in MULTI_GAME_STATUSES (valheim).
     await expect(dashboard.serversRunningValue('1/2')).toBeVisible();
