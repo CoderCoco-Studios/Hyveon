@@ -126,6 +126,15 @@ export default defineConfig({
       externalizeDeps: true,
       rollupOptions: {
         input: r('app/packages/desktop-preload/src/preload.ts'),
+        output: {
+          // Without an explicit format, electron-vite infers it from the
+          // root package.json's "type" field — now "module" — and would
+          // emit ESM here. Electron's sandboxed preload (see
+          // electron-entry.ts) only supports CommonJS, so pin `cjs` and
+          // give it a `.cjs` extension to keep Node's parser honest too.
+          format: 'cjs',
+          entryFileNames: 'preload.cjs',
+        },
       },
       sourcemap: true,
     },

@@ -45,10 +45,12 @@ function createWindow(): void {
     height: 800,
     ...(icon ? { icon } : {}),
     webPreferences: {
-      // electron-vite names the preload bundle after the input file, so the
-      // output lands at out/preload/preload.js. __dirname here resolves to
-      // out/main, so we go one level up.
-      preload: path.join(__dirname, '../preload/preload.js'),
+      // electron-vite names the preload bundle after the input file, and
+      // electron.vite.config.ts forces a .cjs extension so Node parses it
+      // as CommonJS even though the root package.json is "type": "module" —
+      // so the output lands at out/preload/preload.cjs. __dirname here
+      // resolves to out/main, so we go one level up.
+      preload: path.join(__dirname, '../preload/preload.cjs'),
       contextIsolation: true,
       sandbox: true,
     },
