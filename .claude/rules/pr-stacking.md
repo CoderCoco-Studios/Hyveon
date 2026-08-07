@@ -75,7 +75,7 @@ diff in flight.
     `costexplorer-2-backend`, which pulled forward 4 of a later PR's 5
     e2e tests rather than leaving the file's import broken). Verify with
     the actual gate command's exit code
-    (`npm run app:test:e2e; echo $?`), not by skimming which failures
+    (`npm run app:test:e2e; status=$?; echo "$status"; exit "$status"`), not by skimming which failures
     look expected — and check the PR's live CI run after pushing, since a
     clean local run doesn't guarantee the same is true in CI.
 - **Documentation updates can land in a dedicated, later PR in the same
