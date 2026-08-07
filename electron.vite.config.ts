@@ -113,6 +113,11 @@ export default defineConfig({
           entryFileNames: 'index.js',
         },
       },
+      // Emitted as separate `.js.map` files alongside each bundle so a
+      // stack trace from a running (dev or packaged) build — main, preload,
+      // or renderer — can be mapped back to real TypeScript source instead
+      // of a minified bundle line/column.
+      sourcemap: true,
     },
   },
   preload: {
@@ -121,6 +126,7 @@ export default defineConfig({
       rollupOptions: {
         input: r('app/packages/desktop-preload/src/preload.ts'),
       },
+      sourcemap: true,
     },
   },
   renderer: {
@@ -135,6 +141,7 @@ export default defineConfig({
       rollupOptions: {
         input: r('app/packages/web/index.html'),
       },
+      sourcemap: true,
     },
   },
 });
