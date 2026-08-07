@@ -135,8 +135,12 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
   // operator-editable at this point in the wizard (no `DeploymentConfig`
   // exists yet to hold a `runsTableName` override; see
   // `WizardController.bootstrapRunsTable`'s own doc comment), so it has no
-  // matching entry in `resourceNames`. Never gates `bootstrapComplete` below
-  // — it runs alongside the two bucket calls, not as a blocking prerequisite.
+  // matching entry in `resourceNames`. Runs alongside the two bucket calls
+  // (not chained after them), but its outcome DOES gate `bootstrapComplete`
+  // below — the table is required before the first Pulumi apply can ever
+  // complete (see `BootstrapService.ensureRunsTable`'s doc comment), so
+  // letting the operator advance past a failed table leaves the install
+  // broken until they notice and come back.
   const [runsTableStatus, setRunsTableStatus] = useState<BootstrapResourceState>('pending');
   const [runsTableMessage, setRunsTableMessage] = useState<string | undefined>(undefined);
   // The initial `deployment-config.json` seed (the fresh-install-bricking
@@ -654,9 +658,14 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
     }
   }
 
-  const bootstrapComplete = (['stateBucket', 'configurationBucket'] as BootstrapResourceKey[]).every(
-    (resource) => resourceStatuses[resource] === 'created' || resourceStatuses[resource] === 'exists',
-  );
+  const isResourceDone = (status: BootstrapResourceState) => status === 'created' || status === 'exists';
+
+  const bootstrapComplete =
+    (['stateBucket', 'configurationBucket'] as BootstrapResourceKey[]).every((resource) =>
+      isResourceDone(resourceStatuses[resource]),
+    ) &&
+    isResourceDone(runsTableStatus) &&
+    isResourceDone(deploymentConfigStatus);
 
   // Requires a non-empty region in both modes — this is persisted verbatim
   // (via `wizard.state.save({ aws: { profile, region } })` in `goNext`
