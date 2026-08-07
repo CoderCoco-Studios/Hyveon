@@ -49,6 +49,7 @@ function makeMockStore(): Store<AppStoreSchema> {
   return {
     get: vi.fn(),
     set: vi.fn(),
+    delete: vi.fn(),
   } as unknown as Store<AppStoreSchema>;
 }
 
@@ -84,6 +85,19 @@ describe('ElectronStoreService — non-Electron path (Map fallback)', () => {
     service.set('aws', awsValue);
 
     expect(service.get('aws')).toEqual(awsValue);
+  });
+
+  it('should remove a key from Map fallback on delete', () => {
+    service.set('wizardCompleted', true);
+
+    service.delete('wizardCompleted');
+
+    expect(service.get('wizardCompleted')).toBeUndefined();
+  });
+
+  it('should be a no-op deleting a key that was never set in Map fallback', () => {
+    expect(() => service.delete('activeCloud')).not.toThrow();
+    expect(service.get('activeCloud')).toBeUndefined();
   });
 });
 
@@ -127,6 +141,12 @@ describe('ElectronStoreService — Electron path (mocked Store)', () => {
     service.set('wizardCompleted', true);
 
     expect(mockStore.set).toHaveBeenCalledWith('wizardCompleted', true);
+  });
+
+  it('should call store.delete when running in Electron', () => {
+    service.delete('activeCloud');
+
+    expect(mockStore.delete).toHaveBeenCalledWith('activeCloud');
   });
 });
 

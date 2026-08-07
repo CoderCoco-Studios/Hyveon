@@ -1456,6 +1456,15 @@ export interface HyveonWizardApi {
    */
   complete: () => Promise<WizardState>;
   /**
+   * Resets the wizard back to its pre-first-run state: clears the resumable
+   * step-progress file and every wizard-collected answer (`wizardCompleted`,
+   * `activeCloud`, `aws`, `bootstrap`, pasted credentials) from durable
+   * storage. Does not touch Pulumi stack state. Returns the same shape as
+   * {@link getState}. The operator-facing escape hatch for a wizard stuck in
+   * a bad state.
+   */
+  reset: () => Promise<WizardState>;
+  /**
    * Renders the `iam-bootstrap.yaml` CloudFormation template shell to disk
    * (policy documents substituted in) and returns the path to display to the
    * operator.

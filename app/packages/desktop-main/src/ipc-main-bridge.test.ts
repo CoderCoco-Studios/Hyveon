@@ -10,10 +10,11 @@ import { BridgedElectronIPCTransport, registerIpcMainBridges, SELF_BRIDGED_PATTE
  * Captures every `ipcMain.handle` / `ipcMain.removeHandler` call so tests can
  * assert on bridge registration without a real Electron main process.
  */
-const { mockIpcMainHandle, mockIpcMainRemoveHandler } = vi.hoisted(() => {
+const { mockIpcMainHandle, mockIpcMainRemoveHandler, mockLoggerError } = vi.hoisted(() => {
   const mockIpcMainHandle = vi.fn();
   const mockIpcMainRemoveHandler = vi.fn();
-  return { mockIpcMainHandle, mockIpcMainRemoveHandler };
+  const mockLoggerError = vi.fn();
+  return { mockIpcMainHandle, mockIpcMainRemoveHandler, mockLoggerError };
 });
 
 vi.mock('electron', () => ({
@@ -21,6 +22,10 @@ vi.mock('electron', () => ({
     handle: mockIpcMainHandle,
     removeHandler: mockIpcMainRemoveHandler,
   },
+}));
+
+vi.mock('./logger.js', () => ({
+  logger: { error: mockLoggerError },
 }));
 
 // ---------------------------------------------------------------------------
@@ -189,5 +194,76 @@ describe('registerIpcMainBridges', () => {
 
     expect(mockIpcMainHandle).not.toHaveBeenCalled();
     expect(mockIpcMainRemoveHandler).not.toHaveBeenCalled();
+  });
+
+  it('should resolve with the handler result unchanged when the handler succeeds', async () => {
+    const { transport, handlers } = makeTransport(['games.list']);
+    vi.mocked(handlers.get('games.list')!).mockResolvedValue({ ok: true });
+
+    await registerIpcMainBridges(transport);
+    const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+      ([pattern]) => pattern === 'games.list',
+    ) as [string, (evt: unknown, payload: unknown) => unknown];
+
+    await expect(registeredCallback({ sender: {} }, {})).resolves.toEqual({ ok: true });
+    expect(mockLoggerError).not.toHaveBeenCalled();
+  });
+
+  it('should normalize an Error with non-cloneable custom fields to a plain, cloneable Error and log it', async () => {
+    const { transport, handlers } = makeTransport(['wizard.guidedIam.submitBootstrapKey']);
+    // Mirrors an AWS SDK exception: extends Error but carries non-plain
+    // fields ($metadata, symbol-keyed internals) that fail Electron's
+    // structured-clone — the exact shape that produced the reported hang.
+    const awsLikeError = Object.assign(new Error('The security token included in the request is invalid.'), {
+      $metadata: { httpStatusCode: 403 },
+      Code: 'InvalidClientTokenId',
+    });
+    vi.mocked(handlers.get('wizard.guidedIam.submitBootstrapKey')!).mockRejectedValue(awsLikeError);
+
+    await registerIpcMainBridges(transport);
+    const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+      ([pattern]) => pattern === 'wizard.guidedIam.submitBootstrapKey',
+    ) as [string, (evt: unknown, payload: unknown) => unknown];
+
+    let caught: unknown;
+    try {
+      await registeredCallback({ sender: {} }, {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('The security token included in the request is invalid.');
+    // The exact bug this normalization prevents: the raw AWS SDK error's
+    // non-plain fields must not survive onto the value handed back to
+    // Electron, which is what fails structured-clone.
+    expect(Object.keys(caught as Error)).not.toContain('$metadata');
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.stringContaining('wizard.guidedIam.submitBootstrapKey'),
+      expect.objectContaining({ pattern: 'wizard.guidedIam.submitBootstrapKey' }),
+    );
+  });
+
+  it('should normalize a non-Error, non-object rejection to a plain Error via String()', async () => {
+    const { transport, handlers } = makeTransport(['games.list']);
+    vi.mocked(handlers.get('games.list')!).mockRejectedValue('a bare string rejection');
+
+    await registerIpcMainBridges(transport);
+    const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+      ([pattern]) => pattern === 'games.list',
+    ) as [string, (evt: unknown, payload: unknown) => unknown];
+
+    await expect(registeredCallback({ sender: {} }, {})).rejects.toThrow('a bare string rejection');
+  });
+
+  it('should preserve the message from an error-like object rejection instead of stringifying it', async () => {
+    const { transport, handlers } = makeTransport(['games.list']);
+    vi.mocked(handlers.get('games.list')!).mockRejectedValue({ message: 'error-like object rejection' });
+
+    await registerIpcMainBridges(transport);
+    const [, registeredCallback] = mockIpcMainHandle.mock.calls.find(
+      ([pattern]) => pattern === 'games.list',
+    ) as [string, (evt: unknown, payload: unknown) => unknown];
+
+    await expect(registeredCallback({ sender: {} }, {})).rejects.toThrow('error-like object rejection');
   });
 });
