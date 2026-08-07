@@ -64,14 +64,22 @@
       test behavior — from `web/e2e/fixtures/game-data.ts`, `index.ts`,
       `hyveon-http-bridge.ts`, `electron-launch.ts`, and
       `web/e2e/screenshots/demo-data.ts` (= old items 3.1 and 3.3b, done
-      here instead). `web/e2e/specs/costs.spec.ts` is deliberately NOT
-      included — it needs a real rewrite depending on PR 3's Task 18
-      page-object locator, not a pure deletion; left as PR 2's one
-      documented typecheck exception, fixed by 3.2 below.
-- [x] 2.7 Run `npm run app:lint`, `npm run app:typecheck` (clean except the
-      documented `costs.spec.ts` exception above), `npm run
+      here instead).
+- [x] 2.6b Removing `makeActualCosts`/`ActualCosts` from the fixtures
+      barrel (2.6a) broke `web/e2e/specs/costs.spec.ts`'s top-level import —
+      a hard module-load `SyntaxError` that crashed the *entire*
+      `app:test:e2e` run, not just this file's own tests (a documented
+      "typecheck exception" isn't good enough for a crash — no PR may ship
+      with a broken build, full stop). Fixed by applying 4 of PR 3's Task
+      19 tests early (heading render, default sort, re-sort, filter — none
+      depend on removed UI or on PR 3's Task 18 page-object locator). The
+      5th test ("should link out to the AWS Cost Explorer console") stays
+      in PR 3 — it needs `CostsPage.costExplorerLink()`, added there.
+- [x] 2.7 Run `npm run app:lint`, `npm run app:typecheck`, `npm run
       app:test`, `npm run app:test:integration` (controller/IPC surface
-      changed) — all clean.
+      changed), `npm run app:test:e2e` — all clean, zero skips beyond the
+      1 already-fixme'd `dashboard.spec.ts` test from PR 1 (fixed for real
+      in PR 3).
 - [x] 2.8 Open PR `costexplorer-2-backend` against `costexplorer-1-frontend`.
       → [#431](https://github.com/CoderCoco/Hyveon/pull/431)
 
