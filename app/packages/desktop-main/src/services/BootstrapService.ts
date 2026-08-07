@@ -17,6 +17,7 @@ import {
   CreateTableCommand,
   DescribeTableCommand,
   UpdateContinuousBackupsCommand,
+  ContinuousBackupsUnavailableException,
   ResourceInUseException,
   waitUntilTableExists,
 } from '@aws-sdk/client-dynamodb';
@@ -25,6 +26,7 @@ import { CONFIGURATION_OBJECT_KEY, withDeploymentConfigDefaults } from '@hyveon/
 import { logger } from '../logger.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsCredentialSource } from './awsCredentialSource.js';
+import { sleep } from './sleep.js';
 
 /**
  * How many days a noncurrent configuration-bucket object version is retained
@@ -42,6 +44,18 @@ const CONFIGURATION_NONCURRENT_VERSION_EXPIRATION_DAYS = 90;
  * risking the wizard step hanging indefinitely on a genuinely stuck table.
  */
 const RUNS_TABLE_WAIT_TIMEOUT_SECONDS = 60;
+
+/**
+ * Backoff schedule for retrying `UpdateContinuousBackupsCommand` when AWS
+ * rejects it with `ContinuousBackupsUnavailableException` ("Backups are
+ * being enabled for the table"). This can happen even after
+ * {@link waitUntilTableExists} has confirmed `ACTIVE` — DynamoDB's backup
+ * infrastructure for a table is provisioned asynchronously and can lag
+ * `ACTIVE` status by a few seconds. 4 delays (5 total attempts), summing to
+ * ~30s worst case, absorbs that lag without treating a spuriously-failing,
+ * otherwise-healthy table as a hard failure.
+ */
+const RUNS_TABLE_BACKUPS_RETRY_DELAYS_MS: readonly number[] = [2000, 4000, 8000, 15000];
 
 /**
  * The credentials/region shape shared by every wizard-bootstrap SDK client
@@ -113,7 +127,7 @@ export class BootstrapService {
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureStateBucket: createBucket failed', {
+      logger.error('BootstrapService.ensureStateBucket: createBucket failed', {
         bucketName,
         error: this.describeError(err),
       });
@@ -143,7 +157,7 @@ export class BootstrapService {
 
       await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureStateBucket: post-create configuration failed', {
+      logger.error('BootstrapService.ensureStateBucket: post-create configuration failed', {
         bucketName,
         error: this.describeError(err),
       });
@@ -175,7 +189,7 @@ export class BootstrapService {
     try {
       created = await this.createBucket(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureConfigurationBucket: createBucket failed', {
+      logger.error('BootstrapService.ensureConfigurationBucket: createBucket failed', {
         bucketName,
         error: this.describeError(err),
       });
@@ -227,7 +241,7 @@ export class BootstrapService {
 
       await this.ensurePublicAccessBlock(client, bucketName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureConfigurationBucket: post-create configuration failed', {
+      logger.error('BootstrapService.ensureConfigurationBucket: post-create configuration failed', {
         bucketName,
         error: this.describeError(err),
       });
@@ -317,7 +331,7 @@ export class BootstrapService {
       logger.debug('BootstrapService.ensureDeploymentConfig: initial document seeded', { bucketName });
       return { status: 'created' };
     } catch (err) {
-      logger.warn('BootstrapService.ensureDeploymentConfig: failed', {
+      logger.error('BootstrapService.ensureDeploymentConfig: failed', {
         bucketName,
         error: this.describeError(err),
       });
@@ -398,7 +412,7 @@ export class BootstrapService {
     try {
       created = await this.createRunsTable(client, tableName);
     } catch (err) {
-      logger.warn('BootstrapService.ensureRunsTable: createRunsTable failed', {
+      logger.error('BootstrapService.ensureRunsTable: createRunsTable failed', {
         tableName,
         error: this.describeError(err),
       });
@@ -413,17 +427,20 @@ export class BootstrapService {
         tableName,
         elapsedMs: Date.now() - startedAt,
       });
+    } catch (err) {
+      logger.error('BootstrapService.ensureRunsTable: table did not reach ACTIVE status', {
+        tableName,
+        error: this.describeError(err),
+      });
+      return { status: 'failed', message: this.describeError(err) };
+    }
 
+    try {
       logger.debug('BootstrapService.ensureRunsTable: enabling point-in-time recovery', { tableName });
-      await client.send(
-        new UpdateContinuousBackupsCommand({
-          TableName: tableName,
-          PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
-        }),
-      );
+      await this.enableContinuousBackupsWithRetry(client, tableName);
       logger.debug('BootstrapService.ensureRunsTable: point-in-time recovery enabled', { tableName });
     } catch (err) {
-      logger.warn('BootstrapService.ensureRunsTable: post-create configuration failed', {
+      logger.error('BootstrapService.ensureRunsTable: failed to enable point-in-time recovery', {
         tableName,
         error: this.describeError(err),
       });
@@ -432,6 +449,44 @@ export class BootstrapService {
 
     logger.debug('BootstrapService.ensureRunsTable: done', { tableName, status: created ? 'created' : 'exists' });
     return { status: created ? 'created' : 'exists' };
+  }
+
+  /**
+   * Sends `UpdateContinuousBackupsCommand` for `tableName`, retrying with
+   * backoff (see {@link RUNS_TABLE_BACKUPS_RETRY_DELAYS_MS}) only when AWS
+   * rejects with `ContinuousBackupsUnavailableException` — a transient
+   * condition, not a real failure (see that constant's doc comment). Any
+   * other error, or exhausting all retries, rethrows immediately so a real
+   * failure (e.g. permission denial) is reported without waiting out the
+   * full backoff schedule first.
+   */
+  private async enableContinuousBackupsWithRetry(client: DynamoDBClient, tableName: string): Promise<void> {
+    const delaysMs = RUNS_TABLE_BACKUPS_RETRY_DELAYS_MS;
+    const totalAttempts = delaysMs.length + 1;
+
+    for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+      try {
+        await client.send(
+          new UpdateContinuousBackupsCommand({
+            TableName: tableName,
+            PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+          }),
+        );
+        return;
+      } catch (err) {
+        if (!(err instanceof ContinuousBackupsUnavailableException) || attempt === totalAttempts) {
+          throw err;
+        }
+        const delayMs = delaysMs[attempt - 1]!;
+        logger.warn('BootstrapService.ensureRunsTable: continuous backups not yet available, retrying', {
+          tableName,
+          attempt,
+          totalAttempts,
+          delayMs,
+        });
+        await this.sleep(delayMs);
+      }
+    }
   }
 
   /**
@@ -519,6 +574,18 @@ export class BootstrapService {
    */
   protected createDynamoDbClient(): DynamoDBClient {
     return new DynamoDBClient(this.resolveClientConfig());
+  }
+
+  /**
+   * Sleep for `ms` milliseconds, delegating to the shared `sleep` utility
+   * (`./sleep.js`) — mirrors `GuidedIamService`'s identical seam. Extracted
+   * as a protected method so {@link enableContinuousBackupsWithRetry}'s
+   * retry loop can be tested without waiting out real backoff delays.
+   *
+   * @param ms - Milliseconds to sleep for.
+   */
+  protected sleep(ms: number): Promise<void> {
+    return sleep(ms);
   }
 
   /**
