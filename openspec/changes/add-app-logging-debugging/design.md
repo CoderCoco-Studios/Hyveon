@@ -91,10 +91,10 @@ each entry to a winston level and writes one log line per entry:
 added, matching the "use debug/silly as-is" decision from proposal.md).
 Each line reads `renderer console (${level}): ${message}`, distinguishing
 it at a glance from the existing `renderer error (${source}): ${message}`
-crash lines. A `droppedCount` (batch-cap overflow, queue-cap overflow, or
-both, combined into one number) is logged as a single
-`renderer console: ${n} entries dropped (batch cap exceeded)` warning line
-per flush, not one line per dropped entry.
+crash lines. A `droppedCount` (entries that never fit in the 200-entry
+pending queue — see Decision 2 — combined into one number) is logged as a
+single `renderer console: ${n} entries dropped (queue capacity exceeded)`
+warning line per flush, not one line per dropped entry.
 
 Splitting into a new channel rather than widening the existing one was
 chosen over a discriminated-union refactor of `diagnostics.reportError`
@@ -130,9 +130,18 @@ the queue, shipped exactly as follows (`report-renderer-error.utils.ts`):
 - **`MAX_QUEUE_SIZE = 200`** — the only point data is actually dropped.
   `enqueue()` refuses to push once the queue holds 200 entries and instead
   increments `droppedSinceLastFlush`, which the next flush reports as a
-  single `renderer console: ${n} entries dropped (batch cap exceeded)`
+  single `renderer console: ${n} entries dropped (queue capacity exceeded)`
   warning line — one combined count per flush, never one line per dropped
   entry, and never conflated with the per-flush send cap above.
+
+A transient IPC failure (a rejected `diagnostics.reportLog` call) does not
+lose the batch either: `flush()`'s `.catch()` calls
+`requeueAfterFailedFlush()`, which puts the failed batch back at the front
+of the queue (oldest-first ordering preserved) and restores its
+`droppedCount`, bounded by the same `MAX_QUEUE_SIZE`. If the queue has since
+filled up during the failed round-trip, whatever no longer fits is counted
+as dropped rather than silently discarded or retried forever — the same
+combined "N entries dropped" reporting as any other queue-cap drop.
 
 Rationale: console statements are frequently emitted in tight loops or
 render cycles; forwarding every single call as its own IPC round-trip

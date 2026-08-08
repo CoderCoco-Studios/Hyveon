@@ -15,19 +15,20 @@ as `log → debug`, `info → info`, `warn → warn`, `error → error`, and
 written as `renderer console (${level}): ${message}`, distinguishable from
 the existing crash-only `renderer error (${source}): ${message}` lines.
 
-Forwarded entries MUST be queued client-side and bounded by two independent
-caps: a per-flush send cap that limits how many entries one
-`diagnostics.reportLog` call carries, and a pending-queue cap that bounds
-how many entries may be buffered awaiting a flush. Entries beyond the
-per-flush send cap MUST NOT be dropped — they remain queued and are sent on
-a subsequent flush. Only entries that arrive once the pending-queue cap is
+Forwarded entries MUST be queued client-side and flushed every 2,000 ms,
+bounded by two independent caps: a per-flush send cap of 50 entries that
+limits how many entries one `diagnostics.reportLog` call carries, and a
+pending-queue cap of 200 entries that bounds how many entries may be
+buffered awaiting a flush. Entries beyond the 50-entry per-flush send cap
+MUST NOT be dropped — they remain queued and are sent on a subsequent
+flush. Only entries that arrive once the 200-entry pending-queue cap is
 already full MAY be dropped, and when that happens the app MUST emit a
-single, explicit "N entries dropped" marker per flush rather than silently
-discarding them or emitting one marker line per dropped entry. This
-mechanism provides no automatic sanitization or redaction of console
-argument values — callers remain responsible for not logging secrets, per
-`.claude/rules/logging.md`, the same discipline already required of every
-other logged value in this codebase.
+single, explicit "N entries dropped (queue capacity exceeded)" marker per
+flush rather than silently discarding them or emitting one marker line per
+dropped entry. This mechanism provides no automatic sanitization or
+redaction of console argument values — callers remain responsible for not
+logging secrets, per `.claude/rules/logging.md`, the same discipline
+already required of every other logged value in this codebase.
 
 #### Scenario: A console.log call reaches the app log
 

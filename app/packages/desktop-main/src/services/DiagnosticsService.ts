@@ -118,7 +118,7 @@ export class DiagnosticsService {
 
     const totalDropped = (droppedCount ?? 0) + overflow;
     if (totalDropped > 0) {
-      logger.warn(`renderer console: ${totalDropped} entries dropped (batch cap exceeded)`);
+      logger.warn(`renderer console: ${totalDropped} entries dropped (queue capacity exceeded)`);
     }
   }
 }

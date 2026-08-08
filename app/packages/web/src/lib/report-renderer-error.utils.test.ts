@@ -308,4 +308,75 @@ describe('installConsoleForwarding', () => {
 
     await expect(vi.advanceTimersByTimeAsync(2_000)).resolves.not.toThrow();
   });
+
+  it('should requeue a failed flush and resend it on the next flush', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockRejectedValueOnce(new Error('ipc unavailable')).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('first attempt fails');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    expect(reportLog).toHaveBeenLastCalledWith([{ level: 'log', message: 'first attempt fails' }], undefined);
+  });
+
+  it('should restore the dropped count from a failed flush and combine it with later drops', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockRejectedValueOnce(new Error('ipc unavailable')).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    for (let i = 0; i < 205; i += 1) {
+      console.log(`entry ${i}`);
+    }
+    // First flush: sends 50, queue holds 150, 5 were dropped at enqueue time (queue cap 200). Fails.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    // Second flush: the failed 50 are requeued ahead of the 150 already queued (all fit under the
+    // 200 cap), so this flush resends the same first 50 along with the earlier drop count.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    const [, secondDropped] = reportLog.mock.calls[1] as [unknown[], number | undefined];
+    expect(secondDropped).toBe(5);
+  });
+
+  it('should count requeued entries that no longer fit under the queue cap as dropped', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let rejectFirstAttempt: (err: unknown) => void = () => undefined;
+    const firstAttempt = new Promise<void>((_resolve, reject) => {
+      rejectFirstAttempt = reject;
+    });
+    const reportLog = vi.fn().mockReturnValueOnce(firstAttempt).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('will fail and be requeued');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    // The first attempt is still pending — fill the queue to capacity before it rejects, so the
+    // requeue that follows has no room left for the failed entry.
+    for (let i = 0; i < 200; i += 1) {
+      console.log(`filler ${i}`);
+    }
+
+    rejectFirstAttempt(new Error('ipc unavailable'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    const [, secondDropped] = reportLog.mock.calls[1] as [unknown[], number | undefined];
+    expect(secondDropped).toBe(1);
+  });
 });

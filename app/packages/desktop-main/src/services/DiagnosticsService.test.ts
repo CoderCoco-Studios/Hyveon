@@ -207,7 +207,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
 
     service.logRendererConsoleBatch([{ level: 'log', message: 'fine' }], 4);
 
-    expect(logger.warn).toHaveBeenCalledWith('renderer console: 4 entries dropped (batch cap exceeded)');
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 4 entries dropped (queue capacity exceeded)');
   });
 
   it('should cap entries processed per batch and report the overflow as dropped', () => {
@@ -217,7 +217,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     service.logRendererConsoleBatch(entries);
 
     expect(logger.debug).toHaveBeenCalledTimes(200);
-    expect(logger.warn).toHaveBeenCalledWith('renderer console: 50 entries dropped (batch cap exceeded)');
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 50 entries dropped (queue capacity exceeded)');
   });
 
   it('should combine the batch-cap overflow with an already-reported droppedCount', () => {
@@ -226,7 +226,7 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
 
     service.logRendererConsoleBatch(entries, 10);
 
-    expect(logger.warn).toHaveBeenCalledWith('renderer console: 60 entries dropped (batch cap exceeded)');
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 60 entries dropped (queue capacity exceeded)');
   });
 
   it('should not throw for an empty entries array', () => {

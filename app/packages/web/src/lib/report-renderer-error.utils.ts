@@ -3,7 +3,7 @@ import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/desktop-pre
 /** How often queued console entries are flushed to the main process. */
 const FLUSH_INTERVAL_MS = 2_000;
 
-/** Maximum entries sent in a single flush; the rest of that flush's queue is dropped and counted. */
+/** Maximum entries sent in a single flush; anything past this stays queued for a later flush. */
 const MAX_BATCH_ENTRIES = 50;
 
 /** Hard cap on entries buffered between flushes, bounding memory if console output bursts faster than the flush interval. */
@@ -38,11 +38,26 @@ function enqueue(level: RendererConsoleLevel, message: string): void {
 }
 
 /**
+ * Puts a failed flush's batch back at the front of the queue (oldest first)
+ * and restores its dropped-count, bounded by {@link MAX_QUEUE_SIZE} — a
+ * transient IPC failure must not silently lose entries that were otherwise
+ * safely within the queue cap.
+ */
+function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: number): void {
+  const spaceLeft = Math.max(0, MAX_QUEUE_SIZE - queue.length);
+  const toRequeue = entries.slice(0, spaceLeft);
+  const overflow = entries.length - toRequeue.length;
+  queue = [...toRequeue, ...queue];
+  droppedSinceLastFlush += droppedCount + overflow;
+}
+
+/**
  * Sends up to {@link MAX_BATCH_ENTRIES} queued entries to the main process.
  * Anything beyond that per-flush cap stays queued for the next flush rather
  * than being dropped — the queue is already memory-bounded by
  * {@link MAX_QUEUE_SIZE}, so the per-flush cap only paces IPC message size,
- * not total delivery.
+ * not total delivery. If the IPC call itself rejects (transient failure),
+ * the batch is requeued rather than lost.
  */
 function flush(): void {
   if (queue.length === 0 && droppedSinceLastFlush === 0) {
@@ -56,7 +71,9 @@ function flush(): void {
   if (typeof window.hyveon?.diagnostics?.reportLog !== 'function') {
     return;
   }
-  void window.hyveon.diagnostics.reportLog(entries, droppedCount || undefined)?.catch(() => undefined);
+  void window.hyveon.diagnostics
+    .reportLog(entries, droppedCount || undefined)
+    ?.catch(() => requeueAfterFailedFlush(entries, droppedCount));
 }
 
 /**
