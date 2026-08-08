@@ -14,6 +14,7 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
+    environment: [{ name: 'EULA', value: 'true' }],
     https: false,
     ...overrides,
   };

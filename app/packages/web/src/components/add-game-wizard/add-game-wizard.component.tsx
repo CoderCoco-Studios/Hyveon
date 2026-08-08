@@ -49,6 +49,7 @@ import { IdentityStep } from './identity-step.component.js';
 import { ResourcesStep } from './resources-step.component.js';
 import { NetworkingStep } from './networking-step.component.js';
 import { StorageStep } from './storage-step.component.js';
+import { EnvironmentStep } from './environment-step.component.js';
 import { ReviewStep } from './review-step.component.js';
 import {
   WIZARD_STEPS,
@@ -66,6 +67,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
   resources: 'Resources',
   networking: 'Networking',
   storage: 'Storage',
+  environment: 'Environment',
   review: 'Review',
 };
 
@@ -242,6 +244,7 @@ export function AddGameWizard() {
           />
         )}
         {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+        {step === 'environment' && <EnvironmentStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
         {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
 
         <DialogFooter>

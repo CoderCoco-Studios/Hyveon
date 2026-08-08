@@ -65,7 +65,14 @@ describe('EditGameForm', () => {
   it('should prefill every field from the supplied GameServer config', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
-    expect(await screen.findByLabelText('Name')).toHaveValue('mygame');
+    // `getAllByLabelText`/index [0] rather than a plain `getByLabelText`
+    // query: the Environment card (below) also renders a row labeled "Name"
+    // once a game has environment variables — `sampleGame()`'s default
+    // `environment: [{ name: 'EULA', ... }]` does — so a bare `Name` query is
+    // ambiguous in this flat, all-cards-visible form (unlike the wizard,
+    // where only one step renders at a time). The Identity card's Name field
+    // is first in document order.
+    expect((await screen.findAllByLabelText('Name'))[0]).toHaveValue('mygame');
     expect(screen.getByLabelText('Image')).toHaveValue('itzg/minecraft-server');
     expect(screen.getByLabelText('Connect message')).toHaveValue('Connect at {ip}:25565');
     expect(screen.getByLabelText(/CPU/i)).toHaveValue('512');
@@ -79,7 +86,9 @@ describe('EditGameForm', () => {
   it('should render the Name field as not editable', async () => {
     renderForm(<EditGameForm game={sampleGame()} />);
 
-    expect(await screen.findByLabelText('Name')).toBeDisabled();
+    // See the disambiguation comment above — index [0] is the Identity
+    // card's Name field, not the Environment card's row.
+    expect((await screen.findAllByLabelText('Name'))[0]).toBeDisabled();
   });
 
   it('should allow saving a legacy, non-DNS-safe declared name (e.g. containing an underscore) without a client-side name error blocking Save', async () => {
@@ -143,6 +152,43 @@ describe('EditGameForm', () => {
 
     await waitFor(() =>
       expect(apiMock.updateGame).toHaveBeenCalledWith({ name: 'mygame', config: samplePayloadConfig() }),
+    );
+  });
+
+  it('should call api.updateGame with an added environment variable after editing and Save', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame({ environment: [] })} />);
+
+    await screen.findByLabelText('Image');
+    await userEvent.click(screen.getByRole('button', { name: 'Add variable' }));
+    // Index [1]: the Identity card's Name field (index [0]) also matches
+    // this label — see the disambiguation comment on the "prefill" test
+    // above. The newly-added environment row is the second "Name" field.
+    await userEvent.type(screen.getAllByLabelText('Name')[1], 'DIFFICULTY');
+    await userEvent.type(screen.getByLabelText('Value'), 'hard');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'mygame',
+        config: { ...samplePayloadConfig(), environment: [{ name: 'DIFFICULTY', value: 'hard' }] },
+      }),
+    );
+  });
+
+  it('should call api.updateGame with environment variables removed after Save', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame()} />);
+
+    await screen.findByLabelText('Image');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove environment variable 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'mygame',
+        config: { ...samplePayloadConfig(), environment: undefined },
+      }),
     );
   });
 
