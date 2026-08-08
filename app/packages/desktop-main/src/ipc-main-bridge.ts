@@ -146,6 +146,19 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * Observable back into a rejected promise so it flows through the same
  * normalization path as every other thrown error.
  *
+ * That conversion only carries the *shape* of the error through, not its
+ * message: `exceptionsHandler.handle(...)` is NestJS's
+ * `RpcExceptionsHandler`, and for any exception that isn't itself an
+ * `RpcException`, its built-in `BaseRpcExceptionFilter` discards the real
+ * message and substitutes the constant string `'Internal server error'`
+ * before this module ever sees the Observable. `firstValueFrom` alone cannot
+ * recover a message that was already replaced upstream — the real fix is
+ * `RpcErrorMessageFilter` (`rpc-error-message.filter.ts`), registered via
+ * `app.useGlobalFilters()` in `main.ts`, which NestJS invokes instead of the
+ * base filter and which preserves `.message`. This bridge's normalization
+ * still matters on top of that filter for the non-Observable failure modes
+ * above (raw rejections with non-cloneable fields, non-Error rejections).
+ *
  * Silent no-op outside a real Electron main process
  * (`process.versions.electron` undefined) — matching the guard
  * `LogsController.onModuleInit` uses — so the plain-Node integration test

@@ -16,7 +16,7 @@ const {
   registerIpcMainBridgesMock,
 } = vi.hoisted(() => {
   /** Fake NestJS microservice app returned by `NestFactory.createMicroservice`. */
-  const fakeApp = { listen: vi.fn().mockResolvedValue(undefined) };
+  const fakeApp = { listen: vi.fn().mockResolvedValue(undefined), useGlobalFilters: vi.fn() };
   /**
    * Spy constructor for ElectronIPCTransport — tracks `new` invocations.
    *
@@ -103,6 +103,7 @@ describe('main bootstrap', () => {
     });
     createMicroserviceMock.mockResolvedValue(fakeApp);
     fakeApp.listen.mockResolvedValue(undefined);
+    fakeApp.useGlobalFilters.mockReturnValue(undefined);
     applyFixPathMock.mockImplementation(() => undefined);
     mockApp.getPath.mockReturnValue('/fake/userData');
     createLoggerMock.mockImplementation(() => undefined);
@@ -154,6 +155,22 @@ describe('main bootstrap', () => {
 
     // listen() should have been called on the fake app.
     expect(fakeApp.listen).toHaveBeenCalledOnce();
+  });
+
+  it('should register RpcErrorMessageFilter as a global filter before app.listen()', async () => {
+    // NestJS reads global filters while building each handler's exception
+    // handler during listen(), so this must run first — see main.ts's comment.
+    vi.resetModules();
+    const { bootstrap } = await import('./main.js');
+    const { RpcErrorMessageFilter } = await import('./rpc-error-message.filter.js');
+    await bootstrap();
+
+    expect(fakeApp.useGlobalFilters).toHaveBeenCalledOnce();
+    expect(fakeApp.useGlobalFilters).toHaveBeenCalledWith(expect.any(RpcErrorMessageFilter));
+
+    const filterCallOrder = fakeApp.useGlobalFilters.mock.invocationCallOrder[0];
+    const listenCallOrder = fakeApp.listen.mock.invocationCallOrder[0];
+    expect(filterCallOrder).toBeLessThan(listenCallOrder);
   });
 
   it('should return the Nest microservice app instance so callers can resolve providers', async () => {

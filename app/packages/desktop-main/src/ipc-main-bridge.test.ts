@@ -273,7 +273,12 @@ describe('registerIpcMainBridges', () => {
     // @MessagePattern handler is caught internally and the handler's promise
     // *resolves* with `throwError(...)` (an Observable), not a rejection.
     // Without unwrapping it here, Electron fails to structured-clone the
-    // Observable and the renderer never sees a usable error at all.
+    // Observable and the renderer never sees a usable error at all. The
+    // Observable here carries the original message because it stands in for
+    // what `RpcErrorMessageFilter` (registered in main.ts) produces — see
+    // rpc-error-message.filter.test.ts for that filter's own coverage, and
+    // ipc-main-bridge.ts's doc comment for why the default NestJS filter
+    // would have discarded the message instead.
     const { transport, handlers } = makeTransport(['discord.getConfig']);
     vi.mocked(handlers.get('discord.getConfig')!).mockResolvedValue(
       throwError(() => new Error('discordBotTokenSecretArn not in the deployed stack outputs.')),

@@ -160,9 +160,14 @@ export class DiscordConfigService {
     return this.loadBase();
   }
 
-  /** Bot token from Secrets Manager (used by the slash-command registrar). `null` if unset. */
+  /**
+   * Bot token from Secrets Manager (used by the slash-command registrar).
+   * `null` if unset, or if the stack hasn't been deployed yet — degrading
+   * via {@link readSecretSafe} rather than throwing, since
+   * `DiscordCommandRegistrar` awaits this with no try/catch.
+   */
   async getEffectiveToken(): Promise<string | null> {
-    const token = await this.secrets.get(await this.botTokenSecretArn());
+    const token = await this.readSecretSafe(() => this.botTokenSecretArn(), 'Discord bot token');
     return token ?? null;
   }
 
@@ -196,7 +201,9 @@ export class DiscordConfigService {
     try {
       return await this.secrets.get(arn);
     } catch (err) {
-      logger.error(`Failed to read ${label} from Secrets Manager`, { err });
+      logger.error(`Failed to read ${label} from Secrets Manager`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
       return undefined;
     }
   }
