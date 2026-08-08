@@ -34,8 +34,8 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 /**
  * Final step of the add-game wizard (#99): renders a read-only summary of
  * every field entered across the Identity, Resources, Networking, and
- * Storage steps. Optional fields that were left blank — `connect_message`
- * and `file_seeds` — are omitted entirely rather than shown with a
+ * Storage steps. Optional fields that were left blank — `connect_message`,
+ * `file_seeds`, and `environment` — are omitted entirely rather than shown with a
  * placeholder, so the summary only surfaces what the operator actually
  * configured. Outstanding validation `issues` (every issue across the whole
  * draft, not just Review's own) are listed as an alert so a disabled Submit
@@ -50,6 +50,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 export function ReviewStep({ draft, issues = [], submitError = null }: ReviewStepProps) {
   const hasConnectMessage = draft.connect_message.trim().length > 0;
   const hasFileSeeds = draft.file_seeds.length > 0;
+  const hasEnvironment = draft.environment.length > 0;
 
   return (
     <div className="space-y-4">
@@ -124,6 +125,24 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
                 {draft.file_seeds.map((seed, index) => (
                   <li key={index} className="font-[var(--font-mono)] text-sm">
                     {seed.path}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {hasEnvironment && (
+            <div>
+              <h4 className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)] mb-1">
+                Environment variables
+              </h4>
+              <ul className="space-y-1">
+                {draft.environment.map((variable, index) => (
+                  <li key={index} className="flex items-center justify-between gap-4 py-1 text-sm">
+                    <span>{variable.name}</span>
+                    <span className="font-[var(--font-mono)] text-[var(--color-muted-foreground)]">
+                      {variable.value}
+                    </span>
                   </li>
                 ))}
               </ul>

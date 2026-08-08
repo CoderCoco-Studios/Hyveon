@@ -20,6 +20,23 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   };
 }
 
+/** Builds a minimal draft for the Review step; override per test. */
+function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
+  return {
+    name: 'minecraft',
+    image: 'itzg/minecraft-server',
+    connect_message: '',
+    cpu: 1024,
+    memory: 2048,
+    ports: [],
+    volumes: [],
+    file_seeds: [],
+    environment: [],
+    https: false,
+    ...overrides,
+  };
+}
+
 describe('ReviewStep — fully-populated draft', () => {
   it('should render every field of a fully-populated draft, including optional sections', () => {
     render(<ReviewStep draft={makeFullDraft()} />);
@@ -55,6 +72,22 @@ describe('ReviewStep — empty optional sections', () => {
     render(<ReviewStep draft={makeFullDraft({ file_seeds: [] })} />);
 
     expect(screen.queryByText('File seeds')).not.toBeInTheDocument();
+  });
+
+  it('should render environment variable rows when present', () => {
+    render(
+      <ReviewStep draft={makeDraft({ environment: [{ name: 'EULA', value: 'TRUE' }] })} />,
+    );
+
+    expect(screen.getByText('Environment variables')).toBeInTheDocument();
+    expect(screen.getByText('EULA')).toBeInTheDocument();
+    expect(screen.getByText('TRUE')).toBeInTheDocument();
+  });
+
+  it('should omit the environment variables section when there are none', () => {
+    render(<ReviewStep draft={makeDraft({ environment: [] })} />);
+
+    expect(screen.queryByText('Environment variables')).not.toBeInTheDocument();
   });
 
   it('should show a "no ports configured" placeholder when ports is empty', () => {
