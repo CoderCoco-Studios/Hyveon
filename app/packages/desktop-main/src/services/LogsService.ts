@@ -7,6 +7,8 @@ import {
 import type { CloudProvider, LogChunk } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsClientCredentials } from './awsCredentialSource.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -44,11 +46,15 @@ export class LogsService {
     // swappable to another cloud without a call-site change.
     @Inject(CLOUD_PROVIDER)
     private readonly provider: CloudProviderWithPollInterval,
+    private readonly store: ElectronStoreService,
   ) {}
 
   private getClient(): CloudWatchLogsClient {
     if (!this.client) {
-      this.client = new CloudWatchLogsClient({ region: this.config.getRegion() });
+      this.client = new CloudWatchLogsClient({
+        region: this.config.getRegion(),
+        credentials: resolveAwsClientCredentials(this.store),
+      });
     }
     return this.client;
   }

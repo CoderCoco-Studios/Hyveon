@@ -3,6 +3,7 @@ import {
   GetSecretValueCommand,
   PutSecretValueCommand,
   ResourceNotFoundException,
+  type SecretsManagerClientConfig,
 } from '@aws-sdk/client-secrets-manager';
 import { SECRET_PLACEHOLDER, type SecretsStore } from '@hyveon/shared';
 
@@ -45,8 +46,17 @@ export class AwsSecretsStore implements SecretsStore {
    *   `AwsCloudProvider`'s `getConfig` callback pattern so a region change
    *   picked up between calls rebuilds the client instead of being stuck
    *   with whatever region was resolved first.
+   * @param getCredentials - Resolves the AWS credentials the Secrets Manager
+   *   client should authenticate with, on every call. Omitting it (or
+   *   returning `undefined`) leaves the SDK's own default provider chain in
+   *   effect, which resolves nothing in a GUI-launched Electron process —
+   *   see `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
+   *   source for this field.
    */
-  constructor(private readonly getRegion?: () => string) {}
+  constructor(
+    private readonly getRegion?: () => string,
+    private readonly getCredentials?: () => SecretsManagerClientConfig['credentials'],
+  ) {}
 
   /**
    * Lazily constructs the Secrets Manager client, recreating it whenever the
@@ -63,7 +73,7 @@ export class AwsSecretsStore implements SecretsStore {
       'us-east-1';
 
     if (!this.client || this.clientRegion !== region) {
-      this.client = new SecretsManagerClient({ region });
+      this.client = new SecretsManagerClient({ region, credentials: this.getCredentials?.() });
       this.clientRegion = region;
     }
     return this.client;

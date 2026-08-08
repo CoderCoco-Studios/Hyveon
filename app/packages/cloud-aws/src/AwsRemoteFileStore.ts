@@ -6,6 +6,7 @@ import {
   NoSuchKey,
   S3ServiceException,
   type ObjectVersion,
+  type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { RemoteFileConflictError, type RemoteFileStore } from '@hyveon/shared';
 
@@ -49,8 +50,15 @@ export class AwsRemoteFileStore implements RemoteFileStore {
    *   rather than sending a malformed request. `region` falls back to
    *   `AWS_REGION_` (Lambda's reserved-name workaround, see CLAUDE.md), then
    *   `AWS_REGION`, then `AWS_DEFAULT_REGION`, then `us-east-1` when omitted.
+   *   `credentials`, when supplied, is passed straight through to
+   *   `S3Client` — omitting it leaves the SDK's own default provider chain
+   *   in effect, which resolves nothing in a GUI-launched Electron process
+   *   (see `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
+   *   source for this field).
    */
-  constructor(private readonly getConfig?: () => { bucket: string; region?: string }) {}
+  constructor(
+    private readonly getConfig?: () => { bucket: string; region?: string; credentials?: S3ClientConfig['credentials'] },
+  ) {}
 
   /**
    * Resolves the configured bucket name, throwing a clear error instead of
@@ -81,7 +89,7 @@ export class AwsRemoteFileStore implements RemoteFileStore {
       'us-east-1';
 
     if (!this.client || this.clientRegion !== region) {
-      this.client = new S3Client({ region });
+      this.client = new S3Client({ region, credentials: this.getConfig?.()?.credentials });
       this.clientRegion = region;
     }
     return this.client;

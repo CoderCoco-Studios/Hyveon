@@ -1,4 +1,4 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, type DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, GameServer } from '@hyveon/shared';
 import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
@@ -47,9 +47,18 @@ export class AwsAuditLogStore implements AuditLogStore {
    *   `Promise` now instead of a plain value. Existing sync closures (e.g.
    *   this file's own tests) keep working unchanged — `await`ing a
    *   non-`Promise` value resolves to it immediately.
+   *
+   *   `credentials`, when supplied, is passed straight through to
+   *   `DynamoDBClient` — omitting it leaves the SDK's own default provider
+   *   chain in effect, which resolves nothing in a GUI-launched Electron
+   *   process (see `desktop-main`'s `resolveAwsClientCredentials`, the real
+   *   caller's source for this field).
    */
   constructor(
-    private readonly getConfig?: () => { tableName: string; region?: string } | Promise<{ tableName: string; region?: string }>,
+    private readonly getConfig?: () => (
+      | { tableName: string; region?: string; credentials?: DynamoDBClientConfig['credentials'] }
+      | Promise<{ tableName: string; region?: string; credentials?: DynamoDBClientConfig['credentials'] }>
+    ),
   ) {}
 
   /**
@@ -76,10 +85,11 @@ export class AwsAuditLogStore implements AuditLogStore {
    * than reading `process.env` inline.
    */
   private async getClient(): Promise<DynamoDBDocumentClient> {
-    const region = (await this.getConfig?.())?.region ?? resolveDefaultAwsRegion();
+    const config = await this.getConfig?.();
+    const region = config?.region ?? resolveDefaultAwsRegion();
 
     if (!this.client || this.clientRegion !== region) {
-      this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+      this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials: config?.credentials }));
       this.clientRegion = region;
     }
     return this.client;

@@ -590,4 +590,62 @@ describe('AwsCloudProvider', () => {
     const provider = makeProvider();
     expect('getActualCosts' in provider).toBe(false);
   });
+
+  describe('credentials resolution', () => {
+    const credentials = { accessKeyId: 'AKIA-test', secretAccessKey: 'secret-test' };
+
+    it('should build the ECS client with the credentials returned by getConfig', async () => {
+      let observedCredentials: unknown;
+      ecsMock.on(ListTasksCommand).callsFake(async (_input, getClient) => {
+        observedCredentials = await getClient().config.credentials();
+        return { taskArns: [] };
+      });
+
+      const provider = makeProvider({ ...DEFAULT_CONFIG, credentials });
+      await provider.stopWorkload('minecraft').catch(() => undefined);
+
+      expect(observedCredentials).toMatchObject(credentials);
+    });
+
+    it('should build the EC2 client with the credentials returned by getConfig', async () => {
+      ecsMock.on(ListTasksCommand).resolves({ taskArns: ['arn1'] });
+      ecsMock.on(DescribeTasksCommand).resolves({
+        tasks: [
+          {
+            taskArn: 'arn1',
+            lastStatus: 'RUNNING',
+            attachments: [
+              { type: 'ElasticNetworkInterface', details: [{ name: 'networkInterfaceId', value: 'eni-1' }] },
+            ],
+          },
+        ],
+      });
+      let observedCredentials: unknown;
+      ec2Mock.on(DescribeNetworkInterfacesCommand).callsFake(async (_input, getClient) => {
+        observedCredentials = await getClient().config.credentials();
+        return { NetworkInterfaces: [] };
+      });
+
+      const provider = makeProvider({ ...DEFAULT_CONFIG, credentials });
+      await provider.getWorkloadStatus('minecraft');
+
+      expect(observedCredentials).toMatchObject(credentials);
+    });
+
+    it('should build the CloudWatch Logs client with the credentials returned by getConfig', async () => {
+      let observedCredentials: unknown;
+      logsMock.on(FilterLogEventsCommand).callsFake(async (_input, getClient) => {
+        observedCredentials = await getClient().config.credentials();
+        return { events: [{ eventId: 'e1', message: 'hello', timestamp: 1 }] };
+      });
+
+      const provider = makeProvider({ ...DEFAULT_CONFIG, credentials });
+      const controller = new AbortController();
+      const iterator = provider.streamWorkloadLogs('minecraft', controller.signal, 1)[Symbol.asyncIterator]();
+      await iterator.next();
+      controller.abort();
+
+      expect(observedCredentials).toMatchObject(credentials);
+    });
+  });
 });

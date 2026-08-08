@@ -19,6 +19,8 @@ import type { CloudProvider } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { Ec2Service } from './Ec2Service.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsClientCredentials } from './awsCredentialSource.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -39,12 +41,22 @@ import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
  * ECS/EC2/CloudWatch clients actually need to target is wherever the stack
  * was really provisioned, which can drift from the wizard's credentials-step
  * region if `DeploymentConfig.awsRegion` was edited independently.
+ *
+ * `credentials` comes from `resolveAwsClientCredentials(store)` — omitting
+ * it left every ECS/EC2/CloudWatch Logs call falling back to the SDK's
+ * default provider chain, which resolves nothing in a GUI-launched Electron
+ * process (this app's credentials live encrypted in `store`, never in env
+ * vars or `~/.aws`).
  */
-export async function buildProviderConfig(config: ConfigService): Promise<AwsCloudProviderConfig | null> {
+export async function buildProviderConfig(
+  config: ConfigService,
+  store: ElectronStoreService,
+): Promise<AwsCloudProviderConfig | null> {
   const outputs = await config.getStackOutputs();
   if (!outputs) return null;
   return {
     region: outputs.awsRegion,
+    credentials: resolveAwsClientCredentials(store),
     ecsClusterName: outputs.ecsClusterName,
     subnetIds: outputs.subnetIds.join(','),
     securityGroupId: outputs.securityGroupId,
@@ -69,12 +81,13 @@ export const awsCloudProviderLogger: AwsCloudProviderLogger = {
 /**
  * Builds the single shared {@link AwsCloudProvider} instance, wiring
  * {@link buildProviderConfig} and {@link awsCloudProviderLogger} to the given
- * `ConfigService`. Extracted so `EcsService`'s constructor default and
- * `AwsModule`'s `useFactory` provider construct the exact same thing rather
- * than duplicating the `new AwsCloudProvider(...)` call in two places.
+ * `ConfigService`/`ElectronStoreService`. Extracted so `EcsService`'s
+ * constructor default and `AwsModule`'s `useFactory` provider construct the
+ * exact same thing rather than duplicating the `new AwsCloudProvider(...)`
+ * call in two places.
  */
-export function createAwsCloudProvider(config: ConfigService): AwsCloudProvider {
-  return new AwsCloudProvider(() => buildProviderConfig(config), awsCloudProviderLogger);
+export function createAwsCloudProvider(config: ConfigService, store: ElectronStoreService): AwsCloudProvider {
+  return new AwsCloudProvider(() => buildProviderConfig(config, store), awsCloudProviderLogger);
 }
 
 /**
@@ -164,11 +177,15 @@ export class EcsService {
     // itself, so `getStatus` no longer needs to call through to `Ec2Service`.
     _ec2: Ec2Service,
     @Inject(CLOUD_PROVIDER) private readonly provider: CloudProvider,
+    private readonly store: ElectronStoreService,
   ) {}
 
   private getClient(): ECSClient {
     if (!this.client) {
-      this.client = new ECSClient({ region: this.config.getRegion() });
+      this.client = new ECSClient({
+        region: this.config.getRegion(),
+        credentials: resolveAwsClientCredentials(this.store),
+      });
     }
     return this.client;
   }

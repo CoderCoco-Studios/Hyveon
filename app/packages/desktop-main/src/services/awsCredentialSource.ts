@@ -1,4 +1,19 @@
+import { fromIni } from '@aws-sdk/credential-providers';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+
+/** Static access-key/secret pair, as accepted by every `@aws-sdk/client-*` `credentials` field. */
+export interface StaticAwsCredentials {
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+}
+
+/**
+ * The `credentials` value every `@aws-sdk/client-*` constructor accepts —
+ * static keys for a pasted profile, `fromIni`'s provider function for a
+ * real `~/.aws` profile, or `undefined` (SDK falls back to its own default
+ * provider chain) when no profile is stored yet.
+ */
+export type AwsClientCredentials = StaticAwsCredentials | ReturnType<typeof fromIni> | undefined;
 
 /**
  * Thrown by {@link resolveAwsCredentialSource} when
@@ -90,4 +105,39 @@ export function resolveAwsCredentialSource(store: ElectronStoreService): AwsCred
     return { kind: 'pasted', profile, accessKeyId: pasted.accessKeyId, secretAccessKey: pasted.secretAccessKey };
   }
   return { kind: 'profile', profile };
+}
+
+/**
+ * Converts {@link resolveAwsCredentialSource}'s result into the `credentials`
+ * value an `@aws-sdk/client-*` constructor accepts. Every `@hyveon/cloud-aws`
+ * store, plus `EcsService`/`Ec2Service`, otherwise construct their client
+ * with `{ region }` alone — the SDK then falls back to
+ * `fromNodeProviderChain()`, which resolves nothing in a GUI-launched
+ * Electron process (this app's credentials live encrypted in
+ * `ElectronStoreService`, never in env vars or `~/.aws`), throwing
+ * `CredentialsProviderError`. This is the same static-keys-or-`fromIni`
+ * branching {@link IamCheckService.buildClientConfig} already uses for the
+ * wizard's own IAM/STS clients, extracted so every other AWS-SDK-client
+ * owner in `desktop-main` can share it instead of re-deriving it.
+ *
+ * @param store - The store to resolve the credential source from, passed to
+ *   {@link resolveAwsCredentialSource}.
+ * @returns Static keys for a pasted profile, `fromIni({ profile })` for a
+ *   real `~/.aws` profile, or `undefined` when no profile is stored yet (the
+ *   wizard's credentials step hasn't run — callers already surface a clear
+ *   "not configured" error for this case elsewhere and don't rely on this
+ *   function to distinguish it).
+ * @throws {@link AwsPastedCredentialDecryptError} — see
+ *   {@link resolveAwsCredentialSource}.
+ */
+export function resolveAwsClientCredentials(store: ElectronStoreService): AwsClientCredentials {
+  const source = resolveAwsCredentialSource(store);
+  switch (source.kind) {
+    case 'none':
+      return undefined;
+    case 'pasted':
+      return { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey };
+    case 'profile':
+      return fromIni({ profile: source.profile });
+  }
 }

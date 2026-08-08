@@ -7,6 +7,8 @@ import {
 } from '@aws-sdk/client-scheduler';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
+import { ElectronStoreService } from './ElectronStoreService.js';
+import { resolveAwsClientCredentials } from './awsCredentialSource.js';
 
 /**
  * The universal-target ARN EventBridge Scheduler recognizes as "call the ECS
@@ -52,11 +54,17 @@ export interface CreateStopScheduleParams {
 export class SchedulerService {
   private client: SchedulerClient | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly store: ElectronStoreService,
+  ) {}
 
   private getClient(): SchedulerClient {
     if (!this.client) {
-      this.client = new SchedulerClient({ region: this.config.getRegion() });
+      this.client = new SchedulerClient({
+        region: this.config.getRegion(),
+        credentials: resolveAwsClientCredentials(this.store),
+      });
     }
     return this.client;
   }

@@ -6,6 +6,7 @@ import {
   RunTaskCommand,
   StopTaskCommand,
   type Task,
+  type ECSClientConfig,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
@@ -101,6 +102,14 @@ export class WorkloadLaunchError extends Error {
 export interface AwsCloudProviderConfig {
   /** AWS region the ECS/EC2 clients should target. */
   region: string;
+  /**
+   * Credentials the ECS/EC2/CloudWatch Logs clients should authenticate
+   * with. Omitting it leaves the SDK's own default provider chain in
+   * effect, which resolves nothing in a GUI-launched Electron process — see
+   * `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
+   * source for this field.
+   */
+  credentials?: ECSClientConfig['credentials'];
   /** Name of the ECS cluster game-server tasks run in. */
   ecsClusterName: string;
   /** Comma-separated subnet IDs used for the Fargate network configuration. */
@@ -209,9 +218,9 @@ export class AwsCloudProvider implements CloudProvider {
    * client (e.g. left over from a Pulumi apply run through `PulumiService`
    * that changed regions) would keep targeting the old region indefinitely.
    */
-  private getEcsClient(region: string): ECSClient {
+  private getEcsClient(region: string, credentials: AwsCloudProviderConfig['credentials']): ECSClient {
     if (!this.ecsClient || this.ecsClientRegion !== region) {
-      this.ecsClient = new ECSClient({ region });
+      this.ecsClient = new ECSClient({ region, credentials });
       this.ecsClientRegion = region;
     }
     return this.ecsClient;
@@ -222,9 +231,9 @@ export class AwsCloudProvider implements CloudProvider {
    * from the region the cached client was built with — see {@link
    * getEcsClient} for why this matters.
    */
-  private getEc2Client(region: string): EC2Client {
+  private getEc2Client(region: string, credentials: AwsCloudProviderConfig['credentials']): EC2Client {
     if (!this.ec2Client || this.ec2ClientRegion !== region) {
-      this.ec2Client = new EC2Client({ region });
+      this.ec2Client = new EC2Client({ region, credentials });
       this.ec2ClientRegion = region;
     }
     return this.ec2Client;
@@ -235,9 +244,9 @@ export class AwsCloudProvider implements CloudProvider {
    * `region` differs from the region the cached client was built with — see
    * {@link getEcsClient} for why this matters.
    */
-  private getLogsClient(region: string): CloudWatchLogsClient {
+  private getLogsClient(region: string, credentials: AwsCloudProviderConfig['credentials']): CloudWatchLogsClient {
     if (!this.logsClient || this.logsClientRegion !== region) {
-      this.logsClient = new CloudWatchLogsClient({ region });
+      this.logsClient = new CloudWatchLogsClient({ region, credentials });
       this.logsClientRegion = region;
     }
     return this.logsClient;
@@ -252,10 +261,11 @@ export class AwsCloudProvider implements CloudProvider {
    */
   private async getTaskDefinitionSpec(
     region: string,
+    credentials: AwsCloudProviderConfig['credentials'],
     game: string,
   ): Promise<{ cpu: number; memory: number }> {
     try {
-      const resp = await this.getEcsClient(region).send(
+      const resp = await this.getEcsClient(region, credentials).send(
         new DescribeTaskDefinitionCommand({ taskDefinition: `${game}-server` }),
       );
       const td = resp.taskDefinition;
@@ -323,9 +333,14 @@ export class AwsCloudProvider implements CloudProvider {
    * `desiredStatus: RUNNING` and STOPPED/DEPROVISIONING tasks are filtered
    * out of the describe result — leaving the single active task, if any.
    */
-  private async findRunningTask(region: string, cluster: string, game: string): Promise<Task | null> {
+  private async findRunningTask(
+    region: string,
+    credentials: AwsCloudProviderConfig['credentials'],
+    cluster: string,
+    game: string,
+  ): Promise<Task | null> {
     try {
-      const client = this.getEcsClient(region);
+      const client = this.getEcsClient(region, credentials);
       const listResp = await client.send(
         new ListTasksCommand({ cluster, family: `${game}-server`, desiredStatus: 'RUNNING' }),
       );
@@ -350,9 +365,13 @@ export class AwsCloudProvider implements CloudProvider {
    * no public association (e.g. `assignPublicIp: DISABLED`) or the describe
    * call fails — callers then show "starting" / "no IP" instead of an error.
    */
-  private async getPublicIp(region: string, eniId: string): Promise<string | null> {
+  private async getPublicIp(
+    region: string,
+    credentials: AwsCloudProviderConfig['credentials'],
+    eniId: string,
+  ): Promise<string | null> {
     try {
-      const resp = await this.getEc2Client(region).send(
+      const resp = await this.getEc2Client(region, credentials).send(
         new DescribeNetworkInterfacesCommand({ NetworkInterfaceIds: [eniId] }),
       );
       return resp.NetworkInterfaces?.[0]?.Association?.PublicIp ?? null;
@@ -379,14 +398,14 @@ export class AwsCloudProvider implements CloudProvider {
     const config = (await this.getConfig?.()) ?? null;
     if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
-    const { region, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
+    const { region, credentials, ecsClusterName: cluster, subnetIds, securityGroupId: sg } = config;
     const subnets = subnetIds
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
 
     return this.withGameLock(game, async () => {
-      const existing = await this.findRunningTask(region, cluster, game);
+      const existing = await this.findRunningTask(region, credentials, cluster, game);
       if (existing) throw new WorkloadGuardError(`${game} is already running.`);
 
       // Deliberately no try/catch here: RunTask failures (including non-`Error`
@@ -394,7 +413,7 @@ export class AwsCloudProvider implements CloudProvider {
       // `EcsService`'s `describeError`'s `String(err)` fallback renders
       // identically to the pre-migration `EcsService.start` (a raw string
       // throw must surface unprefixed, not wrapped as `'Error: <string>'`).
-      const resp = await this.getEcsClient(region).send(
+      const resp = await this.getEcsClient(region, credentials).send(
         new RunTaskCommand({
           cluster,
           taskDefinition: `${game}-server`,
@@ -431,12 +450,12 @@ export class AwsCloudProvider implements CloudProvider {
     const cluster = config.ecsClusterName;
 
     await this.withGameLock(game, async () => {
-      const task = await this.findRunningTask(config.region, cluster, game);
+      const task = await this.findRunningTask(config.region, config.credentials, cluster, game);
       if (!task) throw new WorkloadGuardError(`${game} is not currently running.`);
 
       // Deliberately no try/catch here — see the matching comment in
       // `startWorkload`: StopTask failures propagate unchanged.
-      await this.getEcsClient(config.region).send(
+      await this.getEcsClient(config.region, config.credentials).send(
         new StopTaskCommand({ cluster, task: task.taskArn, reason: 'Stopped via management app' }),
       );
     });
@@ -456,14 +475,14 @@ export class AwsCloudProvider implements CloudProvider {
     const config = (await this.getConfig?.()) ?? null;
     if (!config) return { state: 'not_deployed', message: 'Run Apply on the IaC page first.' };
 
-    const { region, ecsClusterName: cluster, domainName: domain } = config;
+    const { region, credentials, ecsClusterName: cluster, domainName: domain } = config;
 
     try {
-      const task = await this.findRunningTask(region, cluster, game);
+      const task = await this.findRunningTask(region, credentials, cluster, game);
       if (task) {
         if (task.lastStatus === 'RUNNING') {
           const eniId = this.extractEniId(task);
-          const publicIp = eniId ? await this.getPublicIp(region, eniId) : null;
+          const publicIp = eniId ? await this.getPublicIp(region, credentials, eniId) : null;
           return {
             state: 'running',
             workloadId: task.taskArn,
@@ -505,14 +524,14 @@ export class AwsCloudProvider implements CloudProvider {
     const config = (await this.getConfig?.()) ?? null;
     if (!config) throw new WorkloadGuardError('Infrastructure is not deployed. Run Apply on the IaC page first.');
 
-    const { region } = config;
+    const { region, credentials } = config;
     const logGroup = `/ecs/${game}-server`;
     let startTime = Date.now();
     const seen = new Set<string>();
 
     while (!signal.aborted) {
       try {
-        const resp = await this.getLogsClient(region).send(
+        const resp = await this.getLogsClient(region, credentials).send(
           new FilterLogEventsCommand({ logGroupName: logGroup, startTime, limit: 100 }),
           { abortSignal: signal },
         );
@@ -561,7 +580,7 @@ export class AwsCloudProvider implements CloudProvider {
 
     const breakdown: Record<string, number> = {};
     for (const game of gameNames) {
-      const spec = await this.getTaskDefinitionSpec(config.region, game);
+      const spec = await this.getTaskDefinitionSpec(config.region, config.credentials, game);
       breakdown[game] = this.estimateHourlyCost(spec.cpu, spec.memory);
     }
 

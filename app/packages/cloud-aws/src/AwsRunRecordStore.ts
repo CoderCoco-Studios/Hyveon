@@ -6,7 +6,7 @@ import {
   PutCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { RunLockHeldError } from '@hyveon/shared';
 import type { RunLock, RunPageResult, RunRecord, RunRecordStore, RunStatus } from '@hyveon/shared';
@@ -105,11 +105,18 @@ export class AwsRunRecordStore implements RunRecordStore {
    *   doc comment for why this is safe (every real invocation happens inside
    *   this class's own already-`async` methods) and why existing sync
    *   closures are unaffected.
+   *
+   *   `credentials`, when supplied, is passed straight through to both
+   *   `DynamoDBClient` and `S3Client` — omitting it leaves the SDK's own
+   *   default provider chain in effect, which resolves nothing in a
+   *   GUI-launched Electron process (see `desktop-main`'s
+   *   `resolveAwsClientCredentials`, the real caller's source for this
+   *   field).
    */
   constructor(
     private readonly getConfig?: () => (
-      | { tableName: string; bucket: string; region?: string }
-      | Promise<{ tableName: string; bucket: string; region?: string }>
+      | { tableName: string; bucket: string; region?: string; credentials?: S3ClientConfig['credentials'] }
+      | Promise<{ tableName: string; bucket: string; region?: string; credentials?: S3ClientConfig['credentials'] }>
     ),
   ) {}
 
@@ -159,7 +166,8 @@ export class AwsRunRecordStore implements RunRecordStore {
   private async getDynamoClient(): Promise<DynamoDBDocumentClient> {
     const region = await this.getRegion();
     if (!this.dynamoClient || this.dynamoClientRegion !== region) {
-      this.dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+      const credentials = (await this.getConfig?.())?.credentials;
+      this.dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials }));
       this.dynamoClientRegion = region;
     }
     return this.dynamoClient;
@@ -174,7 +182,8 @@ export class AwsRunRecordStore implements RunRecordStore {
   private async getS3Client(): Promise<S3Client> {
     const region = await this.getRegion();
     if (!this.s3Client || this.s3ClientRegion !== region) {
-      this.s3Client = new S3Client({ region });
+      const credentials = (await this.getConfig?.())?.credentials;
+      this.s3Client = new S3Client({ region, credentials });
       this.s3ClientRegion = region;
     }
     return this.s3Client;
