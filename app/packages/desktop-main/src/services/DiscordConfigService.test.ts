@@ -160,6 +160,19 @@ describe('DiscordConfigService.getRedacted', () => {
     expect(redacted.baseAllowedGuilds).toEqual([]);
     expect(redacted.baseAdmins).toEqual({ userIds: [], roleIds: [] });
   });
+
+  it('should resolve with both secrets unset instead of throwing when Pulumi stack outputs are missing', async () => {
+    // Regression test: `botTokenSecretArn`/`publicKeySecretArn` throw when
+    // the stack hasn't been deployed yet. That throw used to happen before
+    // `secrets.get(...)`'s `.catch()` was attached, so it escaped
+    // `getRedacted()` uncaught — NestJS wrapped it in an RxJS Observable and
+    // Electron's IPC bridge failed to clone it back to the renderer.
+    const svc = makeService(null);
+    const redacted = await svc.getRedacted();
+    expect(redacted.botTokenSet).toBe(false);
+    expect(redacted.publicKeySet).toBe(false);
+    expect(secretsGetMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('DiscordConfigService.setCredentials', () => {

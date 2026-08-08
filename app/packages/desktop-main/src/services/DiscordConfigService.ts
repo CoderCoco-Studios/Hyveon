@@ -166,19 +166,48 @@ export class DiscordConfigService {
     return token ?? null;
   }
 
+  /**
+   * Resolve a secret ARN and read it, without ever throwing.
+   *
+   * `arnResolver` throws when the stack hasn't been deployed yet (see
+   * `botTokenSecretArn`/`publicKeySecretArn`) — that's an expected,
+   * recoverable state (`logger.warn`), distinct from a deployed stack whose
+   * `secrets.get` call fails for some other reason (`logger.error`). Both
+   * degrade to `undefined` rather than escaping to the caller: previously the
+   * `arnResolver` throw happened *before* `.catch()` was attached to the
+   * `secrets.get(...)` chain, so it escaped `getRedacted()` uncaught,
+   * NestJS's RPC layer wrapped it in an Observable, and Electron's IPC bridge
+   * failed to clone it across to the renderer ("An object could not be
+   * cloned") instead of surfacing a usable error.
+   */
+  private async readSecretSafe(
+    arnResolver: () => Promise<string>,
+    label: string,
+  ): Promise<string | undefined> {
+    let arn: string;
+    try {
+      arn = await arnResolver();
+    } catch (err) {
+      logger.warn(`${label} secret ARN unavailable — stack not deployed yet`, {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+    try {
+      return await this.secrets.get(arn);
+    } catch (err) {
+      logger.error(`Failed to read ${label} from Secrets Manager`, { err });
+      return undefined;
+    }
+  }
+
   /** Redacted view safe to return to the web client. Includes `*Set` flags for both secrets and the Pulumi-managed base lists. */
   async getRedacted(): Promise<RedactedDiscordConfig> {
     const [cfg, base, botToken, publicKey] = await Promise.all([
       this.load(),
       this.loadBase(),
-      this.secrets.get(await this.botTokenSecretArn()).catch((err: unknown) => {
-        logger.error('Failed to read Discord bot token from Secrets Manager', { err });
-        return undefined;
-      }),
-      this.secrets.get(await this.publicKeySecretArn()).catch((err: unknown) => {
-        logger.error('Failed to read Discord public key from Secrets Manager', { err });
-        return undefined;
-      }),
+      this.readSecretSafe(() => this.botTokenSecretArn(), 'Discord bot token'),
+      this.readSecretSafe(() => this.publicKeySecretArn(), 'Discord public key'),
     ]);
     return {
       clientId: cfg.clientId,
