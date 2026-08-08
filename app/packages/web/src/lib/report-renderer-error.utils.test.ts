@@ -196,6 +196,84 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).not.toHaveBeenCalled();
   });
 
+  it('should render an Error argument using its stack', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+    const error = new Error('boom');
+
+    installConsoleForwarding();
+    console.error(error);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledWith([{ level: 'error', message: error.stack }], undefined);
+  });
+
+  it('should fall back to an Error argument\'s message when it has no stack', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+    const error = new Error('boom');
+    error.stack = undefined;
+
+    installConsoleForwarding();
+    console.error(error);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledWith([{ level: 'error', message: 'boom' }], undefined);
+  });
+
+  it('should fall back to String(arg) when an argument cannot be JSON.stringify-d', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    installConsoleForwarding();
+    console.log(circular);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: String(circular) }], undefined);
+  });
+
+  it('should drop entries once the queue is full and count them as dropped on the next flush', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    for (let i = 0; i < 210; i += 1) {
+      console.log(`entry ${i}`);
+    }
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(1);
+    const [entries, droppedCount] = reportLog.mock.calls[0] as [unknown[], number | undefined];
+    // 200 queue slots filled, the 10 further calls dropped at enqueue time; the
+    // 50-entry batch cap then drops another 150 of the queued 200 as overflow.
+    expect(entries).toHaveLength(50);
+    expect(droppedCount).toBe(160);
+  });
+
+  it('should skip forwarding on a flush when the bridge disappears after install', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('queued before bridge disappears');
+    vi.stubGlobal('hyveon', undefined);
+
+    await expect(vi.advanceTimersByTimeAsync(2_000)).resolves.not.toThrow();
+    expect(reportLog).not.toHaveBeenCalled();
+  });
+
   it('should not throw when diagnostics.reportLog rejects', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockRejectedValue(new Error('ipc unavailable'));
