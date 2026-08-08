@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /** Drift-status chip labels rendered by `GameStatusBadges` (issue #93). */
 export type DriftLabel = 'In sync' | 'Pending deploy' | 'Undeclared';
@@ -14,12 +15,12 @@ export class GamesPage {
 
   /** Navigate to the games list route. */
   async goto(): Promise<void> {
-    await this.page.goto('/games');
+    await gotoHashRoute(this.page, '/games');
   }
 
   /** Navigate directly to a game's detail route. */
   async gotoDetail(name: string): Promise<void> {
-    await this.page.goto(`/games/${name}`);
+    await gotoHashRoute(this.page, `/games/${name}`);
   }
 
   // ── List page (`/games`) ─────────────────────────────────────────────
@@ -39,10 +40,18 @@ export class GamesPage {
     return this.page.getByRole('link', { name });
   }
 
-  /** Click a game's row link and wait for the detail route to load. */
+  /**
+   * Click a game's row link and wait for the detail route to load.
+   *
+   * Matches on `url.hash`, not `url.pathname`: the app routes via
+   * `HashRouter` (see `app.component.tsx`'s doc comment — `BrowserRouter`
+   * breaks under the packaged renderer's `file://` origin on Windows), so
+   * the route lives after the `#`, and `url.pathname` is just the static
+   * `index.html` file path regardless of which route is active.
+   */
   async openGame(name: string): Promise<void> {
     await this.gameLink(name).click();
-    await this.page.waitForURL((url) => url.pathname === `/games/${name}`);
+    await this.page.waitForURL((url) => url.hash === `#/games/${name}`);
   }
 
   /** All table rows including the header — index 0 is the header, 1.. are games. */

@@ -21,15 +21,18 @@ export class AppLayout {
   /**
    * Click a sidebar nav link and wait for the route to change to `expectedPath`.
    *
-   * Matches on `url.pathname` rather than passing `expectedPath` as a glob:
-   * under chromium a bare path is resolved against `baseURL`, but the Electron
-   * shell has no `baseURL` and serves from a `file://` origin, so a bare-path
-   * glob would never match `file:///logs`. Comparing pathnames works for both
-   * (`http://localhost:4173/logs` and `file:///logs` both resolve to `/logs`).
+   * Matches on `url.hash`, not `url.pathname`: the app routes via
+   * `HashRouter` (see `app.component.tsx`'s doc comment — `BrowserRouter`
+   * breaks under the packaged renderer's `file://` origin on Windows, where
+   * the drive letter in the path defeats absolute-path route matching), so
+   * the active route lives after the `#` on both the chromium tier
+   * (`http://localhost:4173/#/logs`) and the Electron tier
+   * (`file:///.../index.html#/logs`) — `url.pathname` is just the static
+   * served file/index path in both cases and never changes between routes.
    */
   async navigateTo(label: string, expectedPath: string): Promise<void> {
     await this.sidebarLink(label).click();
-    await this.page.waitForURL((url) => url.pathname === expectedPath);
+    await this.page.waitForURL((url) => url.hash === `#${expectedPath}`);
   }
 
   /** Main heading rendered by the Logs page (`/logs`). */

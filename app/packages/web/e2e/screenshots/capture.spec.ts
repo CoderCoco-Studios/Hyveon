@@ -62,24 +62,26 @@ async function launchSeeded(seed: (win: Page) => Promise<void>): Promise<{ app: 
 }
 
 /**
- * Navigates the mounted SPA to `path` via `history.pushState` + a synthetic
- * `popstate` event — the packaged app loads over `file://`, so
- * `page.goto('/route')` never resolves to an in-app route (see the
- * `e2e/pages/*.ts` page objects' own `gotoElectron`/`goto` split, which uses
- * the same trick). Used for every top-level target route instead of
- * `AppLayout.navigateTo`'s sidebar-link click: on the dashboard, each
- * `GameCard` renders a "View logs for \{game\}" / etc. link whose accessible
- * name contains the sidebar item's label as a substring (Playwright's
- * `getByRole(..., { name })` matches substrings by default), so a sidebar
- * click from the dashboard is a real, intermittent strict-mode collision —
- * observed directly while stabilising this spec. Pushing straight to the
- * target path sidesteps the ambiguity entirely and is exactly what
- * `DiscordPage.goto()` already does for the same reason.
+ * Navigates the mounted SPA to `path` by setting `location.hash` directly —
+ * the packaged app loads over `file://`, so `page.goto('/route')` never
+ * resolves to an in-app route, and the app routes via `HashRouter` (see
+ * `app.component.tsx`'s doc comment) precisely so navigation is immune to
+ * that; a `location.hash` assignment fires the native `hashchange` event
+ * `HashRouter` listens for (see the `e2e/pages/*.ts` page objects' own
+ * `gotoElectron`/`goto` split, which uses the same trick). Used for every
+ * top-level target route instead of `AppLayout.navigateTo`'s sidebar-link
+ * click: on the dashboard, each `GameCard` renders a "View logs for
+ * \{game\}" / etc. link whose accessible name contains the sidebar item's
+ * label as a substring (Playwright's `getByRole(..., { name })` matches
+ * substrings by default), so a sidebar click from the dashboard is a real,
+ * intermittent strict-mode collision — observed directly while stabilising
+ * this spec. Setting the hash straight to the target path sidesteps the
+ * ambiguity entirely and is exactly what `DiscordPage.goto()` already does
+ * for the same reason.
  */
 async function gotoRoute(win: Page, path: string): Promise<void> {
   await win.evaluate((p) => {
-    window.history.pushState({}, '', p);
-    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    window.location.hash = p;
   }, path);
 }
 

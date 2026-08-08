@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/audit` route added in issue #102. Wraps the audit
@@ -11,7 +12,7 @@ export class AuditPage {
 
   /** Navigate to `/audit` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/audit');
+    await gotoHashRoute(this.page, '/audit');
   }
 
   /** "Audit Log" page heading — used as a "the page mounted" smoke check. */

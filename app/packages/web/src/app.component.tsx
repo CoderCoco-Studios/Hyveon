@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from './components/app-layout.component.js';
 import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
@@ -67,7 +67,13 @@ function useWizardCompleted(): boolean | null {
  * bootstrapped). The wizard's stack-init step calls `onComplete` once
  * `wizard.complete` succeeds, which flips this component straight to the
  * routed dashboard shell below without waiting on another `wizard.state.get`
- * round-trip. Once complete, renders the routed dashboard shell:
+ * round-trip. Once complete, renders the routed dashboard shell — using
+ * `HashRouter`, not `BrowserRouter`: the packaged renderer loads via
+ * `win.loadFile()` (`file:///C:/...` on Windows, drive letter included), and
+ * `BrowserRouter`'s absolute-path route matching breaks against that prefix
+ * (`Routes` fails to match `/D:/costs` etc., so every sidebar link silently
+ * renders nothing). `HashRouter` keeps the route entirely after a `#`,
+ * unaffected by the underlying `file://` path:
  *   - `/` → Dashboard (game cards + panels)
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
@@ -94,7 +100,7 @@ export default function App() {
   return (
     <PollingProvider>
       <GameStatusProvider>
-        <BrowserRouter>
+        <HashRouter>
           <Toaster position="bottom-right" />
           <AppLayout>
             <Routes>
@@ -111,7 +117,7 @@ export default function App() {
               <Route path="/audit" element={<AuditPage />} />
             </Routes>
           </AppLayout>
-        </BrowserRouter>
+        </HashRouter>
       </GameStatusProvider>
     </PollingProvider>
   );

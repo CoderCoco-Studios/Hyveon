@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /** Detected log level — drives the per-line badge color and the Levels filter. */
 export type LogLevelLabel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
@@ -15,7 +16,7 @@ export class LogsPage {
 
   /** Navigate to `/logs` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/logs');
+    await gotoHashRoute(this.page, '/logs');
   }
 
   /**

@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the settings route (`/settings`). Wraps the Watchdog
@@ -9,7 +10,7 @@ export class SettingsPage {
 
   /** Navigate to the settings route. */
   async goto(): Promise<void> {
-    await this.page.goto('/settings');
+    await gotoHashRoute(this.page, '/settings');
   }
 
   /**

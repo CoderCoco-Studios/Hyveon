@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/costs` route. Wraps the per-game estimates table and
@@ -10,21 +11,27 @@ export class CostsPage {
 
   /** Navigate to `/costs` directly (the route isn't yet linked from the sidebar). */
   async goto(): Promise<void> {
-    await this.page.goto('/costs');
+    await gotoHashRoute(this.page, '/costs');
   }
 
   /**
    * Navigate to `/costs` inside the Electron shell where `page.goto()` cannot
-   * change the React Router route. Pushes the path via `history.pushState` and
-   * dispatches a synthetic `popstate` event so React Router picks up the change.
+   * change the React Router route. Resets to `/` first, then sets
+   * `location.hash` to `/costs` — a single assignment straight to `/costs`
+   * would silently no-op if the app is already on that route, since setting
+   * `location.hash` to its current value fires neither `hashchange` nor
+   * `popstate`, and `HashRouter` only re-renders on those events (mirrors
+   * `DiscordPage.goto()`'s two-step reset for the same reason).
    *
    * TODO(#190): replace with a sidebar navigation click once the Costs link is
    * wired into the sidebar in the Electron project.
    */
   async gotoElectron(): Promise<void> {
     await this.page.evaluate(() => {
-      window.history.pushState({}, '', '/costs');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      window.location.hash = '/';
+    });
+    await this.page.evaluate(() => {
+      window.location.hash = '/costs';
     });
     await this.heading().waitFor();
   }

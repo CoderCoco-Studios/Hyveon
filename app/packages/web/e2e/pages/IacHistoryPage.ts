@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/iac/history` route added in issue #111 —
@@ -10,12 +11,12 @@ export class IacHistoryPage {
 
   /** Navigate to `/iac/history` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/iac/history');
+    await gotoHashRoute(this.page, '/iac/history');
   }
 
   /** Navigate to a single run's read-only detail view directly via URL. */
   async gotoDetail(runId: string): Promise<void> {
-    await this.page.goto(`/iac/history/${runId}`);
+    await gotoHashRoute(this.page, `/iac/history/${runId}`);
   }
 
   /** "Run History" page heading — used as a "the page mounted" smoke check. */
@@ -47,9 +48,14 @@ export class IacHistoryPage {
     return this.page.getByRole('row').filter({ hasNot: this.page.getByRole('columnheader') });
   }
 
-  /** The `kind` link for a given `runId`, which navigates to that run's detail view. */
+  /**
+   * The `kind` link for a given `runId`, which navigates to that run's
+   * detail view. Matches `href="#/iac/history/..."`, not
+   * `href="/iac/history/..."` — `HashRouter`'s `createHref` prefixes every
+   * rendered `<Link>` href with `#`.
+   */
   rowLink(runId: string): Locator {
-    return this.page.locator(`a[href="/iac/history/${runId}"]`);
+    return this.page.locator(`a[href="#/iac/history/${runId}"]`);
   }
 
   /** "Load more" pagination button, present only when a further page is available. */

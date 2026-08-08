@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/iac` route added in issue #110 — plan trigger,
@@ -10,7 +11,7 @@ export class IacPage {
 
   /** Navigate to `/iac` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/iac');
+    await gotoHashRoute(this.page, '/iac');
   }
 
   /**
