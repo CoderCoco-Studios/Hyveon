@@ -44,13 +44,18 @@ operators already use for game-server logs.
   `log`/`info`/`warn`/`error` calls to the main-process log via IPC, batched
   and throttled so console chatter cannot flood the winston log file or the
   IPC channel.
-- Extend the `diagnostics.reportError` request shape (or add a sibling
-  channel) so forwarded console calls land in `main-*.log` tagged with their
-  originating level and a `renderer` source, distinct from the existing
-  crash-only `renderer error (...)` line shape.
-- Never forward console argument values verbatim without the same
-  redaction discipline `.claude/rules/logging.md` already requires of
-  IPC handlers — no secret values, no raw credential-shaped payloads.
+- Add a new sibling `diagnostics.reportLog` IPC channel (the existing
+  `diagnostics.reportError` channel and its crash-only payload are left
+  untouched) so forwarded console calls land in `main-*.log` as
+  `renderer console (${level}): ${message}` lines, distinct from the
+  existing crash-only `renderer error (${source}): ${message}` shape.
+- Console argument forwarding relies on **caller discipline, not
+  automatic redaction** — this change does not sanitize or scan console
+  arguments for secret-shaped values. App code is expected to already
+  follow `.claude/rules/logging.md`'s no-secrets rule for anything it
+  logs, the same discipline already required of every other logged value
+  in this codebase; forwarding does not add a new exemption or a new
+  guarantee beyond that.
 
 ### Service-layer debug logging sweep
 
@@ -129,9 +134,13 @@ diagnostics today; this is net-new.
 
 **Security**
 
-- Console forwarding must not become a new path for secrets to reach the
-  log file — same redaction discipline as `.claude/rules/logging.md`
-  already requires.
+- Console forwarding provides no automatic sanitization of forwarded
+  console arguments — it relies on the same caller discipline
+  `.claude/rules/logging.md` already requires of every other logged
+  value, not a new redaction guarantee. It does not introduce a new
+  exposure: the forwarded content already existed in DevTools output
+  today, unforwarded; this change routes it into a local log file the
+  operator already controls, not a new external destination.
 
 **Documentation**
 

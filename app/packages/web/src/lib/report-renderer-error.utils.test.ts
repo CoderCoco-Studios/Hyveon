@@ -166,7 +166,7 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenCalledWith([{ level: 'warn', message: 'count is 42 {"ok":true}' }], undefined);
   });
 
-  it('should cap entries sent in one flush and report the overflow as dropped', async () => {
+  it('should cap entries sent in one flush and retain the rest for the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
@@ -179,9 +179,16 @@ describe('installConsoleForwarding', () => {
     await vi.advanceTimersByTimeAsync(2_000);
 
     expect(reportLog).toHaveBeenCalledTimes(1);
-    const [entries, droppedCount] = reportLog.mock.calls[0] as [unknown[], number | undefined];
-    expect(entries).toHaveLength(50);
-    expect(droppedCount).toBe(10);
+    const [firstEntries, firstDropped] = reportLog.mock.calls[0] as [unknown[], number | undefined];
+    expect(firstEntries).toHaveLength(50);
+    expect(firstDropped).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    const [secondEntries, secondDropped] = reportLog.mock.calls[1] as [unknown[], number | undefined];
+    expect(secondEntries).toHaveLength(10);
+    expect(secondDropped).toBeUndefined();
   });
 
   it('should not call reportLog on a flush with nothing queued', async () => {
@@ -240,6 +247,19 @@ describe('installConsoleForwarding', () => {
     expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: String(circular) }], undefined);
   });
 
+  it('should preserve an undefined argument instead of dropping it from the message', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('value:', undefined);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: 'value: undefined' }], undefined);
+  });
+
   it('should drop entries once the queue is full and count them as dropped on the next flush', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const reportLog = vi.fn().mockResolvedValue(undefined);
@@ -254,10 +274,13 @@ describe('installConsoleForwarding', () => {
 
     expect(reportLog).toHaveBeenCalledTimes(1);
     const [entries, droppedCount] = reportLog.mock.calls[0] as [unknown[], number | undefined];
-    // 200 queue slots filled, the 10 further calls dropped at enqueue time; the
-    // 50-entry batch cap then drops another 150 of the queued 200 as overflow.
+    // 200 queue slots filled; the 10 further calls drop at enqueue time.
+    // The flush limit sends 50 entries and retains the rest for later flushes.
     expect(entries).toHaveLength(50);
-    expect(droppedCount).toBe(160);
+    expect(droppedCount).toBe(10);
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(reportLog).toHaveBeenCalledTimes(4);
   });
 
   it('should skip forwarding on a flush when the bridge disappears after install', async () => {

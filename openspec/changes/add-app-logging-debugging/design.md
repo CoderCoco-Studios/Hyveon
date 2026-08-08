@@ -71,22 +71,35 @@ Existing pieces this design builds on, confirmed against current source:
 
 ## Decisions
 
-### Decision 1: Extend the existing `diagnostics.reportError` channel's payload shape rather than adding a fully separate pipeline
+### Decision 1: A new sibling `diagnostics.reportLog` channel, not a widened `diagnostics.reportError`
 
-**Chosen:** widen `ReportRendererErrorInput` (`diagnostics.controller.ts`)
-into a shape that also carries ordinary console entries — e.g. add a
-`level: 'log' | 'info' | 'warn' | 'error' | 'crash'` discriminant, keep
-`message`/`stack` (`stack` now optional/absent for non-Error console
-calls), and keep `source` for the crash sub-cases
-(`'boundary' | 'window-error' | 'unhandled-rejection'`) plus a new
-`'console'` source for forwarded console calls. Rename the channel's
-public IPC method surface only if needed for clarity; the underlying
-`diagnostics.reportError` `@MessagePattern` name can stay if the payload
-discriminant makes the two cases unambiguous, or split into
-`diagnostics.reportError` (unchanged, crash-only) and a new
-`diagnostics.reportLog` (console calls) — implementation decides based on
-how invasive the discriminated-union refactor turns out to be against
-existing callers and tests.
+**Chosen, and shipped:** `diagnostics.reportError` (crash-only:
+`{ message, stack?, source: 'boundary' | 'window-error' | 'unhandled-rejection' }`)
+is left untouched. A new `diagnostics.reportLog` `@MessagePattern` channel
+carries batched console entries instead:
+`{ entries: RendererLogEntry[], droppedCount?: number }`, where
+`RendererLogEntry` is `{ level: 'log' | 'info' | 'warn' | 'error', message: string }`.
+There is no per-entry `source` field — a batch is unambiguously
+console-originated by virtue of arriving on `diagnostics.reportLog` rather
+than `diagnostics.reportError`, so the distinction lives in which channel
+carried the payload, not in a discriminant field.
+
+`DiagnosticsService.logRendererConsoleBatch(entries, droppedCount?)` maps
+each entry to a winston level and writes one log line per entry:
+`log → debug`, `info → info`, `warn → warn`, `error → error` (winston's
+`error`/`warn`/`info`/`debug` levels already exist; no custom level is
+added, matching the "use debug/silly as-is" decision from proposal.md).
+Each line reads `renderer console (${level}): ${message}`, distinguishing
+it at a glance from the existing `renderer error (${source}): ${message}`
+crash lines. A `droppedCount` (batch-cap overflow, queue-cap overflow, or
+both, combined into one number) is logged as a single
+`renderer console: ${n} entries dropped (batch cap exceeded)` warning line
+per flush, not one line per dropped entry.
+
+Splitting into a new channel rather than widening the existing one was
+chosen over a discriminated-union refactor of `diagnostics.reportError`
+because it keeps the existing crash-reporting payload, tests, and callers
+completely unchanged — the new channel is purely additive.
 
 Alternatives considered:
 
@@ -99,19 +112,35 @@ Alternatives considered:
 
 Renderer code overrides `console.log`/`info`/`warn`/`error` to (a) still
 call the original console method so DevTools behavior is unchanged, and
-(b) push an entry onto an in-memory queue that flushes to
-`diagnostics.reportError`/`reportLog` on a short interval (e.g. every
-1–2 seconds) or when the queue reaches a size cap, whichever comes first —
-mirroring the buffering pattern `/logs`'s pause/resume already uses
-(`ansi-log-viewer.component.tsx`), but for a write path instead of a
-read path. A hard per-flush entry cap with a "N entries dropped" marker
-line prevents a runaway loop from producing unbounded memory growth or an
-unbounded IPC payload.
+(b) push an entry onto an in-memory queue, mirroring the buffering pattern
+`/logs`'s pause/resume already uses (`ansi-log-viewer.component.tsx`), but
+for a write path instead of a read path. Three normative constants govern
+the queue, shipped exactly as follows (`report-renderer-error.utils.ts`):
+
+- **`FLUSH_INTERVAL_MS = 2_000`** — a `setInterval` flushes the queue to
+  `diagnostics.reportLog` every 2 seconds, unconditionally (there is no
+  size-triggered early flush; the queue only ever drains on this tick).
+- **`MAX_BATCH_ENTRIES = 50`** — the most one flush ever sends in a single
+  `diagnostics.reportLog` call, bounding IPC message size. Entries beyond
+  this cap are **not** dropped: `flush()` removes only the sent prefix
+  (`queue = queue.slice(MAX_BATCH_ENTRIES)`) and leaves the remainder
+  queued for the next tick, so a burst that fits within the queue cap
+  below is delivered in full across however many flushes it takes — the
+  per-flush cap paces IPC traffic, it does not discard data.
+- **`MAX_QUEUE_SIZE = 200`** — the only point data is actually dropped.
+  `enqueue()` refuses to push once the queue holds 200 entries and instead
+  increments `droppedSinceLastFlush`, which the next flush reports as a
+  single `renderer console: ${n} entries dropped (batch cap exceeded)`
+  warning line — one combined count per flush, never one line per dropped
+  entry, and never conflated with the per-flush send cap above.
 
 Rationale: console statements are frequently emitted in tight loops or
 render cycles; forwarding every single call as its own IPC round-trip
 would itself become a performance and log-volume problem, defeating the
-purpose of adding visibility.
+purpose of adding visibility. Bounding memory at the 200-entry queue cap
+(not the 50-entry send cap) means a burst of, say, 120 log calls is
+delivered in full over three flush ticks (6 seconds) rather than losing
+70 of them to an overly aggressive per-flush drop.
 
 ### Decision 3: Service-layer sweep scope — SDK/engine call sites only, not every file
 
@@ -172,15 +201,20 @@ Alternatives considered:
 
 ## Risks / Trade-offs
 
-- **Console forwarding becomes log-volume noise** → per-flush entry cap
-  with an explicit "N entries dropped" marker line (Decision 2); operators
-  can already ignore `debug`-level lines in the panel's new level filter.
+- **Console forwarding becomes log-volume noise** → the 200-entry queue
+  cap (Decision 2) bounds memory, and the only entries ever actually
+  dropped are the ones that exceed it — reported as an explicit
+  "N entries dropped" marker line; the 50-entry send cap only paces
+  delivery across multiple flushes, it never discards data on its own.
+  Operators can already ignore `debug`-level lines in the panel's new
+  level filter.
 - **A secret gets logged via `console.log(someObjectThatIncludesASecret)`
-  in existing app code** → out of this change's control (it can't
-  redact arbitrary object contents), but the override truncates/stringifies
-  non-primitive console arguments the same conservative way regardless,
-  and existing app code is expected to already follow
-  `.claude/rules/logging.md`'s no-secrets rule for anything it logs.
+  in existing app code** → this change provides **no automatic
+  sanitization or redaction of console arguments** — that is explicitly
+  out of scope, not merely deferred. Forwarding relies entirely on caller
+  discipline: existing app code is expected to already follow
+  `.claude/rules/logging.md`'s no-secrets rule for anything it logs, the
+  same discipline required of every other logged value in this codebase.
   Explicitly not a new attack surface: today those same `console.log`
   calls already exist and simply aren't captured; this change captures
   them into a local file the operator already controls, not a new
@@ -188,7 +222,7 @@ Alternatives considered:
 - **IPC channel volume from console forwarding competes with real IPC
   traffic** → batching interval and entry cap (Decision 2) keep the worst
   case bounded; the flush is a single small message, not per-call.
-- **Service-layer sweep touching 23 files risks review fatigue in one PR**
+- **Service-layer sweep touching 24 files risks review fatigue in one PR**
   → split across the PR stack per `tasks.md`; each service file's debug
   lines are small, independent, mechanical diffs reviewable individually
   or in small batches.
@@ -198,12 +232,12 @@ Alternatives considered:
 No data migration. This is additive logging/UI work with no schema or
 persisted-state changes.
 
-1. **Group 1 — console forwarding**: `diagnostics.controller.ts` payload
-   extension, `DiagnosticsService` write-path extension, preload/bridge
-   plumbing, the renderer-side override + batching in
-   `report-renderer-error.utils.ts`, wired in `main.tsx`. Independently
-   shippable and testable.
-2. **Group 2 — service-layer sweep**: the 23 in-scope service files from
+1. **Group 1 — console forwarding**: the new `diagnostics.reportLog`
+   channel on `diagnostics.controller.ts`, `DiagnosticsService`'s
+   `logRendererConsoleBatch` write path, preload/bridge plumbing, the
+   renderer-side override + batching in `report-renderer-error.utils.ts`,
+   wired in `main.tsx`. Independently shippable and testable.
+2. **Group 2 — service-layer sweep**: the 24 in-scope service files from
    Decision 3, landed as one PR (mechanical, low review risk per file) or
    split further if review load warrants it once underway. No dependency
    on Group 1.

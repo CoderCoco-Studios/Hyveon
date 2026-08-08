@@ -19,7 +19,8 @@ function formatConsoleArgs(args: unknown[]): string {
       if (typeof arg === 'string') return arg;
       if (arg instanceof Error) return arg.stack ?? arg.message;
       try {
-        return JSON.stringify(arg);
+        const serialized = JSON.stringify(arg);
+        return serialized ?? String(arg);
       } catch {
         return String(arg);
       }
@@ -36,15 +37,20 @@ function enqueue(level: RendererConsoleLevel, message: string): void {
   queue.push({ level, message });
 }
 
-/** Sends up to {@link MAX_BATCH_ENTRIES} queued entries to the main process and clears the queue. */
+/**
+ * Sends up to {@link MAX_BATCH_ENTRIES} queued entries to the main process.
+ * Anything beyond that per-flush cap stays queued for the next flush rather
+ * than being dropped — the queue is already memory-bounded by
+ * {@link MAX_QUEUE_SIZE}, so the per-flush cap only paces IPC message size,
+ * not total delivery.
+ */
 function flush(): void {
   if (queue.length === 0 && droppedSinceLastFlush === 0) {
     return;
   }
-  const overflow = Math.max(0, queue.length - MAX_BATCH_ENTRIES);
   const entries = queue.slice(0, MAX_BATCH_ENTRIES);
-  const droppedCount = droppedSinceLastFlush + overflow;
-  queue = [];
+  queue = queue.slice(MAX_BATCH_ENTRIES);
+  const droppedCount = droppedSinceLastFlush;
   droppedSinceLastFlush = 0;
 
   if (typeof window.hyveon?.diagnostics?.reportLog !== 'function') {
