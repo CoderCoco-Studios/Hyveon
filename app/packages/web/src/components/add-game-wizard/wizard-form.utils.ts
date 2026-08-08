@@ -1,10 +1,10 @@
 /**
  * Draft state shape + per-step validation for the add-game wizard (#99).
  *
- * The wizard walks the operator through five steps — identity, resources,
- * networking, storage, review — that together assemble one `game_servers`
- * entry. Rather than re-implement the business rules already enforced
- * server-side, this module builds a proposed entry from the in-progress
+ * The wizard walks the operator through six steps — identity, resources,
+ * networking, storage, environment, review — that together assemble one
+ * `game_servers` entry. Rather than re-implement the business rules already
+ * enforced server-side, this module builds a proposed entry from the in-progress
  * {@link WizardDraft} and delegates to {@link validateGameServer} (the same
  * zod schema + business-rule validator used by `GamesWriteService`), then
  * buckets the returned issues back onto the step whose fields they belong
@@ -22,7 +22,7 @@ import {
 import type { CreateGamePayload, GameServer } from '../../api.service.js';
 
 /** Ordered steps of the add-game wizard, matching issue #99's scope. */
-export const WIZARD_STEPS = ['identity', 'resources', 'networking', 'storage', 'review'] as const;
+export const WIZARD_STEPS = ['identity', 'resources', 'networking', 'storage', 'environment', 'review'] as const;
 
 /** One step of the add-game wizard. */
 export type WizardStep = (typeof WIZARD_STEPS)[number];
@@ -64,6 +64,12 @@ export interface WizardDraftFileSeed {
   mode: string;
 }
 
+/** Draft form of a single `GameServerEnvironmentVariable` row. */
+export interface WizardDraftEnvironmentVariable {
+  name: string;
+  value: string;
+}
+
 /**
  * In-progress state of the add-game wizard, covering every field across all
  * five steps. Field names mirror `GameServer` (snake_case) since the draft
@@ -78,6 +84,7 @@ export interface WizardDraft {
   ports: WizardDraftPort[];
   volumes: WizardDraftVolume[];
   file_seeds: WizardDraftFileSeed[];
+  environment: WizardDraftEnvironmentVariable[];
   https: boolean;
 }
 
@@ -92,6 +99,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     ports: [],
     volumes: [],
     file_seeds: [],
+    environment: [],
     https: false,
   };
 }
@@ -126,6 +134,7 @@ export function draftFromGameServer(game: GameServer): WizardDraft {
       content_base64: seed.content_base64 ?? '',
       mode: seed.mode ?? '',
     })),
+    environment: (game.environment ?? []).map((variable) => ({ name: variable.name, value: variable.value })),
     https: game.https === true,
   };
 }
@@ -162,6 +171,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
               mode: seed.mode.length > 0 ? seed.mode : undefined,
             }))
           : undefined,
+      environment: draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
       https: draft.https,
     },
   };
@@ -173,8 +183,9 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
  * looking at the first path segment (the field family). Every top-level
  * field on {@link WizardDraft} is covered: `name`/`image`/`connect_message`
  * → identity, `cpu`/`memory` → resources, `ports` → networking,
- * `volumes`/`file_seeds` → storage. Anything unrecognized falls back to
- * `review` so it's still surfaced somewhere rather than silently dropped.
+ * `volumes`/`file_seeds` → storage, `environment` → environment. Anything
+ * unrecognized falls back to `review` so it's still surfaced somewhere
+ * rather than silently dropped.
  */
 export function stepForIssuePath(path: string): WizardStep {
   const family = path.split(/[.[]/)[0];
@@ -191,6 +202,8 @@ export function stepForIssuePath(path: string): WizardStep {
     case 'volumes':
     case 'file_seeds':
       return 'storage';
+    case 'environment':
+      return 'environment';
     default:
       return 'review';
   }
@@ -255,6 +268,8 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
             mode: seed.mode.length > 0 ? seed.mode : undefined,
           }))
         : undefined,
+    environment:
+      draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
     https: draft.https,
   };
 }
@@ -401,6 +416,15 @@ export function validateStorageStep(
   mode: WizardMode = 'create',
 ): GameServerValidationIssue[] {
   return validateStep('storage', draft, existingGames, mode);
+}
+
+/** Validates the "Environment" step: `environment` row names (non-empty, no duplicates within the entry). */
+export function validateEnvironmentStep(
+  draft: WizardDraft,
+  existingGames: GameServer[],
+  mode: WizardMode = 'create',
+): GameServerValidationIssue[] {
+  return validateStep('environment', draft, existingGames, mode);
 }
 
 /** Validates the "Review" step: every issue across the whole draft, since review is the final gate before submit. */
