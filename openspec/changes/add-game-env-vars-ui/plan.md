@@ -584,11 +584,38 @@ git commit -m "feat(web): add EnvironmentStep row editor"
 **Files:**
 - Modify: `app/packages/web/src/components/add-game-wizard/add-game-wizard.component.tsx`
 - Modify: `app/packages/web/src/components/add-game-wizard/add-game-wizard.component.test.tsx`
+- Modify: `app/packages/web/src/components/add-game-wizard/storage-step.component.test.tsx`
 - Modify: `app/packages/web/src/components/edit-game-form/edit-game-form.component.tsx`
 - Modify: `app/packages/web/src/components/edit-game-form/edit-game-form.component.test.tsx`
 
 **Interfaces:**
 - Consumes: `EnvironmentStep`/`EnvironmentStepProps` (Task 3), `WIZARD_STEPS` now including `'environment'` (Task 2).
+
+**Plan correction (found during Task 3):** Task 2's instruction to add `environment` to every hand-built `WizardDraft` literal was scoped only to `wizard-form.utils.test.ts`. `storage-step.component.test.tsx`'s own `makeDraft` helper (unlike `identity-step.component.test.tsx`'s, which spreads `createEmptyWizardDraft()` and so already picked up the field for free) hand-builds its own `WizardDraft` literal without a spread, so it independently needs the same one-line fix. No other step-test file needs it — `networking-step.component.test.tsx` only builds `WizardDraftPort[]`, never a full `WizardDraft`. Fixed here since this task already runs the full typecheck/lint gate this fix is required for.
+
+- [ ] **Step 0: Fix `storage-step.component.test.tsx`'s `makeDraft` helper**
+
+Open `storage-step.component.test.tsx` and add `environment: []` to `makeDraft`'s returned object literal (alongside the existing `file_seeds: [],` line):
+
+```typescript
+function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
+  return {
+    name: 'minecraft',
+    image: 'itzg/minecraft-server',
+    connect_message: '',
+    cpu: 1024,
+    memory: 2048,
+    ports: [],
+    volumes: [{ name: 'data', container_path: '/data' }],
+    file_seeds: [],
+    environment: [],
+    https: false,
+    ...overrides,
+  };
+}
+```
+
+This is a pure typecheck fix (no behavior change to the Storage step's own tests) — do not run/commit this as its own TDD cycle, just make the edit; it's verified by Step 9's typecheck run below alongside the rest of this task's changes.
 
 - [ ] **Step 1: Update `add-game-wizard.component.test.tsx`'s step-count expectations first (failing)**
 
@@ -763,7 +790,7 @@ Run: `npm run app:typecheck && npm run app:lint`
 Expected: clean.
 
 ```bash
-git add app/packages/web/src/components/add-game-wizard/add-game-wizard.component.tsx app/packages/web/src/components/add-game-wizard/add-game-wizard.component.test.tsx app/packages/web/src/components/edit-game-form/edit-game-form.component.tsx app/packages/web/src/components/edit-game-form/edit-game-form.component.test.tsx
+git add app/packages/web/src/components/add-game-wizard/add-game-wizard.component.tsx app/packages/web/src/components/add-game-wizard/add-game-wizard.component.test.tsx app/packages/web/src/components/add-game-wizard/storage-step.component.test.tsx app/packages/web/src/components/edit-game-form/edit-game-form.component.tsx app/packages/web/src/components/edit-game-form/edit-game-form.component.test.tsx
 git commit -m "feat(web): wire EnvironmentStep into add-game wizard and edit-game form"
 ```
 
