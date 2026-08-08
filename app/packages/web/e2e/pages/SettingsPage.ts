@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the settings route (`/settings`). Wraps the Watchdog
@@ -7,13 +8,9 @@ import type { Page, Locator } from '@playwright/test';
 export class SettingsPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to the settings route. Targets `/#/settings`, not `/settings`
-   * — the app routes via `HashRouter` (see `app.component.tsx`'s doc
-   * comment), so a plain path with no hash resolves to the root route instead.
-   */
+  /** Navigate to the settings route. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/settings');
+    await gotoHashRoute(this.page, '/settings');
   }
 
   /**

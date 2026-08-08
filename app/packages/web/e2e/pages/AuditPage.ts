@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/audit` route added in issue #102. Wraps the audit
@@ -9,13 +10,9 @@ import type { Page, Locator } from '@playwright/test';
 export class AuditPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to `/audit` directly via URL. Targets `/#/audit`, not `/audit`
-   * — the app routes via `HashRouter` (see `app.component.tsx`'s doc
-   * comment), so a plain path with no hash resolves to the root route instead.
-   */
+  /** Navigate to `/audit` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/audit');
+    await gotoHashRoute(this.page, '/audit');
   }
 
   /** "Audit Log" page heading — used as a "the page mounted" smoke check. */

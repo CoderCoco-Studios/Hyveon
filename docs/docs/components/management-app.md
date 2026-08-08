@@ -413,7 +413,13 @@ to an end user's build.
 ### Routes
 
 The renderer is a multi-route single-page app (`react-router`), not a single
-dashboard screen. `app.component.tsx` declares:
+dashboard screen. `app.component.tsx` routes via `HashRouter`, not
+`BrowserRouter`: the packaged renderer loads via `win.loadFile()`
+(`file:///C:/...` on Windows, drive letter included), and `BrowserRouter`'s
+absolute-path route matching breaks against that prefix. `HashRouter` keeps
+the route entirely after a `#`, unaffected by the underlying `file://` path —
+so every path below is addressed at runtime as `/#<path>` (e.g. `/#/costs`),
+not the bare path:
 
 | Path | Page | See |
 |---|---|---|

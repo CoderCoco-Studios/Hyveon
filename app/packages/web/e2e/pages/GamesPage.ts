@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /** Drift-status chip labels rendered by `GameStatusBadges` (issue #93). */
 export type DriftLabel = 'In sync' | 'Pending deploy' | 'Undeclared';
@@ -12,18 +13,14 @@ export type DriftLabel = 'In sync' | 'Pending deploy' | 'Undeclared';
 export class GamesPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to the games list route. Targets `/#/games`, not `/games` —
-   * the app routes via `HashRouter` (see `app.component.tsx`'s doc
-   * comment), so a plain path with no hash resolves to the root route instead.
-   */
+  /** Navigate to the games list route. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/games');
+    await gotoHashRoute(this.page, '/games');
   }
 
   /** Navigate directly to a game's detail route. */
   async gotoDetail(name: string): Promise<void> {
-    await this.page.goto(`/#/games/${name}`);
+    await gotoHashRoute(this.page, `/games/${name}`);
   }
 
   // ── List page (`/games`) ─────────────────────────────────────────────

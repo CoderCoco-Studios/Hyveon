@@ -1,4 +1,5 @@
 export { AppLayout } from './AppLayout.js';
+export { gotoHashRoute } from './hashRoute.js';
 export { DashboardPage, type ServerStateLabel } from './DashboardPage.js';
 export { CostsPage } from './CostsPage.js';
 export { DiscordPage } from './DiscordPage.js';

@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/iac/history` route added in issue #111 —
@@ -8,19 +9,14 @@ import type { Page, Locator } from '@playwright/test';
 export class IacHistoryPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to `/iac/history` directly via URL. Targets `/#/iac/history`,
-   * not `/iac/history` — the app routes via `HashRouter` (see
-   * `app.component.tsx`'s doc comment), so a plain path with no hash
-   * resolves to the root route instead.
-   */
+  /** Navigate to `/iac/history` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/iac/history');
+    await gotoHashRoute(this.page, '/iac/history');
   }
 
   /** Navigate to a single run's read-only detail view directly via URL. */
   async gotoDetail(runId: string): Promise<void> {
-    await this.page.goto(`/#/iac/history/${runId}`);
+    await gotoHashRoute(this.page, `/iac/history/${runId}`);
   }
 
   /** "Run History" page heading — used as a "the page mounted" smoke check. */

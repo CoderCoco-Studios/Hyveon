@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /** Detected log level — drives the per-line badge color and the Levels filter. */
 export type LogLevelLabel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
@@ -13,13 +14,9 @@ export type LogLevelLabel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 export class LogsPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to `/logs` directly via URL. Targets `/#/logs`, not `/logs` —
-   * the app routes via `HashRouter` (see `app.component.tsx`'s doc
-   * comment), so a plain path with no hash resolves to the root route instead.
-   */
+  /** Navigate to `/logs` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/logs');
+    await gotoHashRoute(this.page, '/logs');
   }
 
   /**

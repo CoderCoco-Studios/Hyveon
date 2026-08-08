@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test';
+import { gotoHashRoute } from './hashRoute.js';
 
 /**
  * Page object for the `/iac` route added in issue #110 — plan trigger,
@@ -8,13 +9,9 @@ import type { Page, Locator } from '@playwright/test';
 export class IacPage {
   constructor(public readonly page: Page) {}
 
-  /**
-   * Navigate to `/iac` directly via URL. Targets `/#/iac`, not `/iac` — the
-   * app routes via `HashRouter` (see `app.component.tsx`'s doc comment), so
-   * a plain path with no hash resolves to the root route instead.
-   */
+  /** Navigate to `/iac` directly via URL. */
   async goto(): Promise<void> {
-    await this.page.goto('/#/iac');
+    await gotoHashRoute(this.page, '/iac');
   }
 
   /**
