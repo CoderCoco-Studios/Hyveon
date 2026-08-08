@@ -12,6 +12,16 @@ const MAX_QUEUE_SIZE = 200;
 let queue: RendererLogEntry[] = [];
 let droppedSinceLastFlush = 0;
 
+/**
+ * Entries currently out for delivery in an unsettled `diagnostics.reportLog`
+ * call. Reserved against {@link MAX_QUEUE_SIZE} so that if the call fails,
+ * the batch is guaranteed room to go back into the queue — without this, a
+ * burst of newer entries filling the queue while an older batch is in
+ * flight would force the *older* entries to be dropped on retry, breaking
+ * oldest-first delivery order.
+ */
+let inFlightCount = 0;
+
 /** Renders `console.*` arguments the same way they'd read on one log line — strings as-is, everything else stringified. */
 function formatConsoleArgs(args: unknown[]): string {
   return args
@@ -28,9 +38,14 @@ function formatConsoleArgs(args: unknown[]): string {
     .join(' ');
 }
 
-/** Queues a console entry, dropping (and counting) it once {@link MAX_QUEUE_SIZE} is reached. */
+/**
+ * Queues a console entry, dropping (and counting) it once the queue plus
+ * whatever is currently {@link inFlightCount} would reach {@link MAX_QUEUE_SIZE}
+ * — the reservation guarantees any in-flight batch that later fails always
+ * has room to be requeued.
+ */
 function enqueue(level: RendererConsoleLevel, message: string): void {
-  if (queue.length >= MAX_QUEUE_SIZE) {
+  if (queue.length + inFlightCount >= MAX_QUEUE_SIZE) {
     droppedSinceLastFlush += 1;
     return;
   }
@@ -39,16 +54,14 @@ function enqueue(level: RendererConsoleLevel, message: string): void {
 
 /**
  * Puts a failed flush's batch back at the front of the queue (oldest first)
- * and restores its dropped-count, bounded by {@link MAX_QUEUE_SIZE} — a
- * transient IPC failure must not silently lose entries that were otherwise
+ * and restores its dropped-count. Always fits: {@link enqueue} reserves
+ * space for in-flight entries via {@link inFlightCount} for exactly this
+ * case, so a transient IPC failure never loses entries that were otherwise
  * safely within the queue cap.
  */
 function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: number): void {
-  const spaceLeft = Math.max(0, MAX_QUEUE_SIZE - queue.length);
-  const toRequeue = entries.slice(0, spaceLeft);
-  const overflow = entries.length - toRequeue.length;
-  queue = [...toRequeue, ...queue];
-  droppedSinceLastFlush += droppedCount + overflow;
+  queue = [...entries, ...queue];
+  droppedSinceLastFlush += droppedCount;
 }
 
 /**
@@ -56,8 +69,10 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
  * Anything beyond that per-flush cap stays queued for the next flush rather
  * than being dropped — the queue is already memory-bounded by
  * {@link MAX_QUEUE_SIZE}, so the per-flush cap only paces IPC message size,
- * not total delivery. If the IPC call itself rejects (transient failure),
- * the batch is requeued rather than lost.
+ * not total delivery. The batch is reserved against the queue cap via
+ * {@link inFlightCount} while its `diagnostics.reportLog` call is pending;
+ * if the call rejects (transient failure), the batch is requeued rather
+ * than lost.
  */
 function flush(): void {
   if (queue.length === 0 && droppedSinceLastFlush === 0) {
@@ -71,9 +86,16 @@ function flush(): void {
   if (typeof window.hyveon?.diagnostics?.reportLog !== 'function') {
     return;
   }
-  void window.hyveon.diagnostics
-    .reportLog(entries, droppedCount || undefined)
-    ?.catch(() => requeueAfterFailedFlush(entries, droppedCount));
+  inFlightCount += entries.length;
+  void window.hyveon.diagnostics.reportLog(entries, droppedCount || undefined)?.then(
+    () => {
+      inFlightCount -= entries.length;
+    },
+    () => {
+      inFlightCount -= entries.length;
+      requeueAfterFailedFlush(entries, droppedCount);
+    },
+  );
 }
 
 /**

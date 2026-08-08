@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { installGlobalErrorReporting, reportRendererError } from './report-renderer-error.utils.js';
+import type { RendererLogEntry } from '@hyveon/desktop-preload';
 
 const MODULE_PATH = './report-renderer-error.utils.js';
 
@@ -349,7 +350,7 @@ describe('installConsoleForwarding', () => {
     expect(secondDropped).toBe(5);
   });
 
-  it('should count requeued entries that no longer fit under the queue cap as dropped', async () => {
+  it('should reserve queue capacity for in-flight entries so a failed batch is never lost to newer entries', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let rejectFirstAttempt: (err: unknown) => void = () => undefined;
     const firstAttempt = new Promise<void>((_resolve, reject) => {
@@ -364,8 +365,9 @@ describe('installConsoleForwarding', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(reportLog).toHaveBeenCalledTimes(1);
 
-    // The first attempt is still pending — fill the queue to capacity before it rejects, so the
-    // requeue that follows has no room left for the failed entry.
+    // The first attempt is still pending (its 1 entry is reserved against the queue cap). Filling
+    // the queue with 200 more entries can therefore only fit 199 of them — the 200th is dropped —
+    // rather than the in-flight entry losing its spot once it comes back.
     for (let i = 0; i < 200; i += 1) {
       console.log(`filler ${i}`);
     }
@@ -375,8 +377,10 @@ describe('installConsoleForwarding', () => {
     await Promise.resolve();
 
     await vi.advanceTimersByTimeAsync(2_000);
+
     expect(reportLog).toHaveBeenCalledTimes(2);
-    const [, secondDropped] = reportLog.mock.calls[1] as [unknown[], number | undefined];
+    const [secondEntries, secondDropped] = reportLog.mock.calls[1] as [RendererLogEntry[], number | undefined];
+    expect(secondEntries[0]).toEqual({ level: 'log', message: 'will fail and be requeued' });
     expect(secondDropped).toBe(1);
   });
 });

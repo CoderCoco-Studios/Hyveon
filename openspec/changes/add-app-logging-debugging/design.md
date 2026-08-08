@@ -128,20 +128,27 @@ the queue, shipped exactly as follows (`report-renderer-error.utils.ts`):
   below is delivered in full across however many flushes it takes — the
   per-flush cap paces IPC traffic, it does not discard data.
 - **`MAX_QUEUE_SIZE = 200`** — the only point data is actually dropped.
-  `enqueue()` refuses to push once the queue holds 200 entries and instead
-  increments `droppedSinceLastFlush`, which the next flush reports as a
-  single `renderer console: ${n} entries dropped (queue capacity exceeded)`
+  `enqueue()` refuses to push once `queue.length + inFlightCount` reaches
+  200 (see below) and instead increments `droppedSinceLastFlush`, which the
+  next flush reports as a single
+  `renderer console: ${n} entries dropped (queue capacity exceeded)`
   warning line — one combined count per flush, never one line per dropped
   entry, and never conflated with the per-flush send cap above.
 
 A transient IPC failure (a rejected `diagnostics.reportLog` call) does not
-lose the batch either: `flush()`'s `.catch()` calls
-`requeueAfterFailedFlush()`, which puts the failed batch back at the front
-of the queue (oldest-first ordering preserved) and restores its
-`droppedCount`, bounded by the same `MAX_QUEUE_SIZE`. If the queue has since
-filled up during the failed round-trip, whatever no longer fits is counted
-as dropped rather than silently discarded or retried forever — the same
-combined "N entries dropped" reporting as any other queue-cap drop.
+lose the batch either. While a flush's `diagnostics.reportLog` call is
+pending, its entry count is held in a module-level `inFlightCount` counter
+— `enqueue()` treats `queue.length + inFlightCount` as the effective size
+against the 200 cap, reserving room for that batch's possible return. If
+the call rejects, `flush()`'s failure handler decrements `inFlightCount`
+and calls `requeueAfterFailedFlush()`, which puts the failed batch back at
+the front of the queue (oldest-first ordering preserved) and restores its
+`droppedCount`; because the space was reserved the whole time, this
+requeue always fits — it never has to drop the older failed batch to make
+room for newer entries that arrived while the call was in flight. Newer
+entries that don't fit under the reservation are dropped and counted at
+`enqueue()` time instead, the same combined "N entries dropped" reporting
+as any other queue-cap drop.
 
 Rationale: console statements are frequently emitted in tight loops or
 render cycles; forwarding every single call as its own IPC round-trip
