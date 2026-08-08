@@ -70,8 +70,8 @@ above the table and summarises the same drift in counts.
 
 ## Adding a game
 
-**Add game** opens a five-step dialog titled **Add a game server**, with the
-current step shown as `Step 1 of 5: Identity`.
+**Add game** opens a six-step dialog titled **Add a game server**, with the
+current step shown as `Step 1 of 6: Identity`.
 
 ![The Add game wizard on its Identity step, with Name, Image and Connect message fields and Back/Next buttons](/img/app/games-add-wizard.png)
 
@@ -161,11 +161,36 @@ server starts." Each row has:
 File seeds can be removed down to zero. Blank fields are dropped entirely
 rather than written as empty strings.
 
-### Step 5 — Review
+### Step 5 — Environment
+
+> Optional — environment variables injected into the container (e.g.
+> `EULA=TRUE`).
+
+Starts empty, with `No environment variables configured.` shown until you add
+a row. **Add variable** appends a row with a **Variable name** field and a
+**Value** field (both plain text). Like ports, there is no minimum — zero
+variables is valid, and every row's **Remove** button stays enabled all the
+way down to zero.
+
+Two rules apply to the **name** field only — `value` has no validation at
+all:
+
+- A name must not be empty: `environment[0].name must not be empty.`
+- A name must not repeat another row's name in the same entry:
+  `environment[1].name "EULA" duplicates an earlier environment variable in
+  the same entry.`
+
+There is no character-set or casing restriction on the name (unlike the game
+**Name** field in Step 1) — container images vary too much to assume a
+universal naming convention.
+
+### Step 6 — Review
 
 A read-only summary in four cards — **Identity**, **Resources**,
 **Networking**, **Storage** — showing exactly what will be written. The
-Storage card lists file-seed *paths* only; contents are never displayed.
+Storage card lists file-seed *paths* only (contents are never displayed) and,
+underneath, an **Environment variables** list of name/value pairs — both
+sub-sections are omitted entirely when empty rather than shown blank.
 
 The footer button reads **Submit**.
 
@@ -184,16 +209,6 @@ On the Review step, Submit is disabled unless the whole draft is clean.
 If the server rejects the submission, the dialog stays open with your draft
 intact and jumps to whichever step the first problem belongs to, with the
 message rendered against the offending field.
-
-### Fields the wizard does not cover
-
-`https` **is** covered — see the toggle in Step 3 above. `environment` is
-the one field with no control anywhere in the app today: there is no UI to
-set environment variables on a game, either in this wizard or on the edit
-form (editing a game carries any existing `environment` value forward
-unchanged — see [Editing a game](#editing-a-game) — it just can't be
-changed from here). There is currently no supported, in-app way to add or
-change environment variables on a game.
 
 ## The game detail screen
 
@@ -231,10 +246,11 @@ If you navigate to a name that exists in neither place you get
 
 ## Editing a game
 
-**Edit** replaces the detail cards with a flat form containing the same four
-sections as the wizard — Identity, Resources, Networking, Storage — pre-filled
-from the current declaration. All the same validation applies, but it applies
-to the whole form at once rather than step by step.
+**Edit** replaces the detail cards with a flat form containing the same five
+sections as the wizard — Identity, Resources, Networking, Storage,
+Environment — pre-filled from the current declaration. All the same
+validation applies, but it applies to the whole form at once rather than step
+by step.
 
 **The Name field is disabled.** Renaming a game is a delete-and-recreate, not
 an update: the name is the task-definition family, the EFS access-point key,
@@ -242,9 +258,9 @@ the log-group name and the DNS label. Remove the old game and add a new one if
 you need a different name.
 
 `https` has the same toggle here as in the wizard's Networking step.
-`environment` still has no control on this form — it is **carried forward
-unchanged** — editing a game will not silently drop it, it just can't be
-changed from here.
+`environment` is directly editable here too, in its own **Environment** card —
+the same row editor (Variable name / Value, no minimum row count) as the
+wizard's Step 5.
 
 Above the save button:
 
