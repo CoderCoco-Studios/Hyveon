@@ -29,7 +29,7 @@ interface SecretCacheEntry {
  */
 export class AwsSecretsStore implements SecretsStore {
   private client: SecretsManagerClient | null = null;
-  private clientRegion: string | null = null;
+  private clientCacheKey: string | null = null;
 
   /**
    * Per-name cache of resolved secret values, populated by {@link get} and
@@ -52,17 +52,25 @@ export class AwsSecretsStore implements SecretsStore {
    *   effect, which resolves nothing in a GUI-launched Electron process —
    *   see `desktop-main`'s `resolveAwsClientCredentials`, the real caller's
    *   source for this field.
+   * @param getCredentialsSignature - Resolves a cheap, comparable fingerprint
+   *   of `getCredentials()`'s current value, on every call — see
+   *   `desktop-main`'s `resolveAwsClientCredentialsWithSignature` for why
+   *   `getCredentials()`'s own return value can't be compared directly to
+   *   detect a rotation. {@link getClient} keys its cache on this alongside
+   *   region so a same-region credentials rotation still rebuilds the client
+   *   instead of staying pinned to a stale key indefinitely.
    */
   constructor(
     private readonly getRegion?: () => string,
     private readonly getCredentials?: () => SecretsManagerClientConfig['credentials'],
+    private readonly getCredentialsSignature?: () => string,
   ) {}
 
   /**
    * Lazily constructs the Secrets Manager client, recreating it whenever the
-   * freshly-resolved region differs from the region the cached client was
-   * built with — mirrors `AwsCloudProvider.getEcsClient`'s rebuild-on-region-
-   * change pattern.
+   * freshly-resolved region or credentials signature differs from what the
+   * cached client was built with — mirrors `AwsCloudProvider.getEcsClient`'s
+   * rebuild-on-region-or-credentials-change pattern.
    */
   private getClient(): SecretsManagerClient {
     const region =
@@ -71,10 +79,11 @@ export class AwsSecretsStore implements SecretsStore {
       process.env['AWS_REGION'] ??
       process.env['AWS_DEFAULT_REGION'] ??
       'us-east-1';
+    const cacheKey = `${region}::${this.getCredentialsSignature?.() ?? ''}`;
 
-    if (!this.client || this.clientRegion !== region) {
+    if (!this.client || this.clientCacheKey !== cacheKey) {
       this.client = new SecretsManagerClient({ region, credentials: this.getCredentials?.() });
-      this.clientRegion = region;
+      this.clientCacheKey = cacheKey;
     }
     return this.client;
   }

@@ -19,7 +19,8 @@ import { ConfigModule } from './config.module.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { ElectronStoreService } from '../services/ElectronStoreService.js';
-import { resolveAwsClientCredentials } from '../services/awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature } from '../services/awsCredentialSource.js';
+import type { AwsClientCredentials } from '../services/awsCredentialSource.js';
 import { createAwsCloudProvider } from '../services/EcsService.js';
 import {
   CLOUD_PROVIDER,
@@ -72,11 +73,13 @@ export interface CloudBindings {
 export function resolveDeploymentConfigFileStoreConfig(
   config: ConfigService,
   store: ElectronStoreService,
-): { bucket: string; region: string; credentials: ReturnType<typeof resolveAwsClientCredentials> } {
+): { bucket: string; region: string; credentials: AwsClientCredentials; credentialsSignature: string } {
+  const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     bucket: config.getConfigurationBucket() ?? '',
     region: config.getRegion(),
-    credentials: resolveAwsClientCredentials(store),
+    credentials,
+    credentialsSignature: signature,
   };
 }
 
@@ -120,12 +123,14 @@ export function resolveDeploymentConfigFileStoreConfig(
 export async function resolveAuditLogStoreConfig(
   config: ConfigService,
   store: ElectronStoreService,
-): Promise<{ tableName: string; region: string; credentials: ReturnType<typeof resolveAwsClientCredentials> }> {
+): Promise<{ tableName: string; region: string; credentials: AwsClientCredentials; credentialsSignature: string }> {
   const outputs = await config.getStackOutputs();
+  const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     tableName: outputs?.auditTableName ?? '',
     region: outputs?.awsRegion ?? config.getRegion(),
-    credentials: resolveAwsClientCredentials(store),
+    credentials,
+    credentialsSignature: signature,
   };
 }
 
@@ -175,15 +180,18 @@ export async function resolveRunRecordStoreConfig(
   tableName: string;
   bucket: string;
   region: string;
-  credentials: ReturnType<typeof resolveAwsClientCredentials>;
+  credentials: AwsClientCredentials;
+  credentialsSignature: string;
 }> {
   const outputs = await config.getStackOutputs();
   const tableName = outputs?.runsTableName || (await resolvePreApplyRunsTableName(remoteFileStore));
+  const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     tableName: tableName ?? '',
     bucket: config.getConfigurationBucket() ?? '',
     region: outputs?.awsRegion ?? config.getRegion(),
-    credentials: resolveAwsClientCredentials(store),
+    credentials,
+    credentialsSignature: signature,
   };
 }
 
@@ -200,7 +208,8 @@ export const CLOUD_BINDINGS: Record<string, CloudBindings> = {
     secretsStore: (config, store) =>
       new AwsSecretsStore(
         () => config.getRegion(),
-        () => resolveAwsClientCredentials(store),
+        () => resolveAwsClientCredentialsWithSignature(store).credentials,
+        () => resolveAwsClientCredentialsWithSignature(store).signature,
       ),
     remoteFileStore: (config, store) =>
       new AwsRemoteFileStore(() => resolveDeploymentConfigFileStoreConfig(config, store)),

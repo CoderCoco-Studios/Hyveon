@@ -231,6 +231,7 @@ describe('resolveCloudBindings', () => {
         bucket: 'my-config-bucket',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -240,6 +241,7 @@ describe('resolveCloudBindings', () => {
         bucket: '',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -261,6 +263,7 @@ describe('resolveCloudBindings', () => {
         tableName: 'my-audit-table',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -273,6 +276,7 @@ describe('resolveCloudBindings', () => {
         tableName: '',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -282,6 +286,7 @@ describe('resolveCloudBindings', () => {
         tableName: 'my-audit-table',
         region: 'eu-west-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -294,6 +299,7 @@ describe('resolveCloudBindings', () => {
         tableName: '',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -310,6 +316,7 @@ describe('resolveCloudBindings', () => {
         bucket: 'my-config-bucket',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -323,6 +330,7 @@ describe('resolveCloudBindings', () => {
         bucket: '',
         region: 'us-east-1',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -333,6 +341,7 @@ describe('resolveCloudBindings', () => {
         bucket: 'my-config-bucket',
         region: 'ap-southeast-2',
         credentials: undefined,
+        credentialsSignature: 'none',
       });
     });
 
@@ -354,6 +363,7 @@ describe('resolveCloudBindings', () => {
           bucket: 'my-config-bucket',
           region: 'us-east-1',
           credentials: undefined,
+          credentialsSignature: 'none',
         });
       });
 
@@ -369,6 +379,7 @@ describe('resolveCloudBindings', () => {
           bucket: 'my-config-bucket',
           region: 'us-east-1',
           credentials: undefined,
+          credentialsSignature: 'none',
         });
       });
 
@@ -384,6 +395,7 @@ describe('resolveCloudBindings', () => {
           bucket: 'my-config-bucket',
           region: 'us-east-1',
           credentials: undefined,
+          credentialsSignature: 'none',
         });
       });
 
@@ -398,6 +410,7 @@ describe('resolveCloudBindings', () => {
           bucket: 'my-config-bucket',
           region: 'us-east-1',
           credentials: undefined,
+          credentialsSignature: 'none',
         });
       });
     });

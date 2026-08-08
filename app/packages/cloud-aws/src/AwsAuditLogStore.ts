@@ -21,7 +21,7 @@ const PARTITION_KEY = 'AUDIT';
  */
 export class AwsAuditLogStore implements AuditLogStore {
   private client: DynamoDBDocumentClient | null = null;
-  private clientRegion: string | null = null;
+  private clientCacheKey: string | null = null;
 
   /**
    * @param getConfig - Resolves the DynamoDB table (and optional region)
@@ -52,12 +52,28 @@ export class AwsAuditLogStore implements AuditLogStore {
    *   `DynamoDBClient` — omitting it leaves the SDK's own default provider
    *   chain in effect, which resolves nothing in a GUI-launched Electron
    *   process (see `desktop-main`'s `resolveAwsClientCredentials`, the real
-   *   caller's source for this field).
+   *   caller's source for this field). `credentialsSignature`, when supplied,
+   *   is a cheap, comparable fingerprint of `credentials` — see
+   *   `desktop-main`'s `resolveAwsClientCredentialsWithSignature` for why
+   *   `credentials` itself can't be compared to detect a rotation.
+   *   {@link getClient} keys its cache on this alongside region so a
+   *   same-region credentials rotation still rebuilds the client instead of
+   *   staying pinned to a stale key indefinitely.
    */
   constructor(
     private readonly getConfig?: () => (
-      | { tableName: string; region?: string; credentials?: DynamoDBClientConfig['credentials'] }
-      | Promise<{ tableName: string; region?: string; credentials?: DynamoDBClientConfig['credentials'] }>
+      | {
+          tableName: string;
+          region?: string;
+          credentials?: DynamoDBClientConfig['credentials'];
+          credentialsSignature?: string;
+        }
+      | Promise<{
+          tableName: string;
+          region?: string;
+          credentials?: DynamoDBClientConfig['credentials'];
+          credentialsSignature?: string;
+        }>
     ),
   ) {}
 
@@ -78,19 +94,20 @@ export class AwsAuditLogStore implements AuditLogStore {
 
   /**
    * Lazily constructs the DynamoDB document client, recreating it whenever
-   * the freshly-resolved region differs from the region the cached client
-   * was built with — mirrors `AwsSecretsStore.getClient`'s
-   * rebuild-on-region-change pattern. Region defaults come from the
-   * dedicated {@link resolveDefaultAwsRegion} environment accessor rather
-   * than reading `process.env` inline.
+   * the freshly-resolved region or credentials signature differs from what
+   * the cached client was built with — mirrors `AwsSecretsStore.getClient`'s
+   * rebuild-on-region-or-credentials-change pattern. Region defaults come
+   * from the dedicated {@link resolveDefaultAwsRegion} environment accessor
+   * rather than reading `process.env` inline.
    */
   private async getClient(): Promise<DynamoDBDocumentClient> {
     const config = await this.getConfig?.();
     const region = config?.region ?? resolveDefaultAwsRegion();
+    const cacheKey = `${region}::${config?.credentialsSignature ?? ''}`;
 
-    if (!this.client || this.clientRegion !== region) {
+    if (!this.client || this.clientCacheKey !== cacheKey) {
       this.client = DynamoDBDocumentClient.from(new DynamoDBClient({ region, credentials: config?.credentials }));
-      this.clientRegion = region;
+      this.clientCacheKey = cacheKey;
     }
     return this.client;
   }

@@ -8,7 +8,7 @@ import {
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentials } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 
 /**
  * The universal-target ARN EventBridge Scheduler recognizes as "call the ECS
@@ -53,18 +53,26 @@ export interface CreateStopScheduleParams {
 @Injectable()
 export class SchedulerService {
   private client: SchedulerClient | null = null;
+  private clientCacheKey: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly store: ElectronStoreService,
   ) {}
 
+  /**
+   * Lazily constructs the client, recreating it whenever the
+   * freshly-resolved region or credentials signature differs from what the
+   * cached client was built with — see `EcsService.getClient`'s matching doc
+   * comment for why both matter.
+   */
   private getClient(): SchedulerClient {
-    if (!this.client) {
-      this.client = new SchedulerClient({
-        region: this.config.getRegion(),
-        credentials: resolveAwsClientCredentials(this.store),
-      });
+    const region = this.config.getRegion();
+    const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
+    const cacheKey = `${region}::${signature}`;
+    if (!this.client || this.clientCacheKey !== cacheKey) {
+      this.client = new SchedulerClient({ region, credentials });
+      this.clientCacheKey = cacheKey;
     }
     return this.client;
   }

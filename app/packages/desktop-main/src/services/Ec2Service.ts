@@ -3,7 +3,7 @@ import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentials } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 
 /**
  * Thin EC2 wrapper used solely to turn an ECS task's Elastic Network
@@ -14,18 +14,26 @@ import { resolveAwsClientCredentials } from './awsCredentialSource.js';
 @Injectable()
 export class Ec2Service {
   private client: EC2Client | null = null;
+  private clientCacheKey: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly store: ElectronStoreService,
   ) {}
 
+  /**
+   * Lazily constructs the EC2 client, recreating it whenever the
+   * freshly-resolved region or credentials signature differs from what the
+   * cached client was built with — see `EcsService.getClient`'s matching doc
+   * comment for why both matter.
+   */
   private getClient(): EC2Client {
-    if (!this.client) {
-      this.client = new EC2Client({
-        region: this.config.getRegion(),
-        credentials: resolveAwsClientCredentials(this.store),
-      });
+    const region = this.config.getRegion();
+    const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
+    const cacheKey = `${region}::${signature}`;
+    if (!this.client || this.clientCacheKey !== cacheKey) {
+      this.client = new EC2Client({ region, credentials });
+      this.clientCacheKey = cacheKey;
     }
     return this.client;
   }

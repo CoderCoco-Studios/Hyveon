@@ -533,6 +533,44 @@ describe('EcsService', () => {
 
       expect(observedCredentials).toMatchObject({ accessKeyId: 'AKIA-test', secretAccessKey: 'secret-test' });
     });
+
+    /**
+     * Regression test for the stale-client-cache defect flagged in review of
+     * #452: `getClient()` used to cache the `ECSClient` forever after first
+     * construction (`if (!this.client)`), so a credentials rotation mid-session
+     * (e.g. the operator replacing a pasted key via Settings) kept every
+     * subsequent call signed with the original credentials until the app
+     * restarted. `getClient()` now keys its cache on region + a credentials
+     * signature so a rotation is picked up on the very next call.
+     */
+    it('should rebuild the raw ECS client when the stored credentials rotate between calls', async () => {
+      const store: Partial<ElectronStoreService> = {
+        get: vi.fn().mockReturnValue({ profile: 'hyveon-pasted' }),
+        getPastedCredentials: vi
+          .fn()
+          .mockReturnValueOnce({ accessKeyId: 'AKIA-old', secretAccessKey: 'secret-old' })
+          .mockReturnValueOnce({ accessKeyId: 'AKIA-new', secretAccessKey: 'secret-new' }),
+      };
+      const config = makeConfig();
+      const service = new EcsService(
+        config,
+        makeEc2(),
+        createAwsCloudProvider(config, store as ElectronStoreService),
+        store as ElectronStoreService,
+      );
+
+      const observed: unknown[] = [];
+      ecsMock.on(StopTaskCommand).callsFake(async (_input, getClient) => {
+        observed.push(await getClient().config.credentials());
+        return {};
+      });
+
+      await service.stopTask('cluster', 'arn-1', 'first call');
+      await service.stopTask('cluster', 'arn-2', 'second call, after rotation');
+
+      expect(observed[0]).toMatchObject({ accessKeyId: 'AKIA-old', secretAccessKey: 'secret-old' });
+      expect(observed[1]).toMatchObject({ accessKeyId: 'AKIA-new', secretAccessKey: 'secret-new' });
+    });
   });
 });
 

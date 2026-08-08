@@ -20,7 +20,7 @@ import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { Ec2Service } from './Ec2Service.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
-import { resolveAwsClientCredentials } from './awsCredentialSource.js';
+import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
 
 /**
@@ -42,11 +42,16 @@ import { CLOUD_PROVIDER } from '../modules/cloud-provider.tokens.js';
  * was really provisioned, which can drift from the wizard's credentials-step
  * region if `DeploymentConfig.awsRegion` was edited independently.
  *
- * `credentials` comes from `resolveAwsClientCredentials(store)` — omitting
- * it left every ECS/EC2/CloudWatch Logs call falling back to the SDK's
- * default provider chain, which resolves nothing in a GUI-launched Electron
- * process (this app's credentials live encrypted in `store`, never in env
- * vars or `~/.aws`).
+ * `credentials` comes from `resolveAwsClientCredentialsWithSignature(store)`
+ * — omitting it left every ECS/EC2/CloudWatch Logs call falling back to the
+ * SDK's default provider chain, which resolves nothing in a GUI-launched
+ * Electron process (this app's credentials live encrypted in `store`, never
+ * in env vars or `~/.aws`). `credentialsSignature` rides alongside it so
+ * `AwsCloudProvider`'s lazily-cached clients can detect a credentials-only
+ * rotation (same region, different key/profile) and rebuild instead of
+ * staying pinned to the stale credentials indefinitely — see
+ * `resolveAwsClientCredentialsWithSignature`'s doc comment for why
+ * `credentials` alone can't be compared for this.
  */
 export async function buildProviderConfig(
   config: ConfigService,
@@ -54,9 +59,11 @@ export async function buildProviderConfig(
 ): Promise<AwsCloudProviderConfig | null> {
   const outputs = await config.getStackOutputs();
   if (!outputs) return null;
+  const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
   return {
     region: outputs.awsRegion,
-    credentials: resolveAwsClientCredentials(store),
+    credentials,
+    credentialsSignature: signature,
     ecsClusterName: outputs.ecsClusterName,
     subnetIds: outputs.subnetIds.join(','),
     securityGroupId: outputs.securityGroupId,
@@ -169,6 +176,7 @@ export interface StartResult {
 @Injectable()
 export class EcsService {
   private client: ECSClient | null = null;
+  private clientCacheKey: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -180,12 +188,21 @@ export class EcsService {
     private readonly store: ElectronStoreService,
   ) {}
 
+  /**
+   * Lazily constructs the ECS client, recreating it whenever the
+   * freshly-resolved region or credentials signature differs from what the
+   * cached client was built with — otherwise a region change or an AWS
+   * credentials rotation (e.g. via the wizard's Settings step) would leave
+   * every subsequent call signed with the stale region/credentials until the
+   * app restarts.
+   */
   private getClient(): ECSClient {
-    if (!this.client) {
-      this.client = new ECSClient({
-        region: this.config.getRegion(),
-        credentials: resolveAwsClientCredentials(this.store),
-      });
+    const region = this.config.getRegion();
+    const { credentials, signature } = resolveAwsClientCredentialsWithSignature(this.store);
+    const cacheKey = `${region}::${signature}`;
+    if (!this.client || this.clientCacheKey !== cacheKey) {
+      this.client = new ECSClient({ region, credentials });
+      this.clientCacheKey = cacheKey;
     }
     return this.client;
   }

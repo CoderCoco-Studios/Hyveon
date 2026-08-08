@@ -131,13 +131,51 @@ export function resolveAwsCredentialSource(store: ElectronStoreService): AwsCred
  *   {@link resolveAwsCredentialSource}.
  */
 export function resolveAwsClientCredentials(store: ElectronStoreService): AwsClientCredentials {
+  return resolveAwsClientCredentialsWithSignature(store).credentials;
+}
+
+/** {@link resolveAwsClientCredentialsWithSignature}'s return shape. */
+export interface ResolvedAwsClientCredentials {
+  /** The `credentials` value to hand to an `@aws-sdk/client-*` constructor. */
+  readonly credentials: AwsClientCredentials;
+  /**
+   * A cheap, comparable fingerprint of `credentials` — changes whenever the
+   * wizard's stored AWS profile selection, pasted key, or credential kind
+   * changes, and stays stable otherwise.
+   */
+  readonly signature: string;
+}
+
+/**
+ * Same resolution as {@link resolveAwsClientCredentials}, plus a comparable
+ * `signature` string callers can cache alongside a lazily-constructed AWS SDK
+ * client to detect a credentials change and rebuild it.
+ *
+ * `credentials` itself can't be used for that comparison: the `'profile'`
+ * case returns `fromIni({ profile })`, which allocates a new provider
+ * function on every call, so `!==` would always report "changed" even when
+ * the profile is the same, while a naive cache that ignores `credentials`
+ * entirely (comparing only `region`, as every AWS-SDK-client owner in this
+ * codebase did before this field existed) never notices a same-region
+ * credential rotation at all and keeps signing requests with the old key
+ * until the process restarts.
+ *
+ * @param store - The store to resolve the credential source from, passed to
+ *   {@link resolveAwsCredentialSource}.
+ * @throws {@link AwsPastedCredentialDecryptError} — see
+ *   {@link resolveAwsCredentialSource}.
+ */
+export function resolveAwsClientCredentialsWithSignature(store: ElectronStoreService): ResolvedAwsClientCredentials {
   const source = resolveAwsCredentialSource(store);
   switch (source.kind) {
     case 'none':
-      return undefined;
+      return { credentials: undefined, signature: 'none' };
     case 'pasted':
-      return { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey };
+      return {
+        credentials: { accessKeyId: source.accessKeyId, secretAccessKey: source.secretAccessKey },
+        signature: `pasted:${source.profile}:${source.accessKeyId}`,
+      };
     case 'profile':
-      return fromIni({ profile: source.profile });
+      return { credentials: fromIni({ profile: source.profile }), signature: `profile:${source.profile}` };
   }
 }
