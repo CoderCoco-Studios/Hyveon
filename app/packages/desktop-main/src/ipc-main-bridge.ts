@@ -1,6 +1,7 @@
 import type { MessageHandler } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import { ElectronIPCTransport } from 'nestjs-electron-ipc-transport';
+import { firstValueFrom, isObservable } from 'rxjs';
 import { logger } from './logger.js';
 
 /**
@@ -134,6 +135,30 @@ export class BridgedElectronIPCTransport extends ElectronIPCTransport {
  * here too, so the daily log file has a record of which channel failed and
  * why even when a caller doesn't handle the rejection.
  *
+ * An uncaught throw inside a `@MessagePattern` handler doesn't reach here as
+ * a rejection at all: `RpcProxy.create` (`@nestjs/microservices`) catches it
+ * and *resolves* with `exceptionsHandler.handle(...)`, an RxJS `Observable`
+ * built from `throwError(...)` — Nest's RPC context has no HTTP response to
+ * write the error to, so it hands the error back as a stream instead. Left
+ * alone, that Observable is what Electron tries to structured-clone,
+ * producing the same "object could not be cloned" failure without ever
+ * entering the `catch` block below. `firstValueFrom` below converts that
+ * Observable back into a rejected promise so it flows through the same
+ * normalization path as every other thrown error.
+ *
+ * That conversion only carries the *shape* of the error through, not its
+ * message: `exceptionsHandler.handle(...)` is NestJS's
+ * `RpcExceptionsHandler`, and for any exception that isn't itself an
+ * `RpcException`, its built-in `BaseRpcExceptionFilter` discards the real
+ * message and substitutes the constant string `'Internal server error'`
+ * before this module ever sees the Observable. `firstValueFrom` alone cannot
+ * recover a message that was already replaced upstream — the real fix is
+ * `RpcErrorMessageFilter` (`rpc-error-message.filter.ts`), registered via
+ * `app.useGlobalFilters()` in `main.ts`, which NestJS invokes instead of the
+ * base filter and which preserves `.message`. This bridge's normalization
+ * still matters on top of that filter for the non-Observable failure modes
+ * above (raw rejections with non-cloneable fields, non-Error rejections).
+ *
  * Silent no-op outside a real Electron main process
  * (`process.versions.electron` undefined) — matching the guard
  * `LogsController.onModuleInit` uses — so the plain-Node integration test
@@ -155,7 +180,8 @@ export async function registerIpcMainBridges(transport: BridgedElectronIPCTransp
     ipcMain.removeHandler(pattern);
     ipcMain.handle(pattern, async (evt: IpcMainInvokeEvent, payload: unknown) => {
       try {
-        return await handler(payload, { evt });
+        const result = await handler(payload, { evt });
+        return isObservable(result) ? await firstValueFrom(result) : result;
       } catch (err) {
         const message =
           err instanceof Error

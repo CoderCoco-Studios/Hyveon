@@ -7,6 +7,7 @@ import { AppModule } from './app.module.js';
 import { applyFixPath } from './fix-path-bootstrap.js';
 import { BridgedElectronIPCTransport, registerIpcMainBridges } from './ipc-main-bridge.js';
 import { createLogger } from './logger.js';
+import { RpcErrorMessageFilter } from './rpc-error-message.filter.js';
 
 applyFixPath();
 
@@ -46,6 +47,13 @@ export async function bootstrap(): Promise<INestMicroservice> {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
     strategy,
   });
+
+  // Must run before `app.listen()`: NestJS reads global filters while
+  // registering each `@MessagePattern` handler's exception handler during
+  // listen(), so a filter added afterward would never be picked up. See
+  // `rpc-error-message.filter.ts` for why this is required for handler
+  // errors to surface with their real message instead of a generic one.
+  app.useGlobalFilters(new RpcErrorMessageFilter());
 
   await app.listen();
 
