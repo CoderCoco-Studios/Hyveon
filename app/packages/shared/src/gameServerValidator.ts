@@ -274,6 +274,39 @@ function checkAbsolutePaths(entry: GameServerEntryInput): GameServerValidationIs
   return issues;
 }
 
+/**
+ * Validates `environment[].name`: rejects an empty name, and rejects a name
+ * that duplicates an earlier row's name within the same entry. No
+ * constraint is placed on `value`, or on `name`'s character set/casing —
+ * container images vary too much to assume a universal naming convention.
+ */
+function checkEnvironmentVariables(entry: GameServerEntryInput): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+  const seenNames = new Set<string>();
+
+  entry.environment?.forEach((variable, index) => {
+    if (variable.name.length === 0) {
+      issues.push({
+        path: `environment[${index}].name`,
+        message: `environment[${index}].name must not be empty.`,
+      });
+      return;
+    }
+
+    if (seenNames.has(variable.name)) {
+      issues.push({
+        path: `environment[${index}].name`,
+        message: `environment[${index}].name "${variable.name}" duplicates an earlier environment variable in the same entry.`,
+      });
+      return;
+    }
+
+    seenNames.add(variable.name);
+  });
+
+  return issues;
+}
+
 /** Placeholder tokens allowed inside `connect_message`, matching the app's original config input's doc comment. */
 export const ALLOWED_CONNECT_MESSAGE_PLACEHOLDERS: ReadonlySet<string> = new Set(['host', 'ip', 'port', 'game']);
 
@@ -443,6 +476,7 @@ export function validateGameServer(
   } else {
     issues.push(...checkFargateCpuMemoryPairing(parsed.data));
     issues.push(...checkAbsolutePaths(parsed.data));
+    issues.push(...checkEnvironmentVariables(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
   }
 
