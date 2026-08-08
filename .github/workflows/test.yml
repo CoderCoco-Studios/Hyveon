@@ -1,6 +1,8 @@
 name: Test
 
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request:
   push:
     branches: [main]
