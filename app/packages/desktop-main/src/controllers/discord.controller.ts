@@ -7,6 +7,7 @@ import {
 import { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { requireStringArray } from './validation.js';
+import { logger } from '../logger.js';
 
 /**
  * IPC-only controller for the serverless Discord bot: credentials
@@ -33,6 +34,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.getConfig')
   async getConfig() {
+    logger.debug('DiscordController: discord.getConfig invoked');
     const redacted = await this.discord.getRedacted();
     const outputs = await this.config.getStackOutputs();
     return { ...redacted, interactionsEndpointUrl: outputs?.interactionsInvokeUrl ?? null };
@@ -48,6 +50,12 @@ export class DiscordController {
   async putConfig(
     @Payload() body: { botToken?: unknown; clientId?: unknown; publicKey?: unknown } = {},
   ) {
+    // Only which fields were submitted is logged — values may carry the bot token/public key.
+    logger.debug('DiscordController: discord.putConfig invoked', {
+      botToken: body.botToken !== undefined,
+      clientId: body.clientId !== undefined,
+      publicKey: body.publicKey !== undefined,
+    });
     if (body.botToken !== undefined && typeof body.botToken !== 'string') {
       throw new BadRequestException({ success: false, error: 'botToken must be a string' });
     }
@@ -78,6 +86,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.listGuilds')
   async listGuilds() {
+    logger.debug('DiscordController: discord.listGuilds invoked');
     const [cfg, base] = await Promise.all([this.discord.getConfig(), this.discord.getBaseConfig()]);
     return { guilds: cfg.allowedGuilds, baseGuilds: base.allowedGuilds };
   }
@@ -85,6 +94,7 @@ export class DiscordController {
   /** Adds a guild ID to the dynamic allowlist persisted in DynamoDB. Takes effect on the next interaction (Lambda re-reads per invocation). */
   @MessagePattern('discord.addGuild')
   async addGuild(@Payload() body: { guildId?: unknown } = {}) {
+    logger.debug('DiscordController: discord.addGuild invoked');
     if (typeof body.guildId !== 'string') {
       throw new BadRequestException({ success: false, error: 'guildId required' });
     }
@@ -103,6 +113,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.removeGuild')
   async removeGuild(@Payload() guildIdRaw: string) {
+    logger.debug('DiscordController: discord.removeGuild invoked');
     const guildId = (guildIdRaw ?? '').trim();
     if (!guildId) throw new BadRequestException({ success: false, error: 'guildId required' });
     const result = await this.discord.removeAllowedGuild(guildId);
@@ -121,6 +132,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.registerCommands')
   async registerCommands(@Payload() guildIdRaw: string) {
+    logger.debug('DiscordController: discord.registerCommands invoked');
     const guildId = (guildIdRaw ?? '').trim();
     if (!guildId) throw new BadRequestException({ success: false, error: 'guildId required' });
     return this.registrar.registerForGuild(guildId);
@@ -133,6 +145,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.getAdmins')
   async getAdmins() {
+    logger.debug('DiscordController: discord.getAdmins invoked');
     const [cfg, base] = await Promise.all([this.discord.getConfig(), this.discord.getBaseConfig()]);
     return { ...cfg.admins, baseAdmins: base.admins };
   }
@@ -143,6 +156,7 @@ export class DiscordController {
    */
   @MessagePattern('discord.putAdmins')
   async putAdmins(@Payload() body: { userIds?: unknown; roleIds?: unknown } = {}) {
+    logger.debug('DiscordController: discord.putAdmins invoked');
     const userIds = requireStringArray('userIds', body.userIds);
     const roleIds = requireStringArray('roleIds', body.roleIds);
     await this.discord.setAdmins({ userIds, roleIds });
@@ -153,6 +167,7 @@ export class DiscordController {
   /** Returns the per-game permission map (user/role IDs allowed to run specific actions on each game). */
   @MessagePattern('discord.getPermissions')
   async getPermissions() {
+    logger.debug('DiscordController: discord.getPermissions invoked');
     return (await this.discord.getConfig()).gamePermissions;
   }
 
@@ -171,6 +186,7 @@ export class DiscordController {
     @Payload() payload: { game: string; body: { userIds?: unknown; roleIds?: unknown; actions?: unknown } } = { game: '', body: {} },
   ) {
     const { game, body = {} } = payload;
+    logger.debug('DiscordController: discord.putPermission invoked', { game });
     if (!game) {
       throw new BadRequestException({ success: false, error: 'game is required' });
     }
@@ -191,6 +207,7 @@ export class DiscordController {
   /** Removes the permission entry for a game. Returns 400 if `game` is empty or isn't a known key in `DeploymentConfig.gameServers`. */
   @MessagePattern('discord.deletePermission')
   async deletePermission(@Payload() gameRaw: string) {
+    logger.debug('DiscordController: discord.deletePermission invoked');
     const game = (gameRaw ?? '').trim();
     if (!game) {
       throw new BadRequestException({ success: false, error: 'game is required' });

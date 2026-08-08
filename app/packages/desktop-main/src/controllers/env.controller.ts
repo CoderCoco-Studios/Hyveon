@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
 import { ConfigService } from '../services/ConfigService.js';
+import { logger } from '../logger.js';
 
 /**
  * Environment metadata IPC controller. Returns deployment-level info (region, domain)
@@ -19,6 +20,7 @@ export class EnvController {
    */
   @MessagePattern('env.get')
   async getEnv(): Promise<{ region: string; domain: string; environment: string }> {
+    logger.debug('EnvController: env.get invoked');
     const outputs = await this.config.getStackOutputs();
     const region = outputs?.awsRegion ?? 'local';
     const domain = outputs?.domainName ?? '';

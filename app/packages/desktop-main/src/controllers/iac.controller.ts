@@ -710,6 +710,7 @@ export class IacController implements OnModuleInit {
     @Payload() _payload: unknown,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<StackInitializeAck> {
+    logger.debug('IacController: iac.stack.initialize invoked');
     const inFlight = this.pulumi.getOperationInFlight();
     if (inFlight) {
       const error =
@@ -827,6 +828,7 @@ export class IacController implements OnModuleInit {
     @Payload() payload: IacPlanPayload = {},
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<IacPlanAck> {
+    logger.debug('IacController: iac.plan invoked');
     const inFlight = this.pulumi.getOperationInFlight();
     if (inFlight) {
       const error =
@@ -972,6 +974,7 @@ export class IacController implements OnModuleInit {
     @Payload() payload: IacApplyPayload,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<IacPlanAck> {
+    logger.debug('IacController: iac.apply invoked');
     const validationError = IacController.validateApplyPayload(payload);
     if (validationError) {
       logger.error('apply rejected: invalid payload', { error: validationError });
@@ -1095,6 +1098,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.destroy.mintToken')
   mintDestroyToken(): IacDestroyMintAck {
+    logger.debug('IacController: iac.destroy.mintToken invoked');
     return { token: this.pulumi.mintDestroyConfirmationToken() };
   }
 
@@ -1107,6 +1111,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.lock.clear.mintToken')
   mintLockClearToken(): IacLockClearMintAck {
+    logger.debug('IacController: iac.lock.clear.mintToken invoked');
     return { token: this.pulumi.mintLockClearConfirmationToken() };
   }
 
@@ -1166,6 +1171,7 @@ export class IacController implements OnModuleInit {
     @Payload() payload: IacDestroyPayload,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<IacPlanAck> {
+    logger.debug('IacController: iac.destroy invoked');
     const validationError = IacController.validateDestroyPayload(payload);
     if (validationError) {
       logger.error('destroy rejected: invalid payload', { error: validationError });
@@ -1299,6 +1305,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.output')
   async output(@Payload() payload: IacOutputPayload = {}): Promise<StackOutputs | null> {
+    logger.debug('IacController: iac.output invoked');
     void payload;
     return this.config ? this.config.getStackOutputs() : this.pulumi.getStackOutputs();
   }
@@ -1336,6 +1343,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.approve')
   async approve(@Payload() payload: IacApprovePayload): Promise<IacApproveAck> {
+    logger.debug('IacController: iac.approve invoked');
     const validationError = IacController.validateApprovePayload(payload);
     if (validationError) {
       logger.error('approve rejected: invalid payload', { error: validationError });
@@ -1393,6 +1401,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.rollback.resolve')
   async resolveRollback(@Payload() payload: IacRollbackPayload): Promise<IacRollbackResolveAck> {
+    logger.debug('IacController: iac.rollback.resolve invoked');
     const validationError = IacController.validateRollbackPayload(payload);
     if (validationError) {
       logger.error('rollback resolve rejected: invalid payload', { error: validationError });
@@ -1489,6 +1498,7 @@ export class IacController implements OnModuleInit {
     @Payload() payload: IacRollbackPayload,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<IacRollbackConfirmAck> {
+    logger.debug('IacController: iac.rollback.confirm invoked');
     const validationError = IacController.validateRollbackPayload(payload);
     if (validationError) {
       logger.error('rollback confirm rejected: invalid payload', { error: validationError });
@@ -1595,6 +1605,7 @@ export class IacController implements OnModuleInit {
    */
   @MessagePattern('iac.lock.clear')
   async clearStaleLock(@Payload() payload: IacLockClearPayload): Promise<IacLockClearAck> {
+    logger.debug('IacController: iac.lock.clear invoked');
     const validationError = IacController.validateLockClearPayload(payload);
     if (validationError) {
       logger.error('iac lock clear rejected: invalid payload', { error: validationError });

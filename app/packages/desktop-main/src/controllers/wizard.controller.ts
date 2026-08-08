@@ -153,6 +153,17 @@ export class WizardController {
   @MessagePattern('wizard.state.get')
   getState(): WizardState {
     logger.debug('WizardController: wizard.state.get invoked');
+    return this.readState();
+  }
+
+  /**
+   * Builds the {@link WizardState} snapshot without logging an entry line —
+   * shared by {@link getState} and the internal callers below
+   * ({@link saveState}, {@link complete}, {@link reset}) so their own entry
+   * logs aren't followed by a second, misleading "wizard.state.get invoked"
+   * line that didn't correspond to a real IPC call from the renderer.
+   */
+  private readState(): WizardState {
     const stored = this.store.get('wizardCompleted');
     const wizardCompleted = stored !== undefined ? stored : this.isTestMode();
     return {
@@ -195,7 +206,7 @@ export class WizardController {
     if (body.bootstrap !== undefined) {
       this.store.set('bootstrap', body.bootstrap);
     }
-    return this.getState();
+    return this.readState();
   }
 
   /**
@@ -337,7 +348,7 @@ export class WizardController {
   async complete(): Promise<WizardState> {
     logger.debug('WizardController: wizard.complete invoked');
     await this.firstRunWizard.complete();
-    return this.getState();
+    return this.readState();
   }
 
   /**
@@ -352,7 +363,7 @@ export class WizardController {
   async reset(): Promise<WizardState> {
     logger.debug('WizardController: wizard.reset invoked');
     await this.firstRunWizard.reset();
-    return this.getState();
+    return this.readState();
   }
 
   /**

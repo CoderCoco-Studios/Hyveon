@@ -64,6 +64,7 @@ export class LogsController implements OnModuleInit {
     @Payload() payload: { game: string; limit?: number },
   ): Promise<{ game: string; lines: string[] }> {
     const { game, limit = 50 } = payload;
+    logger.debug('LogsController: logs.get invoked', { game });
     const lines = await this.logs.getRecentLogs(game, limit);
     return { game, lines };
   }
@@ -89,6 +90,7 @@ export class LogsController implements OnModuleInit {
     @Payload() game: string,
     ctx: { evt: IpcMainInvokeEvent },
   ): Promise<{ streamId: string }> {
+    logger.debug('LogsController: logs.stream invoked', { game });
     const streamId = randomUUID();
     const ac = new AbortController();
     const sender: WebContents = ctx.evt.sender;

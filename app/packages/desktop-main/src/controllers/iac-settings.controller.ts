@@ -63,6 +63,7 @@ export class IacSettingsController {
    */
   @MessagePattern('iac.settings.get')
   async get(): Promise<DeploymentSettingsGetResult> {
+    logger.debug('IacSettingsController: iac.settings.get invoked');
     try {
       const { settings, etag } = await this.deploymentConfig.getTopLevelSettings();
       return { ok: true, settings, etag };
@@ -114,6 +115,7 @@ export class IacSettingsController {
    */
   @MessagePattern('iac.settings.update')
   async update(@Payload() payload: UpdateDeploymentSettingsPayload): Promise<DeploymentSettingsWriteResult> {
+    logger.debug('IacSettingsController: iac.settings.update invoked');
     try {
       const issues = validateDeploymentSettingsPatch(payload.patch);
       if (issues.length > 0) {
@@ -166,6 +168,7 @@ export class IacSettingsController {
    */
   @MessagePattern('iac.settings.engineVersion')
   engineVersion(): PulumiEngineVersionResult {
+    logger.debug('IacSettingsController: iac.settings.engineVersion invoked');
     return { resolvedVersion: this.engine?.getResolvedVersion() ?? null };
   }
 }

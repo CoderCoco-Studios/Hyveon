@@ -3,6 +3,7 @@ import { MessagePattern } from '@nestjs/microservices';
 import { ConfigService } from '../services/ConfigService.js';
 import { CostService } from '../services/CostService.js';
 import { EcsService } from '../services/EcsService.js';
+import { logger } from '../logger.js';
 
 /**
  * Cost endpoints for the Electron main-process host. Every handler is bound to
@@ -27,6 +28,7 @@ export class CostsController {
    */
   @MessagePattern('costs.estimate')
   async estimate() {
+    logger.debug('CostsController: costs.estimate invoked');
     const outputs = await this.config.getStackOutputs();
     if (!outputs) {
       return { games: {}, totalPerHourIfAllOn: 0 };
