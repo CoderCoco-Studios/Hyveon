@@ -132,13 +132,8 @@ describe('GameDetailPage', () => {
       await user.click(screen.getByRole('button', { name: 'Edit' }));
 
       expect(await screen.findByLabelText('Image')).toHaveValue('itzg/minecraft-server:latest');
-      // Index [0]: the Environment card also renders a row labeled "Name"
-      // once a game has environment variables (this fixture's `EULA` entry
-      // does), so a bare `Name` query is ambiguous in `EditGameForm`'s flat,
-      // all-cards-visible layout. The Identity card's Name field is first in
-      // document order.
-      expect(screen.getAllByLabelText('Name')[0]).toBeDisabled();
-      expect(screen.getAllByLabelText('Name')[0]).toHaveValue('minecraft');
+      expect(screen.getByLabelText('Name')).toBeDisabled();
+      expect(screen.getByLabelText('Name')).toHaveValue('minecraft');
       expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'Container' })).toBeNull();
     });

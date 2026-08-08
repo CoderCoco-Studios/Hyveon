@@ -49,7 +49,7 @@ describe('EnvironmentStep', () => {
       />,
     );
 
-    await user.type(screen.getByLabelText('Name'), 'E');
+    await user.type(screen.getByLabelText('Variable name'), 'E');
 
     expect(onChange).toHaveBeenCalledWith({ environment: [{ name: 'E', value: '' }] });
   });
