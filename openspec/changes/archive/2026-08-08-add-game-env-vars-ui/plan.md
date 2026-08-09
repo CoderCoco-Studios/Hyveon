@@ -383,7 +383,7 @@ describe('EnvironmentStep', () => {
       />,
     );
 
-    await user.type(screen.getByLabelText('Name'), 'E');
+    await user.type(screen.getByLabelText('Variable name'), 'E');
 
     expect(onChange).toHaveBeenCalledWith({ environment: [{ name: 'E', value: '' }] });
   });
@@ -516,7 +516,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
               className="flex items-end gap-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
             >
               <div className="flex-1 space-y-1">
-                <Label htmlFor={`env-name-${index}`}>Name</Label>
+                <Label htmlFor={`env-name-${index}`}>Variable name</Label>
                 <Input
                   id={`env-name-${index}`}
                   value={variable.name}
@@ -691,7 +691,7 @@ Open `edit-game-form.component.test.tsx`. The existing `sampleGame()` helper (ar
 
     await screen.findByLabelText('Image');
     await userEvent.click(screen.getByRole('button', { name: 'Add variable' }));
-    await userEvent.type(screen.getByLabelText('Name'), 'DIFFICULTY');
+    await userEvent.type(screen.getByLabelText('Variable name'), 'DIFFICULTY');
     await userEvent.type(screen.getByLabelText('Value'), 'hard');
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 

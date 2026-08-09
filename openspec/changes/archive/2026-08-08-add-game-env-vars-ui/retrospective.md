@@ -20,7 +20,7 @@
 
 Commit chain (chronological):
 
-```
+```text
 fc09c865 docs: propose add-game-env-vars-ui OpenSpec change
 d31c86cc feat(shared): reject empty/duplicate environment variable names
 92e86fa8 feat(web): add environment field to WizardDraft and route its validation

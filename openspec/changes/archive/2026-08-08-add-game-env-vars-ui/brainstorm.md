@@ -47,8 +47,9 @@ routing, and the `validateStep`/`validateXStep` family).
 **Q1: Where should the env-var editor live?**
 
 Options presented:
-- New "Environment" step (6th wizard step, same pattern as the `file_seeds`
-  list) — clean separation, doesn't overload the Storage step's meaning.
+- New "Environment" step (5th step of a six-step wizard, same pattern as the
+  `file_seeds` list) — clean separation, doesn't overload the Storage step's
+  meaning.
 - Fold into the existing Storage step as a third list alongside
   volumes/file_seeds — no new step, but Storage becomes a 3-concept step.
 
@@ -79,9 +80,9 @@ shared-validator rule only, no IPC/backend changes.
 ## Approved design (validated by user: "looks good")
 
 **Architecture.** No new step *pattern* — replicates the existing
-`file_seeds` sub-editor pattern (optional dynamic list, no minimum) as a
-sixth wizard step, "Environment," between Storage and Review. Zero
-backend/IPC changes.
+`file_seeds` sub-editor pattern (optional dynamic list, no minimum) as the
+5th step of a six-step wizard, "Environment," between Storage and Review.
+Zero backend/IPC changes.
 
 **Changes:**
 

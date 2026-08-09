@@ -60,7 +60,7 @@ No failing items.
 - [x] No unstaged files in the worktree
 - [x] All relevant implementation commits exist in local history
 
-**Commit range**: `fc09c865..7d595b2b` (11 commits since merge-base `4bef01b3` with `origin/main`: proposal artifacts, 6 implementation tasks incl. one fix round, tasks.md/plan.md bookkeeping, final-review fix).
+**Commit range**: `4bef01b3..7d595b2b` (11 commits since merge-base `4bef01b3` with `origin/main`: proposal artifacts, 6 implementation tasks incl. one fix round, tasks.md/plan.md bookkeeping, final-review fix).
 
 ---
 

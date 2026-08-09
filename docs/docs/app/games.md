@@ -172,8 +172,8 @@ a row. **Add variable** appends a row with a **Variable name** field and a
 variables is valid, and every row's **Remove** button stays enabled all the
 way down to zero.
 
-Two rules apply to the **name** field only — `value` has no validation at
-all:
+Two rules apply to the **name** field only — any string value is accepted for
+**value**:
 
 - A name must not be empty: `environment[0].name must not be empty.`
 - A name must not repeat another row's name in the same entry:
