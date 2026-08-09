@@ -425,7 +425,11 @@ export class EcsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('EcsService.stopTask: failed to stop task', { cluster, taskArn, error: message });
-      throw new Error(message);
+      const wrapped = new Error(message);
+      if (err instanceof Error) {
+        wrapped.name = err.name;
+      }
+      throw wrapped;
     }
   }
 }

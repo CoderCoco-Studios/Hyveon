@@ -470,11 +470,12 @@ export class RunRecordService {
     try {
       await this.store.putRecord(record);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.writePreflightMarker: failed to write pre-flight marker', {
         runId: params.runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
   }
 
@@ -495,11 +496,12 @@ export class RunRecordService {
     try {
       return await this.store.getLogUrl(logKey, expiresInSeconds);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.getLogUrl: failed to resolve run log URL', {
         logKey,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
   }
 
@@ -533,11 +535,12 @@ export class RunRecordService {
     try {
       return await this.store.getRecordByRunId(runId);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.getByRunId: failed to look up run record', {
         runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
   }
 
@@ -569,10 +572,11 @@ export class RunRecordService {
         ...(opts.status !== undefined ? { status: opts.status } : {}),
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.listRuns: failed to list run history', {
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
   }
 
@@ -613,11 +617,12 @@ export class RunRecordService {
     try {
       record = await this.store.getRecordByRunId(runId);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.approveRun: failed to look up run record', {
         runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
     if (!record) {
       throw new RunRecordNotFoundError(runId);
@@ -640,11 +645,12 @@ export class RunRecordService {
     try {
       await this.store.putRecord(updated);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('RunRecordService.approveRun: failed to persist run approval', {
         runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
-      throw err;
+      throw new Error(message);
     }
     return updated;
   }

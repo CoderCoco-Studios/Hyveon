@@ -123,7 +123,7 @@ export class LogsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message });
-      return [`Error fetching logs for ${game}: ${message}`];
+      return [`Error fetching logs for ${game}: ${String(err)}`];
     }
   }
 }

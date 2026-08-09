@@ -871,11 +871,11 @@ describe('GuidedIamService', () => {
 
       expect(loggerWarnSpy).toHaveBeenCalledWith(
         'GuidedIamService.revokeBootstrapKey: iam:DeleteAccessKey failed for the bootstrap key',
-        { bootstrapAccessKeyId: REVOKE_INPUT.bootstrapAccessKeyId, error: awsError.message },
+        { error: awsError.message },
       );
     });
 
-    it('should log a debug entry line naming the bootstrap key being revoked', async () => {
+    it('should log a debug entry line without leaking the bootstrap access key ID', async () => {
       store = makePastedStore();
       service = new TestableGuidedIamService(store, safeStorage);
       iamMock.on(DeleteAccessKeyCommand).resolves({});
@@ -883,10 +883,7 @@ describe('GuidedIamService', () => {
 
       await service.revokeBootstrapKey(REVOKE_INPUT);
 
-      expect(loggerDebugSpy).toHaveBeenCalledWith(
-        'GuidedIamService.revokeBootstrapKey: revoking still-live bootstrap key',
-        { bootstrapAccessKeyId: REVOKE_INPUT.bootstrapAccessKeyId },
-      );
+      expect(loggerDebugSpy).toHaveBeenCalledWith('GuidedIamService.revokeBootstrapKey: revoking still-live bootstrap key');
     });
   });
 });

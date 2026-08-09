@@ -549,9 +549,7 @@ export class GuidedIamService {
    *   region to build the IAM client against.
    */
   async revokeBootstrapKey(input: RevokeBootstrapKeyInput): Promise<RevokeBootstrapKeyResult> {
-    logger.debug('GuidedIamService.revokeBootstrapKey: revoking still-live bootstrap key', {
-      bootstrapAccessKeyId: input.bootstrapAccessKeyId,
-    });
+    logger.debug('GuidedIamService.revokeBootstrapKey: revoking still-live bootstrap key');
     let source: AwsCredentialSource;
     try {
       source = resolveAwsCredentialSource(this.store);
@@ -581,7 +579,6 @@ export class GuidedIamService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn('GuidedIamService.revokeBootstrapKey: iam:DeleteAccessKey failed for the bootstrap key', {
-        bootstrapAccessKeyId: input.bootstrapAccessKeyId,
         error: message,
       });
       return { revoked: false, message };

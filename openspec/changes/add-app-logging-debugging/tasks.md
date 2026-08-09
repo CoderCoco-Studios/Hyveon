@@ -25,7 +25,7 @@
 - [x] 4.1 `AuditService.ts` — entry `logger.debug` + failure logging on AWS SDK calls
 - [x] 4.2 `AwsProfileService.ts` — same
 - [x] 4.3 `ConfigService.ts` — same
-- [x] 4.4 `CostService.ts` — same
+- [x] 4.4 Confirm `CostService.ts` is deliberately left untouched (pure Fargate cost-estimate math, no AWS SDK calls, no failure mode) — no task needed, just verify no debug lines were added there
 - [x] 4.5 `DiagnosticsService.ts` — same (excluding the Group-1-added forwarding method, which already gets its own entry log in Group 1)
 - [x] 4.6 `DiscordCommandRegistrar.ts` — same
 - [x] 4.7 `DiscordConfigService.ts` — same
