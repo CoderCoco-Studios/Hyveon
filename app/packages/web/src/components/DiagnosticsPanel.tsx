@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Filter, Pause, Play, Search } from 'lucide-react';
+import { Pause, Play, Search } from 'lucide-react';
 import { api } from '../api.service.js';
 import { Badge } from './ui/badge.component.js';
 import { Button } from './ui/button.component.js';
 import { Input } from './ui/input.component.js';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuCheckboxItem,
-} from './ui/dropdown-menu.component.js';
-import { ALL_LOG_LEVELS, LOG_LEVEL_BADGE, detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
+import { HighlightedLine, LevelFilterMenu } from './log-line-display.component.js';
+import { LOG_LEVEL_BADGE, detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -26,67 +19,6 @@ interface DiagnosticsLine {
 interface PendingSnapshot {
   lines: string[];
   path: string;
-}
-
-/** Render a single line, splitting on case-insensitive search matches. Mirrors `/logs`'s `HighlightedLine`. */
-function HighlightedLine({ text, query }: { text: string; query: string }) {
-  if (!query) return <>{text}</>;
-  const q = query.toLowerCase();
-  const parts: { text: string; match: boolean }[] = [];
-  let i = 0;
-  const lower = text.toLowerCase();
-  while (i < text.length) {
-    const idx = lower.indexOf(q, i);
-    if (idx === -1) {
-      parts.push({ text: text.slice(i), match: false });
-      break;
-    }
-    if (idx > i) parts.push({ text: text.slice(i, idx), match: false });
-    parts.push({ text: text.slice(idx, idx + q.length), match: true });
-    i = idx + q.length;
-  }
-  return (
-    <>
-      {parts.map((p, idx) =>
-        p.match ? (
-          <mark key={idx} className="rounded-[2px] bg-[var(--color-amber)]/40 px-[1px] text-[var(--color-foreground)]">
-            {p.text}
-          </mark>
-        ) : (
-          <span key={idx}>{p.text}</span>
-        ),
-      )}
-    </>
-  );
-}
-
-/** Multi-select dropdown for hiding log levels. Default: nothing hidden. Mirrors `/logs`'s `LevelFilterMenu`. */
-function LevelFilterMenu({ hidden, onToggle }: { hidden: Set<LogLevel>; onToggle: (lvl: LogLevel) => void }) {
-  const visibleCount = ALL_LOG_LEVELS.length - hidden.size;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="secondary" size="sm" className="gap-1.5">
-          <Filter className="h-3.5 w-3.5" />
-          Levels
-          <span className="text-[var(--color-muted-foreground)]">
-            ({visibleCount}/{ALL_LOG_LEVELS.length})
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        <DropdownMenuLabel>Show levels</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {ALL_LOG_LEVELS.map((lvl) => (
-          <DropdownMenuCheckboxItem key={lvl} checked={!hidden.has(lvl)} onCheckedChange={() => onToggle(lvl)} onSelect={(e) => e.preventDefault()}>
-            <Badge variant={LOG_LEVEL_BADGE[lvl].variant} className="h-4 px-1.5 py-0 text-[10px] leading-4">
-              {LOG_LEVEL_BADGE[lvl].label}
-            </Badge>
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 /**
@@ -118,12 +50,15 @@ export function DiagnosticsPanel() {
   const pausedRef = useRef(false);
   /** The most recently fetched snapshot while paused, applied on resume. Not rendered until then. */
   const pendingSnapshotRef = useRef<PendingSnapshot | null>(null);
+  /** Sequence number of the most recently *issued* poll, used to discard a stale response that resolves after a newer one. */
+  const pollSeqRef = useRef(0);
 
-  /** Fetch tail lines and log path, skipping state updates if cancelled. */
+  /** Fetch tail lines and log path, skipping state updates if cancelled or superseded by a later poll. */
   async function fetchData(isCancelled: () => boolean) {
+    const seq = ++pollSeqRef.current;
     try {
       const [tailResult, pathResult] = await Promise.all([api.diagnosticsTail(), api.diagnosticsLogPath()]);
-      if (isCancelled()) return;
+      if (isCancelled() || seq !== pollSeqRef.current) return;
       if (pausedRef.current) {
         pendingSnapshotRef.current = { lines: tailResult.lines, path: pathResult.path };
       } else {
@@ -132,8 +67,11 @@ export function DiagnosticsPanel() {
       }
       setError(null);
     } catch (err) {
-      if (isCancelled()) return;
-      setError(err instanceof Error ? err.message : 'Failed to load diagnostics');
+      if (isCancelled() || seq !== pollSeqRef.current) return;
+      // A transient poll failure shouldn't blow away a frozen paused view — only surface it when live.
+      if (!pausedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load diagnostics');
+      }
     }
   }
 
@@ -246,8 +184,10 @@ export function DiagnosticsPanel() {
         data-testid="diagnostics-log-box"
         className="h-96 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
       >
-        {visibleLines.length === 0 ? (
+        {lines.length === 0 ? (
           <span className="text-[var(--color-muted-foreground)]">No log lines available.</span>
+        ) : visibleLines.length === 0 ? (
+          <span className="text-[var(--color-muted-foreground)]">All lines hidden by the level filter.</span>
         ) : (
           visibleLines.map((line, i) => (
             <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">

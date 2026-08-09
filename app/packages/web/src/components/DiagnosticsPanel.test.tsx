@@ -16,6 +16,7 @@ const SAMPLE_LINES = [
   '2026-05-23T10:00:00Z INFO Server started',
   '2026-05-23T10:00:01Z DEBUG Loaded config',
   '2026-05-23T10:00:02Z WARN Memory usage high',
+  '2026-05-23T10:00:03Z ERROR Connection refused',
 ];
 
 const SAMPLE_PATH = '/var/log/hyveon/diagnostics.log';
@@ -29,6 +30,9 @@ describe('DiagnosticsPanel', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    // Exception-safe: a failed assertion inside a fake-timer test would otherwise skip its
+    // trailing `vi.useRealTimers()` and leak fake timers into every later test in this file.
+    vi.useRealTimers();
   });
 
   it('should render loading state before data arrives', () => {
@@ -111,7 +115,7 @@ describe('DiagnosticsPanel', () => {
     render(<DiagnosticsPanel />);
     await screen.findByText(/Server started/);
 
-    for (const lvl of ['INFO', 'DEBUG', 'WARN']) {
+    for (const lvl of ['INFO', 'DEBUG', 'WARN', 'ERROR']) {
       expect(screen.getAllByText(lvl, { exact: true }).length).toBeGreaterThanOrEqual(1);
     }
   });
