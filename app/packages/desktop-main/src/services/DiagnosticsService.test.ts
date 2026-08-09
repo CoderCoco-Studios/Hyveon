@@ -10,6 +10,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import * as fsPromises from 'node:fs/promises';
+import type { RendererConsoleLevel } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { DiagnosticsService } from './DiagnosticsService.js';
 
@@ -167,5 +168,85 @@ describe('DiagnosticsService.logRendererError', () => {
     service.logRendererError('unhandled', undefined, 'unhandled-rejection');
 
     expect(logger.error).toHaveBeenCalledWith('renderer error (unhandled-rejection): unhandled', { stack: undefined });
+  });
+});
+
+describe('DiagnosticsService.logRendererConsoleBatch', () => {
+  beforeEach(() => {
+    vi.mocked(logger.debug).mockClear();
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
+  });
+
+  it('should log each entry at the winston level mapped from its console level', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererConsoleBatch([
+      { level: 'log', message: 'plain log' },
+      { level: 'info', message: 'info message' },
+      { level: 'warn', message: 'warn message' },
+      { level: 'error', message: 'error message' },
+    ]);
+
+    expect(logger.debug).toHaveBeenCalledWith('renderer console (log): plain log');
+    expect(logger.info).toHaveBeenCalledWith('renderer console (info): info message');
+    expect(logger.warn).toHaveBeenCalledWith('renderer console (warn): warn message');
+    expect(logger.error).toHaveBeenCalledWith('renderer console (error): error message');
+  });
+
+  it('should not log a dropped-entries warning when nothing was dropped', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererConsoleBatch([{ level: 'log', message: 'fine' }]);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('should log a dropped-entries warning when droppedCount is provided', () => {
+    const service = makeService('/var/log/hyveon');
+
+    service.logRendererConsoleBatch([{ level: 'log', message: 'fine' }], 4);
+
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 4 entries dropped (queue capacity exceeded)');
+  });
+
+  it('should cap entries processed per batch and report the overflow as dropped', () => {
+    const service = makeService('/var/log/hyveon');
+    const entries = Array.from({ length: 250 }, (_, i) => ({ level: 'log' as const, message: `entry ${i}` }));
+
+    service.logRendererConsoleBatch(entries);
+
+    expect(logger.debug).toHaveBeenCalledTimes(200);
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 50 entries dropped (queue capacity exceeded)');
+  });
+
+  it('should combine the batch-cap overflow with an already-reported droppedCount', () => {
+    const service = makeService('/var/log/hyveon');
+    const entries = Array.from({ length: 250 }, (_, i) => ({ level: 'log' as const, message: `entry ${i}` }));
+
+    service.logRendererConsoleBatch(entries, 10);
+
+    expect(logger.warn).toHaveBeenCalledWith('renderer console: 60 entries dropped (queue capacity exceeded)');
+  });
+
+  it('should not throw for an empty entries array', () => {
+    const service = makeService('/var/log/hyveon');
+
+    expect(() => service.logRendererConsoleBatch([])).not.toThrow();
+  });
+
+  it('should fall back to debug instead of throwing when entry.level is a prototype-polluting key', () => {
+    const service = makeService('/var/log/hyveon');
+
+    expect(() =>
+      service.logRendererConsoleBatch([
+        { level: '__proto__' as RendererConsoleLevel, message: 'malicious' },
+        { level: 'constructor' as RendererConsoleLevel, message: 'also malicious' },
+      ]),
+    ).not.toThrow();
+
+    expect(logger.debug).toHaveBeenCalledWith('renderer console (__proto__): malicious');
+    expect(logger.debug).toHaveBeenCalledWith('renderer console (constructor): also malicious');
   });
 });

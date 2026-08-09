@@ -1,5 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import type { RendererLogEntry } from '@hyveon/shared';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { logger } from '../logger.js';
 
@@ -10,11 +11,18 @@ export interface ReportRendererErrorInput {
   source: 'boundary' | 'window-error' | 'unhandled-rejection';
 }
 
+/** Payload accepted by `diagnostics.reportLog`. */
+export interface ReportRendererLogBatchInput {
+  entries: RendererLogEntry[];
+  /** Entries the renderer's own client-side batch cap already dropped before sending, if any. */
+  droppedCount?: number;
+}
+
 /**
  * IPC-only controller for local application log data.
  *
- * Registers the `diagnostics.tail`, `diagnostics.path`, and
- * `diagnostics.reportError` Electron IPC channels so the renderer can reach
+ * Registers the `diagnostics.tail`, `diagnostics.path`, `diagnostics.reportError`,
+ * and `diagnostics.reportLog` Electron IPC channels so the renderer can reach
  * them through `window.hyveon.diagnostics.*`. No HTTP routes are declared here.
  */
 @Controller()
@@ -41,5 +49,12 @@ export class DiagnosticsController {
   reportError(@Payload() body: ReportRendererErrorInput): void {
     logger.debug('DiagnosticsController: diagnostics.reportError invoked');
     this.diagnostics.logRendererError(body.message, body.stack, body.source);
+  }
+
+  /** Forwards a batch of renderer-side `console.*` calls into the local winston log file. Never rejects. */
+  @MessagePattern('diagnostics.reportLog')
+  reportLog(@Payload() body: ReportRendererLogBatchInput): void {
+    logger.debug('DiagnosticsController: diagnostics.reportLog invoked');
+    this.diagnostics.logRendererConsoleBatch(body.entries, body.droppedCount);
   }
 }

@@ -16,6 +16,8 @@ import type {
   DeploymentSettingsWriteResult,
   OpType,
   PulumiEngineVersionResult,
+  RendererConsoleLevel,
+  RendererLogEntry,
   StackOutputs,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
@@ -53,6 +55,12 @@ import type {
  * this group for the same reason — it backs Settings' Cloud Setup version
  * row and is a pure `{ resolvedVersion: string | null }` data shape with
  * nothing to isolate the renderer from.
+ *
+ * `RendererConsoleLevel`/`RendererLogEntry` (`@hyveon/shared/src/types.ts`)
+ * join this group for the same reason — they back the console-forwarding
+ * IPC payload and are pure data shapes with nothing to isolate the renderer
+ * from. `desktop-main`'s `diagnostics.controller.ts` imports the same pair
+ * from `@hyveon/shared` rather than declaring its own copy.
  */
 export type {
   ChangeSummary,
@@ -61,6 +69,8 @@ export type {
   DeploymentSettingsWriteResult,
   OpType,
   PulumiEngineVersionResult,
+  RendererConsoleLevel,
+  RendererLogEntry,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 };
@@ -1571,6 +1581,16 @@ export interface HyveonDiagnosticsApi {
    * into today's local log file via `DiagnosticsService.logRendererError`.
    */
   reportError: (message: string, stack: string | undefined, source: 'boundary' | 'window-error' | 'unhandled-rejection') => Promise<void>;
+  /**
+   * Forwards a batch of renderer-side `console.*` calls to the main process,
+   * where they are written into today's local log file via
+   * `DiagnosticsService.logRendererConsoleBatch`.
+   *
+   * @param entries - Batched console calls, in the order they were made.
+   * @param droppedCount - Entries already dropped client-side by the
+   *   caller's own batch cap, if any.
+   */
+  reportLog: (entries: RendererLogEntry[], droppedCount?: number) => Promise<void>;
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
