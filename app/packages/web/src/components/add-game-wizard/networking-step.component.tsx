@@ -144,55 +144,53 @@ export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }
               key={index}
               data-testid={`port-row-${index}`}
               className={cn(
-                'space-y-2 rounded-[var(--radius-sm)] border p-3',
+                'flex flex-wrap items-end gap-3 rounded-[var(--radius-sm)] border p-3',
                 issue ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
               )}
             >
-              <div className="flex items-end gap-3">
-                <div className="flex-1">
-                  <Label htmlFor={`port-container-${index}`}>Container port</Label>
-                  <Input
-                    id={`port-container-${index}`}
-                    type="number"
-                    value={port.container ?? ''}
-                    aria-invalid={Boolean(issue)}
-                    aria-describedby={issue ? `port-error-${index}` : undefined}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      updateRow(index, { container: raw === '' ? null : Number(raw) });
-                    }}
-                  />
-                </div>
-
-                <div className="flex-1">
-                  <Label htmlFor={`port-protocol-${index}`}>Protocol</Label>
-                  <select
-                    id={`port-protocol-${index}`}
-                    value={port.protocol}
-                    onChange={(event) => updateRow(index, { protocol: event.target.value })}
-                    className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                  >
-                    {PROTOCOL_OPTIONS.map((protocol) => (
-                      <option key={protocol} value={protocol}>
-                        {protocol.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-label={`Remove port ${index + 1}`}
-                  onClick={() => removeRow(index)}
-                >
-                  Remove
-                </Button>
+              <div className="flex-1">
+                <Label htmlFor={`port-container-${index}`}>Container port</Label>
+                <Input
+                  id={`port-container-${index}`}
+                  type="number"
+                  value={port.container ?? ''}
+                  aria-invalid={Boolean(issue)}
+                  aria-describedby={issue ? `port-error-${index}` : undefined}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    updateRow(index, { container: raw === '' ? null : Number(raw) });
+                  }}
+                />
               </div>
 
+              <div className="flex-1">
+                <Label htmlFor={`port-protocol-${index}`}>Protocol</Label>
+                <select
+                  id={`port-protocol-${index}`}
+                  value={port.protocol}
+                  onChange={(event) => updateRow(index, { protocol: event.target.value })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {PROTOCOL_OPTIONS.map((protocol) => (
+                    <option key={protocol} value={protocol}>
+                      {protocol.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={`Remove port ${index + 1}`}
+                onClick={() => removeRow(index)}
+              >
+                Remove
+              </Button>
+
               {issue && (
-                <p id={`port-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
+                <p id={`port-error-${index}`} role="alert" className="w-full text-xs text-[var(--color-red)]">
                   {issue.message}
                 </p>
               )}
