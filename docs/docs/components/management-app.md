@@ -257,7 +257,8 @@ applied across every controller and every service method in
 `@MessagePattern` handler logs its pattern name on entry via `logger.debug`
 (pattern name only, never payload contents — a payload can carry pasted AWS
 credentials); and every service method that calls an AWS SDK operation or
-the Pulumi engine catches the error, logs it via `logger.warn`
+the Pulumi engine likewise logs entry via `logger.debug` (method name only,
+never payload contents) and catches the error, logging it via `logger.warn`
 (recoverable/expected) or `logger.error` (unexpected) with just
 `err instanceof Error ? err.message : String(err)`, and either returns a
 modeled result or rethrows a plain `Error` — a raw AWS SDK/Node error object
