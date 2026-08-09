@@ -72,7 +72,7 @@ export interface WizardDraftEnvironmentVariable {
 
 /**
  * In-progress state of the add-game wizard, covering every field across all
- * five steps. Field names mirror `GameServer` (snake_case) since the draft
+ * six steps. Field names mirror `GameServer` (snake_case) since the draft
  * is converted directly into a proposed entry for {@link validateGameServer}.
  */
 export interface WizardDraft {
