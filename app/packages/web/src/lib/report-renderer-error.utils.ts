@@ -32,6 +32,15 @@ let droppedSinceLastFlush = 0;
  */
 let inFlightCount = 0;
 
+/**
+ * True while a `diagnostics.reportLog` call from a prior {@link flush} is
+ * still unsettled. Guards against a later flush tick submitting newer
+ * entries before an older, still-pending call settles — if the older call
+ * later rejects, its requeued entries would otherwise be delivered after
+ * entries that were logged more recently, breaking oldest-first order.
+ */
+let flushInFlight = false;
+
 /** Renders `console.*` arguments the same way they'd read on one log line — strings as-is, everything else stringified. */
 function formatConsoleArgs(args: unknown[]): string {
   return args
@@ -86,6 +95,9 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
  * (transient failure), the batch is requeued rather than lost.
  */
 function flush(): void {
+  if (flushInFlight) {
+    return;
+  }
   if (queue.length === 0 && droppedSinceLastFlush === 0) {
     return;
   }
@@ -99,6 +111,7 @@ function flush(): void {
   droppedSinceLastFlush = 0;
 
   inFlightCount += entries.length;
+  flushInFlight = true;
   let pending: ReturnType<typeof reportLog> | undefined;
   try {
     pending = reportLog(entries, droppedCount || undefined);
@@ -108,15 +121,18 @@ function flush(): void {
   if (!pending || typeof pending.then !== 'function') {
     inFlightCount -= entries.length;
     requeueAfterFailedFlush(entries, droppedCount);
+    flushInFlight = false;
     return;
   }
   void pending.then(
     () => {
       inFlightCount -= entries.length;
+      flushInFlight = false;
     },
     () => {
       inFlightCount -= entries.length;
       requeueAfterFailedFlush(entries, droppedCount);
+      flushInFlight = false;
     },
   );
 }
@@ -181,7 +197,11 @@ export function installConsoleForwarding(): void {
     const original = console[level].bind(console);
     console[level] = (...args: unknown[]) => {
       original(...args);
-      enqueue(level, args);
+      try {
+        enqueue(level, args);
+      } catch {
+        // Formatting/forwarding must never break the wrapped console call's control flow.
+      }
     };
   });
 

@@ -386,6 +386,40 @@ describe('installConsoleForwarding', () => {
     expect(secondDropped).toBe(1);
   });
 
+  it('should not submit a newer batch while an older flush is still pending', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let resolveFirstAttempt: () => void = () => undefined;
+    const firstAttempt = new Promise<void>((resolve) => {
+      resolveFirstAttempt = resolve;
+    });
+    const reportLog = vi.fn().mockReturnValueOnce(firstAttempt).mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('first batch');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    // A newer entry arrives while the first flush's reportLog call is still unsettled. The next
+    // flush tick must not submit it — oldest-first delivery would break if it did and the first
+    // call later failed.
+    console.log('second batch, queued while first is pending');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    resolveFirstAttempt();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    expect(reportLog).toHaveBeenLastCalledWith(
+      [{ level: 'log', message: 'second batch, queued while first is pending' }],
+      undefined,
+    );
+  });
+
   it('should preserve a queued entry (not drop it) across a flush tick where the bridge is temporarily unavailable', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
@@ -439,6 +473,25 @@ describe('installConsoleForwarding', () => {
 
     const [entries] = reportLog.mock.calls[0] as [RendererLogEntry[], number | undefined];
     expect(entries[0].message).toContain('boom from another realm');
+  });
+
+  it('should not let a throwing argument getter make the wrapped console method throw', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
+    const spy = vi.fn();
+    console.log = spy;
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    const hostile = {
+      get [Symbol.toStringTag]() {
+        throw new Error('hostile getter');
+      },
+    };
+
+    expect(() => console.log(hostile)).not.toThrow();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe(hostile);
   });
 
   it('should not serialize a console call that will be dropped for exceeding queue capacity', async () => {
