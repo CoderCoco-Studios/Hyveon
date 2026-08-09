@@ -76,17 +76,19 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
               className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
             >
               <div className="flex items-end gap-3">
-                <div className="flex-1">
+                <div className="flex-1 space-y-1">
                   <Label htmlFor={`env-name-${index}`}>Variable name</Label>
                   <Input
                     id={`env-name-${index}`}
                     value={variable.name}
                     placeholder="EULA"
+                    aria-invalid={Boolean(nameError)}
+                    aria-describedby={nameError ? `env-name-error-${index}` : undefined}
                     onChange={(event) => updateVariable(index, { name: event.target.value })}
                   />
                 </div>
 
-                <div className="flex-1">
+                <div className="flex-1 space-y-1">
                   <Label htmlFor={`env-value-${index}`}>Value</Label>
                   <Input
                     id={`env-value-${index}`}
@@ -108,7 +110,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
               </div>
 
               {nameError && (
-                <p role="alert" className="text-xs text-[var(--color-red)]">
+                <p id={`env-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
                   {nameError}
                 </p>
               )}

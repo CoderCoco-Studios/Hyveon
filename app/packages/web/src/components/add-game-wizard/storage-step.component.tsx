@@ -105,22 +105,26 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
               >
                 <div className="flex items-end gap-3">
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-1">
                     <Label htmlFor={`volume-name-${index}`}>Volume name</Label>
                     <Input
                       id={`volume-name-${index}`}
                       value={volume.name}
                       placeholder="data"
+                      aria-invalid={Boolean(nameError)}
+                      aria-describedby={nameError ? `volume-name-error-${index}` : undefined}
                       onChange={(event) => updateVolume(index, { name: event.target.value })}
                     />
                   </div>
 
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-1">
                     <Label htmlFor={`volume-path-${index}`}>Container path</Label>
                     <Input
                       id={`volume-path-${index}`}
                       value={volume.container_path}
                       placeholder="/data"
+                      aria-invalid={Boolean(pathError)}
+                      aria-describedby={pathError ? `volume-path-error-${index}` : undefined}
                       onChange={(event) => updateVolume(index, { container_path: event.target.value })}
                     />
                   </div>
@@ -138,12 +142,12 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 </div>
 
                 {nameError && (
-                  <p role="alert" className="text-xs text-[var(--color-red)]">
+                  <p id={`volume-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
                     {nameError}
                   </p>
                 )}
                 {pathError && (
-                  <p role="alert" className="text-xs text-[var(--color-red)]">
+                  <p id={`volume-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
                     {pathError}
                   </p>
                 )}
@@ -186,12 +190,14 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 )}
               >
                 <div className="flex items-end gap-3">
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-1">
                     <Label htmlFor={`file-seed-path-${index}`}>Path</Label>
                     <Input
                       id={`file-seed-path-${index}`}
                       value={seed.path}
                       placeholder="/data/config.yml"
+                      aria-invalid={Boolean(pathError)}
+                      aria-describedby={pathError ? `file-seed-path-error-${index}` : undefined}
                       onChange={(event) => updateFileSeed(index, { path: event.target.value })}
                     />
                   </div>
@@ -208,7 +214,7 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 </div>
 
                 {pathError && (
-                  <p role="alert" className="text-xs text-[var(--color-red)]">
+                  <p id={`file-seed-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
                     {pathError}
                   </p>
                 )}
