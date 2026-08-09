@@ -61,6 +61,12 @@ describe('defineDiscordDomain', () => {
     expect(certResource?.inputs.tags).toEqual({ Name: 'hyveon-discord-tls' });
   });
 
+  it('should strip a trailing dot from hostedZoneName before building the certificate domain name', async () => {
+    const result = await run({ hostedZoneName: 'example.com.' });
+
+    expect(await promiseOf(result.certificate.domainName)).toBe('discord.example.com');
+  });
+
   it('should register the ACM certificate and its validation against the us-east-1 provider, and every other resource against the regional provider', async () => {
     await run();
 

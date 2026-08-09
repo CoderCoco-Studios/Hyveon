@@ -129,7 +129,11 @@ export interface DefineDiscordDomainArgs {
 export function defineDiscordDomain(args: DefineDiscordDomainArgs): DiscordDomainResources {
   const { projectName, hostedZoneName, zoneId, interactionsFunctionUrl, provider, usEast1Provider } = args;
 
-  const discordDomainName = `discord.${hostedZoneName}`;
+  // Route 53's console displays hosted-zone names with a trailing dot
+  // (`example.com.`), which operators commonly copy-paste into the Settings
+  // form verbatim. ACM's `domain_name` rejects any value ending in a period,
+  // so strip it before building the FQDN.
+  const discordDomainName = `discord.${hostedZoneName.replace(/\.+$/, '')}`;
 
   // Strips "https://" and a trailing "/" from the Lambda Function URL to get
   // the bare hostname CloudFront needs as its origin domain — mirrors the

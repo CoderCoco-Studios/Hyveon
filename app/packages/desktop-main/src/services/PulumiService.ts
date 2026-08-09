@@ -57,17 +57,25 @@ import { runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
 import { classifyStackLockConflict, isStackLockConflict, PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
 import type { PersistRunRecordParams, PreflightMarkerParams } from './RunRecordService.js';
 
-/** Absolute path to the `dist/services/` directory at runtime — mirrors `ConfigService.ts`'s identically-named constant. */
+/**
+ * Absolute path to the directory containing this module at runtime. NOT
+ * `dist/services/` — `PulumiService` never runs as its own unbundled `tsc`
+ * output. Every entry point that constructs it (`desktop:dev`,
+ * `desktop:run`, `app:start`) launches Electron against the electron-vite
+ * bundle, which collapses the whole main process into a single file at
+ * `out/main/index.js`. So at runtime this resolves to `<repo>/out/main`,
+ * two levels above the repo root — see {@link _APP_ROOT}.
+ */
 const _dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Absolute path to the app root (`app/` in the repo). Derived by walking 4
- * levels up from `dist/services/` — mirrors `ConfigService.ts`'s
- * identically-named constant exactly (duplicated rather than imported: see
- * this file's `resolveUserDataPath`/`getRunsDir`/`getConfigurationBucket`
- * doc comments for why `PulumiService` never imports `ConfigService`).
+ * Absolute path to the repo root. Derived by walking up 2 levels from
+ * `out/main` (see {@link _dirname}) — used only by {@link getLambdaBundlesDir}'s
+ * dev/test fallback tier. Do not assume this equals `app/`: the repo root is
+ * one level above `app/`, so callers that need `app/packages/...` must add
+ * those segments explicitly (as `getLambdaBundlesDir` does).
  */
-const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
+const _APP_ROOT = join(_dirname, '..', '..');
 
 /**
  * Fixed placeholder substituted for every redacted game-server environment
@@ -5299,7 +5307,7 @@ export class PulumiService {
       if (resourcesPath) return join(resourcesPath, 'lambda');
     }
 
-    return join(_APP_ROOT, 'packages', 'lambda');
+    return join(_APP_ROOT, 'app', 'packages', 'lambda');
   }
 
   /**
