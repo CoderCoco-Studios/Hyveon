@@ -64,7 +64,7 @@ import type { PersistRunRecordParams, PreflightMarkerParams } from './RunRecordS
  * `desktop:run`, `app:start`) launches Electron against the electron-vite
  * bundle, which collapses the whole main process into a single file at
  * `out/main/index.js`. So at runtime this resolves to `<repo>/out/main`,
- * two levels above the repo root — see {@link _APP_ROOT}.
+ * two levels below (inside) the repo root — see {@link _APP_ROOT}.
  */
 const _dirname = dirname(fileURLToPath(import.meta.url));
 

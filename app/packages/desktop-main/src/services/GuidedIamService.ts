@@ -15,17 +15,25 @@ import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCrede
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
 
-/** Absolute path to the `dist/services/` directory at runtime. */
+/**
+ * Absolute path to the directory containing this module at runtime. NOT
+ * `dist/services/` — `GuidedIamService` never runs as its own unbundled
+ * `tsc` output. Every entry point that constructs it (`desktop:dev`,
+ * `desktop:run`, `app:start`) launches Electron against the electron-vite
+ * bundle, which collapses the whole main process into a single file at
+ * `out/main/index.js`. So at runtime this resolves to `<repo>/out/main`,
+ * two levels below (inside) the repo root — mirrors `PulumiService`'s
+ * identical `_dirname`/`_APP_ROOT` pair.
+ */
 const _dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in Docker).
- * Derived by walking 4 levels up from `dist/services/`, mirroring
- * `ConfigService`'s own `_APP_ROOT` — this file lives at the same depth
- * (`src/services/`, compiled to `dist/services/`).
+ * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in
+ * Docker). Derived by walking up 2 levels from `out/main` (see {@link _dirname})
+ * to the repo root, then descending into `app/`.
  * Used only as a private dev-mode fallback inside {@link GuidedIamService.getRenderedTemplatePath}.
  */
-const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
+const _APP_ROOT = join(_dirname, '..', '..', 'app');
 
 /** Result of {@link GuidedIamService.renderTemplate}. */
 export interface RenderedTemplateResult {

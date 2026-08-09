@@ -63,6 +63,7 @@
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import { stripTrailingDots } from './hostedZoneName.js';
 
 /** Managed CloudFront cache-policy ID for the AWS-managed `CachingDisabled` policy — every Discord interaction is unique, so caching must stay off. */
 const CACHING_DISABLED_POLICY_ID = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
@@ -129,11 +130,9 @@ export interface DefineDiscordDomainArgs {
 export function defineDiscordDomain(args: DefineDiscordDomainArgs): DiscordDomainResources {
   const { projectName, hostedZoneName, zoneId, interactionsFunctionUrl, provider, usEast1Provider } = args;
 
-  // Route 53's console displays hosted-zone names with a trailing dot
-  // (`example.com.`), which operators commonly copy-paste into the Settings
-  // form verbatim. ACM's `domain_name` rejects any value ending in a period,
-  // so strip it before building the FQDN.
-  const discordDomainName = `discord.${hostedZoneName.replace(/\.+$/, '')}`;
+  // ACM's `domain_name` rejects any value ending in a period, so strip
+  // any trailing dot before building the FQDN — see `hostedZoneName.ts`.
+  const discordDomainName = `discord.${stripTrailingDots(hostedZoneName)}`;
 
   // Strips "https://" and a trailing "/" from the Lambda Function URL to get
   // the bare hostname CloudFront needs as its origin domain — mirrors the

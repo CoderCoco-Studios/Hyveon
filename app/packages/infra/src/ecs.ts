@@ -28,6 +28,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
+import { stripTrailingDots } from './hostedZoneName.js';
 
 /** Every resource {@link defineEcs} declares, keyed by role. */
 export interface EcsResources {
@@ -105,6 +106,11 @@ function logConfiguration(
 export function defineEcs(args: DefineEcsArgs): EcsResources {
   const { projectName, awsRegion, hostedZoneName, gameServers, efs, executionRoleArn, provider } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
+
+  // Caddy's ACME client rejects a `--from` domain ending in a period, so
+  // strip any trailing dot before building the per-game FQDN — see
+  // `hostedZoneName.ts`.
+  const strippedHostedZoneName = stripTrailingDots(hostedZoneName);
 
   const cluster = new aws.ecs.Cluster(
     `${projectName}-cluster`,
@@ -189,7 +195,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
           { containerPort: 443, hostPort: 443, protocol: 'tcp' },
           { containerPort: 80, hostPort: 80, protocol: 'tcp' },
         ],
-        command: ['caddy', 'reverse-proxy', '--from', `${game}.${hostedZoneName}`, '--to', `localhost:${config.ports[0].container}`],
+        command: ['caddy', 'reverse-proxy', '--from', `${game}.${strippedHostedZoneName}`, '--to', `localhost:${config.ports[0].container}`],
         mountPoints: [
           {
             sourceVolume: `${game}-caddy-data`,
