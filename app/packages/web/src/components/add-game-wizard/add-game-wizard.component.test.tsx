@@ -108,6 +108,30 @@ describe('AddGameWizard — blocked-advance validation', () => {
   });
 });
 
+describe('AddGameWizard — step body scroll reset', () => {
+  beforeEach(() => {
+    apiMock.games.mockResolvedValue({ games: [] });
+    apiMock.createGame.mockReset();
+    navigateMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+  });
+
+  it('should reset the step body scroll position when advancing to the next step', async () => {
+    await openWizard();
+    await fillIdentityStep();
+
+    const stepBody = screen.getByText('Name').closest('div.overflow-y-auto');
+    expect(stepBody).not.toBeNull();
+    if (stepBody) stepBody.scrollTop = 200;
+
+    await goNext();
+
+    await screen.findByText('Step 2 of 6: Resources');
+    expect(stepBody?.scrollTop).toBe(0);
+  });
+});
+
 describe('AddGameWizard — submit success path', () => {
   beforeEach(() => {
     apiMock.games.mockResolvedValue({ games: [] });

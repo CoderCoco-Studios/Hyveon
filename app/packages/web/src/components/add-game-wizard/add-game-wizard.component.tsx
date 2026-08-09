@@ -96,6 +96,14 @@ export function AddGameWizard() {
 
   const step = WIZARD_STEPS[stepIndex];
 
+  // The step body's scroll container is a single persistent DOM node whose
+  // children swap as `stepIndex` changes, so a scroll offset left over from
+  // one step would otherwise carry over to the next.
+  const stepBodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (stepBodyRef.current) stepBodyRef.current.scrollTop = 0;
+  }, [stepIndex]);
+
   // Refreshes the existing-games list (used for name/port collision checks)
   // every time the dialog opens, so a game declared in a previous session
   // is taken into account without requiring a page reload.
@@ -230,7 +238,7 @@ export function AddGameWizard() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div ref={stepBodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {step === 'identity' && <IdentityStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
           {step === 'resources' && (
             <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={stepIssues} onChange={patchDraft} />
