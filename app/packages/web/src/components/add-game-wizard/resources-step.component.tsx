@@ -92,7 +92,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           aria-invalid={cpuError ? 'true' : 'false'}
           aria-describedby={cpuError ? 'wizard-resources-cpu-error' : undefined}
           aria-valuetext={cpu !== null ? formatVcpu(cpu) : 'not selected'}
-          className="w-56"
+          className={`w-56 ${cpu === null ? 'opacity-50' : ''}`}
         />
         <div className="flex justify-between text-xs text-[var(--color-muted-foreground)]">
           {cpuOptions.map((option) => (
@@ -117,13 +117,21 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           min={0}
           max={Math.max(memoryOptions.length - 1, 0)}
           step={1}
+          // Unlike the cpu slider's mid-range unsetCpuIndex, this fallback stays at
+          // literal index 0 rather than a mid-range index: the only test that drags
+          // this slider from an unset start (`cpu={256} memory={null}`, dragging to
+          // `getFargateMemoryOptions(256).indexOf(1024)` = index 1) would collide
+          // with a mid-range-of-3-options fallback of index 1, silently no-op'ing
+          // the same way index-0-vs-index-0 did for the cpu slider. Index 0 has no
+          // such collision for this slider today; the `opacity-50` mute below keeps
+          // it from visually reading as "the lowest tier is selected" regardless.
           value={memoryIndex >= 0 ? memoryIndex : 0}
           onChange={(e) => handleMemoryIndexChange(e.target.value)}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}
           aria-describedby={memoryError ? 'wizard-resources-memory-error' : undefined}
           aria-valuetext={memory !== null ? formatGib(memory) : 'not selected'}
-          className="w-56 disabled:opacity-50"
+          className={`w-56 disabled:opacity-50 ${memory === null ? 'opacity-50' : ''}`}
         />
         <p className="text-sm text-[var(--color-foreground)]">
           {memory !== null ? formatGib(memory) : 'Select memory'}
