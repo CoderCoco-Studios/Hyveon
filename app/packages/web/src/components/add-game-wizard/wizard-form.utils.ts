@@ -435,3 +435,8 @@ export function validateReviewStep(
 ): GameServerValidationIssue[] {
   return validateStep('review', draft, existingGames, mode);
 }
+
+/** Finds the message (if any) whose issue path is exactly `path`. Shared by step components that render per-row/per-field validation errors. */
+export function messageFor(issues: GameServerValidationIssue[], path: string): string | undefined {
+  return issues.find((issue) => issue.path === path)?.message;
+}

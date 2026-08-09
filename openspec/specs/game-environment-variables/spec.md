@@ -1,7 +1,8 @@
 # game-environment-variables Specification
 
 ## Purpose
-TBD - created by archiving change add-game-env-vars-ui. Update Purpose after archive.
+Lets operators declare and edit a game server's environment variables (e.g. `EULA=TRUE`) from the web UI, in both the add-game wizard and the edit-game form, without hand-editing `deployment-config.json`.
+
 ## Requirements
 ### Requirement: Operators can set a game's environment variables from the game form
 

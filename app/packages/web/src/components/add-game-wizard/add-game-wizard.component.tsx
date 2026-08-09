@@ -3,7 +3,7 @@
  * `<Dialog>` — trigger, six-step navigation, and the submit handler — built
  * from the step components and validation utilities already assembled for
  * this issue (`identity-step`, `resources-step`, `networking-step`,
- * `storage-step`, `review-step`, `wizard-form.utils`).
+ * `storage-step`, `environment-step`, `review-step`, `wizard-form.utils`).
  *
  * The wizard owns every piece of its own state (open/closed, current step,
  * in-progress {@link WizardDraft}, the existing-games list used for

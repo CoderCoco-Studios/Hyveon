@@ -3,7 +3,7 @@
  *
  * Reuses the same draft shape and step components built for the add wizard
  * (#99, see `../add-game-wizard/`) — {@link IdentityStep}, `ResourcesStep`,
- * `NetworkingStep`, `StorageStep` — but renders every section stacked in one
+ * `NetworkingStep`, `StorageStep`, `EnvironmentStep` — but renders every section stacked in one
  * flat view instead of walking the operator through them one at a time,
  * since the issue is scoped as "reuses most of the wizard from the prior
  * issue but as a flat form (not stepwise)".

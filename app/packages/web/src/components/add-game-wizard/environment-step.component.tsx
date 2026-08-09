@@ -16,7 +16,7 @@ import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidat
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
-import type { WizardDraft, WizardDraftEnvironmentVariable } from './wizard-form.utils.js';
+import { messageFor, type WizardDraft, type WizardDraftEnvironmentVariable } from './wizard-form.utils.js';
 
 /** Blank row appended by the "Add variable" button. */
 const EMPTY_ENVIRONMENT_VARIABLE: WizardDraftEnvironmentVariable = { name: '', value: '' };
@@ -29,11 +29,6 @@ export interface EnvironmentStepProps {
   issues: GameServerValidationIssue[];
   /** Called with a partial patch of the changed field whenever the operator adds, removes, or edits a row. */
   onChange: (patch: Partial<Pick<WizardDraft, 'environment'>>) => void;
-}
-
-/** Finds the message (if any) whose issue path is exactly `path`. */
-function messageFor(issues: GameServerValidationIssue[], path: string): string | undefined {
-  return issues.find((issue) => issue.path === path)?.message;
 }
 
 /**

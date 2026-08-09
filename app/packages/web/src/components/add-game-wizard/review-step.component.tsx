@@ -33,8 +33,8 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 
 /**
  * Final step of the add-game wizard (#99): renders a read-only summary of
- * every field entered across the Identity, Resources, Networking, and
- * Storage steps. Optional fields that were left blank — `connect_message`,
+ * every field entered across the Identity, Resources, Networking, Storage,
+ * and Environment steps. Optional fields that were left blank — `connect_message`,
  * `file_seeds`, and `environment` — are omitted entirely rather than shown with a
  * placeholder, so the summary only surfaces what the operator actually
  * configured. Outstanding validation `issues` (every issue across the whole
