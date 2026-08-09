@@ -1,9 +1,9 @@
 /**
  * Wizard shell for declaring a new `game_servers` entry (#99): a self-contained
- * `<Dialog>` — trigger, five-step navigation, and the submit handler — built
+ * `<Dialog>` — trigger, six-step navigation, and the submit handler — built
  * from the step components and validation utilities already assembled for
  * this issue (`identity-step`, `resources-step`, `networking-step`,
- * `storage-step`, `review-step`, `wizard-form.utils`).
+ * `storage-step`, `environment-step`, `review-step`, `wizard-form.utils`).
  *
  * The wizard owns every piece of its own state (open/closed, current step,
  * in-progress {@link WizardDraft}, the existing-games list used for
@@ -49,6 +49,7 @@ import { IdentityStep } from './identity-step.component.js';
 import { ResourcesStep } from './resources-step.component.js';
 import { NetworkingStep } from './networking-step.component.js';
 import { StorageStep } from './storage-step.component.js';
+import { EnvironmentStep } from './environment-step.component.js';
 import { ReviewStep } from './review-step.component.js';
 import {
   WIZARD_STEPS,
@@ -66,12 +67,13 @@ const STEP_LABELS: Record<WizardStep, string> = {
   resources: 'Resources',
   networking: 'Networking',
   storage: 'Storage',
+  environment: 'Environment',
   review: 'Review',
 };
 
 /**
  * Self-contained "Add game" dialog: renders its own trigger button, walks the
- * operator through the five wizard steps, and owns the `games.create` submit
+ * operator through the six wizard steps, and owns the `games.create` submit
  * handler. See the module doc above for the full submit-result contract.
  */
 export function AddGameWizard() {
@@ -242,6 +244,7 @@ export function AddGameWizard() {
           />
         )}
         {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+        {step === 'environment' && <EnvironmentStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
         {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
 
         <DialogFooter>

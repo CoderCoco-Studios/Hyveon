@@ -3,7 +3,7 @@
  *
  * Reuses the same draft shape and step components built for the add wizard
  * (#99, see `../add-game-wizard/`) — {@link IdentityStep}, `ResourcesStep`,
- * `NetworkingStep`, `StorageStep` — but renders every section stacked in one
+ * `NetworkingStep`, `StorageStep`, `EnvironmentStep` — but renders every section stacked in one
  * flat view instead of walking the operator through them one at a time,
  * since the issue is scoped as "reuses most of the wizard from the prior
  * issue but as a flat form (not stepwise)".
@@ -23,11 +23,6 @@
  *   declared game (the entry being edited is excluded from the collision
  *   list by name, mirroring `checkPortCollisions`'s own self-exclusion in
  *   `@hyveon/shared/gameServerValidator`).
- * - `environment` isn't covered by the wizard's draft shape (#99 never built
- *   a field for it), so whatever the declaration already had is carried
- *   forward unmodified in the submitted payload rather than being silently
- *   dropped. `https` *is* an editable draft field (see
- *   `add-https-toggle-to-game-form`) and needs no such carry-forward.
  *
  * Every {@link GameWriteResult} branch on submit is handled the same way the
  * add wizard handles it: `ok: true` invokes `onSaved` with the fresh result;
@@ -48,6 +43,7 @@ import { IdentityStep } from '../add-game-wizard/identity-step.component.js';
 import { ResourcesStep } from '../add-game-wizard/resources-step.component.js';
 import { NetworkingStep } from '../add-game-wizard/networking-step.component.js';
 import { StorageStep } from '../add-game-wizard/storage-step.component.js';
+import { EnvironmentStep } from '../add-game-wizard/environment-step.component.js';
 import { draftFromGameServer, draftToPayload, validateStep, type WizardDraft } from '../add-game-wizard/wizard-form.utils.js';
 
 /** Props for {@link EditGameForm}. */
@@ -136,14 +132,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
 
     try {
       const { config } = draftToPayload(draft);
-      const payload: UpdateGamePayload = {
-        name: game.name,
-        // `environment` isn't an editable field on this form (the wizard
-        // draft never had a place for it) — carry the existing declaration's
-        // value forward so saving other fields doesn't wipe it out. `https`
-        // is owned by the draft now, so it's already in `config`.
-        config: { ...config, environment: game.environment },
-      };
+      const payload: UpdateGamePayload = { name: game.name, config };
       const result = await api.updateGame(payload);
 
       if (!mountedRef.current) return;
@@ -213,6 +202,15 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
         </CardHeader>
         <CardContent>
           <StorageStep draft={draft} issues={issues} onChange={patchDraft} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Environment</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EnvironmentStep draft={draft} issues={issues} onChange={patchDraft} />
         </CardContent>
       </Card>
 

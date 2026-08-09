@@ -39,12 +39,12 @@ Pulumi's own console output legitimately echoes stack outputs, which include
 those values verbatim, so `PulumiService` scrubs them out of the streamed
 text first. This applies identically during **Apply** below. Shorter values
 are left as-is to avoid mangling unrelated log text with common short
-strings. The same values remain visible in plaintext on a game's
-[detail page](/app/games#the-game-detail-screen) — there's currently no
-in-app editor for `environment` (see
-[Games — fields the wizard does not cover](/app/games#fields-the-wizard-does-not-cover)),
-so this redaction only ever affects the Pulumi run log, never how the value
-is declared or displayed.
+strings. The same values remain visible in plaintext both on a game's
+[detail page](/app/games#the-game-detail-screen) and in the
+[add-game wizard's Environment step and the edit-game form's Environment
+card](/app/games#step-5--environment), so this redaction only ever affects
+the Pulumi run log, never how the value is declared, edited, or displayed
+elsewhere in the app.
 
 Only one Pulumi operation can run at a time. If something else is already
 running, the plan is refused — see [Workspace busy](#the-workspace-busy-banner).

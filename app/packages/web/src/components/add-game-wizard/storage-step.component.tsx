@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
 import { cn } from '@/lib/utils.utils';
-import type { WizardDraft, WizardDraftFileSeed, WizardDraftVolume } from './wizard-form.utils.js';
+import { messageFor, type WizardDraft, type WizardDraftFileSeed, type WizardDraftVolume } from './wizard-form.utils.js';
 
 /** Blank row appended by the "Add volume" button. */
 const EMPTY_VOLUME: WizardDraftVolume = { name: '', container_path: '' };
@@ -39,11 +39,6 @@ export interface StorageStepProps {
   issues: GameServerValidationIssue[];
   /** Called with a partial patch of the changed field whenever the operator adds, removes, or edits a row. */
   onChange: (patch: Partial<Pick<WizardDraft, 'volumes' | 'file_seeds'>>) => void;
-}
-
-/** Finds the message (if any) whose issue path is exactly `path`. */
-function messageFor(issues: GameServerValidationIssue[], path: string): string | undefined {
-  return issues.find((issue) => issue.path === path)?.message;
 }
 
 /**

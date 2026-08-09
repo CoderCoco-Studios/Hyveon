@@ -53,9 +53,10 @@ Go to **Infrastructure**, click **Run plan**, read the change summary, click
 
 ### 4. Add a game
 
-Open **Games** and click **Add game**. A five-step wizard collects the
-container image, the Fargate CPU/memory pair, the ports it listens on, and the
-EFS volumes it needs.
+Open **Games** and click **Add game**. A six-step wizard collects the
+container image, the Fargate CPU/memory pair, the ports it listens on, the
+EFS volumes it needs, and any environment variables to inject into the
+container.
 
 Submitting the wizard writes an entry into the JSON configuration object
 (`deployment-config.json`, in your S3 configuration bucket) and **nothing

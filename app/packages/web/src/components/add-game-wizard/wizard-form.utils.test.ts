@@ -26,6 +26,7 @@ function makeValidDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [],
+    environment: [],
     https: false,
     ...overrides,
   };
@@ -55,6 +56,7 @@ describe('createEmptyWizardDraft', () => {
       ports: [],
       volumes: [],
       file_seeds: [],
+      environment: [],
       https: false,
     });
   });
@@ -81,6 +83,10 @@ describe('stepForIssuePath', () => {
 
   it('should fall back to the review step for an unrecognized field family', () => {
     expect(stepForIssuePath('somethingUnknown')).toBe('review');
+  });
+
+  it('should route an environment[0].name issue to the environment step', () => {
+    expect(stepForIssuePath('environment[0].name')).toBe('environment');
   });
 });
 
@@ -347,8 +353,44 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       ports: game.ports,
       volumes: game.volumes,
       file_seeds: [],
+      environment: [],
       https: false,
     });
+  });
+
+  it('should map environment rows from a GameServer onto the draft', () => {
+    const draft = draftFromGameServer({
+      name: 'mygame',
+      image: 'itzg/minecraft-server',
+      cpu: 1024,
+      memory: 2048,
+      ports: [],
+      volumes: [{ name: 'data', container_path: '/data' }],
+      environment: [{ name: 'EULA', value: 'TRUE' }],
+    });
+    expect(draft.environment).toEqual([{ name: 'EULA', value: 'TRUE' }]);
+  });
+
+  it('should default environment to an empty array when the GameServer has none declared', () => {
+    const draft = draftFromGameServer({
+      name: 'mygame',
+      image: 'itzg/minecraft-server',
+      cpu: 1024,
+      memory: 2048,
+      ports: [],
+      volumes: [{ name: 'data', container_path: '/data' }],
+    });
+    expect(draft.environment).toEqual([]);
+  });
+
+  it('should include environment rows in the create payload when present', () => {
+    const draft = { ...createEmptyWizardDraft(), environment: [{ name: 'EULA', value: 'TRUE' }] };
+    expect(draftToPayload(draft).config.environment).toEqual([{ name: 'EULA', value: 'TRUE' }]);
+  });
+
+  it('should omit environment from the create payload when empty', () => {
+    const draft = createEmptyWizardDraft();
+    expect(draftToPayload(draft).config.environment).toBeUndefined();
   });
 
   it('should default https to false when the declared GameServer omits the flag', () => {

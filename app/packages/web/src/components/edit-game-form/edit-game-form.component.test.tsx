@@ -146,6 +146,40 @@ describe('EditGameForm', () => {
     );
   });
 
+  it('should call api.updateGame with an added environment variable after editing and Save', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame({ environment: [] })} />);
+
+    await screen.findByLabelText('Image');
+    await userEvent.click(screen.getByRole('button', { name: 'Add variable' }));
+    await userEvent.type(screen.getByLabelText('Variable name'), 'DIFFICULTY');
+    await userEvent.type(screen.getByLabelText('Value'), 'hard');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'mygame',
+        config: { ...samplePayloadConfig(), environment: [{ name: 'DIFFICULTY', value: 'hard' }] },
+      }),
+    );
+  });
+
+  it('should call api.updateGame with environment variables removed after Save', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame()} />);
+
+    await screen.findByLabelText('Image');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove environment variable 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'mygame',
+        config: { ...samplePayloadConfig(), environment: undefined },
+      }),
+    );
+  });
+
   it('should render an inline error and keep the edited draft on a server validation failure', async () => {
     apiMock.updateGame.mockResolvedValue({
       ok: false,

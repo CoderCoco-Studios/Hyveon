@@ -71,8 +71,9 @@ async function fillHappyPathToReview() {
   await goNext(); // -> networking (no ports required)
   await goNext(); // -> storage
   await fillStorageStep();
+  await goNext(); // -> environment (no rows required)
   await goNext(); // -> review
-  await screen.findByText('Step 5 of 5: Review');
+  await screen.findByText('Step 6 of 6: Review');
 }
 
 describe('AddGameWizard — blocked-advance validation', () => {
@@ -153,7 +154,7 @@ describe('AddGameWizard — submit failure paths', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
-    await screen.findByText('Step 1 of 5: Identity');
+    await screen.findByText('Step 1 of 6: Identity');
     expect(screen.getByText('A game named "mygame" already exists.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Add a game server' })).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
@@ -173,7 +174,7 @@ describe('AddGameWizard — submit failure paths', () => {
 
     await screen.findByRole('alert');
     expect(screen.getByRole('alert')).toHaveTextContent('deployment config changed since this draft was loaded.');
-    expect(screen.getByText('Step 5 of 5: Review')).toBeInTheDocument();
+    expect(screen.getByText('Step 6 of 6: Review')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     expect(toastMock.success).not.toHaveBeenCalled();
   });

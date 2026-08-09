@@ -333,9 +333,10 @@ does not exist yet; that's [step 4](#4-plan-and-apply-the-infrastructure).
 
 ## 3. Add your first game
 
-Open the **Games** page and click **Add game**. A five-step wizard collects
+Open the **Games** page and click **Add game**. A six-step wizard collects
 the container image, the Fargate CPU/memory pair, the ports it listens on,
-and the EFS volumes it needs:
+the EFS volumes it needs, and any environment variables to inject into the
+container:
 
 ```text
 Image:  thijsvanloef/palworld-server-docker:latest
@@ -348,9 +349,8 @@ EFS volume: name "saves", container path /palworld
 Submitting the wizard writes one entry into the versioned JSON configuration
 object (`deployment-config.json`, in the configuration bucket from
 [step 2](#2-clone-install-and-launch-the-wizard)) and **nothing else** — no
-AWS resource exists yet. See [Games](/app/games) for every field, including
-the optional ones the wizard doesn't cover (`https`, `environment` beyond
-the basics, `file_seeds`) that you can add by editing the game afterwards.
+AWS resource exists yet. See [Games](/app/games) for what every field does
+once the config is applied, and how to edit or remove a game afterwards.
 
 Rules worth knowing before you save:
 
@@ -358,14 +358,14 @@ Rules worth knowing before you save:
   `/${game}/${name}` and mounts it at the container path you give it. Most
   games need one entry. All access points use UID/GID 1000 ownership —
   game images that run as a different UID will fail to mount.
-- **`file_seeds`** (optional, edit-only — not in the Add-game wizard)
-  pre-populates files on the EFS volume during apply. Each seed needs an
+- **`file_seeds`** (optional; the Storage step's second list) pre-populates
+  files on the EFS volume during apply. Each seed needs an
   in-container path and either UTF-8 `content` or base64 `content_base64`
   (for binary files, e.g. mod `.pak` files). The seeder runs once per unique
   seed content and is a no-op on re-apply when nothing changes. Removed
   entries are **not** deleted from EFS. **Do not put secrets in
   `file_seeds`** — content is written into the JSON configuration object.
-- **`https = true`** (optional, edit-only) adds an in-task Caddy
+- **`https = true`** (optional; the Networking step's toggle) adds an in-task Caddy
   reverse-proxy sidecar that terminates TLS via Let's Encrypt automatic
   HTTPS, opening 443/tcp and 80/tcp publicly on the game's security group.
   Only set it on games that actually serve HTTP(S); UDP games (most game

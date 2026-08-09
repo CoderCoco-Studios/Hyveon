@@ -204,6 +204,56 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('environment variables', () => {
+    it('should accept distinct, non-empty environment variable names', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          environment: [
+            { name: 'EULA', value: 'TRUE' },
+            { name: 'DIFFICULTY', value: 'hard' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a blank environment variable name', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ environment: [{ name: '', value: 'TRUE' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'environment[0].name')).toBe(true);
+      }
+    });
+
+    it('should reject duplicate environment variable names within one entry', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          environment: [
+            { name: 'EULA', value: 'TRUE' },
+            { name: 'EULA', value: 'FALSE' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'environment[1].name')).toBe(true);
+      }
+    });
+
+    it('should accept an entry with no environment field at all', () => {
+      const result = validateGameServer('game', makeProposed(), []);
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe('connect_message placeholders', () => {
     it('should accept all four allowed placeholder tokens', () => {
       const result = validateGameServer(
