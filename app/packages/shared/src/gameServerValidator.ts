@@ -208,6 +208,37 @@ export function getFargateMemoryOptions(cpu: number): number[] {
   return options;
 }
 
+/**
+ * Fargate on-demand price per vCPU-hour (us-east-1). `@hyveon/cloud-aws`
+ * re-exports this single copy (via `AwsCloudProvider.ts`) instead of
+ * declaring its own — keep every call site in sync by only ever editing the
+ * value here.
+ */
+export const FARGATE_VCPU_PER_HOUR = 0.04048;
+
+/** Fargate on-demand price per GB-hour (us-east-1), see {@link FARGATE_VCPU_PER_HOUR}. */
+export const FARGATE_GB_PER_HOUR = 0.004445;
+
+/**
+ * Projected hourly Fargate cost for a `cpu`/`memory` pairing, in USD.
+ *
+ * Pure arithmetic, safe to call on every UI event (e.g. a slider drag) with
+ * no debounce. Uses the same formula and rounding as
+ * `CostService.estimateForSpec`'s `costPerHour` field, so the wizard's live
+ * estimate and the Costs page's per-game table never disagree for the same
+ * (cpu, memory) pair.
+ *
+ * @param cpu - Fargate CPU units (1024 = 1 vCPU).
+ * @param memory - Task memory in MiB.
+ * @returns The estimated hourly cost in USD, rounded to at most 4 decimal places.
+ */
+export function estimateFargateHourlyCost(cpu: number, memory: number): number {
+  const vcpu = cpu / 1024;
+  const memoryGb = memory / 1024;
+  const hourly = vcpu * FARGATE_VCPU_PER_HOUR + memoryGb * FARGATE_GB_PER_HOUR;
+  return Math.round(hourly * 10000) / 10000;
+}
+
 /** Human-readable description of the valid memory values/range for a given Fargate `cpu` tier. */
 function describeFargateMemoryOptions(cpu: number): string {
   const range = FARGATE_CPU_MEMORY_TABLE[cpu];
