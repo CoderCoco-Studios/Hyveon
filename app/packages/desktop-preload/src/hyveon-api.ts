@@ -16,6 +16,8 @@ import type {
   DeploymentSettingsWriteResult,
   OpType,
   PulumiEngineVersionResult,
+  RendererConsoleLevel,
+  RendererLogEntry,
   StackOutputs,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
@@ -53,6 +55,12 @@ import type {
  * this group for the same reason — it backs Settings' Cloud Setup version
  * row and is a pure `{ resolvedVersion: string | null }` data shape with
  * nothing to isolate the renderer from.
+ *
+ * `RendererConsoleLevel`/`RendererLogEntry` (`@hyveon/shared/src/types.ts`)
+ * join this group for the same reason — they back the console-forwarding
+ * IPC payload and are pure data shapes with nothing to isolate the renderer
+ * from. `desktop-main`'s `diagnostics.controller.ts` imports the same pair
+ * from `@hyveon/shared` rather than declaring its own copy.
  */
 export type {
   ChangeSummary,
@@ -61,6 +69,8 @@ export type {
   DeploymentSettingsWriteResult,
   OpType,
   PulumiEngineVersionResult,
+  RendererConsoleLevel,
+  RendererLogEntry,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 };
@@ -1558,15 +1568,6 @@ export interface SaveWizardStateInput {
 export interface HyveonDriftApi {
   /** Returns the current drift report — games out of sync between declared and deployed state. */
   get: () => Promise<DriftReport>;
-}
-
-/** The `console.*` method a forwarded renderer log entry originated from. */
-export type RendererConsoleLevel = 'log' | 'info' | 'warn' | 'error';
-
-/** A single batched renderer `console.*` call, as queued client-side before a flush. */
-export interface RendererLogEntry {
-  level: RendererConsoleLevel;
-  message: string;
 }
 
 /** Local application log diagnostics: tail recent lines or retrieve the log file path. */

@@ -1,5 +1,15 @@
 import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/desktop-preload';
 
+/** Duck-types an `Error`-shaped value — `instanceof Error` fails for errors from a different JS realm (e.g. an iframe), which don't share this realm's `Error` constructor. */
+function isErrorLike(value: unknown): value is Error {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ('stack' in value || 'message' in value) &&
+    Object.prototype.toString.call(value) === '[object Error]'
+  );
+}
+
 /** How often queued console entries are flushed to the main process. */
 const FLUSH_INTERVAL_MS = 2_000;
 
@@ -27,7 +37,7 @@ function formatConsoleArgs(args: unknown[]): string {
   return args
     .map((arg) => {
       if (typeof arg === 'string') return arg;
-      if (arg instanceof Error) return arg.stack ?? arg.message;
+      if (isErrorLike(arg)) return arg.stack ?? arg.message;
       try {
         const serialized = JSON.stringify(arg);
         return serialized ?? String(arg);
@@ -39,17 +49,18 @@ function formatConsoleArgs(args: unknown[]): string {
 }
 
 /**
- * Queues a console entry, dropping (and counting) it once the queue plus
+ * Queues a console call, dropping (and counting) it once the queue plus
  * whatever is currently {@link inFlightCount} would reach {@link MAX_QUEUE_SIZE}
  * — the reservation guarantees any in-flight batch that later fails always
- * has room to be requeued.
+ * has room to be requeued. Capacity is checked before `args` is formatted,
+ * so a call that's about to be dropped never pays the `JSON.stringify` cost.
  */
-function enqueue(level: RendererConsoleLevel, message: string): void {
+function enqueue(level: RendererConsoleLevel, args: unknown[]): void {
   if (queue.length + inFlightCount >= MAX_QUEUE_SIZE) {
     droppedSinceLastFlush += 1;
     return;
   }
-  queue.push({ level, message });
+  queue.push({ level, message: formatConsoleArgs(args) });
 }
 
 /**
@@ -71,11 +82,15 @@ function requeueAfterFailedFlush(entries: RendererLogEntry[], droppedCount: numb
  * {@link MAX_QUEUE_SIZE}, so the per-flush cap only paces IPC message size,
  * not total delivery. The batch is reserved against the queue cap via
  * {@link inFlightCount} while its `diagnostics.reportLog` call is pending;
- * if the call rejects (transient failure), the batch is requeued rather
- * than lost.
+ * if the call rejects, throws synchronously, or otherwise never resolves
+ * (transient failure), the batch is requeued rather than lost.
  */
 function flush(): void {
   if (queue.length === 0 && droppedSinceLastFlush === 0) {
+    return;
+  }
+  const reportLog = window.hyveon?.diagnostics?.reportLog;
+  if (typeof reportLog !== 'function') {
     return;
   }
   const entries = queue.slice(0, MAX_BATCH_ENTRIES);
@@ -83,11 +98,19 @@ function flush(): void {
   const droppedCount = droppedSinceLastFlush;
   droppedSinceLastFlush = 0;
 
-  if (typeof window.hyveon?.diagnostics?.reportLog !== 'function') {
+  inFlightCount += entries.length;
+  let pending: ReturnType<typeof reportLog> | undefined;
+  try {
+    pending = reportLog(entries, droppedCount || undefined);
+  } catch {
+    pending = undefined;
+  }
+  if (!pending || typeof pending.then !== 'function') {
+    inFlightCount -= entries.length;
+    requeueAfterFailedFlush(entries, droppedCount);
     return;
   }
-  inFlightCount += entries.length;
-  void window.hyveon.diagnostics.reportLog(entries, droppedCount || undefined)?.then(
+  void pending.then(
     () => {
       inFlightCount -= entries.length;
     },
@@ -158,7 +181,7 @@ export function installConsoleForwarding(): void {
     const original = console[level].bind(console);
     console[level] = (...args: unknown[]) => {
       original(...args);
-      enqueue(level, formatConsoleArgs(args));
+      enqueue(level, args);
     };
   });
 

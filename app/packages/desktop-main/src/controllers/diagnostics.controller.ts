@@ -1,5 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import type { RendererLogEntry } from '@hyveon/shared';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { logger } from '../logger.js';
 
@@ -8,15 +9,6 @@ export interface ReportRendererErrorInput {
   message: string;
   stack?: string;
   source: 'boundary' | 'window-error' | 'unhandled-rejection';
-}
-
-/** The `console.*` method a forwarded renderer log entry originated from. */
-export type RendererConsoleLevel = 'log' | 'info' | 'warn' | 'error';
-
-/** A single batched renderer `console.*` call, as queued client-side before a flush. */
-export interface RendererLogEntry {
-  level: RendererConsoleLevel;
-  message: string;
 }
 
 /** Payload accepted by `diagnostics.reportLog`. */

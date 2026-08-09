@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import vm from 'node:vm';
 import { installGlobalErrorReporting, reportRendererError } from './report-renderer-error.utils.js';
 import type { RendererLogEntry } from '@hyveon/desktop-preload';
 
@@ -128,6 +129,7 @@ describe('installConsoleForwarding', () => {
   });
 
   it('should still invoke the original console method after installing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
     const spy = vi.fn();
     console.log = spy;
@@ -382,5 +384,76 @@ describe('installConsoleForwarding', () => {
     const [secondEntries, secondDropped] = reportLog.mock.calls[1] as [RendererLogEntry[], number | undefined];
     expect(secondEntries[0]).toEqual({ level: 'log', message: 'will fail and be requeued' });
     expect(secondDropped).toBe(1);
+  });
+
+  it('should preserve a queued entry (not drop it) across a flush tick where the bridge is temporarily unavailable', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('queued while bridge is briefly gone');
+    vi.stubGlobal('hyveon', undefined);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(reportLog).toHaveBeenCalledWith([{ level: 'log', message: 'queued while bridge is briefly gone' }], undefined);
+  });
+
+  it('should requeue and recover when diagnostics.reportLog throws synchronously instead of returning a promise', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('bridge misbehaved');
+      })
+      .mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    console.log('should survive a synchronous throw');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(reportLog).toHaveBeenCalledTimes(2);
+    expect(reportLog).toHaveBeenLastCalledWith([{ level: 'log', message: 'should survive a synchronous throw' }], undefined);
+  });
+
+  it('should preserve message/stack for a cross-realm Error, where `instanceof Error` fails', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reportLog = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    const foreignError = vm.runInNewContext('new Error("boom from another realm")') as Error;
+    expect(foreignError instanceof Error).toBe(false);
+
+    console.error(foreignError);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const [entries] = reportLog.mock.calls[0] as [RendererLogEntry[], number | undefined];
+    expect(entries[0].message).toContain('boom from another realm');
+  });
+
+  it('should not serialize a console call that will be dropped for exceeding queue capacity', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal('hyveon', { diagnostics: { reportLog: vi.fn().mockResolvedValue(undefined) } });
+    const { installConsoleForwarding } = await import(MODULE_PATH);
+
+    installConsoleForwarding();
+    for (let i = 0; i < 200; i += 1) {
+      console.log(`filler ${i}`);
+    }
+    const stringifySpy = vi.spyOn(JSON, 'stringify');
+
+    console.log({ expensive: 'object that should never be serialized' });
+
+    expect(stringifySpy).not.toHaveBeenCalled();
   });
 });

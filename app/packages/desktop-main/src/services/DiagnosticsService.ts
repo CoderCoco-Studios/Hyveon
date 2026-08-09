@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { logger } from '../logger.js';
-import type { RendererConsoleLevel, RendererLogEntry } from '../controllers/diagnostics.controller.js';
+import type { RendererConsoleLevel, RendererLogEntry } from '@hyveon/shared';
 
 /** Maximum bytes read from the end of the log file per tail call (~200 KB covers ~500 typical log lines). */
 const TAIL_READ_BYTES = 200 * 1024;
@@ -14,13 +14,23 @@ const TAIL_READ_BYTES = 200 * 1024;
  */
 const MAX_LOG_BATCH_ENTRIES = 200;
 
-/** Maps a renderer `console.*` level to the winston level it is logged at. */
-const CONSOLE_LEVEL_TO_WINSTON_LEVEL: Record<RendererConsoleLevel, 'debug' | 'info' | 'warn' | 'error'> = {
-  log: 'debug',
-  info: 'info',
-  warn: 'warn',
-  error: 'error',
-};
+/**
+ * Maps a renderer `console.*` level to the winston level it is logged at.
+ * Built on a `null`-prototype object (not a plain `{}` literal) so an
+ * attacker-controlled `entry.level` of `'__proto__'`/`'constructor'` can
+ * never resolve to an inherited `Object.prototype` member — the lookup
+ * simply misses and falls through to the `?? 'debug'` default like any
+ * other unrecognized level.
+ */
+const CONSOLE_LEVEL_TO_WINSTON_LEVEL: Record<RendererConsoleLevel, 'debug' | 'info' | 'warn' | 'error'> = Object.assign(
+  Object.create(null) as Record<RendererConsoleLevel, 'debug' | 'info' | 'warn' | 'error'>,
+  {
+    log: 'debug',
+    info: 'info',
+    warn: 'warn',
+    error: 'error',
+  },
+);
 
 /** Injection token for the directory where DailyRotateFile writes logs. */
 export const DIAGNOSTICS_LOG_DIR = 'DIAGNOSTICS_LOG_DIR';

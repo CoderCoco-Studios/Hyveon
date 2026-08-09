@@ -91,3 +91,12 @@ export interface PendingInteraction {
   action: DiscordAction;
   expiresAt: number;
 }
+
+/** The `console.*` method a forwarded renderer log entry originated from. */
+export type RendererConsoleLevel = 'log' | 'info' | 'warn' | 'error';
+
+/** A single batched renderer `console.*` call, as queued client-side before a flush. */
+export interface RendererLogEntry {
+  level: RendererConsoleLevel;
+  message: string;
+}

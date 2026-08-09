@@ -10,6 +10,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import * as fsPromises from 'node:fs/promises';
+import type { RendererConsoleLevel } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { DiagnosticsService } from './DiagnosticsService.js';
 
@@ -233,5 +234,19 @@ describe('DiagnosticsService.logRendererConsoleBatch', () => {
     const service = makeService('/var/log/hyveon');
 
     expect(() => service.logRendererConsoleBatch([])).not.toThrow();
+  });
+
+  it('should fall back to debug instead of throwing when entry.level is a prototype-polluting key', () => {
+    const service = makeService('/var/log/hyveon');
+
+    expect(() =>
+      service.logRendererConsoleBatch([
+        { level: '__proto__' as RendererConsoleLevel, message: 'malicious' },
+        { level: 'constructor' as RendererConsoleLevel, message: 'also malicious' },
+      ]),
+    ).not.toThrow();
+
+    expect(logger.debug).toHaveBeenCalledWith('renderer console (__proto__): malicious');
+    expect(logger.debug).toHaveBeenCalledWith('renderer console (constructor): also malicious');
   });
 });
