@@ -287,6 +287,19 @@ export interface InfraResources {
  *   {@link InfraResources}.
  */
 export function defineAll(config: DeploymentConfig, options: InfraProgramOptions): InfraResources {
+  // `hostedZoneName` feeds both `aws.route53.getZoneOutput`'s `name` filter
+  // (route53.ts) and `discordDomain.ts`'s `discord.${hostedZoneName}` FQDN.
+  // An empty string passes TypeScript's `string` type but produces a
+  // Route 53 "multiple hosted zones matched" error and an ACM "domain_name
+  // cannot end with a period" error respectively — both surfaced deep in
+  // the Pulumi preview with no indication the root cause is a blank config
+  // field. Fail fast here instead.
+  if (config.hostedZoneName.trim().length === 0) {
+    throw new Error(
+      'defineAll: config.hostedZoneName is empty — set the hosted zone name in Settings before deploying.',
+    );
+  }
+
   const provider = new aws.Provider('aws', {
     region: config.awsRegion,
     defaultTags: { tags: DEFAULT_TAGS },
