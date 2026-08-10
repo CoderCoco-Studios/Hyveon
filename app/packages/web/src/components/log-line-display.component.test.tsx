@@ -38,4 +38,11 @@ describe('HighlightedLine', () => {
     expect(coloredSpan).not.toBeNull();
     expect(coloredSpan).toHaveTextContent('error: disk full');
   });
+
+  it('should highlight a search match spanning a non-SGR sequence that split two identically-styled segments', () => {
+    const { container } = render(<HighlightedLine text={'abc\x1b[2Kdef'} query="abcdef" />);
+    const marks = container.querySelectorAll('mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveTextContent('abcdef');
+  });
 });

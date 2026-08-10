@@ -7,15 +7,25 @@ export interface AnsiSegment {
 }
 
 /**
- * Matches a CSI ("Control Sequence Introducer") ANSI escape sequence —
- * `\x1b[` followed by parameter bytes (digits/semicolons) and a single
- * final letter, e.g. `\x1b[1;32m` (SGR) or `\x1b[2K` (clear-line). The
- * final letter distinguishes SGR (`m`) sequences, which this module styles,
- * from every other CSI sequence, which is matched only so it can be
- * discarded from rendered output.
+ * Matches any ANSI escape sequence, across the three families terminal
+ * tooling actually emits:
+ *
+ * 1. CSI ("Control Sequence Introducer") — `\x1b[` followed by parameter
+ *    bytes (the full 0x30-0x3F range: digits, `:`, `;`, `<`, `=`, `>`, `?`,
+ *    which also covers DEC private-mode sequences like `\x1b[?25l`),
+ *    optional intermediate bytes, and a single final byte, e.g. `\x1b[1;32m`
+ *    (SGR) or `\x1b[2K` (clear-line). The final byte distinguishes SGR
+ *    (`m`) sequences, which this module styles, from every other CSI
+ *    sequence, which is matched only so it can be discarded from rendered
+ *    output.
+ * 2. OSC ("Operating System Command") — `\x1b]` up to a BEL or ST
+ *    terminator, e.g. `\x1b]0;window title\x07`. Never carries SGR styling;
+ *    matched only so it can be discarded.
+ * 3. A single-byte "Fe" escape fallback covering other short escape
+ *    sequences (e.g. charset selection) that are neither CSI nor OSC.
  */
-// eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte every CSI sequence starts with.
-const CSI_PATTERN = /\x1b\[([0-9;]*)([A-Za-z])/g;
+// eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte every ANSI escape sequence starts with.
+const ANSI_PATTERN = /\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\^_])/g;
 
 /**
  * Maps the 16 standard SGR foreground color codes (30-37 normal, 90-97
@@ -65,7 +75,7 @@ export function parseAnsiLine(line: string): AnsiSegment[] {
   let colorClass: string | null = null;
   let lastIndex = 0;
 
-  const pattern = new RegExp(CSI_PATTERN);
+  const pattern = new RegExp(ANSI_PATTERN);
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(line)) !== null) {
     const text = line.slice(lastIndex, match.index);
@@ -74,7 +84,16 @@ export function parseAnsiLine(line: string): AnsiSegment[] {
     const [, params, finalByte] = match;
     if (finalByte === 'm') {
       const codes = params === '' ? [0] : params!.split(';').map(Number);
-      for (const code of codes) {
+      for (let idx = 0; idx < codes.length; idx++) {
+        const code = codes[idx];
+        if (code === 38 || code === 48) {
+          // Extended (256-color or truecolor) foreground/background —
+          // consume its parameters but apply no styling; this app only
+          // supports the 16 standard colors.
+          if (codes[idx + 1] === 5) idx += 2; // 38;5;N or 48;5;N
+          else if (codes[idx + 1] === 2) idx += 4; // 38;2;R;G;B or 48;2;R;G;B
+          continue;
+        }
         if (code === 0) {
           bold = false;
           colorClass = null;
@@ -89,7 +108,8 @@ export function parseAnsiLine(line: string): AnsiSegment[] {
         }
       }
     }
-    // Any non-SGR CSI sequence (finalByte !== 'm') is consumed above and
+    // Any non-SGR escape sequence (finalByte !== 'm', including OSC and Fe
+    // sequences where finalByte is undefined) is consumed above and
     // produces no segment text — it is silently discarded.
 
     lastIndex = pattern.lastIndex;
@@ -97,7 +117,17 @@ export function parseAnsiLine(line: string): AnsiSegment[] {
 
   const rest = line.slice(lastIndex);
   if (rest || segments.length === 0) segments.push({ text: rest, bold, colorClass });
-  return segments;
+
+  const coalesced: AnsiSegment[] = [];
+  for (const seg of segments) {
+    const prev = coalesced[coalesced.length - 1];
+    if (prev && prev.bold === seg.bold && prev.colorClass === seg.colorClass) {
+      prev.text += seg.text;
+    } else {
+      coalesced.push({ ...seg });
+    }
+  }
+  return coalesced;
 }
 
 /**
@@ -109,5 +139,5 @@ export function parseAnsiLine(line: string): AnsiSegment[] {
  * @returns The same text with all ANSI escape sequences removed.
  */
 export function stripAnsi(text: string): string {
-  return text.replace(CSI_PATTERN, '');
+  return text.replace(ANSI_PATTERN, '');
 }

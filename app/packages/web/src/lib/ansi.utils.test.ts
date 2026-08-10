@@ -44,6 +44,26 @@ describe('parseAnsiLine', () => {
     expect(() => parseAnsiLine('abc\x1b[1;3')).not.toThrow();
     expect(parseAnsiLine('abc\x1b[1;3')).toEqual([{ text: 'abc\x1b[1;3', bold: false, colorClass: null }]);
   });
+
+  it('should silently drop a DEC private-mode sequence (cursor hide)', () => {
+    expect(parseAnsiLine('\x1b[?25lhello')).toEqual([{ text: 'hello', bold: false, colorClass: null }]);
+  });
+
+  it('should silently drop an OSC window-title sequence', () => {
+    expect(parseAnsiLine('\x1b]0;my title\x07hello')).toEqual([{ text: 'hello', bold: false, colorClass: null }]);
+  });
+
+  it('should coalesce adjacent segments split by a non-SGR sequence when their styling is identical', () => {
+    expect(parseAnsiLine('abc\x1b[2Kdef')).toEqual([{ text: 'abcdef', bold: false, colorClass: null }]);
+  });
+
+  it('should silently ignore a 256-color extended SGR code instead of applying it as standard colors', () => {
+    expect(parseAnsiLine('\x1b[38;5;31mtext\x1b[0m')).toEqual([{ text: 'text', bold: false, colorClass: null }]);
+  });
+
+  it('should silently ignore a 24-bit truecolor extended SGR code instead of applying it as standard colors', () => {
+    expect(parseAnsiLine('\x1b[38;2;30;90;36mtext\x1b[0m')).toEqual([{ text: 'text', bold: false, colorClass: null }]);
+  });
 });
 
 describe('stripAnsi', () => {
@@ -61,5 +81,13 @@ describe('stripAnsi', () => {
 
   it('should leave a truncated escape sequence in place', () => {
     expect(stripAnsi('abc\x1b[1;3')).toBe('abc\x1b[1;3');
+  });
+
+  it('should remove a DEC private-mode sequence (cursor hide)', () => {
+    expect(stripAnsi('\x1b[?25lhello')).toBe('hello');
+  });
+
+  it('should remove an OSC window-title sequence', () => {
+    expect(stripAnsi('\x1b]0;my title\x07hello')).toBe('hello');
   });
 });
