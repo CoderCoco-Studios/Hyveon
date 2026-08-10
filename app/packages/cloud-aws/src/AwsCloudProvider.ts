@@ -18,16 +18,17 @@ import type {
   WorkloadHandle,
   WorkloadStatus,
 } from '@hyveon/shared';
+import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/shared';
 
 /**
- * Fargate on-demand price per vCPU-hour (us-east-1). Exported so
- * `CostService.estimateForSpec` (`app/packages/desktop-main/src/services/CostService.ts`)
- * imports this single copy instead of hardcoding its own — keep both call
- * sites in sync by only ever editing the value here.
+ * Fargate on-demand pricing constants (us-east-1). Re-exported here from
+ * `@hyveon/shared` — which owns them alongside the Fargate cpu/memory tier
+ * table — so `CostService.estimateForSpec`
+ * (`app/packages/desktop-main/src/services/CostService.ts`) and this file's
+ * own {@link AwsCloudProvider.estimateHourlyCost} keep importing from
+ * `@hyveon/cloud-aws` unchanged.
  */
-export const FARGATE_VCPU_PER_HOUR = 0.04048;
-/** Fargate on-demand price per GB-hour (us-east-1), see {@link FARGATE_VCPU_PER_HOUR}. */
-export const FARGATE_GB_PER_HOUR = 0.004445;
+export { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from '@hyveon/shared';
 
 /**
  * Sleep for `ms` milliseconds, but reject immediately if `signal` is aborted.

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { validateGameServer, getFargateCpuOptions, getFargateMemoryOptions } from './gameServerValidator.js';
+import {
+  validateGameServer,
+  getFargateCpuOptions,
+  getFargateMemoryOptions,
+  estimateFargateHourlyCost,
+  FARGATE_VCPU_PER_HOUR,
+  FARGATE_GB_PER_HOUR,
+} from './gameServerValidator.js';
 import type { GameServer } from './gameServerConfig.js';
 
 /** Build a minimal, fully-valid proposed entry; override any fields per test. */
@@ -467,5 +474,33 @@ describe('validateGameServer', () => {
         expect(result.issues.some((i) => i.path === 'volumes')).toBe(true);
       }
     });
+  });
+});
+
+describe('estimateFargateHourlyCost', () => {
+  it('should compute the Fargate hourly cost for 1 vCPU + 2 GiB', () => {
+    // 1 * 0.04048 + 2 * 0.004445 = 0.04937
+    expect(estimateFargateHourlyCost(1024, 2048)).toBeCloseTo(0.0494, 4);
+  });
+
+  it('should scale linearly with cpu and memory', () => {
+    const half = estimateFargateHourlyCost(512, 1024);
+    const full = estimateFargateHourlyCost(1024, 2048);
+    expect(half).toBeCloseTo(full / 2, 6);
+  });
+
+  it('should round to at most 4 decimal places', () => {
+    const cost = estimateFargateHourlyCost(256, 512);
+    const decimals = cost.toString().split('.')[1] ?? '';
+    expect(decimals.length).toBeLessThanOrEqual(4);
+  });
+
+  it('should compute the correct cost for every Fargate vCPU tier at its minimum valid memory', () => {
+    for (const cpu of getFargateCpuOptions()) {
+      const memory = getFargateMemoryOptions(cpu)[0]!;
+      const expected =
+        Math.round(((cpu / 1024) * FARGATE_VCPU_PER_HOUR + (memory / 1024) * FARGATE_GB_PER_HOUR) * 10000) / 10000;
+      expect(estimateFargateHourlyCost(cpu, memory)).toBe(expected);
+    }
   });
 });

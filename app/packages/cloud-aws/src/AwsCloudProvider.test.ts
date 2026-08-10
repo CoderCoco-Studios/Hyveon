@@ -16,6 +16,11 @@ import {
   WorkloadLaunchError,
   type AwsCloudProviderConfig,
 } from './AwsCloudProvider.js';
+import { FARGATE_VCPU_PER_HOUR, FARGATE_GB_PER_HOUR } from './AwsCloudProvider.js';
+import {
+  FARGATE_VCPU_PER_HOUR as SHARED_VCPU_PER_HOUR,
+  FARGATE_GB_PER_HOUR as SHARED_GB_PER_HOUR,
+} from '@hyveon/shared/gameServerValidator';
 
 /** Typed stand-in for the AWS ECS SDK client. */
 const ecsMock = mockClient(ECSClient);
@@ -707,6 +712,13 @@ describe('AwsCloudProvider', () => {
 
       expect(observed[0]).toMatchObject({ accessKeyId: 'AKIA-old', secretAccessKey: 'secret-old' });
       expect(observed[1]).toMatchObject({ accessKeyId: 'AKIA-new', secretAccessKey: 'secret-new' });
+    });
+  });
+
+  describe('AwsCloudProvider pricing constants', () => {
+    it('should re-export the same Fargate pricing constants as @hyveon/shared', () => {
+      expect(FARGATE_VCPU_PER_HOUR).toBe(SHARED_VCPU_PER_HOUR);
+      expect(FARGATE_GB_PER_HOUR).toBe(SHARED_GB_PER_HOUR);
     });
   });
 });
