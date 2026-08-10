@@ -65,7 +65,8 @@ export class GameWizardDraftService {
 function isStoredGameWizardDraft(value: unknown): value is StoredGameWizardDraft {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<StoredGameWizardDraft>;
-  if (typeof candidate.stepIndex !== 'number' || typeof candidate.savedAt !== 'string') return false;
+  if (!Number.isInteger(candidate.stepIndex) || (candidate.stepIndex as number) < 0) return false;
+  if (typeof candidate.savedAt !== 'string') return false;
   return isGameWizardDraft(candidate.draft);
 }
 

@@ -58,6 +58,27 @@ describe('GameWizardDraftService', () => {
       expect(vi.mocked(logger.warn)).toHaveBeenCalled();
     });
 
+    it('should return null and log a warning when the stored stepIndex is negative or non-integer', () => {
+      const store = makeStore();
+      const service = new GameWizardDraftService(store);
+
+      vi.mocked(store.get).mockReturnValue({
+        draft: sampleDraft,
+        stepIndex: -1,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      } as StoredGameWizardDraft);
+      expect(service.get()).toBeNull();
+
+      vi.mocked(store.get).mockReturnValue({
+        draft: sampleDraft,
+        stepIndex: 1.5,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      } as StoredGameWizardDraft);
+      expect(service.get()).toBeNull();
+
+      expect(vi.mocked(logger.warn)).toHaveBeenCalled();
+    });
+
     it('should return null and log a warning when reading throws', () => {
       const store = makeStore();
       vi.mocked(store.get).mockImplementation(() => {
