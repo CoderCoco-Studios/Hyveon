@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '../lib/utils.utils.js';
-import { parseAnsiLine, type AnsiSegment } from '../lib/ansi.utils.js';
-
-export { parseAnsiLine, type AnsiSegment };
+import { parseAnsiLine } from '../lib/ansi.utils.js';
 
 /** A single line of output from a streamed Pulumi plan/apply/destroy run. Mirrors `IacRunChunk`. */
 export interface AnsiLogChunk {

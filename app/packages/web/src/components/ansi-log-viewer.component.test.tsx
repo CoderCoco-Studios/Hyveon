@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { AnsiLogViewer, parseAnsiLine, type AnsiLogChunk } from './ansi-log-viewer.component.js';
+import { AnsiLogViewer, type AnsiLogChunk } from './ansi-log-viewer.component.js';
 
 /**
  * Stubs the scroll geometry (`scrollHeight`/`clientHeight`) jsdom never lays
@@ -11,33 +11,6 @@ function stubScrollGeometry(el: HTMLElement, { scrollHeight, clientHeight }: { s
   Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
   Object.defineProperty(el, 'clientHeight', { configurable: true, value: clientHeight });
 }
-
-describe('parseAnsiLine', () => {
-  it('should return a single unstyled segment for plain text', () => {
-    expect(parseAnsiLine('hello world')).toEqual([{ text: 'hello world', bold: false, colorClass: null }]);
-  });
-
-  it('should apply a foreground color for a basic SGR color code', () => {
-    const segments = parseAnsiLine('\x1b[32mgreen text\x1b[0m');
-    expect(segments).toEqual([{ text: 'green text', bold: false, colorClass: 'text-[var(--color-green)]' }]);
-  });
-
-  it('should mark a segment bold for SGR code 1 and clear it on reset', () => {
-    const segments = parseAnsiLine('\x1b[1mbold\x1b[0m normal');
-    expect(segments[0]).toEqual({ text: 'bold', bold: true, colorClass: null });
-    expect(segments[1]).toEqual({ text: ' normal', bold: false, colorClass: null });
-  });
-
-  it('should combine bold and color from a single semicolon-joined SGR code', () => {
-    const segments = parseAnsiLine('\x1b[1;31mdestroy\x1b[0m');
-    expect(segments).toEqual([{ text: 'destroy', bold: true, colorClass: 'text-[var(--color-red)]' }]);
-  });
-
-  it('should ignore unrecognized SGR codes instead of throwing', () => {
-    expect(() => parseAnsiLine('\x1b[48;5;200munsupported bg\x1b[0m')).not.toThrow();
-    expect(parseAnsiLine('\x1b[999mplain\x1b[0m')[0]!.text).toBe('plain');
-  });
-});
 
 describe('AnsiLogViewer', () => {
   it('should render an empty-state message when there are no chunks', () => {
