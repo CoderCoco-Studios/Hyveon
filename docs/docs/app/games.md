@@ -90,11 +90,10 @@ later.
 
 ### Step 2 — Resources
 
-Two dropdowns, no free text: **CPU (vCPU units)** and **Memory (MiB)**.
-
-Fargate only accepts specific CPU/memory pairings, so the memory dropdown is
-disabled until you pick a CPU and is then rebuilt from that choice. Changing
-the CPU after the fact resets the memory if the current value is no longer
+Two sliders, no free text: **vCPU** and **Memory**. Each slider snaps to the
+valid Fargate tiers below rather than any free value, so the memory slider is
+disabled until you pick a vCPU and is then rebuilt from that choice. Changing
+the vCPU after the fact resets the memory if the current value is no longer
 valid for the new tier.
 
 | CPU units | Valid memory (MiB) |
@@ -107,8 +106,11 @@ valid for the new tier.
 | 8192 | 16384 – 61440, in steps of 4096 |
 | 16384 | 32768 – 122880, in steps of 8192 |
 
-1024 CPU units is 1 vCPU. Because the dropdowns are generated from this table,
-the wizard cannot offer you an invalid pairing.
+1024 CPU units is 1 vCPU. Because the sliders are generated from this table,
+the wizard cannot offer you an invalid pairing. A live estimated hourly cost
+(`$X.XXXX/hr while running`) appears below the sliders and recomputes as
+either slider moves, so you can see the cost impact of a resource change
+before submitting.
 
 ### Step 3 — Networking
 
