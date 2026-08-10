@@ -250,6 +250,11 @@ from view; lines with no detected level are never hidden by this filter.
 This is the same level-detection logic the `/logs` page's own Levels filter
 uses, so what counts as `WARN` here is what counts as `WARN` there.
 
+The Diagnostics panel shares the same line-rendering component as `/logs`,
+so ANSI colour escape codes in a line render as coloured text here too,
+rather than as raw escape characters, and level detection strips them first
+the same way.
+
 ### Search highlights, it does not filter
 
 The search box (`Search visible lines…`) highlights matching substrings in

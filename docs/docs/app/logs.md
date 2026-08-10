@@ -73,6 +73,12 @@ Matched lines get a coloured badge — `INFO` cyan, `WARN` amber, `ERROR` red,
 `DEBUG` grey. Lines with no recognisable level get a blank space where the
 badge would be, so the text stays column-aligned.
 
+ANSI colour escape codes in a line (the 16 standard terminal foreground
+colours plus bold) are rendered as coloured text rather than shown as raw
+escape characters. Level detection strips those codes first, so a colourised
+`ERROR` line is still classified correctly regardless of what colour the
+source process wrapped it in.
+
 ### The Levels filter
 
 The **Levels** button shows how many are visible, e.g. `Levels (4/4)`. Opening

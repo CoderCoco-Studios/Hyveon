@@ -1,3 +1,5 @@
+import { stripAnsi } from './ansi.utils.js';
+
 /** A detected log severity level, shared between the `/logs` page and the Settings Diagnostics panel. */
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
@@ -9,7 +11,7 @@ const LEVEL_PATTERN = /\b(INFO|WARN(?:ING)?|ERROR|ERR|DEBUG|DBG)\b/i;
 
 /** Detect a {@link LogLevel} from a single log line, or `null` if no level token is present. */
 export function detectLogLevel(line: string): LogLevel | null {
-  const m = LEVEL_PATTERN.exec(line);
+  const m = LEVEL_PATTERN.exec(stripAnsi(line));
   if (!m) return null;
   const tok = m[1]!.toUpperCase();
   if (tok === 'WARNING' || tok === 'WARN') return 'WARN';
