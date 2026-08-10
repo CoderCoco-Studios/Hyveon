@@ -1,6 +1,6 @@
 ## Context
 
-`RunService` (`app/packages/desktop-main/src/services/RunService.ts`) owns the durable apply lock (issue #106): an in-memory `RunLock` field plus a mirrored DynamoDB item, guarding submission-level exclusivity across plan/apply/destroy. It is distinct from `PulumiService.operationInFlight` (an in-process flag guarding the shared local Pulumi Automation API workspace) and from the Pulumi backend lock (Pulumi's own S3-state-backend lock, already recoverable via `PulumiService.clearStaleLock`, `iac.lock.clear.*` IPC, and the `StaleLockBanner` UI).
+`RunService` (`app/packages/desktop-main/src/services/RunService.ts`) owns the durable apply lock (issue #106): an in-memory `RunLock` field plus a mirrored DynamoDB item, guarding submission-level exclusivity across apply/destroy (plan/preview never acquires it). It is distinct from `PulumiService.operationInFlight` (an in-process flag guarding the shared local Pulumi Automation API workspace) and from the Pulumi backend lock (Pulumi's own S3-state-backend lock, already recoverable via `PulumiService.clearStaleLock`, `iac.lock.clear.*` IPC, and the `StaleLockBanner` UI).
 
 `RunService`'s lock only self-heals via `DEFAULT_LOCK_TTL_MS` (1 hour, checked by `isRunLockExpired`). An operator who hits `RunLockHeldError` today sees the BUSY banner (`iac.page.tsx`'s `BusyBanner`, driven by `ack.conflict`) with no recourse. This was confirmed live: an apply's `RunLockHeldError` rejection rendered as both the amber BUSY banner and a raw red error box (one rejection, two renderings — not two independently stuck locks), and `operationInFlight` was not also stuck. The fix is scoped entirely to `RunService`.
 
@@ -20,7 +20,7 @@
 
 ### D1: Reactive discovery only
 
-- **Choice**: The clear action only appears after a plan/apply/destroy submission is rejected with `RunLockHeldError` — no new status-read IPC channel.
+- **Choice**: The clear action only appears after an apply/destroy submission is rejected with `RunLockHeldError` — no new status-read IPC channel.
 - **Rationale**: Matches the existing Pulumi-lock `StaleLockBanner` pattern exactly (also reactive-only), keeping the UX model consistent across both lock types and minimizing new surface area.
 - **Alternatives considered**: A proactive `iac.runs.lockStatus` read channel so the busy state is visible on page load. More useful (no need to trigger a doomed submission first) but adds a new channel/behavior not mirrored by precedent; deferred.
 

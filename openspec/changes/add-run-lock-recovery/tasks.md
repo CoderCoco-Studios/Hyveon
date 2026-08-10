@@ -3,14 +3,14 @@
 - [ ] 1.1 Add `RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS` constant to `RunService.ts` (same value as `PulumiService.LOCK_CLEAR_CONFIRMATION_TTL_MS` today, independently defined).
 - [ ] 1.2 Add a private `pendingLockClearConfirmation` field (`{ token, runId, expiresAt } | null`) to `RunService`.
 - [ ] 1.3 Implement `mintLockClearConfirmationToken(): string` — reads `getCurrentLock()`, throws if no lock is held, mints a `randomUUID()` token bound to that lock's `runId`, stores it with an expiry, returns the token. Superseding a previous unconsumed mint (mirrors `PulumiService.mintLockClearConfirmationToken`).
-- [ ] 1.4 Implement `assertFreshLockClearConfirmation(token: string): string` (returns the bound `runId` on success) — synchronous, throws a new `RunLockClearNotConfirmedError` (add to `@hyveon/shared/src/errors.ts`) when the token is missing/wrong/expired, or when the currently held lock's `runId` no longer matches the token's bound `runId`. Consumes (clears) the pending confirmation on success, mirroring `PulumiService.assertFreshLockClearConfirmation`'s synchronous consume-on-success semantics.
+- [ ] 1.4 Implement `assertFreshLockClearConfirmation(token: string): string` (returns the bound `runId` on success) — synchronous, throws `RunLockClearNotConfirmedError` (Task 2) when the token is missing/wrong/expired, or when the currently held lock's `runId` no longer matches the token's bound `runId`. Consumes (clears) the pending confirmation on success, mirroring `PulumiService.assertFreshLockClearConfirmation`'s synchronous consume-on-success semantics.
 - [ ] 1.5 Implement `clearLock(token: string): Promise<void>` — calls `assertFreshLockClearConfirmation(token)` to get the bound `runId`, then calls the existing `releaseRun(runId)`.
 - [ ] 1.6 Unit tests (`RunService.test.ts` or a new `RunService.clearLock.test.ts`, following `PulumiService.clearStaleLock.test.ts`'s case shape): mint without a held lock throws; mint + immediate clear succeeds; clear with no prior mint throws; clear with expired token throws; clear with wrong token throws; clear after a different run has acquired the lock throws and leaves the new run's lock intact; clear when `runs_table_name` isn't configured (DynamoDB skipped) still clears the in-memory lock.
 
-## 2. Shared error type
+## 2. Error type
 
-- [ ] 2.1 Add `RunLockClearNotConfirmedError` to `app/packages/shared/src/errors.ts`, following the existing `LockClearNotConfirmedError`/`DestroyNotConfirmedError` shape and TSDoc conventions.
-- [ ] 2.2 Unit test for the new error class's shape/message (co-located with the other error-class tests in `errors.test.ts`).
+- [ ] 2.1 Add `RunLockClearNotConfirmedError` to `RunService.ts` itself (not `@hyveon/shared`), following `PulumiService.ts`'s `LockClearNotConfirmedError`/`DestroyNotConfirmedError` shape and TSDoc conventions — this error is not consumed across packages, so it stays with the service that owns the gate it guards, matching `LockClearNotConfirmedError`'s precedent.
+- [ ] 2.2 Unit test for the new error class's shape/message (co-located with `RunService.test.ts`).
 
 ## 3. IPC controller
 
