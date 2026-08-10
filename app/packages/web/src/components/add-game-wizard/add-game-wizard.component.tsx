@@ -18,8 +18,8 @@
  * client didn't catch. On submit, every {@link GameWriteResult} branch is
  * handled explicitly:
  *
- * - `ok: true` — success toast, redirect to `/games/:name`, dialog closes and
- *   the draft resets.
+ * - `ok: true` — success toast, redirect to `/games/:name`, dialog closes,
+ *   the saved draft is cleared, and the in-memory draft resets.
  * - `code: 'validation'` — the dialog stays open; the returned issues are
  *   stored and the wizard jumps to the earliest step whose fields they
  *   belong to (via {@link stepForIssuePath}) so the offending fields render
@@ -27,6 +27,15 @@
  * - `code: 'conflict' | 'not_found' | 'error'` — the dialog stays open, the
  *   wizard jumps to the Review step, and the server's message is surfaced
  *   via {@link ReviewStep}'s `submitError` prop.
+ *
+ * The in-progress draft is also debounce-autosaved (`api.saveGameDraft`,
+ * ~1s after the operator stops typing) so it survives closing/relaunching
+ * the app, flushed immediately on dialog close so no edit is lost to the
+ * timer, and cleared (`api.clearGameDraft`) only on a successful submit —
+ * never on a validation/conflict/error failure, since the operator still
+ * needs it to retry. `initialDraft`/`initialStepIndex` let a caller (the
+ * games-page "resume draft" banner) reopen the dialog pre-populated with a
+ * previously saved draft.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -71,17 +80,31 @@ const STEP_LABELS: Record<WizardStep, string> = {
   review: 'Review',
 };
 
+/** Props accepted by {@link AddGameWizard}. All optional — every existing call site (`<AddGameWizard />`) keeps working unchanged. */
+export interface AddGameWizardProps {
+  /** Pre-populates the draft, e.g. when resuming a saved draft from the games-page banner. Supplying this also opens the dialog immediately, skipping the trigger-button click. */
+  initialDraft?: WizardDraft;
+  /** Pre-populates the step index alongside `initialDraft`. Ignored without `initialDraft`. */
+  initialStepIndex?: number;
+}
+
 /**
  * Self-contained "Add game" dialog: renders its own trigger button, walks the
  * operator through the six wizard steps, and owns the `games.create` submit
  * handler. See the module doc above for the full submit-result contract.
  */
-export function AddGameWizard() {
+export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardProps = {}) {
   const navigate = useNavigate();
 
-  const [open, setOpen] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
-  const [draft, setDraft] = useState<WizardDraft>(createEmptyWizardDraft());
+  // Seeding `open`'s initial value from `initialDraft` (rather than a
+  // controlled `open` prop the parent keeps passing every render) means the
+  // dialog's own `handleOpenChange(false)` remains the single source of
+  // truth for closing it — a resumed wizard can still be cancelled/closed
+  // normally, unlike a parent-pinned `open={true}` prop that `Dialog` would
+  // never see flip back to `false`.
+  const [open, setOpen] = useState(initialDraft !== undefined);
+  const [stepIndex, setStepIndex] = useState(initialStepIndex ?? 0);
+  const [draft, setDraft] = useState<WizardDraft>(initialDraft ?? createEmptyWizardDraft());
   const [existingGames, setExistingGames] = useState<GameServer[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -93,6 +116,63 @@ export function AddGameWizard() {
   // `submitting`) while it was awaiting the server. Without this, a late
   // result would mutate the freshly-reset draft with stale step/error state.
   const openRef = useRef(open);
+
+  /** True once the operator has made at least one edit — gates autosave so an untouched (or freshly-resumed, unedited) draft never writes itself back out. */
+  const hasEditedRef = useRef(false);
+  /** Pending debounce timer for the autosave effect below; cleared/replaced on every draft change, flushed immediately on close/unmount. */
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Immediately writes any pending debounced save, bypassing the timer — call before the draft state it captured is discarded (dialog close, unmount). */
+  function flushPendingSave() {
+    if (saveTimerRef.current === null || !hasEditedRef.current) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    void api.saveGameDraft(draft, stepIndex);
+  }
+
+  // `flushPendingSave` closes over this render's `draft`/`stepIndex`, so a
+  // *stable* ref to "the latest one" is kept in sync after every render (an
+  // effect, not a render-body assignment — refs must not be written during
+  // render). The unmount-only effect below reads through this ref rather
+  // than calling `flushPendingSave` directly, so that when it actually
+  // fires (component torn down entirely, e.g. the operator navigates away
+  // from `/games` while the dialog is still open) it flushes the draft as
+  // of that moment — not the stale one captured back when the component
+  // first mounted.
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  useEffect(() => {
+    flushPendingSaveRef.current = flushPendingSave;
+  });
+
+  // Declared *before* the debounce-autosave effect below so its cleanup runs
+  // first at unmount: the debounce effect's own cleanup unconditionally
+  // clears `saveTimerRef`, which would otherwise make this flush see "no
+  // pending timer" and become a no-op. `handleOpenChange` already flushes
+  // synchronously on a normal dialog close (Escape/overlay/Cancel/Submit),
+  // so this only matters for the component being unmounted directly.
+  useEffect(() => {
+    return () => flushPendingSaveRef.current();
+  }, []);
+
+  // Debounce-autosaves the draft ~1s after the operator stops editing, so a
+  // crash/close mid-edit still leaves a near-current draft on disk. Skipped
+  // entirely until at least one edit has happened (`hasEditedRef`) and while
+  // a submit is in flight (`submitting`) — the submit result itself decides
+  // whether the saved draft should be cleared or left alone.
+  useEffect(() => {
+    if (!hasEditedRef.current || submitting) return;
+    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void api.saveGameDraft(draft, stepIndex);
+    }, 1000);
+    return () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [draft, stepIndex, submitting]);
 
   const step = WIZARD_STEPS[stepIndex];
 
@@ -123,13 +203,17 @@ export function AddGameWizard() {
     setSubmitError(null);
     setServerIssues(null);
     setSubmitting(false);
+    hasEditedRef.current = false;
   }
 
-  /** Handles the dialog's own open/close, resetting the draft on close. */
+  /** Handles the dialog's own open/close, flushing any pending autosave and resetting the draft on close. */
   function handleOpenChange(next: boolean) {
     openRef.current = next;
     setOpen(next);
-    if (!next) resetWizard();
+    if (!next) {
+      flushPendingSave();
+      resetWizard();
+    }
   }
 
   /**
@@ -138,6 +222,7 @@ export function AddGameWizard() {
    * produced it.
    */
   function patchDraft(patch: Partial<WizardDraft>) {
+    hasEditedRef.current = true;
     setServerIssues(null);
     setSubmitError(null);
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -184,6 +269,7 @@ export function AddGameWizard() {
         toast.success(`${payload.name} created`, {
           description: 'Run plan and apply on the Infrastructure page to deploy it.',
         });
+        void api.clearGameDraft();
         handleOpenChange(false);
         navigate(`/games/${payload.name}`);
         return;

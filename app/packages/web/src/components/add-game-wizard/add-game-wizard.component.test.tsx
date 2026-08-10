@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
@@ -12,6 +12,9 @@ import { AddGameWizard } from './add-game-wizard.component.js';
 const apiMock = vi.hoisted(() => ({
   games: vi.fn(),
   createGame: vi.fn(),
+  getGameDraft: vi.fn(),
+  saveGameDraft: vi.fn(),
+  clearGameDraft: vi.fn(),
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
@@ -80,6 +83,9 @@ describe('AddGameWizard — blocked-advance validation', () => {
   beforeEach(() => {
     apiMock.games.mockResolvedValue({ games: [] });
     apiMock.createGame.mockReset();
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockClear();
+    apiMock.clearGameDraft.mockClear();
     navigateMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -112,6 +118,9 @@ describe('AddGameWizard — submit success path', () => {
   beforeEach(() => {
     apiMock.games.mockResolvedValue({ games: [] });
     apiMock.createGame.mockReset();
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockClear();
+    apiMock.clearGameDraft.mockClear();
     navigateMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -138,6 +147,9 @@ describe('AddGameWizard — submit failure paths', () => {
   beforeEach(() => {
     apiMock.games.mockResolvedValue({ games: [] });
     apiMock.createGame.mockReset();
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockClear();
+    apiMock.clearGameDraft.mockClear();
     navigateMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -177,5 +189,127 @@ describe('AddGameWizard — submit failure paths', () => {
     expect(screen.getByText('Step 6 of 6: Review')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     expect(toastMock.success).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddGameWizard — draft autosave', () => {
+  beforeEach(() => {
+    apiMock.games.mockResolvedValue({ games: [] });
+    apiMock.createGame.mockReset();
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockClear();
+    apiMock.clearGameDraft.mockClear();
+    navigateMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should not autosave while the draft is still empty', async () => {
+    await openWizard();
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+  });
+
+  it('should autosave the draft and step index after edits settle for about 1 second', async () => {
+    await openWizard();
+    await fillIdentityStep();
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should flush a pending save when the component unmounts without the dialog being closed first', async () => {
+    const { unmount } = render(<AddGameWizard />);
+    await userEvent.click(screen.getByRole('button', { name: /add game/i }));
+    await screen.findByRole('heading', { name: 'Add a game server' });
+    await fillIdentityStep();
+
+    unmount();
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should not autosave while the wizard is submitting', async () => {
+    apiMock.createGame.mockImplementation(() => new Promise(() => {})); // never resolves
+    await openWizard();
+    await fillHappyPathToReview();
+    apiMock.saveGameDraft.mockClear();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+  });
+
+  it('should flush a pending save immediately when the dialog closes', async () => {
+    await openWizard();
+    await fillIdentityStep();
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should clear the saved draft on successful submit', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
+  });
+
+  it('should not clear the saved draft on a failed submit', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: false, code: 'error', message: 'boom' });
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await screen.findByRole('alert');
+    expect(apiMock.clearGameDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddGameWizard — resuming from a saved draft', () => {
+  beforeEach(() => {
+    apiMock.games.mockResolvedValue({ games: [] });
+    apiMock.createGame.mockReset();
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockClear();
+    apiMock.clearGameDraft.mockClear();
+    navigateMock.mockClear();
+  });
+
+  it('should open pre-populated with an initialDraft and initialStepIndex', async () => {
+    render(
+      <AddGameWizard
+        initialDraft={{
+          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+        }}
+        initialStepIndex={1}
+      />,
+    );
+
+    await screen.findByText('Step 2 of 6: Resources');
   });
 });
