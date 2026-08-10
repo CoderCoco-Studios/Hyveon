@@ -897,7 +897,14 @@ export function IacPage() {
             <section className="flex flex-col gap-3" aria-label="Apply run">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-[var(--color-foreground)]">Apply</h3>
-                {applyFinished && <ChangeSummaryStatus summary={applyRecord?.changeSummary} />}
+                {applyFinished ? (
+                  <ChangeSummaryStatus summary={applyRecord?.changeSummary} />
+                ) : (
+                  <span role="status" className="flex items-center gap-1.5 text-sm text-[var(--color-muted-foreground)]">
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    Applying…
+                  </span>
+                )}
               </div>
 
               <AnsiLogViewer chunks={applyLog.chunks} emptyMessage="Waiting for apply output…" />
