@@ -68,8 +68,8 @@ describe('EditGameForm', () => {
     expect(await screen.findByLabelText('Name')).toHaveValue('mygame');
     expect(screen.getByLabelText('Image')).toHaveValue('itzg/minecraft-server');
     expect(screen.getByLabelText('Connect message')).toHaveValue('Connect at {ip}:25565');
-    expect(screen.getByLabelText(/CPU/i)).toHaveValue('512');
-    expect(screen.getByLabelText(/Memory/i)).toHaveValue('1024');
+    expect(screen.getByLabelText(/CPU/i)).toHaveValue('1');
+    expect(screen.getByLabelText(/Memory/i)).toHaveValue('0');
     expect(screen.getByLabelText('Container port')).toHaveValue(25565);
     expect(screen.getByLabelText('Protocol')).toHaveValue('tcp');
     expect(screen.getByLabelText('Volume name')).toHaveValue('data');

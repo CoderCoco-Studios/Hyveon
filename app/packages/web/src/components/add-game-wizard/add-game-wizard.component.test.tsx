@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
+import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/gameServerValidator';
 
 /**
  * Stub for the `@/api.service.js` module: `games()` backs the existing-games
@@ -46,9 +47,11 @@ async function goNext() {
 }
 
 /** Selects a valid Fargate cpu/memory pairing on the Resources step. */
-async function fillResourcesStep() {
-  await userEvent.selectOptions(screen.getByLabelText(/CPU/i), '256');
-  await userEvent.selectOptions(screen.getByLabelText(/Memory/i), '512');
+function fillResourcesStep() {
+  const cpuOptions = getFargateCpuOptions();
+  fireEvent.change(screen.getByLabelText('vCPU'), { target: { value: String(cpuOptions.indexOf(256)) } });
+  const memoryOptions = getFargateMemoryOptions(256);
+  fireEvent.change(screen.getByLabelText('Memory'), { target: { value: String(memoryOptions.indexOf(512)) } });
 }
 
 /** Adds and fills a single volume row on the Storage step (the server requires at least one). */
