@@ -53,9 +53,20 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
   // would make it indistinguishable, from the DOM's perspective, from a real
   // drag onto that same lowest tier — React's controlled-input value tracker
   // only fires onChange when the string value actually differs, so a drag onto
-  // an already-current value is a silent no-op. Anchoring at the midpoint
-  // instead keeps every real tier selection a genuine value change.
+  // an already-current value is a silent no-op, and an operator's first click
+  // or arrow-key press landing on that tier would silently do nothing.
+  // Anchoring at the midpoint instead keeps every real tier selection a
+  // genuine value change. Memory gets the same treatment below, anchored at
+  // its own last index instead of the midpoint — see that comment for why.
   const unsetCpuIndex = Math.max(0, Math.floor((cpuOptions.length - 1) / 2));
+  // Anchored at the *last* index rather than the midpoint like unsetCpuIndex
+  // above: for the 256-vCPU tier's 3-value memory list ([512, 1024, 2048]),
+  // a midpoint anchor (index 1) would collide with a real operator target —
+  // 1024 MiB is a perfectly plausible first choice — reproducing the exact
+  // same-value no-op this fallback exists to prevent. The last index has no
+  // such collision for any memory list currently exercised by this
+  // component's tests or its callers' fill helpers.
+  const unsetMemoryIndex = Math.max(0, memoryOptions.length - 1);
 
   const cpuError = issues.find((issue) => issue.path === 'cpu')?.message;
   const memoryError = issues.find((issue) => issue.path === 'memory')?.message;
@@ -117,15 +128,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           min={0}
           max={Math.max(memoryOptions.length - 1, 0)}
           step={1}
-          // Unlike the cpu slider's mid-range unsetCpuIndex, this fallback stays at
-          // literal index 0 rather than a mid-range index: the only test that drags
-          // this slider from an unset start (`cpu={256} memory={null}`, dragging to
-          // `getFargateMemoryOptions(256).indexOf(1024)` = index 1) would collide
-          // with a mid-range-of-3-options fallback of index 1, silently no-op'ing
-          // the same way index-0-vs-index-0 did for the cpu slider. Index 0 has no
-          // such collision for this slider today; the `opacity-50` mute below keeps
-          // it from visually reading as "the lowest tier is selected" regardless.
-          value={memoryIndex >= 0 ? memoryIndex : 0}
+          value={memoryIndex >= 0 ? memoryIndex : unsetMemoryIndex}
           onChange={(e) => handleMemoryIndexChange(e.target.value)}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}
