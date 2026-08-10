@@ -35,4 +35,4 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Run `npm run app:lint`, `npm run app:typecheck`, and `npm run app:test`; confirm all pass before opening the PR.
+- [x] 7.1 Run `npm run app:lint`, `npm run app:typecheck`, and `npm run app:test`; confirm all pass before opening the PR.
