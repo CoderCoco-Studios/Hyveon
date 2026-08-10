@@ -26,7 +26,7 @@ vi.mock('electron-store', () => {
   return { default: MockStore };
 });
 
-import { ElectronStoreService, type AppStoreSchema } from './ElectronStoreService.js';
+import { ElectronStoreService, type AppStoreSchema, type StoredGameWizardDraft } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
 // ---------------------------------------------------------------------------
@@ -683,5 +683,46 @@ describe('ElectronStoreService — recordOrphanedRollback / getOrphanedRollback 
     service.clearOrphanedRollback();
     expect(service.getOrphanedRollback()).toBeUndefined();
     expect(service.getPulumiPassphrase()).toBe('existing-passphrase');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addGameWizardDraft
+// ---------------------------------------------------------------------------
+
+describe('addGameWizardDraft', () => {
+  const sampleDraft: StoredGameWizardDraft = {
+    draft: {
+      name: 'mygame',
+      image: 'some/image',
+      connect_message: '',
+      cpu: 256,
+      memory: 512,
+      ports: [],
+      volumes: [],
+      file_seeds: [],
+      environment: [],
+      https: false,
+    },
+    stepIndex: 2,
+    savedAt: '2026-08-09T00:00:00.000Z',
+  };
+
+  it('should return undefined when no draft has been saved', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    expect(service.get('addGameWizardDraft')).toBeUndefined();
+  });
+
+  it('should round-trip a saved draft through get/set', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.set('addGameWizardDraft', sampleDraft);
+    expect(service.get('addGameWizardDraft')).toEqual(sampleDraft);
+  });
+
+  it('should remove the draft entirely via delete', () => {
+    const service = new ElectronStoreService(makeSafeStorage());
+    service.set('addGameWizardDraft', sampleDraft);
+    service.delete('addGameWizardDraft');
+    expect(service.get('addGameWizardDraft')).toBeUndefined();
   });
 });

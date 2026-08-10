@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const apiMock = vi.hoisted(() => ({
@@ -8,6 +8,10 @@ const apiMock = vi.hoisted(() => ({
   games: vi.fn(),
   createGame: vi.fn(),
   drift: vi.fn(),
+  getGameDraft: vi.fn(),
+  saveGameDraft: vi.fn(),
+  updateGameDraftStepIndex: vi.fn(),
+  clearGameDraft: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -51,12 +55,30 @@ const ghostRow = {
   deployed: true,
 };
 
+/** A saved-but-unfinished add-game wizard draft, parked on step index 2 (Networking). */
+const sampleDraft = {
+  name: 'unfinished-game',
+  image: 'some/image',
+  connect_message: '',
+  cpu: 256,
+  memory: 512,
+  ports: [],
+  volumes: [],
+  file_seeds: [],
+  environment: [],
+  https: false,
+};
+
 describe('GamesPage', () => {
   beforeEach(() => {
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
     apiMock.games.mockResolvedValue({ games: [declaredDeployed, declaredOnly, ghostRow] });
     apiMock.drift.mockResolvedValue({ entries: [] });
+    apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockResolvedValue(undefined);
+    apiMock.updateGameDraftStepIndex.mockResolvedValue(undefined);
+    apiMock.clearGameDraft.mockClear();
   });
 
   it('should render the Games heading', () => {
@@ -171,5 +193,95 @@ describe('GamesPage', () => {
     // `table` comes after `banner` in the DOM — i.e. the banner is mounted
     // above the games table.
     expect(banner.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('should show no draft-resume banner when no draft is saved', async () => {
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+
+    await screen.findByText('minecraft');
+    expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
+  });
+
+  it('should show a Resume/Discard banner when a draft is saved', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+
+    await screen.findByText(/Unfinished draft: unfinished-game/i);
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
+  });
+
+  it('should open the wizard pre-filled when Resume is clicked', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await screen.findByText('Step 3 of 6: Networking');
+  });
+
+  it('should not leave a stray "Add game" trigger behind after resuming a draft and closing the dialog', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    await screen.findByText('Step 3 of 6: Networking');
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a game server' })).not.toBeInTheDocument());
+    // Only the page's own header "Add game" trigger should remain — the
+    // resumed instance renders with `hideTrigger`, so closing it must not
+    // leave a second, dangling trigger button behind.
+    expect(screen.getAllByRole('button', { name: 'Add game' })).toHaveLength(1);
+  });
+
+  it('should restore the resume/discard banner after closing a resumed draft without submitting', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    await screen.findByText('Step 3 of 6: Networking');
+    expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    // The draft itself is untouched (Discard was never clicked), so closing
+    // the resumed dialog without submitting should bring the banner back
+    // rather than leaving it hidden until the next full page load.
+    await screen.findByText(/Unfinished draft: unfinished-game/i);
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  });
+
+  it('should hide the header "Add game" trigger while a resumed draft is open', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await screen.findByText('Step 3 of 6: Networking');
+    expect(screen.queryByRole('button', { name: 'Add game' })).not.toBeInTheDocument();
+  });
+
+  it('should clear the draft and hide the banner when Discard is clicked, without opening the wizard', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Discard' });
+
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
+    expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Add a game server' })).not.toBeInTheDocument();
   });
 });

@@ -13,6 +13,12 @@ function makeGamesStub(): HyveonGamesApi {
     create: vi.fn().mockResolvedValue({ ok: true, games: [] }),
     update: vi.fn().mockResolvedValue({ ok: true, games: [] }),
     delete: vi.fn().mockResolvedValue({ ok: true, games: [] }),
+    draft: {
+      get: vi.fn().mockResolvedValue(null),
+      save: vi.fn().mockResolvedValue(undefined),
+      updateStepIndex: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    },
   };
 }
 

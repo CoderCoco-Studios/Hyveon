@@ -513,6 +513,40 @@ export interface DeleteGamePayload {
 }
 
 /**
+ * In-progress add-game wizard field values.
+ *
+ * Mirrors `GameWizardDraft` in
+ * `@hyveon/desktop-main/src/services/ElectronStoreService.ts` — that file is
+ * the source of truth; keep this copy in sync with it.
+ */
+export interface GameWizardDraft {
+  name: string;
+  image: string;
+  connect_message: string;
+  cpu: number | null;
+  memory: number | null;
+  ports: { container: number | null; protocol: string }[];
+  volumes: { name: string; container_path: string }[];
+  file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
+  environment: { name: string; value: string }[];
+  https: boolean;
+}
+
+/**
+ * A saved add-game wizard draft plus which step the operator was on and
+ * when it was last autosaved.
+ *
+ * Mirrors `StoredGameWizardDraft` in
+ * `@hyveon/desktop-main/src/services/ElectronStoreService.ts` — that file is
+ * the source of truth; keep this copy in sync with it.
+ */
+export interface StoredGameWizardDraft {
+  draft: GameWizardDraft;
+  stepIndex: number;
+  savedAt: string;
+}
+
+/**
  * Category of mismatch between a game's declared (deployment config) and
  * deployed (tfstate) state.
  *
@@ -1118,6 +1152,30 @@ export interface HyveonGamesApi {
   update: (payload: UpdateGamePayload) => Promise<GameWriteResult>;
   /** Removes an entry from the declared `gameServers` map. */
   delete: (payload: DeleteGamePayload) => Promise<GameWriteResult>;
+  /** Save/resume/discard endpoints for the single in-progress add-game wizard draft. */
+  draft: {
+    /**
+     * Returns the saved draft, or `null` if none is saved. `environment[].value`
+     * and `file_seeds[].content`/`content_base64` are blanked out by
+     * `GameWizardDraftService.get()` on the main-process side before this
+     * response is sent — those values never cross the IPC boundary, and the
+     * operator re-enters them on resume.
+     */
+    get: () => Promise<StoredGameWizardDraft | null>;
+    /** Saves the current draft and step index. */
+    save: (payload: { draft: GameWizardDraft; stepIndex: number }) => Promise<void>;
+    /**
+     * Updates only the `stepIndex` of an already-saved draft, leaving the
+     * stored `draft` fields untouched — used when the operator merely
+     * navigates steps on a resumed draft without editing any field, so the
+     * redacted (secret-blanked) in-memory copy the renderer holds is never
+     * written back over the real, unredacted values still on disk. A no-op
+     * if no draft is currently saved.
+     */
+    updateStepIndex: (stepIndex: number) => Promise<void>;
+    /** Clears the saved draft. */
+    clear: () => Promise<void>;
+  };
 }
 
 /** Cost endpoints: forward-looking Fargate estimates. The app makes no AWS Cost Explorer API calls — see `openspec/changes/remove-cost-explorer-calls`. */
