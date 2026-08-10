@@ -13,7 +13,7 @@
 - [ ] 2.3 Port the existing cascading reset behavior (`resources-step.component.tsx:36-42`) to the slider `onChange` handlers: changing vCPU re-clamps memory's index if the current value is no longer valid
 - [ ] 2.4 Render GiB labels for memory (MiB ÷ 1024), including the single 0.5 GiB case at the 0.25 vCPU tier
 - [ ] 2.5 Add `aria-label`/`aria-valuetext` to both sliders reflecting the human-readable value ("2 vCPU", "4 GiB"), not the raw index
-- [ ] 2.6 Add the live cost readout ("$X.XXX/hr while running") below both sliders, calling `estimateFargateHourlyCost` on every slider `input` event
+- [ ] 2.6 Add the live cost readout ("$X.XXXX/hr while running") below both sliders, calling `estimateFargateHourlyCost` on every slider `input` event
 
 ## 3. Tests
 

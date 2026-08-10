@@ -12,7 +12,7 @@ The add-game wizard's Resources step picks a game server's Fargate vCPU and memo
 
 **Live cost estimate**
 - From: no cost feedback during game server creation/editing; cost is only visible after the fact on the standalone Costs page.
-- To: a live "$X.XXX/hr while running" estimate rendered beneath the sliders, recomputed on every slider move, using the same hardcoded Fargate pricing constants the Costs page already uses.
+- To: a live "$X.XXXX/hr while running" estimate rendered beneath the sliders, recomputed on every slider move, using the same hardcoded Fargate pricing constants the Costs page already uses.
 - Reason: lets operators see the cost impact of a resource choice before committing to it.
 - Impact: non-breaking addition. No new AWS calls (reuses the existing no-Cost-Explorer-API design). The two pricing constants relocate from `@hyveon/cloud-aws` to `@hyveon/shared` so the web renderer can compute the estimate locally without depending on `@hyveon/cloud-aws`.
 

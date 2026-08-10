@@ -47,6 +47,37 @@ describe('ResourcesStep', () => {
     expect(onChange).toHaveBeenCalledWith({ cpu: 256, memory: null });
   });
 
+  it('should commit the rendered vCPU value on a range-relevant keyup while cpu is unset', () => {
+    const onChange = vi.fn();
+    render(<ResourcesStep cpu={null} memory={null} onChange={onChange} issues={[]} />);
+
+    // Same same-value-no-op rationale as the onPointerUp test above: a
+    // keyboard user pressing ArrowRight (or Home/End/etc.) while the slider
+    // sits on its unset fallback position must still commit that position,
+    // since a plain `change` event wouldn't fire for a same-value landing.
+    const cpuOptions = getFargateCpuOptions();
+    const cpuSlider = screen.getByLabelText('vCPU');
+    fireEvent.keyUp(cpuSlider, { key: 'ArrowRight', target: { value: String(cpuOptions.indexOf(256)) } });
+
+    expect(onChange).toHaveBeenCalledWith({ cpu: 256, memory: null });
+  });
+
+  it('should not commit a value on an unrelated keyup such as Tab while cpu is unset', () => {
+    // Regression guard: Tab moves focus during `keydown` and then fires its
+    // own `keyup` once focus has landed on (or passed through) the slider —
+    // that keyup must not be mistaken for a deliberate slider interaction,
+    // or merely tabbing through the form silently commits cpu/memory to the
+    // lowest tier without the operator ever touching a slider.
+    const onChange = vi.fn();
+    render(<ResourcesStep cpu={null} memory={null} onChange={onChange} issues={[]} />);
+
+    const cpuOptions = getFargateCpuOptions();
+    const cpuSlider = screen.getByLabelText('vCPU');
+    fireEvent.keyUp(cpuSlider, { key: 'Tab', target: { value: String(cpuOptions.indexOf(256)) } });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('should reset memory to unset when a cpu change makes the current memory value invalid', () => {
     const onChange = vi.fn();
     // cpu=256/memory=512 is a valid pairing; cpu=512 does not accept 512 MiB.
@@ -88,7 +119,7 @@ describe('ResourcesStep', () => {
     // "0.5 GiB" appears twice here: once as the memory slider's min-endpoint
     // label and once as the selected-value readout, since 512 MiB is both
     // the lowest option for the 256-cpu tier and the currently-selected one.
-    expect(screen.getAllByText('0.5 GiB').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('0.5 GiB')).toHaveLength(2);
   });
 
   it('should handle the 16 vCPU tier 8 GiB memory step', () => {

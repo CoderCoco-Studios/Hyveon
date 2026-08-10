@@ -29,6 +29,15 @@ function formatGib(memoryMib: number): string {
 }
 
 /**
+ * Keys a native `<input type="range">` responds to by moving its own value.
+ * `onKeyUp` handlers gate on this list so an unrelated keyup — most notably
+ * Tab, which moves focus onto the slider during `keydown` and then fires its
+ * own `keyup` once focus has landed — doesn't commit the slider's fallback
+ * position as though the operator had deliberately interacted with it.
+ */
+const RANGE_COMMIT_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+
+/**
  * "Resources" step of the add-game wizard (#99) and edit-game form: vCPU and
  * memory are picked via two range sliders, each holding an *index* into
  * {@link getFargateCpuOptions}/{@link getFargateMemoryOptions} rather than a
@@ -97,7 +106,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
             if (cpu === null) handleCpuIndexChange(e.currentTarget.value);
           }}
           onKeyUp={(e) => {
-            if (cpu === null) handleCpuIndexChange(e.currentTarget.value);
+            if (cpu === null && RANGE_COMMIT_KEYS.includes(e.key)) handleCpuIndexChange(e.currentTarget.value);
           }}
           aria-invalid={cpuError ? 'true' : 'false'}
           aria-describedby={cpuError ? 'wizard-resources-cpu-error' : undefined}
@@ -133,7 +142,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
             if (memory === null) handleMemoryIndexChange(e.currentTarget.value);
           }}
           onKeyUp={(e) => {
-            if (memory === null) handleMemoryIndexChange(e.currentTarget.value);
+            if (memory === null && RANGE_COMMIT_KEYS.includes(e.key)) handleMemoryIndexChange(e.currentTarget.value);
           }}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}
