@@ -44,8 +44,12 @@ function formatPorts(entry: GameListEntry): string {
  * `AddGameWizard` draft (see that component's own doc comment). If one
  * exists, a "Resume / Discard" banner renders above `PendingChangesBanner`:
  * Resume mounts a second `AddGameWizard` pre-populated via its
- * `initialDraft`/`initialStepIndex` props (self-opening); Discard calls
- * `api.clearGameDraft()` and hides the banner without opening the wizard.
+ * `initialDraft`/`initialStepIndex` props (self-opening) with `hideTrigger`
+ * set so this resumed instance never renders its own "Add game" trigger
+ * button — it has no business offering a way to *re*-open itself once the
+ * operator closes it, and would otherwise sit there as a stray duplicate of
+ * the page's real trigger; Discard calls `api.clearGameDraft()` and hides
+ * the banner without opening the wizard.
  */
 export function GamesPage() {
   const [games, setGames] = useState<GameListEntry[]>([]);
@@ -124,7 +128,9 @@ export function GamesPage() {
           </div>
         </div>
       )}
-      {draft && resuming && <AddGameWizard initialDraft={draft.draft} initialStepIndex={draft.stepIndex} />}
+      {draft && resuming && (
+        <AddGameWizard initialDraft={draft.draft} initialStepIndex={draft.stepIndex} hideTrigger />
+      )}
 
       <PendingChangesBanner />
 

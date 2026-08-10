@@ -219,6 +219,24 @@ describe('GamesPage', () => {
     await screen.findByText('Step 3 of 6: Networking');
   });
 
+  it('should not leave a stray "Add game" trigger behind after resuming a draft and closing the dialog', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    await screen.findByText('Step 3 of 6: Networking');
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a game server' })).not.toBeInTheDocument());
+    // Only the page's own header "Add game" trigger should remain — the
+    // resumed instance renders with `hideTrigger`, so closing it must not
+    // leave a second, dangling trigger button behind.
+    expect(screen.getAllByRole('button', { name: 'Add game' })).toHaveLength(1);
+  });
+
   it('should clear the draft and hide the banner when Discard is clicked, without opening the wizard', async () => {
     apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
     const user = userEvent.setup();

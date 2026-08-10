@@ -35,7 +35,10 @@
  * never on a validation/conflict/error failure, since the operator still
  * needs it to retry. `initialDraft`/`initialStepIndex` let a caller (the
  * games-page "resume draft" banner) reopen the dialog pre-populated with a
- * previously saved draft.
+ * previously saved draft; that same caller passes `hideTrigger` so the
+ * resumed instance — which already self-opens and gets unmounted once its
+ * banner goes away — never leaves behind a second, dangling "Add game"
+ * trigger button once the operator closes it.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -86,6 +89,15 @@ export interface AddGameWizardProps {
   initialDraft?: WizardDraft;
   /** Pre-populates the step index alongside `initialDraft`. Ignored without `initialDraft`. */
   initialStepIndex?: number;
+  /**
+   * Skips rendering the `Add game` trigger button, rendering just the
+   * `Dialog`/`DialogContent`. Defaults to `false` so every pre-existing call
+   * site keeps rendering its trigger unchanged. Intended for a resumed-draft
+   * instance (which already self-opens via `initialDraft`) that has no
+   * business offering a *second* way to re-open itself once closed — see the
+   * games-page resume banner, the only caller that passes `true`.
+   */
+  hideTrigger?: boolean;
 }
 
 /**
@@ -93,7 +105,7 @@ export interface AddGameWizardProps {
  * operator through the six wizard steps, and owns the `games.create` submit
  * handler. See the module doc above for the full submit-result contract.
  */
-export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardProps = {}) {
+export function AddGameWizard({ initialDraft, initialStepIndex, hideTrigger = false }: AddGameWizardProps = {}) {
   const navigate = useNavigate();
 
   // Seeding `open`'s initial value from `initialDraft` (rather than a
@@ -302,12 +314,14 @@ export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardP
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button">
-          <Plus />
-          Add game
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button type="button">
+            <Plus />
+            Add game
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add a game server</DialogTitle>
