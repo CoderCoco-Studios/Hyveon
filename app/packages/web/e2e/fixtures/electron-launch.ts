@@ -89,7 +89,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
   const statuses: GameStatus[] = opts.statuses ?? [STOPPED_GAME];
   const costs: CostEstimates = opts.costs ?? COST_DATA;
   const env: EnvInfo = opts.env ?? ENV_DATA;
-  const startResult: ActionResult = opts.startResult ?? { success: true, message: 'Started' };
+  const startResult: ActionResult | null = opts.startResult ?? null;
   const discord: DiscordConfigRedacted = opts.discord ?? CONFIGURED_DISCORD_CONFIG;
   const games: string[] = (opts.games ?? statuses.map((s) => s.game)).map((g) =>
     typeof g === 'string' ? g : g.name,
@@ -108,7 +108,7 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       statusList: GameStatus[];
       gameList: string[];
       costEstimates: CostEstimates;
-      startRes: ActionResult;
+      startRes: ActionResult | null;
       discordConfig: DiscordConfigRedacted;
     }) => {
       const hyveon = window.hyveon;
@@ -118,8 +118,17 @@ export async function applyHyveonMocks(win: Page, opts: StubOptions = {}): Promi
       hyveon.__test.mock('games.status', () => Promise.resolve(statusList));
       hyveon.__test.mock('games.list', () => Promise.resolve({ games: gameList }));
       hyveon.__test.mock('costs.estimate', () => Promise.resolve(costEstimates));
-      hyveon.__test.mock('games.start', () => Promise.resolve(startRes));
-      hyveon.__test.mock('games.stop', () => Promise.resolve({ success: true, message: 'Stopped' }));
+      // Defaults mirror EcsService's real ActionResult message format so specs
+      // asserting on toast text match production wording, not a placeholder.
+      hyveon.__test.mock('games.start', (...args: unknown[]) => {
+        if (startRes) return Promise.resolve(startRes);
+        const game = typeof args[0] === 'string' ? args[0] : 'game';
+        return Promise.resolve({ success: true, message: `${game} is starting. It may take 2–5 minutes.` });
+      });
+      hyveon.__test.mock('games.stop', (...args: unknown[]) => {
+        const game = typeof args[0] === 'string' ? args[0] : 'game';
+        return Promise.resolve({ success: true, message: `${game} is stopping.` });
+      });
       hyveon.__test.mock('discord.getConfig', () => Promise.resolve(discordConfig));
     },
     {
