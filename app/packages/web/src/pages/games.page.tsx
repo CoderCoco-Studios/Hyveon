@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type GameListEntry } from '../api.service.js';
+import { api, type GameListEntry, type StoredGameWizardDraft } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.component';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { AddGameWizard } from '@/components/add-game-wizard/add-game-wizard.component';
 import { PendingChangesBanner } from '../components/pending-changes-banner.component.js';
+import { Button } from '@/components/ui/button.component';
 
 /** Renders a game's declared ports as a comma-separated `container/protocol` list, or an em dash when undeclared. */
 function formatPorts(entry: GameListEntry): string {
@@ -38,11 +39,20 @@ function formatPorts(entry: GameListEntry): string {
  * {@link PendingChangesBanner} (#101) is mounted above the games table and
  * self-manages its own visibility — it renders nothing until
  * `GET /api/drift` reports at least one pending change.
+ *
+ * On mount, `api.getGameDraft()` checks for an autosaved, unfinished
+ * `AddGameWizard` draft (see that component's own doc comment). If one
+ * exists, a "Resume / Discard" banner renders above `PendingChangesBanner`:
+ * Resume mounts a second `AddGameWizard` pre-populated via its
+ * `initialDraft`/`initialStepIndex` props (self-opening); Discard calls
+ * `api.clearGameDraft()` and hides the banner without opening the wizard.
  */
 export function GamesPage() {
   const [games, setGames] = useState<GameListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<StoredGameWizardDraft | null>(null);
+  const [resuming, setResuming] = useState(false);
 
   // Mount-only effect — `loading` starts `true` and `error` starts `null`, so
   // the previous `setLoading(true)` / `setError(null)` preamble was a no-op.
@@ -64,6 +74,30 @@ export function GamesPage() {
     };
   }, []);
 
+  // Mount-only effect — checks for a saved add-game wizard draft (autosaved
+  // by a previous `AddGameWizard` session per issue #99's follow-up) so the
+  // resume/discard banner below can offer to pick it back up.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getGameDraft()
+      .then((saved) => {
+        if (!cancelled) setDraft(saved);
+      })
+      .catch(() => {
+        if (!cancelled) setDraft(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Discards the saved draft and hides the banner, without opening the wizard. */
+  async function handleDiscardDraft() {
+    await api.clearGameDraft();
+    setDraft(null);
+  }
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
@@ -73,6 +107,24 @@ export function GamesPage() {
           <AddGameWizard />
         </div>
       </div>
+
+      {draft && !resuming && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--color-orange)]/40 bg-[var(--color-orange)]/10 px-4 py-3 text-sm text-[var(--color-orange)]"
+        >
+          <span>Unfinished draft: {draft.draft.name || 'untitled'}</span>
+          <div className="flex items-center gap-3 shrink-0">
+            <Button type="button" variant="outline" onClick={() => setResuming(true)}>
+              Resume
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void handleDiscardDraft()}>
+              Discard
+            </Button>
+          </div>
+        </div>
+      )}
+      {draft && resuming && <AddGameWizard initialDraft={draft.draft} initialStepIndex={draft.stepIndex} />}
 
       <PendingChangesBanner />
 
