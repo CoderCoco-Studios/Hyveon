@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { Filter } from 'lucide-react';
 import { Badge } from './ui/badge.component.js';
 import { Button } from './ui/button.component.js';
@@ -10,12 +11,20 @@ import {
   DropdownMenuCheckboxItem,
 } from './ui/dropdown-menu.component.js';
 import { ALL_LOG_LEVELS, LOG_LEVEL_BADGE, type LogLevel } from '../lib/log-level.utils.js';
+import { parseAnsiLine } from '../lib/ansi.utils.js';
+import { cn } from '../lib/utils.utils.js';
 
-/** Render a single line, splitting on case-insensitive search matches. Shared by `/logs` and the Diagnostics panel. */
-export function HighlightedLine({ text, query }: { text: string; query: string }) {
-  if (!query) return <>{text}</>;
+/** One run of `text` from splitting against a case-insensitive search `query`. */
+interface QueryPart {
+  text: string;
+  match: boolean;
+}
+
+/** Splits `text` into non-matching/matching runs against a case-insensitive `query`. Returns a single non-matching run when `query` is empty. */
+function splitByQuery(text: string, query: string): QueryPart[] {
+  if (!query) return [{ text, match: false }];
   const q = query.toLowerCase();
-  const parts: { text: string; match: boolean }[] = [];
+  const parts: QueryPart[] = [];
   let i = 0;
   const lower = text.toLowerCase();
   while (i < text.length) {
@@ -28,17 +37,30 @@ export function HighlightedLine({ text, query }: { text: string; query: string }
     parts.push({ text: text.slice(idx, idx + q.length), match: true });
     i = idx + q.length;
   }
+  return parts;
+}
+
+/** Render a single line, applying ANSI color/bold styling and splitting on case-insensitive search matches. Shared by `/logs` and the Diagnostics panel. */
+export function HighlightedLine({ text, query }: { text: string; query: string }) {
   return (
     <>
-      {parts.map((p, idx) =>
-        p.match ? (
-          <mark key={idx} className="rounded-[2px] bg-[var(--color-amber)]/40 px-[1px] text-[var(--color-foreground)]">
-            {p.text}
-          </mark>
-        ) : (
-          <span key={idx}>{p.text}</span>
-        ),
-      )}
+      {parseAnsiLine(text).map((seg, i) => {
+        const parts = splitByQuery(seg.text, query).map((p, j) =>
+          p.match ? (
+            <mark key={j} className="rounded-[2px] bg-[var(--color-amber)]/40 px-[1px] text-[var(--color-foreground)]">
+              {p.text}
+            </mark>
+          ) : (
+            p.text
+          ),
+        );
+        if (!seg.colorClass && !seg.bold) return <Fragment key={i}>{parts}</Fragment>;
+        return (
+          <span key={i} className={cn(seg.colorClass, seg.bold && 'font-bold')}>
+            {parts}
+          </span>
+        );
+      })}
     </>
   );
 }
