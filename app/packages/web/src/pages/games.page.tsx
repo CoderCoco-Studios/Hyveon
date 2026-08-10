@@ -217,7 +217,7 @@ export function GamesPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <GameStatusBadges declared={entry.declared} deployed={entry.deployed} />
+                      <GameStatusBadges declared={entry.declared} deployed={entry.deployed} drift={entry.drift} />
                     </TableCell>
                     <TableCell className="font-[var(--font-mono)] text-xs">
                       {entry.config?.image ?? '—'}

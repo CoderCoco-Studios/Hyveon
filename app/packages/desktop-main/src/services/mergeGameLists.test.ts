@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { GameServer } from '@hyveon/shared';
+import type { DriftEntry, GameServer } from '@hyveon/shared';
 import { mergeGameLists } from './mergeGameLists.js';
 
 /** Minimal, valid `GameServer` fixture for a single declared game. */
@@ -69,5 +69,53 @@ describe('mergeGameLists', () => {
       { name: 'zomboid', declared: false, deployed: true },
       { name: 'terraria', declared: false, deployed: true },
     ]);
+  });
+
+  it('should attach a matching config_drift entry to a declared+deployed game', () => {
+    const rust = buildGameServer('rust');
+    const driftEntries: DriftEntry[] = [{ game: 'rust', kind: 'config_drift', changedFields: ['image', 'cpu'] }];
+
+    const result = mergeGameLists([rust], ['rust'], driftEntries);
+
+    expect(result).toEqual([
+      {
+        name: 'rust',
+        declared: true,
+        deployed: true,
+        config: rust,
+        drift: { kind: 'config_drift', changedFields: ['image', 'cpu'] },
+      },
+    ]);
+  });
+
+  it('should leave drift undefined when no drift entry matches the game', () => {
+    const rust = buildGameServer('rust');
+
+    const result = mergeGameLists([rust], ['rust'], [{ game: 'other-game', kind: 'config_drift', changedFields: ['cpu'] }]);
+
+    expect(result).toEqual([{ name: 'rust', declared: true, deployed: true, config: rust, drift: undefined }]);
+  });
+
+  it('should attach a matching pending_create/pending_delete drift entry to the corresponding entry', () => {
+    const ark = buildGameServer('ark');
+    const driftEntries: DriftEntry[] = [
+      { game: 'ark', kind: 'pending_create' },
+      { game: 'terraria', kind: 'pending_delete' },
+    ];
+
+    const result = mergeGameLists([ark], ['terraria'], driftEntries);
+
+    expect(result).toEqual([
+      { name: 'ark', declared: true, deployed: false, config: ark, drift: { kind: 'pending_create', changedFields: undefined } },
+      { name: 'terraria', declared: false, deployed: true, drift: { kind: 'pending_delete', changedFields: undefined } },
+    ]);
+  });
+
+  it('should default drift entries to empty when the third argument is omitted', () => {
+    const rust = buildGameServer('rust');
+
+    const result = mergeGameLists([rust], ['rust']);
+
+    expect(result).toEqual([{ name: 'rust', declared: true, deployed: true, config: rust, drift: undefined }]);
   });
 });

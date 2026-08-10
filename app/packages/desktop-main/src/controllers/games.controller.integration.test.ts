@@ -204,7 +204,7 @@ describe('GamesController + DeploymentConfigService integration', () => {
     const result = await controller.listGames();
 
     expect(result).toEqual({
-      games: [{ name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG }],
+      games: [{ name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG, drift: { kind: 'pending_create' } }],
     });
     expect(mockExists).not.toHaveBeenCalled();
     expect(mockRead).not.toHaveBeenCalled();
@@ -219,8 +219,8 @@ describe('GamesController + DeploymentConfigService integration', () => {
 
     expect(result).toEqual({
       games: [
-        { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG },
-        { name: 'minecraft', declared: false, deployed: true },
+        { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG, drift: { kind: 'pending_create' } },
+        { name: 'minecraft', declared: false, deployed: true, drift: { kind: 'pending_delete' } },
       ],
     });
   });
@@ -271,12 +271,13 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
       expect(createResult.games).toHaveLength(2);
       expect(createResult.games).toEqual(
         expect.arrayContaining([
-          { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG },
+          { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG, drift: { kind: 'pending_create' } },
           {
             name: 'minecraft',
             declared: true,
             deployed: false,
             config: { name: 'minecraft', ...VALID_MINECRAFT_CONFIG },
+            drift: { kind: 'pending_create' },
           },
         ]),
       );
@@ -287,12 +288,13 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     expect(listResult.games).toHaveLength(2);
     expect(listResult.games).toEqual(
       expect.arrayContaining([
-        { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG },
+        { name: 'ark', declared: true, deployed: false, config: EXPECTED_ARK_CONFIG, drift: { kind: 'pending_create' } },
         {
           name: 'minecraft',
           declared: true,
           deployed: false,
           config: { name: 'minecraft', ...VALID_MINECRAFT_CONFIG },
+          drift: { kind: 'pending_create' },
         },
       ]),
     );
@@ -314,14 +316,28 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     if (updateResult.ok) {
       expect(updateResult.game).toEqual({ name: 'ark', ...UPDATED_ARK_CONFIG });
       expect(updateResult.games).toEqual([
-        { name: 'ark', declared: true, deployed: false, config: { name: 'ark', ...UPDATED_ARK_CONFIG } },
+        {
+          name: 'ark',
+          declared: true,
+          deployed: false,
+          config: { name: 'ark', ...UPDATED_ARK_CONFIG },
+          drift: { kind: 'pending_create' },
+        },
       ]);
     }
 
     const listResult = await controller.listGames();
 
     expect(listResult).toEqual({
-      games: [{ name: 'ark', declared: true, deployed: false, config: { name: 'ark', ...UPDATED_ARK_CONFIG } }],
+      games: [
+        {
+          name: 'ark',
+          declared: true,
+          deployed: false,
+          config: { name: 'ark', ...UPDATED_ARK_CONFIG },
+          drift: { kind: 'pending_create' },
+        },
+      ],
     });
   });
 

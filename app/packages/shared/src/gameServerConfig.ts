@@ -1,3 +1,5 @@
+import type { DriftKind, DriftChangedField } from './drift.js';
+
 /**
  * Per-game container configuration shape, historically a straight
  * TypeScript mirror of the `game_servers` map entry object type declared in
@@ -189,4 +191,11 @@ export interface GameListEntry {
    * `DeploymentConfig.gameServers`). Only present when `declared` is true.
    */
   config?: GameServer;
+  /**
+   * Drift finding for this game, from `DriftService.computeDrift`. Present
+   * whenever the game has an entry in the current `DriftReport`, regardless
+   * of kind — but only a `'config_drift'` kind carries new information the
+   * `declared`/`deployed` flags above can't already express.
+   */
+  drift?: { kind: DriftKind; changedFields?: DriftChangedField[] };
 }

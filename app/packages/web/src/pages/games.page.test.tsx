@@ -55,6 +55,22 @@ const ghostRow = {
   deployed: true,
 };
 
+/** Declared + deployed, but its config has drifted from what's deployed — the "config drift" row. */
+const configDrifted = {
+  name: 'ark',
+  declared: true,
+  deployed: true,
+  config: {
+    name: 'ark',
+    image: 'example/ark-server:v2',
+    cpu: 2048,
+    memory: 8192,
+    ports: [{ container: 7777, protocol: 'udp' }],
+    volumes: [],
+  },
+  drift: { kind: 'config_drift', changedFields: ['image'] },
+};
+
 /** A saved-but-unfinished add-game wizard draft, parked on step index 2 (Networking). */
 const sampleDraft = {
   name: 'unfinished-game',
@@ -102,6 +118,14 @@ describe('GamesPage', () => {
 
     expect(await screen.findByText('valheim')).toBeInTheDocument();
     expect(screen.getByText('Pending deploy')).toBeInTheDocument();
+  });
+
+  it('should render a "Config drift" chip for a declared and deployed game whose config has drifted', async () => {
+    apiMock.games.mockResolvedValue({ games: [declaredDeployed, declaredOnly, ghostRow, configDrifted] });
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+
+    expect(await screen.findByText('ark')).toBeInTheDocument();
+    expect(screen.getByText('Config drift')).toBeInTheDocument();
   });
 
   it('should render an "Undeclared" chip and em-dash columns for a ghost row', async () => {

@@ -359,6 +359,11 @@ export interface GameListEntry {
    * is true.
    */
   config?: GameServer;
+  /**
+   * Drift finding for this game, when one exists — see {@link DriftKind}.
+   * Only a `'config_drift'` kind carries `changedFields`.
+   */
+  drift?: { kind: DriftKind; changedFields?: DriftChangedField[] };
 }
 
 /**

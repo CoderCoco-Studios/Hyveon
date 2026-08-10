@@ -155,12 +155,12 @@ describe('GamesController', () => {
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
-    it('should return the deployed game names from stack outputs when nothing is declared in the deployment config', async () => {
+    it('should return the deployed game names from stack outputs when nothing is declared in the deployment config, flagged as pending_delete drift since nothing declares them', async () => {
       const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(result).toEqual({
         games: [
-          { name: 'minecraft', declared: false, deployed: true },
-          { name: 'palworld', declared: false, deployed: true },
+          { name: 'minecraft', declared: false, deployed: true, drift: { kind: 'pending_delete' } },
+          { name: 'palworld', declared: false, deployed: true, drift: { kind: 'pending_delete' } },
         ],
       });
     });
@@ -170,10 +170,12 @@ describe('GamesController', () => {
       expect(result).toEqual({ games: [] });
     });
 
-    it('should return a game that exists only in the deployment config (declared but not yet applied)', async () => {
+    it('should return a game that exists only in the deployment config (declared but not yet applied), flagged as pending_create drift', async () => {
       const ark = buildGameServer('ark');
       const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig([ark]), makeGamesWrite(), makeGameWizardDraft()).listGames();
-      expect(result).toEqual({ games: [{ name: 'ark', declared: true, deployed: false, config: ark }] });
+      expect(result).toEqual({
+        games: [{ name: 'ark', declared: true, deployed: false, config: ark, drift: { kind: 'pending_create' } }],
+      });
     });
 
     it('should merge declared deployment-config games with deployed tfstate games', async () => {
@@ -182,6 +184,28 @@ describe('GamesController', () => {
       expect(result).toEqual({
         games: [
           { name: 'palworld', declared: true, deployed: true, config: palworld },
+          { name: 'minecraft', declared: false, deployed: true, drift: { kind: 'pending_delete' } },
+        ],
+      });
+    });
+
+    it('should attach a config_drift finding computed from declared vs. applied config to the matching declared+deployed game', async () => {
+      const palworld = buildGameServer('palworld');
+      const { name: _palworldName, ...palworldConfig } = palworld;
+      const config = makeConfig({
+        gameNames: ['minecraft', 'palworld'],
+        appliedGameServers: { palworld: { ...palworldConfig, image: 'example/image:old' } },
+      });
+      const result = await new GamesController(config, makeEcs(), makeDeploymentConfig([palworld]), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      expect(result).toEqual({
+        games: [
+          {
+            name: 'palworld',
+            declared: true,
+            deployed: true,
+            config: palworld,
+            drift: { kind: 'config_drift', changedFields: ['image'] },
+          },
           { name: 'minecraft', declared: false, deployed: true },
         ],
       });

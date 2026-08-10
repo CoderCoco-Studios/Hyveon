@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { DriftChangedField, DriftEntry, DriftReport, GameServer } from '@hyveon/shared';
+import type { DriftChangedField, DriftEntry, DriftReport, GameServer, StackOutputs } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { DeploymentConfigService } from './DeploymentConfigService.js';
@@ -149,6 +149,20 @@ export function computeDrift(
 }
 
 /**
+ * Derives {@link computeDrift}'s `applied`/`deployedNames` inputs from a
+ * {@link StackOutputs} value and delegates. Pure — no I/O. Shared by every
+ * caller that already has `declared` and `outputs` in hand (avoiding a
+ * redundant {@link DriftService.getDrift} call, which re-fetches both) —
+ * see {@link DriftService.getDrift} for the same derivation performed after
+ * its own I/O.
+ */
+export function computeDriftFromOutputs(declared: GameServer[], outputs: StackOutputs | null): DriftReport {
+  const applied = outputs?.appliedGameServers ?? null;
+  const deployedNames = outputs?.appliedGameServers ? Object.keys(outputs.appliedGameServers) : (outputs?.gameNames ?? []);
+  return computeDrift(declared, applied, deployedNames);
+}
+
+/**
  * Computes drift between the declared game server configuration
  * (`deployment-config.json`, via {@link DeploymentConfigService.getGameServers}) and the
  * applied configuration last written to the deployed Pulumi stack (via
@@ -187,11 +201,7 @@ export class DriftService {
       this.deploymentConfig.invalidateCache();
       const declared = await this.deploymentConfig.getGameServers();
       const stackOutputs = await this.config.getStackOutputs();
-      const applied = stackOutputs?.appliedGameServers ?? null;
-      const deployedNames = stackOutputs?.appliedGameServers
-        ? Object.keys(stackOutputs.appliedGameServers)
-        : (stackOutputs?.gameNames ?? []);
-      return computeDrift(declared, applied, deployedNames);
+      return computeDriftFromOutputs(declared, stackOutputs);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn('DriftService.getDrift: failed to compute drift', { error: message });

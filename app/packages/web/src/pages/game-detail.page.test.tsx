@@ -43,6 +43,21 @@ const GHOST_GAME = {
   deployed: true,
 };
 
+const DRIFTED_GAME = {
+  name: 'ark',
+  declared: true,
+  deployed: true,
+  config: {
+    name: 'ark',
+    image: 'example/ark-server:v2',
+    cpu: 2048,
+    memory: 8192,
+    ports: [{ container: 7777, protocol: 'udp' }],
+    volumes: [],
+  },
+  drift: { kind: 'config_drift', changedFields: ['image'] },
+};
+
 /** Renders the detail page at `/games/:name` for the given route param. */
 function renderDetailPage(name: string) {
   return renderPage(
@@ -169,6 +184,19 @@ describe('GameDetailPage', () => {
 
       const dialog = await screen.findByRole('alertdialog');
       expect(within(dialog).getByText('Remove minecraft?')).toBeInTheDocument();
+    });
+  });
+
+  describe('a game with drifted config', () => {
+    beforeEach(() => {
+      apiMock.games.mockResolvedValue({ games: [DRIFTED_GAME, GHOST_GAME] });
+    });
+
+    it('should render the "Config drift" chip instead of "In sync"', async () => {
+      renderDetailPage('ark');
+
+      expect(await screen.findByText('Config drift')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'ark' })).toBeInTheDocument();
     });
   });
 
