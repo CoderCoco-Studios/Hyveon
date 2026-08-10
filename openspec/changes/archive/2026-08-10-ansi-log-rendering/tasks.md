@@ -30,7 +30,7 @@
 ## 3. Tests
 
 - [x] 3.1 Unit tests for `parseAnsiLine`/`stripAnsi` in
-      `ansi.utils.spec.ts`: SGR color + bold segments, non-SGR CSI
+      `ansi.utils.test.ts`: SGR color + bold segments, non-SGR CSI
       sequences (cursor move, clear-line) dropped with no visible
       artifact, and a malformed/incomplete escape sequence degrading to
       plain text without throwing.
@@ -41,7 +41,7 @@
       current behavior.
 - [x] 3.3 Unit test for `detectLogLevel` confirming a level keyword
       wrapped in ANSI color codes still classifies correctly.
-- [x] 3.4 Run existing `ansi-log-viewer.component.spec` (Pulumi/IaC
+- [x] 3.4 Run existing `ansi-log-viewer.component.test.tsx` (Pulumi/IaC
       viewer) tests and confirm they still pass unchanged after the
       extraction in Task 1.4.
 

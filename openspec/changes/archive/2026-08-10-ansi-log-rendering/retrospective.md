@@ -12,11 +12,11 @@
 - **Diff size**: +1519 / -121 lines across 18 files
 - **Tasks done**: 13/14 (`grep -cE '^\s*- \[x\]' tasks.md` → 13; the 14th row is `- [~]` deliberately deferred, not `- [ ]`)
 - **Active hours**: ~1 (single continuous session: brainstorm → propose → apply → verify)
-- **Subagent dispatches**: 11 (5 implementers: Tasks 1-5; 4 task reviewers; 1 final whole-branch reviewer; 1 fix-wave implementer + 1 scoped re-reviewer = 11 total review/implementation dispatches, plus the 2 upfront research agents from the original "what would it take" exploration in a prior turn, not counted here as they predate this change's brainstorm)
+- **Subagent dispatches**: 12 (5 implementers: Tasks 1-5; 4 task reviewers; 1 final whole-branch reviewer; 1 fix-wave implementer + 1 scoped re-reviewer = 12 total review/implementation dispatches, plus the 2 upfront research agents from the original "what would it take" exploration in a prior turn, not counted here as they predate this change's brainstorm)
 - **New external dependencies**: none
 - **Bugs encountered during this cycle**: 5, all caught by the final whole-branch review (none escaped to a task-level review — see §2)
 - **OpenSpec validate state at archive**: pass (25/25 items valid, see verify.md §1)
-- **Test coverage signal**: vitest, 166 files / 2928 tests passing at HEAD (full suite); 21 new tests added across `ansi.utils.test.ts` (18), `log-line-display.component.test.tsx` (7), `log-level.utils.test.ts` (4) — net new after fix-wave additions
+- **Test coverage signal**: vitest, 166 files / 2928 tests passing at HEAD (full suite); 29 test declarations added across `ansi.utils.test.ts` (19), `log-line-display.component.test.tsx` (6), `log-level.utils.test.ts` (4), less 5 duplicated declarations removed from `ansi-log-viewer.component.test.tsx` — net increase of 24
 
 Commit chain (chronological):
 

@@ -31,7 +31,7 @@ export interface AnsiSegment {
  *    text rather than misread as a complete one-byte escape.
  */
 // eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte every ANSI escape sequence starts with.
-const ANSI_PATTERN = /\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[ -/]+[0-~]|[0-Z\\^-~])/g;
+const ANSI_PATTERN = /\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[ -/]+[0-~]|[0-9:;<=>?@A-Z\\^-~])/g;
 
 /**
  * Maps the 16 standard SGR foreground color codes (30-37 normal, 90-97
