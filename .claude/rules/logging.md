@@ -3,7 +3,7 @@
 ## Every IPC handler logs on entry; no error escapes uncaught
 
 1. Every `@MessagePattern` handler (`app/packages/desktop-main/src/controllers/*.ts`) starts with `logger.debug('<ControllerName>: <pattern> invoked')` as its first line — pattern name only, never payload contents (may carry pasted credentials).
-2. Every service method that calls an AWS SDK/external API and can fail: catch it, `logger.warn` (expected/recoverable) or `logger.error` (unexpected), then return a modeled result or throw a plain `Error` with just `.message`. Never let a raw SDK/Node error object escape uncaught — match `GuidedIamService`/`AwsProfileService`/`IamCheckService`.
+2. Every service method that calls an AWS SDK/external API and can fail: catch it, normalize via `err instanceof Error ? err.message : String(err)`, `logger.warn` (expected/recoverable) or `logger.error` (unexpected) the result, then return a modeled result or throw a plain `Error` with just `.message`. Never let a raw SDK/Node error object escape uncaught — match `GuidedIamService`/`AwsProfileService`/`IamCheckService`.
 3. Never log secret values (keys, passphrases, raw IPC payloads that might carry them) — log identifiers only, per `ElectronStoreService`'s convention.
 4. Applies to every `@Controller()` in that directory, not just `WizardController`.
 

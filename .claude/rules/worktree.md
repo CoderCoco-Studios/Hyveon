@@ -5,7 +5,7 @@
 1. New feature/fix → worktree branched from `main`.
 2. PR-stack group → worktree branched from the *previous group's branch*, not `main` (see `pr-stacking.md`).
 3. Before branching, make sure the base is current:
-   - Branching from `main` via `EnterWorktree` with `name` → already fresh (fetches `origin/main` by default).
+   - Branching from `main` via `EnterWorktree` with `name` → fresh only when the session's `worktree.baseRef` setting is `fresh` (the default; `head` branches from local HEAD instead) and the local `origin/main` tracking ref is up to date. `git fetch origin main` first if in doubt.
    - Any other base (a manual `git worktree add`, or a prior stack branch) → `git fetch origin <base-branch>` first, then branch from `origin/<base-branch>`.
 4. Immediately after entering: `npm install` from the worktree root, before any lint/typecheck/test/build command.
 
