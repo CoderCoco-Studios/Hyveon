@@ -4,7 +4,7 @@
 
 **Goal:** Let an operator clear a wedged `RunService` durable apply lock from the UI, mirroring the existing Pulumi-backend-lock clear flow.
 
-**Architecture:** `RunService` gains a mint/confirm/clear gate (`mintLockClearConfirmationToken()` / `clearLock(token)`) that wraps its existing `releaseRun()`, bound to the specific `runId` current at mint time. New IPC channels on `IacRunsController` expose it; `IacController`'s existing `RunLockHeldError` catch branches (in `plan`/`apply`/`destroy`) additionally attach the held lock to the ack so the renderer can offer a "Clear lock and retry" action on `BusyBanner`, distinct from the no-action case where the busy refusal was `PulumiOperationInFlightError` instead.
+**Architecture:** `RunService` gains a mint/confirm/clear gate (`mintLockClearConfirmationToken()` / `clearLock(token)`) that wraps its existing `releaseRun()`, bound to the specific `runId` current at mint time. New IPC channels on `IacRunsController` expose it; `IacController`'s existing `RunLockHeldError` catch branches (in `apply`/`destroy` — `plan`/`preview` never acquires the durable `RunLock`, so it can never throw `RunLockHeldError` and has no such branch) additionally attach the held lock to the ack so the renderer can offer a "Clear lock and retry" action on `BusyBanner`, distinct from the no-action case where the busy refusal was `PulumiOperationInFlightError` instead.
 
 **Tech Stack:** NestJS (`@MessagePattern`), Electron IPC (`ipcMain`/`ipcRenderer` via preload), React (`iac.page.tsx`), Vitest, Playwright.
 
@@ -95,33 +95,55 @@ git commit -m "feat(desktop-main): add RunLockClearNotConfirmedError"
 - Test: `app/packages/desktop-main/src/services/RunService.test.ts`
 
 **Interfaces:**
-- Consumes: `RunService.getCurrentLock(): RunLock | undefined` (existing, `RunService.ts:145`).
-- Produces: `RunService.mintLockClearConfirmationToken(): string`.
+- Consumes: `RunService.getCurrentLock(): RunLock | undefined` (existing, `RunService.ts:145`, in-memory only) and `RunRecordStore.getRunLock(): Promise<RunLock | undefined>` (existing, `@hyveon/shared`, durable DynamoDB read) as a fallback.
+- Produces: `RunService.mintLockClearConfirmationToken(): Promise<string>`.
+
+`getCurrentLock()` only reflects *this process's* in-memory field. When `createRun()` loses the DynamoDB race to another process, it rolls its own provisional in-memory lock back to `null` — so after that rejection, this process's `getCurrentLock()` returns `undefined` even though a lock genuinely is still held (durably, by the winner). The same gap applies across an app restart. Since the operator's "Clear lock and retry" click happens as a separate IPC round-trip well after the original `RunLockHeldError` was thrown (not by re-invoking `createRun()`), minting must be able to discover that durable lock itself — it cannot rely on this process's in-memory field alone. `mintLockClearConfirmationToken()` is therefore `async`: fall back to `this.store.getRunLock()` (skipped, like `createRun()`, when `runs_table_name` isn't configured) whenever `getCurrentLock()` returns `undefined`.
+
+The test cases below reference `getRunLockMock`, the mock for `RunRecordStore.getRunLock()` — add it to `RunService.test.ts`'s existing store-mock harness alongside `releaseRunLockMock`/`acquireRunLockMock`, defaulted to `mockResolvedValue(undefined)`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
 describe('RunService.mintLockClearConfirmationToken', () => {
-  it('should throw when no lock is currently held', () => {
+  it('should throw when no lock is currently held, in-memory or durable', async () => {
     const service = makeService();
-    expect(() => service.mintLockClearConfirmationToken()).toThrow(
+    getRunLockMock.mockResolvedValue(undefined);
+    await expect(service.mintLockClearConfirmationToken()).rejects.toThrow(
       /no run lock is currently held/i,
     );
   });
 
-  it('should mint a token when a lock is held', async () => {
+  it('should mint a token when a lock is held in-memory', async () => {
     const service = makeService();
     await service.createRun('apply', 'chris');
-    const token = service.mintLockClearConfirmationToken();
+    const token = await service.mintLockClearConfirmationToken();
     expect(typeof token).toBe('string');
     expect(token.length).toBeGreaterThan(0);
+  });
+
+  it('should mint a token bound to the durable lock when this process has no in-memory lock (cross-process/restart recovery)', async () => {
+    const service = makeService(); // fresh instance: currentLock is null
+    const durableLock: RunLock = {
+      runId: 'other-process-run-id',
+      kind: 'apply',
+      initiator: 'someone-else',
+      acquiredAt: '2026-08-10T03:52:26.761Z',
+      expiresAt: '2026-08-10T04:52:26.761Z',
+    };
+    getRunLockMock.mockResolvedValue(durableLock);
+    const token = await service.mintLockClearConfirmationToken();
+    expect(typeof token).toBe('string');
+    // bound to the durable lock's runId, not this process's (empty) in-memory state
+    await expect(service.clearLock(token)).resolves.toBeUndefined();
+    expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
   });
 
   it('should supersede a previously minted, unconsumed token', async () => {
     const service = makeService();
     await service.createRun('apply', 'chris');
-    const first = service.mintLockClearConfirmationToken();
-    const second = service.mintLockClearConfirmationToken();
+    const first = await service.mintLockClearConfirmationToken();
+    const second = await service.mintLockClearConfirmationToken();
     expect(first).not.toBe(second);
     await expect(service.clearLock(first)).rejects.toThrow(RunLockClearNotConfirmedError);
   });
@@ -165,16 +187,33 @@ And the method itself, after `releaseRun`:
   /**
    * Mints a fresh, single-use confirmation token for a subsequent
    * {@link clearLock} call, bound to the `runId` of the lock currently held
-   * (per {@link getCurrentLock}) — mirrors
-   * `PulumiService.mintLockClearConfirmationToken` exactly. Minting a new
-   * token immediately supersedes any previously minted, unconsumed one.
+   * — mirrors `PulumiService.mintLockClearConfirmationToken`'s mint/confirm
+   * pattern, extended with a durable fallback this lock's cross-process
+   * nature requires. Minting a new token immediately supersedes any
+   * previously minted, unconsumed one.
+   *
+   * Prefers {@link getCurrentLock} (in-memory, no I/O). Falls back to
+   * `RunRecordStore.getRunLock()` (the durable DynamoDB read, skipped when
+   * `runs_table_name` isn't configured) when the in-memory field is empty —
+   * covering the case where this process lost the lock race to another
+   * process (its own provisional in-memory lock was already rolled back by
+   * {@link createRun}) or was restarted since the lock was acquired
+   * elsewhere. Either way the operator is reacting to a `RunLockHeldError`
+   * ack that already told them a lock is held; minting must be able to
+   * confirm and bind to it.
    *
    * @returns The minted token.
-   * @throws A plain `Error` if no run lock is currently held — nothing to
-   *   mint a clear-confirmation for.
+   * @throws A plain `Error` if no run lock is currently held — in-memory or
+   *   durable — nothing to mint a clear-confirmation for.
    */
-  mintLockClearConfirmationToken(): string {
-    const lock = this.getCurrentLock();
+  async mintLockClearConfirmationToken(): Promise<string> {
+    let lock = this.getCurrentLock();
+    if (!lock) {
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      if (tableName) {
+        lock = await this.store.getRunLock();
+      }
+    }
     if (!lock) {
       throw new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.');
     }
@@ -230,7 +269,7 @@ describe('RunService.clearLock', () => {
   it('should throw RunLockClearNotConfirmedError when the supplied token does not match the most recently minted one', async () => {
     const service = makeService();
     await service.createRun('apply', 'chris');
-    service.mintLockClearConfirmationToken();
+    await service.mintLockClearConfirmationToken();
     await expect(service.clearLock('wrong-token')).rejects.toThrow(RunLockClearNotConfirmedError);
   });
 
@@ -238,7 +277,7 @@ describe('RunService.clearLock', () => {
     vi.useFakeTimers();
     const service = makeService();
     await service.createRun('apply', 'chris');
-    const token = service.mintLockClearConfirmationToken();
+    const token = await service.mintLockClearConfirmationToken();
     vi.advanceTimersByTime(RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS + 1);
     await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
     vi.useRealTimers();
@@ -247,7 +286,7 @@ describe('RunService.clearLock', () => {
   it('should clear the lock and allow a subsequent createRun on a valid, fresh token', async () => {
     const service = makeService();
     const lock = await service.createRun('apply', 'chris');
-    const token = service.mintLockClearConfirmationToken();
+    const token = await service.mintLockClearConfirmationToken();
     await service.clearLock(token);
     expect(service.getCurrentLock()).toBeUndefined();
     expect(releaseRunLockMock).toHaveBeenCalledWith(lock.runId);
@@ -257,7 +296,7 @@ describe('RunService.clearLock', () => {
   it('should refuse to clear (token no longer bound to the current lock) when a different run has since acquired the lock', async () => {
     const service = makeService();
     await service.createRun('apply', 'chris');
-    const token = service.mintLockClearConfirmationToken();
+    const token = await service.mintLockClearConfirmationToken();
     await service.releaseRun((service.getCurrentLock()!).runId); // original run finishes on its own
     const newLock = await service.createRun('apply', 'someone-else'); // a new, legitimate run starts
     await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
@@ -267,10 +306,26 @@ describe('RunService.clearLock', () => {
   it('should consume the token: a second clearLock() call reusing an already-consumed token is rejected', async () => {
     const service = makeService();
     await service.createRun('apply', 'chris');
-    const token = service.mintLockClearConfirmationToken();
+    const token = await service.mintLockClearConfirmationToken();
     await service.clearLock(token);
     await service.createRun('apply', 'someone-else');
     await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+  });
+
+  it('should clear a durable-only lock (no in-memory lock in this process) on a valid, fresh token', async () => {
+    const service = makeService(); // fresh instance: currentLock is null
+    const durableLock: RunLock = {
+      runId: 'other-process-run-id',
+      kind: 'apply',
+      initiator: 'someone-else',
+      acquiredAt: '2026-08-10T03:52:26.761Z',
+      expiresAt: '2026-08-10T04:52:26.761Z',
+    };
+    getRunLockMock.mockResolvedValue(durableLock);
+    const token = await service.mintLockClearConfirmationToken();
+    getRunLockMock.mockResolvedValue(durableLock); // still held at confirm time
+    await service.clearLock(token);
+    expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
   });
 });
 ```
@@ -293,21 +348,30 @@ Add after `mintLockClearConfirmationToken()`:
    * token was minted. On success, consumes the token (clears
    * {@link pendingLockClearConfirmation}) and returns the bound `runId`.
    *
-   * Fully synchronous, mirroring `PulumiService.assertFreshLockClearConfirmation`'s
-   * reasoning: two "concurrent" calls are strictly ordered by JS's
-   * run-to-completion semantics, so a same-token race is decided cleanly
-   * without any lock ever being double-released.
+   * Unlike `PulumiService.assertFreshLockClearConfirmation` this is `async`:
+   * the "still current" check must consult the same durable fallback
+   * {@link mintLockClearConfirmationToken} used to bind the token in the
+   * first place (see Task 2), or a token minted from a durable-only lock
+   * (this process has no matching in-memory field) would always fail here.
+   * The two awaits this adds (`getStackOutputs()`, `store.getRunLock()`) are
+   * both read-only and idempotent, so no double-release risk is introduced.
    *
    * @param token - The token to validate, as returned by
    *   {@link mintLockClearConfirmationToken}.
    * @returns The `runId` the (now-consumed) token was bound to.
    * @throws {@link RunLockClearNotConfirmedError} if `token` is missing,
-   *   wrong, expired, or bound to a `runId` the currently held lock no
-   *   longer matches.
+   *   wrong, expired, or bound to a `runId` the currently held lock (checked
+   *   in-memory, then durably) no longer matches.
    */
-  private assertFreshLockClearConfirmation(token: string): string {
+  private async assertFreshLockClearConfirmation(token: string): Promise<string> {
     const pending = this.pendingLockClearConfirmation;
-    const current = this.getCurrentLock();
+    let current = this.getCurrentLock();
+    if (!current) {
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      if (tableName) {
+        current = await this.store.getRunLock();
+      }
+    }
     if (
       !pending ||
       pending.token !== token ||
@@ -336,7 +400,7 @@ Add after `mintLockClearConfirmationToken()`:
    */
   async clearLock(token: string): Promise<void> {
     logger.debug('RunService.clearLock: clearing confirmed-stale run lock');
-    const runId = this.assertFreshLockClearConfirmation(token);
+    const runId = await this.assertFreshLockClearConfirmation(token);
     await this.releaseRun(runId);
     logger.warn('run lock cleared by explicit operator confirmation (unrecognized-lock recovery)', { runId });
   }
@@ -374,16 +438,16 @@ Add to `iac-runs.controller.test.ts` (check the existing file's setup for how `R
 describe('IacRunsController.mintLockClearToken', () => {
   it('should return a token when a run lock is currently held', async () => {
     vi.mocked(runService.getCurrentLock).mockReturnValue(SOME_LOCK);
-    vi.mocked(runService.mintLockClearConfirmationToken).mockReturnValue('tok-123');
+    vi.mocked(runService.mintLockClearConfirmationToken).mockResolvedValue('tok-123');
     const result = await controller.mintLockClearToken();
     expect(result).toEqual({ token: 'tok-123' });
   });
 
-  it('should propagate the error message, without throwing an unhandled rejection, when no lock is held', async () => {
-    vi.mocked(runService.mintLockClearConfirmationToken).mockImplementation(() => {
-      throw new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.');
-    });
-    await expect(controller.mintLockClearToken()).rejects.toThrow(/no run lock is currently held/);
+  it('should throw a clean BadRequestException, not the raw service error, when no lock is held', async () => {
+    vi.mocked(runService.mintLockClearConfirmationToken).mockRejectedValue(
+      new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.'),
+    );
+    await expect(controller.mintLockClearToken()).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
@@ -456,15 +520,28 @@ Add methods to the `IacRunsController` class, after `logUrl`:
    * analogue of `IacController.mintLockClearToken`, for the durable apply
    * lock (`RunService`) rather than the Pulumi backend lock.
    *
-   * @throws The plain `Error` `RunService.mintLockClearConfirmationToken`
-   *   throws when no run lock is currently held.
+   * `RunService.mintLockClearConfirmationToken()` throws a plain `Error`
+   * when no lock is currently held (in-memory or durable) — an expected
+   * race (the lock self-healed or was cleared between the busy ack and this
+   * call), not a server fault. Caught here and reported as a clean
+   * `BadRequestException` so the renderer never sees an unmodeled IPC
+   * rejection for it.
+   *
+   * @throws `BadRequestException` when no run lock is currently held.
    *
    * Reachable via the Electron IPC transport (`iac.runs.lock.clear.mintToken`).
    */
   @MessagePattern('iac.runs.lock.clear.mintToken')
   async mintLockClearToken(): Promise<IacRunsLockMintAck> {
     logger.debug('IacRunsController: iac.runs.lock.clear.mintToken invoked');
-    return { token: this.runService.mintLockClearConfirmationToken() };
+    try {
+      const token = await this.runService.mintLockClearConfirmationToken();
+      return { token };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('iac.runs.lock.clear.mintToken rejected: no run lock currently held', { error: message });
+      throw new BadRequestException({ success: false, error: message });
+    }
   }
 
   /**
@@ -527,7 +604,7 @@ git commit -m "feat(desktop-main): add iac.runs.lock.clear IPC channels"
 
 **Interfaces:**
 - Consumes: `RunLockHeldError.lock: RunLock` (existing, `@hyveon/shared`).
-- Produces: `IacPlanAck.runLock?: RunLock` (new field, populated on all three call sites that already catch `RunLockHeldError`: `plan`, `apply`, `destroy`).
+- Produces: `IacPlanAck.runLock?: RunLock` (new field, populated on both call sites that already catch `RunLockHeldError`: `apply`, `destroy`. `plan`/`preview` never acquires the durable `RunLock` — see `PulumiService.preview`'s own TSDoc, which states its busy-workspace refusal uses a generic `Error`, not `RunLockHeldError` — so it has no such branch and is untouched by this task).
 
 This is the piece that lets the renderer distinguish "conflict came from the durable RunLock" (clearable) from "conflict came from the in-process workspace busy flag" (not clearable) — today `conflict` alone can't tell the two apart (both populate the same field with an operation-name string).
 
@@ -587,7 +664,7 @@ interface IacPlanAck {
 }
 ```
 
-Update each of the three `if (err instanceof RunLockHeldError)` branches (in `plan`, `apply`, `destroy`) to attach it — e.g. `apply`'s (line ~993):
+Update each of the two `if (err instanceof RunLockHeldError)` branches (in `apply`, `destroy`) to attach it — e.g. `apply`'s (line ~993):
 
 ```typescript
       if (err instanceof RunLockHeldError) {
@@ -596,7 +673,7 @@ Update each of the three `if (err instanceof RunLockHeldError)` branches (in `pl
       }
 ```
 
-Repeat identically for `destroy`'s branch (`conflict: 'destroy'`) and `plan`'s (find its `RunLockHeldError` catch — search `plan(` upward from `apply`'s branch for the equivalent pattern with `conflict: 'preview'`).
+Repeat identically for `destroy`'s branch (`conflict: 'destroy'`). `plan` has no equivalent branch — it never acquires the durable `RunLock`, so its only busy refusal (`conflict: 'preview'`) comes from `PulumiOperationInFlightError`, which never carries a `RunLock` to attach; leave `plan`'s catch block untouched.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -724,26 +801,40 @@ Add to `iac.page.test.tsx`, following whichever existing test exercises `StaleLo
 
 ```typescript
 it('should show no clear action on BusyBanner when the busy ack has no runLock (workspace busy, not a durable lock)', async () => {
-  mockPlan.mockResolvedValue({ started: false, conflict: 'up', error: 'up is already in flight' });
+  // plan/preview never acquires the durable RunLock, so its only busy refusal is
+  // PulumiOperationInFlightError — always conflict: 'preview', never a runLock.
+  mockPlan.mockResolvedValue({ started: false, conflict: 'preview', error: 'preview is already in flight' });
   render(<IacPage />);
   await userEvent.click(screen.getByRole('button', { name: /plan/i }));
   expect(await screen.findByRole('alert')).toHaveTextContent(/workspace busy/i);
   expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
 });
 
-it('should show a clear action on BusyBanner when the busy ack carries runLock, and clear it on confirm', async () => {
+it('should show a clear action on BusyBanner when the busy ack carries runLock, clear it on confirm, and return to ready state for manual resubmission', async () => {
+  // Only apply/destroy can be refused with a durable RunLockHeldError (and thus
+  // carry runLock) — plan/preview structurally cannot, see the test above.
   const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '...', expiresAt: '...' };
-  mockPlan.mockResolvedValue({ started: false, conflict: 'up', error: 'Run lock already held by "chris"', runLock: heldLock });
+  mockApply.mockResolvedValueOnce({ started: false, conflict: 'up', error: 'Run lock already held by "chris"', runLock: heldLock });
+  mockApply.mockResolvedValueOnce({ started: true, runId: 'new-run-id' });
   window.hyveon!.iac.runs.lock.mintToken = vi.fn().mockResolvedValue({ token: 'tok' });
   window.hyveon!.iac.runs.lock.clear = vi.fn().mockResolvedValue({ cleared: true });
 
   render(<IacPage />);
-  await userEvent.click(screen.getByRole('button', { name: /plan/i }));
+  await userEvent.click(screen.getByRole('button', { name: /apply/i }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/run lock already held/i); // original ErrorBanner
   await userEvent.click(await screen.findByRole('button', { name: /clear lock and retry/i }));
   await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
 
   expect(window.hyveon!.iac.runs.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'tok' });
   expect(await screen.findByText(/run lock cleared/i)).toBeInTheDocument(); // toast
+  // returns to ready state: both the BUSY banner and the original ErrorBanner are gone
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
+
+  // clearing does not auto-resubmit; the operator retries manually
+  expect(mockApply).toHaveBeenCalledTimes(1);
+  await userEvent.click(screen.getByRole('button', { name: /apply/i }));
+  expect(mockApply).toHaveBeenCalledTimes(2);
 });
 ```
 
@@ -825,7 +916,7 @@ function BusyBanner({ conflict, runLock, onCleared }: { conflict: Conflict; runL
 }
 ```
 
-Update every call site that renders `<BusyBanner conflict={...} />` to also pass `runLock={ack.runLock}` and `onCleared={() => /* clear the conflict/runLock state, matching StaleLockBanner's onCleared usage */}`, and update the local state that currently stores `conflict`/`staleLock` from a rejected ack to also store `runLock`.
+Update every call site that renders `<BusyBanner conflict={...} />` to also pass `runLock={ack.runLock}` and `onCleared={() => /* clear conflict, runLock, AND the original ack's error/ErrorBanner state, matching StaleLockBanner's onCleared usage — returning the page fully to its ready-to-submit state, not just dismissing BusyBanner */}`, and update the local state that currently stores `conflict`/`staleLock` from a rejected ack to also store `runLock`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -848,7 +939,7 @@ git commit -m "feat(web): add Clear lock and retry action to BusyBanner"
 - Create/modify: an e2e or integration spec exercising the new flow (co-locate near the existing stale-lock e2e coverage — `grep -rn "staleLockBanner" app/packages/web/e2e/`)
 
 **Interfaces:**
-- Consumes: the `window.hyveon.__test.mock()` seam (see `docs/docs/components/integration-tests.md`) to make a plan/apply submission return a `RunLockHeldError`-shaped ack with `runLock` set.
+- Consumes: the `window.hyveon.__test.mock()` seam (see `docs/docs/components/integration-tests.md`) to make an apply/destroy submission return a `RunLockHeldError`-shaped ack with `runLock` set — `plan`/`preview` never acquires the durable `RunLock` and so can never produce this ack shape (see Task 5/7); this spec must exercise `apply` or `destroy`, not `plan`.
 
 - [ ] **Step 1: Add the page-object method**
 
@@ -862,20 +953,30 @@ clearRunLockButton() {
 
 - [ ] **Step 2: Write the spec**
 
-Following the existing stale-lock e2e spec's structure (mock the plan/apply IPC call to reject with the durable-lock ack shape, submit, assert the button appears, click through the confirm dialog, assert success and that a resubmit is now allowed):
+Following the existing stale-lock e2e spec's structure (mock the apply IPC call to reject with the durable-lock ack shape, submit, assert the button appears, click through the confirm dialog, assert success, that the original error banner and BUSY banner are both gone, and that a manual resubmit is now allowed):
 
 ```typescript
-test('should clear a stuck run lock and allow resubmission', async ({ page, ipc, iacPage }) => {
-  await ipc.mockOnce('iac.plan', { started: false, conflict: 'up', error: 'Run lock already held by "chris"', runLock: { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } });
+test('should clear a stuck run lock and allow manual resubmission', async ({ page, ipc, iacPage }) => {
+  await ipc.mockOnce('iac.apply', { started: false, conflict: 'up', error: 'Run lock already held by "chris"', runLock: { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } });
   await ipc.mockOnce('iac.runs.lock.clear.mintToken', { token: 'tok' });
   await ipc.mockOnce('iac.runs.lock.clear', { cleared: true });
+  await ipc.mockOnce('iac.apply', { started: true, runId: 'new-run-id' }); // the operator's manual resubmit
 
   await iacPage.goto();
-  await iacPage.planButton().click();
+  await iacPage.applyButton().click();
+  await expect(page.getByText(/run lock already held/i)).toBeVisible(); // original ErrorBanner
   await expect(iacPage.clearRunLockButton()).toBeVisible();
   await iacPage.clearRunLockButton().click();
   await iacPage.confirmDialogConfirmButton().click(); // reuse whatever locator the stale-lock spec already uses for this
   await expect(page.getByText(/run lock cleared/i)).toBeVisible();
+
+  // returns to ready state: original ErrorBanner and BUSY banner both cleared, no auto-resubmit
+  await expect(page.getByText(/run lock already held/i)).not.toBeVisible();
+  await expect(iacPage.clearRunLockButton()).not.toBeVisible();
+
+  // operator resubmits manually
+  await iacPage.applyButton().click();
+  await expect(page.getByText(/new-run-id/i)).toBeVisible();
 });
 ```
 

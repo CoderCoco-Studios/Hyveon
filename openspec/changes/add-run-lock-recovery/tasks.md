@@ -14,7 +14,7 @@
 
 ## 3. IPC controller
 
-- [ ] 3.1 Add `IacRunsLockMintTokenResult { token: string }` and `IacRunsLockClearPayload { confirmationToken: string }` / `IacRunsLockClearResult { cleared: boolean; error?: string }` types to `iac-runs.controller.ts`.
+- [ ] 3.1 Add `IacRunsLockMintAck { token: string }` and `IacRunsLockClearPayload { confirmationToken: string }` / `IacRunsLockClearAck { cleared: boolean; error?: string }` types to `iac-runs.controller.ts` (same names as the preload bridge's mirrored types, task 4.1 — one set across controller, preload, and tests).
 - [ ] 3.2 Add `@MessagePattern('iac.runs.lock.clear.mintToken')` handler calling `RunService.mintLockClearConfirmationToken()`, returning `{ token }`; surface a clean `BadRequestException`-style error if no lock is currently held.
 - [ ] 3.3 Add `@MessagePattern('iac.runs.lock.clear')` handler calling `RunService.clearLock(payload.confirmationToken)`, catching `RunLockClearNotConfirmedError` and returning `{ cleared: false, error }` rather than throwing (mirrors `iac.lock.clear`'s ack shape), and logging via `logger.debug`/`logger.warn` per this repo's IPC-handler logging convention.
 - [ ] 3.4 Controller unit tests (`iac-runs.controller.test.ts`): mint returns a token when a lock is held; mint rejects cleanly when none is held; clear with a valid token resolves `{ cleared: true }` and actually releases the lock; clear with an invalid/stale token resolves `{ cleared: false, error }` without throwing.
