@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,16 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: true,
     },
+  });
+
+  // The renderer's `target="_blank"` links (e.g. the "Open AWS Cost Explorer"
+  // link on the costs page) would otherwise open in a new Electron
+  // BrowserWindow instead of the operator's default OS browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url).catch((err: unknown) => {
+      console.error('[desktop-main] Failed to open external URL:', err);
+    });
+    return { action: 'deny' };
   });
 
   const rendererUrl = electronRendererUrl();
