@@ -94,7 +94,8 @@ never speaks HTTP to this process.
   which imports both). Also directly provides a handful of
   controller-adjacent services that don't warrant their own module
   (`DiagnosticsService`, `DriftService`, `GamesWriteService`,
-  `AuditService`) plus the `DIAGNOSTICS_LOG_DIR` token.
+  `AuditService`, `GameWizardDraftService`) plus the `DIAGNOSTICS_LOG_DIR`
+  token.
 - **`ConfigModule`** — imports `ElectronStoreModule` and `PulumiServiceModule`
   (so `ConfigService` can inject `PulumiService`); provides just
   `ConfigService`. Extracted on its own so every other feature module can
@@ -175,7 +176,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 
 | Controller | Representative channels | Purpose |
 |---|---|---|
-| `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `DeploymentConfigService`. Invalidates `DeploymentConfigService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. |
+| `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete`, `games.draft.get`, `games.draft.save`, `games.draft.clear` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `DeploymentConfigService`. Invalidates `DeploymentConfigService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. The three `games.draft.*` channels save/resume/discard a single in-progress add-game wizard draft via `GameWizardDraftService` — see [Credential storage at rest](#credential-storage-at-rest) for where it's persisted. |
 | `CostsController` | `costs.estimate` | Per-game Fargate estimates, derived from each game's `{game}-server` task-definition CPU/memory. The app makes no AWS Cost Explorer API calls — see [Costs](/app/costs). |
 | `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. `files.start` seeds a random per-launch password (bcrypt-hashed into the container's `--password` flag), returns the one-time plaintext credential in its response, and creates an EventBridge Scheduler one-time schedule that auto-stops the task after 2 hours; `files.stop` cancels that schedule. |
@@ -234,6 +235,14 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   `FilterLogEvents` every 2 s; `getRecentLogs` remains the snapshot path.
 - **`DriftService`** — see [Drift detection](#drift-detection) below.
 - **`DeploymentConfigService`** — see [`DeploymentConfigModule` / `DeploymentConfigService`](#deploymentconfigmodule--deploymentconfigservice) below.
+- **`GameWizardDraftService`** — owns the single in-progress add-game wizard
+  draft slot on `ElectronStoreService` (`addGameWizardDraft`, see
+  [Credential storage at rest](#credential-storage-at-rest) below). `get()`
+  degrades to `null` on any corrupt/unrecognized stored shape rather than
+  throwing, mirroring `FirstRunWizardService`'s resume-file behaviour;
+  `save()`/`clear()` log and swallow write failures rather than surfacing
+  them, since autosave is a best-effort background write, not an
+  operator-triggered action that needs its own error path.
 
 ### Auth
 
@@ -304,14 +313,22 @@ Two services, both provided by `ElectronStoreModule`:
   `wizardCompleted`, the selected `activeCloud`/AWS profile/region, the
   bootstrap step's last-submitted resource names (state bucket, configuration
   bucket — so Settings' "Reconfigure" flow can rehydrate a non-default name),
-  and pasted-credentials profiles keyed by profile name. Every secret
+  pasted-credentials profiles keyed by profile name, and the single
+  in-progress add-game wizard draft (`addGameWizardDraft` — the draft's
+  field values, which wizard step the operator was on, and when it was last
+  autosaved; see [Draft autosave](/app/games#draft-autosave)). Every secret
   field (`aws.accessKeyId`, `aws.secretAccessKey`,
   `creds.aws.<profile>.accessKeyId`/`secretAccessKey`) is encrypted via
   `SafeStorageService` on write and decrypted on the dedicated getter — there
   is no path that reads or writes those fields' raw ciphertext directly.
   Decrypted pasted credentials must only ever be consumed inside main-process
   SDK client factories (e.g. `CloudProviderModule`'s `useFactory` providers)
-  — never echoed back over IPC to the renderer.
+  — never echoed back over IPC to the renderer. `addGameWizardDraft` is
+  deliberately **not** encrypted this way, even though its `environment`
+  rows can hold operator-entered values the operator might consider
+  sensitive (e.g. a game server password) — it matches the plaintext-at-rest
+  posture of the `deployment-config.json` write the draft eventually becomes
+  on submit, which also isn't field-level encrypted.
 
 ### `DeploymentConfigModule` / `DeploymentConfigService`
 

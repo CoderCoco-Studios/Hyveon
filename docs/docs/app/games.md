@@ -210,6 +210,41 @@ If the server rejects the submission, the dialog stays open with your draft
 intact and jumps to whichever step the first problem belongs to, with the
 message rendered against the offending field.
 
+### Draft autosave
+
+Once you start typing, the wizard autosaves your in-progress draft — field
+values and which step you're on — about one second after you stop editing.
+Nothing is written for a wizard you open and immediately close without
+touching a field, and autosave pauses while a submission is in flight. If
+you close the dialog (Escape, overlay click, or the close control) less
+than a second after your last keystroke, the close itself flushes that
+pending save immediately, so you never lose the edit you just made.
+
+The draft is saved by the Electron **main** process, not kept in the page's
+own React state — so it survives more than just navigating away and back.
+Quitting and relaunching the whole app still leaves it in place. The next
+time you open the Games page, an orange banner appears above the table:
+
+> Unfinished draft: `<name>` — **Resume** / **Discard**
+
+**Resume** reopens the wizard pre-filled at the step you left off on.
+**Discard** deletes the saved draft and hides the banner without opening the
+wizard. The banner never opens the wizard on its own — resuming is always
+something you click.
+
+There is only one draft slot: starting a second add-game draft (via Discard,
+then Add game again) overwrites whatever was saved before. Submitting
+successfully clears the saved draft along with the in-memory one; a failed
+submission (validation, conflict, or server error) leaves it in place so you
+can retry. If the saved entry is ever unreadable — for example after an app
+update changes its shape — it's treated as if no draft exists: the Games
+page loads normally and no banner appears.
+
+This persistence is specific to the **add**-game wizard. The
+[edit-game form](#editing-a-game) does not autosave a draft, because it is
+always re-seeded from the live declared configuration when you open it —
+there is nothing to recover that reopening the form doesn't already give you.
+
 ## The game detail screen
 
 Clicking a name opens `/games/:name`.
