@@ -45,4 +45,12 @@ describe('HighlightedLine', () => {
     expect(marks).toHaveLength(1);
     expect(marks[0]).toHaveTextContent('abcdef');
   });
+
+  it('should highlight a search match spanning two differently-styled SGR segments', () => {
+    const { container } = render(<HighlightedLine text={'\x1b[31mERROR\x1b[0m: disk full'} query="ERROR: disk" />);
+    const marks = container.querySelectorAll('mark');
+    expect(marks).toHaveLength(2);
+    expect(marks[0]).toHaveTextContent('ERROR');
+    expect(marks[1]).toHaveTextContent(': disk');
+  });
 });

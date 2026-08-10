@@ -64,6 +64,14 @@ describe('parseAnsiLine', () => {
   it('should silently ignore a 24-bit truecolor extended SGR code instead of applying it as standard colors', () => {
     expect(parseAnsiLine('\x1b[38;2;30;90;36mtext\x1b[0m')).toEqual([{ text: 'text', bold: false, colorClass: null }]);
   });
+
+  it('should silently drop a two-byte nF charset-designation sequence', () => {
+    expect(parseAnsiLine('before\x1b(Bafter')).toEqual([{ text: 'beforeafter', bold: false, colorClass: null }]);
+  });
+
+  it('should silently drop a single-byte Fp save/restore-cursor sequence', () => {
+    expect(parseAnsiLine('before\x1b7after')).toEqual([{ text: 'beforeafter', bold: false, colorClass: null }]);
+  });
 });
 
 describe('stripAnsi', () => {
@@ -89,5 +97,9 @@ describe('stripAnsi', () => {
 
   it('should remove an OSC window-title sequence', () => {
     expect(stripAnsi('\x1b]0;my title\x07hello')).toBe('hello');
+  });
+
+  it('should remove a two-byte nF charset-designation sequence', () => {
+    expect(stripAnsi('usermod: no changes\x1b(B\x1b[m')).toBe('usermod: no changes');
   });
 });

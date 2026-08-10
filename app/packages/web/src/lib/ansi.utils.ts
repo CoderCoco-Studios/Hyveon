@@ -21,11 +21,17 @@ export interface AnsiSegment {
  * 2. OSC ("Operating System Command") — `\x1b]` up to a BEL or ST
  *    terminator, e.g. `\x1b]0;window title\x07`. Never carries SGR styling;
  *    matched only so it can be discarded.
- * 3. A single-byte "Fe" escape fallback covering other short escape
- *    sequences (e.g. charset selection) that are neither CSI nor OSC.
+ * 3. A generic escape fallback covering every other short escape sequence
+ *    that is neither CSI nor OSC: either one or more intermediate bytes
+ *    (0x20-0x2F) followed by a final byte (0x30-0x7E) — the two-byte nF
+ *    charset-designation form, e.g. `\x1b(B` — or a single Fp/Fe/Fs byte
+ *    with no intermediates (e.g. `\x1b7`/`\x1b8` save/restore cursor),
+ *    excluding `[` and `]` from that single-byte form so an incomplete CSI
+ *    or OSC sequence (missing its final byte / terminator) is left as plain
+ *    text rather than misread as a complete one-byte escape.
  */
 // eslint-disable-next-line no-control-regex -- \x1b (ESC) is the literal byte every ANSI escape sequence starts with.
-const ANSI_PATTERN = /\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\^_])/g;
+const ANSI_PATTERN = /\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[ -/]+[0-~]|[0-Z\\^-~])/g;
 
 /**
  * Maps the 16 standard SGR foreground color codes (30-37 normal, 90-97

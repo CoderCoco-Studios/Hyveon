@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import { Filter } from 'lucide-react';
 import { Badge } from './ui/badge.component.js';
 import { Button } from './ui/button.component.js';
@@ -20,32 +20,68 @@ interface QueryPart {
   match: boolean;
 }
 
-/** Splits `text` into non-matching/matching runs against a case-insensitive `query`. Returns a single non-matching run when `query` is empty. */
-function splitByQuery(text: string, query: string): QueryPart[] {
-  if (!query) return [{ text, match: false }];
+/** A case-insensitive match of `query` against the concatenated plain text of a line, as a `[start, end)` offset range. */
+interface MatchRange {
+  start: number;
+  end: number;
+}
+
+/** Finds every non-overlapping case-insensitive match of `query` in `text`, as offset ranges into `text`. */
+function findMatches(text: string, query: string): MatchRange[] {
+  if (!query) return [];
   const q = query.toLowerCase();
-  const parts: QueryPart[] = [];
-  let i = 0;
   const lower = text.toLowerCase();
+  const ranges: MatchRange[] = [];
+  let i = 0;
   while (i < text.length) {
     const idx = lower.indexOf(q, i);
-    if (idx === -1) {
-      parts.push({ text: text.slice(i), match: false });
-      break;
-    }
-    if (idx > i) parts.push({ text: text.slice(i, idx), match: false });
-    parts.push({ text: text.slice(idx, idx + q.length), match: true });
+    if (idx === -1) break;
+    ranges.push({ start: idx, end: idx + q.length });
     i = idx + q.length;
   }
+  return ranges;
+}
+
+/** Splits a segment's `text` (which starts at `segStart` within the full line) into non-matching/matching runs, intersecting `matches` against the segment's own bounds so a match spanning multiple ANSI-styled segments still highlights in each. */
+function sliceSegment(text: string, segStart: number, matches: MatchRange[]): QueryPart[] {
+  const segEnd = segStart + text.length;
+  const parts: QueryPart[] = [];
+  let cursor = segStart;
+  for (const m of matches) {
+    const start = Math.max(m.start, segStart);
+    const end = Math.min(m.end, segEnd);
+    if (start >= end) continue;
+    if (start > cursor) parts.push({ text: text.slice(cursor - segStart, start - segStart), match: false });
+    parts.push({ text: text.slice(start - segStart, end - segStart), match: true });
+    cursor = end;
+  }
+  if (cursor < segEnd) parts.push({ text: text.slice(cursor - segStart), match: false });
+  if (parts.length === 0) parts.push({ text, match: false });
   return parts;
 }
 
 /** Render a single line, applying ANSI color/bold styling and splitting on case-insensitive search matches. Shared by `/logs` and the Diagnostics panel. */
 export function HighlightedLine({ text, query }: { text: string; query: string }) {
+  const segments = useMemo(() => parseAnsiLine(text), [text]);
+  const segmentStarts = useMemo(() => {
+    const starts: number[] = [];
+    let offset = 0;
+    for (const seg of segments) {
+      starts.push(offset);
+      offset += seg.text.length;
+    }
+    return starts;
+  }, [segments]);
+  const matches = useMemo(
+    () => findMatches(segments.map((seg) => seg.text).join(''), query),
+    [segments, query],
+  );
+
   return (
     <>
-      {parseAnsiLine(text).map((seg, i) => {
-        const parts = splitByQuery(seg.text, query).map((p, j) =>
+      {segments.map((seg, i) => {
+        const segStart = segmentStarts[i]!;
+        const parts = sliceSegment(seg.text, segStart, matches).map((p, j) =>
           p.match ? (
             <mark key={j} className="rounded-[2px] bg-[var(--color-amber)]/40 px-[1px] text-[var(--color-foreground)]">
               {p.text}
