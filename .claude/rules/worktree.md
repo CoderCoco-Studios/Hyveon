@@ -6,7 +6,7 @@
 2. PR-stack group → worktree branched from the *previous group's branch*, not `main` (see `pr-stacking.md`).
 3. Before branching, make sure the base is current:
    - Branching from `main` via `EnterWorktree` with `name` → fresh only when the session's `worktree.baseRef` setting is `fresh` (the default; `head` branches from local HEAD instead) and the local `origin/main` tracking ref is up to date. `git fetch origin main` first if in doubt.
-   - Any other base (a manual `git worktree add`, or a prior stack branch) → `git fetch origin <base-branch>` first, then branch from `origin/<base-branch>`.
+   - Any other base (a manual `git worktree add`, or a prior stack branch) — must already exist on `origin` (push it first if it doesn't) → `git fetch origin <base-branch>` first, then branch from `origin/<base-branch>`.
 4. Immediately after entering: `npm install` from the worktree root, before any lint/typecheck/test/build command.
 
 **Why step 4:** `node_modules` isn't copied into a new worktree. Node's resolution then walks up to the *parent checkout's* `node_modules`, silently typechecking your edited source against a **different worktree's stale compiled output** for any `@hyveon/*` cross-package import. Symptom: `tsc`/`app:test:integration` errors referencing types/fields that visibly exist in the file you're reading. `app:lint`/`app:test` (source-transpiling Vitest) can look green while this is broken.
