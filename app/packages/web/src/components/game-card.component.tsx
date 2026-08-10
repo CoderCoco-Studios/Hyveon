@@ -158,8 +158,12 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   async function handleStart() {
     setBusy(true);
     try {
-      await api.start(game);
-      toast.success(`${game} is starting`);
+      const res = await api.start(game);
+      if (res.success) {
+        toast.success(res.message);
+      } else {
+        toast.error(`Failed to start ${game}`, { description: res.message });
+      }
     } catch (err) {
       toast.error(`Failed to start ${game}`, {
         description: err instanceof Error ? err.message : 'An unknown error occurred',
@@ -174,14 +178,24 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   async function handleStop() {
     setBusy(true);
     try {
-      await api.stop(game);
-      toast(`${game} stopped`, {
+      const res = await api.stop(game);
+      if (!res.success) {
+        toast.error(`Failed to stop ${game}`, { description: res.message });
+        return;
+      }
+      toast(res.message, {
         duration: 5000,
         action: {
           label: 'Undo',
           onClick: () => {
             void api.start(game)
-              .then(() => setTimeout(() => onRefresh(game), 3000))
+              .then((undoRes) => {
+                if (!undoRes.success) {
+                  toast.error(`Failed to undo stop of ${game}`, { description: undoRes.message });
+                  return;
+                }
+                setTimeout(() => onRefresh(game), 3000);
+              })
               .catch((err: unknown) => {
                 toast.error(`Failed to undo stop of ${game}`, {
                   description: err instanceof Error ? err.message : 'An unknown error occurred',
