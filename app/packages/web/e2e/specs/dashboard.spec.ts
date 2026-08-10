@@ -100,7 +100,7 @@ test.describe('dashboard', () => {
         ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.start'
         ] = true;
-        return Promise.resolve({ success: true, message: 'Started' });
+        return Promise.resolve({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
       });
     });
 
@@ -221,7 +221,7 @@ test.describe('dashboard', () => {
         ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, boolean>)[
           'games.stop'
         ] = true;
-        return Promise.resolve({ success: true, message: 'Stopped' });
+        return Promise.resolve({ success: true, message: 'minecraft is stopping.' });
       });
     });
 
@@ -231,7 +231,7 @@ test.describe('dashboard', () => {
     // ConfirmDialog appears — confirm the stop.
     await dashboard.confirmStopButton().click();
 
-    await expect(layout.toastMessage('minecraft stopped')).toBeVisible();
+    await expect(layout.toastMessage('minecraft is stopping')).toBeVisible();
     await expect(layout.toastUndoButton()).toBeVisible();
 
     await expect

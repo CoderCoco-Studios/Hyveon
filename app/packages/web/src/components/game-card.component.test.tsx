@@ -6,8 +6,8 @@ import type { GameStatus } from '../api.service.js';
 import { GameCard } from './game-card.component.js';
 
 const apiMock = vi.hoisted(() => ({
-  stop: vi.fn().mockResolvedValue(undefined),
-  start: vi.fn().mockResolvedValue(undefined),
+  stop: vi.fn().mockResolvedValue({ success: true, message: 'minecraft is stopping.' }),
+  start: vi.fn().mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' }),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -67,8 +67,8 @@ function renderCard(status: GameStatus = runningStatus) {
 
 describe('GameCard — stats grid', () => {
   beforeEach(() => {
-    apiMock.stop.mockResolvedValue(undefined);
-    apiMock.start.mockResolvedValue(undefined);
+    apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
+    apiMock.start.mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
     toastMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -91,8 +91,8 @@ describe('GameCard — stats grid', () => {
 
 describe('GameCard — error-state recovery', () => {
   beforeEach(() => {
-    apiMock.stop.mockResolvedValue(undefined);
-    apiMock.start.mockResolvedValue(undefined);
+    apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
+    apiMock.start.mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
     toastMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -129,8 +129,8 @@ describe('GameCard — error-state recovery', () => {
 
 describe('GameCard — Start/Stop button state per server state', () => {
   beforeEach(() => {
-    apiMock.stop.mockResolvedValue(undefined);
-    apiMock.start.mockResolvedValue(undefined);
+    apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
+    apiMock.start.mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
     toastMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -167,8 +167,8 @@ describe('GameCard — Start/Stop button state per server state', () => {
 
 describe('GameCard — Stop confirmation', () => {
   beforeEach(() => {
-    apiMock.stop.mockResolvedValue(undefined);
-    apiMock.start.mockResolvedValue(undefined);
+    apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
+    apiMock.start.mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
     toastMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -217,8 +217,8 @@ describe('GameCard — Stop confirmation', () => {
 
 describe('GameCard — Start/Stop toasts', () => {
   beforeEach(() => {
-    apiMock.stop.mockResolvedValue(undefined);
-    apiMock.start.mockResolvedValue(undefined);
+    apiMock.stop.mockResolvedValue({ success: true, message: 'minecraft is stopping.' });
+    apiMock.start.mockResolvedValue({ success: true, message: 'minecraft is starting. It may take 2–5 minutes.' });
     toastMock.mockClear();
     toastMock.success.mockClear();
     toastMock.error.mockClear();
@@ -229,7 +229,7 @@ describe('GameCard — Start/Stop toasts', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /start/i }));
 
-    expect(toastMock.success).toHaveBeenCalledWith('minecraft is starting');
+    expect(toastMock.success).toHaveBeenCalledWith('minecraft is starting. It may take 2–5 minutes.');
   });
 
   it('should show an error toast with the error message when Start fails', async () => {
@@ -256,6 +256,39 @@ describe('GameCard — Start/Stop toasts', () => {
     );
   });
 
+  it('should show an error toast, not a success toast, when Start resolves with success: false', async () => {
+    apiMock.start.mockResolvedValueOnce({
+      success: false,
+      message: 'Unable to assume the service linked role.',
+    });
+    renderCard(stoppedStatus);
+
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Failed to start minecraft',
+      expect.objectContaining({ description: 'Unable to assume the service linked role.' }),
+    );
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it('should show an error toast, not an Undo toast, when Stop resolves with success: false', async () => {
+    mockIsSuppressed.mockReturnValue(true);
+    apiMock.stop.mockResolvedValueOnce({ success: false, message: 'Task not found.' });
+    renderCard(runningStatus);
+
+    await userEvent.click(screen.getByRole('button', { name: /stop/i }));
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Failed to stop minecraft',
+      expect.objectContaining({ description: 'Task not found.' }),
+    );
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: expect.anything() }),
+    );
+  });
+
   it('should show a stop toast with an Undo action when Stop succeeds', async () => {
     mockIsSuppressed.mockReturnValue(true);
     renderCard(runningStatus);
@@ -263,7 +296,7 @@ describe('GameCard — Start/Stop toasts', () => {
     await userEvent.click(screen.getByRole('button', { name: /stop/i }));
 
     expect(toastMock).toHaveBeenCalledWith(
-      'minecraft stopped',
+      'minecraft is stopping.',
       expect.objectContaining({
         action: expect.objectContaining({ label: 'Undo' }),
       }),
