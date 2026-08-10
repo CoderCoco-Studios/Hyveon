@@ -169,6 +169,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
+import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
 
 /** Node.js Lambda runtime every one of the five functions declares. */
@@ -434,6 +435,10 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
   } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
+  // Strip any trailing dot before threading into any DOMAIN_NAME/
+  // HOSTED_ZONE_NAME environment variable below — see `hostedZoneName.ts`.
+  const strippedHostedZoneName = stripTrailingDots(hostedZoneName);
+
   // Validated up front, before any resource is constructed — deliberately
   // NOT deferred to the seeder loop further down. A mid-function throw
   // after some (but not all) of this function's resources are already
@@ -468,7 +473,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           ECS_CLUSTER: ecsClusterName,
           SUBNET_IDS: pulumi.all(publicSubnetIds).apply((ids) => ids.join(',')),
           SECURITY_GROUP_ID: gameServersSecurityGroupId,
-          DOMAIN_NAME: hostedZoneName,
+          DOMAIN_NAME: strippedHostedZoneName,
           GAME_NAMES: gameNamesCsv(gameServers),
           CONNECT_MESSAGES: JSON.stringify(connectMessagesByGame(gameServers)),
           GAME_PORTS: JSON.stringify(firstPortByGame(gameServers)),
@@ -507,7 +512,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           DISCORD_PUBLIC_KEY_SECRET_ARN: discordPublicKeySecretArn,
           FOLLOWUP_LAMBDA_NAME: followupFunction.name,
           GAME_NAMES: gameNamesCsv(gameServers),
-          HOSTED_ZONE_NAME: hostedZoneName,
+          HOSTED_ZONE_NAME: strippedHostedZoneName,
         },
       },
       tags: { Name: `${projectName}-interactions` },
@@ -658,7 +663,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
       environment: {
         variables: {
           HOSTED_ZONE_ID: hostedZoneId,
-          DOMAIN_NAME: hostedZoneName,
+          DOMAIN_NAME: strippedHostedZoneName,
           GAME_NAMES: gameNamesCsv(gameServers),
           DNS_TTL: String(dnsTtl),
           AWS_REGION_: awsRegion,
