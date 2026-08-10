@@ -51,7 +51,7 @@ describe('GameWizardDraftService', () => {
 
     it('should return null and log a warning when the stored entry is missing required fields', () => {
       const store = makeStore();
-      vi.mocked(store.get).mockReturnValue({ draft: sampleDraft } as unknown as StoredGameWizardDraft);
+      vi.mocked(store.get).mockReturnValue({ draft: sampleDraft } as Partial<StoredGameWizardDraft> as StoredGameWizardDraft);
       const service = new GameWizardDraftService(store);
 
       expect(service.get()).toBeNull();
