@@ -13,6 +13,11 @@ import { DiscordCommandRegistrar } from '../services/DiscordCommandRegistrar.js'
  *    (`DiscordConfigService`).
  *  - PUT slash commands into a guild via Discord's REST API when the operator
  *    clicks "Register commands" (`DiscordCommandRegistrar`).
+ *
+ * `AwsModule` re-exports `CloudProviderModule`, which is where
+ * `DiscordConfigService`'s `SECRETS_STORE`/`DISCORD_CONFIG_STORE` tokens are
+ * bound — no separate `ElectronStoreModule` import needed here since neither
+ * dependency touches `ElectronStoreService` directly.
  */
 @Module({
   imports: [AwsModule],

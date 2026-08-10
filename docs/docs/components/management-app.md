@@ -100,12 +100,13 @@ never speaks HTTP to this process.
   (so `ConfigService` can inject `PulumiService`); provides just
   `ConfigService`. Extracted on its own so every other feature module can
   depend on it without pulling in `AwsModule`.
-- **`CloudProviderModule`** — imports `ConfigModule`. Binds six
+- **`CloudProviderModule`** — imports `ConfigModule`. Binds seven
   cloud-agnostic contracts (from `@hyveon/shared/cloud.js`) to concrete
   `@hyveon/cloud-aws` implementations via `useFactory` providers keyed off
   `ConfigService.getActiveCloud()`: `CLOUD_PROVIDER`, `SECRETS_STORE`,
-  `REMOTE_FILE_STORE`, `DISCORD_RECEIVER`, `AUDIT_LOG_STORE`, and
-  `RUN_RECORD_STORE` (all declared in `cloud-provider.tokens.ts`). Consumers
+  `REMOTE_FILE_STORE`, `DISCORD_RECEIVER`, `AUDIT_LOG_STORE`,
+  `DISCORD_CONFIG_STORE`, and `RUN_RECORD_STORE` (all declared in
+  `cloud-provider.tokens.ts`). Consumers
   inject via `@Inject(CLOUD_PROVIDER)` etc. and depend only on the
   `@hyveon/shared` interface — never the concrete AWS class — so swapping the
   active cloud is a one-module change, not a call-site hunt. Today every
@@ -120,8 +121,15 @@ never speaks HTTP to this process.
   re-exports it for existing consumers that import `AwsModule` expecting
   `ConfigService` to be available) and no longer wires `AwsCloudProvider`/
   `AwsSecretsStore` itself — `EcsService` injects `CLOUD_PROVIDER` and
-  `DiscordConfigService` injects `SECRETS_STORE`, both bound by
-  `CloudProviderModule`.
+  `DiscordConfigService` injects `SECRETS_STORE` and `DISCORD_CONFIG_STORE`,
+  all bound by `CloudProviderModule`. `DISCORD_CONFIG_STORE` (bound to
+  `AwsDiscordConfigStore`) is what gives `DiscordConfigService`'s DynamoDB
+  reads/writes the wizard's resolved AWS credentials — before this token
+  existed, the service read/wrote through `@hyveon/shared`'s uncredentialed
+  `getDocClient()` singleton, which falls back to the SDK's default provider
+  chain and throws a spurious `CredentialsProviderError` ("Your session has
+  expired") in the GUI-launched Electron process once any unrelated ambient
+  `aws login` session on the host expires.
 - **`DiscordModule`** — imports `AwsModule`; provides
   `DiscordConfigService` and `DiscordCommandRegistrar`. No discord.js,
   no gateway — the bot is two Lambdas plus Discord's REST API.
@@ -228,7 +236,8 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   chain was removed (see `openspec/changes/remove-cost-explorer-calls`).
   New cloud-facing code should prefer adding to (or consuming) the
   `CLOUD_PROVIDER` / `SECRETS_STORE` / `REMOTE_FILE_STORE` /
-  `DISCORD_RECEIVER` / `AUDIT_LOG_STORE` / `RUN_RECORD_STORE` tokens over
+  `DISCORD_RECEIVER` / `AUDIT_LOG_STORE` / `DISCORD_CONFIG_STORE` /
+  `RUN_RECORD_STORE` tokens over
   reaching for a new AWS SDK client directly — see the [maintainer
   guide](/guides/maintainer#when-you-touch-the-nest-server).
   `LogsService.streamLogs(game, signal)` is an `AsyncGenerator` that polls
@@ -399,12 +408,13 @@ reflected without an app restart.
 
 ## `@hyveon/cloud-aws`
 
-`app/packages/cloud-aws` — the AWS implementation of the six cloud-agnostic
+`app/packages/cloud-aws` — the AWS implementation of the seven cloud-agnostic
 contracts `@hyveon/shared/cloud.js` declares (`CloudProvider`, `SecretsStore`,
-`RemoteFileStore`, `DiscordEventReceiver`, `AuditLogStore`, `RunRecordStore`).
+`RemoteFileStore`, `DiscordEventReceiver`, `AuditLogStore`,
+`DiscordConfigStore`, `RunRecordStore`).
 `CloudProviderModule` (see the module graph above) is the only place that
 imports from this package directly — every other consumer in `desktop-main`
-depends on the `@hyveon/shared` interface via one of the six injection
+depends on the `@hyveon/shared` interface via one of the seven injection
 tokens, never on a concrete class from here. Extracted as its own workspace
 package (rather than living inside `desktop-main`) so a future non-AWS cloud
 provider package can sit alongside it without `desktop-main` depending on

@@ -4,6 +4,7 @@ import {
   AwsRemoteFileStore,
   AwsDiscordEventReceiver,
   AwsAuditLogStore,
+  AwsDiscordConfigStore,
   AwsRunRecordStore,
 } from '@hyveon/cloud-aws';
 import { resolvePreApplyRunsTableName } from '@hyveon/shared';
@@ -13,6 +14,7 @@ import type {
   RemoteFileStore,
   DiscordEventReceiver,
   AuditLogStore,
+  DiscordConfigStore,
   RunRecordStore,
 } from '@hyveon/shared';
 import { ConfigModule } from './config.module.js';
@@ -28,17 +30,19 @@ import {
   REMOTE_FILE_STORE,
   DISCORD_RECEIVER,
   AUDIT_LOG_STORE,
+  DISCORD_CONFIG_STORE,
   RUN_RECORD_STORE,
 } from './cloud-provider.tokens.js';
 
 /**
- * Per-cloud factories for the six cloud-agnostic contracts (`CloudProvider`,
+ * Per-cloud factories for the seven cloud-agnostic contracts (`CloudProvider`,
  * `SecretsStore`, `RemoteFileStore`, `DiscordEventReceiver`, `AuditLogStore`,
- * `RunRecordStore` — all from `@hyveon/shared/cloud.js`). Keyed by the
- * `ActiveCloud` value `ConfigService` reports; each `CloudBindings` entry
- * supplies one factory per token so {@link resolveCloudBindings} (and, in
- * turn, `CloudProviderModule`'s `useFactory` providers) can look up the right
- * implementation without duplicating the cloud switch six times.
+ * `DiscordConfigStore`, `RunRecordStore` — all from `@hyveon/shared/cloud.js`).
+ * Keyed by the `ActiveCloud` value `ConfigService` reports; each
+ * `CloudBindings` entry supplies one factory per token so
+ * {@link resolveCloudBindings} (and, in turn, `CloudProviderModule`'s
+ * `useFactory` providers) can look up the right implementation without
+ * duplicating the cloud switch seven times.
  */
 export interface CloudBindings {
   cloudProvider: (config: ConfigService, store: ElectronStoreService) => CloudProvider;
@@ -46,6 +50,7 @@ export interface CloudBindings {
   remoteFileStore: (config: ConfigService, store: ElectronStoreService) => RemoteFileStore;
   discordReceiver: (config: ConfigService) => DiscordEventReceiver;
   auditLogStore: (config: ConfigService, store: ElectronStoreService) => AuditLogStore;
+  discordConfigStore: (config: ConfigService, store: ElectronStoreService) => DiscordConfigStore;
   /**
    * Takes `remoteFileStore` as a second argument (unlike every other
    * `CloudBindings` factory) because {@link resolveRunRecordStoreConfig}'s
@@ -135,6 +140,35 @@ export async function resolveAuditLogStoreConfig(
 }
 
 /**
+ * Resolves the `{ tableName, region }` config the AWS `DiscordConfigStore`'s
+ * `resolveConfig` callback needs to target the Discord DynamoDB table: the
+ * table name comes from `ConfigService.getStackOutputs()`'s
+ * `discordTableName` (falling back to `''` when nothing has been deployed
+ * yet, so `AwsDiscordConfigStore` surfaces its own "table not configured"
+ * error rather than this factory silently defaulting somewhere), and the
+ * region from the same resolved `outputs.awsRegion` when a stack is deployed
+ * (falling back to `getRegion()`'s wizard-configured value otherwise) — same
+ * reasoning as {@link resolveAuditLogStoreConfig}.
+ *
+ * `credentials` comes from `resolveAwsClientCredentials(store)` — see
+ * {@link resolveDeploymentConfigFileStoreConfig}'s doc comment for why this
+ * field is required.
+ */
+export async function resolveDiscordConfigStoreConfig(
+  config: ConfigService,
+  store: ElectronStoreService,
+): Promise<{ tableName: string; region: string; credentials: AwsClientCredentials; credentialsSignature: string }> {
+  const outputs = await config.getStackOutputs();
+  const { credentials, signature } = resolveAwsClientCredentialsWithSignature(store);
+  return {
+    tableName: outputs?.discordTableName ?? '',
+    region: outputs?.awsRegion ?? config.getRegion(),
+    credentials,
+    credentialsSignature: signature,
+  };
+}
+
+/**
  * Resolves the `{ tableName, bucket, region }` config the AWS `RunRecordStore`'s
  * `getConfig` callback needs to target the runs DynamoDB table and the
  * configuration S3 bucket used for offloaded run logs: the bucket from
@@ -215,6 +249,8 @@ export const CLOUD_BINDINGS: Record<string, CloudBindings> = {
       new AwsRemoteFileStore(() => resolveDeploymentConfigFileStoreConfig(config, store)),
     discordReceiver: () => new AwsDiscordEventReceiver(),
     auditLogStore: (config, store) => new AwsAuditLogStore(() => resolveAuditLogStoreConfig(config, store)),
+    discordConfigStore: (config, store) =>
+      new AwsDiscordConfigStore(() => resolveDiscordConfigStoreConfig(config, store)),
     runRecordStore: (config, remoteFileStore, store) =>
       new AwsRunRecordStore(() => resolveRunRecordStoreConfig(config, remoteFileStore, store)),
   },
@@ -236,7 +272,7 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
 }
 
 /**
- * Binds the six cloud-agnostic contracts to concrete implementations for
+ * Binds the seven cloud-agnostic contracts to concrete implementations for
  * whichever cloud `ConfigService.getActiveCloud()` reports as active, via
  * {@link resolveCloudBindings} and the {@link CLOUD_BINDINGS} registry. Today
  * that's always `'aws'`, so every token resolves to a `@hyveon/cloud-aws`
@@ -290,6 +326,12 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
       inject: [ConfigService, ElectronStoreService],
     },
     {
+      provide: DISCORD_CONFIG_STORE,
+      useFactory: (config: ConfigService, store: ElectronStoreService) =>
+        resolveCloudBindings(config).discordConfigStore(config, store),
+      inject: [ConfigService, ElectronStoreService],
+    },
+    {
       provide: RUN_RECORD_STORE,
       // Injects `REMOTE_FILE_STORE` too (an intra-module provider dependency
       // — both tokens are declared in THIS module's own `providers:`, so
@@ -306,6 +348,7 @@ export function resolveCloudBindings(config: ConfigService): CloudBindings {
     REMOTE_FILE_STORE,
     DISCORD_RECEIVER,
     AUDIT_LOG_STORE,
+    DISCORD_CONFIG_STORE,
     RUN_RECORD_STORE,
   ],
 })

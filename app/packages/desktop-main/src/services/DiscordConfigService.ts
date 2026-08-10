@@ -15,16 +15,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
-import { SECRETS_STORE } from '../modules/cloud-provider.tokens.js';
+import { SECRETS_STORE, DISCORD_CONFIG_STORE } from '../modules/cloud-provider.tokens.js';
 import {
   asStringArray,
-  getBaseDiscordConfig,
-  getDiscordConfig,
   isSafeGameKey,
-  putDiscordConfig,
   type BaseDiscordConfig,
   type DiscordAction,
   type DiscordConfig,
+  type DiscordConfigStore,
   type RedactedDiscordConfig,
   type SecretsStore,
 } from '@hyveon/shared';
@@ -62,23 +60,46 @@ export class DiscordConfigService {
   private baseInflight: Promise<BaseDiscordConfig> | null = null;
 
   /**
-   * `secrets` is typed against the cloud-agnostic `SecretsStore` contract
-   * (not a concrete AWS class) so this service depends only on the
-   * interface; `@Inject(SECRETS_STORE)` tells Nest which concrete provider
-   * (bound by `CloudProviderModule` for whichever cloud is active) to
-   * resolve for that parameter, since interfaces don't survive to runtime
-   * for Nest's reflection-based DI to key off of.
+   * `secrets`/`discordStore` are typed against their cloud-agnostic
+   * contracts (not concrete AWS classes) so this service depends only on the
+   * interfaces; `@Inject(...)` tells Nest which concrete provider (bound by
+   * `CloudProviderModule` for whichever cloud is active) to resolve for that
+   * parameter, since interfaces don't survive to runtime for Nest's
+   * reflection-based DI to key off of.
+   *
+   * `discordStore` — rather than this service constructing its own
+   * DynamoDB client — is what fixes a real bug: the DiscordConfig row used
+   * to be read/written via `@hyveon/shared`'s `getDocClient()` singleton,
+   * built with no `credentials` option. That's correct inside a Lambda (the
+   * execution role signs via env-var credentials) but resolves nothing in
+   * this GUI-launched Electron process — the operator's AWS credentials
+   * live encrypted in the wizard's store, never in env vars or `~/.aws`.
+   * Left unfixed, every read/write fell back to the SDK's default provider
+   * chain, which picks up whatever ambient `aws login`/CLI session happens
+   * to exist on the host and throws `CredentialsProviderError` once that
+   * session expires — surfacing to the operator as a spurious "Your session
+   * has expired" error with no relation to the wizard's own stored
+   * credentials. `CloudProviderModule` binds `DISCORD_CONFIG_STORE` to
+   * `AwsDiscordConfigStore`, which resolves those credentials itself — see
+   * `resolveDiscordConfigStoreConfig`.
    */
   constructor(
     private readonly config: ConfigService,
     @Inject(SECRETS_STORE) private readonly secrets: SecretsStore,
+    @Inject(DISCORD_CONFIG_STORE) private readonly discordStore: DiscordConfigStore,
   ) {}
 
-  /** Resolve the DDB table name from the deployed stack's outputs; throws if not deployed yet. */
-  private async tableName(): Promise<string> {
-    const t = (await this.config.getStackOutputs())?.discordTableName;
-    if (!t) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
-    return t;
+  /**
+   * Pre-check that the Discord table has been deployed, mirroring
+   * `AuditService.record`'s own `auditTableName` check — `discordStore`
+   * (`AwsDiscordConfigStore`) performs the same check internally too, but
+   * checking here first avoids constructing an SDK client only to throw, and
+   * keeps this service's "empty config until deployed" degrade behavior
+   * (see `load()`/`loadBase()`) independent of the store implementation's
+   * own error message.
+   */
+  private async tableName(): Promise<string | undefined> {
+    return (await this.config.getStackOutputs())?.discordTableName;
   }
 
   private async botTokenSecretArn(): Promise<string> {
@@ -100,7 +121,8 @@ export class DiscordConfigService {
     logger.debug('DiscordConfigService.load: reading Discord config from DynamoDB');
     this.inflight = (async () => {
       try {
-        const cfg = await getDiscordConfig(await this.tableName());
+        if (!(await this.tableName())) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
+        const cfg = await this.discordStore.getConfig();
         this.cache = cfg;
         return cfg;
       } catch (err) {
@@ -129,9 +151,8 @@ export class DiscordConfigService {
     logger.debug('DiscordConfigService.loadBase: reading base Discord config from DynamoDB');
     this.baseInflight = (async () => {
       try {
-        const tableName = (await this.config.getStackOutputs())?.discordTableName;
-        if (!tableName) return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
-        const base = await getBaseDiscordConfig(tableName);
+        if (!(await this.tableName())) return { allowedGuilds: [], admins: { userIds: [], roleIds: [] } };
+        const base = await this.discordStore.getBaseConfig();
         this.baseCache = base;
         return base;
       } catch (err) {
@@ -156,7 +177,8 @@ export class DiscordConfigService {
   private async save(cfg: DiscordConfig): Promise<void> {
     logger.debug('DiscordConfigService.save: writing Discord config to DynamoDB');
     try {
-      await putDiscordConfig(await this.tableName(), cfg);
+      if (!(await this.tableName())) throw new Error('discordTableName not in the deployed stack outputs — deploy first.');
+      await this.discordStore.putConfig(cfg);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('Failed to save Discord config to DynamoDB', { error: message });

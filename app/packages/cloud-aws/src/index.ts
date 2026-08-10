@@ -1,5 +1,6 @@
 export * from './AwsAuditLogStore.js';
 export * from './AwsCloudProvider.js';
+export * from './AwsDiscordConfigStore.js';
 export * from './AwsDiscordEventReceiver.js';
 export * from './AwsRemoteFileStore.js';
 export * from './AwsRunRecordStore.js';
