@@ -5,7 +5,7 @@ import { ConfigService } from '../services/ConfigService.js';
 import { EcsService } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
-import { DriftService } from '../services/DriftService.js';
+import { computeDriftFromOutputs } from '../services/DriftService.js';
 import { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { GameWizardDraft, StoredGameWizardDraft } from '../services/ElectronStoreService.js';
 import { mergeGameLists } from '../services/mergeGameLists.js';
@@ -15,8 +15,8 @@ import { logger } from '../logger.js';
  * IPC-only game-server controller. Handles Electron main-process messages via
  * `@MessagePattern` / `@Payload` — no HTTP routes are registered here. It
  * delegates to the {@link ConfigService}, {@link EcsService},
- * {@link DeploymentConfigService}, {@link DriftService},
- * {@link GamesWriteService}, and {@link GameWizardDraftService} providers.
+ * {@link DeploymentConfigService}, {@link GamesWriteService}, and
+ * {@link GameWizardDraftService} providers.
  */
 @Controller()
 export class GamesController {
@@ -24,7 +24,6 @@ export class GamesController {
     private readonly config: ConfigService,
     private readonly ecs: EcsService,
     private readonly deploymentConfig: DeploymentConfigService,
-    private readonly drift: DriftService,
     private readonly gamesWrite: GamesWriteService,
     private readonly gameWizardDraft: GameWizardDraftService,
   ) {}
@@ -33,12 +32,21 @@ export class GamesController {
    * Lists games merged from the declared view (the `deployment-config.json`
    * `gameServers` map, via {@link DeploymentConfigService}), the deployed view
    * (the deployed stack's `gameNames` output, via {@link ConfigService}), and
-   * per-game drift findings (via {@link DriftService}) — see
-   * {@link mergeGameLists}. This surfaces games that are declared but not yet
-   * applied (`declared: true, deployed: false`), games whose declared config
-   * has diverged from what's deployed (`drift.kind === 'config_drift'`),
+   * per-game drift findings (computed via {@link computeDriftFromOutputs}) —
+   * see {@link mergeGameLists}. This surfaces games that are declared but not
+   * yet applied (`declared: true, deployed: false`), games whose declared
+   * config has diverged from what's deployed (`drift.kind === 'config_drift'`),
    * alongside live in-sync games, so the renderer can distinguish all three
    * states instead of just presence.
+   *
+   * Drift is derived locally from the same `declared`/`outputs` pair fetched
+   * below via the pure {@link computeDriftFromOutputs} rather than by calling
+   * `DriftService.getDrift()`, which would redundantly re-fetch and
+   * re-invalidate `DeploymentConfigService` (a second, racing S3 read of
+   * `deployment-config.json` on every `games.list` call) and — unlike
+   * `getGameServers()`/`getStackOutputs()`, which both degrade every failure
+   * to a safe default — reject on internal failure, which would fail the
+   * entire games list instead of just omitting drift.
    *
    * Invalidates only the `DeploymentConfigService` cache (cheap — an in-memory S3
    * object cache with its own short TTL), NOT {@link ConfigService}'s stack-
@@ -50,9 +58,7 @@ export class GamesController {
    * happened. The stack-outputs cache is invalidated on write instead — when
    * `PulumiService.apply`/`.destroy` persists a successful run, or when
    * `GamesWriteService.successResult()` applies a games.create/update/delete
-   * change — not on every read here. `DriftService.getDrift()` invalidates
-   * the same `DeploymentConfigService` cache internally, which is harmless
-   * alongside the explicit invalidation below.
+   * change — not on every read here.
    *
    * Reachable via the Electron IPC transport (`games.list`).
    */
@@ -60,11 +66,8 @@ export class GamesController {
   async listGames(): Promise<{ games: GameListEntry[] }> {
     logger.debug('GamesController: games.list invoked');
     this.deploymentConfig.invalidateCache();
-    const [declared, outputs, driftReport] = await Promise.all([
-      this.deploymentConfig.getGameServers(),
-      this.config.getStackOutputs(),
-      this.drift.getDrift(),
-    ]);
+    const [declared, outputs] = await Promise.all([this.deploymentConfig.getGameServers(), this.config.getStackOutputs()]);
+    const driftReport = computeDriftFromOutputs(declared, outputs);
     return { games: mergeGameLists(declared, outputs?.gameNames ?? [], driftReport.entries) };
   }
 

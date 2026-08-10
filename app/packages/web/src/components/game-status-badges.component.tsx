@@ -39,8 +39,7 @@ export interface GameStatusBadgesProps {
  * both), so it's intentionally not handled here.
  */
 export function GameStatusBadges({ declared, deployed, drift }: GameStatusBadgesProps) {
-  const { text, variant } = describeDriftStatus(declared, deployed, drift);
-  const changedFields = declared && deployed && drift?.kind === 'config_drift' ? drift.changedFields : undefined;
+  const { text, variant, changedFields } = describeDriftStatus(declared, deployed, drift);
   const title = changedFields && changedFields.length > 0 ? changedFields.join(', ') : undefined;
   return (
     <Badge variant={variant} title={title}>
@@ -49,15 +48,20 @@ export function GameStatusBadges({ declared, deployed, drift }: GameStatusBadges
   );
 }
 
-/** Chip copy + color variant for a declared/deployed/drift combination. */
+/**
+ * Chip copy, color variant, and tooltip fields for a declared/deployed/drift
+ * combination — the single source of truth for whether a finding counts as
+ * displayable config drift, so the chip text and its tooltip can never
+ * desync.
+ */
 function describeDriftStatus(
   declared: boolean,
   deployed: boolean,
   drift: GameStatusDrift | undefined,
-): { text: string; variant: NonNullable<BadgeProps['variant']> } {
+): { text: string; variant: NonNullable<BadgeProps['variant']>; changedFields?: DriftChangedField[] } {
   if (declared && deployed) {
     if (drift?.kind === 'config_drift') {
-      return { text: 'Config drift', variant: 'warning' };
+      return { text: 'Config drift', variant: 'warning', changedFields: drift.changedFields };
     }
     return { text: 'In sync', variant: 'success' };
   }

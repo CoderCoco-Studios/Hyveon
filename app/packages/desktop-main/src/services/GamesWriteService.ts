@@ -34,6 +34,7 @@ import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
 import { ConfigurationNotConfiguredError, GameServerEntryError, DeploymentConfigService } from './DeploymentConfigService.js';
+import { computeDriftFromOutputs } from './DriftService.js';
 import { mergeGameLists } from './mergeGameLists.js';
 
 /** The three write operations this service performs — used to tag the audit log entry. */
@@ -253,7 +254,8 @@ export class GamesWriteService {
 
     const declared = await this.deploymentConfig.getGameServers();
     const outputs = await this.config.getStackOutputs();
-    const games = mergeGameLists(declared, outputs?.gameNames ?? []);
+    const driftReport = computeDriftFromOutputs(declared, outputs);
+    const games = mergeGameLists(declared, outputs?.gameNames ?? [], driftReport.entries);
 
     return { ok: true, game, games };
   }
