@@ -40,7 +40,7 @@
     "app:test:integration": "npm run build -w @hyveon/desktop-main && npm run test:integration -w @hyveon/web",
     "desktop:dev": "electron-vite dev",
     "desktop:build": "electron-vite build && node build/verify-main-bundle-externals.mjs",
-    "desktop:run": "npm run app:build && npm run desktop:build && npm run app:start",
+    "desktop:run": "npm run app:build && npm run app:build:lambdas && npm run desktop:build && npm run app:start",
     "desktop:package": "npm run app:build:lambdas && npm run desktop:build && electron-builder --config electron-builder.yml --publish never",
     "icons:generate": "node build/generate-icons.mjs",
     "aws-regions:generate": "node build/generate-aws-regions.mjs",
