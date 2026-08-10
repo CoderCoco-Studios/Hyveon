@@ -95,6 +95,7 @@ import type {
   DeleteGamePayload,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  GameWizardDraft,
   HyveonApi,
   HyveonStreamHandle,
   HyveonTestApi,
@@ -116,6 +117,7 @@ import type {
   IacRunsListOpts,
   RunHistoryPageResult,
   StackInitPhaseEvent,
+  StoredGameWizardDraft,
   UpdateDeploymentSettingsPayload,
   UpdateGamePayload,
   AwsProfileSummary,
@@ -677,6 +679,12 @@ const api: HyveonApi = {
     create: (payload: CreateGamePayload) => invoke('games.create', payload),
     update: (payload: UpdateGamePayload) => invoke('games.update', payload),
     delete: (payload: DeleteGamePayload) => invoke('games.delete', payload),
+    draft: {
+      get: () => invoke<StoredGameWizardDraft | null>('games.draft.get'),
+      save: (payload: { draft: GameWizardDraft; stepIndex: number }) => invoke<void>('games.draft.save', payload),
+      updateStepIndex: (stepIndex: number) => invoke<void>('games.draft.updateStepIndex', { stepIndex }),
+      clear: () => invoke<void>('games.draft.clear'),
+    },
   },
 
   costs: {

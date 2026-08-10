@@ -96,6 +96,53 @@ export interface OrphanedRollbackRecord {
 }
 
 /**
+ * In-progress add-game wizard field values, mirroring `WizardDraft` in
+ * `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts` —
+ * that file is the source of truth; keep this copy in sync with it. Not
+ * secret in the general case, but may contain operator-entered environment
+ * variable values the operator considers sensitive — see
+ * {@link StoredGameWizardDraft}'s doc comment for the at-rest posture this
+ * accepts.
+ */
+export interface GameWizardDraft {
+  name: string;
+  image: string;
+  connect_message: string;
+  cpu: number | null;
+  memory: number | null;
+  ports: { container: number | null; protocol: string }[];
+  volumes: { name: string; container_path: string }[];
+  file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
+  environment: { name: string; value: string }[];
+  https: boolean;
+}
+
+/**
+ * A saved add-game wizard draft plus which step the operator was on and
+ * when it was last autosaved. Written/read via
+ * {@link GameWizardDraftService}, never directly through
+ * {@link ElectronStoreService.get}/{@link ElectronStoreService.set} from
+ * outside that service.
+ *
+ * @remarks
+ * Stored in plaintext, matching the storage posture of the eventual
+ * `deployment-config.json` write this draft becomes on submit — neither is
+ * field-level encrypted, unlike the AWS/pasted-credentials/passphrase
+ * fields above, which are genuine secrets. However, `GameWizardDraftService.get()`
+ * blanks out `environment[].value` and `file_seeds[].content`/`content_base64`
+ * before returning a stored entry to a caller, so those operator-entered
+ * values never reach the renderer over IPC even though they're written to
+ * disk here — the operator re-enters them on resume. `GameWizardDraftService.save()`
+ * still persists the full, unredacted draft; only reads are redacted.
+ */
+export interface StoredGameWizardDraft {
+  draft: GameWizardDraft;
+  stepIndex: number;
+  /** ISO-8601 timestamp of the most recent autosave. */
+  savedAt: string;
+}
+
+/**
  * Typed schema for the application's persistent electron-store.
  *
  * Secret fields (`aws.accessKeyId`, `aws.secretAccessKey`,
@@ -176,6 +223,12 @@ export interface AppStoreSchema {
      */
     orphanedRollback?: OrphanedRollbackRecord;
   };
+  /**
+   * The single in-progress add-game wizard draft, if any — see
+   * {@link StoredGameWizardDraft}. Only one slot exists: only one add-game
+   * wizard can be open in the UI at a time.
+   */
+  addGameWizardDraft?: StoredGameWizardDraft;
 }
 
 /**

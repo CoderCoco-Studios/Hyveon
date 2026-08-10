@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
@@ -13,6 +13,10 @@ import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/ga
 const apiMock = vi.hoisted(() => ({
   games: vi.fn(),
   createGame: vi.fn(),
+  getGameDraft: vi.fn(),
+  saveGameDraft: vi.fn(),
+  updateGameDraftStepIndex: vi.fn(),
+  clearGameDraft: vi.fn(),
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
@@ -27,6 +31,23 @@ vi.mock('sonner', () => ({ toast: toastMock }));
  */
 const navigateMock = vi.hoisted(() => vi.fn());
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }));
+
+/**
+ * Resets every mock shared across this file's `describe` blocks to its
+ * "happy" default — called from each block's own `beforeEach` so no test can
+ * see a call/resolution left over from a previous one.
+ */
+function resetApiMocks() {
+  apiMock.games.mockResolvedValue({ games: [] });
+  apiMock.createGame.mockReset();
+  apiMock.getGameDraft.mockResolvedValue(null);
+  apiMock.saveGameDraft.mockClear();
+  apiMock.updateGameDraftStepIndex.mockClear();
+  apiMock.clearGameDraft.mockClear();
+  navigateMock.mockClear();
+  toastMock.success.mockClear();
+  toastMock.error.mockClear();
+}
 
 /** Opens the wizard dialog via its trigger button and waits for the first step to render. */
 async function openWizard() {
@@ -88,13 +109,7 @@ async function fillHappyPathToReview() {
 }
 
 describe('AddGameWizard — blocked-advance validation', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should disable Next on the Identity step while name and image are blank', async () => {
     await openWizard();
@@ -120,13 +135,7 @@ describe('AddGameWizard — blocked-advance validation', () => {
 });
 
 describe('AddGameWizard — step body scroll reset', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should reset the step body scroll position when advancing to the next step', async () => {
     await openWizard();
@@ -144,13 +153,7 @@ describe('AddGameWizard — step body scroll reset', () => {
 });
 
 describe('AddGameWizard — submit success path', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should show a success toast telling the operator to plan/apply, redirect to the new game page, and close the dialog', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
@@ -170,13 +173,7 @@ describe('AddGameWizard — submit success path', () => {
 });
 
 describe('AddGameWizard — submit failure paths', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should leave the dialog open, jump to the offending step, and highlight the field on a validation failure', async () => {
     apiMock.createGame.mockResolvedValue({
@@ -212,5 +209,187 @@ describe('AddGameWizard — submit failure paths', () => {
     expect(screen.getByText('Step 6 of 6: Review')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     expect(toastMock.success).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddGameWizard — draft autosave', () => {
+  beforeEach(() => {
+    resetApiMocks();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should not autosave while the draft is still empty', async () => {
+    await openWizard();
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+  });
+
+  it('should autosave the draft and step index after edits settle for about 1 second', async () => {
+    await openWizard();
+    await fillIdentityStep();
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should flush a pending save when the component unmounts without the dialog being closed first', async () => {
+    const { unmount } = render(<AddGameWizard />);
+    await userEvent.click(screen.getByRole('button', { name: /add game/i }));
+    await screen.findByRole('heading', { name: 'Add a game server' });
+    await fillIdentityStep();
+
+    unmount();
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should not autosave while the wizard is submitting', async () => {
+    apiMock.createGame.mockImplementation(() => new Promise(() => {})); // never resolves
+    await openWizard();
+    await fillHappyPathToReview();
+    apiMock.saveGameDraft.mockClear();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+  });
+
+  it('should flush a pending save immediately when the dialog closes', async () => {
+    await openWizard();
+    await fillIdentityStep();
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(apiMock.saveGameDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'mygame', image: 'some/image' }),
+      0,
+    );
+  });
+
+  it('should clear the saved draft on successful submit', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(apiMock.clearGameDraft).toHaveBeenCalled());
+  });
+
+  it('should not clear the saved draft on a failed submit', async () => {
+    apiMock.createGame.mockResolvedValue({ ok: false, code: 'error', message: 'boom' });
+    await openWizard();
+    await fillHappyPathToReview();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await screen.findByRole('alert');
+    expect(apiMock.clearGameDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddGameWizard — resuming from a saved draft', () => {
+  beforeEach(resetApiMocks);
+
+  it('should open pre-populated with an initialDraft and initialStepIndex', async () => {
+    render(
+      <AddGameWizard
+        initialDraft={{
+          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+        }}
+        initialStepIndex={1}
+      />,
+    );
+
+    await screen.findByText('Step 2 of 6: Resources');
+  });
+
+  it('should persist the new step index via updateGameDraftStepIndex after navigating steps, without re-saving the (redacted) draft', async () => {
+    // Regression test: `AddGameWizard`'s in-memory `initialDraft` here stands
+    // in for what `api.getGameDraft()` actually returns on resume —
+    // `environment[].value`/`file_seeds[].content` already blanked out by
+    // `GameWizardDraftService.get()`'s redaction. Step-only navigation must
+    // never re-send this blanked copy through `saveGameDraft`, or it would
+    // permanently overwrite the real, unredacted values still on disk.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(
+        <AddGameWizard
+          initialDraft={{
+            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+            ports: [], volumes: [], file_seeds: [], environment: [{ name: 'DB_PASSWORD', value: '' }], https: false,
+          }}
+          initialStepIndex={0}
+        />,
+      );
+      await screen.findByText('Step 1 of 6: Identity');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByText('Step 2 of 6: Resources');
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(apiMock.updateGameDraftStepIndex).toHaveBeenCalledWith(1);
+      expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should fall back to the full saveGameDraft once the operator actually edits a field on a resumed draft', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(
+        <AddGameWizard
+          initialDraft={{
+            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+            ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+          }}
+          initialStepIndex={0}
+        />,
+      );
+      await screen.findByText('Step 1 of 6: Identity');
+
+      await userEvent.type(screen.getByLabelText('Name'), '-2');
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(apiMock.saveGameDraft).toHaveBeenCalledWith(expect.objectContaining({ name: 'resumed-2' }), 0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should call onClose after the dialog closes', async () => {
+    const onClose = vi.fn();
+    render(
+      <AddGameWizard
+        initialDraft={{
+          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+        }}
+        initialStepIndex={0}
+        hideTrigger
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole('heading', { name: 'Add a game server' });
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });

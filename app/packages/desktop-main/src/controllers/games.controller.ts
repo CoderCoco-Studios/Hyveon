@@ -5,6 +5,8 @@ import { ConfigService } from '../services/ConfigService.js';
 import { EcsService } from '../services/EcsService.js';
 import { GamesWriteService } from '../services/GamesWriteService.js';
 import { DeploymentConfigService } from '../services/DeploymentConfigService.js';
+import { GameWizardDraftService } from '../services/GameWizardDraftService.js';
+import type { GameWizardDraft, StoredGameWizardDraft } from '../services/ElectronStoreService.js';
 import { mergeGameLists } from '../services/mergeGameLists.js';
 import { logger } from '../logger.js';
 
@@ -12,7 +14,8 @@ import { logger } from '../logger.js';
  * IPC-only game-server controller. Handles Electron main-process messages via
  * `@MessagePattern` / `@Payload` — no HTTP routes are registered here. It
  * delegates to the {@link ConfigService}, {@link EcsService},
- * {@link DeploymentConfigService}, and {@link GamesWriteService} providers.
+ * {@link DeploymentConfigService}, {@link GamesWriteService}, and
+ * {@link GameWizardDraftService} providers.
  */
 @Controller()
 export class GamesController {
@@ -21,6 +24,7 @@ export class GamesController {
     private readonly ecs: EcsService,
     private readonly deploymentConfig: DeploymentConfigService,
     private readonly gamesWrite: GamesWriteService,
+    private readonly gameWizardDraft: GameWizardDraftService,
   ) {}
 
   /**
@@ -153,5 +157,50 @@ export class GamesController {
   deleteGame(@Payload() payload: DeleteGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesController: games.delete invoked', { game: payload.name });
     return this.gamesWrite.deleteGame(payload);
+  }
+
+  /**
+   * Returns the saved add-game wizard draft, if any.
+   *
+   * Reachable via the Electron IPC transport (`games.draft.get`).
+   */
+  @MessagePattern('games.draft.get')
+  getDraft(): StoredGameWizardDraft | null {
+    logger.debug('GamesController: games.draft.get invoked');
+    return this.gameWizardDraft.get();
+  }
+
+  /**
+   * Saves the current add-game wizard draft and step index.
+   *
+   * Reachable via the Electron IPC transport (`games.draft.save`).
+   */
+  @MessagePattern('games.draft.save')
+  saveDraft(@Payload() payload: { draft: GameWizardDraft; stepIndex: number }): void {
+    logger.debug('GamesController: games.draft.save invoked');
+    this.gameWizardDraft.save(payload.draft, payload.stepIndex);
+  }
+
+  /**
+   * Updates only the `stepIndex` of an already-saved add-game wizard draft,
+   * leaving its stored fields (including secret-shaped ones) untouched.
+   *
+   * Reachable via the Electron IPC transport (`games.draft.updateStepIndex`).
+   */
+  @MessagePattern('games.draft.updateStepIndex')
+  updateDraftStepIndex(@Payload() payload: { stepIndex: number }): void {
+    logger.debug('GamesController: games.draft.updateStepIndex invoked');
+    this.gameWizardDraft.updateStepIndex(payload.stepIndex);
+  }
+
+  /**
+   * Clears the saved add-game wizard draft.
+   *
+   * Reachable via the Electron IPC transport (`games.draft.clear`).
+   */
+  @MessagePattern('games.draft.clear')
+  clearDraft(): void {
+    logger.debug('GamesController: games.draft.clear invoked');
+    this.gameWizardDraft.clear();
   }
 }

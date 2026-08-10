@@ -45,4 +45,6 @@ release/
 
 # legacy pre-rename marker dir — ignored during the .gsd -> .hyveon compat window
 .gsd/
+
+# Superpowers subagent-driven-development scratch workspace (ledgers, briefs, review packages)
 .superpowers/

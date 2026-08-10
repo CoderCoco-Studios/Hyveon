@@ -200,6 +200,32 @@ describe('preload dispatcher', () => {
       expect(ipcInvoke).toHaveBeenCalledWith('games.delete', payload);
       expect(result).toEqual(writeResult);
     });
+
+    it('should forward games.draft.get to ipcRenderer.invoke when no mock is registered', async () => {
+      ipcInvoke.mockResolvedValue(null);
+      const games = bridge['games'] as { draft: { get: () => Promise<unknown> } };
+      const result = await games.draft.get();
+
+      expect(ipcInvoke).toHaveBeenCalledWith('games.draft.get');
+      expect(result).toBeNull();
+    });
+
+    it('should forward games.draft.save with a single payload object to ipcRenderer.invoke', async () => {
+      const games = bridge['games'] as { draft: { save: (payload: unknown) => Promise<unknown> } };
+      const payload = { draft: { name: 'mygame' }, stepIndex: 2 };
+
+      await games.draft.save(payload);
+
+      expect(ipcInvoke).toHaveBeenCalledWith('games.draft.save', payload);
+    });
+
+    it('should forward games.draft.clear to ipcRenderer.invoke', async () => {
+      const games = bridge['games'] as { draft: { clear: () => Promise<unknown> } };
+
+      await games.draft.clear();
+
+      expect(ipcInvoke).toHaveBeenCalledWith('games.draft.clear');
+    });
   });
 
   // -------------------------------------------------------------------------
