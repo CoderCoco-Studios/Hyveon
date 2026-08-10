@@ -24,7 +24,8 @@ select or land on an invalid combination through slider interaction alone.
 - **WHEN** an operator has selected a memory value and then changes the
   vCPU slider such that the current memory value is no longer valid for
   the newly selected vCPU tier
-- **THEN** the memory slider's value is reset to a value that is valid
+- **THEN** the memory slider's value is reset to unset (not automatically
+  re-clamped to another valid value) — the operator must pick memory again
   for the newly selected vCPU tier
 
 ### Requirement: Resource selection applies to both add and edit flows

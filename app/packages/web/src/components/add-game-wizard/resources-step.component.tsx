@@ -49,24 +49,17 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
   const memoryIndex = memory !== null ? memoryOptions.indexOf(memory) : -1;
 
   // A range input must always render some numeric position, but "unset" has no
-  // natural index. Anchoring the unset position at the lowest tier (index 0)
-  // would make it indistinguishable, from the DOM's perspective, from a real
-  // drag onto that same lowest tier — React's controlled-input value tracker
-  // only fires onChange when the string value actually differs, so a drag onto
-  // an already-current value is a silent no-op, and an operator's first click
-  // or arrow-key press landing on that tier would silently do nothing.
-  // Anchoring at the midpoint instead keeps every real tier selection a
-  // genuine value change. Memory gets the same treatment below, anchored at
-  // its own last index instead of the midpoint — see that comment for why.
-  const unsetCpuIndex = Math.max(0, Math.floor((cpuOptions.length - 1) / 2));
-  // Anchored at the *last* index rather than the midpoint like unsetCpuIndex
-  // above: for the 256-vCPU tier's 3-value memory list ([512, 1024, 2048]),
-  // a midpoint anchor (index 1) would collide with a real operator target —
-  // 1024 MiB is a perfectly plausible first choice — reproducing the exact
-  // same-value no-op this fallback exists to prevent. The last index has no
-  // such collision for any memory list currently exercised by this
-  // component's tests or its callers' fill helpers.
-  const unsetMemoryIndex = Math.max(0, memoryOptions.length - 1);
+  // natural index, so both sliders fall back to index 0 while unset. That
+  // fallback would normally risk a same-value no-op: a real drag/keypress
+  // landing on the already-rendered fallback position doesn't change the
+  // string value, so a controlled input's onChange never fires. The
+  // onPointerUp/onKeyUp handlers below close that gap by explicitly
+  // committing the slider's current rendered position on interaction, so a
+  // same-value landing is applied immediately instead of silently dropped —
+  // which is what makes a single shared, uncontroversial fallback of 0 safe
+  // for both sliders.
+  const unsetCpuIndex = 0;
+  const unsetMemoryIndex = 0;
 
   const cpuError = issues.find((issue) => issue.path === 'cpu')?.message;
   const memoryError = issues.find((issue) => issue.path === 'memory')?.message;
@@ -100,10 +93,16 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           step={1}
           value={cpuIndex >= 0 ? cpuIndex : unsetCpuIndex}
           onChange={(e) => handleCpuIndexChange(e.target.value)}
+          onPointerUp={(e) => {
+            if (cpu === null) handleCpuIndexChange(e.currentTarget.value);
+          }}
+          onKeyUp={(e) => {
+            if (cpu === null) handleCpuIndexChange(e.currentTarget.value);
+          }}
           aria-invalid={cpuError ? 'true' : 'false'}
           aria-describedby={cpuError ? 'wizard-resources-cpu-error' : undefined}
           aria-valuetext={cpu !== null ? formatVcpu(cpu) : 'not selected'}
-          className={`w-56 ${cpu === null ? 'opacity-50' : ''}`}
+          className={`w-full ${cpu === null ? 'opacity-50' : ''}`}
         />
         <div className="flex justify-between text-xs text-[var(--color-muted-foreground)]">
           {cpuOptions.map((option) => (
@@ -130,12 +129,24 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           step={1}
           value={memoryIndex >= 0 ? memoryIndex : unsetMemoryIndex}
           onChange={(e) => handleMemoryIndexChange(e.target.value)}
+          onPointerUp={(e) => {
+            if (memory === null) handleMemoryIndexChange(e.currentTarget.value);
+          }}
+          onKeyUp={(e) => {
+            if (memory === null) handleMemoryIndexChange(e.currentTarget.value);
+          }}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}
           aria-describedby={memoryError ? 'wizard-resources-memory-error' : undefined}
           aria-valuetext={memory !== null ? formatGib(memory) : 'not selected'}
-          className={`w-56 disabled:opacity-50 ${memory === null ? 'opacity-50' : ''}`}
+          className={`w-full disabled:opacity-50 ${memory === null ? 'opacity-50' : ''}`}
         />
+        {memoryOptions.length > 0 && (
+          <div className="flex justify-between text-xs text-[var(--color-muted-foreground)]">
+            <span>{formatGib(memoryOptions[0])}</span>
+            <span>{formatGib(memoryOptions[memoryOptions.length - 1])}</span>
+          </div>
+        )}
         <p className="text-sm text-[var(--color-foreground)]">
           {memory !== null ? formatGib(memory) : 'Select memory'}
         </p>

@@ -46,12 +46,20 @@ async function goNext() {
   await userEvent.click(screen.getByRole('button', { name: 'Next' }));
 }
 
-/** Selects a valid Fargate cpu/memory pairing on the Resources step. */
+/**
+ * Selects a valid Fargate cpu/memory pairing on the Resources step. Both
+ * sliders render index 0 while unset, and 256/512 (the 0.25 vCPU tier's
+ * lowest memory option) are index 0 of their respective option lists, so a
+ * plain `change` event would be a same-value no-op against the unset
+ * fallback — `pointerUp` exercises the commit-on-interaction handler
+ * instead, matching how a real drag landing on the fallback position
+ * behaves.
+ */
 function fillResourcesStep() {
   const cpuOptions = getFargateCpuOptions();
-  fireEvent.change(screen.getByLabelText('vCPU'), { target: { value: String(cpuOptions.indexOf(256)) } });
+  fireEvent.pointerUp(screen.getByLabelText('vCPU'), { target: { value: String(cpuOptions.indexOf(256)) } });
   const memoryOptions = getFargateMemoryOptions(256);
-  fireEvent.change(screen.getByLabelText('Memory'), { target: { value: String(memoryOptions.indexOf(512)) } });
+  fireEvent.pointerUp(screen.getByLabelText('Memory'), { target: { value: String(memoryOptions.indexOf(512)) } });
 }
 
 /** Adds and fills a single volume row on the Storage step (the server requires at least one). */

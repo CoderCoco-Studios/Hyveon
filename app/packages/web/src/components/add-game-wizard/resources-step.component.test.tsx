@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/gameServerValidator';
+import {
+  getFargateCpuOptions,
+  getFargateMemoryOptions,
+  estimateFargateHourlyCost,
+} from '@hyveon/shared/gameServerValidator';
 import { ResourcesStep } from './resources-step.component.js';
 
 describe('ResourcesStep', () => {
@@ -31,9 +35,14 @@ describe('ResourcesStep', () => {
     const onChange = vi.fn();
     render(<ResourcesStep cpu={null} memory={null} onChange={onChange} issues={[]} />);
 
+    // 256 is cpuOptions[0], the same index the slider already renders while
+    // unset — a plain `change` event is a same-value no-op here (nothing
+    // about the string value differs), so this exercises the onPointerUp
+    // commit-on-interaction handler instead, the same way a real drag that
+    // lands back on the rendered fallback position would.
     const cpuOptions = getFargateCpuOptions();
     const cpuSlider = screen.getByLabelText('vCPU');
-    fireEvent.change(cpuSlider, { target: { value: String(cpuOptions.indexOf(256)) } });
+    fireEvent.pointerUp(cpuSlider, { target: { value: String(cpuOptions.indexOf(256)) } });
 
     expect(onChange).toHaveBeenCalledWith({ cpu: 256, memory: null });
   });
@@ -76,7 +85,10 @@ describe('ResourcesStep', () => {
   it('should handle the 0.25 vCPU tier fixed 3-value memory list including the 0.5 GiB option', () => {
     render(<ResourcesStep cpu={256} memory={512} onChange={() => undefined} issues={[]} />);
 
-    expect(screen.getByText('0.5 GiB')).toBeInTheDocument();
+    // "0.5 GiB" appears twice here: once as the memory slider's min-endpoint
+    // label and once as the selected-value readout, since 512 MiB is both
+    // the lowest option for the 256-cpu tier and the currently-selected one.
+    expect(screen.getAllByText('0.5 GiB').length).toBeGreaterThan(0);
   });
 
   it('should handle the 16 vCPU tier 8 GiB memory step', () => {
@@ -90,8 +102,7 @@ describe('ResourcesStep', () => {
     expect(onChange).toHaveBeenCalledWith({ cpu: 16384, memory: memoryOptions[1] });
   });
 
-  it('should show a live hourly cost estimate matching estimateFargateHourlyCost', async () => {
-    const { estimateFargateHourlyCost } = await import('@hyveon/shared/gameServerValidator');
+  it('should show a live hourly cost estimate matching estimateFargateHourlyCost', () => {
     render(<ResourcesStep cpu={1024} memory={2048} onChange={() => undefined} issues={[]} />);
 
     const expected = estimateFargateHourlyCost(1024, 2048);
