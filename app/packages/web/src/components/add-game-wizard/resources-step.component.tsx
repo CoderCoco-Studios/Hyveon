@@ -1,3 +1,4 @@
+import type { KeyboardEvent, PointerEvent } from 'react';
 import {
   getFargateCpuOptions,
   getFargateMemoryOptions,
@@ -36,6 +37,34 @@ function formatGib(memoryMib: number): string {
  * position as though the operator had deliberately interacted with it.
  */
 const RANGE_COMMIT_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+
+/**
+ * Builds the shared `onPointerUp`/`onKeyUp` pair that commits a slider's
+ * rendered fallback position on a same-value landing (see the "unset" note
+ * on {@link ResourcesStep}).
+ *
+ * `onPointerUp` only commits while `isUnset` (`cpu`/`memory` is `null`) —
+ * there's nothing to lose there, so treating a plain click on the fallback
+ * position as a deliberate first selection is safe. It does *not* fire for
+ * a non-null value that's merely absent from the current options list (a
+ * stored value outside the current Fargate tier table): a native range
+ * input's click-to-reposition can't be distinguished from a click that only
+ * meant to focus the control, so auto-committing there would silently
+ * discard the operator's original value on a stray click. `onKeyUp` stays
+ * gated on `index < 0` (covers both unset and that stored-invalid case)
+ * since a range-relevant keypress is an unambiguous, deliberate interaction
+ * either way.
+ */
+function rangeCommitHandlers(index: number, isUnset: boolean, commit: (rawIndex: string) => void) {
+  return {
+    onPointerUp: (e: PointerEvent<HTMLInputElement>) => {
+      if (isUnset) commit(e.currentTarget.value);
+    },
+    onKeyUp: (e: KeyboardEvent<HTMLInputElement>) => {
+      if (index < 0 && RANGE_COMMIT_KEYS.includes(e.key)) commit(e.currentTarget.value);
+    },
+  };
+}
 
 /**
  * "Resources" step of the add-game wizard (#99) and edit-game form: vCPU and
@@ -102,12 +131,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           step={1}
           value={cpuIndex >= 0 ? cpuIndex : unsetCpuIndex}
           onChange={(e) => handleCpuIndexChange(e.target.value)}
-          onPointerUp={(e) => {
-            if (cpuIndex < 0) handleCpuIndexChange(e.currentTarget.value);
-          }}
-          onKeyUp={(e) => {
-            if (cpuIndex < 0 && RANGE_COMMIT_KEYS.includes(e.key)) handleCpuIndexChange(e.currentTarget.value);
-          }}
+          {...rangeCommitHandlers(cpuIndex, cpu === null, handleCpuIndexChange)}
           aria-invalid={cpuError ? 'true' : 'false'}
           aria-describedby={cpuError ? 'wizard-resources-cpu-error' : undefined}
           aria-valuetext={cpu !== null ? formatVcpu(cpu) : 'not selected'}
@@ -138,13 +162,7 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           step={1}
           value={memoryIndex >= 0 ? memoryIndex : unsetMemoryIndex}
           onChange={(e) => handleMemoryIndexChange(e.target.value)}
-          onPointerUp={(e) => {
-            if (memoryIndex < 0) handleMemoryIndexChange(e.currentTarget.value);
-          }}
-          onKeyUp={(e) => {
-            if (memoryIndex < 0 && RANGE_COMMIT_KEYS.includes(e.key))
-              handleMemoryIndexChange(e.currentTarget.value);
-          }}
+          {...rangeCommitHandlers(memoryIndex, memory === null, handleMemoryIndexChange)}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}
           aria-describedby={memoryError ? 'wizard-resources-memory-error' : undefined}

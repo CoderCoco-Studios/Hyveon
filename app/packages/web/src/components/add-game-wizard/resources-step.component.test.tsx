@@ -173,4 +173,32 @@ describe('ResourcesStep', () => {
       screen.getByText('memory 1536 MiB is not a valid Fargate pairing for cpu=256.'),
     ).toBeInTheDocument();
   });
+
+  it('should not overwrite a stored cpu value outside the current tier table on a plain pointer release', () => {
+    // cpu=100 isn't a Fargate tier, so it renders at the fallback index 0 —
+    // a same-value pointerUp there must not silently discard it in favor of
+    // cpuOptions[0] (256), since nothing about a plain click distinguishes
+    // "correcting the value" from "just clicking to focus the control."
+    const onChange = vi.fn();
+    render(<ResourcesStep cpu={100} memory={null} onChange={onChange} issues={[]} />);
+
+    const cpuSlider = screen.getByLabelText('vCPU');
+    fireEvent.pointerUp(cpuSlider, { target: { value: '0' } });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('should still correct a stored cpu value outside the current tier table via a range-relevant keyup', () => {
+    // Keyboard interaction is unambiguous, so the same out-of-table cpu=100
+    // value must remain correctable that way even though a plain click no
+    // longer commits it.
+    const onChange = vi.fn();
+    render(<ResourcesStep cpu={100} memory={null} onChange={onChange} issues={[]} />);
+
+    const cpuOptions = getFargateCpuOptions();
+    const cpuSlider = screen.getByLabelText('vCPU');
+    fireEvent.keyUp(cpuSlider, { key: 'ArrowRight', target: { value: String(cpuOptions.indexOf(256)) } });
+
+    expect(onChange).toHaveBeenCalledWith({ cpu: 256, memory: null });
+  });
 });
