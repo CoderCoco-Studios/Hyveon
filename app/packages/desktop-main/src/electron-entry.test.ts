@@ -15,6 +15,8 @@ const {
   MockBrowserWindow,
   mockGetAllWindows,
   mockExistsSync,
+  mockSetWindowOpenHandler,
+  mockOpenExternal,
   bootstrapMock,
   initUpdaterMock,
   fakeNestApp,
@@ -27,6 +29,10 @@ const {
   const mockLoadFile = vi.fn().mockResolvedValue(undefined);
   const mockQuit = vi.fn();
   const mockGetAllWindows = vi.fn().mockReturnValue([]);
+  /** Spy for `win.webContents.setWindowOpenHandler`. */
+  const mockSetWindowOpenHandler = vi.fn();
+  /** Spy for `shell.openExternal`. */
+  const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
 
   /**
    * Collects every callback passed to `app.whenReady().then(cb)`.
@@ -68,6 +74,7 @@ const {
       return {
         loadURL: mockLoadURL,
         loadFile: mockLoadFile,
+        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
       };
     }),
     {
@@ -92,6 +99,8 @@ const {
     MockBrowserWindow,
     mockGetAllWindows,
     mockExistsSync,
+    mockSetWindowOpenHandler,
+    mockOpenExternal,
     bootstrapMock,
     initUpdaterMock,
     fakeNestApp,
@@ -112,6 +121,9 @@ vi.mock('electron', () => ({
     quit: mockQuit,
   },
   BrowserWindow: MockBrowserWindow,
+  shell: {
+    openExternal: mockOpenExternal,
+  },
 }));
 
 vi.mock('./main.js', () => ({
@@ -136,6 +148,7 @@ describe('electron-entry', () => {
     initUpdaterMock.mockResolvedValue(undefined);
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
+    mockOpenExternal.mockResolvedValue(undefined);
 
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
@@ -144,6 +157,7 @@ describe('electron-entry', () => {
       return {
         loadURL: mockLoadURL,
         loadFile: mockLoadFile,
+        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
       };
     });
 
