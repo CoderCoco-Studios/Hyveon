@@ -1,6 +1,6 @@
-## Workflow routing (read on session start)
+## Workflow routing
 
-This repo uses [`superpowers-bridge`](https://github.com/JiangWay/openspec-schemas/tree/main/superpowers-bridge) to bridge OpenSpec and Superpowers. Integration rules (language, artifact paths, PRECHECK) follow that bridge's README; this section is the routing guidance for Claude.
+Repo bridges OpenSpec ↔ Superpowers via [`superpowers-bridge`](https://github.com/JiangWay/openspec-schemas/tree/main/superpowers-bridge). Full integration rules (language, artifact paths, PRECHECK) live in that README; below is routing only.
 
 ### Entry routing
 
