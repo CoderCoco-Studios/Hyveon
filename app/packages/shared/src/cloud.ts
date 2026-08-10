@@ -1,5 +1,6 @@
 import type { AuditEntry, AuditPageResult } from './audit.js';
 import type { RunLock, RunPageResult, RunRecord, RunStatus } from './runs.js';
+import type { BaseDiscordConfig, DiscordConfig } from './types.js';
 
 /** Options for launching a game workload. Intentionally open/opaque for v1; implementations may accept provider-specific keys or refine this via intersection. */
 export interface StartOpts {
@@ -223,6 +224,25 @@ export interface AuditLogStore {
    * @returns The requested page of entries plus a cursor for the next page.
    */
   listEntries(limit: number, before?: string): Promise<AuditPageResult>;
+}
+
+/**
+ * Cloud-agnostic interface for reading and writing the Discord serverless
+ * backend's config row(s) — the app-managed allowlist/admins/game
+ * permissions and the Pulumi-managed base allowlist/admins. Implementations
+ * may target AWS DynamoDB, Azure Table Storage, GCP Firestore, or any other
+ * backend — callers depend only on this contract. No `@aws-sdk/*` shapes
+ * appear in this interface or its parameter/return types.
+ */
+export interface DiscordConfigStore {
+  /** Read the app-managed dynamic config row. */
+  getConfig(): Promise<DiscordConfig>;
+
+  /** Read the Pulumi-managed base allowlist/admins row. */
+  getBaseConfig(): Promise<BaseDiscordConfig>;
+
+  /** Overwrite the app-managed dynamic config row. */
+  putConfig(cfg: DiscordConfig): Promise<void>;
 }
 
 /**

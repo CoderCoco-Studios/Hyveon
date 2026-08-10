@@ -1,16 +1,16 @@
 /**
  * Tests for the DynamoDB + Secrets Manager-backed DiscordConfigService.
  *
- * The service is a thin wrapper around `@hyveon/shared/ddb/configStore` and a
- * constructor-injected `SecretsStore` (`AwsSecretsStore` in production, a
- * stub here) — the stores themselves have their own tests under the shared /
- * cloud-aws packages. Here we validate the wiring: that the right stores get
- * called with the right args, that the redacted view strips both secrets,
- * and that the controller-facing contract (same method names as the old
- * file-backed service) still behaves.
+ * The service is a thin wrapper over the cloud-agnostic `DiscordConfigStore`
+ * and `SecretsStore` contracts (`AwsDiscordConfigStore`/`AwsSecretsStore` in
+ * production, stubs here) — the stores themselves have their own tests under
+ * the cloud-aws package. Here we validate the wiring: that the right stores
+ * get called with the right args, that the redacted view strips both
+ * secrets, and that the controller-facing contract (same method names as the
+ * old file-backed service) still behaves.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SecretsStore, StackOutputs } from '@hyveon/shared';
+import type { DiscordConfigStore, SecretsStore, StackOutputs } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -19,20 +19,6 @@ vi.mock('../logger.js', () => ({
 import { logger } from '../logger.js';
 import { DiscordConfigService } from './DiscordConfigService.js';
 import { ConfigService } from './ConfigService.js';
-
-const getDiscordConfigMock = vi.fn();
-const getBaseDiscordConfigMock = vi.fn();
-const putDiscordConfigMock = vi.fn();
-
-vi.mock('@hyveon/shared', async () => {
-  const actual = await vi.importActual<typeof import('@hyveon/shared')>('@hyveon/shared');
-  return {
-    ...actual,
-    getDiscordConfig: (...args: unknown[]) => getDiscordConfigMock(...args),
-    getBaseDiscordConfig: (...args: unknown[]) => getBaseDiscordConfigMock(...args),
-    putDiscordConfig: (...args: unknown[]) => putDiscordConfigMock(...args),
-  };
-});
 
 /** Minimal `StackOutputs` stub exposing just the Discord-store fields. */
 const STACK_OUTPUTS: StackOutputs = {
@@ -68,32 +54,58 @@ function makeSecretsStore(): SecretsStore {
   return { get: secretsGetMock, put: secretsPutMock, exists: secretsExistsMock };
 }
 
+/** Mocks for the injected `DiscordConfigStore` stub. */
+const getConfigMock = vi.fn<DiscordConfigStore['getConfig']>();
+const getBaseConfigMock = vi.fn<DiscordConfigStore['getBaseConfig']>();
+const putConfigMock = vi.fn<DiscordConfigStore['putConfig']>();
+
+/**
+ * Builds a `DiscordConfigStore`-shaped stub backed by the mocks above.
+ * Regression coverage note: `DiscordConfigService` used to call
+ * `@hyveon/shared`'s `getDocClient()` (no credentials) directly, which falls
+ * back to the AWS SDK's default provider chain in the Electron main process
+ * and throws a spurious `CredentialsProviderError` ("Your session has
+ * expired") once any ambient host `aws login` session expires — even though
+ * the wizard's own stored credentials were still valid. It must now go
+ * through the injected `DiscordConfigStore` (bound to `AwsDiscordConfigStore`,
+ * which resolves the wizard's credentials itself) instead of touching
+ * `@hyveon/shared`'s configStore functions or `getDocClient()` directly —
+ * this test file no longer mocks either.
+ */
+function makeDiscordStore(): DiscordConfigStore {
+  return { getConfig: getConfigMock, getBaseConfig: getBaseConfigMock, putConfig: putConfigMock };
+}
+
 function makeService(
   outputs: StackOutputs | null = STACK_OUTPUTS,
   secrets: SecretsStore = makeSecretsStore(),
+  discordStore: DiscordConfigStore = makeDiscordStore(),
 ): DiscordConfigService {
-  const config = { getStackOutputs: async () => outputs } as Partial<ConfigService> as ConfigService;
-  return new DiscordConfigService(config, secrets);
+  const config = {
+    getStackOutputs: async () => outputs,
+    getRegion: () => 'us-east-1',
+  } as Partial<ConfigService> as ConfigService;
+  return new DiscordConfigService(config, secrets, discordStore);
 }
 
 beforeEach(() => {
-  getDiscordConfigMock.mockReset();
-  getBaseDiscordConfigMock.mockReset();
-  putDiscordConfigMock.mockReset();
+  getConfigMock.mockReset();
+  getBaseConfigMock.mockReset();
+  putConfigMock.mockReset();
   secretsGetMock.mockReset();
   secretsPutMock.mockReset();
   secretsExistsMock.mockReset();
-  getDiscordConfigMock.mockResolvedValue({
+  getConfigMock.mockResolvedValue({
     clientId: '',
     allowedGuilds: [],
     admins: { userIds: [], roleIds: [] },
     gamePermissions: {},
   });
-  getBaseDiscordConfigMock.mockResolvedValue({
+  getBaseConfigMock.mockResolvedValue({
     allowedGuilds: [],
     admins: { userIds: [], roleIds: [] },
   });
-  putDiscordConfigMock.mockResolvedValue(undefined);
+  putConfigMock.mockResolvedValue(undefined);
   secretsGetMock.mockResolvedValue(undefined);
   secretsPutMock.mockResolvedValue(undefined);
   vi.mocked(logger.debug).mockClear();
@@ -114,11 +126,11 @@ describe('DiscordConfigService construction', () => {
       admins: { userIds: [], roleIds: [] },
       gamePermissions: {},
     });
-    expect(getDiscordConfigMock).not.toHaveBeenCalled();
+    expect(getConfigMock).not.toHaveBeenCalled();
   });
 
   it('should log a warning-level detail-free error and degrade to an empty config when the DynamoDB read fails', async () => {
-    getDiscordConfigMock.mockRejectedValueOnce(new Error('ResourceNotFoundException'));
+    getConfigMock.mockRejectedValueOnce(new Error('ResourceNotFoundException'));
     const svc = makeService();
 
     const cfg = await svc.getConfig();
@@ -138,7 +150,7 @@ describe('DiscordConfigService construction', () => {
 
 describe('DiscordConfigService.getRedacted', () => {
   it('should indicate when both secrets are configured and return the DDB config body', async () => {
-    getDiscordConfigMock.mockResolvedValue({
+    getConfigMock.mockResolvedValue({
       clientId: 'client-xyz',
       allowedGuilds: ['G1'],
       admins: { userIds: ['U1'], roleIds: [] },
@@ -172,7 +184,7 @@ describe('DiscordConfigService.getRedacted', () => {
   });
 
   it('should include base guild and admin lists from the BASE#discord row', async () => {
-    getBaseDiscordConfigMock.mockResolvedValue({
+    getBaseConfigMock.mockResolvedValue({
       allowedGuilds: ['G-base'],
       admins: { userIds: ['U-base'], roleIds: ['R-base'] },
     });
@@ -182,7 +194,7 @@ describe('DiscordConfigService.getRedacted', () => {
   });
 
   it('should return empty base lists when no BASE#discord row exists', async () => {
-    getBaseDiscordConfigMock.mockResolvedValue({ allowedGuilds: [], admins: { userIds: [], roleIds: [] } });
+    getBaseConfigMock.mockResolvedValue({ allowedGuilds: [], admins: { userIds: [], roleIds: [] } });
     const redacted = await makeService().getRedacted();
     expect(redacted.baseAllowedGuilds).toEqual([]);
     expect(redacted.baseAdmins).toEqual({ userIds: [], roleIds: [] });
@@ -207,10 +219,7 @@ describe('DiscordConfigService.setCredentials', () => {
     const svc = makeService();
     const ok = await svc.setCredentials({ clientId: 'abc', botToken: 'tok', publicKey: 'hex' });
     expect(ok).toBe(true);
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
-      expect.objectContaining({ clientId: 'abc' }),
-    );
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ clientId: 'abc' }));
     expect(secretsPutMock).toHaveBeenCalledWith('arn:bot-token', 'tok');
     expect(secretsPutMock).toHaveBeenCalledWith('arn:public-key', 'hex');
   });
@@ -219,7 +228,7 @@ describe('DiscordConfigService.setCredentials', () => {
     const svc = makeService();
     const ok = await svc.setCredentials({ clientId: 42 });
     expect(ok).toBe(false);
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
     expect(secretsPutMock).not.toHaveBeenCalled();
   });
 
@@ -228,7 +237,7 @@ describe('DiscordConfigService.setCredentials', () => {
     await svc.setCredentials({ publicKey: 'hex' });
     expect(secretsPutMock).toHaveBeenCalledWith('arn:public-key', 'hex');
     expect(secretsPutMock).not.toHaveBeenCalledWith('arn:bot-token', expect.anything());
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
   });
 
   it('should skip Secrets Manager writes when a token field is an empty string', async () => {
@@ -252,7 +261,7 @@ describe('DiscordConfigService.setCredentials', () => {
 
 describe('DiscordConfigService.allowedGuilds mutations', () => {
   it('should add a guild idempotently (no-op if already present)', async () => {
-    getDiscordConfigMock.mockResolvedValue({
+    getConfigMock.mockResolvedValue({
       clientId: '',
       allowedGuilds: ['G1'],
       admins: { userIds: [], roleIds: [] },
@@ -260,20 +269,17 @@ describe('DiscordConfigService.allowedGuilds mutations', () => {
     });
     const svc = makeService();
     await svc.addAllowedGuild('G1');
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
   });
 
   it('should persist an added guild when it is new', async () => {
     const svc = makeService();
     await svc.addAllowedGuild('G2');
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
-      expect.objectContaining({ allowedGuilds: ['G2'] }),
-    );
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ allowedGuilds: ['G2'] }));
   });
 
   it('should remove a guild from the dynamic allowlist and return ok', async () => {
-    getDiscordConfigMock.mockResolvedValue({
+    getConfigMock.mockResolvedValue({
       clientId: '',
       allowedGuilds: ['G1', 'G2'],
       admins: { userIds: [], roleIds: [] },
@@ -282,34 +288,28 @@ describe('DiscordConfigService.allowedGuilds mutations', () => {
     const svc = makeService();
     const result = await svc.removeAllowedGuild('G1');
     expect(result).toEqual({ ok: true });
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
-      expect.objectContaining({ allowedGuilds: ['G2'] }),
-    );
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ allowedGuilds: ['G2'] }));
   });
 
   it('should refuse to remove a guild that is in the base config', async () => {
-    getBaseDiscordConfigMock.mockResolvedValue({
+    getBaseConfigMock.mockResolvedValue({
       allowedGuilds: ['G-base'],
       admins: { userIds: [], roleIds: [] },
     });
     const svc = makeService();
     const result = await svc.removeAllowedGuild('G-base');
     expect(result).toMatchObject({ ok: false });
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
   });
 
   it('should dedupe and drop empty strings when setAllowedGuilds is called', async () => {
     const svc = makeService();
     await svc.setAllowedGuilds(['G1', '', 'G1', 'G2']);
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
-      expect.objectContaining({ allowedGuilds: ['G1', 'G2'] }),
-    );
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ allowedGuilds: ['G1', 'G2'] }));
   });
 
   it('should log an error and rethrow with just the message when the DynamoDB write fails', async () => {
-    putDiscordConfigMock.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+    putConfigMock.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
     const svc = makeService();
 
     await expect(svc.setAllowedGuilds(['G1'])).rejects.toThrow('ProvisionedThroughputExceededException');
@@ -330,8 +330,7 @@ describe('DiscordConfigService.setGamePermission', () => {
       actions: ['start', 'nope'],
     });
     expect(ok).toBe(true);
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
+    expect(putConfigMock).toHaveBeenCalledWith(
       expect.objectContaining({
         gamePermissions: { palworld: { userIds: ['U1'], roleIds: ['R1'], actions: ['start'] } },
       }),
@@ -342,13 +341,13 @@ describe('DiscordConfigService.setGamePermission', () => {
     const svc = makeService();
     const ok = await svc.setGamePermission('__proto__', { userIds: [], roleIds: [], actions: [] });
     expect(ok).toBe(false);
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
   });
 });
 
 describe('DiscordConfigService.deleteGamePermission', () => {
   it('should remove the entry and persist the updated config', async () => {
-    getDiscordConfigMock.mockResolvedValue({
+    getConfigMock.mockResolvedValue({
       clientId: '',
       allowedGuilds: [],
       admins: { userIds: [], roleIds: [] },
@@ -359,16 +358,13 @@ describe('DiscordConfigService.deleteGamePermission', () => {
     const svc = makeService();
     const ok = await svc.deleteGamePermission('palworld');
     expect(ok).toBe(true);
-    expect(putDiscordConfigMock).toHaveBeenCalledWith(
-      'test-discord',
-      expect.objectContaining({ gamePermissions: {} }),
-    );
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ gamePermissions: {} }));
   });
 
   it('should refuse to delete with an unsafe key', async () => {
     const svc = makeService();
     const ok = await svc.deleteGamePermission('constructor');
     expect(ok).toBe(false);
-    expect(putDiscordConfigMock).not.toHaveBeenCalled();
+    expect(putConfigMock).not.toHaveBeenCalled();
   });
 });

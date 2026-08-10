@@ -1,4 +1,5 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { BaseDiscordConfig, DiscordConfig } from '../types.js';
 import { asString, asStringArray, isSafeGameKey, sanitizeGamePermission } from '../sanitize.js';
 import { getDocClient } from './client.js';
@@ -71,9 +72,19 @@ function parseBaseData(raw: unknown): BaseDiscordConfig {
  * app's original IaC tool). Returns an empty base when the row is absent (i.e. `baseAllowedGuilds`,
  * `baseAdminUserIds`, and `baseAdminRoleIds` are all unset on
  * {@link DeploymentConfig}).
+ *
+ * @param client - Document client to use; defaults to the shared
+ *   {@link getDocClient} singleton (correct for the Lambdas, which sign with
+ *   their execution role). Callers outside a Lambda's default credential
+ *   chain — e.g. the desktop app's Electron main process, which has no
+ *   `~/.aws` profile or env-var credentials — must pass a client built with
+ *   the operator's resolved AWS credentials instead.
  */
-export async function getBaseDiscordConfig(tableName: string): Promise<BaseDiscordConfig> {
-  const resp = await getDocClient().send(
+export async function getBaseDiscordConfig(
+  tableName: string,
+  client: DynamoDBDocumentClient = getDocClient(),
+): Promise<BaseDiscordConfig> {
+  const resp = await client.send(
     new GetCommand({
       TableName: tableName,
       Key: { pk: BASE_PK, sk: BASE_SK },
@@ -89,11 +100,16 @@ export async function getBaseDiscordConfig(tableName: string): Promise<BaseDisco
  * return their union as the effective config. This is what `canRun()` and
  * the Lambdas should use — it ensures base entries are always enforced even
  * when the dynamic row doesn't list them.
+ *
+ * @param client - See {@link getBaseDiscordConfig}'s `client` param.
  */
-export async function getEffectiveDiscordConfig(tableName: string): Promise<DiscordConfig> {
+export async function getEffectiveDiscordConfig(
+  tableName: string,
+  client: DynamoDBDocumentClient = getDocClient(),
+): Promise<DiscordConfig> {
   const [dynamic, base] = await Promise.all([
-    getDiscordConfig(tableName),
-    getBaseDiscordConfig(tableName),
+    getDiscordConfig(tableName, client),
+    getBaseDiscordConfig(tableName, client),
   ]);
   return {
     clientId: dynamic.clientId,
@@ -106,9 +122,16 @@ export async function getEffectiveDiscordConfig(tableName: string): Promise<Disc
   };
 }
 
-/** Read the single DiscordConfig row; returns an empty config if the item is absent. */
-export async function getDiscordConfig(tableName: string): Promise<DiscordConfig> {
-  const resp = await getDocClient().send(
+/**
+ * Read the single DiscordConfig row; returns an empty config if the item is absent.
+ *
+ * @param client - See {@link getBaseDiscordConfig}'s `client` param.
+ */
+export async function getDiscordConfig(
+  tableName: string,
+  client: DynamoDBDocumentClient = getDocClient(),
+): Promise<DiscordConfig> {
+  const resp = await client.send(
     new GetCommand({
       TableName: tableName,
       Key: { pk: CONFIG_PK, sk: CONFIG_SK },
@@ -119,9 +142,17 @@ export async function getDiscordConfig(tableName: string): Promise<DiscordConfig
   return parseConfigData(resp.Item['data']);
 }
 
-/** Overwrite the single DiscordConfig row. */
-export async function putDiscordConfig(tableName: string, cfg: DiscordConfig): Promise<void> {
-  await getDocClient().send(
+/**
+ * Overwrite the single DiscordConfig row.
+ *
+ * @param client - See {@link getBaseDiscordConfig}'s `client` param.
+ */
+export async function putDiscordConfig(
+  tableName: string,
+  cfg: DiscordConfig,
+  client: DynamoDBDocumentClient = getDocClient(),
+): Promise<void> {
+  await client.send(
     new PutCommand({
       TableName: tableName,
       Item: {
