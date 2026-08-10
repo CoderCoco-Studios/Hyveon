@@ -29,7 +29,7 @@ The add-game wizard's Resources step picks a game server's Fargate vCPU and memo
 - `app/packages/web/src/components/add-game-wizard/resources-step.component.tsx` — control implementation (dropdowns → sliders), new cost readout.
 - `app/packages/shared/src/gameServerValidator.ts` (or a new sibling module) — new `estimateFargateHourlyCost(cpu, memory)` pure function.
 - `app/packages/cloud-aws/src/AwsCloudProvider.ts` — `FARGATE_VCPU_PER_HOUR`/`FARGATE_GB_PER_HOUR` relocate to `@hyveon/shared`; this file re-imports them.
-- `app/packages/desktop-main/src/services/CostService.ts` — updates its import path for the relocated constants; no behavior change.
-- Test files: `resources-step.component.spec` (jsdom), new unit spec for `estimateFargateHourlyCost`.
+- `app/packages/desktop-main/src/services/CostService.ts` — continues importing the constants from `@hyveon/cloud-aws`, which re-exports the shared definitions; no behavior change.
+- Test files: `app/packages/web/src/components/add-game-wizard/resources-step.component.test.tsx` and `app/packages/shared/src/gameServerValidator.test.ts`.
 - `docs/docs/app/` — wizard page gets a short update describing the new control and live estimate.
 - No infra, IAM, or deployment-config schema changes — `cpu`/`memory` fields and their AWS-side meaning are unchanged.

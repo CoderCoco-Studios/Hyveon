@@ -15,7 +15,7 @@
 - TSDoc comments on non-trivial functions and notable constants, following `.claude/rules/tsdoc-tags.md` (summary → `@remarks`/`@example` if any → `@param` in order → `@returns`; `@param name - description` hyphen form).
 - Run `npm run app:lint` after writing/editing any TSDoc comment.
 - Working directory for every command below is the repo root of this worktree: `/home/chris/GitHub/Hyveon/.claude/worktrees/game-server-resource-sliders`. `npm install` has already been run here.
-- No infra, deployment-config, or IPC surface changes in this plan — `npm run app:test:e2e` is not required by `CLAUDE.md`'s pre-PR gate, but Task 5 still runs the full gate to confirm.
+- This plan changes the renderer's add-game and edit-game resource flow, so `npm run app:test:e2e` is required by `CLAUDE.md`'s pre-PR gate — Task 5 runs it alongside the rest of the gate.
 
 ---
 
@@ -603,19 +603,12 @@ git commit -m "test(web): drive the add-game wizard's resource sliders instead o
 npm run app:lint
 npm run app:typecheck
 npm run app:test
+npm run app:test:e2e
 ```
 
-Expected: all three exit 0. Fix any failure before proceeding — do not skip or silence a failing check.
+Expected: all four exit 0. Fix any failure before proceeding — do not skip or silence a failing check. `npm run app:test:e2e` is required here because this plan changes the renderer's add-game and edit-game resource flow, per `CLAUDE.md`'s "when the renderer, preload bridge, or IPC surface changed" rule.
 
-- [ ] **Step 2: Confirm no IPC/renderer/preload surface changed**
-
-```bash
-git diff --stat main...HEAD -- app/packages/desktop-preload app/packages/desktop-main/src/controllers
-```
-
-Expected: empty output (no IPC channel or preload bridge touched by this change) — confirms `npm run app:test:e2e` is not required by `CLAUDE.md`'s "when the renderer, preload bridge, or IPC surface changed" rule. If this shows any output, run `npm run app:test:e2e` too and fix any failure before proceeding.
-
-- [ ] **Step 3: Update the wizard docs page**
+- [ ] **Step 2: Update the wizard docs page**
 
 ```bash
 grep -rln "Resources step\|ResourcesStep\|add-game wizard" docs/docs/app/
@@ -623,14 +616,14 @@ grep -rln "Resources step\|ResourcesStep\|add-game wizard" docs/docs/app/
 
 Open the matched file and add 1-2 sentences describing: vCPU and memory are now chosen via sliders snapping to valid AWS Fargate tiers (not free values), and a live estimated hourly cost is shown as either slider moves. Match the existing page's tone and heading structure — do not restructure the page.
 
-- [ ] **Step 4: Commit the docs update**
+- [ ] **Step 3: Commit the docs update**
 
 ```bash
 git add docs/docs/app/
 git commit -m "docs(app): document the Resources step slider control and live cost estimate"
 ```
 
-- [ ] **Step 5: Sync the OpenSpec change's delta specs into the main specs**
+- [ ] **Step 4: Sync the OpenSpec change's delta specs into the main specs**
 
 This project's OpenSpec artifacts for this change live at `openspec/changes/game-server-resource-sliders/`. Once the above is verified working, fold the delta specs into `openspec/specs/` per `CLAUDE.md`'s "OpenSpec — if required behaviour changed, the change's delta specs must be synced" rule:
 

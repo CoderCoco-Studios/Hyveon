@@ -103,10 +103,10 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           value={cpuIndex >= 0 ? cpuIndex : unsetCpuIndex}
           onChange={(e) => handleCpuIndexChange(e.target.value)}
           onPointerUp={(e) => {
-            if (cpu === null) handleCpuIndexChange(e.currentTarget.value);
+            if (cpuIndex < 0) handleCpuIndexChange(e.currentTarget.value);
           }}
           onKeyUp={(e) => {
-            if (cpu === null && RANGE_COMMIT_KEYS.includes(e.key)) handleCpuIndexChange(e.currentTarget.value);
+            if (cpuIndex < 0 && RANGE_COMMIT_KEYS.includes(e.key)) handleCpuIndexChange(e.currentTarget.value);
           }}
           aria-invalid={cpuError ? 'true' : 'false'}
           aria-describedby={cpuError ? 'wizard-resources-cpu-error' : undefined}
@@ -139,10 +139,11 @@ export function ResourcesStep({ cpu, memory, onChange, issues }: Props) {
           value={memoryIndex >= 0 ? memoryIndex : unsetMemoryIndex}
           onChange={(e) => handleMemoryIndexChange(e.target.value)}
           onPointerUp={(e) => {
-            if (memory === null) handleMemoryIndexChange(e.currentTarget.value);
+            if (memoryIndex < 0) handleMemoryIndexChange(e.currentTarget.value);
           }}
           onKeyUp={(e) => {
-            if (memory === null && RANGE_COMMIT_KEYS.includes(e.key)) handleMemoryIndexChange(e.currentTarget.value);
+            if (memoryIndex < 0 && RANGE_COMMIT_KEYS.includes(e.key))
+              handleMemoryIndexChange(e.currentTarget.value);
           }}
           disabled={cpu === null}
           aria-invalid={memoryError ? 'true' : 'false'}

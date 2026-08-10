@@ -37,7 +37,7 @@ Cost math already exists (`CostService.estimateForSpec` in desktop-main, `FARGAT
 - **Alternatives considered**: A raw MiB-range slider with dynamic min/max/step recalculated per CPU tier — rejected because the 0.25 vCPU tier's memory options (512/1024/2048 MiB) aren't evenly spaced by any single step, so a min/max/step model can't represent it at all; would need special-casing that the index approach avoids entirely.
 
 ### D2: CPU tier changes cascade into memory range, matching current behavior
-- **Choice**: Moving the vCPU slider live recomputes `getFargateMemoryOptions(cpu)` and re-clamps the memory slider's index if the previous memory value is no longer in range — the same logic already at `resources-step.component.tsx:36-42`.
+- **Choice**: Moving the vCPU slider live recomputes `getFargateMemoryOptions(cpu)` and resets memory to unset (`null`) if the previous memory value is no longer in range — the same logic already at `resources-step.component.tsx:36-42`.
 - **Rationale**: User explicitly chose this over independent sliders with silent post-hoc clamping, to keep the interaction model identical to what the dropdowns already do (least surprise).
 - **Alternatives considered**: Independent sliders with clamp-on-change — rejected per user's explicit preference in brainstorming (Q3).
 

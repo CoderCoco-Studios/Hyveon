@@ -52,7 +52,7 @@ See `design.md` for the structured writeup. Summary of what was approved:
 
 1. Single component change: `resources-step.component.tsx`. Same props in/out (`cpu`, `memory`, `issues`, `onChange`) — no changes needed in `add-game-wizard.component.tsx`, `edit-game-form.component.tsx`, or `review-step.component.tsx`.
 2. vCPU slider: `<input type="range" min=0 max=6 step=1>` indexing into the 7-element tier array from `getFargateCpuOptions()` — not a raw CPU-unit range, since tiers aren't evenly spaced.
-3. Memory slider: also an index, into `getFargateMemoryOptions(cpu)` for the current CPU tier — same cascading re-clamp behavior the second dropdown already has.
+3. Memory slider: also an index, into `getFargateMemoryOptions(cpu)` for the current CPU tier — resets to unset when a CPU change invalidates it, same as the second dropdown already does.
 4. New `estimateFargateHourlyCost(cpu, memory)` pure function in `@hyveon/shared`; `FARGATE_VCPU_PER_HOUR`/`FARGATE_GB_PER_HOUR` move from `@hyveon/cloud-aws` into `@hyveon/shared`, with `cloud-aws` re-importing them. Cost shown as "$X.XXX/hr while running," recomputed synchronously on every slider input event.
 5. Layout: stacked (Option A from the visual mockup).
 6. No new error handling — invalid states are structurally impossible by construction (sliders only index into pre-validated arrays).
