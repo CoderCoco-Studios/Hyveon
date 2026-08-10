@@ -30,4 +30,4 @@
 - [x] 4.3 `npm run app:test` full unit suite green
 - [x] 4.4 `npm run app:test:e2e` if the renderer/preload/IPC surface changed as a result of this work
 - [x] 4.5 Update the wizard page under `docs/docs/app/` describing the slider control and live cost estimate
-- [ ] 4.6 `/opsx:sync` to fold `game-resource-picker` and the `cost-visibility` delta into `openspec/specs/` once implementation is verified
+- [x] 4.6 `/opsx:sync` to fold `game-resource-picker` and the `cost-visibility` delta into `openspec/specs/` once implementation is verified
