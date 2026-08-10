@@ -26,4 +26,26 @@ describe('GameStatusBadges', () => {
     expect(chip).toBeInTheDocument();
     expect(chip).toHaveClass('bg-[var(--color-red)]');
   });
+
+  it('should render a "Config drift" warning chip when declared and deployed but the config has drifted', () => {
+    render(<GameStatusBadges declared deployed drift={{ kind: 'config_drift', changedFields: ['image'] }} />);
+
+    const chip = screen.getByText('Config drift');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass('bg-[var(--color-amber)]');
+  });
+
+  it('should show the changed fields as a tooltip on the "Config drift" chip', () => {
+    render(<GameStatusBadges declared deployed drift={{ kind: 'config_drift', changedFields: ['image', 'cpu'] }} />);
+
+    expect(screen.getByText('Config drift')).toHaveAttribute('title', 'image, cpu');
+  });
+
+  it('should still render "In sync" when declared and deployed with a pending_create/pending_delete drift kind', () => {
+    render(<GameStatusBadges declared deployed drift={{ kind: 'pending_create' }} />);
+
+    const chip = screen.getByText('In sync');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass('bg-[var(--color-green)]');
+  });
 });

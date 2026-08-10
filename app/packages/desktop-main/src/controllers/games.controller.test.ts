@@ -5,7 +5,8 @@ import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { GamesWriteService } from '../services/GamesWriteService.js';
 import type { DeploymentConfigService } from '../services/DeploymentConfigService.js';
-import type { GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
+import type { DriftService } from '../services/DriftService.js';
+import type { DriftReport, GameServer, GameWriteResult, StackOutputs } from '@hyveon/shared';
 import type { GameWizardDraftService } from '../services/GameWizardDraftService.js';
 import type { StoredGameWizardDraft } from '../services/ElectronStoreService.js';
 
@@ -62,6 +63,14 @@ function makeDeploymentConfig(declared: GameServer[] = []): DeploymentConfigServ
     invalidateCache: vi.fn(),
     getGameServers: vi.fn().mockResolvedValue(declared),
   } as Partial<DeploymentConfigService> as DeploymentConfigService;
+}
+
+/** Empty `DriftReport` used as the default `DriftService.getDrift()` stub return value. */
+const DEFAULT_REPORT: DriftReport = { entries: [] };
+
+/** Build a `DriftService` stub with `getDrift` pre-wired to resolve with `report`. */
+function makeDrift(report: DriftReport = DEFAULT_REPORT): DriftService {
+  return { getDrift: vi.fn().mockResolvedValue(report) } as Partial<DriftService> as DriftService;
 }
 
 /** A representative successful `GameWriteResult` used as the default stub return value. */
@@ -145,18 +154,18 @@ describe('GamesController', () => {
   describe('listGames', () => {
     it('should NOT invalidate the stack-outputs cache — this channel is called on every games-list page visit, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would pay that cost far more often than a fresh deploy could plausibly have happened', async () => {
       const config = makeConfig();
-      await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the DeploymentConfigService cache before reading game names', async () => {
       const deploymentConfig = makeDeploymentConfig();
-      await new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeGamesWrite(), makeGameWizardDraft()).listGames();
+      await new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
     it('should return the deployed game names from stack outputs when nothing is declared in the deployment config', async () => {
-      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(result).toEqual({
         games: [
           { name: 'minecraft', declared: false, deployed: true },
@@ -166,22 +175,40 @@ describe('GamesController', () => {
     });
 
     it('should return an empty games array when stack outputs are missing and nothing is declared', async () => {
-      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(result).toEqual({ games: [] });
     });
 
     it('should return a game that exists only in the deployment config (declared but not yet applied)', async () => {
       const ark = buildGameServer('ark');
-      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig([ark]), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig([ark]), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(result).toEqual({ games: [{ name: 'ark', declared: true, deployed: false, config: ark }] });
     });
 
     it('should merge declared deployment-config games with deployed tfstate games', async () => {
       const palworld = buildGameServer('palworld');
-      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig([palworld]), makeGamesWrite(), makeGameWizardDraft()).listGames();
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig([palworld]), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listGames();
       expect(result).toEqual({
         games: [
           { name: 'palworld', declared: true, deployed: true, config: palworld },
+          { name: 'minecraft', declared: false, deployed: true },
+        ],
+      });
+    });
+
+    it('should attach a config_drift finding from DriftService to the matching declared+deployed game', async () => {
+      const palworld = buildGameServer('palworld');
+      const drift = makeDrift({ entries: [{ game: 'palworld', kind: 'config_drift', changedFields: ['image'] }] });
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig([palworld]), drift, makeGamesWrite(), makeGameWizardDraft()).listGames();
+      expect(result).toEqual({
+        games: [
+          {
+            name: 'palworld',
+            declared: true,
+            deployed: true,
+            config: palworld,
+            drift: { kind: 'config_drift', changedFields: ['image'] },
+          },
           { name: 'minecraft', declared: false, deployed: true },
         ],
       });
@@ -191,32 +218,32 @@ describe('GamesController', () => {
   describe('listStatus', () => {
     it('should NOT invalidate the stack-outputs cache — this channel backs the dashboard 20-second status poller, and eagerly invalidating a cache fronting an expensive Pulumi round-trip would turn an idle dashboard into a steady stream of engine-resolution + S3 calls', async () => {
       const config = makeConfig();
-      await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
+      await new GamesController(config, makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
       expect(config.invalidateCache).not.toHaveBeenCalled();
     });
 
     it('should invalidate the DeploymentConfigService cache before querying ECS', async () => {
       const deploymentConfig = makeDeploymentConfig();
-      await new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeGamesWrite(), makeGameWizardDraft()).listStatus();
+      await new GamesController(makeConfig(), makeEcs(), deploymentConfig, makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
       expect(deploymentConfig.invalidateCache).toHaveBeenCalledOnce();
     });
 
     it('should query ECS status for every game in the stack outputs', async () => {
       const ecs = makeEcs();
-      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
+      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
       expect(ecs.getStatus).toHaveBeenCalledWith('minecraft');
       expect(ecs.getStatus).toHaveBeenCalledWith('palworld');
     });
 
     it('should return an empty array when tfstate is absent', async () => {
-      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
+      const result = await new GamesController(makeConfig(null), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
       expect(result).toEqual([]);
     });
 
     it('should return status entries in the same order as game_names', async () => {
       const ecs = makeEcs();
       vi.mocked(ecs.getStatus).mockImplementation(async (g) => ({ game: g, state: 'stopped' as const }));
-      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
+      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).listStatus();
       expect(result.map((s) => s.game)).toEqual(['minecraft', 'palworld']);
     });
   });
@@ -226,7 +253,7 @@ describe('GamesController', () => {
       const config = makeConfig();
       const ecs = makeEcs();
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      await new GamesController(config, ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).getStatus('minecraft');
+      await new GamesController(config, ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).getStatus('minecraft');
       expect(config.invalidateCache).not.toHaveBeenCalled();
       expect(ecs.getStatus).toHaveBeenCalledWith('minecraft');
     });
@@ -235,7 +262,7 @@ describe('GamesController', () => {
       const ecs = makeEcs();
       vi.mocked(ecs.getStatus).mockResolvedValue({ game: 'minecraft', state: 'running' });
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).getStatus('minecraft');
+      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).getStatus('minecraft');
       expect(result).toEqual({ game: 'minecraft', state: 'running' });
     });
   });
@@ -244,7 +271,7 @@ describe('GamesController', () => {
     it('should delegate to EcsService.start with the game name received via the IPC payload', async () => {
       const ecs = makeEcs();
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).start('palworld');
+      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).start('palworld');
       expect(ecs.start).toHaveBeenCalledWith('palworld');
     });
 
@@ -252,7 +279,7 @@ describe('GamesController', () => {
       const ecs = makeEcs();
       vi.mocked(ecs.start).mockResolvedValue({ success: true, message: 'running', taskArn: 'arn:task' });
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).start('minecraft');
+      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).start('minecraft');
       expect(result).toMatchObject({ success: true, taskArn: 'arn:task' });
     });
   });
@@ -261,7 +288,7 @@ describe('GamesController', () => {
     it('should delegate to EcsService.stop with the game name received via the IPC payload', async () => {
       const ecs = makeEcs();
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).stop('minecraft');
+      await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).stop('minecraft');
       expect(ecs.stop).toHaveBeenCalledWith('minecraft');
     });
 
@@ -269,7 +296,7 @@ describe('GamesController', () => {
       const ecs = makeEcs();
       vi.mocked(ecs.stop).mockResolvedValue({ success: true, message: 'stopped' });
       // Simulates ElectronIPCTransport: @Payload() delivers the game name as the sole argument.
-      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft()).stop('minecraft');
+      const result = await new GamesController(makeConfig(), ecs, makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft()).stop('minecraft');
       expect(result).toMatchObject({ success: true, message: 'stopped' });
     });
   });
@@ -280,7 +307,7 @@ describe('GamesController', () => {
       const config = { name: 'ark', image: 'ark/server:latest', cpu: 1024, memory: 2048, ports: [], volumes: [] };
       const payload = { name: 'ark', config, expectedVersionId: 'etag-1' };
       // Simulates ElectronIPCTransport: @Payload() delivers the single-object payload as the sole argument.
-      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).createGame(payload);
+      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).createGame(payload);
       expect(gamesWrite.createGame).toHaveBeenCalledWith(payload);
     });
 
@@ -289,7 +316,7 @@ describe('GamesController', () => {
       const failure: GameWriteResult = { ok: false, code: 'validation', issues: [{ path: 'name', message: 'required' }] };
       vi.mocked(gamesWrite.createGame).mockResolvedValue(failure);
       const config = { name: 'ark', image: 'ark/server:latest', cpu: 1024, memory: 2048, ports: [], volumes: [] };
-      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).createGame({ name: 'ark', config });
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).createGame({ name: 'ark', config });
       expect(result).toEqual(failure);
     });
   });
@@ -300,7 +327,7 @@ describe('GamesController', () => {
       const config = { name: 'ark', image: 'ark/server:latest', cpu: 1024, memory: 2048, ports: [], volumes: [] };
       const payload = { name: 'ark', config, expectedVersionId: 'etag-1' };
       // Simulates ElectronIPCTransport: @Payload() delivers the single-object payload as the sole argument.
-      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).updateGame(payload);
+      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).updateGame(payload);
       expect(gamesWrite.updateGame).toHaveBeenCalledWith(payload);
     });
 
@@ -315,7 +342,7 @@ describe('GamesController', () => {
       };
       vi.mocked(gamesWrite.updateGame).mockResolvedValue(conflict);
       const config = { name: 'ark', image: 'ark/server:latest', cpu: 1024, memory: 2048, ports: [], volumes: [] };
-      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).updateGame({ name: 'ark', config });
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).updateGame({ name: 'ark', config });
       expect(result).toEqual(conflict);
     });
   });
@@ -325,7 +352,7 @@ describe('GamesController', () => {
       const gamesWrite = makeGamesWrite();
       const payload = { name: 'ark', expectedVersionId: 'etag-1' };
       // Simulates ElectronIPCTransport: @Payload() delivers the single-object payload as the sole argument.
-      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).deleteGame(payload);
+      await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).deleteGame(payload);
       expect(gamesWrite.deleteGame).toHaveBeenCalledWith(payload);
     });
 
@@ -333,7 +360,7 @@ describe('GamesController', () => {
       const gamesWrite = makeGamesWrite();
       const notFound: GameWriteResult = { ok: false, code: 'not_found', message: 'no such game' };
       vi.mocked(gamesWrite.deleteGame).mockResolvedValue(notFound);
-      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), gamesWrite, makeGameWizardDraft()).deleteGame({ name: 'ark' });
+      const result = await new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), gamesWrite, makeGameWizardDraft()).deleteGame({ name: 'ark' });
       expect(result).toEqual(notFound);
     });
   });
@@ -341,7 +368,7 @@ describe('GamesController', () => {
 
 describe('games.draft.* handlers', () => {
   it('should register games.draft.get, games.draft.save, and games.draft.clear as MessagePatterns', () => {
-    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), makeGameWizardDraft());
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), makeGameWizardDraft());
     for (const [method, pattern] of [
       ['getDraft', 'games.draft.get'],
       ['saveDraft', 'games.draft.save'],
@@ -362,14 +389,14 @@ describe('games.draft.* handlers', () => {
       savedAt: '2026-08-09T00:00:00.000Z',
     };
     vi.mocked(draftService.get).mockReturnValue(stored);
-    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), draftService);
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), draftService);
 
     expect(controller.getDraft()).toEqual(stored);
   });
 
   it('should forward the payload to GameWizardDraftService.save from games.draft.save', () => {
     const draftService = makeGameWizardDraft();
-    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), draftService);
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), draftService);
     const draft = {
       name: 'mygame', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
       ports: [], volumes: [], file_seeds: [], environment: [], https: false,
@@ -382,7 +409,7 @@ describe('games.draft.* handlers', () => {
 
   it('should call GameWizardDraftService.clear from games.draft.clear', () => {
     const draftService = makeGameWizardDraft();
-    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeGamesWrite(), draftService);
+    const controller = new GamesController(makeConfig(), makeEcs(), makeDeploymentConfig(), makeDrift(), makeGamesWrite(), draftService);
 
     controller.clearDraft();
 

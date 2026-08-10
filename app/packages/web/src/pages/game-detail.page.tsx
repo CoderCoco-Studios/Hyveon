@@ -107,7 +107,7 @@ export function GameDetailPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="capitalize">{entry.name}</CardTitle>
               <div className="flex items-center gap-2">
-                <GameStatusBadges declared={entry.declared} deployed={entry.deployed} />
+                <GameStatusBadges declared={entry.declared} deployed={entry.deployed} drift={entry.drift} />
                 {config && (editing ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => setEditing(false)}>
                     Cancel

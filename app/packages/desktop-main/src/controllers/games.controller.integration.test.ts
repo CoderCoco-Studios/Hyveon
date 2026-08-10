@@ -42,6 +42,7 @@ import { GamesWriteService } from '../services/GamesWriteService.js';
 import type { ConfigService } from '../services/ConfigService.js';
 import type { EcsService } from '../services/EcsService.js';
 import type { AuditService } from '../services/AuditService.js';
+import type { DriftService } from '../services/DriftService.js';
 
 /** Strongly-typed mock handles for the `fs` module — asserted as NEVER called in every spec below. */
 const mockExists = vi.mocked(existsSync);
@@ -168,6 +169,11 @@ function makeEcs(): EcsService {
   return {} as EcsService;
 }
 
+/** `DriftService` stub resolving an empty report — none of the specs in this file assert on drift. */
+function makeDrift(): DriftService {
+  return { getDrift: vi.fn().mockResolvedValue({ entries: [] }) } as Partial<DriftService> as DriftService;
+}
+
 /** Minimal `AuditService` stub — none of the specs in this file assert on it, but `GamesWriteService`'s constructor requires it. */
 function makeAudit(): AuditService {
   return { record: vi.fn().mockResolvedValue(undefined) } as Partial<AuditService> as AuditService;
@@ -199,7 +205,7 @@ describe('GamesController + DeploymentConfigService integration', () => {
   it('should report a game as declared-only when it exists in the config but not in tfstate', async () => {
     const config = makeConfig([]); // nothing deployed yet
     const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), deploymentConfig);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift());
 
     const result = await controller.listGames();
 
@@ -213,7 +219,7 @@ describe('GamesController + DeploymentConfigService integration', () => {
   it('should report a game as deployed-only when it exists in tfstate but not in the config', async () => {
     const config = makeConfig(['minecraft']); // deployed game name unrelated to the config
     const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), deploymentConfig);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift());
 
     const result = await controller.listGames();
 
@@ -228,7 +234,7 @@ describe('GamesController + DeploymentConfigService integration', () => {
   it('should report a game as both declared and deployed when its name is present in the config and tfstate', async () => {
     const config = makeConfig(['ark']); // same name as the declared config entry
     const deploymentConfig = new DeploymentConfigService(config, makeRemoteFileStore(CONFIG_JSON_DECLARING_ARK));
-    const controller = new GamesController(config, makeEcs(), deploymentConfig);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift());
 
     const result = await controller.listGames();
 
@@ -258,7 +264,7 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const createResult = await controller.createGame({ name: 'minecraft', config: VALID_MINECRAFT_CONFIG });
 
@@ -304,7 +310,7 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const updateResult = await controller.updateGame({ name: 'ark', config: UPDATED_ARK_CONFIG });
 
@@ -331,7 +337,7 @@ describe('GamesController + GamesWriteService write-then-list round trip', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const deleteResult = await controller.deleteGame({ name: 'ark' });
 
@@ -372,7 +378,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const result = await controller.createGame({
       name: 'invalid-pairing',
@@ -410,7 +416,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const result = await controller.createGame({ name: 'ark', config: VALID_MINECRAFT_CONFIG });
 
@@ -439,7 +445,7 @@ describe('GamesController + GamesWriteService games.create failure paths', () =>
     const config = makeConfig([]);
     const deploymentConfig = new DeploymentConfigService(config, remoteFileStore);
     const gamesWrite = new GamesWriteService(config, deploymentConfig, makeAudit());
-    const controller = new GamesController(config, makeEcs(), deploymentConfig, gamesWrite);
+    const controller = new GamesController(config, makeEcs(), deploymentConfig, makeDrift(), gamesWrite);
 
     const result = await controller.createGame({
       name: 'minecraft',

@@ -51,7 +51,8 @@ Exactly one chip per game.
 
 | Chip | Meaning | Cause |
 |---|---|---|
-| **In sync** (green) | Declared in the configuration object *and* present in the last-applied Pulumi stack outputs | Normal, healthy |
+| **In sync** (green) | Declared in the configuration object *and* present in the last-applied Pulumi stack outputs, with matching config | Normal, healthy |
+| **Config drift** (amber) | Declared and applied, but one or more fields (image, CPU, memory, ports, volumes) differ between the declared config and what was last applied | You edited the game after the last apply |
 | **Pending deploy** (amber) | Declared in the configuration object, not yet in the applied outputs | You added or changed it but have not applied yet |
 | **Undeclared** (red) | In the applied outputs, but **no longer in the configuration object** | You removed it from the configuration object but have not applied the removal |
 
@@ -60,6 +61,14 @@ Exactly one chip per game.
 exist and can still be started — but there is no declaration for it any more.
 The usual cause is having pressed **Remove game** without running a plan/apply
 afterwards.
+
+**"Config drift" compares against the last-applied Pulumi stack snapshot, not
+live AWS state.** It flags "this field was edited since the last apply", not
+"someone changed the running task out-of-band from the AWS console" — the app
+never reads live ECS/EFS state for this comparison. Hover the chip's tooltip
+to see which fields changed; running a plan/apply from
+[Infrastructure](/app/iac) resolves it the same way it resolves **Pending
+deploy**.
 
 Because there is no declaration, an undeclared row has no config to show: its
 Image, Ports, CPU and Memory columns are all `—`. Applying a plan is what
