@@ -59,8 +59,8 @@
 
 ## 6. Close out initiative #214 (no PR)
 
-- [ ] 6.1 Verify epics #138, #139, #140, #141 and issue #275 are all closed (`gh issue view` each)
-- [ ] 6.2 If all are closed, close initiative #214 with a completion comment summarizing the delivered milestones (`gh issue close 214 --comment ...`); if any remain open, list the blockers instead of closing
+- [x] 6.1 Verify epics #138, #139, #140, #141 and issue #275 are all closed (`gh issue view` each) — all confirmed CLOSED on 2026-08-10
+- [x] 6.2 If all are closed, close initiative #214 with a completion comment summarizing the delivered milestones (`gh issue close 214 --comment ...`); if any remain open, list the blockers instead of closing — #214 was already closed (2026-07-27), so this is satisfied without further action
 
 **Deferred until the combined #206/#207/#209 PR (section 2-4) merges** — closing
 the initiative before that PR lands would be premature even though epic #141
