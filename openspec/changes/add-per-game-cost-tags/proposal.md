@@ -70,7 +70,8 @@ filter by game once there.
   Lambda and its log group.
 - `app/packages/cloud-aws/src/AwsCloudProvider.ts` — `RunTaskCommand` gets
   `propagateTags: 'TASK_DEFINITION'`.
-- `app/packages/infra/src/program.test.ts` — extend tag assertions.
+- `app/packages/infra/src/ecs.test.ts` / `app/packages/infra/src/lambdas.test.ts`
+  — extend tag assertions.
 - `docs/docs/components/infra.md` — resource/tag table + cost allocation
   tag activation note.
 - No `DeploymentConfig`/`GameServerConfig` field changes. No IPC/API
