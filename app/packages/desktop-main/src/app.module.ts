@@ -27,6 +27,7 @@ import { WizardController } from './controllers/wizard.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DriftService } from './services/DriftService.js';
 import { GamesWriteService } from './services/GamesWriteService.js';
+import { GameWizardDraftService } from './services/GameWizardDraftService.js';
 import { AuditService } from './services/AuditService.js';
 
 /**
@@ -98,6 +99,7 @@ import { AuditService } from './services/AuditService.js';
     DiagnosticsService,
     DriftService,
     GamesWriteService,
+    GameWizardDraftService,
     AuditService,
   ],
 })
