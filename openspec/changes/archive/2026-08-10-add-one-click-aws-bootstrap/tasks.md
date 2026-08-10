@@ -74,4 +74,4 @@
 - [x] 10.2 `npm run app:lint` clean
 - [x] 10.3 `npm run app:test:integration` green
 - [x] 10.4 `npm run app:test:e2e` green
-- [ ] 10.5 Manual run against a real AWS account: create the stack, complete rotation, confirm the bootstrap key is dead and the stack outputs authenticate nothing, then reach a successful `pulumi preview`
+- [x] 10.5 Manual run against a real AWS account: create the stack, complete rotation, confirm the bootstrap key is dead and the stack outputs authenticate nothing, then reach a successful `pulumi preview` — performed and confirmed by the operator via the live desktop app
