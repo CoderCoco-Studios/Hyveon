@@ -128,7 +128,12 @@ export interface GameWizardDraft {
  * Stored in plaintext, matching the storage posture of the eventual
  * `deployment-config.json` write this draft becomes on submit — neither is
  * field-level encrypted, unlike the AWS/pasted-credentials/passphrase
- * fields above, which are genuine secrets.
+ * fields above, which are genuine secrets. However, `GameWizardDraftService.get()`
+ * blanks out `environment[].value` and `file_seeds[].content`/`content_base64`
+ * before returning a stored entry to a caller, so those operator-entered
+ * values never reach the renderer over IPC even though they're written to
+ * disk here — the operator re-enters them on resume. `GameWizardDraftService.save()`
+ * still persists the full, unredacted draft; only reads are redacted.
  */
 export interface StoredGameWizardDraft {
   draft: GameWizardDraft;

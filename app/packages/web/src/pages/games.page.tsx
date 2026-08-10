@@ -49,7 +49,14 @@ function formatPorts(entry: GameListEntry): string {
  * button — it has no business offering a way to *re*-open itself once the
  * operator closes it, and would otherwise sit there as a stray duplicate of
  * the page's real trigger; Discard calls `api.clearGameDraft()` and hides
- * the banner without opening the wizard.
+ * the banner without opening the wizard. While a resumed draft is open
+ * (`resuming`), the page's own "Add game" trigger(s) are hidden too, so only
+ * one `AddGameWizard` instance can ever be mid-edit at a time — two open
+ * instances would both autosave into the single `addGameWizardDraft` slot
+ * and race each other. The resumed instance's `onClose` callback flips
+ * `resuming` back to `false` once its dialog closes (Escape/overlay/Cancel,
+ * or a successful submit), restoring the resume/discard banner and the
+ * page's normal trigger(s) instead of leaving them hidden until reload.
  */
 export function GamesPage() {
   const [games, setGames] = useState<GameListEntry[]>([]);
@@ -108,7 +115,11 @@ export function GamesPage() {
         <h2 className="text-2xl font-semibold">Games</h2>
         <div className="flex items-center gap-4">
           <PollingIndicator />
-          <AddGameWizard />
+          {/* Hidden while a resumed draft is open (`resuming`) so only one
+              AddGameWizard instance can ever be mid-edit at a time — two
+              open instances would both autosave into the single
+              `addGameWizardDraft` slot and race each other. */}
+          {!resuming && <AddGameWizard />}
         </div>
       </div>
 
@@ -129,7 +140,12 @@ export function GamesPage() {
         </div>
       )}
       {draft && resuming && (
-        <AddGameWizard initialDraft={draft.draft} initialStepIndex={draft.stepIndex} hideTrigger />
+        <AddGameWizard
+          initialDraft={draft.draft}
+          initialStepIndex={draft.stepIndex}
+          hideTrigger
+          onClose={() => setResuming(false)}
+        />
       )}
 
       <PendingChangesBanner />
@@ -150,9 +166,11 @@ export function GamesPage() {
           ) : games.length === 0 ? (
             <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
               <p>No games declared or deployed yet.</p>
-              <div className="mt-4 flex justify-center">
-                <AddGameWizard />
-              </div>
+              {!resuming && (
+                <div className="mt-4 flex justify-center">
+                  <AddGameWizard />
+                </div>
+              )}
             </div>
           ) : (
             <Table>

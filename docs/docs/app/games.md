@@ -218,7 +218,20 @@ Nothing is written for a wizard you open and immediately close without
 touching a field, and autosave pauses while a submission is in flight. If
 you close the dialog (Escape, overlay click, or the close control) less
 than a second after your last keystroke, the close itself flushes that
-pending save immediately, so you never lose the edit you just made.
+pending save immediately rather than waiting for the debounce timer.
+
+Autosave is best-effort, not guaranteed: it's written to local disk via the
+same store as the rest of the app's settings, and a save that fails (disk
+full, permissions, or any other write error) is logged and silently
+dropped rather than retried or surfaced to you — the wizard never
+interrupts you mid-edit over it. In the normal case, the debounce-plus-
+flush-on-close behavior above means you'd lose at most a few seconds of
+typing, but a persistently unwritable store means autosave doesn't help at
+all for that session.
+
+Environment variable values and file-seed contents you type in are **not**
+included in what's autosaved or restored — see
+[Draft resume and secrets](#draft-resume-and-secrets) below.
 
 The draft is saved by the Electron **main** process, not kept in the page's
 own React state — so it survives more than just navigating away and back.
@@ -244,6 +257,17 @@ This persistence is specific to the **add**-game wizard. The
 [edit-game form](#editing-a-game) does not autosave a draft, because it is
 always re-seeded from the live declared configuration when you open it —
 there is nothing to recover that reopening the form doesn't already give you.
+
+#### Draft resume and secrets
+
+Environment variable values (the Environment step) and file-seed contents
+(the Storage step's file rows) are never included in a resumed draft — only
+the variable/file *names* come back. If you'd typed a database password or
+other sensitive value into one of those rows before closing, you'll need to
+re-enter it after clicking Resume. This is deliberate: those fields are the
+most likely to hold something you'd consider a secret, so the app strips
+them out of what's read back to the wizard rather than round-tripping them
+through the Electron IPC layer on every resume.
 
 ## The game detail screen
 

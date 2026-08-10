@@ -224,7 +224,7 @@ describe('GameWizardDraftService', () => {
 
     it('should return null and log a warning when the stored entry is missing required fields', () => {
       const store = makeStore();
-      vi.mocked(store.get).mockReturnValue({ draft: sampleDraft } as unknown as StoredGameWizardDraft);
+      vi.mocked(store.get).mockReturnValue({ draft: sampleDraft } as Partial<StoredGameWizardDraft> as StoredGameWizardDraft);
       const service = new GameWizardDraftService(store);
 
       expect(service.get()).toBeNull();
@@ -326,7 +326,12 @@ export class GameWizardDraftService {
   get(): StoredGameWizardDraft | null {
     try {
       const stored = this.store.get('addGameWizardDraft');
-      if (!isStoredGameWizardDraft(stored)) return null;
+      if (!isStoredGameWizardDraft(stored)) {
+        if (stored !== undefined) {
+          logger.warn('GameWizardDraftService: stored draft is malformed, treating as absent');
+        }
+        return null;
+      }
       return stored;
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
@@ -794,7 +799,7 @@ git commit -m "feat(web): add getGameDraft/saveGameDraft/clearGameDraft api wrap
 
 **Interfaces:**
 - Consumes: `api.getGameDraft`/`saveGameDraft`/`clearGameDraft` (Task 5), `WizardDraft`/`createEmptyWizardDraft`/`WIZARD_STEPS` (existing `wizard-form.utils.ts`).
-- Produces: `AddGameWizard` accepts two new optional props, `initialDraft?: WizardDraft` and `initialStepIndex?: number` — consumed by `GamesPage` in Task 7 to resume into a saved draft.
+- Produces: `AddGameWizard` accepts four new optional props — `initialDraft?: WizardDraft`, `initialStepIndex?: number`, `hideTrigger?: boolean`, and `onClose?: () => void` — consumed by `GamesPage` in Task 7 to resume into a saved draft, suppress the resumed instance's own trigger button, and know when the resumed dialog has closed.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -977,10 +982,45 @@ export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardP
 3. Add a ref tracking whether the draft has ever been edited away from its initial value (so an unedited resumed draft doesn't immediately re-save itself), a debounce-timer ref, and the autosave effect. Insert after the existing `openRef` declaration:
 
 ```ts
-  /** True once the operator has made at least one edit — gates autosave so an untouched (or freshly-resumed, unedited) draft never writes itself back out. */
-  const hasEditedRef = useRef(false);
+  // True once the operator has made at least one edit — gates autosave so an
+  // untouched, blank draft never writes itself back out. Starts `true` when
+  // resuming (`initialDraft !== undefined`): a resumed draft is already
+  // non-empty on disk, so a step-only navigation (no field edit) must still
+  // be able to schedule an autosave — starting `false` here would silently
+  // drop a `stepIndex` change made while resuming (see the "Known
+  // limitation" callout removed from Task 7 below, which this fixes).
+  const hasEditedRef = useRef(initialDraft !== undefined);
   /** Pending debounce timer for the autosave effect below; cleared/replaced on every draft change, flushed immediately on close/unmount. */
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Immediately writes any pending debounced save, bypassing the timer — call before the draft state it captured is discarded (dialog close, unmount). */
+  function flushPendingSave() {
+    if (saveTimerRef.current === null || !hasEditedRef.current) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    void api.saveGameDraft(draft, stepIndex);
+  }
+
+  // `flushPendingSave` closes over this render's `draft`/`stepIndex`, so a
+  // *stable* ref to "the latest one" is kept in sync after every render (an
+  // effect, not a render-body assignment — refs must not be written during
+  // render). The unmount-only effect below reads through this ref rather
+  // than calling `flushPendingSave` directly, so that when it fires (the
+  // component torn down entirely, e.g. the operator navigates away while
+  // the dialog is still open) it flushes the draft as of that moment — not
+  // a stale one captured back when the component first mounted. Declaring
+  // it *before* the debounce-autosave effect below matters too: React runs
+  // cleanups in declaration order, so this effect's cleanup runs first at
+  // unmount, before the debounce effect's own cleanup unconditionally
+  // clears `saveTimerRef` out from under it.
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  useEffect(() => {
+    flushPendingSaveRef.current = flushPendingSave;
+  });
+
+  useEffect(() => {
+    return () => flushPendingSaveRef.current();
+  }, []);
 
   useEffect(() => {
     if (!hasEditedRef.current || submitting) return;
@@ -996,20 +1036,9 @@ export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardP
       }
     };
   }, [draft, stepIndex, submitting]);
-
-  /** Immediately writes any pending debounced save, bypassing the timer — call before the draft state it captured is discarded (dialog close, unmount). */
-  function flushPendingSave() {
-    if (saveTimerRef.current === null || !hasEditedRef.current) return;
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = null;
-    void api.saveGameDraft(draft, stepIndex);
-  }
-
-  useEffect(() => {
-    return () => flushPendingSave();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushPendingSave intentionally closes over the latest draft/stepIndex via the outer closure, not a dependency the effect should re-run for
-  }, []);
 ```
+
+**Why not the more obvious `useEffect(() => () => flushPendingSave(), [])`:** an empty-dependency-array cleanup closes over the *first* render's `flushPendingSave` — which itself closes over that render's `draft`/`stepIndex`. Every later render creates a *new* `flushPendingSave` closure over the current `draft`/`stepIndex`, but the effect above never re-runs to pick it up, so the unmount cleanup would still flush the stale, mount-time draft — silently dropping every edit made after the component mounted. The `flushPendingSaveRef` indirection (updated every render, read only at unmount) is what makes the flush see the latest state.
 
 4. Mark `hasEditedRef.current = true` inside `patchDraft` (the one place `draft` is ever mutated by operator input):
 
@@ -1048,18 +1077,32 @@ export function AddGameWizard({ initialDraft, initialStepIndex }: AddGameWizardP
   }
 ```
 
-7. In `handleSubmit`'s success branch, clear the saved draft right before closing:
+7. In `handleSubmit`'s success branch (which is already `async`), `await` the clear before closing the dialog and navigating — not `void`-fired-and-forgotten — so a fast reload of `/games` can't race the clear and briefly still see the just-submitted draft as unfinished:
 
 ```ts
       if (result.ok) {
         toast.success(`${payload.name} created`, {
           description: 'Run plan and apply on the Infrastructure page to deploy it.',
         });
-        void api.clearGameDraft();
+        await api.clearGameDraft();
         handleOpenChange(false);
         navigate(`/games/${payload.name}`);
         return;
       }
+```
+
+8. Add an optional `onClose?: () => void` prop, called from `handleOpenChange` after the flush/reset, so a caller mounting a resumed-draft instance (`hideTrigger`) can react when it closes — see Task 7:
+
+```ts
+  function handleOpenChange(next: boolean) {
+    openRef.current = next;
+    setOpen(next);
+    if (!next) {
+      flushPendingSave();
+      resetWizard();
+      onClose?.();
+    }
+  }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1088,7 +1131,7 @@ git commit -m "feat(web): autosave add-game wizard draft, resume from a saved dr
 - Create: `app/packages/web/src/pages/games.page.test.tsx` (create if it doesn't already exist — check first; if it exists, extend it following its established conventions instead of the shape below)
 
 **Interfaces:**
-- Consumes: `api.getGameDraft`/`clearGameDraft` (Task 5), `AddGameWizard`'s `initialDraft`/`initialStepIndex`/`open` props (Task 6).
+- Consumes: `api.getGameDraft`/`clearGameDraft` (Task 5), `AddGameWizard`'s `initialDraft`/`initialStepIndex`/`hideTrigger`/`onClose` props (Task 6).
 
 - [ ] **Step 1: Check for an existing test file**
 
@@ -1244,13 +1287,24 @@ import { api, type GameListEntry, type StoredGameWizardDraft } from '../api.serv
         </div>
       )}
       {draft && resuming && (
-        <AddGameWizard initialDraft={draft.draft} initialStepIndex={draft.stepIndex} />
+        <AddGameWizard
+          initialDraft={draft.draft}
+          initialStepIndex={draft.stepIndex}
+          hideTrigger
+          onClose={() => setResuming(false)}
+        />
       )}
+```
+
+Also hide the page's own "Add game" trigger(s) (the header instance and the empty-state CTA) while `resuming` is `true`, so at most one `AddGameWizard` instance is ever mid-edit — two open instances would both autosave into the single `addGameWizardDraft` slot and race each other:
+
+```tsx
+      {!resuming && <AddGameWizard />}
 ```
 
 Add `import { Button } from '@/components/ui/button.component';` to the top of the file alongside the other UI imports if not already present.
 
-Known limitation, acceptable for this change's scope: once `resuming` becomes `true` the banner stops rendering and stays hidden even if the operator closes the resumed dialog without submitting (e.g. Escape) — the draft is still safely persisted (the flush-on-close from Task 6 fires normally), but the banner won't reappear to offer Resume again until the next full page load/app relaunch re-runs the `getGameDraft()` effect. Extending this to re-show the banner after an inline cancel is out of scope here; note it as a possible small follow-up rather than building it into this plan.
+`AddGameWizard`'s `onClose` (Task 6, step 8) fires after the resumed dialog closes for any reason — Escape/overlay/Cancel, or a successful submit — flipping `resuming` back to `false`. That restores both the resume/discard banner (if the draft is still saved — e.g. the operator closed without submitting) and the page's own trigger(s), instead of leaving them hidden until the next full page load. This replaces an earlier version of this plan that left that as an accepted "Known limitation" — the fix is small enough (one callback prop, one state flip) to include rather than defer.
 
 - [ ] **Step 5: Run test to verify it passes**
 

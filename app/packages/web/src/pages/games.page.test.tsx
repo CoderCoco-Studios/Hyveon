@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   createGame: vi.fn(),
   drift: vi.fn(),
   getGameDraft: vi.fn(),
+  saveGameDraft: vi.fn(),
   clearGameDraft: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
@@ -74,6 +75,7 @@ describe('GamesPage', () => {
     apiMock.games.mockResolvedValue({ games: [declaredDeployed, declaredOnly, ghostRow] });
     apiMock.drift.mockResolvedValue({ entries: [] });
     apiMock.getGameDraft.mockResolvedValue(null);
+    apiMock.saveGameDraft.mockResolvedValue(undefined);
     apiMock.clearGameDraft.mockClear();
   });
 
@@ -235,6 +237,37 @@ describe('GamesPage', () => {
     // resumed instance renders with `hideTrigger`, so closing it must not
     // leave a second, dangling trigger button behind.
     expect(screen.getAllByRole('button', { name: 'Add game' })).toHaveLength(1);
+  });
+
+  it('should restore the resume/discard banner after closing a resumed draft without submitting', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    await screen.findByText('Step 3 of 6: Networking');
+    expect(screen.queryByText(/Unfinished draft/i)).not.toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    // The draft itself is untouched (Discard was never clicked), so closing
+    // the resumed dialog without submitting should bring the banner back
+    // rather than leaving it hidden until the next full page load.
+    await screen.findByText(/Unfinished draft: unfinished-game/i);
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  });
+
+  it('should hide the header "Add game" trigger while a resumed draft is open', async () => {
+    apiMock.getGameDraft.mockResolvedValue({ draft: sampleDraft, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' });
+    const user = userEvent.setup();
+    renderPage(<GamesPage />, { initialEntries: ['/games'] });
+    await screen.findByRole('button', { name: 'Resume' });
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await screen.findByText('Step 3 of 6: Networking');
+    expect(screen.queryByRole('button', { name: 'Add game' })).not.toBeInTheDocument();
   });
 
   it('should clear the draft and hide the banner when Discard is clicked, without opening the wizard', async () => {

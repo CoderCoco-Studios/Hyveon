@@ -98,6 +98,16 @@ export interface AddGameWizardProps {
    * games-page resume banner, the only caller that passes `true`.
    */
   hideTrigger?: boolean;
+  /**
+   * Called after the dialog closes (Escape/overlay click/Cancel, or a
+   * successful submit) — after the pending autosave flush and internal
+   * state reset. Lets a caller mounting a resumed-draft instance
+   * (`hideTrigger`) know when to stop rendering it and restore its own
+   * resume/discard banner, rather than leaving that banner permanently
+   * hidden once `resuming` is set — see the games-page resume banner, the
+   * only caller that passes this.
+   */
+  onClose?: () => void;
 }
 
 /**
@@ -105,7 +115,12 @@ export interface AddGameWizardProps {
  * operator through the six wizard steps, and owns the `games.create` submit
  * handler. See the module doc above for the full submit-result contract.
  */
-export function AddGameWizard({ initialDraft, initialStepIndex, hideTrigger = false }: AddGameWizardProps = {}) {
+export function AddGameWizard({
+  initialDraft,
+  initialStepIndex,
+  hideTrigger = false,
+  onClose,
+}: AddGameWizardProps = {}) {
   const navigate = useNavigate();
 
   // Seeding `open`'s initial value from `initialDraft` (rather than a
@@ -129,8 +144,15 @@ export function AddGameWizard({ initialDraft, initialStepIndex, hideTrigger = fa
   // result would mutate the freshly-reset draft with stale step/error state.
   const openRef = useRef(open);
 
-  /** True once the operator has made at least one edit — gates autosave so an untouched (or freshly-resumed, unedited) draft never writes itself back out. */
-  const hasEditedRef = useRef(false);
+  // True once the operator has made at least one edit — gates autosave so an
+  // untouched, blank draft (opened but never typed into) never writes itself
+  // back out. A *resumed* draft starts this `true` rather than `false`: it
+  // was already non-empty on disk, so there's nothing to protect by waiting
+  // for a field edit, and starting `false` here would mean navigating steps
+  // (Next/Back) without ever touching a field — plausible when resuming to
+  // review or fix a later step — schedules no autosave at all, silently
+  // losing the new `stepIndex` if the operator then closes the dialog.
+  const hasEditedRef = useRef(initialDraft !== undefined);
   /** Pending debounce timer for the autosave effect below; cleared/replaced on every draft change, flushed immediately on close/unmount. */
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -225,6 +247,7 @@ export function AddGameWizard({ initialDraft, initialStepIndex, hideTrigger = fa
     if (!next) {
       flushPendingSave();
       resetWizard();
+      onClose?.();
     }
   }
 
@@ -281,7 +304,12 @@ export function AddGameWizard({ initialDraft, initialStepIndex, hideTrigger = fa
         toast.success(`${payload.name} created`, {
           description: 'Run plan and apply on the Infrastructure page to deploy it.',
         });
-        void api.clearGameDraft();
+        // Awaited (not fire-and-forget) so the IPC clear has actually landed
+        // before the dialog closes and the caller navigates away — otherwise
+        // a fast reload of `/games` (or the games-page resume banner's own
+        // `getGameDraft()` effect) could race the clear and briefly still
+        // see the just-submitted draft as "unfinished".
+        await api.clearGameDraft();
         handleOpenChange(false);
         navigate(`/games/${payload.name}`);
         return;

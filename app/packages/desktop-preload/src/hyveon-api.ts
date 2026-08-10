@@ -1154,7 +1154,13 @@ export interface HyveonGamesApi {
   delete: (payload: DeleteGamePayload) => Promise<GameWriteResult>;
   /** Save/resume/discard endpoints for the single in-progress add-game wizard draft. */
   draft: {
-    /** Returns the saved draft, or `null` if none is saved. */
+    /**
+     * Returns the saved draft, or `null` if none is saved. `environment[].value`
+     * and `file_seeds[].content`/`content_base64` are blanked out by
+     * `GameWizardDraftService.get()` on the main-process side before this
+     * response is sent — those values never cross the IPC boundary, and the
+     * operator re-enters them on resume.
+     */
     get: () => Promise<StoredGameWizardDraft | null>;
     /** Saves the current draft and step index. */
     save: (payload: { draft: GameWizardDraft; stepIndex: number }) => Promise<void>;

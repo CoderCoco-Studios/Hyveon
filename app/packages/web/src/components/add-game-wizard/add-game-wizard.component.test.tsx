@@ -312,4 +312,48 @@ describe('AddGameWizard — resuming from a saved draft', () => {
 
     await screen.findByText('Step 2 of 6: Resources');
   });
+
+  it('should autosave the new step index after navigating steps, even without editing a field', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(
+        <AddGameWizard
+          initialDraft={{
+            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+            ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+          }}
+          initialStepIndex={0}
+        />,
+      );
+      await screen.findByText('Step 1 of 6: Identity');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByText('Step 2 of 6: Resources');
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(apiMock.saveGameDraft).toHaveBeenCalledWith(expect.objectContaining({ name: 'resumed' }), 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should call onClose after the dialog closes', async () => {
+    const onClose = vi.fn();
+    render(
+      <AddGameWizard
+        initialDraft={{
+          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+        }}
+        initialStepIndex={0}
+        hideTrigger
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole('heading', { name: 'Add a game server' });
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
 });

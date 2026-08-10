@@ -324,11 +324,19 @@ Two services, both provided by `ElectronStoreModule`:
   Decrypted pasted credentials must only ever be consumed inside main-process
   SDK client factories (e.g. `CloudProviderModule`'s `useFactory` providers)
   — never echoed back over IPC to the renderer. `addGameWizardDraft` is
-  deliberately **not** encrypted this way, even though its `environment`
-  rows can hold operator-entered values the operator might consider
-  sensitive (e.g. a game server password) — it matches the plaintext-at-rest
-  posture of the `deployment-config.json` write the draft eventually becomes
-  on submit, which also isn't field-level encrypted.
+  deliberately **not** encrypted this way at rest, even though its
+  `environment` rows and file-seed rows can hold operator-entered values the
+  operator might consider sensitive (e.g. a game server password) — the
+  on-disk write matches the plaintext-at-rest posture of the
+  `deployment-config.json` write the draft eventually becomes on submit,
+  which also isn't field-level encrypted. Those specific fields
+  (`environment[].value`, `file_seeds[].content`/`content_base64`) are,
+  however, never returned to the renderer: `GameWizardDraftService.get()`
+  blanks them out before the result crosses the IPC boundary, so a draft
+  resumed via the games-page banner comes back with row names/paths intact
+  but those values empty — the operator re-enters them. Only `save()` (from
+  the main process, in response to the wizard's own autosave) ever writes
+  the unredacted values; no read path echoes them back.
 
 ### `DeploymentConfigModule` / `DeploymentConfigService`
 

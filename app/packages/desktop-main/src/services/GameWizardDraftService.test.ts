@@ -89,6 +89,88 @@ describe('GameWizardDraftService', () => {
       expect(service.get()).toBeNull();
       expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(expect.stringContaining('boom'));
     });
+
+    it('should return null when stepIndex is at or beyond the number of wizard steps', () => {
+      const store = makeStore();
+      const service = new GameWizardDraftService(store);
+
+      vi.mocked(store.get).mockReturnValue({
+        draft: sampleDraft,
+        stepIndex: 6,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      } as StoredGameWizardDraft);
+
+      expect(service.get()).toBeNull();
+    });
+
+    it('should return null when savedAt is not a parseable date string', () => {
+      const store = makeStore();
+      const service = new GameWizardDraftService(store);
+
+      vi.mocked(store.get).mockReturnValue({
+        draft: sampleDraft,
+        stepIndex: 0,
+        savedAt: 'not-a-date',
+      } as StoredGameWizardDraft);
+
+      expect(service.get()).toBeNull();
+    });
+
+    it('should return null when cpu or memory is not a finite number', () => {
+      const store = makeStore();
+      const service = new GameWizardDraftService(store);
+
+      vi.mocked(store.get).mockReturnValue({
+        draft: { ...sampleDraft, cpu: Number.NaN },
+        stepIndex: 0,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      } as StoredGameWizardDraft);
+
+      expect(service.get()).toBeNull();
+    });
+
+    it('should return null when a ports/volumes/file_seeds/environment entry has the wrong shape', () => {
+      const store = makeStore();
+      const service = new GameWizardDraftService(store);
+
+      const malformedPorts: StoredGameWizardDraft = {
+        draft: { ...sampleDraft, ports: [null] as unknown as GameWizardDraft['ports'] },
+        stepIndex: 0,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      vi.mocked(store.get).mockReturnValue(malformedPorts);
+      expect(service.get()).toBeNull();
+
+      const malformedEnvironment: StoredGameWizardDraft = {
+        draft: {
+          ...sampleDraft,
+          environment: [{ name: 'FOO' }] as unknown as GameWizardDraft['environment'],
+        },
+        stepIndex: 0,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      vi.mocked(store.get).mockReturnValue(malformedEnvironment);
+      expect(service.get()).toBeNull();
+    });
+
+    it('should blank out environment values and file-seed content before returning the draft', () => {
+      const draftWithSecrets: GameWizardDraft = {
+        ...sampleDraft,
+        file_seeds: [{ path: '/data/config.yml', content: 'top secret', content_base64: 'c2VjcmV0', mode: '0644' }],
+        environment: [{ name: 'DB_PASSWORD', value: 'hunter2' }],
+      };
+      const stored: StoredGameWizardDraft = {
+        draft: draftWithSecrets,
+        stepIndex: 4,
+        savedAt: '2026-08-09T00:00:00.000Z',
+      };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      const result = service.get();
+
+      expect(result?.draft.file_seeds).toEqual([{ path: '/data/config.yml', content: '', content_base64: '', mode: '0644' }]);
+      expect(result?.draft.environment).toEqual([{ name: 'DB_PASSWORD', value: '' }]);
+    });
   });
 
   describe('save', () => {
