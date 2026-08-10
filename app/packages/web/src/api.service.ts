@@ -82,6 +82,33 @@ export interface GameListEntry {
 }
 
 /**
+ * In-progress add-game wizard field values.
+ *
+ * Mirrors `WizardDraft` in
+ * `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts` —
+ * that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameWizardDraft {
+  name: string;
+  image: string;
+  connect_message: string;
+  cpu: number | null;
+  memory: number | null;
+  ports: { container: number | null; protocol: string }[];
+  volumes: { name: string; container_path: string }[];
+  file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
+  environment: { name: string; value: string }[];
+  https: boolean;
+}
+
+/** A saved add-game wizard draft plus which step the operator was on and when it was last autosaved. */
+export interface StoredGameWizardDraft {
+  draft: GameWizardDraft;
+  stepIndex: number;
+  savedAt: string;
+}
+
+/**
  * A single structural or business-rule validation failure for a proposed
  * `game_servers` entry.
  *
@@ -450,6 +477,11 @@ export const api = {
     hyveon().games.update(payload) as Promise<GameWriteResult>,
   deleteGame: async (payload: DeleteGamePayload): Promise<GameWriteResult> =>
     hyveon().games.delete(payload) as Promise<GameWriteResult>,
+  getGameDraft: async (): Promise<StoredGameWizardDraft | null> =>
+    hyveon().games.draft.get() as Promise<StoredGameWizardDraft | null>,
+  saveGameDraft: async (draft: GameWizardDraft, stepIndex: number): Promise<void> =>
+    hyveon().games.draft.save({ draft, stepIndex }) as Promise<void>,
+  clearGameDraft: async (): Promise<void> => hyveon().games.draft.clear() as Promise<void>,
 
   discordConfig: async (): Promise<DiscordConfigRedacted> =>
     hyveon().discord.getConfig() as Promise<DiscordConfigRedacted>,
