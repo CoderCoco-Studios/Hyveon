@@ -16,6 +16,7 @@ function makeGamesStub(): HyveonGamesApi {
     draft: {
       get: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
+      updateStepIndex: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
     },
   };

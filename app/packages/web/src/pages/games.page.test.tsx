@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   drift: vi.fn(),
   getGameDraft: vi.fn(),
   saveGameDraft: vi.fn(),
+  updateGameDraftStepIndex: vi.fn(),
   clearGameDraft: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
@@ -76,6 +77,7 @@ describe('GamesPage', () => {
     apiMock.drift.mockResolvedValue({ entries: [] });
     apiMock.getGameDraft.mockResolvedValue(null);
     apiMock.saveGameDraft.mockResolvedValue(undefined);
+    apiMock.updateGameDraftStepIndex.mockResolvedValue(undefined);
     apiMock.clearGameDraft.mockClear();
   });
 

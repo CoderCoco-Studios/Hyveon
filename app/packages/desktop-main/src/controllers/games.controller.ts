@@ -182,6 +182,18 @@ export class GamesController {
   }
 
   /**
+   * Updates only the `stepIndex` of an already-saved add-game wizard draft,
+   * leaving its stored fields (including secret-shaped ones) untouched.
+   *
+   * Reachable via the Electron IPC transport (`games.draft.updateStepIndex`).
+   */
+  @MessagePattern('games.draft.updateStepIndex')
+  updateDraftStepIndex(@Payload() payload: { stepIndex: number }): void {
+    logger.debug('GamesController: games.draft.updateStepIndex invoked');
+    this.gameWizardDraft.updateStepIndex(payload.stepIndex);
+  }
+
+  /**
    * Clears the saved add-game wizard draft.
    *
    * Reachable via the Electron IPC transport (`games.draft.clear`).

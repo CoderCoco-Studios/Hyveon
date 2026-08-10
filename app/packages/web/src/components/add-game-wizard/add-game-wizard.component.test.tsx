@@ -14,6 +14,7 @@ const apiMock = vi.hoisted(() => ({
   createGame: vi.fn(),
   getGameDraft: vi.fn(),
   saveGameDraft: vi.fn(),
+  updateGameDraftStepIndex: vi.fn(),
   clearGameDraft: vi.fn(),
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
@@ -29,6 +30,23 @@ vi.mock('sonner', () => ({ toast: toastMock }));
  */
 const navigateMock = vi.hoisted(() => vi.fn());
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }));
+
+/**
+ * Resets every mock shared across this file's `describe` blocks to its
+ * "happy" default — called from each block's own `beforeEach` so no test can
+ * see a call/resolution left over from a previous one.
+ */
+function resetApiMocks() {
+  apiMock.games.mockResolvedValue({ games: [] });
+  apiMock.createGame.mockReset();
+  apiMock.getGameDraft.mockResolvedValue(null);
+  apiMock.saveGameDraft.mockClear();
+  apiMock.updateGameDraftStepIndex.mockClear();
+  apiMock.clearGameDraft.mockClear();
+  navigateMock.mockClear();
+  toastMock.success.mockClear();
+  toastMock.error.mockClear();
+}
 
 /** Opens the wizard dialog via its trigger button and waits for the first step to render. */
 async function openWizard() {
@@ -80,16 +98,7 @@ async function fillHappyPathToReview() {
 }
 
 describe('AddGameWizard — blocked-advance validation', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    apiMock.getGameDraft.mockResolvedValue(null);
-    apiMock.saveGameDraft.mockClear();
-    apiMock.clearGameDraft.mockClear();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should disable Next on the Identity step while name and image are blank', async () => {
     await openWizard();
@@ -115,13 +124,7 @@ describe('AddGameWizard — blocked-advance validation', () => {
 });
 
 describe('AddGameWizard — step body scroll reset', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should reset the step body scroll position when advancing to the next step', async () => {
     await openWizard();
@@ -139,16 +142,7 @@ describe('AddGameWizard — step body scroll reset', () => {
 });
 
 describe('AddGameWizard — submit success path', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    apiMock.getGameDraft.mockResolvedValue(null);
-    apiMock.saveGameDraft.mockClear();
-    apiMock.clearGameDraft.mockClear();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should show a success toast telling the operator to plan/apply, redirect to the new game page, and close the dialog', async () => {
     apiMock.createGame.mockResolvedValue({ ok: true, games: [] });
@@ -168,16 +162,7 @@ describe('AddGameWizard — submit success path', () => {
 });
 
 describe('AddGameWizard — submit failure paths', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    apiMock.getGameDraft.mockResolvedValue(null);
-    apiMock.saveGameDraft.mockClear();
-    apiMock.clearGameDraft.mockClear();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should leave the dialog open, jump to the offending step, and highlight the field on a validation failure', async () => {
     apiMock.createGame.mockResolvedValue({
@@ -218,14 +203,7 @@ describe('AddGameWizard — submit failure paths', () => {
 
 describe('AddGameWizard — draft autosave', () => {
   beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    apiMock.getGameDraft.mockResolvedValue(null);
-    apiMock.saveGameDraft.mockClear();
-    apiMock.clearGameDraft.mockClear();
-    navigateMock.mockClear();
-    toastMock.success.mockClear();
-    toastMock.error.mockClear();
+    resetApiMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
@@ -314,14 +292,7 @@ describe('AddGameWizard — draft autosave', () => {
 });
 
 describe('AddGameWizard — resuming from a saved draft', () => {
-  beforeEach(() => {
-    apiMock.games.mockResolvedValue({ games: [] });
-    apiMock.createGame.mockReset();
-    apiMock.getGameDraft.mockResolvedValue(null);
-    apiMock.saveGameDraft.mockClear();
-    apiMock.clearGameDraft.mockClear();
-    navigateMock.mockClear();
-  });
+  beforeEach(resetApiMocks);
 
   it('should open pre-populated with an initialDraft and initialStepIndex', async () => {
     render(
@@ -337,7 +308,38 @@ describe('AddGameWizard — resuming from a saved draft', () => {
     await screen.findByText('Step 2 of 6: Resources');
   });
 
-  it('should autosave the new step index after navigating steps, even without editing a field', async () => {
+  it('should persist the new step index via updateGameDraftStepIndex after navigating steps, without re-saving the (redacted) draft', async () => {
+    // Regression test: `AddGameWizard`'s in-memory `initialDraft` here stands
+    // in for what `api.getGameDraft()` actually returns on resume —
+    // `environment[].value`/`file_seeds[].content` already blanked out by
+    // `GameWizardDraftService.get()`'s redaction. Step-only navigation must
+    // never re-send this blanked copy through `saveGameDraft`, or it would
+    // permanently overwrite the real, unredacted values still on disk.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(
+        <AddGameWizard
+          initialDraft={{
+            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
+            ports: [], volumes: [], file_seeds: [], environment: [{ name: 'DB_PASSWORD', value: '' }], https: false,
+          }}
+          initialStepIndex={0}
+        />,
+      );
+      await screen.findByText('Step 1 of 6: Identity');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByText('Step 2 of 6: Resources');
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(apiMock.updateGameDraftStepIndex).toHaveBeenCalledWith(1);
+      expect(apiMock.saveGameDraft).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should fall back to the full saveGameDraft once the operator actually edits a field on a resumed draft', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       render(
@@ -351,11 +353,10 @@ describe('AddGameWizard — resuming from a saved draft', () => {
       );
       await screen.findByText('Step 1 of 6: Identity');
 
-      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
-      await screen.findByText('Step 2 of 6: Resources');
+      await userEvent.type(screen.getByLabelText('Name'), '-2');
       await vi.advanceTimersByTimeAsync(1100);
 
-      expect(apiMock.saveGameDraft).toHaveBeenCalledWith(expect.objectContaining({ name: 'resumed' }), 1);
+      expect(apiMock.saveGameDraft).toHaveBeenCalledWith(expect.objectContaining({ name: 'resumed-2' }), 0);
     } finally {
       vi.useRealTimers();
     }

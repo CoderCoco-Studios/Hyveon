@@ -1164,6 +1164,15 @@ export interface HyveonGamesApi {
     get: () => Promise<StoredGameWizardDraft | null>;
     /** Saves the current draft and step index. */
     save: (payload: { draft: GameWizardDraft; stepIndex: number }) => Promise<void>;
+    /**
+     * Updates only the `stepIndex` of an already-saved draft, leaving the
+     * stored `draft` fields untouched — used when the operator merely
+     * navigates steps on a resumed draft without editing any field, so the
+     * redacted (secret-blanked) in-memory copy the renderer holds is never
+     * written back over the real, unredacted values still on disk. A no-op
+     * if no draft is currently saved.
+     */
+    updateStepIndex: (stepIndex: number) => Promise<void>;
     /** Clears the saved draft. */
     clear: () => Promise<void>;
   };

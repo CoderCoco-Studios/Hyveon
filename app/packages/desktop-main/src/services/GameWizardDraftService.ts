@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ADD_GAME_WIZARD_STEPS } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft } from './ElectronStoreService.js';
 
@@ -62,6 +63,33 @@ export class GameWizardDraftService {
     }
   }
 
+  /**
+   * Updates only the `stepIndex` of an already-saved draft, leaving the
+   * stored `draft` fields untouched, and re-stamps `savedAt`. A no-op if no
+   * draft is currently saved or the stored entry is malformed.
+   *
+   * @remarks
+   * Exists so the renderer can persist step-only navigation on a *resumed*
+   * draft without going through {@link save} — the renderer only ever holds
+   * the redacted copy {@link get} returns, so calling `save` with it would
+   * permanently overwrite the real, unredacted `environment[].value`/
+   * `file_seeds[].content` still on disk with blanked-out values. Reading
+   * and rewriting the raw stored entry here means the secret-shaped fields
+   * never round-trip through the renderer at all.
+   *
+   * @param stepIndex - The wizard step the operator navigated to.
+   */
+  updateStepIndex(stepIndex: number): void {
+    if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= ADD_GAME_WIZARD_STEP_COUNT) return;
+    try {
+      const stored = this.store.get('addGameWizardDraft');
+      if (!isStoredGameWizardDraft(stored)) return;
+      this.store.set('addGameWizardDraft', { ...stored, stepIndex, savedAt: new Date().toISOString() });
+    } catch (err) {
+      logger.warn(`GameWizardDraftService: failed to update draft step index (${errorMessage(err)})`);
+    }
+  }
+
   /** Deletes the saved draft, if any. A no-op (still logged on failure) if none was saved. */
   clear(): void {
     try {
@@ -73,14 +101,11 @@ export class GameWizardDraftService {
 }
 
 /**
- * Number of steps in the web add-game wizard — `WIZARD_STEPS.length` in
- * `app/packages/web/src/components/add-game-wizard/wizard-form.utils.ts`,
- * currently the six steps identity/resources/networking/storage/environment/review.
- * `desktop-main` has no dependency on the `web` workspace, so this count is
- * duplicated here rather than imported — keep it in sync if the wizard
- * gains or loses a step.
+ * Number of steps in the add-game wizard, from {@link ADD_GAME_WIZARD_STEPS}
+ * in `@hyveon/shared` — the same source of truth `wizard-form.utils.ts` in
+ * `@hyveon/web` re-exports as `WIZARD_STEPS` for step navigation.
  */
-const ADD_GAME_WIZARD_STEP_COUNT = 6;
+const ADD_GAME_WIZARD_STEP_COUNT = ADD_GAME_WIZARD_STEPS.length;
 
 /** Narrows `value` to a well-formed {@link StoredGameWizardDraft} — never partially trusting a malformed read. */
 function isStoredGameWizardDraft(value: unknown): value is StoredGameWizardDraft {

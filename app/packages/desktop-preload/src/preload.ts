@@ -682,6 +682,7 @@ const api: HyveonApi = {
     draft: {
       get: () => invoke<StoredGameWizardDraft | null>('games.draft.get'),
       save: (payload: { draft: GameWizardDraft; stepIndex: number }) => invoke<void>('games.draft.save', payload),
+      updateStepIndex: (stepIndex: number) => invoke<void>('games.draft.updateStepIndex', { stepIndex }),
       clear: () => invoke<void>('games.draft.clear'),
     },
   },

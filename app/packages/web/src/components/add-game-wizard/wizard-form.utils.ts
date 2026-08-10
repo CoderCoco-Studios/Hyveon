@@ -19,13 +19,21 @@ import {
   GAME_NAME_PATTERN_DESCRIPTION,
   type GameServerValidationIssue,
 } from '@hyveon/shared/gameServerValidator';
+import { ADD_GAME_WIZARD_STEPS, type AddGameWizardStep } from '@hyveon/shared';
 import type { CreateGamePayload, GameServer } from '../../api.service.js';
 
-/** Ordered steps of the add-game wizard, matching issue #99's scope. */
-export const WIZARD_STEPS = ['identity', 'resources', 'networking', 'storage', 'environment', 'review'] as const;
+/**
+ * Ordered steps of the add-game wizard, matching issue #99's scope.
+ *
+ * @remarks
+ * Re-exported from `@hyveon/shared`'s {@link ADD_GAME_WIZARD_STEPS}, which is
+ * also `GameWizardDraftService`'s source of truth for the valid `stepIndex`
+ * range on a resumed draft — keep step additions/removals in that one file.
+ */
+export const WIZARD_STEPS = ADD_GAME_WIZARD_STEPS;
 
 /** One step of the add-game wizard. */
-export type WizardStep = (typeof WIZARD_STEPS)[number];
+export type WizardStep = AddGameWizardStep;
 
 /**
  * Distinguishes the add wizard's create flow (where `name` is a brand-new,

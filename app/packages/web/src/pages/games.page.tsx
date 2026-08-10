@@ -55,8 +55,12 @@ function formatPorts(entry: GameListEntry): string {
  * instances would both autosave into the single `addGameWizardDraft` slot
  * and race each other. The resumed instance's `onClose` callback flips
  * `resuming` back to `false` once its dialog closes (Escape/overlay/Cancel,
- * or a successful submit), restoring the resume/discard banner and the
- * page's normal trigger(s) instead of leaving them hidden until reload.
+ * or a successful submit) and re-fetches `draft` via `api.getGameDraft()` —
+ * the wizard's own close handler already flushed any pending edits to disk
+ * by then, so re-fetching (rather than trusting the `draft` state captured
+ * back on page mount) is what makes the resume/discard banner reflect the
+ * just-saved content instead of a stale pre-edit snapshot if the operator
+ * resumes again.
  */
 export function GamesPage() {
   const [games, setGames] = useState<GameListEntry[]>([]);
@@ -109,6 +113,23 @@ export function GamesPage() {
     setDraft(null);
   }
 
+  /**
+   * Called when the resumed wizard's dialog closes. Re-fetches the saved
+   * draft rather than trusting the `draft` state from page mount — the
+   * wizard's own close handler already flushed any pending edits to disk by
+   * this point, so a stale in-memory snapshot would otherwise mislead the
+   * resume/discard banner and silently discard those edits if the operator
+   * resumes again.
+   */
+  async function handleResumedWizardClose() {
+    setResuming(false);
+    try {
+      setDraft(await api.getGameDraft());
+    } catch {
+      setDraft(null);
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
@@ -144,7 +165,7 @@ export function GamesPage() {
           initialDraft={draft.draft}
           initialStepIndex={draft.stepIndex}
           hideTrigger
-          onClose={() => setResuming(false)}
+          onClose={() => void handleResumedWizardClose()}
         />
       )}
 

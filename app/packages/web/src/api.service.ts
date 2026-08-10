@@ -481,6 +481,8 @@ export const api = {
     hyveon().games.draft.get() as Promise<StoredGameWizardDraft | null>,
   saveGameDraft: async (draft: GameWizardDraft, stepIndex: number): Promise<void> =>
     hyveon().games.draft.save({ draft, stepIndex }) as Promise<void>,
+  updateGameDraftStepIndex: async (stepIndex: number): Promise<void> =>
+    hyveon().games.draft.updateStepIndex(stepIndex) as Promise<void>,
   clearGameDraft: async (): Promise<void> => hyveon().games.draft.clear() as Promise<void>,
 
   discordConfig: async (): Promise<DiscordConfigRedacted> =>
