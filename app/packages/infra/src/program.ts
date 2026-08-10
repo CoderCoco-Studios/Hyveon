@@ -287,6 +287,20 @@ export interface InfraResources {
  *   {@link InfraResources}.
  */
 export function defineAll(config: DeploymentConfig, options: InfraProgramOptions): InfraResources {
+  // `hostedZoneName` feeds both `aws.route53.getZoneOutput`'s `name` filter
+  // (route53.ts) and `discordDomain.ts`'s `discord.${hostedZoneName}` FQDN.
+  // An empty string passes TypeScript's `string` type but produces a
+  // Route 53 "multiple hosted zones matched" error and an ACM "domain_name
+  // cannot end with a period" error respectively — both surfaced deep in
+  // the Pulumi preview with no indication the root cause is a blank config
+  // field. Fail fast here instead.
+  const hostedZoneName = config.hostedZoneName.trim();
+  if (hostedZoneName.length === 0) {
+    throw new Error(
+      'defineAll: config.hostedZoneName is empty — set the hosted zone name in Settings before deploying.',
+    );
+  }
+
   const provider = new aws.Provider('aws', {
     region: config.awsRegion,
     defaultTags: { tags: DEFAULT_TAGS },
@@ -336,7 +350,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   const ecs = defineEcs({
     projectName: config.projectName,
     awsRegion: config.awsRegion,
-    hostedZoneName: config.hostedZoneName,
+    hostedZoneName,
     gameServers: config.gameServers,
     efs,
     executionRoleArn: iamRoles.ecsTaskExecutionRole.arn,
@@ -368,7 +382,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
 
   // ── Route 53 hosted-zone lookup ────────────────────────────────────────────
   const route53 = defineRoute53({
-    hostedZoneName: config.hostedZoneName,
+    hostedZoneName,
     provider,
   });
 
@@ -393,7 +407,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   const lambdas = defineLambdas({
     projectName: config.projectName,
     awsRegion: config.awsRegion,
-    hostedZoneName: config.hostedZoneName,
+    hostedZoneName,
     dnsTtl: config.dnsTtl,
     watchdogIntervalMinutes: config.watchdogIntervalMinutes,
     watchdogIdleChecks: config.watchdogIdleChecks,
@@ -419,7 +433,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
   // `iamPolicies` below, so this can — and does — run before it.
   const discordDomain = defineDiscordDomain({
     projectName: config.projectName,
-    hostedZoneName: config.hostedZoneName,
+    hostedZoneName,
     zoneId: route53.zoneId,
     interactionsFunctionUrl: lambdas.interactionsFunctionUrl.functionUrl,
     provider,
