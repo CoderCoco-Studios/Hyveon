@@ -68,6 +68,7 @@ describe('EditGameForm', () => {
     expect(await screen.findByLabelText('Name')).toHaveValue('mygame');
     expect(screen.getByLabelText('Image')).toHaveValue('itzg/minecraft-server');
     expect(screen.getByLabelText('Connect message')).toHaveValue('Connect at {ip}:25565');
+    // cpu=512 is index 1 of getFargateCpuOptions(); memory=1024 is index 0 of getFargateMemoryOptions(512)
     expect(screen.getByLabelText(/CPU/i)).toHaveValue('1');
     expect(screen.getByLabelText(/Memory/i)).toHaveValue('0');
     expect(screen.getByLabelText('Container port')).toHaveValue(25565);

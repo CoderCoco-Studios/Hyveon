@@ -70,7 +70,7 @@ async function fillStorageStep() {
 async function fillHappyPathToReview() {
   await fillIdentityStep();
   await goNext(); // -> resources
-  await fillResourcesStep();
+  fillResourcesStep();
   await goNext(); // -> networking (no ports required)
   await goNext(); // -> storage
   await fillStorageStep();
