@@ -73,42 +73,47 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
             <div
               key={index}
               data-testid={`env-row-${index}`}
-              className="flex items-end gap-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
+              className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
             >
-              <div className="flex-1 space-y-1">
-                <Label htmlFor={`env-name-${index}`}>Variable name</Label>
-                <Input
-                  id={`env-name-${index}`}
-                  value={variable.name}
-                  placeholder="EULA"
-                  onChange={(event) => updateVariable(index, { name: event.target.value })}
-                />
-                {nameError && (
-                  <p role="alert" className="text-xs text-[var(--color-red)]">
-                    {nameError}
-                  </p>
-                )}
+              <div className="flex items-end gap-3">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor={`env-name-${index}`}>Variable name</Label>
+                  <Input
+                    id={`env-name-${index}`}
+                    value={variable.name}
+                    placeholder="EULA"
+                    aria-invalid={Boolean(nameError)}
+                    aria-describedby={nameError ? `env-name-error-${index}` : undefined}
+                    onChange={(event) => updateVariable(index, { name: event.target.value })}
+                  />
+                </div>
+
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor={`env-value-${index}`}>Value</Label>
+                  <Input
+                    id={`env-value-${index}`}
+                    value={variable.value}
+                    placeholder="TRUE"
+                    onChange={(event) => updateVariable(index, { value: event.target.value })}
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Remove environment variable ${index + 1}`}
+                  onClick={() => removeVariable(index)}
+                >
+                  Remove
+                </Button>
               </div>
 
-              <div className="flex-1 space-y-1">
-                <Label htmlFor={`env-value-${index}`}>Value</Label>
-                <Input
-                  id={`env-value-${index}`}
-                  value={variable.value}
-                  placeholder="TRUE"
-                  onChange={(event) => updateVariable(index, { value: event.target.value })}
-                />
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Remove environment variable ${index + 1}`}
-                onClick={() => removeVariable(index)}
-              >
-                Remove
-              </Button>
+              {nameError && (
+                <p id={`env-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
+                  {nameError}
+                </p>
+              )}
             </div>
           );
         })}

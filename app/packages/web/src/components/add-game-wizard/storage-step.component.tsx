@@ -102,48 +102,55 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
               <div
                 key={index}
                 data-testid={`volume-row-${index}`}
-                className="flex items-end gap-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
+                className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
               >
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor={`volume-name-${index}`}>Volume name</Label>
-                  <Input
-                    id={`volume-name-${index}`}
-                    value={volume.name}
-                    placeholder="data"
-                    onChange={(event) => updateVolume(index, { name: event.target.value })}
-                  />
-                  {nameError && (
-                    <p role="alert" className="text-xs text-[var(--color-red)]">
-                      {nameError}
-                    </p>
-                  )}
+                <div className="flex items-end gap-3">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor={`volume-name-${index}`}>Volume name</Label>
+                    <Input
+                      id={`volume-name-${index}`}
+                      value={volume.name}
+                      placeholder="data"
+                      aria-invalid={Boolean(nameError)}
+                      aria-describedby={nameError ? `volume-name-error-${index}` : undefined}
+                      onChange={(event) => updateVolume(index, { name: event.target.value })}
+                    />
+                  </div>
+
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor={`volume-path-${index}`}>Container path</Label>
+                    <Input
+                      id={`volume-path-${index}`}
+                      value={volume.container_path}
+                      placeholder="/data"
+                      aria-invalid={Boolean(pathError)}
+                      aria-describedby={pathError ? `volume-path-error-${index}` : undefined}
+                      onChange={(event) => updateVolume(index, { container_path: event.target.value })}
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!canRemove}
+                    aria-label={canRemove ? `Remove volume ${index + 1}` : `Remove volume ${index + 1} (at least one volume is required)`}
+                    onClick={() => removeVolume(index)}
+                  >
+                    Remove
+                  </Button>
                 </div>
 
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor={`volume-path-${index}`}>Container path</Label>
-                  <Input
-                    id={`volume-path-${index}`}
-                    value={volume.container_path}
-                    placeholder="/data"
-                    onChange={(event) => updateVolume(index, { container_path: event.target.value })}
-                  />
-                  {pathError && (
-                    <p role="alert" className="text-xs text-[var(--color-red)]">
-                      {pathError}
-                    </p>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!canRemove}
-                  aria-label={canRemove ? `Remove volume ${index + 1}` : `Remove volume ${index + 1} (at least one volume is required)`}
-                  onClick={() => removeVolume(index)}
-                >
-                  Remove
-                </Button>
+                {nameError && (
+                  <p id={`volume-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
+                    {nameError}
+                  </p>
+                )}
+                {pathError && (
+                  <p id={`volume-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
+                    {pathError}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -189,13 +196,10 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                       id={`file-seed-path-${index}`}
                       value={seed.path}
                       placeholder="/data/config.yml"
+                      aria-invalid={Boolean(pathError)}
+                      aria-describedby={pathError ? `file-seed-path-error-${index}` : undefined}
                       onChange={(event) => updateFileSeed(index, { path: event.target.value })}
                     />
-                    {pathError && (
-                      <p role="alert" className="text-xs text-[var(--color-red)]">
-                        {pathError}
-                      </p>
-                    )}
                   </div>
 
                   <Button
@@ -208,6 +212,12 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                     Remove
                   </Button>
                 </div>
+
+                {pathError && (
+                  <p id={`file-seed-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
+                    {pathError}
+                  </p>
+                )}
 
                 <div className="space-y-1">
                   <Label htmlFor={`file-seed-content-${index}`}>Content</Label>

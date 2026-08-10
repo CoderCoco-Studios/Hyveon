@@ -8,6 +8,11 @@ import { IAMClient, CreateAccessKeyCommand, DeleteAccessKeyCommand } from '@aws-
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
+  // `resolveAppRoot`'s module-scope `out/main`-shape probe — returning
+  // `false` exercises the `dist/services/` fallback candidate, which is
+  // irrelevant to what these tests assert (only that the result ends in
+  // `.iam-bootstrap-dev` and is absolute).
+  existsSync: vi.fn(() => false),
 }));
 
 /** Spy for `resolveCloudFormationTemplatePath`, driving whether a template "exists" per test. */

@@ -144,7 +144,7 @@ export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }
               key={index}
               data-testid={`port-row-${index}`}
               className={cn(
-                'flex items-end gap-3 rounded-[var(--radius-sm)] border p-3',
+                'flex flex-wrap items-end gap-3 rounded-[var(--radius-sm)] border p-3',
                 issue ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
               )}
             >

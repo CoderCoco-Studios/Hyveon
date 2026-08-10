@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
@@ -15,17 +15,38 @@ import { resolveAwsCredentialSource, type AwsCredentialSource } from './awsCrede
 import { verifyAccessKeyWithRetry } from './verifyAccessKeyWithRetry.js';
 import { sleep } from './sleep.js';
 
-/** Absolute path to the `dist/services/` directory at runtime. */
+/**
+ * Absolute path to the directory containing this module at runtime.
+ * `GuidedIamService` runs under two different compiled shapes depending on
+ * caller: the electron-vite bundle (`desktop:dev`/`desktop:run`/`app:start`
+ * launch Electron against a single collapsed file at `out/main/index.js`,
+ * two levels below/inside the repo root), and the plain `tsc` output
+ * (`dist/services/GuidedIamService.js`, one level under the package root)
+ * for workspace consumers that import `AppModule` straight from `dist/` —
+ * e.g. the tier-2 integration-test harness. See {@link _APP_ROOT} for how
+ * both shapes are resolved to the same app root.
+ */
 const _dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in Docker).
- * Derived by walking 4 levels up from `dist/services/`, mirroring
- * `ConfigService`'s own `_APP_ROOT` — this file lives at the same depth
- * (`src/services/`, compiled to `dist/services/`).
- * Used only as a private dev-mode fallback inside {@link GuidedIamService.getRenderedTemplatePath}.
+ * Absolute path to the app root (`app/` in the repo, `/workspace/app/` in
+ * Docker). Tries the `out/main` shape first — walking up 2 levels from
+ * {@link _dirname} to the repo root, then descending into `app/` — and
+ * falls back to the `dist/services/` shape's 4-level walk (mirroring
+ * `cloudformationTemplate.ts`'s `resolveCloudFormationTemplatePath`, which
+ * documents and handles the same two shapes for the same reason) when the
+ * `out/main` candidate doesn't resolve to a real app root. Used only as a
+ * private dev-mode fallback inside {@link GuidedIamService.getRenderedTemplatePath}.
  */
-const _APP_ROOT = join(_dirname, '..', '..', '..', '..');
+function resolveAppRoot(): string {
+  const outMainCandidate = join(_dirname, '..', '..', 'app');
+  if (existsSync(join(outMainCandidate, 'packages', 'desktop-main', 'package.json'))) {
+    return outMainCandidate;
+  }
+  return join(_dirname, '..', '..', '..', '..');
+}
+
+const _APP_ROOT = resolveAppRoot();
 
 /** Result of {@link GuidedIamService.renderTemplate}. */
 export interface RenderedTemplateResult {

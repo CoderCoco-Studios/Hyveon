@@ -210,6 +210,14 @@ export function AddGameWizard({
 
   const step = WIZARD_STEPS[stepIndex];
 
+  // The step body's scroll container is a single persistent DOM node whose
+  // children swap as `stepIndex` changes, so a scroll offset left over from
+  // one step would otherwise carry over to the next.
+  const stepBodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (stepBodyRef.current) stepBodyRef.current.scrollTop = 0;
+  }, [stepIndex]);
+
   // Refreshes the existing-games list (used for name/port collision checks)
   // every time the dialog opens, so a game declared in a previous session
   // is taken into account without requiring a page reload.
@@ -350,32 +358,34 @@ export function AddGameWizard({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 space-y-1.5 px-6 pt-6">
           <DialogTitle>Add a game server</DialogTitle>
           <DialogDescription>
             Step {stepIndex + 1} of {WIZARD_STEPS.length}: {STEP_LABELS[step]}
           </DialogDescription>
         </DialogHeader>
 
-        {step === 'identity' && <IdentityStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
-        {step === 'resources' && (
-          <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={stepIssues} onChange={patchDraft} />
-        )}
-        {step === 'networking' && (
-          <NetworkingStep
-            ports={draft.ports}
-            issues={stepIssues}
-            onChange={(ports) => patchDraft({ ports })}
-            https={draft.https}
-            onHttpsChange={(https) => patchDraft({ https })}
-          />
-        )}
-        {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
-        {step === 'environment' && <EnvironmentStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
-        {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
+        <div ref={stepBodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {step === 'identity' && <IdentityStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+          {step === 'resources' && (
+            <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={stepIssues} onChange={patchDraft} />
+          )}
+          {step === 'networking' && (
+            <NetworkingStep
+              ports={draft.ports}
+              issues={stepIssues}
+              onChange={(ports) => patchDraft({ ports })}
+              https={draft.https}
+              onHttpsChange={(https) => patchDraft({ https })}
+            />
+          )}
+          {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+          {step === 'environment' && <EnvironmentStep draft={draft} issues={stepIssues} onChange={patchDraft} />}
+          {step === 'review' && <ReviewStep draft={draft} issues={stepIssues} submitError={submitError} />}
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-[var(--color-border)] px-6 py-4">
           <Button type="button" variant="outline" onClick={goBack} disabled={stepIndex === 0 || submitting}>
             Back
           </Button>
