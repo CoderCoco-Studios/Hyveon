@@ -224,9 +224,17 @@ No commit — this task makes no code changes; it documents that the existing te
 
 ## Task 4: Propagate the `Game` tag to running ECS tasks via `RunTask`
 
+There are two independent `RunTaskCommand` call sites that start a game
+server — `AwsCloudProvider.startWorkload` (desktop app) and the followup
+Lambda's `runStart` (Discord `/start` command). Neither calls the other, so
+both need the `propagateTags` change; fixing only one leaves tasks started
+through the other path untagged.
+
 **Files:**
 - Modify: `app/packages/cloud-aws/src/AwsCloudProvider.ts:451-459`
+- Modify: `app/packages/lambda/followup/src/handler.ts:139-146`
 - Test: `app/packages/cloud-aws/src/AwsCloudProvider.test.ts`
+- Test: `app/packages/lambda/followup/src/handler.test.ts`
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -291,11 +299,51 @@ In `app/packages/cloud-aws/src/AwsCloudProvider.ts`, change the `RunTaskCommand`
 Run: `npm run app:test -- AwsCloudProvider.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write the failing test for the followup Lambda's `RunTask` call**
+
+In `app/packages/lambda/followup/src/handler.test.ts`, extend the existing
+test at line 82-98 (`'should RunTask, write a pending row keyed by task
+ARN, and PATCH the original message'`) by adding one more assertion after
+the existing `runCalls[0]!.args[0]!.input.taskDefinition` assertion:
+
+```typescript
+    expect(runCalls[0]!.args[0]!.input.propagateTags).toBe('TASK_DEFINITION');
+```
+
+- [ ] **Step 6: Run the test to verify it fails**
+
+Run: `npm run app:test -- handler.test.ts`
+Expected: FAIL — `input.propagateTags` is `undefined`, not `'TASK_DEFINITION'`.
+
+- [ ] **Step 7: Add `propagateTags` to the followup Lambda's `RunTaskCommand` input**
+
+In `app/packages/lambda/followup/src/handler.ts`, change the `RunTaskCommand`
+construction in `runStart` (around line 139-146):
+
+```typescript
+      new RunTaskCommand({
+        cluster,
+        taskDefinition: `${game}-server`,
+        count: 1,
+        launchType: 'FARGATE',
+        networkConfiguration: {
+          awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
+        },
+        propagateTags: 'TASK_DEFINITION',
+      }),
+```
+
+- [ ] **Step 8: Run the test to verify it passes**
+
+Run: `npm run app:test -- handler.test.ts`
+Expected: PASS
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add app/packages/cloud-aws/src/AwsCloudProvider.ts app/packages/cloud-aws/src/AwsCloudProvider.test.ts
-git commit -m "feat(cloud-aws): propagate task-definition tags to running ECS tasks"
+git add app/packages/cloud-aws/src/AwsCloudProvider.ts app/packages/cloud-aws/src/AwsCloudProvider.test.ts \
+  app/packages/lambda/followup/src/handler.ts app/packages/lambda/followup/src/handler.test.ts
+git commit -m "feat(cloud-aws,lambda-followup): propagate task-definition tags to running ECS tasks"
 ```
 
 ---

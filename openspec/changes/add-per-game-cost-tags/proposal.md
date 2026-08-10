@@ -31,13 +31,19 @@ filter by game once there.
 **Runtime tag propagation for ECS tasks**
 - From: `RunTaskCommand` does not set `propagateTags`, so live Fargate
   tasks (the actual billed compute) carry no tags regardless of what the
-  task definition has.
-- To: `RunTaskCommand` sets `propagateTags: 'TASK_DEFINITION'` so running
-  tasks inherit `Game` from their task definition.
+  task definition has. There are two independent code paths that call
+  `RunTaskCommand` to start a game server — `AwsCloudProvider.startWorkload`
+  (desktop app start/stop) and the followup Lambda's `runStart`
+  (Discord `/start` command) — and neither propagates tags today.
+- To: Both `RunTaskCommand` call sites set
+  `propagateTags: 'TASK_DEFINITION'` so running tasks inherit `Game` from
+  their task definition regardless of which path started them.
 - Reason: Without this, tagging the task definition is cosmetic — the
-  resource AWS actually bills for (the running task) stays untagged.
+  resource AWS actually bills for (the running task) stays untagged. Fixing
+  only one call site would leave tasks started through the other path
+  untagged, since neither path calls the other.
 - Impact: Non-breaking. `app/packages/cloud-aws/src/AwsCloudProvider.ts`
-  only.
+  and `app/packages/lambda/followup/src/handler.ts`.
 
 **Cost allocation tag activation and operator documentation**
 - From: No documented path for an operator to see a per-game cost
@@ -70,8 +76,14 @@ filter by game once there.
   Lambda and its log group.
 - `app/packages/cloud-aws/src/AwsCloudProvider.ts` — `RunTaskCommand` gets
   `propagateTags: 'TASK_DEFINITION'`.
+- `app/packages/lambda/followup/src/handler.ts` — its own, independent
+  `RunTaskCommand` call (`runStart`) also gets
+  `propagateTags: 'TASK_DEFINITION'`.
 - `app/packages/infra/src/ecs.test.ts` / `app/packages/infra/src/lambdas.test.ts`
   — extend tag assertions.
+- `app/packages/cloud-aws/src/AwsCloudProvider.test.ts` /
+  `app/packages/lambda/followup/src/handler.test.ts` — extend
+  `propagateTags` assertions.
 - `docs/docs/components/infra.md` — resource/tag table + cost allocation
   tag activation note.
 - No `DeploymentConfig`/`GameServerConfig` field changes. No IPC/API

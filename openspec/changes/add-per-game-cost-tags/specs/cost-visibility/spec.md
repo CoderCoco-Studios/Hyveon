@@ -32,9 +32,17 @@ NOT carry a `Game` tag.
 Every `RunTask` call the app makes to launch a game server SHALL request tag
 propagation from the task definition, so the running task — the resource
 AWS meters Fargate compute cost against — carries the same `Game` tag as its
-task definition.
+task definition. This applies to every independent code path that calls
+`RunTask` to start a game server, not just one of them.
 
-#### Scenario: Launching a game server
-- **WHEN** the app starts a game server via `RunTask`
+#### Scenario: Launching a game server from the desktop app
+- **WHEN** the app starts a game server via `RunTask` from
+  `AwsCloudProvider.startWorkload`
+- **THEN** the resulting running ECS task carries a `Game` tag equal to that
+  game's id, inherited from its task definition
+
+#### Scenario: Launching a game server from the Discord `/start` command
+- **WHEN** the followup Lambda starts a game server via `RunTask` in
+  response to a Discord `/start` interaction
 - **THEN** the resulting running ECS task carries a `Game` tag equal to that
   game's id, inherited from its task definition

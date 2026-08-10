@@ -9,11 +9,17 @@ Pulumi-managed resource. Per-game resources are distinguishable only by a
 mechanism.
 
 The bigger gap is at runtime: game servers run as on-demand ECS Fargate
-tasks started via `RunTaskCommand`
-(`app/packages/cloud-aws/src/AwsCloudProvider.ts:451-459`), per this
-project's no-persistent-Service invariant. `RunTaskCommand` does not set
-`propagateTags`, so the actual billed resource (the running task) carries no
-tags at all today — even if the task *definition* were tagged, that tag
+tasks started via `RunTaskCommand`, per this project's no-persistent-Service
+invariant. There are two independent call sites that construct a
+`RunTaskCommand` to start a game server: `AwsCloudProvider.startWorkload`
+(`app/packages/cloud-aws/src/AwsCloudProvider.ts:451-459`), used by the
+desktop app's own start/stop controls, and `runStart`
+(`app/packages/lambda/followup/src/handler.ts:128-149`), used by the
+Discord `/start` slash command. Neither goes through the other — the
+followup Lambda does not call into `AwsCloudProvider` — so both must be
+addressed independently. Neither sets `propagateTags`, so the actual billed
+resource (the running task) carries no tags at all today regardless of
+which path started it — even if the task *definition* were tagged, that tag
 would not reach the resource AWS meters compute cost against.
 
 `cost-visibility` (existing capability, `openspec/specs/cost-visibility/spec.md`)
@@ -83,17 +89,29 @@ giving Cost Explorer a `Game` dimension to group and filter by.
   (see brainstorm.md Q4): it implies a cost-split capability that doesn't
   exist and adds tag-maintenance surface with zero Cost Explorer benefit.
 
-### D3: Propagate tags to running ECS tasks via `propagateTags`
-- **Choice**: Set `propagateTags: 'TASK_DEFINITION'` on the
-  `RunTaskCommand` call in `AwsCloudProvider.ts:451`.
+### D3: Propagate tags to running ECS tasks via `propagateTags`, on both `RunTask` call sites
+- **Choice**: Set `propagateTags: 'TASK_DEFINITION'` on both
+  `RunTaskCommand` calls that start a game server —
+  `AwsCloudProvider.ts:451` (desktop app start/stop) and
+  `app/packages/lambda/followup/src/handler.ts:139` (Discord `/start`
+  command). These are separate code paths with separately constructed
+  `RunTaskCommand` inputs; fixing one does not fix the other.
 - **Rationale**: This is the decision that makes the whole change
   effective. AWS bills Fargate compute against the running task, not the
   task definition. Without propagation, `Game` would exist only on a
   resource (`aws.ecs.TaskDefinition`) that itself accrues no cost, and Cost
-  Explorer would show nothing tagged for the actual server runtime.
+  Explorer would show nothing tagged for the actual server runtime. Since
+  the Discord `/start` command is a primary way operators actually start a
+  game server, leaving its `RunTaskCommand` unpropagated would leave the
+  dominant real-world start path untagged even though the desktop path
+  works.
 - **Alternatives considered**: Tag the task definition only, relying on
   operators mentally mapping task-def name to game — rejected, defeats the
-  purpose of adding the tag at all.
+  purpose of adding the tag at all. Fixing only `AwsCloudProvider.ts` and
+  treating the followup Lambda as out of scope — rejected, it produces an
+  incomplete result relative to this change's own acceptance scenario
+  ("the resulting running ECS task carries a Game tag"), since a task
+  started via Discord is exactly such a running ECS task.
 
 ## Risks / Trade-offs
 
@@ -118,14 +136,18 @@ giving Cost Explorer a `Game` dimension to group and filter by.
 
 No data migration. Deployment sequence:
 1. Ship the Pulumi tag changes (`ecs.ts`, `lambdas.ts`) and the
-   `propagateTags` change (`AwsCloudProvider.ts`) in one PR — these are
-   small, same-concern, non-breaking changes to existing resource
-   definitions, not a fresh capability requiring a stack.
+   `propagateTags` change on both `RunTaskCommand` call sites
+   (`AwsCloudProvider.ts` and the followup Lambda's `handler.ts`) in one
+   PR — these are small, same-concern, non-breaking changes to existing
+   resource definitions, not a fresh capability requiring a stack.
 2. Next Pulumi apply/update updates existing task definitions and Lambda
    functions in place with the new `Game` tag (Pulumi tags are mutable
-   in-place properties, no resource replacement).
-3. Next `RunTask` call after the `cloud-aws` change ships launches tasks
-   with propagated tags — no operator action needed.
+   in-place properties, no resource replacement) — this also redeploys the
+   followup Lambda's own updated code.
+3. Next `RunTask` call after the `cloud-aws` and followup-Lambda changes
+   ship — whether triggered from the desktop app or the Discord `/start`
+   command — launches tasks with propagated tags. No operator action
+   needed.
 4. Operator (documented step, not automated): activate `Game` as a cost
    allocation tag in AWS Billing → Cost allocation tags. Allow up to 24h for
    Cost Explorer to reflect it.
