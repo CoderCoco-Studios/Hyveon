@@ -34,6 +34,22 @@ export function resolveWindowIcon(): string | undefined {
 }
 
 /**
+ * Routes the renderer's `target="_blank"` links (e.g. the "Open AWS Cost
+ * Explorer" link on the costs page) to the operator's default OS browser
+ * instead of a new Electron `BrowserWindow`.
+ *
+ * @param win - The window whose outbound link clicks should be redirected.
+ */
+function setDefaultBrowserOpener(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url).catch((err: unknown) => {
+      console.error('[desktop-main] Failed to open external URL:', err);
+    });
+    return { action: 'deny' };
+  });
+}
+
+/**
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
  */
@@ -56,15 +72,7 @@ function createWindow(): void {
     },
   });
 
-  // The renderer's `target="_blank"` links (e.g. the "Open AWS Cost Explorer"
-  // link on the costs page) would otherwise open in a new Electron
-  // BrowserWindow instead of the operator's default OS browser.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url).catch((err: unknown) => {
-      console.error('[desktop-main] Failed to open external URL:', err);
-    });
-    return { action: 'deny' };
-  });
+  setDefaultBrowserOpener(win);
 
   const rendererUrl = electronRendererUrl();
   const load = rendererUrl
