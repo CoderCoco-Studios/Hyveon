@@ -177,6 +177,12 @@ export default tseslint.config(
       // via aws-sdk-client-mock, since no MockStore/DI-seam stub exists for
       // STS/IAM at this tier — same AWS-SDK-direct reasoning applies here.
       'packages/web/e2e/integration-specs/guided-iam.spec.ts',
+      // Account-level IAM prerequisite checks (iam:GetRole /
+      // iam:CreateServiceLinkedRole for AWSServiceRoleForECS): no
+      // cloud-agnostic IAM interface exists in @hyveon/shared/cloud.js —
+      // same AWS-SDK-direct reasoning as IamCheckService above.
+      'packages/desktop-main/src/services/CloudHealthService.ts',
+      'packages/desktop-main/src/services/CloudHealthService.test.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': ['error', {

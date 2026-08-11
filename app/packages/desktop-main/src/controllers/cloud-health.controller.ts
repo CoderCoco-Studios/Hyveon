@@ -20,6 +20,7 @@ export interface CloudHealthCheckSummary {
 export class CloudHealthController {
   constructor(private readonly cloudHealth: CloudHealthService) {}
 
+  /** Returns a status summary for every registered Cloud Health check. */
   @MessagePattern('cloudHealth.list')
   async list(): Promise<CloudHealthCheckSummary[]> {
     logger.debug('CloudHealthController: cloudHealth.list invoked');
@@ -31,6 +32,7 @@ export class CloudHealthController {
     );
   }
 
+  /** Attempts to fix the check identified by `payload.id`. */
   @MessagePattern('cloudHealth.fix')
   async fix(@Payload() payload: { id: string }): Promise<CloudHealthFixResult> {
     logger.debug('CloudHealthController: cloudHealth.fix invoked', { id: payload.id });
