@@ -97,7 +97,7 @@ On finishing the final step, the wizard SHALL persist all answers (via `Electron
 
 ### Requirement: Reconfigure entry point in Settings
 
-The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard (`mode: 'reconfigure'`) against the existing electron-store state, re-running the cloud, credentials, bootstrap, and stack-init steps. Guided IAM provisioning participates in reconfigure mode as a pre-completed step (added to `RECONFIGURE_PRE_COMPLETED_STEPS` alongside `pick-cloud`/`credentials`/`bootstrap`) rather than being removed from the step list, since an existing install already has a deploy principal. Steps already satisfied by existing state SHALL render as completed with a per-step "Edit" affordance rather than forcing re-entry. Reconfigure MUST preserve existing configuration except the fields the operator changes. Cancelling mid-flow MUST leave the pre-reconfigure **local configuration** intact and the app usable — this guarantee covers only `ElectronStoreService` state; it does NOT retroactively undo AWS-side mutations already performed during the flow (a CloudFormation stack created by guided IAM, an access key already rotated, S3 encryption already enabled). Those are real external changes with no local "undo"; the step must make this distinction visible to the operator rather than implying full rollback.
+The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard (`mode: 'reconfigure'`) against the existing electron-store state, re-running the cloud, credentials, bootstrap, guided-IAM, and stack-init steps — no step is excluded from the flow. `pick-cloud`, `credentials`, and `bootstrap` render pre-completed unconditionally, since existing state already satisfies them. Guided IAM provisioning is pre-completed only conditionally: it renders pre-completed when the stored AWS profile is evidence guided provisioning actually produced the active credential, and renders fresh otherwise — an existing install may have reached its current credential via the profile-picker or paste path instead. Steps already satisfied by existing state SHALL render as completed with a per-step "Edit" affordance rather than forcing re-entry. Reconfigure MUST preserve existing configuration except the fields the operator changes. Cancelling mid-flow MUST leave the pre-reconfigure **local configuration** intact and the app usable — this guarantee covers only `ElectronStoreService` state; it does NOT retroactively undo AWS-side mutations already performed during the flow (a CloudFormation stack created by guided IAM, an access key already rotated, S3 encryption already enabled). Those are real external changes with no local "undo"; the step must make this distinction visible to the operator rather than implying full rollback.
 
 #### Scenario: Reconfigure with one change
 
@@ -108,6 +108,11 @@ The Settings page SHALL surface a "Reconfigure" button that relaunches the wizar
 
 - **WHEN** Reconfigure opens with all steps previously completed
 - **THEN** each step shows as completed with an "Edit" affordance and the operator can jump straight to finishing
+
+#### Scenario: Reconfigure covers the whole flow
+
+- **WHEN** Reconfigure opens
+- **THEN** every wizard step is present in the flow, with no step filtered out of the reconfigure step list, though guided-IAM only renders pre-completed when the stored profile shows guided provisioning actually ran
 
 #### Scenario: Mid-flow cancel
 
