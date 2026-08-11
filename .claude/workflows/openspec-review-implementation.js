@@ -10,13 +10,21 @@ export const meta = {
 }
 
 const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'"
-const ARGS = typeof args === "string" ? JSON.parse(args) : (args || {})
-const CHANGE_DIR = ARGS.changeDir || null
+let ARGS
+try {
+  ARGS = typeof args === "string" ? JSON.parse(args) : args
+} catch {
+  ARGS = null
+}
+if (!ARGS || typeof ARGS !== "object") ARGS = {}
+const isSafeChangeDir = d => typeof d === "string" && d.length > 0 && !d.includes("/") && !d.includes("\\") && d !== "." && d !== ".."
+const CHANGE_DIR = isSafeChangeDir(ARGS.changeDir) ? ARGS.changeDir : null
 const CHANGE_ROOT = CHANGE_DIR ? "openspec/changes/" + CHANGE_DIR : null
 const HEAD_REF = ARGS.headRefOid || null
 const BASE_REF = ARGS.baseRefName || "main"
-const RAW_EFFORT = ARGS.effort || null
-const EFFORT = RAW_EFFORT === "ultra" ? "max" : RAW_EFFORT
+const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+const RAW_EFFORT = typeof ARGS.effort === "string" ? ARGS.effort.trim().toLowerCase() : ""
+const EFFORT = RAW_EFFORT === "ultra" ? "max" : (VALID_EFFORTS.includes(RAW_EFFORT) ? RAW_EFFORT : null)
 const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 const PINNED_RANGE = HEAD_REF ? shellQuote("origin/" + BASE_REF + "..." + HEAD_REF) : null
 const FETCH_CMD = HEAD_REF ? "git fetch origin " + shellQuote(HEAD_REF) + " " + shellQuote(BASE_REF) : null

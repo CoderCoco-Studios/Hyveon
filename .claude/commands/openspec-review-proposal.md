@@ -14,14 +14,14 @@ For a PR that implements a change's `tasks.md`, use `/openspec-review-implementa
 - an optional level — one of `low`, `medium`, `high`, `xhigh`, `max`, `ultra`
 - an optional `--fix` flag
 - an optional `--comment` flag
-- an optional target — a PR number or a branch name; omit to use the current branch
+- an optional target — a PR number or a branch name; omit to use the current branch. To target a branch whose name collides with one of the six level names (e.g. a branch literally called `high` or `max`), pass it as `--target=<name>` instead of a bare token — a bare token matching a level name is always parsed as the level.
 
 ## Steps
 
 1. **Parse `$ARGUMENTS` and resolve the target.**
-   - Split on whitespace. A token matching one of the six level names (case-insensitive) is the level. A token starting with `--` must be exactly `--fix` or `--comment` — any other `--flag` is a typo, stop and ask. Everything else is the target — at most one; more than one non-level/non-flag token is an error, stop and ask which one is intended.
+   - Split on whitespace. A token starting with `--target=` sets the target explicitly (strip the prefix) and is never treated as a level, no matter what it matches. Among the remaining tokens: a token starting with `--` must be exactly `--fix` or `--comment` — any other `--flag` is a typo, stop and ask. A token matching one of the six level names (case-insensitive) is the level. Everything else is the target — at most one; more than one non-level/non-flag/non-`--target=` token, or a target given both as `--target=` and as a bare token, is an error, stop and ask which one is intended.
    - No level given → omit effort entirely (these commands have no memory of "the level last used"; don't guess one).
-   - If the target looks like a PR number or branch, use `gh pr view <target> --json number,title,state,isDraft,headRefName,baseRefName,headRefOid` and `gh pr diff <target> --name-only`. Otherwise use the current branch: `git diff main...HEAD --name-only` (fall back to `git diff @{upstream}...HEAD`); resolve `headRefOid` as `git rev-parse HEAD` in that case.
+   - If a target was given (bare or via `--target=`) and it looks like a PR number or branch, use `gh pr view <target> --json number,title,state,isDraft,headRefName,baseRefName,headRefOid` and `gh pr diff <target> --name-only`. If a target was given but doesn't resolve to a PR/branch, stop and ask — do not silently fall back to the current branch. If no target was given at all, use the current branch: `git diff main...HEAD --name-only` (fall back to `git diff @{upstream}...HEAD`); resolve `headRefOid` as `git rev-parse HEAD` in that case.
    - Bail out (report why, do not proceed) if:
      - the PR is closed, merged, or a draft;
      - the changed files include none under `openspec/changes/**`;
@@ -37,7 +37,7 @@ For a PR that implements a change's `tasks.md`, use `/openspec-review-implementa
    - Format the returned `findings` into a single PR comment body:
      - Heading `### OpenSpec proposal review`
      - `Found N issues:` (or `No issues found. Checked scenario format, cross-document coherence, delta-spec correctness, conflicts, and conventions.`)
-     - Numbered list, each with a one-line description and a full-SHA GitHub blob link with line range, e.g. `https://github.com/<owner>/<repo>/blob/<full-sha>/openspec/changes/<name>/specs/<capability>/spec.md#L12-L18` (get the full SHA via `git rev-parse HEAD` or the PR's head SHA from `gh pr view --json headRefOid`; at least 1 line of context before/after the cited line). If `--fix` applied any findings, note which ones were auto-fixed.
+     - Numbered list, each with a one-line description and a full-SHA GitHub blob link with line range, e.g. `https://github.com/<owner>/<repo>/blob/<full-sha>/openspec/changes/<name>/specs/<capability>/spec.md#L12-L18` (get the full SHA via `git rev-parse HEAD` or the PR's head SHA from `gh pr view --json headRefOid`; at least 1 line of context before/after the cited line). If `--fix` applied any findings, note which ones were auto-fixed and state explicitly that those fixes are **local, unpushed edits** in the worktree noted in step 5 — not yet part of the PR — so the comment cannot be read as claiming the PR itself was fixed.
      - Footer: `🤖 Generated with [Claude Code](https://claude.ai/code)`
    - **If `--comment` was passed and there's a PR:** post it immediately with `gh pr comment <PR> --body-file <scratch-file>` — no confirmation gate. **Otherwise:** show the drafted comment and ask for explicit confirmation before posting — posting to a PR is visible to others. If there's no PR (reviewing a local branch), just present the findings in chat instead of posting anything (and note that `--comment` was a no-op if it was passed).
 

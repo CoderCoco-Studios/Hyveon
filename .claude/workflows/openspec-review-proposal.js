@@ -9,15 +9,23 @@ export const meta = {
   ],
 }
 
-const ARGS = typeof args === "string" ? JSON.parse(args) : (args || {})
-const CHANGE_DIR = ARGS.changeDir || ""
+let ARGS
+try {
+  ARGS = typeof args === "string" ? JSON.parse(args) : args
+} catch {
+  ARGS = null
+}
+if (!ARGS || typeof ARGS !== "object") ARGS = {}
+const isSafeChangeDir = d => typeof d === "string" && d.length > 0 && !d.includes("/") && !d.includes("\\") && d !== "." && d !== ".."
+const CHANGE_DIR = isSafeChangeDir(ARGS.changeDir) ? ARGS.changeDir : ""
 if (!CHANGE_DIR) {
-  return { error: "No change directory provided." }
+  return { error: "No valid change directory provided." }
 }
 const ROOT = "openspec/changes/" + CHANGE_DIR
 const HEAD_REF = ARGS.headRefOid || null
-const RAW_EFFORT = ARGS.effort || null
-const EFFORT = RAW_EFFORT === "ultra" ? "max" : RAW_EFFORT
+const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+const RAW_EFFORT = typeof ARGS.effort === "string" ? ARGS.effort.trim().toLowerCase() : ""
+const EFFORT = RAW_EFFORT === "ultra" ? "max" : (VALID_EFFORTS.includes(RAW_EFFORT) ? RAW_EFFORT : null)
 const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 
 const ANGLES = [
