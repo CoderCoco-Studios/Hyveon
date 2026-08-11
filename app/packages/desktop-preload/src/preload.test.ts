@@ -1794,6 +1794,106 @@ describe('preload dispatcher', () => {
   });
 
   // -------------------------------------------------------------------------
+  // iac.runs.lock.mintToken / iac.runs.lock.clear
+  // -------------------------------------------------------------------------
+
+  describe('iac.runs.lock.mintToken', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke iac.runs.lock.clear.mintToken with no payload', async () => {
+        const ack = { token: 'run-lock-token-abc' };
+        ipcInvoke.mockResolvedValue(ack);
+        const iacRuns = (bridge['iac'] as {
+          runs: { lock: { mintToken: () => Promise<unknown> } };
+        }).runs;
+
+        const result = await iacRuns.lock.mintToken();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.lock.clear.mintToken');
+        expect(result).toEqual(ack);
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.runs.lock.clear.mintToken is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const ack = { token: 'run-lock-token-mock' };
+        const mockHandler = vi.fn().mockResolvedValue(ack);
+        testApi.mock('iac.runs.lock.clear.mintToken', mockHandler);
+
+        const iacRuns = (bridge['iac'] as {
+          runs: { lock: { mintToken: () => Promise<unknown> } };
+        }).runs;
+        const result = await iacRuns.lock.mintToken();
+
+        expect(mockHandler).toHaveBeenCalledWith();
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(result).toEqual(ack);
+      });
+    });
+  });
+
+  describe('iac.runs.lock.clear', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke iac.runs.lock.clear with the confirmation token payload', async () => {
+        const ack = { cleared: true };
+        ipcInvoke.mockResolvedValue(ack);
+        const iacRuns = (bridge['iac'] as {
+          runs: { lock: { clear: (payload: { confirmationToken: string }) => Promise<unknown> } };
+        }).runs;
+        const payload = { confirmationToken: 'tok' };
+
+        const result = await iacRuns.lock.clear(payload);
+
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.lock.clear', payload);
+        expect(result).toEqual(ack);
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when iac.runs.lock.clear is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const ack = { cleared: true };
+        const mockHandler = vi.fn().mockResolvedValue(ack);
+        testApi.mock('iac.runs.lock.clear', mockHandler);
+
+        const iacRuns = (bridge['iac'] as {
+          runs: { lock: { clear: (payload: { confirmationToken: string }) => Promise<unknown> } };
+        }).runs;
+        const payload = { confirmationToken: 'tok-mock' };
+        const result = await iacRuns.lock.clear(payload);
+
+        expect(mockHandler).toHaveBeenCalledWith(payload);
+        expect(ipcInvoke).not.toHaveBeenCalled();
+        expect(result).toEqual(ack);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // iac.runs.streamLogs
   // -------------------------------------------------------------------------
 

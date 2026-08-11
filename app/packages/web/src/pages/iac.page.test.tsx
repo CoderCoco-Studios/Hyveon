@@ -26,6 +26,10 @@ const hyveonMock = {
     runs: {
       get: vi.fn(),
       streamLogs: vi.fn(),
+      lock: {
+        mintToken: vi.fn(),
+        clear: vi.fn(),
+      },
     },
     lock: {
       mintToken: vi.fn(),
@@ -124,6 +128,8 @@ describe('IacPage', () => {
     hyveonMock.iac.runs.streamLogs.mockReset();
     hyveonMock.iac.lock.mintToken.mockReset();
     hyveonMock.iac.lock.clear.mockReset();
+    hyveonMock.iac.runs.lock.mintToken.mockReset().mockResolvedValue({ token: 'test-token' });
+    hyveonMock.iac.runs.lock.clear.mockReset().mockResolvedValue({ cleared: true });
   });
 
   it('should render the Run plan trigger in the idle state', () => {

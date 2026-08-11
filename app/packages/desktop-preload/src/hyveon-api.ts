@@ -1117,6 +1117,50 @@ export interface IacLockClearPayload {
 }
 
 /**
+ * Result the `iac.runs.lock.clear.mintToken` IPC channel resolves with —
+ * `token` must be supplied back on
+ * {@link IacRunsLockClearPayload.confirmationToken} within its short expiry
+ * window.
+ *
+ * Mirrors `IacRunsLockMintAck` in
+ * `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface IacRunsLockMintAck {
+  token: string;
+}
+
+/**
+ * Payload accepted by the `iac.runs.lock.clear` IPC channel.
+ * `confirmationToken` must be the most recently minted, unexpired,
+ * not-yet-consumed value returned by `iac.runs.lock.clear.mintToken` —
+ * enforced server-side, never trusted from the client beyond this single
+ * round-trip.
+ *
+ * Mirrors `IacRunsLockClearPayload` in
+ * `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts`.
+ */
+export interface IacRunsLockClearPayload {
+  confirmationToken: string;
+}
+
+/**
+ * Result the `iac.runs.lock.clear` IPC channel resolves with, as part of
+ * the durable run-lock recovery flow. `cleared: true` means
+ * `RunService.clearLock()` successfully released the in-memory/durable
+ * apply lock; `cleared: false` means nothing was cleared (no lock was
+ * currently held, or the clear attempt itself failed) — `error` is always
+ * a human-readable description of why.
+ *
+ * Mirrors `IacRunsLockClearAck` in
+ * `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts`.
+ */
+export interface IacRunsLockClearAck {
+  cleared: boolean;
+  error?: string;
+}
+
+/**
  * Immediate acknowledgement the `iac.approve` IPC channel resolves
  * with once the identified plan run has been marked approved. Mirrors
  * `IacApproveAck` in `@hyveon/desktop-main/src/controllers/iac.controller.ts`
@@ -1729,6 +1773,11 @@ export interface HyveonIacRunsApi {
    * string for ergonomic `fetch(url)` use at the call site.
    */
   logUrl: (logKey: string, expiresInSeconds?: number) => Promise<string>;
+  /** Durable apply-lock recovery: mint/clear a confirmation token to release a stuck RunLock. Mirrors `HyveonIacLockApi`. */
+  lock: {
+    mintToken: () => Promise<IacRunsLockMintAck>;
+    clear: (payload: IacRunsLockClearPayload) => Promise<IacRunsLockClearAck>;
+  };
 }
 
 /**
