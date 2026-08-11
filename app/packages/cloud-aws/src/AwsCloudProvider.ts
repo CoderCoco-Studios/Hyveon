@@ -456,6 +456,7 @@ export class AwsCloudProvider implements CloudProvider {
           networkConfiguration: {
             awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
           },
+          propagateTags: 'TASK_DEFINITION',
         }),
       );
       if (resp.tasks?.length) {

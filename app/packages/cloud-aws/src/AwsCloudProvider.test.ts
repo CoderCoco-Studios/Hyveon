@@ -95,6 +95,7 @@ describe('AwsCloudProvider', () => {
       ]);
       expect(input.networkConfiguration?.awsvpcConfiguration?.securityGroups).toEqual(['sg-game']);
       expect(input.networkConfiguration?.awsvpcConfiguration?.assignPublicIp).toBe('ENABLED');
+      expect(input.propagateTags).toBe('TASK_DEFINITION');
     });
 
     it('should throw with the failure reason when RunTask reports failures', async () => {

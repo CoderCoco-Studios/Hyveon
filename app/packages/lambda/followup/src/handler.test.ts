@@ -90,6 +90,7 @@ describe('FollowupLambda: start', () => {
     const runCalls = ecsMock.commandCalls(RunTaskCommand);
     expect(runCalls).toHaveLength(1);
     expect(runCalls[0]!.args[0]!.input.taskDefinition).toBe('palworld-server');
+    expect(runCalls[0]!.args[0]!.input.propagateTags).toBe('TASK_DEFINITION');
     expect(putPendingMock).toHaveBeenCalledWith('test-discord', expect.objectContaining({
       taskArn,
       applicationId: 'app',
