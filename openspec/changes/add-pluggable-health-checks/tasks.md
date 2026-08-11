@@ -22,9 +22,9 @@
 
 ## 4. Watchdog routing
 
-- [ ] 4.1 Read the new env var mapping opted-in game names, and branch per task: no entry keeps the existing CloudWatch path unchanged; an entry invokes the health-check function synchronously instead
-- [ ] 4.2 Treat a failed invoke — throttled, absent, timed out — as fail-active, and carry the returned `reason` into the existing per-task log line so one stream explains verdict, idle count, and shutdown
-- [ ] 4.3 Test both branches: a game without a check calls CloudWatch and never invokes the function; a game with one does the inverse; a failing invoke does not increment the idle counter
+- [x] 4.1 Read the new env var mapping opted-in game names, and branch per task: no entry keeps the existing CloudWatch path unchanged; an entry invokes the health-check function synchronously instead
+- [x] 4.2 Treat a failed invoke — throttled, absent, timed out — as fail-active, and carry the returned `reason` into the existing per-task log line so one stream explains verdict, idle count, and shutdown
+- [x] 4.3 Test both branches: a game without a check calls CloudWatch and never invokes the function; a game with one does the inverse; a failing invoke does not increment the idle counter
 
 ## 5. Infrastructure
 
