@@ -9,12 +9,13 @@ export const meta = {
   ],
 }
 
-const CHANGE_DIR = (args && args.changeDir) || ""
+const ARGS = typeof args === "string" ? JSON.parse(args) : (args || {})
+const CHANGE_DIR = ARGS.changeDir || ""
 if (!CHANGE_DIR) {
   return { error: "No change directory provided." }
 }
 const ROOT = "openspec/changes/" + CHANGE_DIR
-const HEAD_REF = (args && args.headRefOid) || null
+const HEAD_REF = ARGS.headRefOid || null
 
 const ANGLES = [
   { label: "scenarios", text:

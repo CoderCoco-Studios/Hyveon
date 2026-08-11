@@ -10,10 +10,11 @@ export const meta = {
 }
 
 const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'"
-const CHANGE_DIR = (args && args.changeDir) || null
+const ARGS = typeof args === "string" ? JSON.parse(args) : (args || {})
+const CHANGE_DIR = ARGS.changeDir || null
 const CHANGE_ROOT = CHANGE_DIR ? "openspec/changes/" + CHANGE_DIR : null
-const HEAD_REF = (args && args.headRefOid) || null
-const BASE_REF = (args && args.baseRefName) || "main"
+const HEAD_REF = ARGS.headRefOid || null
+const BASE_REF = ARGS.baseRefName || "main"
 const PINNED_RANGE = HEAD_REF ? shellQuote("origin/" + BASE_REF + "..." + HEAD_REF) : null
 const FETCH_CMD = HEAD_REF ? "git fetch origin " + shellQuote(HEAD_REF) + " " + shellQuote(BASE_REF) : null
 const DIFF_CMD = HEAD_REF
