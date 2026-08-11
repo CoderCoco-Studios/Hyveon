@@ -246,6 +246,12 @@ describe('defineIamPolicies', () => {
       Statement: [
         { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: 'arn:aws:logs:*:*:*' },
         { Effect: 'Allow', Action: ['ecs:RunTask', 'ecs:StopTask', 'ecs:ListTasks', 'ecs:DescribeTasks'], Resource: '*' },
+        {
+          Effect: 'Allow',
+          Action: ['ecs:TagResource'],
+          Resource: '*',
+          Condition: { StringEquals: { 'ecs:CreateAction': 'RunTask' } },
+        },
         { Effect: 'Allow', Action: ['iam:PassRole'], Resource: ecsTaskExecutionArn },
         { Effect: 'Allow', Action: ['ec2:DescribeNetworkInterfaces'], Resource: '*' },
         { Effect: 'Allow', Action: ['dynamodb:GetItem', 'dynamodb:PutItem'], Resource: DEFERRED_ARN_VALUES.dynamodbDiscordTableArn },
