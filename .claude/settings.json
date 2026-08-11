@@ -30,6 +30,31 @@
             "type": "command",
             "command": "input=$(cat); path=$(echo \"$input\" | jq -r \".tool_input.path // empty\"); if [ -n \"$path\" ] && [[ \"$path\" != *.claude/worktrees* ]]; then jq -n --arg reason \"EnterWorktree path must be under .claude/worktrees/ (got: $path). Use name to create a new worktree, or point path at an existing one under .claude/worktrees/.\" \"{hookSpecificOutput:{hookEventName:\\\"PreToolUse\\\",permissionDecision:\\\"deny\\\",permissionDecisionReason:\\$reason}}\"; else echo \"{}\"; fi",
             "statusMessage": "Checking EnterWorktree path is under .claude/worktrees/..."
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-enter-worktree-sync.js",
+            "statusMessage": "Syncing local main with origin before branching worktree..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-require-worktree.js",
+            "statusMessage": "Checking worktree isolation..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-require-worktree.js",
+            "statusMessage": "Checking worktree isolation..."
           }
         ]
       }
