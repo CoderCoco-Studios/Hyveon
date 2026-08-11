@@ -70,6 +70,7 @@ beforeEach(() => {
   getRunLockMock.mockReset();
   releaseRunLockMock.mockReset();
   acquireRunLockMock.mockResolvedValue(undefined);
+  getRunLockMock.mockResolvedValue(undefined);
   releaseRunLockMock.mockResolvedValue(undefined);
 });
 
@@ -311,6 +312,50 @@ describe('RunService', () => {
       expect(err.name).toBe('RunLockClearNotConfirmedError');
       expect(err.message).toMatch(/mintLockClearConfirmationToken/);
       expect(err.message).toMatch(/clearLock/);
+    });
+  });
+
+  describe('RunService.mintLockClearConfirmationToken', () => {
+    it('should throw when no lock is currently held, in-memory or durable', async () => {
+      const service = makeService();
+      getRunLockMock.mockResolvedValue(undefined);
+      await expect(service.mintLockClearConfirmationToken()).rejects.toThrow(
+        /no run lock is currently held/i,
+      );
+    });
+
+    it('should mint a token when a lock is held in-memory', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken();
+      expect(typeof token).toBe('string');
+      expect(token.length).toBeGreaterThan(0);
+    });
+
+    it('should mint a token bound to the durable lock when this process has no in-memory lock (cross-process/restart recovery)', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      const durableLock: RunLock = {
+        runId: 'other-process-run-id',
+        kind: 'apply',
+        initiator: 'someone-else',
+        acquiredAt: '2026-08-10T03:52:26.761Z',
+        expiresAt: '2026-08-10T04:52:26.761Z',
+      };
+      getRunLockMock.mockResolvedValue(durableLock);
+      const token = await service.mintLockClearConfirmationToken();
+      expect(typeof token).toBe('string');
+      // bound to the durable lock's runId, not this process's (empty) in-memory state
+      await expect(service.clearLock(token)).resolves.toBeUndefined();
+      expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
+    });
+
+    it('should supersede a previously minted, unconsumed token', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      const first = await service.mintLockClearConfirmationToken();
+      const second = await service.mintLockClearConfirmationToken();
+      expect(first).not.toBe(second);
+      await expect(service.clearLock(first)).rejects.toThrow(RunLockClearNotConfirmedError);
     });
   });
 });

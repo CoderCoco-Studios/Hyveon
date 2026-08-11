@@ -39,6 +39,15 @@ import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
 export const DEFAULT_LOCK_TTL_MS = 60 * 60 * 1000;
 
 /**
+ * How long a minted lock-clear confirmation token remains valid, in
+ * milliseconds, before {@link RunService.assertFreshLockClearConfirmation}
+ * treats it as expired — mirrors `PulumiService.LOCK_CLEAR_CONFIRMATION_TTL_MS`'s
+ * value, defined independently since the two guard conceptually distinct
+ * locks that only coincidentally share a window today.
+ */
+export const RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+
+/**
  * Thrown by `RunService.clearLock` when it's called without a fresh, valid
  * confirmation token — mirrors `PulumiService`'s `LockClearNotConfirmedError`
  * exactly, for this lock's own clear-confirmation gate.
@@ -68,6 +77,13 @@ export class RunService {
    * being a plain field — see the file-level doc comment.
    */
   private currentLock: RunLock | null = null;
+
+  /**
+   * The most recently minted, not-yet-consumed lock-clear confirmation
+   * token, or `null`. Bound to the `runId` that was current at mint time —
+   * see {@link mintLockClearConfirmationToken}.
+   */
+  private pendingLockClearConfirmation: { token: string; runId: string; expiresAt: number } | null = null;
 
   /**
    * `store` is typed against the cloud-agnostic `RunRecordStore` contract
@@ -197,5 +213,47 @@ export class RunService {
         });
       }
     }
+  }
+
+  /**
+   * Mints a fresh, single-use confirmation token for a subsequent
+   * {@link clearLock} call, bound to the `runId` of the lock currently held
+   * — mirrors `PulumiService.mintLockClearConfirmationToken`'s mint/confirm
+   * pattern, extended with a durable fallback this lock's cross-process
+   * nature requires. Minting a new token immediately supersedes any
+   * previously minted, unconsumed one.
+   *
+   * Prefers {@link getCurrentLock} (in-memory, no I/O). Falls back to
+   * `RunRecordStore.getRunLock()` (the durable DynamoDB read, skipped when
+   * `runs_table_name` isn't configured) when the in-memory field is empty —
+   * covering the case where this process lost the lock race to another
+   * process (its own provisional in-memory lock was already rolled back by
+   * {@link createRun}) or was restarted since the lock was acquired
+   * elsewhere. Either way the operator is reacting to a `RunLockHeldError`
+   * ack that already told them a lock is held; minting must be able to
+   * confirm and bind to it.
+   *
+   * @returns The minted token.
+   * @throws A plain `Error` if no run lock is currently held — in-memory or
+   *   durable — nothing to mint a clear-confirmation for.
+   */
+  async mintLockClearConfirmationToken(): Promise<string> {
+    let lock = this.getCurrentLock();
+    if (!lock) {
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      if (tableName) {
+        lock = await this.store.getRunLock();
+      }
+    }
+    if (!lock) {
+      throw new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.');
+    }
+    const token = randomUUID();
+    this.pendingLockClearConfirmation = {
+      token,
+      runId: lock.runId,
+      expiresAt: Date.now() + RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS,
+    };
+    return token;
   }
 }
