@@ -82,7 +82,7 @@ export class CloudHealthService {
           message: 'The AWSServiceRoleForECS service-linked role does not exist in this account.',
         };
       }
-      logger.warn('CloudHealthService.checkEcsServiceLinkedRole: unexpected failure', { message });
+      logger.error('CloudHealthService.checkEcsServiceLinkedRole: unexpected failure', { message });
       return { status: 'error', message };
     }
   }
