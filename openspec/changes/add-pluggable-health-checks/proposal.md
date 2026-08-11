@@ -65,9 +65,11 @@ plugged in.
   of configuration and HTTP response) and its handler.
 - **`app/packages/lambda/watchdog`** — routing between the CloudWatch heuristic and the
   new Lambda, and threading the returned reason into its existing per-task log line.
-- **`app/packages/infra`** — conditional provisioning of the function, its role, its
-  security group and the paired egress/ingress rules against each opted-in game's task
-  security group, its VPC configuration, and the watchdog's permission to invoke it.
+- **`app/packages/infra`** — conditional provisioning of the function, its role, its own
+  security group, and the paired egress/ingress rules added to the shared `gameServersSg`
+  security group for the union of opted-in games' health-check ports (there are no per-game
+  task security groups to target), its VPC configuration, and the watchdog's permission to
+  invoke it.
 - **`@hyveon/web`** — the add/edit-game wizard surfaces the health-check configuration,
   exposing a `secretSet` boolean rather than any secret value.
 - **Documentation** — `docs/docs/components/lambdas.md`,

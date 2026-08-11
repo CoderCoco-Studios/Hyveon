@@ -22,8 +22,10 @@ are therefore that change's decisions plus the following:
 
 - Let an operator support a game this project has no knowledge of, without a code change or
   a release.
-- Contain operator-authored source so that its worst case is a wrong verdict for its own
-  game, not access to the deployment's credentials, network, or other games.
+- Contain operator-authored source so that its worst case does not extend beyond the game it
+  checks: no access to the deployment's credentials, network, or other games' checks. This
+  containment does not extend to the game task being checked itself — see the request-
+  capability decision below, which states that boundary plainly.
 - Keep every failure fail-active, identically to the declarative kind.
 - Keep the isolation boundary enforced by the host, so that its correctness does not depend
   on predicting what a script might attempt.
@@ -82,6 +84,16 @@ The alternative — giving the script a fetch and validating the URL it passes �
 It converts a structural guarantee into a parsing problem, and URL parsing disagreements are
 a well-worn source of exactly this class of bypass.
 
+This guarantee is about *where* a script can reach, not about *what* it can do once there.
+Because the script controls path, method, headers, and body, it has exactly the same request
+authority against the game task as an operator manually calling that same management API —
+including any destructive endpoint or RCON-style admin command the game exposes on the
+declared port. The isolation boundary constrains the destination and the host state a script
+can observe; it does not constrain what a script does to the one task it is permitted to
+reach. A malicious or buggy script CAN mutate game state, not merely misreport health, and the
+operator-facing warning at authoring time states this plainly rather than characterizing the
+worst case as limited to a wrong verdict.
+
 ### Limits are enforced from the host side of the boundary
 
 Wall-clock termination uses QuickJS's interrupt handler, which the host installs and which
@@ -90,17 +102,38 @@ runtime's allocation limit. Request count is a host-side counter on the capabili
 before each request rather than reported afterward. None of the three can be satisfied by
 asking the script to behave.
 
+The guest memory limit bounds allocation *inside* QuickJS; it does not bound the cost of
+marshalling the guest's returned value back into the host's JavaScript representation, which
+is a host-side walk over whatever the guest produced. The host SHALL apply its own bound to
+that marshalling step — a depth- and size-limited walk of the returned value — independent of
+the guest memory ceiling, so a script that stays under its own memory limit but constructs a
+return value that is expensive to walk (very deep or very wide) fails the check safely rather
+than risking the host Lambda's own process memory.
+
 Per-execution isolation follows from constructing a fresh context per check and disposing it
 afterward, so no state survives between games or between invocations that reuse a warm Lambda
 container.
 
 ### The script's contract is a returned value, not a callback or a mutation
 
-The script's last expression — or its exported default — is the verdict. The host validates
-its shape before use: anything that is not the expected `{ active, reason }` shape is a
-failure and therefore active. This keeps the host-guest interface to a single value crossing
-in each direction and avoids handing the guest any host-side function beyond the request
-capability.
+Exactly one entrypoint is supported: the value **exported as `export default`** is the
+verdict — a function, or the immediate result of evaluating the module. A script with no
+`export default` has no verdict and takes the fail-active "no verdict" outcome described
+below; a bare top-level expression with nothing exported is not a supported contract.
+
+If the default export is a function, the host calls it with a single argument exposing the
+bindings this change grants: `game` (the game name), `task` (the checked task's resolved
+`{ host, port }`), `secret` (the referenced credential's value, or `undefined` when none is
+declared), and `request` (the capability described above). If the resulting value — the
+function's return value, or the default export itself when it is not a function — is a
+thenable, the host awaits it by draining the job queue with `executePendingJobs` until it
+settles.
+
+The settled value MUST match `{ active: boolean, reason: string }`. The host validates its
+shape before use: anything that is not that shape, including a rejection, is a failure and
+therefore active. This keeps the host-guest interface to one well-defined entrypoint and a
+single value crossing in each direction, and avoids handing the guest any host-side function
+beyond the request capability.
 
 ### The reason string is truncated at the boundary
 
@@ -145,10 +178,15 @@ under check — e.g. an STS `AssumeRole` scoped to one secret ARN per invocation
 to per-game Lambdas for the `script` kind — would remove this residual gap rather than merely
 document it.
 
-**A slow script delays every check in the same invocation** → Checks are per-task and the
-Lambda is invoked per task by the watchdog, so a slow script delays its own game. The
-wall-clock limit bounds it, and the watchdog's own invoke failure path is fail-active, so the
-worst case is that the game stays up.
+**A slow script risks delaying unrelated task checks in the same watchdog run** → The
+watchdog processes RUNNING tasks sequentially within one invocation and calls the
+health-check Lambda synchronously per task, so a script approaching its timeout for one task
+delays every other task the watchdog still has to check that cycle — the delay is not
+confined to its own game. Accepted as a bounded risk rather than treated as a defect: the
+wall-clock limit already caps the damage to, at most, one timeout's worth of delay per
+opted-in task per cycle, and the watchdog's own invoke-failure path (including one caused by
+the watchdog itself running long and being terminated) is fail-active, so the worst case is a
+delayed or partially-completed cycle, never an incorrect verdict.
 
 **The guest is not the same JavaScript as the host** → An operator's script may rely on a
 built-in QuickJS lacks. Mitigation: document the guest environment explicitly rather than

@@ -46,8 +46,47 @@ and a request timeout. The condition SHALL specify a path into the JSON response
 comparison operator, and — for every operator except an existence test — a value to compare
 against.
 
+When the declaration references a credential, the resolved secret value SHALL be injected
+into the outbound request as a single, fixed header — `Authorization`, set to the secret's
+raw value with no added prefix such as `Bearer ` — and SHALL NOT be interpolated into the
+path, the query string, or any
+operator-supplied header. If the declaration's own `headers` map also sets `Authorization`,
+the injected credential SHALL take precedence and the operator-supplied value SHALL be
+discarded, so a working credential cannot silently be overridden by a stray header.
+Configuration validation SHALL reject any operator-supplied header value that resembles an
+inline credential (for example, a bearer token, a basic-auth pair, or an API-key shape
+embedded directly in the value) — declared headers are for non-sensitive values only; a
+credential MUST be expressed through `auth.secretArn`.
+
 The condition SHALL be a single comparison rather than a composite expression. A game whose
 liveness cannot be expressed as one comparison is out of scope for this kind.
+
+The scheme SHALL be `http` or `https`. The method SHALL be one of `GET`, `POST`, `PUT`,
+`PATCH`, or `HEAD`. The comparison operator SHALL be one of six: `equals`, `notEquals`,
+`greaterThan`, `lessThan`, `contains`, and `exists`. Every operator except `exists` requires a
+value to compare against; `exists` requires none.
+
+The path SHALL be a JSONPath expression restricted to plain field access and numeric array
+indices — no wildcards, filters, slices, or recursive descent — and SHALL resolve to exactly
+one scalar value (a JSON string, number, boolean, or null) in the response body. Resolving to
+zero matches, more than one match, or a non-scalar (object or array) is treated as no value at
+the declared path, which is a failure condition under the requirement below — except for
+`exists`, which tests only whether the path resolves to anything at all, at any cardinality.
+
+`equals` and `notEquals` compare the resolved value against the declared value by strict JSON
+type and value equality; a resolved value of a different type than the declared value is a
+value the operator cannot compare. `greaterThan` and `lessThan` compare numerically; a
+resolved or declared value that does not parse as a number is a value the operator cannot
+compare. `contains` requires the resolved value to be a string and tests for a substring
+match; a resolved value that is not a string is a value the operator cannot compare.
+
+`timeoutMs` SHALL be an integer between 100 and 10000 inclusive, and bounds the entire
+request — connection, request transmission, and response receipt — as a single wall-clock
+budget measured from the health-check Lambda's side.
+
+The client SHALL NOT follow HTTP redirects. A response with a 3xx status is not evaluated
+against the condition; it is treated as a failed check under the requirement below, exactly
+like any other non-2xx status.
 
 The verdict SHALL be active when the condition holds and idle when it does not.
 
@@ -134,6 +173,14 @@ confinement is port-level rather than game-level: a game that declares no health
 unreachable on every port except one that some opted-in game also declares. Game-level
 confinement would require per-game security groups and is out of scope here.
 
+This restriction governs the health-checking component's outbound request to a game task
+specifically. It does NOT apply to the component's calls to AWS APIs — `ecs:DescribeTasks`,
+Secrets Manager, CloudWatch Logs — which travel over the component's normal route out of its
+public subnet and are unaffected by it: the component runs in the same public-subnet,
+internet-gateway topology as every other Lambda in this system (`app/packages/infra/src/
+network.ts` provisions no NAT gateway or VPC endpoints), so this confinement introduces no new
+network provisioning for AWS control-plane access.
+
 Credential access SHALL be restricted to exactly the credentials referenced by opted-in
 games' declarations. Credentials SHALL NOT be stored in the configuration itself; the
 declaration SHALL carry only a reference to a secret held in the platform's secret store.
@@ -169,7 +216,8 @@ an invalid declaration SHALL be rejected at that point rather than failing later
 idle decision.
 
 Validation SHALL reject, at minimum: a port that is not among the ports the game declares, a
-request path that is not rooted, a timeout outside the supported range, a comparison operator
+request path that is not rooted, a timeout outside the supported range (100–10000
+milliseconds inclusive), a comparison operator
 given without a value where one is required, and a malformed credential reference.
 
 #### Scenario: A port that the game does not expose

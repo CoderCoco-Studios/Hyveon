@@ -51,6 +51,14 @@ confinement is port-level rather than game-level: a game that declares no health
 unreachable on every port except one that some opted-in game also declares. Game-level
 confinement would require per-game security groups and is out of scope here.
 
+This restriction governs the health-checking component's outbound request to a game task
+specifically — whether issued by the declarative kind or caused by operator-authored source.
+It does NOT apply to the component's calls to AWS APIs — `ecs:DescribeTasks`, Secrets
+Manager, CloudWatch Logs — which travel over the component's normal route out of its public
+subnet and are unaffected by it: the component runs in the same public-subnet,
+internet-gateway topology as every other Lambda in this system, so this confinement
+introduces no new network provisioning for AWS control-plane access.
+
 Credential access SHALL be restricted to exactly the credentials referenced by opted-in
 games' declarations. Credentials SHALL NOT be stored in the configuration itself; the
 declaration SHALL carry only a reference to a secret held in the platform's secret store.

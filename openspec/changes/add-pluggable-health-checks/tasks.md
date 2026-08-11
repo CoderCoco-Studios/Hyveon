@@ -34,6 +34,7 @@
 - [ ] 5.4 Declare the function in `lambdas.ts` gated on the roles map being non-empty: shared bundle, `vpcConfig` on the public subnets with the new security group, `AWS_REGION_`, its log group, and the invoke permission for the watchdog role only — no Function URL
 - [ ] 5.5 Add the opted-in-games env var to the watchdog's existing `environment.variables`, built by a sorted-key helper alongside `connectMessagesByGame` and `firstPortByGame`
 - [ ] 5.6 Assert the zero-footprint property in the infra tests: a `DeploymentConfig` where no game declares `healthCheck` yields no health-check role, policy, security group, rule, log group, or function
+- [ ] 5.7 Assert in infra tests that the health-check Lambda's `vpcConfig` places it on the same public subnets, with the same internet-gateway route, as every other Lambda — confirming its `ecs:DescribeTasks` and `secretsmanager:GetSecretValue` calls need no NAT gateway or VPC endpoint, only the IAM statements from 5.2
 
 ## 6. Operator interface
 

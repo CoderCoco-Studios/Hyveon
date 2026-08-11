@@ -6,8 +6,11 @@ management APIs of games that expose a player count or a metrics endpoint, and i
 them without executing any operator-authored code.
 
 It does not cover a game whose liveness answer requires more than one comparison, a
-non-JSON response, a binary or line-oriented protocol such as RCON, a two-step exchange
-(authenticate, then query), or arithmetic on the response. Today the only route to
+non-JSON response, a two-step exchange (authenticate, then query) against an HTTP endpoint,
+or arithmetic on the response. It also does not extend to non-HTTP protocols such as RCON —
+the script capability this change adds is HTTP-shaped (path, method, headers, body), not a
+raw byte-stream primitive, so a game reachable only over RCON remains out of scope for both
+kinds. Today the only route to
 supporting such a game is a code change, a release, and a redeploy — which puts the operator
 of a self-hosted deployment in the position of waiting on this project to support the game
 they are already running.

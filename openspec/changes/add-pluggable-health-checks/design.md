@@ -82,14 +82,24 @@ mirrors how `canRun()` is kept as a pure, separately-testable unit in `@hyveon/s
 
 ### Verdict routing lives in the watchdog, keyed by an env-var map
 
-The watchdog needs to know which games opted in. Rather than reading `DeploymentConfig` at
-runtime (it does not today, and giving it S3 access would widen it), the infra program passes
-a JSON env var mapping game name to the fact that a check exists — the same technique
-`connectMessagesByGame` and `firstPortByGame` already use for other functions. The watchdog's
-branch is then a map lookup on the game it has already resolved from the task-def family.
+The watchdog needs to know which games opted in, and needs enough of each opted-in game's
+`healthCheck` declaration to hand to the health-check Lambda. Rather than reading
+`DeploymentConfig` at runtime (it does not today, and giving it S3 access would widen it), the
+infra program passes a JSON env var mapping game name to that game's full `healthCheck`
+declaration — the same technique `connectMessagesByGame` and `firstPortByGame` already use for
+other functions. The watchdog's branch is then a map lookup on the game it has already
+resolved from the task-def family: no entry keeps the network heuristic; an entry means an
+invoke follows.
 
-The check configuration itself is passed to the health-check Lambda the same way, so that the
-watchdog never handles a secret ARN or a request path.
+When it invokes, the watchdog forwards the looked-up declaration verbatim as the `healthCheck`
+field of the invoke payload, alongside the task's ARN — `{ game, taskArn, healthCheck }`. The
+declaration includes `auth.secretArn` when the check is authenticated, because an ARN is a
+reference, not a credential: the watchdog passes it through without ever calling
+`secretsmanager:GetSecretValue` itself, and holds no IAM permission to do so. Only the
+health-check Lambda resolves the secret value, using the ARN it receives in the payload. The
+watchdog therefore never handles a *resolved secret value* and never issues the HTTP request
+itself — the property this decision protects is that the watchdog gains no new network reach
+or credential-value access, not that it is blind to which port or path a check declares.
 
 Alternative considered: have the watchdog always invoke the health-check Lambda and let that
 Lambda decide. Rejected — it would provision the function unconditionally, losing the

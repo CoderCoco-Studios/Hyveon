@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add `quickjs-emscripten` to `@hyveon/lambda-health-check` at the version the registry currently reports, and confirm the existing esbuild configuration produces a working `dist/handler.cjs` with the WASM artifact embedded or resolvable
 - [ ] 1.2 Write a spike test that evaluates a trivial script inside the bundled runtime and asserts the returned value, run against the built bundle rather than the source, so a bundling regression fails here rather than at apply time
-- [ ] 1.3 Measure the memory and cold-start cost of instantiating the runtime, and record whether the function's configured memory and timeout need raising (the design's open question)
+- [ ] 1.3 Measure the memory and cold-start cost of instantiating the runtime; if measured usage exceeds the function's currently configured memory or timeout, update that configuration in `app/packages/infra` as part of this task — this task, and its verification, are not complete if the measurement shows insufficient headroom and the configuration is left unchanged
 
 ## 2. Configuration shape
 
@@ -22,10 +22,11 @@
 ## 4. Isolation tests
 
 - [ ] 4.1 Assert a script cannot read the host's environment variables, obtain the execution role's credentials, or touch a filesystem
-- [ ] 4.2 Assert a script cannot reach any destination other than the task being checked, including via a destination it supplies to the request capability
+- [ ] 4.2 Assert a script cannot redirect the request via realistic override attempts — an absolute URL passed as the path, a `Host` header set in the headers map, or a path containing `://` or an explicit authority — and that the request capability ignores or rejects each, still reaching only the address the host bound to the check
 - [ ] 4.3 Assert a script cannot load modules or code the host did not provide
 - [ ] 4.4 Assert per-execution isolation: state written by one execution is not observable by the next in the same warm container
 - [ ] 4.5 Assert fail-active for every script failure — unevaluable source, a raised error, each limit exceeded, an invalid verdict shape, and no return value — with a reason that identifies the failure
+- [ ] 4.6 Assert an oversized script return value (very deep or very wide, but under the guest memory ceiling) fails the check safely within the host's own result-marshalling bound rather than risking the host Lambda's memory
 
 ## 5. Wiring into the check path
 
