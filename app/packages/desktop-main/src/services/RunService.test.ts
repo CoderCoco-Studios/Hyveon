@@ -14,7 +14,7 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { DEFAULT_LOCK_TTL_MS, RunService } from './RunService.js';
+import { DEFAULT_LOCK_TTL_MS, RunLockClearNotConfirmedError, RunService } from './RunService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 import type { StackOutputs } from '@hyveon/shared';
@@ -302,6 +302,15 @@ describe('RunService', () => {
         expect.stringContaining('RunService.releaseRun'),
         expect.objectContaining({ runId: lock.runId }),
       );
+    });
+  });
+
+  describe('RunLockClearNotConfirmedError', () => {
+    it('should carry a descriptive message naming the required mint/clear sequence', () => {
+      const err = new RunLockClearNotConfirmedError();
+      expect(err.name).toBe('RunLockClearNotConfirmedError');
+      expect(err.message).toMatch(/mintLockClearConfirmationToken/);
+      expect(err.message).toMatch(/clearLock/);
     });
   });
 });

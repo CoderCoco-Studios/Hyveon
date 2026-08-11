@@ -39,6 +39,22 @@ import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
 export const DEFAULT_LOCK_TTL_MS = 60 * 60 * 1000;
 
 /**
+ * Thrown by `RunService.clearLock` when it's called without a fresh, valid
+ * confirmation token — mirrors `PulumiService`'s `LockClearNotConfirmedError`
+ * exactly, for this lock's own clear-confirmation gate.
+ */
+export class RunLockClearNotConfirmedError extends Error {
+  constructor() {
+    super(
+      'run lock clear refused: no fresh confirmation token was supplied, it has expired, or it no longer ' +
+        'matches the currently held lock. Call RunService.mintLockClearConfirmationToken() and pass the ' +
+        'returned token to clearLock() before it expires.',
+    );
+    this.name = 'RunLockClearNotConfirmedError';
+  }
+}
+
+/**
  * Owns the apply lock guarding Pulumi plan/apply/destroy submissions.
  * See the file-level doc comment above for the in-memory + DynamoDB
  * two-layer contract.
