@@ -1,0 +1,266 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: >-
+          Start ref/tag/commit for the changelog range. Defaults to the most
+          recent existing v* tag reachable from `to` (or full history if none
+          exists).
+        required: false
+        type: string
+      to:
+        description: 'End ref/commit for the changelog range. Defaults to HEAD.'
+        required: false
+        type: string
+      bump:
+        description: 'Semver bump strategy.'
+        required: false
+        type: choice
+        options: [auto, major, minor, patch]
+        default: auto
+      skip_bump:
+        description: >-
+          Replay mode: regenerate the changelog and AI summary for an
+          already-tagged release without bumping the version, committing, or
+          tagging. Requires `tag`.
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: 'Existing tag to regenerate release notes for. Required when skip_bump is true.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Validate inputs
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          if [ "$SKIP_BUMP" = "true" ] && [ -z "$TAG_INPUT" ]; then
+            echo "::error::skip_bump is true but no tag was supplied. Replay mode requires an existing tag to regenerate." >&2
+            exit 1
+          fi
+
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Resolve changelog range
+        id: range
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
+          TO_INPUT: ${{ inputs.to }}
+          FROM_INPUT: ${{ inputs.from }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SKIP_BUMP" = "true" ]; then
+            TO="$TAG_INPUT"
+          else
+            TO="$TO_INPUT"
+            if [ -z "$TO" ]; then TO="HEAD"; fi
+          fi
+
+          # Resolve to a concrete commit SHA up front: git-cliff's RANGE
+          # parser rejects a bare symbolic ref like "HEAD" (OID parse
+          # error), and the bump path below needs a real SHA to compare
+          # against main's checked-out tip.
+          TO=$(git rev-parse --verify "${TO}^{commit}")
+
+          if [ "$SKIP_BUMP" != "true" ]; then
+            MAIN_HEAD=$(git rev-parse --verify main)
+            if [ "$TO" != "$MAIN_HEAD" ]; then
+              echo "::error::Resolved 'to' ($TO) is not main's current tip ($MAIN_HEAD). The version-bump commit and tag are always created on top of main's actual tip, so an explicit 'to' that isn't main HEAD would let the pushed tag describe a different commit than the changelog it was tagged with. Use skip_bump with an explicit 'tag' to regenerate notes for a past release instead." >&2
+              exit 1
+            fi
+          fi
+
+          FROM="$FROM_INPUT"
+          if [ -z "$FROM" ]; then
+            FROM=$(git describe --tags --abbrev=0 --match 'v*' "${TO}^" 2>/dev/null || true)
+          fi
+
+          if [ -n "$FROM" ]; then
+            RANGE="${FROM}..${TO}"
+          else
+            # No prior v* tag reachable from TO: process full history up to
+            # TO. git-cliff's `A..B` range syntax excludes A, so using the
+            # repo root commit as FROM would silently drop it from the
+            # changelog - passing TO alone processes everything reachable
+            # from it, root commit included (verified locally).
+            RANGE="$TO"
+          fi
+
+          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+          echo "Resolved range: $RANGE"
+
+      - name: Generate changelog and context
+        id: changelog
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" > raw-changelog.md
+          npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" --context > cliff-context.json
+
+          echo "raw_changelog_path=$(pwd)/raw-changelog.md" >> "$GITHUB_OUTPUT"
+          echo "context_path=$(pwd)/cliff-context.json" >> "$GITHUB_OUTPUT"
+
+      - name: Compute version bump
+        id: version
+        if: ${{ inputs.skip_bump != true }}
+        env:
+          BUMP_INPUT: ${{ inputs.bump }}
+          RANGE: ${{ steps.range.outputs.range }}
+        run: |
+          set -euo pipefail
+
+          BUMP_FLAG=""
+          if [ "$BUMP_INPUT" != "auto" ] && [ -n "$BUMP_INPUT" ]; then
+            BUMP_FLAG="--bump $BUMP_INPUT"
+          fi
+
+          BUMPED_TAG=$(npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" $BUMP_FLAG --bumped-version)
+          echo "tag=$BUMPED_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${BUMPED_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine release tag
+        id: release-tag
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          if [ "$SKIP_BUMP" = "true" ]; then
+            echo "tag=$TAG_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate AI release summary
+        id: ai-summary
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-opus-5 --allowedTools "Read,Write" --max-turns 5'
+          prompt: |
+            Read the git-cliff changelog context JSON at cliff-context.json and
+            the rendered changelog at raw-changelog.md (both in the repo root).
+
+            Write a short, engaging "what's new" release summary as plain
+            Markdown to release-notes.md, grounded strictly in the facts
+            present in the changelog - never invent features, fixes, or
+            details not represented by a commit. Group related commits into
+            user-facing bullet points instead of listing raw commit subjects
+            verbatim. Skip internal-only changes (chores, CI, build, test,
+            style, refactor with no user-visible effect) unless they are the
+            only content available. Use a short intro sentence, then bullet
+            points under headings such as "Features" and "Fixes" as warranted
+            by the groups present. No preamble, no sign-off, no emoji. If the
+            changelog contains no commits, say so plainly in one sentence
+            instead of fabricating content.
+
+      - name: Assemble release body
+        id: summary
+        run: |
+          set -euo pipefail
+          NOTES_PATH="${{ github.workspace }}/release-notes.md"
+
+          if [ "${{ steps.ai-summary.outcome }}" = "success" ] && [ -s "$NOTES_PATH" ]; then
+            SUMMARY=$(cat "$NOTES_PATH")
+          else
+            echo "release: AI summary unavailable, using a placeholder above the raw changelog" >&2
+            SUMMARY="_AI summary unavailable._"
+          fi
+
+          # The raw changelog always appears beneath the summary, collapsed,
+          # so the full commit list is available even when the AI step
+          # succeeds and produces a shorter narrative body.
+          {
+            echo "$SUMMARY"
+            echo
+            echo "<details>"
+            echo "<summary>Full changelog</summary>"
+            echo
+            cat raw-changelog.md
+            echo
+            echo "</details>"
+          } > "$NOTES_PATH"
+
+          echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve bot commit identity
+        id: bot-identity
+        if: ${{ inputs.skip_bump != true }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          SLUG="${{ steps.app-token.outputs.app-slug }}"
+          BOT_ID=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${BOT_ID}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version, commit, and tag
+        if: ${{ inputs.skip_bump != true }}
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "${{ steps.bot-identity.outputs.name }}"
+          git config user.email "${{ steps.bot-identity.outputs.email }}"
+
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --workspaces=false
+
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${{ steps.release-tag.outputs.tag }}"
+          git tag -a "${{ steps.release-tag.outputs.tag }}" -m "${{ steps.release-tag.outputs.tag }}"
+
+          # persist-credentials was disabled at checkout so the AI summary
+          # step (repo-wide Read/Write, no path scoping) never had the App
+          # token available on disk. Authenticate the push here instead,
+          # request-scoped via a git config override rather than writing it
+          # to .git/config (which `git remote set-url` or re-enabling
+          # persist-credentials would do).
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "${{ steps.release-tag.outputs.tag }}"
+
+      - name: Publish draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release-tag.outputs.tag }}
+          draft: true
+          body_path: ${{ steps.summary.outputs.notes_path }}
