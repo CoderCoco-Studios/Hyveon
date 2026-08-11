@@ -326,8 +326,9 @@ test.describe('iac page', () => {
     // run (APPLY_RUN_ID); the `iac.apply` handler itself is overridden below
     // so the first submission reports the durable-lock refusal instead.
     await mockIac(win);
+    const mintedToken = 'tok';
     await win.evaluate(
-      ({ runLock, applyRunId }) => {
+      ({ runLock, applyRunId, mintedToken }) => {
         const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
           __test: { mock: (channel: string, handler: unknown) => void };
         };
@@ -348,10 +349,21 @@ test.describe('iac page', () => {
           }
           return Promise.resolve({ started: true, runId: applyRunId });
         });
-        hyveon.__test.mock('iac.runs.lock.clear.mintToken', () => Promise.resolve({ token: 'tok' }));
-        hyveon.__test.mock('iac.runs.lock.clear', () => Promise.resolve({ cleared: true }));
+        // Record the confirmationToken the clear handler actually receives,
+        // using window.__calledChannels as the in-browser store (mirrors
+        // dashboard.spec.ts's IPC-call-capture pattern) — proves the
+        // mint→clear token-passing chain is exercised end to end, not just
+        // independently mocked.
+        (window as unknown as Record<string, unknown>)['__calledChannels'] = {} as Record<string, unknown>;
+        hyveon.__test.mock('iac.runs.lock.clear.mintToken', () => Promise.resolve({ token: mintedToken }));
+        hyveon.__test.mock('iac.runs.lock.clear', (payload: { confirmationToken: string }) => {
+          (
+            (window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, unknown>
+          )['iac.runs.lock.clear.confirmationToken'] = payload.confirmationToken;
+          return Promise.resolve({ cleared: true });
+        });
       },
-      { runLock, applyRunId: APPLY_RUN_ID },
+      { runLock, applyRunId: APPLY_RUN_ID, mintedToken },
     );
 
     await iac.gotoViaSidebar();
@@ -369,6 +381,20 @@ test.describe('iac page', () => {
     await iac.clearRunLockButton().click();
     await win.getByRole('button', { name: 'Clear lock', exact: true }).click();
     await expect(win.getByText(/Run lock cleared/i)).toBeVisible();
+
+    // The `confirmationToken` sent on `iac.runs.lock.clear` must be the
+    // non-empty token actually minted via `iac.runs.lock.clear.mintToken` —
+    // proves `iac.page.tsx` wires the mint→clear chain correctly rather than
+    // sending a blank or fabricated token.
+    const capturedToken = await win.evaluate(
+      () =>
+        ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, unknown>)[
+          'iac.runs.lock.clear.confirmationToken'
+        ],
+    );
+    expect(capturedToken).toBe(mintedToken);
+    expect(typeof capturedToken).toBe('string');
+    expect(capturedToken).not.toHaveLength(0);
 
     // Returns to the ready-to-submit state: both the original error banner
     // and the BUSY banner's clear action are gone, and clearing never
