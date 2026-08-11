@@ -17,13 +17,17 @@ try {
   ARGS = null
 }
 if (!ARGS || typeof ARGS !== "object") ARGS = {}
-const isSafeChangeDir = d => typeof d === "string" && d.length > 0 && !d.includes("/") && !d.includes("\\") && d !== "." && d !== ".."
+const isSafeChangeDir = d => typeof d === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(d)
 const CHANGE_DIR = isSafeChangeDir(ARGS.changeDir) ? ARGS.changeDir : null
 const CHANGE_ROOT = CHANGE_DIR ? "openspec/changes/" + CHANGE_DIR : null
 const HEAD_REF = ARGS.headRefOid || null
 const BASE_REF = ARGS.baseRefName || "main"
 const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 const RAW_EFFORT = typeof ARGS.effort === "string" ? ARGS.effort.trim().toLowerCase() : ""
+const effortProvided = Object.prototype.hasOwnProperty.call(ARGS, "effort") && ARGS.effort !== null
+if (effortProvided && (typeof ARGS.effort !== "string" || ![...VALID_EFFORTS, "ultra"].includes(RAW_EFFORT))) {
+  return { error: "Invalid effort value." }
+}
 const EFFORT = RAW_EFFORT === "ultra" ? "max" : (VALID_EFFORTS.includes(RAW_EFFORT) ? RAW_EFFORT : null)
 const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 const PINNED_RANGE = HEAD_REF ? shellQuote("origin/" + BASE_REF + "..." + HEAD_REF) : null

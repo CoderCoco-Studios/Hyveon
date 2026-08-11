@@ -16,7 +16,7 @@ try {
   ARGS = null
 }
 if (!ARGS || typeof ARGS !== "object") ARGS = {}
-const isSafeChangeDir = d => typeof d === "string" && d.length > 0 && !d.includes("/") && !d.includes("\\") && d !== "." && d !== ".."
+const isSafeChangeDir = d => typeof d === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(d)
 const CHANGE_DIR = isSafeChangeDir(ARGS.changeDir) ? ARGS.changeDir : ""
 if (!CHANGE_DIR) {
   return { error: "No valid change directory provided." }
@@ -25,6 +25,10 @@ const ROOT = "openspec/changes/" + CHANGE_DIR
 const HEAD_REF = ARGS.headRefOid || null
 const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 const RAW_EFFORT = typeof ARGS.effort === "string" ? ARGS.effort.trim().toLowerCase() : ""
+const effortProvided = Object.prototype.hasOwnProperty.call(ARGS, "effort") && ARGS.effort !== null
+if (effortProvided && (typeof ARGS.effort !== "string" || ![...VALID_EFFORTS, "ultra"].includes(RAW_EFFORT))) {
+  return { error: "Invalid effort value." }
+}
 const EFFORT = RAW_EFFORT === "ultra" ? "max" : (VALID_EFFORTS.includes(RAW_EFFORT) ? RAW_EFFORT : null)
 const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 
