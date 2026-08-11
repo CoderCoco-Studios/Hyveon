@@ -11,6 +11,8 @@ const apiMock = vi.hoisted(() => ({
   saveConfig: vi.fn(),
   diagnosticsTail: vi.fn(),
   diagnosticsLogPath: vi.fn(),
+  cloudHealthList: vi.fn(),
+  cloudHealthFix: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 vi.mock('../components/DiagnosticsPanel.js', () => ({
@@ -100,6 +102,7 @@ describe('SettingsPage', () => {
       .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
     hyveonMock.iac.settings.update.mockReset();
     hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
+    apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
   });
 
   it('should render the Settings heading', () => {
