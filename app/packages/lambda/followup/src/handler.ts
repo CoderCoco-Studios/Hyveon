@@ -144,6 +144,7 @@ async function runStart(game: string): Promise<{ message: string; taskArn?: stri
         networkConfiguration: {
           awsvpcConfiguration: { subnets, securityGroups: [sg], assignPublicIp: 'ENABLED' },
         },
+        propagateTags: 'TASK_DEFINITION',
       }),
     );
     const taskArn = resp.tasks?.[0]?.taskArn;

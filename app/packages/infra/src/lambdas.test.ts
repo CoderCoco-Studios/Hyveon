@@ -276,6 +276,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.runtime).toBe('nodejs24.x');
       expect(fn.inputs.timeout).toBe(10);
       expect(fn.inputs.memorySize).toBe(256);
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-interactions' });
       expect(await promiseOf(result.interactionsFunction.name)).toBe('hyveon-interactions');
     });
 
@@ -342,6 +343,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.watchdogLambdaRole.arn));
       expect(fn.inputs.timeout).toBe(60);
       expect(fn.inputs.memorySize).toBeUndefined();
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-watchdog' });
     });
 
     it('should set every environment variable exactly per the HCL', async () => {
@@ -408,6 +410,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.dnsUpdaterLambdaRole.arn));
       expect(fn.inputs.timeout).toBe(60);
       expect(fn.inputs.memorySize).toBeUndefined();
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-dns-updater' });
     });
 
     it('should source its code from the update-dns bundle directory, not dns-updater', async () => {
@@ -528,6 +531,7 @@ describe('defineLambdas', () => {
       const logGroup = findByName(mocks.resources, 'hyveon-efs-seeder-echo-logs');
       expect(logGroup.inputs.name).toBe('/aws/lambda/hyveon-efs-seeder-echo');
       expect(logGroup.inputs.retentionInDays).toBe(7);
+      expect(logGroup.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo-logs', Game: 'echo' });
 
       expect(Object.keys(result.efsSeederFunctions)).toEqual(['echo']);
       const fn = findByNameAndType(mocks.resources, 'hyveon-efs-seeder-echo', 'aws:lambda/function:Function');
@@ -541,6 +545,7 @@ describe('defineLambdas', () => {
         subnetIds: MOCK_NETWORK_INPUTS.publicSubnetIds,
         securityGroupIds: [MOCK_EFS_SEEDER_SECURITY_GROUP_ID],
       });
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo', Game: 'echo' });
 
       const accessPointArn = await promiseOf(efs.gameAccessPoints['echo-saves'].arn);
       expect(fn.inputs.fileSystemConfig).toEqual({ arn: accessPointArn, localMountPath: '/mnt/efs' });

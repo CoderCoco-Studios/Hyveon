@@ -756,7 +756,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
         {
           name: `/aws/lambda/${projectName}-efs-seeder-${game}`,
           retentionInDays: 7,
-          tags: { Name: `${projectName}-efs-seeder-${game}-logs` },
+          tags: { Name: `${projectName}-efs-seeder-${game}-logs`, Game: game },
         },
         opts,
       );
@@ -783,7 +783,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
             localMountPath: '/mnt/efs',
           },
           environment: { variables: { AWS_REGION_: awsRegion } },
-          tags: { Name: `${projectName}-efs-seeder-${game}` },
+          tags: { Name: `${projectName}-efs-seeder-${game}`, Game: game },
         },
         {
           ...opts,

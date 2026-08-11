@@ -96,7 +96,7 @@ describe('defineEcs', () => {
     const alphaLog = findByName(mocks.resources, 'alpha-server-logs');
     expect(alphaLog.inputs.name).toBe('/ecs/alpha-server');
     expect(alphaLog.inputs.retentionInDays).toBe(7);
-    expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-logs' });
+    expect(alphaLog.inputs.tags).toEqual({ Name: 'alpha-logs', Game: 'alpha' });
   });
 
   it('should derive per-game task definitions purely from the game-server map, one per game', async () => {
@@ -138,7 +138,7 @@ describe('defineEcs', () => {
     expect(alphaTd.inputs.cpu).toBe('1024');
     expect(alphaTd.inputs.memory).toBe('2048');
     expect(alphaTd.inputs.executionRoleArn).toBe('arn:aws:iam::123456789012:role/hyveon-task-execution');
-    expect(alphaTd.inputs.tags).toEqual({ Name: 'alpha-server' });
+    expect(alphaTd.inputs.tags).toEqual({ Name: 'alpha-server', Game: 'alpha' });
   });
 
   it('should embed the volume block referencing the matching game access point, transit encryption enabled, iam disabled', async () => {
