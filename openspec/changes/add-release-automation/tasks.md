@@ -4,12 +4,12 @@
 - [x] 1.2 Verify `npx git-cliff@2.13.1` locally against this repo's actual commit history: `--unreleased`, an explicit `<from>..<to>` range, `--bumped-version`, `--bump major|minor|patch`, and `--context` all produce sane output.
 - [x] 1.3 Confirm behavior with zero prior tags (first-release case) - range should fall back to full history up to `to`.
 
-## 2. AI release-notes script
+## 2. AI release-notes step
 
-- [x] 2.1 Add `.github/scripts/release-notes.mjs` using `@anthropic-ai/sdk`: reads git-cliff `--context` JSON from a file path (env var), calls `claude-opus-5` with a system prompt constrained to changelog facts only, writes Markdown output to a file path (env var).
-- [x] 2.2 Add `@anthropic-ai/sdk` as a dependency where the script runs (root `package.json` devDependency, or a scoped `.github/scripts/package.json` - pick one and document why in the PR).
-- [x] 2.3 Implement the fallback path: if the API call throws or times out, the calling workflow step must still produce a usable release body from the raw changelog rather than failing the job.
-- [x] 2.4 Unit-test the prompt-assembly and fallback logic (no live API call) - e.g. via a small script test or a Vitest spec if colocated under a workspace.
+- [x] 2.1 Wire an `anthropics/claude-code-action@v1` step, authenticated via `CLAUDE_CODE_OAUTH_TOKEN` (bills against the Claude subscription that minted the token, not metered API usage - see design.md), with a `prompt` that reads the git-cliff `--context` JSON and rendered changelog from the checkout and writes a Markdown "what's new" summary, grounded in changelog facts only, to `release-notes.md`.
+- [x] 2.2 Restrict the step to `claude_args: '--allowedTools "Read,Write" --max-turns 5'` so it can only read the changelog files and write the summary - no git/bash access, no ability to touch the version-bump commit or push anything itself.
+- [x] 2.3 Implement the fallback path: run the AI step with `continue-on-error: true`, then a follow-up step that falls back to the raw changelog (as `release-notes.md`) if the step failed or produced no output, so the job never fails solely because of the AI step.
+- [x] 2.4 ~~Unit-test the prompt-assembly and fallback logic~~ - superseded: there is no longer a standalone script to unit test: the fallback logic is a workflow shell step, exercised by task 5.4's dry run instead.
 
 ## 3. Release workflow
 
@@ -26,7 +26,7 @@
 
 - [ ] 4.1 Create an org-owned GitHub App ("Hyveon Release Bot") with `Contents: read & write` permission only; install it on the repo.
 - [ ] 4.2 Store `RELEASE_APP_ID` (repo/org variable) and `RELEASE_APP_PRIVATE_KEY` (repo/org secret).
-- [ ] 4.3 Store `ANTHROPIC_API_KEY` as a repo secret.
+- [ ] 4.3 Store `CLAUDE_CODE_OAUTH_TOKEN` as a repo secret, generated locally via `claude setup-token` under the Claude subscription the AI summary step should bill against.
 - [ ] 4.4 Add the App as an **Always** bypass actor on the `enforce-main-branch-protection` ruleset.
 - [ ] 4.5 Confirm (via a harmless dry run, e.g. task 5.2) that the App's token can push a commit and a tag to `main` before relying on it for a real release.
 
@@ -35,7 +35,7 @@
 - [x] 5.1 `npm run app:lint` and `npm run app:typecheck` pass with the new script/config in place (if the script is typechecked - confirm scope per 2.2).
 - [ ] 5.2 Dry-run the workflow end-to-end on a throwaway/test scenario (e.g. targeting a fork or a test tag range) to confirm: version bump commit lands on `main`, tag is pushed, `package.yml`'s tag-triggered publish job actually fires, draft release appears with AI-generated body.
 - [ ] 5.3 Dry-run the replay path (`skip_bump: true`) against the test release from 5.2 and confirm no new commit/tag is created and the release body updates in place.
-- [ ] 5.4 Confirm the AI-summary fallback path by temporarily forcing a failure (e.g. invalid API key) and confirming the release still publishes with the raw changelog.
+- [ ] 5.4 Confirm the AI-summary fallback path by temporarily forcing a failure (e.g. invalid `CLAUDE_CODE_OAUTH_TOKEN`) and confirming the release still publishes with the raw changelog.
 
 ## 6. Documentation
 

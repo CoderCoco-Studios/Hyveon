@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - name: Validate inputs
         run: |
@@ -131,20 +132,46 @@ jobs:
             echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install release-notes script dependencies
-        working-directory: .github/scripts
-        run: npm ci
-
       - name: Generate AI release summary
+        id: ai-summary
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--model claude-opus-5 --allowedTools "Read,Write" --max-turns 5'
+          prompt: |
+            Read the git-cliff changelog context JSON at cliff-context.json and
+            the rendered changelog at raw-changelog.md (both in the repo root).
+
+            Write a short, engaging "what's new" release summary as plain
+            Markdown to release-notes.md, grounded strictly in the facts
+            present in the changelog - never invent features, fixes, or
+            details not represented by a commit. Group related commits into
+            user-facing bullet points instead of listing raw commit subjects
+            verbatim. Skip internal-only changes (chores, CI, build, test,
+            style, refactor with no user-visible effect) unless they are the
+            only content available. Use a short intro sentence, then bullet
+            points under headings such as "Features" and "Fixes" as warranted
+            by the groups present. No preamble, no sign-off, no emoji. If the
+            changelog contains no commits, say so plainly in one sentence
+            instead of fabricating content.
+
+      - name: Apply raw-changelog fallback if the AI summary step failed
         id: summary
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLIFF_CONTEXT_PATH: ${{ steps.changelog.outputs.context_path }}
-          RAW_CHANGELOG_PATH: ${{ steps.changelog.outputs.raw_changelog_path }}
-          RELEASE_NOTES_OUTPUT_PATH: ${{ github.workspace }}/release-notes.md
         run: |
-          node .github/scripts/release-notes.mjs
-          echo "notes_path=$RELEASE_NOTES_OUTPUT_PATH" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          NOTES_PATH="${{ github.workspace }}/release-notes.md"
+
+          if [ "${{ steps.ai-summary.outcome }}" != "success" ] || [ ! -s "$NOTES_PATH" ]; then
+            echo "release: AI summary unavailable, falling back to the raw changelog" >&2
+            {
+              echo "_AI summary unavailable — showing the raw changelog._"
+              echo
+              cat raw-changelog.md
+            } > "$NOTES_PATH"
+          fi
+
+          echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve bot commit identity
         id: bot-identity

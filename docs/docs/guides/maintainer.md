@@ -439,11 +439,13 @@ is a one-click `workflow_dispatch` run of `.github/workflows/release.yml`:
 4. The pushed tag wakes `package.yml`'s existing tag-triggered `release` job,
    which builds installers for all three platforms and attaches them to the
    same GitHub Release.
-5. `.github/scripts/release-notes.mjs` calls Claude (`claude-opus-5`) to turn
-   the structured changelog into a user-facing "what's new" summary, used as
-   the release body; if that call fails or times out, the raw grouped
-   changelog is published as the body instead so the run never fails solely
-   on the AI step.
+5. An `anthropics/claude-code-action` step (authenticated with a
+   `CLAUDE_CODE_OAUTH_TOKEN`, which bills against the Claude subscription
+   that generated it rather than metered API usage) turns the structured
+   changelog into a user-facing "what's new" summary, used as the release
+   body; if that step fails or produces no output, the raw grouped changelog
+   is published as the body instead so the run never fails solely on the AI
+   step.
 6. The release is always created as a **draft** — nothing goes public until
    a human opens it on GitHub and clicks Publish.
 
@@ -456,7 +458,9 @@ by someone with admin access — it is not automatable from a PR:
    read & write** permission only, and install it on this repo.
 2. Store the App's credentials as the `RELEASE_APP_ID` repo/org variable and
    the `RELEASE_APP_PRIVATE_KEY` repo/org secret.
-3. Store an `ANTHROPIC_API_KEY` repo secret for the AI summary step.
+3. Store a `CLAUDE_CODE_OAUTH_TOKEN` repo secret for the AI summary step —
+   generate it locally with `claude setup-token` under whichever Claude
+   subscription should be billed for release summaries.
 4. Add the App as an **Always** bypass actor on the
    `enforce-main-branch-protection` ruleset (Settings → Rules → Rulesets) —
    the same pattern already used for the ruleset's two existing bypass
