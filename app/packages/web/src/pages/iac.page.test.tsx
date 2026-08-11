@@ -9,6 +9,9 @@ const apiMock = vi.hoisted(() => ({
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
+const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
+
 /**
  * Stub for `window.hyveon.iac` — `plan`/`approve`/`apply` are plain
  * `vi.fn()`s resolved per-test; `runs.streamLogs` and `runs.get` are keyed
@@ -130,6 +133,8 @@ describe('IacPage', () => {
     hyveonMock.iac.lock.clear.mockReset();
     hyveonMock.iac.runs.lock.mintToken.mockReset().mockResolvedValue({ token: 'test-token' });
     hyveonMock.iac.runs.lock.clear.mockReset().mockResolvedValue({ cleared: true });
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
   });
 
   it('should render the Run plan trigger in the idle state', () => {
@@ -202,6 +207,63 @@ describe('IacPage', () => {
 
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.some((el) => el.textContent?.includes('an apply run is already in progress'))).toBe(true);
+  });
+
+  describe('BusyBanner run-lock clear action', () => {
+    it('should show no clear action on BusyBanner when the busy ack has no runLock (workspace busy, not a durable lock)', async () => {
+      // plan/preview never acquires the durable RunLock, so its only busy refusal is
+      // PulumiOperationInFlightError — always conflict: 'preview', never a runLock.
+      hyveonMock.iac.plan.mockResolvedValue({ started: false, conflict: 'preview', error: 'preview is already in flight' });
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/i }));
+      const alerts = await screen.findAllByRole('alert');
+      expect(alerts.some((el) => el.textContent?.match(/workspace busy/i))).toBe(true);
+      expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
+    });
+
+    it('should show a clear action on BusyBanner when the busy ack carries runLock, clear it on confirm, and return to ready state for manual resubmission', async () => {
+      // Only apply/destroy can be refused with a durable RunLockHeldError (and thus
+      // carry runLock) — plan/preview structurally cannot, see the test above.
+      const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-01T00:05:00.000Z' };
+      hyveonMock.iac.apply.mockResolvedValueOnce({
+        started: false,
+        conflict: 'up',
+        error: 'Run lock already held by "chris"',
+        runLock: heldLock,
+      });
+      hyveonMock.iac.apply.mockResolvedValueOnce({ started: true, runId: APPLY_RUN_ID });
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+
+      await userEvent.click(applyBtn);
+      const alerts = await screen.findAllByRole('alert');
+      expect(alerts.some((el) => el.textContent?.match(/run lock already held/i))).toBe(true); // original ErrorBanner
+      await userEvent.click(await screen.findByRole('button', { name: /clear lock and retry/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
+
+      expect(hyveonMock.iac.runs.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'test-token' });
+      await waitFor(() =>
+        expect(toastMock.success).toHaveBeenCalledWith(expect.stringMatching(/run lock cleared/i)),
+      );
+      // returns to ready state: both the BUSY banner and the original ErrorBanner are gone
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
+
+      // clearing does not auto-resubmit; the operator retries manually
+      expect(hyveonMock.iac.apply).toHaveBeenCalledTimes(1);
+      await userEvent.click(screen.getByRole('button', { name: /^Apply$/ }));
+      expect(hyveonMock.iac.apply).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('stale-lock recovery', () => {

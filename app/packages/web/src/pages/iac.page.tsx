@@ -11,6 +11,7 @@ import type {
   IacRunChunk,
   IacRunRecord,
   IacStaleLockInfo,
+  RunLock,
 } from '@hyveon/desktop-preload';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
@@ -185,17 +186,115 @@ const CONFLICT_LABELS: Record<Conflict, string> = {
   rollback: 'rollback',
 };
 
-/** Lock banner shown when a plan/apply submission was rejected because the shared Pulumi workspace is busy. */
-function BusyBanner({ conflict }: { conflict: Conflict }) {
+/**
+ * Lock banner shown when a plan/apply/destroy submission was rejected
+ * because the shared Pulumi workspace is busy (`PulumiOperationInFlightError`).
+ *
+ * `runLock` is set instead of undefined specifically when the rejection was
+ * a durable `RunLockHeldError` (`apply`/`destroy` only — `plan` never
+ * acquires the durable lock, see {@link IacPlanAck.runLock}'s doc comment in
+ * `hyveon-api.ts`) — in that case an inline "Clear lock and retry" action is
+ * offered, gated behind a {@link ConfirmDialog}, mirroring
+ * {@link StaleLockBanner}'s mint-then-confirm clear flow but against the
+ * `iac.runs.lock.*` channels rather than `iac.lock.*`. A plain workspace-busy
+ * refusal (no durable lock, e.g. `plan`'s `preview` conflict) has nothing to
+ * clear — those refusals resolve themselves once the in-flight operation
+ * finishes, so no action is offered.
+ *
+ * On a confirmed clear, mints a fresh confirmation token via
+ * `hyveon.iac.runs.lock.mintToken()`, clears via
+ * `hyveon.iac.runs.lock.clear({ confirmationToken })`, toasts a
+ * confirmation, and calls {@link onCleared} — which the caller wires to
+ * return the page to its ready-to-submit state (clearing both this banner's
+ * `conflict`/`runLock` and the original submission's `error` state). Like
+ * `StaleLockBanner`, this never resubmits automatically — the operator
+ * retries via the ordinary plan/apply/destroy button.
+ */
+function BusyBanner({
+  conflict,
+  runLock,
+  nowMs,
+  onCleared,
+}: {
+  conflict: Conflict;
+  /** Present only when the refusal was a durable {@link RunLockHeldError} — offers the inline clear action. */
+  runLock?: RunLock;
+  /** Current time in ms (the page's own 30s-ticking clock) — drives {@link formatLockAge}'s "ago" display in the clear-confirmation dialog. */
+  nowMs: number;
+  /** Called once `hyveon.iac.runs.lock.clear()` reports `cleared: true`. */
+  onCleared: () => void;
+}) {
   const label = CONFLICT_LABELS[conflict];
   const article = /^[aeiou]/i.test(label) ? 'an' : 'a';
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  function handleConfirmClear() {
+    if (!window.hyveon) {
+      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      return;
+    }
+    setClearing(true);
+    setClearError(null);
+    void (async () => {
+      try {
+        const { token } = await window.hyveon!.iac.runs.lock.mintToken();
+        const ack = await window.hyveon!.iac.runs.lock.clear({ confirmationToken: token });
+        if (ack.cleared) {
+          setConfirmOpen(false);
+          toast.success('Run lock cleared — resubmit to retry.');
+          onCleared();
+        } else {
+          setClearError(ack.error ?? 'Could not clear the run lock.');
+        }
+      } catch (err) {
+        setClearError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setClearing(false);
+      }
+    })();
+  }
+
   return (
     <div
       role="alert"
-      className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
+      className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/10 px-3 py-2 text-sm text-[var(--color-amber)]"
     >
-      Workspace busy — {article} <code className="font-[var(--font-mono)]">{label}</code> run
-      is already in progress. Try again once it finishes.
+      <p>
+        Workspace busy — {article} <code className="font-[var(--font-mono)]">{label}</code> run
+        is already in progress. Try again once it finishes.
+      </p>
+      {runLock && (
+        <>
+          <Button
+            onClick={() => setConfirmOpen(true)}
+            variant="secondary"
+            size="sm"
+            className="self-start"
+            disabled={clearing}
+          >
+            {clearing ? <Loader2 className="animate-spin" /> : null}
+            Clear lock and retry
+          </Button>
+          {clearError && <ErrorBanner message={clearError} />}
+          <ConfirmDialog
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+            title="Clear this run lock?"
+            description={
+              `This releases the durable apply lock held by "${runLock.initiator}" (${runLock.kind}, ` +
+              `started ${formatLockAge(runLock.acquiredAt, nowMs)}). Only confirm if you are CONFIDENT ` +
+              "this is not a real, currently-running plan/apply/destroy elsewhere — clearing a genuinely " +
+              "active run's lock lets two Pulumi updates run concurrently, which can corrupt the deployed " +
+              'infrastructure state. This does not retry your operation for you; resubmit it manually once ' +
+              'the lock is cleared.'
+            }
+            onConfirm={handleConfirmClear}
+            confirmLabel={clearing ? 'Clearing…' : 'Clear lock'}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -510,6 +609,7 @@ export function IacPage() {
   const [planRunId, setPlanRunId] = useState<string | null>(null);
   const [planConflict, setPlanConflict] = useState<Conflict | null>(null);
   const [planStaleLock, setPlanStaleLock] = useState<IacStaleLockInfo | null>(null);
+  const [planRunLock, setPlanRunLock] = useState<RunLock | null>(null);
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
@@ -523,6 +623,7 @@ export function IacPage() {
   const [applyRunId, setApplyRunId] = useState<string | null>(null);
   const [applyConflict, setApplyConflict] = useState<Conflict | null>(null);
   const [applyStaleLock, setApplyStaleLock] = useState<IacStaleLockInfo | null>(null);
+  const [applyRunLock, setApplyRunLock] = useState<RunLock | null>(null);
   const [applySubmitError, setApplySubmitError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
@@ -533,6 +634,7 @@ export function IacPage() {
   const [destroyRunId, setDestroyRunId] = useState<string | null>(null);
   const [destroyConflict, setDestroyConflict] = useState<Conflict | null>(null);
   const [destroyStaleLock, setDestroyStaleLock] = useState<IacStaleLockInfo | null>(null);
+  const [destroyRunLock, setDestroyRunLock] = useState<RunLock | null>(null);
   const [destroySubmitError, setDestroySubmitError] = useState<string | null>(null);
   const [destroying, setDestroying] = useState(false);
   const [destroyStatus, setDestroyStatus] = useState<RunDetailStatus | null>(null);
@@ -610,6 +712,7 @@ export function IacPage() {
     setPlanning(true);
     setPlanConflict(null);
     setPlanStaleLock(null);
+    setPlanRunLock(null);
     setPlanSubmitError(null);
     void (async () => {
       try {
@@ -626,6 +729,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setPlanConflict(ack.conflict);
           if (ack.staleLock) setPlanStaleLock(ack.staleLock);
+          if (ack.runLock) setPlanRunLock(ack.runLock);
           setPlanSubmitError(ack.error ?? 'Plan could not be started.');
         }
       } catch (err) {
@@ -673,6 +777,7 @@ export function IacPage() {
     setApplying(true);
     setApplyConflict(null);
     setApplyStaleLock(null);
+    setApplyRunLock(null);
     setApplySubmitError(null);
     void (async () => {
       try {
@@ -683,6 +788,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setApplyConflict(ack.conflict);
           if (ack.staleLock) setApplyStaleLock(ack.staleLock);
+          if (ack.runLock) setApplyRunLock(ack.runLock);
           setApplySubmitError(ack.error ?? 'Apply could not be started.');
         }
       } catch (err) {
@@ -701,6 +807,7 @@ export function IacPage() {
     setDestroying(true);
     setDestroyConflict(null);
     setDestroyStaleLock(null);
+    setDestroyRunLock(null);
     setDestroySubmitError(null);
     void (async () => {
       try {
@@ -713,6 +820,7 @@ export function IacPage() {
         } else {
           if (ack.conflict) setDestroyConflict(ack.conflict);
           if (ack.staleLock) setDestroyStaleLock(ack.staleLock);
+          if (ack.runLock) setDestroyRunLock(ack.runLock);
           setDestroySubmitError(ack.error ?? 'Destroy could not be started.');
         }
       } catch (err) {
@@ -799,7 +907,19 @@ export function IacPage() {
             />
           ) : (
             <>
-              {planConflict && <BusyBanner conflict={planConflict} />}
+              {planConflict && (
+                <BusyBanner
+                  conflict={planConflict}
+                  runLock={planRunLock ?? undefined}
+                  nowMs={now}
+                  onCleared={() => {
+                    setPlanConflict(null);
+                    setPlanRunLock(null);
+                    // See the identical comment on the stale-lock banner's onCleared above.
+                    setPlanSubmitError(null);
+                  }}
+                />
+              )}
               {planSubmitError && <ErrorBanner message={planSubmitError} />}
             </>
           )}
@@ -884,7 +1004,19 @@ export function IacPage() {
                     />
                   ) : (
                     <>
-                      {applyConflict && <BusyBanner conflict={applyConflict} />}
+                      {applyConflict && (
+                        <BusyBanner
+                          conflict={applyConflict}
+                          runLock={applyRunLock ?? undefined}
+                          nowMs={now}
+                          onCleared={() => {
+                            setApplyConflict(null);
+                            setApplyRunLock(null);
+                            // See the identical comment on the stale-lock banner's onCleared above.
+                            setApplySubmitError(null);
+                          }}
+                        />
+                      )}
                       {applySubmitError && <ErrorBanner message={applySubmitError} />}
                     </>
                   )}
@@ -985,7 +1117,19 @@ export function IacPage() {
               />
             ) : (
               <>
-                {destroyConflict && <BusyBanner conflict={destroyConflict} />}
+                {destroyConflict && (
+                  <BusyBanner
+                    conflict={destroyConflict}
+                    runLock={destroyRunLock ?? undefined}
+                    nowMs={now}
+                    onCleared={() => {
+                      setDestroyConflict(null);
+                      setDestroyRunLock(null);
+                      // See the identical comment on the stale-lock banner's onCleared above.
+                      setDestroySubmitError(null);
+                    }}
+                  />
+                )}
                 {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
               </>
             )}

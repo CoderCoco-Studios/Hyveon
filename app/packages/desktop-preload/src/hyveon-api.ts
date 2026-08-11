@@ -18,6 +18,7 @@ import type {
   PulumiEngineVersionResult,
   RendererConsoleLevel,
   RendererLogEntry,
+  RunLock,
   StackOutputs,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
@@ -61,6 +62,11 @@ import type {
  * IPC payload and are pure data shapes with nothing to isolate the renderer
  * from. `desktop-main`'s `diagnostics.controller.ts` imports the same pair
  * from `@hyveon/shared` rather than declaring its own copy.
+ *
+ * `RunLock` (`@hyveon/shared/src/runs.ts`) joins this group for the same
+ * reason — it backs {@link IacPlanAck.runLock} (the durable apply-lock
+ * recovery flow) and is a pure data shape with nothing to isolate the
+ * renderer from.
  */
 export type {
   ChangeSummary,
@@ -71,6 +77,7 @@ export type {
   PulumiEngineVersionResult,
   RendererConsoleLevel,
   RendererLogEntry,
+  RunLock,
   TopLevelDeploymentSettings,
   UpdateDeploymentSettingsPayload,
 };
@@ -961,6 +968,16 @@ export interface IacStaleLockInfo {
  * `iac.controller.ts`, "nothing subscribes to this channel yet"), so that
  * variant does not currently reach the renderer through this bridge.
  *
+ * `runLock` is present instead of `staleLock` when the rejection was
+ * specifically a `RunLockHeldError` — the durable apply lock
+ * (`RunService`/`RunLockService`) is already held by another run, as
+ * opposed to `staleLock`'s unrecognized Pulumi *backend* lock. Only
+ * `apply`/`destroy` can hit this case; `plan` never acquires the durable
+ * lock, so its own rejections never carry `runLock`. Clearing it is a
+ * separate write path on the `iac.runs.lock.clear` channel (see
+ * {@link HyveonIacRunsApi.lock}), gated on the operator explicitly
+ * confirming the lock is not a genuinely active run elsewhere.
+ *
  * Mirrors `IacPlanAck` in
  * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
  * is the source of truth; keep this copy in sync with it.
@@ -971,6 +988,7 @@ export interface IacPlanAck {
   error?: string;
   conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
   staleLock?: IacStaleLockInfo;
+  runLock?: RunLock;
 }
 
 /**

@@ -27,6 +27,7 @@ export type {
   IacRollbackResolveAck,
   IacRollbackConfirmAck,
   IacLockClearAck,
+  RunLock,
   ChangeSummary,
   OpType,
   AwsProfileSummary,
