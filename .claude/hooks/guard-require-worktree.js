@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PreToolUse guard (Bash `git add`/`git commit`, Edit): enforces
+ * PreToolUse guard (Bash `git add`/`git commit`, Edit, Write): enforces
  * .claude/rules/worktree.md + .claude/rules/git.md — tracked-file changes
  * must happen inside a worktree entered via EnterWorktree, never directly
  * in the main checkout.
@@ -47,7 +47,7 @@ async function main() {
   if (toolName === 'Bash') {
     const command = (input.tool_input && input.tool_input.command) || '';
     if (!GIT_ADD_COMMIT.test(command)) return;
-  } else if (toolName !== 'Edit') {
+  } else if (toolName !== 'Edit' && toolName !== 'Write') {
     return;
   }
 
