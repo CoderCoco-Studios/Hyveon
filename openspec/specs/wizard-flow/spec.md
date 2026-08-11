@@ -73,7 +73,7 @@ On finishing the final step, the wizard SHALL persist all answers (via `Electron
 
 ### Requirement: Reconfigure entry point in Settings
 
-The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, pre-marking the pick-cloud, credentials, and bootstrap steps as completed (rendered with a per-step "Edit" affordance) since existing state already satisfies them, while the guided-IAM and stack-initialization steps render fresh. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
+The Settings page SHALL surface a "Reconfigure" button that relaunches the wizard against the existing electron-store state, re-running every step in the flow (cloud, credentials, bootstrap, stack initialization). Because prerequisite detection no longer exists as a step, there is no step excluded from Reconfigure and no special-casing in the step list. Steps already satisfied by existing state SHALL render as completed with a per-step "Edit" affordance rather than forcing re-entry. Reconfigure MUST preserve existing configuration except the fields the operator changes, and cancelling mid-flow MUST leave the pre-reconfigure configuration intact and the app usable.
 
 #### Scenario: Reconfigure with one change
 
@@ -84,6 +84,11 @@ The Settings page SHALL surface a "Reconfigure" button that relaunches the wizar
 
 - **WHEN** Reconfigure opens with all steps previously completed
 - **THEN** each step shows as completed with an "Edit" affordance and the operator can jump straight to finishing
+
+#### Scenario: Reconfigure covers the whole flow
+
+- **WHEN** Reconfigure opens
+- **THEN** every wizard step is present in the flow, with no step filtered out of the reconfigure step list
 
 #### Scenario: Mid-flow cancel
 
