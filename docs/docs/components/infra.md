@@ -148,8 +148,12 @@ against.
 broken down by `Game` in AWS Cost Explorer, activate `Game` (and `Project`,
 if not already active) as a cost allocation tag: AWS Billing console →
 Cost allocation tags → select the tag → Activate. This is not retroactive
-(only usage after activation is tagged in cost data) and can take up to 24
-hours to appear in Cost Explorer.
+by default (only usage after activation is tagged in cost data) and can take
+up to 24 hours to appear in Cost Explorer. A management-account user can
+retroactively backfill up to the previous 12 months via the AWS Billing
+console or the `StartCostAllocationTagBackfill` API — this only recovers
+cost data for resources that already carried the tag during that period, and
+can be requested at most once every 24 hours.
 
 Once activated, pull a per-game breakdown with:
 

@@ -2,7 +2,7 @@
 
 > Written: 2026-08-10 (after verify passed)
 > Commit range: `29d4fda1..d96d20ce`
-> Worktree: `/home/chris/GitHub/Hyveon/.claude/worktrees/add-per-game-cost-tags`
+> Worktree: `.claude/worktrees/add-per-game-cost-tags`
 
 ---
 
@@ -12,7 +12,7 @@
 - **Diff size**: +133 / -22 lines across 13 files
 - **Tasks done**: 14/14 (`grep -cE '^\s*- \[x\]' tasks.md`)
 - **Active hours**: ~1.5 (single session, apply through pre-archive)
-- **Subagent dispatches**: 12 (5 implementer, 5 task reviewer, 1 final reviewer, 1 fix-wave implementer + re-review counted separately below) — precisely: 5 task implementers (Tasks 1,2,3,4,5; Task 6 run directly, no subagent), 5 task reviewers, 1 final whole-branch reviewer (opus), 1 fix-wave implementer, 1 scoped re-reviewer = 12 total
+- **Subagent dispatches**: 13 (5 implementer, 5 task reviewer, 1 final reviewer, 1 fix-wave implementer + re-review counted separately below) — precisely: 5 task implementers (Tasks 1,2,3,4,5; Task 6 run directly, no subagent), 5 task reviewers, 1 final whole-branch reviewer (opus), 1 fix-wave implementer, 1 scoped re-reviewer = 13 total
 - **New external dependencies**: none
 - **Bugs encountered during this cycle**: 1 — missing `ecs:TagResource` IAM grant on the followup Lambda's role, which would have broken the Discord `/start` path once `propagateTags` shipped (caught by the final whole-branch review, not by any task-level review, not by the full test suite — it's an IAM permission gap invisible to unit tests that mock the AWS SDK)
 - **OpenSpec validate state at archive**: not yet run (archive step follows this retrospective)
