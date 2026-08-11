@@ -123,7 +123,8 @@ export class LogsController implements OnModuleInit {
         if ((err as Error).name === 'AbortError') {
           if (!sender.isDestroyed()) sender.send(endChannel, {});
         } else {
-          logger.error('Log stream error', { err, game, streamId });
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error('Log stream error', { message, game, streamId });
           if (!sender.isDestroyed()) {
             sender.send(endChannel, { error: String(err) });
           }

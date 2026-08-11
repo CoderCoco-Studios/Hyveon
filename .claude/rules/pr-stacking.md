@@ -1,91 +1,18 @@
-# PR Stacking for Large Changes
+# PR Stacking
 
-## Large changes must be split into a stack of PRs, not one giant PR
+## Split large changes into a stack of small PRs, not one giant PR
 
-When a task is large enough that it naturally decomposes into multiple
-logical groups of work — a multi-phase migration, an OpenSpec change with
-several independent capability areas, or any change touching more than
-roughly 5-6 files across unrelated concerns — implement it as a **stack of
-small, individually-reviewable PRs**, each based on the previous one, rather
-than a single PR containing the whole change.
+Trigger: multi-phase migration, an OpenSpec change with independent capability areas, or >~5-6 files across unrelated concerns.
 
-**Why:** a single PR spanning dozens of files and multiple concerns is slow
-and unreliable to review — reviewers (human or agent) either skim it and
-miss real issues, or spend disproportionate effort on it. This repo has
-already validated the pattern twice at scale: the `migrate-iac-to-pulumi`
-change shipped as an 8-PR stack (`pulumi-1-foundation-infra` through
-`pulumi-8-final-hardening`), and `add-one-click-aws-bootstrap` shipped as a
-9-PR stack (`bootstrap-1-cfn-template` through `bootstrap-9-docs`). Both
-kept each PR reviewable in isolation, let review findings from an earlier
-group inform later ones instead of arriving all at once, and made it
-possible to `/opsx:sync`/merge incrementally instead of holding one massive
-diff in flight.
+**Why:** validated 2x at scale (`migrate-iac-to-pulumi`: 8-PR stack; `add-one-click-aws-bootstrap`: 9-PR stack). A giant PR gets skimmed or over-scrutinized; small ones review reliably and let earlier findings inform later groups.
 
-**How to apply:**
+**How:**
 
-- **Decompose along real dependency lines, not arbitrary file count.** If
-  the work has a natural plan/tasks breakdown (e.g. an OpenSpec change's
-  `tasks.md` grouped into numbered sections), each group is usually one PR.
-  Order groups by dependency — a group that depends on another group's
-  code goes later in the stack, stacked on top of it.
-- **One branch and one worktree per group, each based on the previous
-  group's branch** — not on `main` (except the first group, which bases on
-  `main`). Use `git worktree add -b <branch> .worktrees/<name> <base-branch>`
-  with an explicit `<base-branch>` argument; the `EnterWorktree` tool's
-  fresh/HEAD-only base-ref model can't express "branch from a specific
-  prior feature branch," so use plain `git worktree add` for every hop
-  after the first, matching this repo's own `pulumi-N-*`/`bootstrap-N-*`
-  naming precedent.
-- **Each PR's base branch is the previous group's branch**, not `main` —
-  `gh pr create --base <previous-branch>` (a deliberate, disclosed
-  deviation from `/pr`'s default of basing on `main`). Only the stack's
-  first PR bases on `main`.
-- **Each PR must independently pass this repo's full pre-PR gate**
-  (`npm run app:lint`, `npm run app:typecheck`, `npm run app:test`, plus
-  `npm run app:test:integration`/`npm run app:test:e2e` when applicable per
-  `CLAUDE.md`) before opening it — a
-  later group in the stack inheriting a broken earlier group compounds the
-  problem.
-  - **"Pass" means the command exits 0 — never a red CI check with a
-    "known failure, fixed in a later PR" note in the PR description.**
-    Documenting *why* a check is red does not make it not red: reviewers
-    and CI dashboards still show a failing build, and a required check
-    still blocks merge if one is ever added. This applies even when the
-    later PR that lands the real fix is already written and reviewed —
-    "the fix exists, just not in this branch yet" is not a passing gate.
-  - **Why:** the `remove-cost-explorer-calls` stack (PR #430) shipped its
-    first PR with 5 e2e tests failing "as anticipated" (assertions against
-    UI the PR itself had just removed, with the real fix landing three PRs
-    later) — the PR description explained the failures, but
-    `npm run app:test:e2e` still exited 1 and GitHub Actions still showed a
-    red `e2e` check. A stacked PR one group later (`costexplorer-2-backend`)
-    then hit a *harder* version of the same anti-pattern: pulling forward a
-    dead-code deletion broke `costs.spec.ts`'s top-level import, which
-    crashed Playwright's entire test run (a `SyntaxError` before any test
-    could execute) — not "5 known failures" but zero tests able to run at
-    all, still described as an acceptable "documented typecheck exception."
-  - **How to apply:** when an earlier PR in a stack necessarily breaks
-    something only a later PR fully fixes (a UI rewrite invalidating old
-    e2e assertions, a removed export breaking a not-yet-updated test's
-    import), the earlier PR must itself neutralize the breakage — mark the
-    specific tests `test.skip()`/`test.fixme()` (with a comment naming the
-    PR that lands the real fix), or pull forward just enough of the later
-    PR's change to keep the file loadable and its still-relevant
-    assertions passing (see `remove-cost-explorer-calls`'s
-    `costexplorer-2-backend`, which pulled forward 4 of a later PR's 5
-    e2e tests rather than leaving the file's import broken). Verify with
-    the actual gate command's exit code
-    (`npm run app:test:e2e; status=$?; echo "$status"; exit "$status"`), not by skimming which failures
-    look expected — and check the PR's live CI run after pushing, since a
-    clean local run doesn't guarantee the same is true in CI.
-- **Documentation updates can land in a dedicated, later PR in the same
-  stack** rather than every individual PR, when the design explicitly calls
-  for writing docs only once the full flow is verifiable end-to-end (see
-  `add-one-click-aws-bootstrap`'s `design.md` Migration Plan and its
-  `bootstrap-9-docs` PR) — this is a sanctioned exception to `CLAUDE.md`'s
-  "docs in the same PR as the behaviour change" rule, not a blanket license
-  to defer docs indefinitely. State the reason explicitly when doing this.
-- **Small, self-contained changes stay as a single PR** — this rule does
-  not apply to a typical bug fix, a one-file change, or anything that
-  doesn't naturally decompose. Don't manufacture artificial groups to force
-  stacking where a single PR is already reviewable.
+1. Decompose along real dependencies (e.g. `tasks.md` groups), not arbitrary file counts. Order by dependency.
+2. One worktree + branch per group. First group branches from `main`; each later group branches from the *previous group's branch* — see `worktree.md` (fetch/update that base first). `EnterWorktree` can't target an arbitrary branch, so use `git fetch origin <base-branch>` then `git worktree add -b <branch> .worktrees/<name> origin/<base-branch>` directly for hop 2+ — branching from the bare local `<base-branch>` skips the fetch and can silently drop commits pushed to that branch on GitHub.
+3. `gh pr create --base <previous-branch>` for each PR — only the first bases on `main`.
+4. Each PR independently passes the full pre-PR gate (lint, typecheck, test, +integration/e2e per CLAUDE.md) — **exit code 0, not "documented known failure."** A red CI check stays red no matter what the PR description says.
+   - If an earlier PR necessarily breaks something only a later PR fixes: `test.skip()`/`test.fixme()` the specific tests (comment naming the fixing PR), or pull forward just enough of the later change to keep the file loadable. Verify via the actual exit code, not by eyeballing which failures "look expected" — then check the pushed PR's live CI run too, since a clean local run doesn't guarantee the same is true in CI.
+   - Real incident (PR #430): 5 "anticipated" e2e failures still left CI red; the next stacked PR then broke Playwright's entire run via the same anti-pattern (a pulled-forward deletion crashing a test file's import).
+5. Docs can land in one dedicated later PR in the stack only when the design says so explicitly (state the reason) — otherwise docs ship with the behavior change per CLAUDE.md.
+6. Don't stack a normal bug fix or one-file change — this is for changes that actually decompose.
