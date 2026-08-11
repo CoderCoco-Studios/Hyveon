@@ -276,6 +276,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.runtime).toBe('nodejs24.x');
       expect(fn.inputs.timeout).toBe(10);
       expect(fn.inputs.memorySize).toBe(256);
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-interactions' });
       expect(await promiseOf(result.interactionsFunction.name)).toBe('hyveon-interactions');
     });
 
@@ -342,6 +343,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.watchdogLambdaRole.arn));
       expect(fn.inputs.timeout).toBe(60);
       expect(fn.inputs.memorySize).toBeUndefined();
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-watchdog' });
     });
 
     it('should set every environment variable exactly per the HCL', async () => {
@@ -408,6 +410,7 @@ describe('defineLambdas', () => {
       expect(fn.inputs.role).toBe(await promiseOf(roles.dnsUpdaterLambdaRole.arn));
       expect(fn.inputs.timeout).toBe(60);
       expect(fn.inputs.memorySize).toBeUndefined();
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-dns-updater' });
     });
 
     it('should source its code from the update-dns bundle directory, not dns-updater', async () => {

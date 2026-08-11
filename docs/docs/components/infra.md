@@ -138,9 +138,11 @@ aren't separately billed resources).
 
 Dynamically-launched ECS Fargate tasks (via `RunTask`, never a persistent
 `aws.ecs.Service` — see the no-persistent-Service invariant above) inherit
-`Game` from their task definition via `propagateTags: 'TASK_DEFINITION'`
-(`AwsCloudProvider.startWorkload`) — this is what makes the tag reach the
-resource AWS actually bills Fargate compute against.
+`Game` from their task definition via `propagateTags: 'TASK_DEFINITION'`,
+set at both `RunTask` call sites — `AwsCloudProvider.startWorkload` (desktop
+app) and the followup Lambda's `runStart` (Discord `/start` command) — this
+is what makes the tag reach the resource AWS actually bills Fargate compute
+against.
 
 **One-time manual step required — Pulumi cannot do this:** to see costs
 broken down by `Game` in AWS Cost Explorer, activate `Game` (and `Project`,
