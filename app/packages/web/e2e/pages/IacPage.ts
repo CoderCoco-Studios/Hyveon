@@ -76,6 +76,18 @@ export class IacPage {
     return this.page.getByRole('alert').filter({ hasText: 'Backend lock in the way' });
   }
 
+  /**
+   * "Clear lock and retry" action rendered inside the BUSY banner — only
+   * present when a plan/apply/destroy submission's ack carries `runLock`
+   * (a durable `RunLockHeldError`, apply/destroy only; `plan` never acquires
+   * the durable lock). Opens a `ConfirmDialog`; the dialog's own confirm
+   * button ("Clear lock") is not wrapped here since callers need direct
+   * `page`/`win` access to scope it to the currently-open dialog.
+   */
+  clearRunLockButton(): Locator {
+    return this.page.getByRole('button', { name: /clear lock and retry/i });
+  }
+
   // ── Approve ──────────────────────────────────────────────────────────
 
   /** Approve-plan button — enabled once the plan run reaches `awaiting_approval`. */
