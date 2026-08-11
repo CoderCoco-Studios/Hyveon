@@ -528,6 +528,7 @@ describe('defineLambdas', () => {
       const logGroup = findByName(mocks.resources, 'hyveon-efs-seeder-echo-logs');
       expect(logGroup.inputs.name).toBe('/aws/lambda/hyveon-efs-seeder-echo');
       expect(logGroup.inputs.retentionInDays).toBe(7);
+      expect(logGroup.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo-logs', Game: 'echo' });
 
       expect(Object.keys(result.efsSeederFunctions)).toEqual(['echo']);
       const fn = findByNameAndType(mocks.resources, 'hyveon-efs-seeder-echo', 'aws:lambda/function:Function');
@@ -541,6 +542,7 @@ describe('defineLambdas', () => {
         subnetIds: MOCK_NETWORK_INPUTS.publicSubnetIds,
         securityGroupIds: [MOCK_EFS_SEEDER_SECURITY_GROUP_ID],
       });
+      expect(fn.inputs.tags).toEqual({ Name: 'hyveon-efs-seeder-echo', Game: 'echo' });
 
       const accessPointArn = await promiseOf(efs.gameAccessPoints['echo-saves'].arn);
       expect(fn.inputs.fileSystemConfig).toEqual({ arn: accessPointArn, localMountPath: '/mnt/efs' });
