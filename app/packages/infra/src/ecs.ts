@@ -129,7 +129,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       {
         name: `/ecs/${game}-server`,
         retentionInDays: 7,
-        tags: { Name: `${game}-logs` },
+        tags: { Name: `${game}-logs`, Game: game },
       },
       opts,
     );
@@ -218,7 +218,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
         executionRoleArn,
         volumes,
         containerDefinitions: pulumi.jsonStringify(containerDefs),
-        tags: { Name: `${game}-server` },
+        tags: { Name: `${game}-server`, Game: game },
       },
       opts,
     );
