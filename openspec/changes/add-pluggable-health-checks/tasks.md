@@ -8,9 +8,9 @@
 
 ## 2. Check engine
 
-- [ ] 2.1 Create the `@hyveon/lambda-health-check` package mirroring `efs-seeder`'s four files — `package.json`, `esbuild.config.mjs` (target `node24`, `external: ['@aws-sdk/*']`), `tsconfig.json` referencing shared, `src/`
-- [ ] 2.2 Implement the pure engine: `(config, status, rawBody) => { active, reason }` — JSON parse, JSONPath resolve, operator comparison — with every failure path returning `active: true` and a reason naming the failure
-- [ ] 2.3 Table-test the engine across all six operators, JSONPath hit and miss, a value the operator cannot compare, a non-2xx status, and an unparseable body — asserting fail-active in every failure case and that no response value appears in the reason
+- [x] 2.1 Create the `@hyveon/lambda-health-check` package mirroring `efs-seeder`'s four files — `package.json`, `esbuild.config.mjs` (target `node24`, `external: ['@aws-sdk/*']`), `tsconfig.json` referencing shared, `src/`
+- [x] 2.2 Implement the pure engine: `(config, status, rawBody) => { active, reason }` — JSON parse, JSONPath resolve, operator comparison — with every failure path returning `active: true` and a reason naming the failure
+- [x] 2.3 Table-test the engine across all six operators, JSONPath hit and miss, a value the operator cannot compare, a non-2xx status, and an unparseable body — asserting fail-active in every failure case and that no response value appears in the reason
 
 ## 3. Health-check Lambda handler
 
