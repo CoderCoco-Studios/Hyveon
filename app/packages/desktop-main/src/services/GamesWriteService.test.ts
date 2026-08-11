@@ -89,6 +89,34 @@ describe('GamesWriteService', () => {
       }
     });
 
+    it("should redact the returned game's health-check credential to secretSet, never the ARN", async () => {
+      const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:ark-token-AbCdEf';
+      const deploymentConfig = makeDeploymentConfig();
+      const audit = makeAudit();
+      const service = new GamesWriteService(makeConfig(), deploymentConfig, audit);
+      const config = buildConfig({
+        healthCheck: {
+          kind: 'http',
+          scheme: 'http',
+          port: 25565,
+          path: '/status',
+          method: 'GET',
+          timeoutMs: 2000,
+          auth: { secretArn },
+          activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+        },
+      });
+
+      const result = await service.createGame({ name: 'ark', config });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.game?.healthCheck).toMatchObject({ secretSet: true });
+        expect(result.game?.healthCheck).not.toHaveProperty('auth');
+      }
+      expect(JSON.stringify(result)).not.toContain(secretArn);
+    });
+
     it('should record an audit entry exactly once with a null before, the validated after, and the write versionId', async () => {
       const deploymentConfig = makeDeploymentConfig();
       const audit = makeAudit();

@@ -34,6 +34,19 @@ const sampleDraft: GameWizardDraft = {
   file_seeds: [],
   environment: [],
   https: false,
+  healthCheck: {
+    enabled: false,
+    scheme: 'http',
+    port: null,
+    path: '',
+    method: 'GET',
+    timeoutMs: 2000,
+    jsonPath: '',
+    operator: 'equals',
+    value: '',
+    secretArn: '',
+    secretSet: false,
+  },
 };
 
 describe('GameWizardDraftService', () => {
@@ -170,6 +183,21 @@ describe('GameWizardDraftService', () => {
 
       expect(result?.draft.file_seeds).toEqual([{ path: '/data/config.yml', content: '', content_base64: '', mode: '0644' }]);
       expect(result?.draft.environment).toEqual([{ name: 'DB_PASSWORD', value: '' }]);
+    });
+
+    it('should blank out healthCheck.secretArn while preserving secretSet before returning the draft', () => {
+      const draftWithSecret: GameWizardDraft = {
+        ...sampleDraft,
+        healthCheck: { ...sampleDraft.healthCheck, enabled: true, secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:token', secretSet: true },
+      };
+      const stored: StoredGameWizardDraft = { draft: draftWithSecret, stepIndex: 2, savedAt: '2026-08-09T00:00:00.000Z' };
+      const service = new GameWizardDraftService(makeStore(stored));
+
+      const result = service.get();
+
+      expect(result?.draft.healthCheck.secretArn).toBe('');
+      expect(result?.draft.healthCheck.secretSet).toBe(true);
+      expect(result?.draft.healthCheck.enabled).toBe(true);
     });
   });
 

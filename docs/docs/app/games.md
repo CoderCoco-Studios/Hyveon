@@ -150,6 +150,41 @@ game server must declare at least one port.`), and its first port must be
 `tcp` (`The first port entry of an https = true game server must use
 protocol "tcp" (exact, lowercase).`).
 
+#### Health check (optional)
+
+Below the HTTPS toggle, an **Enable authoritative health check** checkbox
+lets you judge this server active/idle by an HTTP request instead of
+network traffic — for a game whose management API can answer the question
+directly (Palworld's REST API is the reference case), rather than relying
+on the network-packet heuristic every other game uses. Leaving it off keeps
+that default heuristic unchanged.
+
+Checking it exposes:
+
+| Field | Purpose |
+|---|---|
+| **Scheme** | `http` or `https` |
+| **Port** | A dropdown constrained to the ports declared above — you cannot target a port this game doesn't expose |
+| **Method** | `GET`, `POST`, `PUT`, `PATCH`, or `HEAD` |
+| **Timeout (ms)** | 100–10000. Bounds the entire request as one wall-clock budget |
+| **Request path** | Rooted at `/`, e.g. `/status` |
+| **Response JSON path** | A field path into the JSON response body, e.g. `players.online` (plain field access and numeric array indices only — no wildcards) |
+| **Operator** | `equals`, `notEquals`, `greaterThan`, `lessThan`, `contains`, or `exists`. `exists` hides the comparison-value field entirely — it only tests whether the path resolves to anything |
+| **Comparison value** | Compared against the resolved value; hidden when the operator is `exists` |
+| **Credential (Secrets Manager ARN)** | Optional. When set, injected as the request's `Authorization` header |
+
+Two validations key off this block: a declared port not among this game's
+own ports (`healthCheck.port <N> is not among this game server's declared
+ports.`), and a comparison operator declared without a value
+(`healthCheck.activeWhen.value is required for operator "<op>"; only
+"exists" takes none.`).
+
+**The credential value never comes back.** Once saved, re-opening the wizard
+or edit form shows *"a credential is already set"* next to the field — never
+the ARN, and never any secret value. Leaving the field blank on an edit
+leaves the existing credential untouched; typing a new ARN replaces it. This
+matches how the app treats every other secret it holds.
+
 ### Step 4 — Storage
 
 Two sections.
@@ -199,9 +234,13 @@ universal naming convention.
 
 A read-only summary in four cards — **Identity**, **Resources**,
 **Networking**, **Storage** — showing exactly what will be written. The
-Storage card lists file-seed *paths* only (contents are never displayed) and,
-underneath, an **Environment variables** list of name/value pairs — both
-sub-sections are omitted entirely when empty rather than shown blank.
+Networking card's health-check sub-section (present only when one is
+enabled) shows the request shape and condition, and whether a credential
+is set — never the credential's value or ARN, the same convention the
+Storage card follows for file-seed contents. The Storage card lists
+file-seed *paths* only (contents are never displayed) and, underneath, an
+**Environment variables** list of name/value pairs — both sub-sections are
+omitted entirely when empty rather than shown blank.
 
 The footer button reads **Submit**.
 
@@ -271,14 +310,16 @@ there is nothing to recover that reopening the form doesn't already give you.
 
 #### Draft resume and secrets
 
-Environment variable values (the Environment step) and file-seed contents
-(the Storage step's file rows) are never included in a resumed draft — only
-the variable/file *names* come back. If you'd typed a database password or
-other sensitive value into one of those rows before closing, you'll need to
-re-enter it after clicking Resume. This is deliberate: those fields are the
-most likely to hold something you'd consider a secret, so the app strips
-them out of what's read back to the wizard rather than round-tripping them
-through the Electron IPC layer on every resume.
+Environment variable values (the Environment step), file-seed contents (the
+Storage step's file rows), and the health check's credential ARN (the
+Networking step's health-check block) are never included in a resumed
+draft — only the variable/file *names*, and whether a credential is set,
+come back. If you'd typed a database password, a health-check credential
+ARN, or other sensitive value before closing, you'll need to re-enter it
+after clicking Resume. This is deliberate: those fields are the most likely
+to hold something you'd consider a secret, so the app strips them out of
+what's read back to the wizard rather than round-tripping them through the
+Electron IPC layer on every resume.
 
 ## The game detail screen
 
@@ -327,10 +368,13 @@ an update: the name is the task-definition family, the EFS access-point key,
 the log-group name and the DNS label. Remove the old game and add a new one if
 you need a different name.
 
-`https` has the same toggle here as in the wizard's Networking step.
-`environment` is directly editable here too, in its own **Environment** card —
-the same row editor (Variable name / Value, no minimum row count) as the
-wizard's Step 5.
+`https` has the same toggle here as in the wizard's Networking step, and the
+same health-check block sits below it — enable/disable, request/condition
+fields, and the credential ARN input, identical to Step 3 of the wizard
+(including "a credential is already set" replacing any previous ARN, never
+echoing it back). `environment` is directly editable here too, in its own
+**Environment** card — the same row editor (Variable name / Value, no
+minimum row count) as the wizard's Step 5.
 
 Above the save button:
 

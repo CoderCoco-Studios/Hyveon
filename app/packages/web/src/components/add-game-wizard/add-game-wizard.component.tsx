@@ -448,6 +448,8 @@ export function AddGameWizard({
               onChange={(ports) => patchDraft({ ports })}
               https={draft.https}
               onHttpsChange={(https) => patchDraft({ https })}
+              healthCheck={draft.healthCheck}
+              onHealthCheckChange={(patch) => patchDraft({ healthCheck: { ...draft.healthCheck, ...patch } })}
             />
           )}
           {step === 'storage' && <StorageStep draft={draft} issues={stepIssues} onChange={patchDraft} />}

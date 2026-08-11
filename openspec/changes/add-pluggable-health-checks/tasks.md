@@ -38,12 +38,12 @@
 
 ## 6. Operator interface
 
-- [ ] 6.1 Surface health-check configuration in the add/edit-game wizard in `@hyveon/web`, including the port selector constrained to the game's declared ports
-- [ ] 6.2 Expose the credential as a `secretSet` boolean in the redacted shape, never the value, and cover it with a spec asserting no secret value reaches the renderer
+- [x] 6.1 Surface health-check configuration in the add/edit-game wizard in `@hyveon/web`, including the port selector constrained to the game's declared ports
+- [x] 6.2 Expose the credential as a `secretSet` boolean in the redacted shape, never the value, and cover it with a spec asserting no secret value reaches the renderer
 
 ## 7. Documentation and gates
 
 - [x] 7.1 Update `docs/docs/components/lambdas.md` — the new function, its conditional provisioning, and the watchdog's verdict routing
 - [x] 7.2 Update `docs/docs/components/infra.md` — the conditional resources, the security-group rules, and the port-level confinement caveat
-- [ ] 7.3 Update the add/edit-game wizard page under `docs/docs/app/`
-- [ ] 7.4 Run `npm run app:lint`, `npm run app:typecheck`, `npm run app:test`, and `npm run app:test:integration`, and confirm each exits zero
+- [x] 7.3 Update the add/edit-game wizard page under `docs/docs/app/`
+- [x] 7.4 Run `npm run app:lint`, `npm run app:typecheck`, `npm run app:test`, and `npm run app:test:integration`, and confirm each exits zero

@@ -6,18 +6,19 @@
  * discriminated union without either package importing the other.
  */
 
-import type { GameServer, GameListEntry } from './gameServerConfig.js';
+import type { GameServer, GameListEntry, RedactedGameServer } from './gameServerConfig.js';
 import type { GameServerValidationIssue } from './gameServerValidator.js';
 
 /**
  * Successful create/update/delete. `game` is the affected entry's
- * post-write config (omitted for a delete); `games` is the full, freshly
+ * post-write config (omitted for a delete), with any health-check
+ * credential redacted via `redactGameServer`; `games` is the full, freshly
  * merged games list so callers can refresh their view without a second
  * round trip.
  */
 export interface GameWriteSuccess {
   ok: true;
-  game?: GameServer;
+  game?: RedactedGameServer;
   games: GameListEntry[];
 }
 

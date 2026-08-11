@@ -29,7 +29,7 @@ import type {
   GameWriteResult,
   UpdateGamePayload,
 } from '@hyveon/shared';
-import { OptimisticLockError, validateGameServer } from '@hyveon/shared';
+import { OptimisticLockError, redactGameServer, validateGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
@@ -257,7 +257,7 @@ export class GamesWriteService {
     const driftReport = computeDriftFromOutputs(declared, outputs);
     const games = mergeGameLists(declared, outputs?.gameNames ?? [], driftReport.entries);
 
-    return { ok: true, game, games };
+    return { ok: true, game: game ? redactGameServer(game) : undefined, games };
   }
 
   /**

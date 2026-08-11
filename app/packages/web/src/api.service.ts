@@ -36,8 +36,70 @@ export interface CostEstimates {
 }
 
 /**
+ * Credential reference for an authenticated health check.
+ *
+ * Mirrors `GameServerHealthCheckAuth` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckAuth {
+  secretArn: string;
+}
+
+/**
+ * Single comparison evaluated against a health check's response body.
+ *
+ * Mirrors `GameServerHealthCheckCondition` in
+ * `@hyveon/shared/src/gameServerConfig.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckCondition {
+  jsonPath: string;
+  operator: 'equals' | 'notEquals' | 'greaterThan' | 'lessThan' | 'contains' | 'exists';
+  value?: string | number | boolean | null;
+}
+
+/**
+ * Declarative HTTP health check. Carries the full declaration, including
+ * `auth.secretArn` when authenticated — used for the write-side
+ * ({@link CreateGamePayload}/{@link UpdateGamePayload}) shape only; the
+ * read-side shape ({@link RedactedGameServer}) redacts `auth` down to a
+ * `secretSet` boolean.
+ *
+ * Mirrors `GameServerHealthCheck` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheck {
+  kind: 'http';
+  scheme: 'http' | 'https';
+  port: number;
+  path: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'HEAD';
+  headers?: Record<string, string>;
+  auth?: GameServerHealthCheckAuth;
+  timeoutMs: number;
+  activeWhen: GameServerHealthCheckCondition;
+}
+
+/**
+ * {@link GameServerHealthCheck} with the credential reference redacted —
+ * `auth` replaced by a `secretSet` boolean, never the credential reference
+ * itself. This is what the renderer actually receives; it never sees the
+ * write-side `auth` shape back.
+ *
+ * Mirrors `RedactedGameServerHealthCheck` in
+ * `@hyveon/shared/src/gameServerConfig.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface RedactedGameServerHealthCheck extends Omit<GameServerHealthCheck, 'auth'> {
+  secretSet: boolean;
+}
+
+/**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
+ * `healthCheck` here is the full, write-capable shape (with `auth`) — used
+ * for {@link CreateGamePayload}/{@link UpdateGamePayload}. The renderer
+ * only ever reads back {@link RedactedGameServer}.
  *
  * Mirrors `GameServer` in `@hyveon/shared/src/gameServerConfig.ts` — that file is the
  * source of truth; keep this copy in sync with it.
@@ -53,6 +115,20 @@ export interface GameServer {
   https?: boolean;
   connect_message?: string;
   file_seeds?: { path: string; content?: string; content_base64?: string; mode?: string }[];
+  healthCheck?: GameServerHealthCheck;
+}
+
+/**
+ * {@link GameServer} with {@link GameServer.healthCheck} redacted via
+ * {@link RedactedGameServerHealthCheck} — the shape the renderer actually
+ * receives wherever a declared game crosses the IPC boundary
+ * (`GameListEntry.config`, `GameWriteSuccess.game`).
+ *
+ * Mirrors `RedactedGameServer` in `@hyveon/shared/src/gameServerConfig.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface RedactedGameServer extends Omit<GameServer, 'healthCheck'> {
+  healthCheck?: RedactedGameServerHealthCheck;
 }
 
 /**
@@ -75,10 +151,10 @@ export interface GameListEntry {
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full declared configuration for this game. Only present when `declared`
-   * is true.
+   * Declared configuration for this game, with any health-check credential
+   * redacted. Only present when `declared` is true.
    */
-  config?: GameServer;
+  config?: RedactedGameServer;
   /**
    * Drift finding for this game, from `DriftService.computeDrift`. Present
    * whenever the game has an entry in the current `DriftReport`, regardless
@@ -106,6 +182,19 @@ export interface GameWizardDraft {
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
   https: boolean;
+  healthCheck: {
+    enabled: boolean;
+    scheme: string;
+    port: number | null;
+    path: string;
+    method: string;
+    timeoutMs: number | null;
+    jsonPath: string;
+    operator: string;
+    value: string;
+    secretArn: string;
+    secretSet: boolean;
+  };
 }
 
 /** A saved add-game wizard draft plus which step the operator was on and when it was last autosaved. */
@@ -139,7 +228,7 @@ export interface GameServerValidationIssue {
  */
 export interface GameWriteSuccess {
   ok: true;
-  game?: GameServer;
+  game?: RedactedGameServer;
   games: GameListEntry[];
 }
 

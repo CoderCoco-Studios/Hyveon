@@ -13,27 +13,24 @@ import {
   canAdvance,
   type WizardDraft,
 } from './wizard-form.utils.js';
-import type { GameServer } from '../../api.service.js';
+import type { RedactedGameServer } from '../../api.service.js';
 
 /** Builds a fully-valid draft; override any fields per test. */
 function makeValidDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   return {
+    ...createEmptyWizardDraft(),
     name: 'minecraft',
     image: 'itzg/minecraft-server',
-    connect_message: '',
     cpu: 1024,
     memory: 2048,
     ports: [{ container: 25565, protocol: 'tcp' }],
     volumes: [{ name: 'data', container_path: '/data' }],
-    file_seeds: [],
-    environment: [],
-    https: false,
     ...overrides,
   };
 }
 
-/** Builds a minimal existing declared GameServer entry; override any fields per test. */
-function makeExistingGame(overrides: Partial<GameServer> = {}): GameServer {
+/** Builds a minimal existing declared GameServer entry (redacted, as read back from the IPC boundary); override any fields per test. */
+function makeExistingGame(overrides: Partial<RedactedGameServer> = {}): RedactedGameServer {
   return {
     name: 'valheim',
     image: 'lloesche/valheim-server',
@@ -58,6 +55,19 @@ describe('createEmptyWizardDraft', () => {
       file_seeds: [],
       environment: [],
       https: false,
+      healthCheck: {
+        enabled: false,
+        scheme: 'http',
+        port: null,
+        path: '',
+        method: 'GET',
+        timeoutMs: 2000,
+        jsonPath: '',
+        operator: 'equals',
+        value: '',
+        secretArn: '',
+        secretSet: false,
+      },
     });
   });
 });
@@ -355,6 +365,19 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       file_seeds: [],
       environment: [],
       https: false,
+      healthCheck: {
+        enabled: false,
+        scheme: 'http',
+        port: null,
+        path: '',
+        method: 'GET',
+        timeoutMs: 2000,
+        jsonPath: '',
+        operator: 'equals',
+        value: '',
+        secretArn: '',
+        secretSet: false,
+      },
     });
   });
 
@@ -410,7 +433,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     const game = makeExistingGame({
       name: 'valheim',
       https: 'length(x) > 0 ? true : false',
-    } as unknown as Partial<GameServer>);
+    } as unknown as Partial<RedactedGameServer>);
 
     const draft = draftFromGameServer(game);
     expect(draft.https).toBe(false);

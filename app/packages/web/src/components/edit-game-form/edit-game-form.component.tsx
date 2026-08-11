@@ -38,7 +38,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
-import { api, type GameServer, type GameWriteSuccess, type UpdateGamePayload } from '../../api.service.js';
+import { api, type GameWriteSuccess, type RedactedGameServer, type UpdateGamePayload } from '../../api.service.js';
 import { IdentityStep } from '../add-game-wizard/identity-step.component.js';
 import { ResourcesStep } from '../add-game-wizard/resources-step.component.js';
 import { NetworkingStep } from '../add-game-wizard/networking-step.component.js';
@@ -49,7 +49,7 @@ import { draftFromGameServer, draftToPayload, validateStep, type WizardDraft } f
 /** Props for {@link EditGameForm}. */
 export interface EditGameFormProps {
   /** The declared game to prefill the form from. */
-  game: GameServer;
+  game: RedactedGameServer;
   /** Called with the successful write result once `api.updateGame` resolves `ok: true`. */
   onSaved?: (result: GameWriteSuccess) => void;
 }
@@ -62,7 +62,7 @@ export interface EditGameFormProps {
  */
 export function EditGameForm({ game, onSaved }: EditGameFormProps) {
   const [draft, setDraft] = useState<WizardDraft>(() => draftFromGameServer(game));
-  const [existingGames, setExistingGames] = useState<GameServer[]>([]);
+  const [existingGames, setExistingGames] = useState<RedactedGameServer[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [serverIssues, setServerIssues] = useState<GameServerValidationIssue[] | null>(null);
@@ -192,6 +192,8 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
             onChange={(ports) => patchDraft({ ports })}
             https={draft.https}
             onHttpsChange={(https) => patchDraft({ https })}
+            healthCheck={draft.healthCheck}
+            onHealthCheckChange={(patch) => patchDraft({ healthCheck: { ...draft.healthCheck, ...patch } })}
           />
         </CardContent>
       </Card>

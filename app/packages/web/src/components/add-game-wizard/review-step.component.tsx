@@ -93,6 +93,30 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               ))}
             </ul>
           )}
+
+          {draft.healthCheck.enabled ? (
+            <div>
+              <h4 className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)] mb-1">
+                Health check
+              </h4>
+              <SummaryRow
+                label="Request"
+                value={`${draft.healthCheck.method} ${draft.healthCheck.scheme}://…:${draft.healthCheck.port ?? '—'}${draft.healthCheck.path}`}
+              />
+              <SummaryRow
+                label="Condition"
+                value={`${draft.healthCheck.jsonPath} ${draft.healthCheck.operator}${draft.healthCheck.operator === 'exists' ? '' : ` ${draft.healthCheck.value}`}`}
+              />
+              <SummaryRow
+                label="Credential"
+                value={draft.healthCheck.secretSet || draft.healthCheck.secretArn.trim().length > 0 ? 'Set' : 'Not set'}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-muted-foreground)]">
+              No health check — idle detection uses network traffic.
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -34,6 +34,7 @@ import type {
   GameListEntry,
   GameServer,
   GameStatus,
+  RedactedGameServer,
 } from '@hyveon/shared';
 import type { WizardStep } from '@hyveon/shared';
 import type {
@@ -118,7 +119,7 @@ export const DEMO_NOW = '2026-07-26T12:00:00.000Z';
 // Games
 // ---------------------------------------------------------------------------
 
-const MINECRAFT_CONFIG: GameServer = {
+const MINECRAFT_CONFIG: RedactedGameServer = {
   name: 'minecraft',
   image: 'itzg/minecraft-server:latest',
   cpu: 2048,
@@ -141,7 +142,7 @@ const MINECRAFT_CONFIG: GameServer = {
   ],
 };
 
-const VALHEIM_CONFIG: GameServer = {
+const VALHEIM_CONFIG: RedactedGameServer = {
   name: 'valheim',
   image: 'lloesche/valheim-server',
   cpu: 2048,
@@ -160,7 +161,7 @@ const VALHEIM_CONFIG: GameServer = {
   connect_message: 'Connect at {ip}:2456',
 };
 
-const PALWORLD_CONFIG: GameServer = {
+const PALWORLD_CONFIG: RedactedGameServer = {
   name: 'palworld',
   image: 'thijsvanloef/palworld-server-docker:latest',
   cpu: 4096,

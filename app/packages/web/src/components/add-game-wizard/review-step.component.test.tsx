@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { WizardDraft } from './wizard-form.utils.js';
+import { createEmptyWizardDraft, type WizardDraft } from './wizard-form.utils.js';
 import { ReviewStep } from './review-step.component.js';
 
 /** Builds a fully-populated draft covering every field, including the optional ones; override per test. */
 function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   return {
+    ...createEmptyWizardDraft(),
     name: 'minecraft',
     image: 'itzg/minecraft-server',
     connect_message: 'Connect at {hostname}',
@@ -15,7 +16,6 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
     environment: [{ name: 'EULA', value: 'true' }],
-    https: false,
     ...overrides,
   };
 }
@@ -23,16 +23,11 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
 /** Builds a minimal draft for the Review step; override per test. */
 function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   return {
+    ...createEmptyWizardDraft(),
     name: 'minecraft',
     image: 'itzg/minecraft-server',
-    connect_message: '',
     cpu: 1024,
     memory: 2048,
-    ports: [],
-    volumes: [],
-    file_seeds: [],
-    environment: [],
-    https: false,
     ...overrides,
   };
 }
