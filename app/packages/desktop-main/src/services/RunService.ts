@@ -240,16 +240,16 @@ export class RunService {
   async mintLockClearConfirmationToken(): Promise<string> {
     let lock = this.getCurrentLock();
     if (!lock) {
-      const tableName = (await this.config.getStackOutputs())?.runsTableName;
-      if (tableName) {
-        try {
+      try {
+        const tableName = (await this.config.getStackOutputs())?.runsTableName;
+        if (tableName) {
           lock = await this.store.getRunLock();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.warn('RunService.mintLockClearConfirmationToken: failed to read DynamoDB apply lock', {
-            error: message,
-          });
         }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('RunService.mintLockClearConfirmationToken: failed to read DynamoDB apply lock', {
+          error: message,
+        });
       }
     }
     if (!lock) {
@@ -294,16 +294,16 @@ export class RunService {
     const pending = this.pendingLockClearConfirmation;
     let current = this.getCurrentLock();
     if (!current) {
-      const tableName = (await this.config.getStackOutputs())?.runsTableName;
-      if (tableName) {
-        try {
+      try {
+        const tableName = (await this.config.getStackOutputs())?.runsTableName;
+        if (tableName) {
           current = await this.store.getRunLock();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.warn('RunService.assertFreshLockClearConfirmation: failed to read DynamoDB apply lock', {
-            error: message,
-          });
         }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('RunService.assertFreshLockClearConfirmation: failed to read DynamoDB apply lock', {
+          error: message,
+        });
       }
     }
     if (

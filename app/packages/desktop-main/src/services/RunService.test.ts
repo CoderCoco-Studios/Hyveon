@@ -444,5 +444,20 @@ describe('RunService', () => {
       await service.clearLock(token);
       expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
     });
+
+    it('should mint and clear an in-memory-only lock via createRun/clearLock without touching the DynamoDB-backed calls when runs_table_name is not configured', async () => {
+      const service = makeService(null);
+      await service.createRun('apply', 'chris');
+      expect(acquireRunLockMock).not.toHaveBeenCalled();
+
+      const token = await service.mintLockClearConfirmationToken();
+      expect(getRunLockMock).not.toHaveBeenCalled();
+
+      await service.clearLock(token);
+
+      expect(releaseRunLockMock).not.toHaveBeenCalled();
+      expect(service.getCurrentLock()).toBeUndefined();
+      await expect(service.createRun('apply', 'someone-else')).resolves.toMatchObject({ initiator: 'someone-else' });
+    });
   });
 });

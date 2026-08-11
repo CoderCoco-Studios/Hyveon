@@ -264,6 +264,42 @@ describe('IacPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^Apply$/ }));
       expect(hyveonMock.iac.apply).toHaveBeenCalledTimes(2);
     });
+
+    it('should show an inline error and keep the banner in place when confirming the clear fails (stale token)', async () => {
+      const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-01T00:05:00.000Z' };
+      hyveonMock.iac.apply.mockResolvedValueOnce({
+        started: false,
+        conflict: 'up',
+        error: 'Run lock already held by "chris"',
+        runLock: heldLock,
+      });
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+      hyveonMock.iac.runs.lock.clear.mockReset().mockResolvedValue({
+        cleared: false,
+        error: 'run lock clear refused: confirmation token expired',
+      });
+
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+
+      await userEvent.click(applyBtn);
+      await screen.findByRole('button', { name: /clear lock and retry/i });
+      await userEvent.click(screen.getByRole('button', { name: /clear lock and retry/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
+
+      expect(hyveonMock.iac.runs.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'test-token' });
+      expect(await screen.findByText('run lock clear refused: confirmation token expired')).toBeInTheDocument();
+      // the banner and its retry action are still present — onCleared() must not have fired
+      expect(screen.getByRole('button', { name: /clear lock and retry/i })).toBeInTheDocument();
+    });
   });
 
   describe('stale-lock recovery', () => {

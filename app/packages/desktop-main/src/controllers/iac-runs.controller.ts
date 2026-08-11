@@ -412,8 +412,8 @@ export class IacRunsController implements OnModuleInit {
         logger.warn('iac.runs.lock.clear rejected: confirmation not fresh', { error: err.message });
         return { cleared: false, error: err.message };
       }
-      logger.error('iac.runs.lock.clear error', { err });
       const error = err instanceof Error ? err.message : String(err);
+      logger.error('iac.runs.lock.clear error', { error });
       return { cleared: false, error };
     }
   }
