@@ -30,11 +30,16 @@ function HealthBadge({ status }: { status: CloudHealthCheckSummary['status'] }) 
 function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed: () => void }) {
   const [fixing, setFixing] = useState(false);
   const [fixResult, setFixResult] = useState<CloudHealthFixResult | null>(null);
+  // Distinct from `fixResult`: set only when `api.cloudHealthFix` itself
+  // rejects (an IPC-bridge-level failure), as opposed to the modeled
+  // CloudHealthFixResult the controller returns for AWS-level failures.
+  const [fixError, setFixError] = useState<string | null>(null);
 
   /** Calls `api.cloudHealthFix` for this row and records the outcome, or defers to `onFixed` when it succeeds outright. */
   async function handleFix() {
     setFixing(true);
     setFixResult(null);
+    setFixError(null);
     try {
       const result = await api.cloudHealthFix(check.id);
       if (result.outcome === 'fixed') {
@@ -42,6 +47,8 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
       } else {
         setFixResult(result);
       }
+    } catch (err) {
+      setFixError(err instanceof Error ? err.message : String(err));
     } finally {
       setFixing(false);
     }
@@ -63,7 +70,8 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
           </Button>
         )}
       </div>
-      {check.message && !fixResult && <p className="text-xs text-muted-foreground">{check.message}</p>}
+      {check.message && !fixResult && !fixError && <p className="text-xs text-muted-foreground">{check.message}</p>}
+      {fixError && <p className="text-xs text-[var(--color-red)]">Unable to reach the app: {fixError}</p>}
       {fixResult?.outcome === 'failed' && <p className="text-xs text-[var(--color-red)]">{fixResult.message}</p>}
       {fixResult?.outcome === 'needsPolicyUpdate' && fixResult.policyJson && (
         <div className="space-y-2">
@@ -103,21 +111,33 @@ function HealthRow({ check, onFixed }: { check: CloudHealthCheckSummary; onFixed
  * Runs on mount and on manual Refresh — no automatic polling. `loading`
  * starts `true` (rather than the mount effect calling `setLoading(true)`
  * synchronously) and `fetchChecks` only ever sets state inside its
- * `.then()`/`.finally()` continuations, never synchronously in the effect
- * body — mirroring `settings.page.tsx`'s `engineVersion` effect — so the
- * mount effect satisfies `react-hooks/set-state-in-effect`.
+ * `.then()`/`.catch()`/`.finally()` continuations, never synchronously in
+ * the effect body — mirroring `settings.page.tsx`'s `engineVersion` effect —
+ * so the mount effect satisfies `react-hooks/set-state-in-effect`.
+ *
+ * `listError` is distinct from a check's own `status: 'error'`: it's set
+ * only when `api.cloudHealthList()` itself rejects (an IPC-bridge-level
+ * failure), as opposed to the modeled `CloudHealthCheckResult` the
+ * controller always returns for AWS-level failures.
  *
  * @returns the Cloud Health checklist section.
  */
 export function CloudHealthSection() {
   const [checks, setChecks] = useState<CloudHealthCheckSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
 
   /** Fetches the checklist and updates state from the resolved/rejected promise, never synchronously. */
   const fetchChecks = useCallback(() => {
     return api
       .cloudHealthList()
-      .then((result) => setChecks(result))
+      .then((result) => {
+        setChecks(result);
+        setListError(null);
+      })
+      .catch((err: unknown) => {
+        setListError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -138,6 +158,9 @@ export function CloudHealthSection() {
           {loading ? <Loader2 className="size-3 animate-spin" /> : 'Refresh'}
         </Button>
       </div>
+      {listError && (
+        <p className="text-xs text-[var(--color-red)]">Unable to load Cloud Health checks: {listError}</p>
+      )}
       {(checks ?? []).map((check) => (
         <HealthRow key={check.id} check={check} onFixed={refresh} />
       ))}

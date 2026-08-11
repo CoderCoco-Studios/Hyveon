@@ -73,4 +73,26 @@ describe('CloudHealthSection', () => {
     expect(await screen.findByText('boom')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /fix/i })).toBeInTheDocument();
   });
+
+  it('should show an inline error when the cloudHealthList IPC call itself rejects', async () => {
+    apiMock.cloudHealthList.mockRejectedValue(new Error('bridge unavailable'));
+    render(<CloudHealthSection />);
+
+    expect(await screen.findByText(/unable to load cloud health checks/i)).toBeInTheDocument();
+    expect(screen.getByText(/bridge unavailable/)).toBeInTheDocument();
+  });
+
+  it('should show an inline row error when the cloudHealthFix IPC call itself rejects', async () => {
+    apiMock.cloudHealthList.mockResolvedValue([
+      { id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'missing' },
+    ]);
+    apiMock.cloudHealthFix.mockRejectedValue(new Error('bridge unavailable'));
+    render(<CloudHealthSection />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /fix/i }));
+
+    expect(await screen.findByText(/unable to reach the app/i)).toBeInTheDocument();
+    expect(screen.getByText(/bridge unavailable/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /fix/i })).toBeInTheDocument();
+  });
 });
