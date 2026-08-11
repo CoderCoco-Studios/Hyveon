@@ -4,7 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { RunLock, RunPageResult, RunRecord } from '@hyveon/shared';
 import { IacRunsController } from './iac-runs.controller.js';
 import type { PulumiService, PulumiRunChunk, PulumiRunRecord } from '../services/PulumiService.js';
-import type { RunService } from '../services/RunService.js';
+import { RunLockClearNotConfirmedError, type RunService } from '../services/RunService.js';
 import type { RunRecordService, ListRunsOpts } from '../services/RunRecordService.js';
 
 // ---------------------------------------------------------------------------
@@ -82,10 +82,17 @@ function flushPromises(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/** Build a `RunService` stub whose `getCurrentLock()` returns `lock` (defaults to `undefined`, i.e. no run in flight). */
+/**
+ * Build a `RunService` stub whose `getCurrentLock()` returns `lock` (defaults
+ * to `undefined`, i.e. no run in flight). Also stubs
+ * `mintLockClearConfirmationToken`/`clearLock` so lock-clear tests can
+ * override their resolved/rejected value per case via `vi.mocked(...)`.
+ */
 function makeRunService(lock: RunLock | undefined = undefined): RunService {
   return {
     getCurrentLock: vi.fn().mockReturnValue(lock),
+    mintLockClearConfirmationToken: vi.fn().mockResolvedValue('tok-default'),
+    clearLock: vi.fn().mockResolvedValue(undefined),
   } as unknown as RunService;
 }
 
@@ -474,6 +481,60 @@ describe('IacRunsController.list', () => {
       controller.list({ status: 'pending' } as unknown as ListRunsOpts),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(runRecordService.listRuns).not.toHaveBeenCalled();
+  });
+});
+
+describe('IacRunsController.mintLockClearToken', () => {
+  it('should return a token when a run lock is currently held', async () => {
+    const runService = makeRunService(buildLock());
+    vi.mocked(runService.mintLockClearConfirmationToken).mockResolvedValue('tok-123');
+    const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
+
+    const result = await controller.mintLockClearToken();
+
+    expect(result).toEqual({ token: 'tok-123' });
+  });
+
+  it('should throw a clean BadRequestException, not the raw service error, when no lock is held', async () => {
+    const runService = makeRunService();
+    vi.mocked(runService.mintLockClearConfirmationToken).mockRejectedValue(
+      new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.'),
+    );
+    const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
+
+    await expect(controller.mintLockClearToken()).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('IacRunsController.clearLock', () => {
+  it('should resolve { cleared: true } on a valid token', async () => {
+    const runService = makeRunService();
+    vi.mocked(runService.clearLock).mockResolvedValue(undefined);
+    const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
+
+    const result = await controller.clearLock({ confirmationToken: 'tok-123' });
+
+    expect(result).toEqual({ cleared: true });
+    expect(runService.clearLock).toHaveBeenCalledWith('tok-123');
+  });
+
+  it('should resolve { cleared: false, error } (not throw) on RunLockClearNotConfirmedError', async () => {
+    const runService = makeRunService();
+    vi.mocked(runService.clearLock).mockRejectedValue(new RunLockClearNotConfirmedError());
+    const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
+
+    const result = await controller.clearLock({ confirmationToken: 'stale' });
+
+    expect(result.cleared).toBe(false);
+    expect(result.error).toMatch(/mintLockClearConfirmationToken/);
+  });
+
+  it('should throw BadRequestException when confirmationToken is missing or empty', async () => {
+    const controller = new IacRunsController(makePulumi(), makeRunService(), makeRunRecordService());
+
+    await expect(
+      controller.clearLock({ confirmationToken: '' } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

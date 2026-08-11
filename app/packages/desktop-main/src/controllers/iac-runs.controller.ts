@@ -8,7 +8,7 @@ import {
   type PulumiRunChunk,
   type PulumiRunRecord,
 } from '../services/PulumiService.js';
-import { RunService } from '../services/RunService.js';
+import { RunLockClearNotConfirmedError, RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
 
@@ -24,6 +24,28 @@ export interface IacRunsLogUrlResult {
 export interface IacRunsLogUrlPayload {
   logKey: string;
   expiresInSeconds?: number;
+}
+
+/** Result {@link IacRunsController.mintLockClearToken} resolves with. */
+export interface IacRunsLockMintAck {
+  token: string;
+}
+
+/** Payload accepted by {@link IacRunsController.clearLock}. */
+export interface IacRunsLockClearPayload {
+  confirmationToken: string;
+}
+
+/**
+ * Result {@link IacRunsController.clearLock} resolves with. `cleared: false`
+ * means nothing was cleared (the token was missing/wrong/expired, or no
+ * longer bound to the currently held lock) — `error` describes why. Never
+ * throws for an unconfirmed clear; only a malformed payload throws
+ * (`BadRequestException`).
+ */
+export interface IacRunsLockClearAck {
+  cleared: boolean;
+  error?: string;
 }
 
 /** Payload accepted by {@link IacRunsController.get}. */
@@ -327,5 +349,72 @@ export class IacRunsController implements OnModuleInit {
 
     const url = await this.runRecordService.getLogUrl(logKey, payload.expiresInSeconds);
     return { url };
+  }
+
+  /**
+   * Mints a fresh, single-use confirmation token the renderer must supply
+   * back on {@link clearLock}'s payload before it expires — the RunLock
+   * analogue of `IacController.mintLockClearToken`, for the durable apply
+   * lock (`RunService`) rather than the Pulumi backend lock.
+   *
+   * `RunService.mintLockClearConfirmationToken()` throws a plain `Error`
+   * when no lock is currently held (in-memory or durable) — an expected
+   * race (the lock self-healed or was cleared between the busy ack and this
+   * call), not a server fault. Caught here and reported as a clean
+   * `BadRequestException` so the renderer never sees an unmodeled IPC
+   * rejection for it.
+   *
+   * @throws `BadRequestException` when no run lock is currently held.
+   *
+   * Reachable via the Electron IPC transport (`iac.runs.lock.clear.mintToken`).
+   */
+  @MessagePattern('iac.runs.lock.clear.mintToken')
+  async mintLockClearToken(): Promise<IacRunsLockMintAck> {
+    logger.debug('IacRunsController: iac.runs.lock.clear.mintToken invoked');
+    try {
+      const token = await this.runService.mintLockClearConfirmationToken();
+      return { token };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('iac.runs.lock.clear.mintToken rejected: no run lock currently held', { error: message });
+      throw new BadRequestException({ success: false, error: message });
+    }
+  }
+
+  /**
+   * Clears the current run lock by invoking `RunService.clearLock()`,
+   * gated behind `payload.confirmationToken` (minted via
+   * {@link mintLockClearToken}) — mirrors `IacController.clearStaleLock`'s
+   * ack shape: a rejected/unconfirmed clear resolves `{ cleared: false, error }`
+   * rather than throwing, so the renderer never sees an unhandled IPC
+   * rejection for the expected "token stale" case.
+   *
+   * @throws `BadRequestException` when `payload.confirmationToken` isn't a
+   *   non-empty string.
+   *
+   * Reachable via the Electron IPC transport (`iac.runs.lock.clear`).
+   */
+  @MessagePattern('iac.runs.lock.clear')
+  async clearLock(@Payload() payload: IacRunsLockClearPayload): Promise<IacRunsLockClearAck> {
+    logger.debug('IacRunsController: iac.runs.lock.clear invoked');
+    const token = payload?.confirmationToken;
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: 'iac.runs.lock.clear requires a non-empty confirmationToken string',
+      });
+    }
+    try {
+      await this.runService.clearLock(token);
+      return { cleared: true };
+    } catch (err) {
+      if (err instanceof RunLockClearNotConfirmedError) {
+        logger.warn('iac.runs.lock.clear rejected: confirmation not fresh', { error: err.message });
+        return { cleared: false, error: err.message };
+      }
+      logger.error('iac.runs.lock.clear error', { err });
+      const error = err instanceof Error ? err.message : String(err);
+      return { cleared: false, error };
+    }
   }
 }
