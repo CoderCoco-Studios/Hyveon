@@ -187,6 +187,21 @@ and try again.
 Apply additionally takes a durable lock that self-releases after one hour, so
 a crashed apply cannot wedge the workspace permanently.
 
+### Stale run locks
+
+Apply and destroy (never plan — plan only takes the in-memory workspace lock,
+not the durable one) acquire this durable run lock for the duration of the
+run. If a submission is refused because that lock is already held, the
+workspace-busy banner names the holder — initiator, run kind, and how long
+ago it was acquired — and, unlike the plain workspace-busy case above, offers
+an inline **Clear lock and retry** action gated behind a confirmation dialog.
+The confirmation dialog spells out the risk: clearing a lock that turns out to
+belong to a genuinely active run elsewhere lets two Pulumi updates race
+against the same state and can corrupt it, so only confirm when you're
+confident the holder is abandoned (e.g. the app that held it crashed). Like
+the stale-lock recovery below, clearing does not resubmit your operation for
+you — retry manually via the plan/apply/destroy button once the lock is gone.
+
 ### Stale Pulumi backend locks
 
 Because state locking is handled by the S3 backend itself (a lock object,
