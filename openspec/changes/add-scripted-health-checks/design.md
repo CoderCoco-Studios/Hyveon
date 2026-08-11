@@ -128,10 +128,22 @@ widely-used one and must be tracked for updates like any other dependency. This 
 reason this is a separate change: it should be possible to ship the declarative kind and
 decline this one.
 
-**A sandbox escape would reach the health-check Lambda's role** → That role is already
-minimal — `ecs:DescribeTasks` on one cluster, `GetSecretValue` on specific ARNs, log writes,
-and the ENI actions any VPC Lambda needs. Worth stating in the design so that any future
-widening of that role is understood to also widen the consequence of an escape.
+**A sandbox escape would reach the health-check Lambda's role** → That role is scoped —
+`ecs:DescribeTasks` on one cluster, `GetSecretValue` on specific ARNs, log writes, and the
+ENI actions any VPC Lambda needs — but "specific ARNs" is the union of every opted-in game's
+health-check secret, not just the game being checked in that invocation, because the
+predecessor change (`add-pluggable-health-checks`) chose one shared Lambda over per-game
+functions. That decision explicitly reasoned it was safe only because the shared function
+"executes no operator-supplied code," calling that "the property that would make [per-game
+credential isolation] urgent." This change removes that property: a sandbox escape while
+checking Game A's `script` can reach the ambient credentials for Game B, C, and D's checks
+too, not just Game A's — in tension with this change's own Goal that a script's worst case
+must exclude "access to the deployment's credentials, network, or other games." Accepted here
+on the same isolation-runtime argument as the escape risk above (the WASM boundary is the
+actual control, not IAM), but any future move to narrow `GetSecretValue` to the single game
+under check — e.g. an STS `AssumeRole` scoped to one secret ARN per invocation, or reverting
+to per-game Lambdas for the `script` kind — would remove this residual gap rather than merely
+document it.
 
 **A slow script delays every check in the same invocation** → Checks are per-task and the
 Lambda is invoked per task by the watchdog, so a slow script delays its own game. The
