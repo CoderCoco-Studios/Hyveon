@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: >-
+          Start ref/tag/commit for the changelog range. Defaults to the most
+          recent existing v* tag reachable from `to` (or full history if none
+          exists).
+        required: false
+        type: string
+      to:
+        description: 'End ref/commit for the changelog range. Defaults to HEAD.'
+        required: false
+        type: string
+      bump:
+        description: 'Semver bump strategy.'
+        required: false
+        type: choice
+        options: [auto, major, minor, patch]
+        default: auto
+      skip_bump:
+        description: >-
+          Replay mode: regenerate the changelog and AI summary for an
+          already-tagged release without bumping the version, committing, or
+          tagging. Requires `tag`.
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: 'Existing tag to regenerate release notes for. Required when skip_bump is true.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate inputs
+        run: |
+          if [ "${{ inputs.skip_bump }}" = "true" ] && [ -z "${{ inputs.tag }}" ]; then
+            echo "::error::skip_bump is true but no tag was supplied. Replay mode requires an existing tag to regenerate." >&2
+            exit 1
+          fi
+
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Resolve changelog range
+        id: range
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.skip_bump }}" = "true" ]; then
+            TO="${{ inputs.tag }}"
+          else
+            TO="${{ inputs.to }}"
+            if [ -z "$TO" ]; then TO="HEAD"; fi
+          fi
+
+          FROM="${{ inputs.from }}"
+          if [ -z "$FROM" ]; then
+            FROM=$(git describe --tags --abbrev=0 --match 'v*' "${TO}^" 2>/dev/null || true)
+          fi
+          if [ -z "$FROM" ]; then
+            # No prior v* tag reachable from TO: fall back to the range's
+            # true start (the repo root commit) since git-cliff's range
+            # syntax needs both bounds - `..TO` alone yields zero commits.
+            FROM=$(git rev-list --max-parents=0 "$TO" | tail -1)
+          fi
+
+          echo "from=$FROM" >> "$GITHUB_OUTPUT"
+          echo "to=$TO" >> "$GITHUB_OUTPUT"
+          echo "Resolved range: ${FROM}..${TO}"
+
+      - name: Generate changelog and context
+        id: changelog
+        run: |
+          set -euo pipefail
+          RANGE="${{ steps.range.outputs.from }}..${{ steps.range.outputs.to }}"
+
+          npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" > raw-changelog.md
+          npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" --context > cliff-context.json
+
+          echo "raw_changelog_path=$(pwd)/raw-changelog.md" >> "$GITHUB_OUTPUT"
+          echo "context_path=$(pwd)/cliff-context.json" >> "$GITHUB_OUTPUT"
+
+      - name: Compute version bump
+        id: version
+        if: ${{ inputs.skip_bump != true }}
+        run: |
+          set -euo pipefail
+          RANGE="${{ steps.range.outputs.from }}..${{ steps.range.outputs.to }}"
+
+          BUMP_FLAG=""
+          if [ "${{ inputs.bump }}" != "auto" ] && [ -n "${{ inputs.bump }}" ]; then
+            BUMP_FLAG="--bump ${{ inputs.bump }}"
+          fi
+
+          BUMPED_TAG=$(npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" $BUMP_FLAG --bumped-version)
+          echo "tag=$BUMPED_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${BUMPED_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine release tag
+        id: release-tag
+        run: |
+          if [ "${{ inputs.skip_bump }}" = "true" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install release-notes script dependencies
+        working-directory: .github/scripts
+        run: npm ci
+
+      - name: Generate AI release summary
+        id: summary
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLIFF_CONTEXT_PATH: ${{ steps.changelog.outputs.context_path }}
+          RAW_CHANGELOG_PATH: ${{ steps.changelog.outputs.raw_changelog_path }}
+          RELEASE_NOTES_OUTPUT_PATH: ${{ github.workspace }}/release-notes.md
+        run: |
+          node .github/scripts/release-notes.mjs
+          echo "notes_path=$RELEASE_NOTES_OUTPUT_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve bot commit identity
+        id: bot-identity
+        if: ${{ inputs.skip_bump != true }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          SLUG="${{ steps.app-token.outputs.app-slug }}"
+          BOT_ID=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${BOT_ID}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version, commit, and tag
+        if: ${{ inputs.skip_bump != true }}
+        run: |
+          set -euo pipefail
+          git config user.name "${{ steps.bot-identity.outputs.name }}"
+          git config user.email "${{ steps.bot-identity.outputs.email }}"
+
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --workspaces=false
+
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${{ steps.release-tag.outputs.tag }}"
+          git tag -a "${{ steps.release-tag.outputs.tag }}" -m "${{ steps.release-tag.outputs.tag }}"
+
+          git push origin main
+          git push origin "${{ steps.release-tag.outputs.tag }}"
+
+      - name: Publish draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release-tag.outputs.tag }}
+          draft: true
+          body_path: ${{ steps.summary.outputs.notes_path }}
