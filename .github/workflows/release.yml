@@ -66,6 +66,7 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-node@v5
@@ -234,6 +235,8 @@ jobs:
 
       - name: Bump version, commit, and tag
         if: ${{ inputs.skip_bump != true }}
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           git config user.name "${{ steps.bot-identity.outputs.name }}"
@@ -245,8 +248,15 @@ jobs:
           git commit -m "chore(release): ${{ steps.release-tag.outputs.tag }}"
           git tag -a "${{ steps.release-tag.outputs.tag }}" -m "${{ steps.release-tag.outputs.tag }}"
 
-          git push origin main
-          git push origin "${{ steps.release-tag.outputs.tag }}"
+          # persist-credentials was disabled at checkout so the AI summary
+          # step (repo-wide Read/Write, no path scoping) never had the App
+          # token available on disk. Authenticate the push here instead,
+          # request-scoped via a git config override rather than writing it
+          # to .git/config (which `git remote set-url` or re-enabling
+          # persist-credentials would do).
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "${{ steps.release-tag.outputs.tag }}"
 
       - name: Publish draft release
         uses: softprops/action-gh-release@v2
