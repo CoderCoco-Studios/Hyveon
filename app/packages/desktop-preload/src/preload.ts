@@ -118,6 +118,7 @@ import type {
   IacRunsLockClearAck,
   IacRunsLockClearPayload,
   IacRunsLockMintAck,
+  IacRunsLockMintPayload,
   RunHistoryPageResult,
   StackInitPhaseEvent,
   StoredGameWizardDraft,
@@ -790,7 +791,8 @@ const api: HyveonApi = {
       logUrl: (logKey: string, expiresInSeconds?: number) =>
         invoke<{ url: string }>('iac.runs.logUrl', { logKey, expiresInSeconds }).then((r) => r.url),
       lock: {
-        mintToken: () => invoke<IacRunsLockMintAck>('iac.runs.lock.clear.mintToken'),
+        mintToken: (payload: IacRunsLockMintPayload) =>
+          invoke<IacRunsLockMintAck>('iac.runs.lock.clear.mintToken', payload),
         clear: (payload: IacRunsLockClearPayload) => invoke<IacRunsLockClearAck>('iac.runs.lock.clear', payload),
       },
     },

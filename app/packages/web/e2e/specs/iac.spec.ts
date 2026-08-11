@@ -375,12 +375,12 @@ test.describe('iac page', () => {
     // First submission is refused — BUSY banner plus the original error
     // banner both appear, and the runLock ack unlocks the clear action.
     await iac.applyButton().click();
-    await expect(win.getByText(/Run lock already held/i)).toBeVisible();
+    await expect(iac.runLockAlreadyHeldText()).toBeVisible();
     await expect(iac.clearRunLockButton()).toBeVisible();
 
     await iac.clearRunLockButton().click();
-    await win.getByRole('button', { name: 'Clear lock', exact: true }).click();
-    await expect(win.getByText(/Run lock cleared/i)).toBeVisible();
+    await iac.confirmClearLockButton().click();
+    await expect(iac.runLockClearedToast()).toBeVisible();
 
     // The `confirmationToken` sent on `iac.runs.lock.clear` must be the
     // non-empty token actually minted via `iac.runs.lock.clear.mintToken` —
@@ -399,7 +399,7 @@ test.describe('iac page', () => {
     // Returns to the ready-to-submit state: both the original error banner
     // and the BUSY banner's clear action are gone, and clearing never
     // auto-resubmits on its own.
-    await expect(win.getByText(/Run lock already held/i)).not.toBeVisible();
+    await expect(iac.runLockAlreadyHeldText()).not.toBeVisible();
     await expect(iac.clearRunLockButton()).not.toBeVisible();
 
     // Operator resubmits manually — this time it succeeds.

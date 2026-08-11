@@ -1805,16 +1805,16 @@ describe('preload dispatcher', () => {
         bridge = await loadPreloadBridge('0');
       });
 
-      it('should invoke iac.runs.lock.clear.mintToken with no payload', async () => {
+      it('should invoke iac.runs.lock.clear.mintToken with the expectedRunId payload', async () => {
         const ack = { token: 'run-lock-token-abc' };
         ipcInvoke.mockResolvedValue(ack);
         const iacRuns = (bridge['iac'] as {
-          runs: { lock: { mintToken: () => Promise<unknown> } };
+          runs: { lock: { mintToken: (payload: { expectedRunId: string }) => Promise<unknown> } };
         }).runs;
 
-        const result = await iacRuns.lock.mintToken();
+        const result = await iacRuns.lock.mintToken({ expectedRunId: 'run-1' });
 
-        expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.lock.clear.mintToken');
+        expect(ipcInvoke).toHaveBeenCalledWith('iac.runs.lock.clear.mintToken', { expectedRunId: 'run-1' });
         expect(result).toEqual(ack);
       });
     });
@@ -1833,11 +1833,11 @@ describe('preload dispatcher', () => {
         testApi.mock('iac.runs.lock.clear.mintToken', mockHandler);
 
         const iacRuns = (bridge['iac'] as {
-          runs: { lock: { mintToken: () => Promise<unknown> } };
+          runs: { lock: { mintToken: (payload: { expectedRunId: string }) => Promise<unknown> } };
         }).runs;
-        const result = await iacRuns.lock.mintToken();
+        const result = await iacRuns.lock.mintToken({ expectedRunId: 'run-1' });
 
-        expect(mockHandler).toHaveBeenCalledWith();
+        expect(mockHandler).toHaveBeenCalledWith({ expectedRunId: 'run-1' });
         expect(ipcInvoke).not.toHaveBeenCalled();
         expect(result).toEqual(ack);
       });

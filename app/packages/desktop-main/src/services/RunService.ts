@@ -27,6 +27,7 @@ import type { RunKind, RunLock, RunRecordStore } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { RUN_RECORD_STORE } from '../modules/cloud-provider.tokens.js';
+import { LockClearConfirmationGate } from './LockClearConfirmationGate.js';
 
 /**
  * How long an acquired {@link RunLock} remains valid, in milliseconds, before
@@ -64,6 +65,30 @@ export class RunLockClearNotConfirmedError extends Error {
 }
 
 /**
+ * Thrown by `RunService.mintLockClearConfirmationToken` when the caller's
+ * `expectedRunId` doesn't match the `runId` of the lock currently held (in-
+ * memory or durable) — i.e. the lock shown to the operator (in the
+ * renderer's confirm-clear dialog) has since been released and a
+ * DIFFERENT, legitimate lock has been acquired in its place.
+ *
+ * Refusing to even MINT a token in this case (rather than minting one bound
+ * to whatever is currently held) is what closes the TOCTOU gap: without
+ * this check, an operator who approved clearing lock A — read in the
+ * dialog, then a race window before they click confirm — could end up
+ * minting and clearing lock B instead, a lock they never saw or reviewed.
+ */
+export class RunLockChangedError extends Error {
+  constructor() {
+    super(
+      'run lock clear-token mint refused: the run lock has changed since it was last shown to the operator — ' +
+        'the lock displayed in the confirmation dialog was released and a different lock is now held. Refresh ' +
+        "the page's lock information and re-confirm against the current lock before clearing it.",
+    );
+    this.name = 'RunLockChangedError';
+  }
+}
+
+/**
  * Owns the apply lock guarding Pulumi plan/apply/destroy submissions.
  * See the file-level doc comment above for the in-memory + DynamoDB
  * two-layer contract.
@@ -79,11 +104,16 @@ export class RunService {
   private currentLock: RunLock | null = null;
 
   /**
-   * The most recently minted, not-yet-consumed lock-clear confirmation
-   * token, or `null`. Bound to the `runId` that was current at mint time —
-   * see {@link mintLockClearConfirmationToken}.
+   * Mint/assert/consume gate for the lock-clear confirmation token,
+   * shared-shape with `PulumiService`'s own lock-clear gate (see
+   * {@link LockClearConfirmationGate}) — bound here to a bare `runId`
+   * string rather than a multi-field target, with plain string equality as
+   * the match check.
    */
-  private pendingLockClearConfirmation: { token: string; runId: string; expiresAt: number } | null = null;
+  private readonly lockClearGate = new LockClearConfirmationGate<string>(
+    RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS,
+    (mintedRunId, currentRunId) => mintedRunId === currentRunId,
+  );
 
   /**
    * `store` is typed against the cloud-agnostic `RunRecordStore` contract
@@ -216,52 +246,82 @@ export class RunService {
   }
 
   /**
+   * Resolves the lock currently held, preferring {@link getCurrentLock}
+   * (in-memory, no I/O) and falling back to `RunRecordStore.getRunLock()`
+   * (the durable DynamoDB read, skipped when `runs_table_name` isn't
+   * configured) when the in-memory field is empty — covers the case where
+   * this process lost the lock race to another process (its own
+   * provisional in-memory lock was already rolled back by {@link createRun})
+   * or was restarted since the lock was acquired elsewhere. Shared by
+   * {@link mintLockClearConfirmationToken} and
+   * {@link assertFreshLockClearConfirmation}, which both need "what's
+   * genuinely locked right now" resolved the identical way. A rejected
+   * durable read is caught, logged via `logger.warn` with `context` naming
+   * the caller, and treated as no lock found rather than letting the raw
+   * error escape.
+   *
+   * @param context - Caller name, folded into the warn log line on a
+   *   rejected durable read (e.g. `'RunService.mintLockClearConfirmationToken'`).
+   * @returns The currently held {@link RunLock}, or `undefined` if none is
+   *   held (in-memory or durably).
+   */
+  private async resolveCurrentLock(context: string): Promise<RunLock | undefined> {
+    const inMemory = this.getCurrentLock();
+    if (inMemory) return inMemory;
+    try {
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      if (tableName) {
+        return await this.store.getRunLock();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`${context}: failed to read DynamoDB apply lock`, { error: message });
+    }
+    return undefined;
+  }
+
+  /**
    * Mints a fresh, single-use confirmation token for a subsequent
    * {@link clearLock} call, bound to the `runId` of the lock currently held
    * — mirrors `PulumiService.mintLockClearConfirmationToken`'s mint/confirm
-   * pattern, extended with a durable fallback this lock's cross-process
-   * nature requires. Minting a new token immediately supersedes any
-   * previously minted, unconsumed one.
+   * pattern via the shared {@link LockClearConfirmationGate}, extended with
+   * a durable fallback this lock's cross-process nature requires (see
+   * {@link resolveCurrentLock}). Minting a new token immediately supersedes
+   * any previously minted, unconsumed one.
    *
-   * Prefers {@link getCurrentLock} (in-memory, no I/O). Falls back to
-   * `RunRecordStore.getRunLock()` (the durable DynamoDB read, skipped when
-   * `runs_table_name` isn't configured) when the in-memory field is empty —
-   * covering the case where this process lost the lock race to another
-   * process (its own provisional in-memory lock was already rolled back by
-   * {@link createRun}) or was restarted since the lock was acquired
-   * elsewhere. Either way the operator is reacting to a `RunLockHeldError`
-   * ack that already told them a lock is held; minting must be able to
-   * confirm and bind to it.
+   * `expectedRunId` must match the currently held lock's `runId` or minting
+   * itself is refused with {@link RunLockChangedError} — this is what binds
+   * the token to the SPECIFIC lock instance the operator reviewed (e.g. in
+   * the renderer's confirm-clear dialog), not just "a lock exists". Without
+   * this check, a lock that was released and replaced by a different,
+   * legitimate lock in the window between the operator seeing the dialog
+   * and clicking confirm would silently mint (and later clear) a token bound
+   * to the NEW lock instead of refusing outright — the caller is expected to
+   * pass the `runId` of the lock it displayed to the operator, not
+   * whatever's currently held.
    *
+   * @param expectedRunId - The `runId` of the lock the caller displayed to
+   *   the operator before this mint call — must match the lock currently
+   *   held (in-memory or durable).
    * @returns The minted token.
    * @throws A plain `Error` if no run lock is currently held — in-memory or
    *   durable — nothing to mint a clear-confirmation for.
+   * @throws {@link RunLockChangedError} if a run lock IS currently held, but
+   *   its `runId` doesn't match `expectedRunId`.
    */
-  async mintLockClearConfirmationToken(): Promise<string> {
-    let lock = this.getCurrentLock();
-    if (!lock) {
-      try {
-        const tableName = (await this.config.getStackOutputs())?.runsTableName;
-        if (tableName) {
-          lock = await this.store.getRunLock();
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn('RunService.mintLockClearConfirmationToken: failed to read DynamoDB apply lock', {
-          error: message,
-        });
-      }
-    }
+  async mintLockClearConfirmationToken(expectedRunId: string): Promise<string> {
+    const lock = await this.resolveCurrentLock('RunService.mintLockClearConfirmationToken');
     if (!lock) {
       throw new Error('Cannot mint a lock-clear confirmation token: no run lock is currently held.');
     }
-    const token = randomUUID();
-    this.pendingLockClearConfirmation = {
-      token,
-      runId: lock.runId,
-      expiresAt: Date.now() + RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS,
-    };
-    return token;
+    if (lock.runId !== expectedRunId) {
+      logger.warn('RunService.mintLockClearConfirmationToken: refused — the held lock has changed', {
+        expectedRunId,
+        currentRunId: lock.runId,
+      });
+      throw new RunLockChangedError();
+    }
+    return this.lockClearGate.mint(lock.runId);
   }
 
   /**
@@ -269,19 +329,15 @@ export class RunService {
    * most recently minted, not-yet-expired, not-yet-consumed confirmation
    * token AND the lock it was bound to (by `runId`) is still the one
    * currently held — i.e. no different run has acquired the lock since the
-   * token was minted. On success, consumes the token (clears
-   * {@link pendingLockClearConfirmation}) and returns the bound `runId`.
+   * token was minted. On success, consumes the token (via the shared
+   * {@link LockClearConfirmationGate}) and returns the bound `runId`.
    *
    * Unlike `PulumiService.assertFreshLockClearConfirmation` this is `async`:
    * the "still current" check must consult the same durable fallback
-   * {@link mintLockClearConfirmationToken} used to bind the token in the
-   * first place (see Task 2), or a token minted from a durable-only lock
-   * (this process has no matching in-memory field) would always fail here.
-   * The two awaits this adds (`getStackOutputs()`, `store.getRunLock()`) are
-   * both read-only and idempotent, so no double-release risk is introduced.
-   * Mirrors {@link mintLockClearConfirmationToken}'s handling of a rejected
-   * durable read: caught, logged via `logger.warn`, and treated as no lock
-   * found rather than letting the raw error escape.
+   * {@link resolveCurrentLock} used to bind the token in the first place, or
+   * a token minted from a durable-only lock (this process has no matching
+   * in-memory field) would always fail here. The `await` this adds is
+   * read-only and idempotent, so no double-release risk is introduced.
    *
    * @param token - The token to validate, as returned by
    *   {@link mintLockClearConfirmationToken}.
@@ -291,32 +347,12 @@ export class RunService {
    *   in-memory, then durably) no longer matches.
    */
   private async assertFreshLockClearConfirmation(token: string): Promise<string> {
-    const pending = this.pendingLockClearConfirmation;
-    let current = this.getCurrentLock();
-    if (!current) {
-      try {
-        const tableName = (await this.config.getStackOutputs())?.runsTableName;
-        if (tableName) {
-          current = await this.store.getRunLock();
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn('RunService.assertFreshLockClearConfirmation: failed to read DynamoDB apply lock', {
-          error: message,
-        });
-      }
-    }
-    if (
-      !pending ||
-      pending.token !== token ||
-      Date.now() > pending.expiresAt ||
-      !current ||
-      current.runId !== pending.runId
-    ) {
+    const current = await this.resolveCurrentLock('RunService.assertFreshLockClearConfirmation');
+    const result = this.lockClearGate.assertFresh(token, current?.runId ?? null);
+    if (!result.ok) {
       throw new RunLockClearNotConfirmedError();
     }
-    this.pendingLockClearConfirmation = null;
-    return pending.runId;
+    return result.binding;
   }
 
   /**

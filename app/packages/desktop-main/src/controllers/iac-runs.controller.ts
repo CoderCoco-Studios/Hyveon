@@ -8,7 +8,7 @@ import {
   type PulumiRunChunk,
   type PulumiRunRecord,
 } from '../services/PulumiService.js';
-import { RunLockClearNotConfirmedError, RunService } from '../services/RunService.js';
+import { RunLockChangedError, RunLockClearNotConfirmedError, RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
 
@@ -29,6 +29,19 @@ export interface IacRunsLogUrlPayload {
 /** Result {@link IacRunsController.mintLockClearToken} resolves with. */
 export interface IacRunsLockMintAck {
   token: string;
+}
+
+/**
+ * Payload accepted by {@link IacRunsController.mintLockClearToken}.
+ * `expectedRunId` must be the `runId` of the {@link RunLock} the renderer
+ * displayed to the operator (`ack.runLock.runId` on the plan/apply/destroy
+ * ack that reported the busy conflict) — binds the minted token to that
+ * SPECIFIC lock instance rather than "whatever lock happens to be held"
+ * (see `RunLockChangedError`'s doc comment in `RunService.ts` for the
+ * TOCTOU this closes).
+ */
+export interface IacRunsLockMintPayload {
+  expectedRunId: string;
 }
 
 /** Payload accepted by {@link IacRunsController.clearLock}. */
@@ -357,26 +370,39 @@ export class IacRunsController implements OnModuleInit {
    * analogue of `IacController.mintLockClearToken`, for the durable apply
    * lock (`RunService`) rather than the Pulumi backend lock.
    *
-   * `RunService.mintLockClearConfirmationToken()` throws a plain `Error`
-   * when no lock is currently held (in-memory or durable) — an expected
-   * race (the lock self-healed or was cleared between the busy ack and this
-   * call), not a server fault. Caught here and reported as a clean
-   * `BadRequestException` so the renderer never sees an unmodeled IPC
-   * rejection for it.
+   * `payload.expectedRunId` must be the `runId` of the lock the renderer
+   * displayed to the operator — `RunService.mintLockClearConfirmationToken()`
+   * refuses to mint (throwing {@link RunLockChangedError}) when a DIFFERENT
+   * lock is now held, closing the TOCTOU gap where the displayed lock was
+   * released and replaced by a new, legitimate one before the operator
+   * confirmed. It also throws a plain `Error` when no lock is currently held
+   * at all (in-memory or durable). Both are expected races, not server
+   * faults — caught here and reported as a clean `BadRequestException` so
+   * the renderer never sees an unmodeled IPC rejection for either.
    *
-   * @throws `BadRequestException` when no run lock is currently held.
+   * @throws `BadRequestException` when `payload.expectedRunId` isn't a
+   *   non-empty string, when no run lock is currently held, or when the
+   *   currently held lock's `runId` doesn't match `payload.expectedRunId`.
    *
    * Reachable via the Electron IPC transport (`iac.runs.lock.clear.mintToken`).
    */
   @MessagePattern('iac.runs.lock.clear.mintToken')
-  async mintLockClearToken(): Promise<IacRunsLockMintAck> {
+  async mintLockClearToken(@Payload() payload: IacRunsLockMintPayload): Promise<IacRunsLockMintAck> {
     logger.debug('IacRunsController: iac.runs.lock.clear.mintToken invoked');
+    const expectedRunId = payload?.expectedRunId;
+    if (typeof expectedRunId !== 'string' || expectedRunId.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: 'iac.runs.lock.clear.mintToken requires a non-empty expectedRunId string',
+      });
+    }
     try {
-      const token = await this.runService.mintLockClearConfirmationToken();
+      const token = await this.runService.mintLockClearConfirmationToken(expectedRunId);
       return { token };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn('iac.runs.lock.clear.mintToken rejected: no run lock currently held', { error: message });
+      const reason = err instanceof RunLockChangedError ? 'the held lock has changed' : 'no run lock currently held';
+      logger.warn(`iac.runs.lock.clear.mintToken rejected: ${reason}`, { error: message });
       throw new BadRequestException({ success: false, error: message });
     }
   }

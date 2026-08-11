@@ -1149,6 +1149,23 @@ export interface IacRunsLockMintAck {
 }
 
 /**
+ * Payload accepted by the `iac.runs.lock.clear.mintToken` IPC channel.
+ * `expectedRunId` must be the `runId` of the {@link RunLock} the caller
+ * displayed to the operator (`IacPlanAck.runLock.runId` / the equivalent
+ * apply/destroy ack field) — the server refuses to mint a token if the
+ * currently held lock's `runId` no longer matches, closing the race where
+ * that displayed lock was released and replaced by a different, legitimate
+ * lock before the operator confirmed the clear.
+ *
+ * Mirrors `IacRunsLockMintPayload` in
+ * `@hyveon/desktop-main/src/controllers/iac-runs.controller.ts` — that file
+ * is the source of truth; keep this copy in sync with it.
+ */
+export interface IacRunsLockMintPayload {
+  expectedRunId: string;
+}
+
+/**
  * Payload accepted by the `iac.runs.lock.clear` IPC channel.
  * `confirmationToken` must be the most recently minted, unexpired,
  * not-yet-consumed value returned by `iac.runs.lock.clear.mintToken` —
@@ -1793,7 +1810,13 @@ export interface HyveonIacRunsApi {
   logUrl: (logKey: string, expiresInSeconds?: number) => Promise<string>;
   /** Durable apply-lock recovery: mint/clear a confirmation token to release a stuck RunLock. Mirrors `HyveonIacLockApi`. */
   lock: {
-    mintToken: () => Promise<IacRunsLockMintAck>;
+    /**
+     * Mints a lock-clear confirmation token bound to `payload.expectedRunId`
+     * — pass the `runId` of the {@link RunLock} displayed to the operator
+     * (see {@link IacRunsLockMintPayload}'s doc comment). Rejects if the
+     * currently held lock no longer matches.
+     */
+    mintToken: (payload: IacRunsLockMintPayload) => Promise<IacRunsLockMintAck>;
     clear: (payload: IacRunsLockClearPayload) => Promise<IacRunsLockClearAck>;
   };
 }

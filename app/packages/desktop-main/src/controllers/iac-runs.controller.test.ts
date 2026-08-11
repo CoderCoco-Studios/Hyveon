@@ -4,7 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { RunLock, RunPageResult, RunRecord } from '@hyveon/shared';
 import { IacRunsController } from './iac-runs.controller.js';
 import type { PulumiService, PulumiRunChunk, PulumiRunRecord } from '../services/PulumiService.js';
-import { RunLockClearNotConfirmedError, type RunService } from '../services/RunService.js';
+import { RunLockChangedError, RunLockClearNotConfirmedError, type RunService } from '../services/RunService.js';
 import type { RunRecordService, ListRunsOpts } from '../services/RunRecordService.js';
 
 // ---------------------------------------------------------------------------
@@ -485,14 +485,15 @@ describe('IacRunsController.list', () => {
 });
 
 describe('IacRunsController.mintLockClearToken', () => {
-  it('should return a token when a run lock is currently held', async () => {
+  it('should return a token when a run lock is currently held and expectedRunId matches it', async () => {
     const runService = makeRunService(buildLock());
     vi.mocked(runService.mintLockClearConfirmationToken).mockResolvedValue('tok-123');
     const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
 
-    const result = await controller.mintLockClearToken();
+    const result = await controller.mintLockClearToken({ expectedRunId: 'run-1' });
 
     expect(result).toEqual({ token: 'tok-123' });
+    expect(runService.mintLockClearConfirmationToken).toHaveBeenCalledWith('run-1');
   });
 
   it('should throw a clean BadRequestException, not the raw service error, when no lock is held', async () => {
@@ -502,7 +503,30 @@ describe('IacRunsController.mintLockClearToken', () => {
     );
     const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
 
-    await expect(controller.mintLockClearToken()).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.mintLockClearToken({ expectedRunId: 'run-1' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('should throw a clean BadRequestException, not the raw service error, when the held lock has changed (RunLockChangedError)', async () => {
+    // TOCTOU close: the operator saw "run-1" in the confirm dialog, but a
+    // different, legitimate lock ("run-2") is now held — minting must
+    // refuse rather than silently binding the token to run-2.
+    const runService = makeRunService(buildLock());
+    vi.mocked(runService.mintLockClearConfirmationToken).mockRejectedValue(new RunLockChangedError());
+    const controller = new IacRunsController(makePulumi(), runService, makeRunRecordService());
+
+    await expect(controller.mintLockClearToken({ expectedRunId: 'run-1' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('should throw BadRequestException when expectedRunId is missing or empty', async () => {
+    const controller = new IacRunsController(makePulumi(), makeRunService(buildLock()), makeRunRecordService());
+
+    await expect(
+      controller.mintLockClearToken({ expectedRunId: '' } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

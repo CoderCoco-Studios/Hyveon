@@ -187,6 +187,69 @@ const CONFLICT_LABELS: Record<Conflict, string> = {
 };
 
 /**
+ * Shared mint-then-confirm lock-clear flow, extracted from `BusyBanner` and
+ * `StaleLockBanner` — their `handleConfirmClear` bodies were otherwise
+ * near-identical (mint a fresh confirmation token, clear the lock, toast a
+ * success message, then notify the caller), differing only in which
+ * `hyveon.iac.*` channels they called and what they toasted/reported.
+ *
+ * Every failure path (missing IPC bridge, `mintToken`/`clear` rejecting, or
+ * `clear` resolving `{ cleared: false }`) surfaces via {@link clearError}
+ * and leaves {@link confirmOpen} untouched — the caller's banner/dialog stay
+ * on screen for another attempt, matching both callers' original behavior.
+ *
+ * @param options - `mintToken` mints a fresh confirmation token, bound to
+ *   whichever specific lock instance the caller is confirming against (see
+ *   each call site's own binding); `clear` clears the lock using the token
+ *   `mintToken` returned; `successMessage` is toasted via `sonner`'s
+ *   `toast.success` once `clear` resolves `{ cleared: true }`; `onCleared`
+ *   is called after that success toast, so the caller can reset whatever
+ *   banner/error state returns the page to its ready-to-submit state.
+ * @returns `confirmOpen`/`setConfirmOpen` to drive the `ConfirmDialog`,
+ *   `clearing`/`clearError` to render loading/error state, and
+ *   `handleConfirmClear` to wire to the dialog's `onConfirm`.
+ */
+function useLockClearConfirmation(options: {
+  mintToken: () => Promise<{ token: string }>;
+  clear: (payload: { confirmationToken: string }) => Promise<{ cleared: boolean; error?: string }>;
+  successMessage: string;
+  onCleared: () => void;
+}) {
+  const { mintToken, clear, successMessage, onCleared } = options;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  const handleConfirmClear = useCallback(() => {
+    if (!window.hyveon) {
+      setClearError('IPC bridge (window.hyveon) is not available in this context.');
+      return;
+    }
+    setClearing(true);
+    setClearError(null);
+    void (async () => {
+      try {
+        const { token } = await mintToken();
+        const ack = await clear({ confirmationToken: token });
+        if (ack.cleared) {
+          setConfirmOpen(false);
+          toast.success(successMessage);
+          onCleared();
+        } else {
+          setClearError(ack.error ?? 'Could not clear the lock.');
+        }
+      } catch (err) {
+        setClearError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setClearing(false);
+      }
+    })();
+  }, [mintToken, clear, successMessage, onCleared]);
+
+  return { confirmOpen, setConfirmOpen, clearing, clearError, handleConfirmClear };
+}
+
+/**
  * Lock banner shown when a plan/apply/destroy submission was rejected
  * because the shared Pulumi workspace is busy (`PulumiOperationInFlightError`).
  *
@@ -226,35 +289,22 @@ function BusyBanner({
 }) {
   const label = CONFLICT_LABELS[conflict];
   const article = /^[aeiou]/i.test(label) ? 'an' : 'a';
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState<string | null>(null);
 
-  function handleConfirmClear() {
-    if (!window.hyveon) {
-      setClearError('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
-    setClearing(true);
-    setClearError(null);
-    void (async () => {
-      try {
-        const { token } = await window.hyveon!.iac.runs.lock.mintToken();
-        const ack = await window.hyveon!.iac.runs.lock.clear({ confirmationToken: token });
-        if (ack.cleared) {
-          setConfirmOpen(false);
-          toast.success('Run lock cleared — resubmit to retry.');
-          onCleared();
-        } else {
-          setClearError(ack.error ?? 'Could not clear the run lock.');
-        }
-      } catch (err) {
-        setClearError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setClearing(false);
-      }
-    })();
-  }
+  const { confirmOpen, setConfirmOpen, clearing, clearError, handleConfirmClear } = useLockClearConfirmation({
+    // Bound to THIS specific runLock instance (by runId), not just "a lock
+    // exists" — the server refuses to mint if the currently held lock's
+    // runId no longer matches, closing the TOCTOU gap where the lock shown
+    // here was released and replaced by a different, legitimate lock before
+    // the operator confirmed the clear (see `RunLockChangedError`'s doc
+    // comment in `RunService.ts`).
+    mintToken: () => {
+      if (!runLock) return Promise.reject(new Error('No run lock to clear.'));
+      return window.hyveon!.iac.runs.lock.mintToken({ expectedRunId: runLock.runId });
+    },
+    clear: (payload) => window.hyveon!.iac.runs.lock.clear(payload),
+    successMessage: 'Run lock cleared — resubmit to retry.',
+    onCleared,
+  });
 
   return (
     <div
@@ -376,35 +426,12 @@ interface StaleLockBannerProps {
 }
 
 function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState<string | null>(null);
-
-  function handleConfirmClear() {
-    if (!window.hyveon) {
-      setClearError('IPC bridge (window.hyveon) is not available in this context.');
-      return;
-    }
-    setClearing(true);
-    setClearError(null);
-    void (async () => {
-      try {
-        const { token } = await window.hyveon!.iac.lock.mintToken();
-        const ack = await window.hyveon!.iac.lock.clear({ confirmationToken: token });
-        if (ack.cleared) {
-          setConfirmOpen(false);
-          toast.success('Pulumi backend lock cleared — resubmit to retry.');
-          onCleared();
-        } else {
-          setClearError(ack.error ?? 'Could not clear the backend lock.');
-        }
-      } catch (err) {
-        setClearError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setClearing(false);
-      }
-    })();
-  }
+  const { confirmOpen, setConfirmOpen, clearing, clearError, handleConfirmClear } = useLockClearConfirmation({
+    mintToken: () => window.hyveon!.iac.lock.mintToken(),
+    clear: (payload) => window.hyveon!.iac.lock.clear(payload),
+    successMessage: 'Pulumi backend lock cleared — resubmit to retry.',
+    onCleared,
+  });
 
   return (
     <div
@@ -609,7 +636,6 @@ export function IacPage() {
   const [planRunId, setPlanRunId] = useState<string | null>(null);
   const [planConflict, setPlanConflict] = useState<Conflict | null>(null);
   const [planStaleLock, setPlanStaleLock] = useState<IacStaleLockInfo | null>(null);
-  const [planRunLock, setPlanRunLock] = useState<RunLock | null>(null);
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
@@ -712,7 +738,6 @@ export function IacPage() {
     setPlanning(true);
     setPlanConflict(null);
     setPlanStaleLock(null);
-    setPlanRunLock(null);
     setPlanSubmitError(null);
     void (async () => {
       try {
@@ -729,7 +754,9 @@ export function IacPage() {
         } else {
           if (ack.conflict) setPlanConflict(ack.conflict);
           if (ack.staleLock) setPlanStaleLock(ack.staleLock);
-          if (ack.runLock) setPlanRunLock(ack.runLock);
+          // ack.runLock is never set for `plan` — see IacPlanAck.runLock's
+          // doc comment (plan never acquires the durable RunLock, only
+          // apply/destroy do) — so there is nothing to store here.
           setPlanSubmitError(ack.error ?? 'Plan could not be started.');
         }
       } catch (err) {
@@ -910,11 +937,14 @@ export function IacPage() {
               {planConflict && (
                 <BusyBanner
                   conflict={planConflict}
-                  runLock={planRunLock ?? undefined}
+                  // plan never acquires the durable RunLock (see the
+                  // "ack.runLock is never set for `plan`" comment in
+                  // submitPlan above), so there is never a runLock to pass
+                  // here — this instance's "Clear lock and retry" action
+                  // never renders.
                   nowMs={now}
                   onCleared={() => {
                     setPlanConflict(null);
-                    setPlanRunLock(null);
                     // See the identical comment on the stale-lock banner's onCleared above.
                     setPlanSubmitError(null);
                   }}
