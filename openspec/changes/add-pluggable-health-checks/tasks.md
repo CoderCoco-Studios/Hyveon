@@ -1,10 +1,10 @@
 ## 1. Shared configuration and validation
 
-- [ ] 1.1 Add `GameServerHealthCheck` and its nested `activeWhen` / `auth` interfaces to `app/packages/shared/src/gameServerConfig.ts`, with TSDoc stating that omitting `healthCheck` keeps the network-traffic heuristic; add `healthCheck?: GameServerHealthCheck` to `GameServer`
-- [ ] 1.2 Add `gameServerHealthCheckSchema` to `app/packages/shared/src/gameServerValidator.ts` covering structure only — `kind` literal, `scheme` / `method` / `operator` enums, `path` rooted at `/`, `timeoutMs` bounds, ARN pattern on `auth.secretArn` — and wire it as `healthCheck: gameServerHealthCheckSchema.optional()` in `gameServerSchema`
-- [ ] 1.3 Add `checkHealthCheckRules` to `validateGameServer`, gated on `healthCheck` presence, returning `GameServerValidationIssue[]` for: declared port absent from the game's `ports`, and a comparison operator declared without a `value`
-- [ ] 1.4 Write validator specs covering port-not-in-`ports`, missing `value` for each comparison operator, `exists` correctly requiring no value, out-of-range `timeoutMs`, unrooted `path`, and malformed `secretArn`
-- [ ] 1.5 Export a `gamesWithHealthChecks(gameServers)` helper alongside the existing `gamesWithFileSeeds`, so the infra program derives the participating set exactly once
+- [x] 1.1 Add `GameServerHealthCheck` and its nested `activeWhen` / `auth` interfaces to `app/packages/shared/src/gameServerConfig.ts`, with TSDoc stating that omitting `healthCheck` keeps the network-traffic heuristic; add `healthCheck?: GameServerHealthCheck` to `GameServer`
+- [x] 1.2 Add `gameServerHealthCheckSchema` to `app/packages/shared/src/gameServerValidator.ts` covering structure only — `kind` literal, `scheme` / `method` / `operator` enums, `path` rooted at `/`, `timeoutMs` bounds, ARN pattern on `auth.secretArn` — and wire it as `healthCheck: gameServerHealthCheckSchema.optional()` in `gameServerSchema`
+- [x] 1.3 Add `checkHealthCheckRules` to `validateGameServer`, gated on `healthCheck` presence, returning `GameServerValidationIssue[]` for: declared port absent from the game's `ports`, and a comparison operator declared without a `value`
+- [x] 1.4 Write validator specs covering port-not-in-`ports`, missing `value` for each comparison operator, `exists` correctly requiring no value, out-of-range `timeoutMs`, unrooted `path`, and malformed `secretArn`
+- [x] 1.5 Export a `gamesWithHealthChecks(gameServers)` helper alongside the existing `gamesWithFileSeeds`, so the infra program derives the participating set exactly once
 
 ## 2. Check engine
 
