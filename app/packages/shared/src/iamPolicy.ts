@@ -34,6 +34,7 @@ export const HYVEON_DEPLOY_ALL_ACTIONS: readonly string[] = [
   's3:PutEncryptionConfiguration',
   's3:PutBucketPublicAccessBlock',
   'iam:CreateServiceLinkedRole',
+  'iam:GetRole',
 ];
 
 /**
@@ -60,7 +61,7 @@ interface HyveonDeployAllStatement {
 }
 
 /**
- * The four statements of the `HyveonDeployAll` managed policy, structured
+ * The statements of the `HyveonDeployAll` managed policy, structured
  * per-statement (Sid, Effect, Action, Resource) rather than flattened. The
  * canonical human-readable reference is the JSON block in
  * `docs/docs/setup.md`; `iamPolicy.test.ts` asserts this constant stays in
@@ -68,7 +69,7 @@ interface HyveonDeployAllStatement {
  * {@link HYVEON_DEPLOY_ALL_ACTIONS} — as a flattened, deduplicated action set
  * (drift guard between the two representations, since
  * `HYVEON_DEPLOY_ALL_ACTIONS` cannot be reverse-engineered back into these
- * four statements: `HyveonStateBucket`'s actions are a subset of actions
+ * statements: `HyveonStateBucket`'s actions are a subset of actions
  * that already appear, with a different `Resource`, under
  * `HyveonConfigurationBucket`, and dedup erases which statement they came
  * from). Used by {@link generateHyveonDeployAllPolicy} to build the
@@ -149,6 +150,17 @@ export const HYVEON_DEPLOY_ALL_STATEMENTS: readonly HyveonDeployAllStatement[] =
       StringEquals: { 'iam:AWSServiceName': 'ecs.amazonaws.com' },
     },
   },
+  {
+    // `iam:GetRole` on the SLR ARN is a separate statement (not merged into
+    // `HyveonServiceLinkedRoles` above) because `GetRoleCommand` requests do
+    // not carry the `iam:AWSServiceName` context key that
+    // `CreateServiceLinkedRoleCommand` requests do — reusing that statement's
+    // `Condition` here would deny every `GetRole` call.
+    Sid: 'HyveonServiceLinkedRoleRead',
+    Effect: 'Allow',
+    Action: 'iam:GetRole',
+    Resource: 'arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*',
+  },
 ];
 
 /**
@@ -166,7 +178,7 @@ interface RenderedPolicyStatement {
 
 /**
  * Builds the full `HyveonDeployAll` managed-policy document — the same
- * four-statement policy as the JSON block in `docs/docs/setup.md` — from
+ * policy as the JSON block in `docs/docs/setup.md` — from
  * {@link HYVEON_DEPLOY_ALL_STATEMENTS}, substituting `projectName` into the
  * two bucket-scoped statements' `Resource` ARNs
  * (`arn:aws:s3:::<projectName>-config(/*)` and
@@ -206,7 +218,7 @@ interface FnSub {
 
 /**
  * Builds the `HyveonSelfRotate` managed-policy document: a narrow policy,
- * separate from {@link generateHyveonDeployAllPolicy}'s four statements
+ * separate from {@link generateHyveonDeployAllPolicy}'s statements
  * (it is not part of {@link HYVEON_DEPLOY_ALL_ACTIONS} or
  * {@link HYVEON_DEPLOY_ALL_STATEMENTS}, since it has nothing to do with the
  * deploy policy's source of truth), that lets the Hyveon deploy user rotate

@@ -147,6 +147,12 @@ the IAM user by hand instead:
       "Condition": {
         "StringEquals": { "iam:AWSServiceName": "ecs.amazonaws.com" }
       }
+    },
+    {
+      "Sid": "HyveonServiceLinkedRoleRead",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*"
     }
   ]
 }
