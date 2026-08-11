@@ -5,15 +5,25 @@
 
 [changelog]
 header = ""
+# Groups are rendered in a fixed priority order (feat, fix, refactor, docs,
+# test, chore, perf, build, ci, style, then anything else) instead of Tera's
+# `group_by` insertion order, which would otherwise follow whichever commit
+# type happened to appear first chronologically in the range - matching the
+# canonical commit-type order in CLAUDE.md's Git & PR workflow section.
 body = """
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
-{% for commit in commits %}
+{% set group_order = ["Features", "Bug Fixes", "Refactoring", "Documentation", "Tests", "Chores", "Performance", "Build System", "Continuous Integration", "Style", "Other"] %}
+{% for group in group_order %}
+{% set group_commits = commits | filter(attribute="group", value=group) %}
+{% if group_commits %}
+### {{ group }}
+{% for commit in group_commits %}
 - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
 {{ commit.message | upper_first }} \
 ({{ commit.id | truncate(length=7, end="") }})\
+{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}\
 {% if commit.breaking %} [**breaking**]{% endif %}
 {% endfor %}
+{% endif %}
 {% endfor %}
 """
 trim = true

@@ -42,10 +42,14 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      pull-requests: read
     steps:
       - name: Validate inputs
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          if [ "${{ inputs.skip_bump }}" = "true" ] && [ -z "${{ inputs.tag }}" ]; then
+          if [ "$SKIP_BUMP" = "true" ] && [ -z "$TAG_INPUT" ]; then
             echo "::error::skip_bump is true but no tag was supplied. Replay mode requires an existing tag to regenerate." >&2
             exit 1
           fi
@@ -70,36 +74,62 @@ jobs:
 
       - name: Resolve changelog range
         id: range
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
+          TO_INPUT: ${{ inputs.to }}
+          FROM_INPUT: ${{ inputs.from }}
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs.skip_bump }}" = "true" ]; then
-            TO="${{ inputs.tag }}"
+          if [ "$SKIP_BUMP" = "true" ]; then
+            TO="$TAG_INPUT"
           else
-            TO="${{ inputs.to }}"
+            TO="$TO_INPUT"
             if [ -z "$TO" ]; then TO="HEAD"; fi
           fi
 
-          FROM="${{ inputs.from }}"
+          # Resolve to a concrete commit SHA up front: git-cliff's RANGE
+          # parser rejects a bare symbolic ref like "HEAD" (OID parse
+          # error), and the bump path below needs a real SHA to compare
+          # against main's checked-out tip.
+          TO=$(git rev-parse --verify "${TO}^{commit}")
+
+          if [ "$SKIP_BUMP" != "true" ]; then
+            MAIN_HEAD=$(git rev-parse --verify main)
+            if [ "$TO" != "$MAIN_HEAD" ]; then
+              echo "::error::Resolved 'to' ($TO) is not main's current tip ($MAIN_HEAD). The version-bump commit and tag are always created on top of main's actual tip, so an explicit 'to' that isn't main HEAD would let the pushed tag describe a different commit than the changelog it was tagged with. Use skip_bump with an explicit 'tag' to regenerate notes for a past release instead." >&2
+              exit 1
+            fi
+          fi
+
+          FROM="$FROM_INPUT"
           if [ -z "$FROM" ]; then
             FROM=$(git describe --tags --abbrev=0 --match 'v*' "${TO}^" 2>/dev/null || true)
           fi
-          if [ -z "$FROM" ]; then
-            # No prior v* tag reachable from TO: fall back to the range's
-            # true start (the repo root commit) since git-cliff's range
-            # syntax needs both bounds - `..TO` alone yields zero commits.
-            FROM=$(git rev-list --max-parents=0 "$TO" | tail -1)
+
+          if [ -n "$FROM" ]; then
+            RANGE="${FROM}..${TO}"
+          else
+            # No prior v* tag reachable from TO: process full history up to
+            # TO. git-cliff's `A..B` range syntax excludes A, so using the
+            # repo root commit as FROM would silently drop it from the
+            # changelog - passing TO alone processes everything reachable
+            # from it, root commit included (verified locally).
+            RANGE="$TO"
           fi
 
-          echo "from=$FROM" >> "$GITHUB_OUTPUT"
-          echo "to=$TO" >> "$GITHUB_OUTPUT"
-          echo "Resolved range: ${FROM}..${TO}"
+          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+          echo "Resolved range: $RANGE"
 
       - name: Generate changelog and context
         id: changelog
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          RANGE="${{ steps.range.outputs.from }}..${{ steps.range.outputs.to }}"
 
           npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" > raw-changelog.md
           npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" --context > cliff-context.json
@@ -110,13 +140,15 @@ jobs:
       - name: Compute version bump
         id: version
         if: ${{ inputs.skip_bump != true }}
+        env:
+          BUMP_INPUT: ${{ inputs.bump }}
+          RANGE: ${{ steps.range.outputs.range }}
         run: |
           set -euo pipefail
-          RANGE="${{ steps.range.outputs.from }}..${{ steps.range.outputs.to }}"
 
           BUMP_FLAG=""
-          if [ "${{ inputs.bump }}" != "auto" ] && [ -n "${{ inputs.bump }}" ]; then
-            BUMP_FLAG="--bump ${{ inputs.bump }}"
+          if [ "$BUMP_INPUT" != "auto" ] && [ -n "$BUMP_INPUT" ]; then
+            BUMP_FLAG="--bump $BUMP_INPUT"
           fi
 
           BUMPED_TAG=$(npx --yes git-cliff@2.13.1 --config cliff.toml "$RANGE" $BUMP_FLAG --bumped-version)
@@ -125,9 +157,12 @@ jobs:
 
       - name: Determine release tag
         id: release-tag
+        env:
+          SKIP_BUMP: ${{ inputs.skip_bump }}
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          if [ "${{ inputs.skip_bump }}" = "true" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$SKIP_BUMP" = "true" ]; then
+            echo "tag=$TAG_INPUT" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
@@ -156,20 +191,32 @@ jobs:
             changelog contains no commits, say so plainly in one sentence
             instead of fabricating content.
 
-      - name: Apply raw-changelog fallback if the AI summary step failed
+      - name: Assemble release body
         id: summary
         run: |
           set -euo pipefail
           NOTES_PATH="${{ github.workspace }}/release-notes.md"
 
-          if [ "${{ steps.ai-summary.outcome }}" != "success" ] || [ ! -s "$NOTES_PATH" ]; then
-            echo "release: AI summary unavailable, falling back to the raw changelog" >&2
-            {
-              echo "_AI summary unavailable — showing the raw changelog._"
-              echo
-              cat raw-changelog.md
-            } > "$NOTES_PATH"
+          if [ "${{ steps.ai-summary.outcome }}" = "success" ] && [ -s "$NOTES_PATH" ]; then
+            SUMMARY=$(cat "$NOTES_PATH")
+          else
+            echo "release: AI summary unavailable, using a placeholder above the raw changelog" >&2
+            SUMMARY="_AI summary unavailable._"
           fi
+
+          # The raw changelog always appears beneath the summary, collapsed,
+          # so the full commit list is available even when the AI step
+          # succeeds and produces a shorter narrative body.
+          {
+            echo "$SUMMARY"
+            echo
+            echo "<details>"
+            echo "<summary>Full changelog</summary>"
+            echo
+            cat raw-changelog.md
+            echo
+            echo "</details>"
+          } > "$NOTES_PATH"
 
           echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
 
