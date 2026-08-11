@@ -242,7 +242,14 @@ export class RunService {
     if (!lock) {
       const tableName = (await this.config.getStackOutputs())?.runsTableName;
       if (tableName) {
-        lock = await this.store.getRunLock();
+        try {
+          lock = await this.store.getRunLock();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn('RunService.mintLockClearConfirmationToken: failed to read DynamoDB apply lock', {
+            error: message,
+          });
+        }
       }
     }
     if (!lock) {

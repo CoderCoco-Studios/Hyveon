@@ -349,6 +349,18 @@ describe('RunService', () => {
       expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
     });
 
+    it('should treat a rejected durable lock read as no lock held, not let the raw error escape', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      getRunLockMock.mockRejectedValue(new Error('DynamoDB throttled'));
+      await expect(service.mintLockClearConfirmationToken()).rejects.toThrow(
+        /no run lock is currently held/i,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('RunService.mintLockClearConfirmationToken'),
+        expect.objectContaining({ error: expect.stringContaining('DynamoDB throttled') }),
+      );
+    });
+
     it('should supersede a previously minted, unconsumed token', async () => {
       const service = makeService();
       await service.createRun('apply', 'chris');
