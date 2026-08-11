@@ -2,9 +2,9 @@
 
 See `proposal.md` - Why. Relevant current state:
 
-- `.github/workflows/package.yml` builds installers on PR/merge-queue and publishes a **draft** GitHub Release (`softprops/action-gh-release`, `draft: true`) only `if: startsWith(github.ref, 'refs/tags/v')`. That job is unreachable today - no tag has ever been pushed.
+- `.github/workflows/package.yml` builds installers on PR/merge-queue and publishes a **draft** GitHub Release (`softprops/action-gh-release`, `draft: true`) only `if: startsWith(github.ref, 'refs/tags/v')`. That job has never actually run: the only tag in the repo, `v0.1.0`, points at the current `main` tip and was never pushed through this trigger path.
 - `main` is protected by a GitHub **ruleset** (`enforce-main-branch-protection`), not classic branch protection. It already has two configured bypass actors (one `Integration`, one `User`), so adding a third (this release bot) is a proven, existing pattern in this repo, not a new category of risk.
-- Root `package.json.version` is `0.1.0` and has never been bumped by tooling. `app/package.json` carries an unrelated `1.0.0` and is not touched by this change (see proposal - Impact: workspace packages are not independently versioned).
+- Root `package.json.version` is `0.1.0` and has never been bumped by tooling. `app/package.json` carries an unrelated `1.0.0` and is not touched by this change (see proposal - Impact: workspace packages are not independently versioned). Note the existing `v0.1.0` tag already matches this version — `git-cliff --bumped-version`/`npm version` will compute the *next* version above `0.1.0` on the first real run, not reproduce `0.1.0`.
 - No changelog or version-bump tooling exists anywhere in the repo (no `semantic-release`, `changesets`, `release-please`, `standard-version`).
 
 ## Goals / Non-Goals
@@ -57,5 +57,5 @@ No existing behavior is being replaced, so there is no migration/rollback for in
 1. Repo admin creates and installs the GitHub App, stores its credentials, adds it to the ruleset bypass list (out-of-band, see proposal - Impact).
 2. `ANTHROPIC_API_KEY` secret is added.
 3. This change's workflow, script, and `cliff.toml` are merged to `main` via the normal PR process (this change itself is not exempt from review).
-4. First manual run is a real release: `v0.1.0` or whatever version the accumulated history computes to, exercising the full path including the previously-dead `package.yml` tag trigger.
+4. First manual run is a real release: since `v0.1.0` already exists (pointing at the pre-this-change `main` tip, not a real release), the computed tag will be whatever version bump the accumulated history since that tag produces (e.g. `v0.1.1`/`v0.2.0`), exercising the full path including the previously-dead `package.yml` tag trigger.
 5. If the workflow misbehaves, it can simply not be run again (`workflow_dispatch`-only, no schedule) while it's fixed in a follow-up PR; no rollback of already-pushed tags/releases is in scope - a bad draft release can be deleted or left unpublished by a human.

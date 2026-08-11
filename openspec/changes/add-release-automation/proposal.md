@@ -1,6 +1,6 @@
 ## Why
 
-Hyveon has a build/package pipeline (`.github/workflows/package.yml`) but no way to actually cut a release: nothing bumps the version, nothing creates a `v*` tag, and the pipeline's own publish job only fires on a tag push that never happens. Zero tags exist in the repo's history. Cutting a release today requires a human to hand-compute a semver bump, hand-write release notes, and manually push a tag past branch protection — a process nobody has actually done. We need a one-click, auditable way to turn accumulated Conventional Commits into a versioned, tagged, human-readable draft release.
+Hyveon has a build/package pipeline (`.github/workflows/package.yml`) but no way to actually cut a release: nothing bumps the version, nothing creates a `v*` tag, and the pipeline's own publish job only fires on a tag push that never happens. A single `v0.1.0` tag exists, pointing at the current `main` tip — it was never produced by a release process (no changelog, no bump commit, no draft release) and does not reflect a version that was actually cut. Cutting a real release today requires a human to hand-compute a semver bump, hand-write release notes, and manually push a tag past branch protection — a process nobody has actually done end-to-end. We need a one-click, auditable way to turn accumulated Conventional Commits into a versioned, tagged, human-readable draft release.
 
 ## What Changes
 
