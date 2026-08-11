@@ -15,6 +15,9 @@ const CHANGE_DIR = ARGS.changeDir || null
 const CHANGE_ROOT = CHANGE_DIR ? "openspec/changes/" + CHANGE_DIR : null
 const HEAD_REF = ARGS.headRefOid || null
 const BASE_REF = ARGS.baseRefName || "main"
+const RAW_EFFORT = ARGS.effort || null
+const EFFORT = RAW_EFFORT === "ultra" ? "max" : RAW_EFFORT
+const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 const PINNED_RANGE = HEAD_REF ? shellQuote("origin/" + BASE_REF + "..." + HEAD_REF) : null
 const FETCH_CMD = HEAD_REF ? "git fetch origin " + shellQuote(HEAD_REF) + " " + shellQuote(BASE_REF) : null
 const DIFF_CMD = HEAD_REF
@@ -193,7 +196,7 @@ const SPEC_CONFORMANCE_PROMPT =
 // ─── Find ───
 phase("Find")
 const finderTasks = FINDERS.map(f => () =>
-  agent(FINDER_PROMPT(f), { label: f.label, phase: "Find", schema: CANDIDATES_SCHEMA }).then(r => {
+  agent(FINDER_PROMPT(f), { label: f.label, phase: "Find", schema: CANDIDATES_SCHEMA, ...EFFORT_OPTS }).then(r => {
     if (!r) return []
     log(f.label + ": " + r.candidates.length + " candidates")
     return r.candidates.slice(0, f.cap).map(c => ({ ...c, file: canonFile(c.file), kind: f.kind })).filter(c => c.file)
@@ -201,14 +204,14 @@ const finderTasks = FINDERS.map(f => () =>
 )
 if (CHANGE_ROOT) {
   finderTasks.push(() =>
-    agent(TASKS_FIDELITY_PROMPT, { label: "tasks-fidelity", phase: "Find", schema: CANDIDATES_SCHEMA }).then(r => {
+    agent(TASKS_FIDELITY_PROMPT, { label: "tasks-fidelity", phase: "Find", schema: CANDIDATES_SCHEMA, ...EFFORT_OPTS }).then(r => {
       if (!r) return []
       log("tasks-fidelity: " + r.candidates.length + " candidates")
       return r.candidates.slice(0, 6).map(c => ({ ...c, file: canonFile(c.file), kind: "openspec" })).filter(c => c.file)
     })
   )
   finderTasks.push(() =>
-    agent(SPEC_CONFORMANCE_PROMPT, { label: "spec-conformance", phase: "Find", schema: CANDIDATES_SCHEMA }).then(r => {
+    agent(SPEC_CONFORMANCE_PROMPT, { label: "spec-conformance", phase: "Find", schema: CANDIDATES_SCHEMA, ...EFFORT_OPTS }).then(r => {
       if (!r) return []
       log("spec-conformance: " + r.candidates.length + " candidates")
       return r.candidates.slice(0, 6).map(c => ({ ...c, file: canonFile(c.file), kind: "openspec" })).filter(c => c.file)
@@ -234,7 +237,7 @@ const verified = (await parallel(groups.map(g => async () => {
     "- **PLAUSIBLE** — mechanism is real, trigger is uncertain. State what would confirm it. Do not refute a candidate for being \"speculative\" when the state is realistic (races, nil on a rare-but-reachable path, falsy-zero, off-by-one on an unguarded boundary, retry storms).\n" +
     "- **REFUTED** — factually wrong (quote the line that proves it), provably impossible, or already handled in this diff (cite the guard).\n\n" +
     "Structured output only. Evidence must quote or cite the relevant line(s).",
-    { label: "verify:" + short + "(" + g.length + ")", phase: "Verify", schema: GROUP_VERDICT_SCHEMA }
+    { label: "verify:" + short + "(" + g.length + ")", phase: "Verify", schema: GROUP_VERDICT_SCHEMA, ...EFFORT_OPTS }
   )
   if (!r) return g.map(c => ({ ...c, verdict: "PLAUSIBLE", evidence: "Verifier call failed — defaulting to PLAUSIBLE so nothing is silently dropped." }))
   const byIdx = {}
@@ -273,7 +276,7 @@ const report = await agent(
   "2. Order most-severe first. Correctness bugs outrank tasks-fidelity/spec-conformance findings, which outrank cleanup findings.\n" +
   "3. Keep at most " + MAX_FINDINGS + " decisions.\n" +
   "4. Write a 2-3 sentence summary.\n\nStructured output only.",
-  { label: "synthesize", schema: REPORT_SCHEMA }
+  { label: "synthesize", schema: REPORT_SCHEMA, ...EFFORT_OPTS }
 )
 const decisions = report && Array.isArray(report.decisions) ? report.decisions : []
 const seen = new Set()
