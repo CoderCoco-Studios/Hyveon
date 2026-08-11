@@ -44,6 +44,14 @@ const MOCK_NETWORK_INPUTS = {
  */
 const MOCK_EFS_SEEDER_SECURITY_GROUP_ID = 'sg-efs-seeder-mock';
 
+/**
+ * Mock id standing in for `securityGroups.ts`'s `SecurityGroupResources.healthCheck?.id`
+ * — `defineLambdas` does not construct this security group itself; tests
+ * that exercise the health-check path pass this plain string rather than a
+ * real `defineSecurityGroups` call.
+ */
+const MOCK_HEALTH_CHECK_SECURITY_GROUP_ID = 'sg-health-check-mock';
+
 /** Resolves every leaf role/attachment `defineIamRoles` declares before returning — see `iam.test.ts`'s identically-named helper. */
 async function arrangeRoles(gameServers: Record<string, GameServerConfig>, provider: aws.Provider): Promise<IamRoleResources> {
   const roles = defineIamRoles({ projectName: 'hyveon', gameServers, provider });
@@ -54,6 +62,7 @@ async function arrangeRoles(gameServers: Record<string, GameServerConfig>, provi
     promiseOf(roles.interactionsLambdaRole.id),
     promiseOf(roles.dnsUpdaterLambdaRole.id),
     ...Object.values(roles.efsSeederRoles).map((role) => promiseOf(role.id)),
+    ...(roles.healthCheckLambdaRole ? [promiseOf(roles.healthCheckLambdaRole.id)] : []),
   ]);
   return roles;
 }
@@ -105,6 +114,7 @@ function buildArgs(
     watchdogMinPackets: 100,
     lambdaBundlesDir: LAMBDA_BUNDLES_DIR,
     efsSeederSecurityGroupId: undefined,
+    healthCheckSecurityGroupId: undefined,
     ...MOCK_NETWORK_INPUTS,
     ...DEFERRED_VALUES,
     ...overrides,
@@ -134,6 +144,8 @@ async function runDefineLambdas(args: DefineLambdasArgs): Promise<LambdaResource
     promiseOf(result.dnsUpdaterEventBridgePermission.id),
     ...Object.values(result.efsSeederLogGroups).map((lg) => promiseOf(lg.id)),
     ...Object.values(result.efsSeederFunctions).map((fn) => promiseOf(fn.id)),
+    ...(result.healthCheckLogGroup ? [promiseOf(result.healthCheckLogGroup.id)] : []),
+    ...(result.healthCheckFunction ? [promiseOf(result.healthCheckFunction.id)] : []),
   ]);
   return result;
 }
@@ -359,6 +371,8 @@ describe('defineLambdas', () => {
         MIN_PACKETS: '100',
         CHECK_WINDOW_MINUTES: '15',
         AWS_REGION_: 'us-east-1',
+        HEALTH_CHECKS: '{}',
+        HEALTH_CHECK_FUNCTION_NAME: '',
       });
     });
 
@@ -583,6 +597,101 @@ describe('defineLambdas', () => {
 
       expect(Object.keys(result.efsSeederFunctions).sort()).toEqual(Object.keys(roles.efsSeederRoles).sort());
       expect(Object.keys(result.efsSeederFunctions).sort()).toEqual(['echo', 'foxtrot']);
+    });
+  });
+
+  describe('health-check Lambda', () => {
+    /** A game-server map extending `FIXTURE_GAME_SERVERS` with one game (`echo`) declaring a `healthCheck` on port 8211. */
+    function gameServersWithHealthCheck(): Record<string, GameServerConfig> {
+      return {
+        ...FIXTURE_GAME_SERVERS,
+        echo: {
+          image: 'example/echo:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [{ container: 8211, protocol: 'tcp' }],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+          healthCheck: {
+            kind: 'http',
+            scheme: 'http',
+            port: 8211,
+            path: '/status',
+            method: 'GET',
+            timeoutMs: 2000,
+            activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+          },
+        },
+      };
+    }
+
+    it('should declare no log group or function when no game declares healthCheck', async () => {
+      const { provider, roles, efs } = await arrangeDependencies(FIXTURE_GAME_SERVERS);
+      const result = await runDefineLambdas(buildArgs({ gameServers: FIXTURE_GAME_SERVERS, roles, efs, provider }));
+
+      expect(result.healthCheckLogGroup).toBeUndefined();
+      expect(result.healthCheckFunction).toBeUndefined();
+      expect(mocks.resources.some((resource) => resource.name === 'hyveon-health-check')).toBe(false);
+    });
+
+    it('should throw when a game declares healthCheck but no healthCheckSecurityGroupId was supplied', async () => {
+      const gameServers = gameServersWithHealthCheck();
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+
+      expect(() => defineLambdas(buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: undefined }))).toThrow(
+        /healthCheckSecurityGroupId is undefined/,
+      );
+    });
+
+    it('should declare the health-check function and log group, wired to the externally-supplied security group id and the same public subnets as every other Lambda', async () => {
+      const gameServers = gameServersWithHealthCheck();
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      const result = await runDefineLambdas(
+        buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: MOCK_HEALTH_CHECK_SECURITY_GROUP_ID }),
+      );
+
+      expect(result.healthCheckLogGroup).toBeDefined();
+      const logGroup = findByName(mocks.resources, 'hyveon-health-check-logs');
+      expect(logGroup.inputs.name).toBe('/aws/lambda/hyveon-health-check');
+      expect(logGroup.inputs.retentionInDays).toBe(7);
+
+      expect(result.healthCheckFunction).toBeDefined();
+      const fn = findByName(mocks.resources, 'hyveon-health-check');
+      expect(fn.type).toBe('aws:lambda/function:Function');
+      expect(fn.inputs.role).toBe(await promiseOf(roles.healthCheckLambdaRole!.arn));
+      expect(fn.inputs.handler).toBe('handler.handler');
+      expect(fn.inputs.runtime).toBe('nodejs24.x');
+      expect((fn.inputs.environment as { variables: Record<string, unknown> }).variables).toEqual({ AWS_REGION_: 'us-east-1' });
+
+      // Same public subnets every other Lambda's `vpcConfig` uses (no NAT
+      // gateway or VPC endpoint needed for its ecs:DescribeTasks /
+      // secretsmanager:GetSecretValue calls — see securityGroups.ts/network.ts).
+      expect(fn.inputs.vpcConfig).toEqual({
+        subnetIds: MOCK_NETWORK_INPUTS.publicSubnetIds,
+        securityGroupIds: [MOCK_HEALTH_CHECK_SECURITY_GROUP_ID],
+      });
+
+      // No Function URL and no aws.lambda.Permission for this function —
+      // invocation is authorized via the IAM identity-policy grant on the
+      // watchdog role instead (asserted in iam.test.ts).
+      expect(mocks.resources.some((resource) => resource.name === 'hyveon-health-check-url')).toBe(false);
+      expect(
+        mocks.resources.some(
+          (resource) => resource.type === 'aws:lambda/permission:Permission' && (resource.inputs.function as string)?.includes('health-check'),
+        ),
+      ).toBe(false);
+    });
+
+    it("should set the watchdog function's HEALTH_CHECKS and HEALTH_CHECK_FUNCTION_NAME when a game declares healthCheck", async () => {
+      const gameServers = gameServersWithHealthCheck();
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      const result = await runDefineLambdas(
+        buildArgs({ gameServers, roles, efs, provider, healthCheckSecurityGroupId: MOCK_HEALTH_CHECK_SECURITY_GROUP_ID }),
+      );
+
+      const fn = findByName(mocks.resources, 'hyveon-watchdog');
+      const variables = (fn.inputs.environment as { variables: Record<string, unknown> }).variables;
+      expect(JSON.parse(variables.HEALTH_CHECKS as string)).toEqual({ echo: gameServers.echo.healthCheck });
+      expect(variables.HEALTH_CHECK_FUNCTION_NAME).toBe(await promiseOf(result.healthCheckFunction!.name));
     });
   });
 });

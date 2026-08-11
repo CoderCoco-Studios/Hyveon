@@ -9,7 +9,9 @@
  * {@link DefineIamPoliciesArgs}'s doc for how those forward references are
  * threaded.
  *
- * Six roles, five inline policies, one managed-policy attachment:
+ * Six roles, five inline policies, one managed-policy attachment, plus a
+ * seventh role/policy pair conditional on at least one game declaring a
+ * `healthCheck`:
  *
  * | HCL address | This file |
  * | --- | --- |
@@ -27,6 +29,8 @@
  * | `aws_iam_role_policy.efs_seeder` (`for_each`) | {@link IamPolicyResources.efsSeederPolicies} |
  * | *(no HCL analogue — added post-migration)* | {@link IamRoleResources.fileBrowserSchedulerRole} |
  * | *(no HCL analogue — added post-migration)* | {@link IamPolicyResources.fileBrowserSchedulerPolicy} |
+ * | *(no HCL analogue — post-migration; conditional)* | {@link IamRoleResources.healthCheckLambdaRole} |
+ * | *(no HCL analogue — post-migration; conditional)* | {@link IamPolicyResources.healthCheckLambdaPolicy} |
  *
  * ## Why this is two functions, not one
  *
@@ -78,6 +82,15 @@ export interface IamRoleResources {
    * `scheduler.amazonaws.com`, no HCL analogue (added post-migration).
    */
   fileBrowserSchedulerRole: aws.iam.Role;
+  /**
+   * The health-check Lambda's role — a single shared role (not one per game,
+   * unlike {@link efsSeederRoles}), created only when
+   * {@link gamesWithHealthChecks} is non-empty. `undefined` in every
+   * deployment where no game declares a `healthCheck`, which is what makes
+   * that capability's zero-footprint requirement hold at the IAM layer. No
+   * HCL analogue (added post-migration).
+   */
+  healthCheckLambdaRole: aws.iam.Role | undefined;
 }
 
 /** Every inline policy {@link defineIamPolicies} declares — see this file's doc for the full HCL→Pulumi address table. */
@@ -102,6 +115,12 @@ export interface IamPolicyResources {
    * No HCL analogue (added post-migration).
    */
   fileBrowserSchedulerPolicy: aws.iam.RolePolicy;
+  /**
+   * {@link IamRoleResources.healthCheckLambdaRole}'s inline policy —
+   * `undefined` whenever that role is, i.e. whenever no game declares a
+   * `healthCheck`. No HCL analogue (added post-migration).
+   */
+  healthCheckLambdaPolicy: aws.iam.RolePolicy | undefined;
 }
 
 /**
@@ -193,12 +212,33 @@ export interface DefineIamPoliciesArgs {
   /**
    * `aws_ecs_cluster.main.name` — scopes
    * {@link IamPolicyResources.fileBrowserSchedulerPolicy}'s `ecs:StopTask`
-   * grant to `arn:aws:ecs:*:*:task/${ecsClusterName}/*` rather than every
-   * task in the account. Threaded here as a required parameter because
-   * `ecs.ts`'s `defineEcs` owns that cluster; `program.ts`'s `defineAll`
-   * passes `ecs.cluster.name`.
+   * grant, and {@link IamPolicyResources.healthCheckLambdaPolicy}'s
+   * `ecs:DescribeTasks` grant, to `arn:aws:ecs:*:*:task/${ecsClusterName}/*`
+   * rather than every task in the account. Threaded here as a required
+   * parameter because `ecs.ts`'s `defineEcs` owns that cluster; `program.ts`'s
+   * `defineAll` passes `ecs.cluster.name`.
    */
   ecsClusterName: pulumi.Input<string>;
+  /**
+   * The configured game-server map — re-read here (not just via `roles`) so
+   * {@link IamPolicyResources.healthCheckLambdaPolicy} can scope its
+   * `secretsmanager:GetSecretValue` grant to exactly the `auth.secretArn`
+   * values opted-in games reference. These ARNs are plain config strings,
+   * not Pulumi-deferred outputs, so no separate threaded parameter is
+   * needed for them the way {@link followupLambdaArn} etc. are.
+   */
+  gameServers: Record<string, GameServerConfig>;
+  /**
+   * `aws_lambda_function.health_check.arn` — granted to the watchdog Lambda
+   * (`lambda:InvokeFunction`) so it can invoke the health-check Lambda for
+   * an opted-in game's idle decision. `undefined` whenever no game declares
+   * a `healthCheck`, in which case the watchdog policy gets no
+   * `lambda:InvokeFunction` statement at all. Threaded here as a required
+   * parameter for the same call-order reason as {@link followupLambdaArn}:
+   * `lambdas.ts`'s `defineLambdas` owns that function and must run first;
+   * `program.ts`'s `defineAll` passes `lambdas.healthCheckFunction?.arn`.
+   */
+  healthCheckFunctionArn: pulumi.Input<string> | undefined;
 }
 
 /**
@@ -361,6 +401,16 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     opts,
   );
 
+  // ── Health-check Lambda role — single shared role, conditional ────────────
+  const healthCheckLambdaRole =
+    Object.keys(gamesWithHealthChecks(gameServers)).length > 0
+      ? new aws.iam.Role(
+          `${projectName}-health-check-lambda`,
+          { name: `${projectName}-health-check-lambda`, assumeRolePolicy: LAMBDA_ASSUME_ROLE_POLICY },
+          opts,
+        )
+      : undefined;
+
   return {
     ecsTaskExecutionRole,
     ecsTaskExecutionPolicyAttachment,
@@ -370,6 +420,7 @@ export function defineIamRoles(args: DefineIamRolesArgs): IamRoleResources {
     dnsUpdaterLambdaRole,
     efsSeederRoles,
     fileBrowserSchedulerRole,
+    healthCheckLambdaRole,
   };
 }
 
@@ -397,28 +448,36 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     followupLambdaArn,
     hostedZoneId,
     ecsClusterName,
+    gameServers,
+    healthCheckFunctionArn,
   } = args;
   const opts: pulumi.CustomResourceOptions = { provider };
 
-  // ── Watchdog Lambda policy — no external ARN dependency ───────────────────
+  // ── Watchdog Lambda policy ──────────────────────────────────────────────
+  // `pulumi.jsonStringify` (not a plain `JSON.stringify`) because
+  // `healthCheckFunctionArn` may be a deferred Output when a health check is
+  // declared; the statement list is built up front so the conditional
+  // `lambda:InvokeFunction` grant reads as a single insertion point instead
+  // of two near-duplicate policy literals.
+  const watchdogStatements: pulumi.Input<Record<string, unknown>>[] = [
+    logStatement(),
+    {
+      Effect: 'Allow',
+      Action: ['ecs:ListTasks', 'ecs:DescribeTasks', 'ecs:StopTask', 'ecs:TagResource', 'ecs:ListTagsForResource'],
+      Resource: '*',
+    },
+    { Effect: 'Allow', Action: ['ec2:DescribeNetworkInterfaces'], Resource: '*' },
+    { Effect: 'Allow', Action: ['cloudwatch:GetMetricStatistics'], Resource: '*' },
+  ];
+  if (healthCheckFunctionArn) {
+    watchdogStatements.push({ Effect: 'Allow', Action: ['lambda:InvokeFunction'], Resource: healthCheckFunctionArn });
+  }
   const watchdogLambdaPolicy = new aws.iam.RolePolicy(
     `${projectName}-watchdog-lambda-policy`,
     {
       name: `${projectName}-watchdog-lambda-policy`,
       role: roles.watchdogLambdaRole.id,
-      policy: JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          logStatement(),
-          {
-            Effect: 'Allow',
-            Action: ['ecs:ListTasks', 'ecs:DescribeTasks', 'ecs:StopTask', 'ecs:TagResource', 'ecs:ListTagsForResource'],
-            Resource: '*',
-          },
-          { Effect: 'Allow', Action: ['ec2:DescribeNetworkInterfaces'], Resource: '*' },
-          { Effect: 'Allow', Action: ['cloudwatch:GetMetricStatistics'], Resource: '*' },
-        ],
-      }),
+      policy: pulumi.jsonStringify({ Version: '2012-10-17', Statement: watchdogStatements }),
     },
     opts,
   );
@@ -555,6 +614,48 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     opts,
   );
 
+  // ── Health-check Lambda policy — single shared, conditional ───────────────
+  // `roles.healthCheckLambdaRole` is `undefined` in the same deployments
+  // where `gamesWithHealthChecks(gameServers)` is empty (both derive from
+  // the same set — see `defineIamRoles`), so branching on the role rather
+  // than re-deriving the set here keeps this policy from ever drifting from
+  // the role `defineIamRoles` actually created, the same discipline the
+  // per-game EFS-seeder policies above follow.
+  const healthCheckSecretArns = Object.values(gamesWithHealthChecks(gameServers))
+    .map((config) => config.healthCheck?.auth?.secretArn)
+    .filter((arn): arn is string => arn != null);
+
+  const healthCheckLambdaPolicy = roles.healthCheckLambdaRole
+    ? new aws.iam.RolePolicy(
+        `${projectName}-health-check-lambda-policy`,
+        {
+          name: `${projectName}-health-check-lambda-policy`,
+          role: roles.healthCheckLambdaRole.id,
+          policy: pulumi.jsonStringify({
+            Version: '2012-10-17',
+            Statement: [
+              logStatement(),
+              {
+                // Required for Lambda VPC networking.
+                Effect: 'Allow',
+                Action: ['ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', 'ec2:DeleteNetworkInterface'],
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: ['ecs:DescribeTasks'],
+                Resource: pulumi.interpolate`arn:aws:ecs:*:*:task/${ecsClusterName}/*`,
+              },
+              ...(healthCheckSecretArns.length > 0
+                ? [{ Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: healthCheckSecretArns }]
+                : []),
+            ],
+          }),
+        },
+        opts,
+      )
+    : undefined;
+
   return {
     watchdogLambdaPolicy,
     followupLambdaPolicy,
@@ -562,5 +663,6 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
     dnsUpdaterLambdaPolicy,
     efsSeederPolicies,
     fileBrowserSchedulerPolicy,
+    healthCheckLambdaPolicy,
   };
 }

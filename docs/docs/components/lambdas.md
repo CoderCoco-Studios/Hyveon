@@ -5,24 +5,27 @@ sidebar_position: 4
 
 # Lambdas
 
-Five TypeScript Lambda packages live under `app/packages/lambda/`. Each
+Six TypeScript Lambda packages live under `app/packages/lambda/`. Each
 builds via esbuild to a single CJS file at `dist/handler.cjs`; the Pulumi
 infra program's `lambdaCode()` helper (`app/packages/infra/src/lambdas.ts`)
 wraps that file in an `AssetArchive`/`FileAsset` pair at deploy time —
 functionally equivalent to the directory-archiving data source other IaC
-tools provide, which has no direct Pulumi resource counterpart.
+tools provide, which has no direct Pulumi resource counterpart. One of the
+six — `health-check` — is conditionally provisioned, existing only when at
+least one game declares a `healthCheck` (see that section below); the other
+five are always deployed.
 
 ```bash
 npm run app:build:lambdas        # produces every dist/handler.cjs
 ```
 
-The four core Lambdas (interactions, followup, update-dns, watchdog) read
-AWS region from `process.env.AWS_REGION_` (trailing underscore —
-`AWS_REGION` is reserved by the Lambda runtime). The Pulumi infra program
-sets the variable with that name in every function definition
+The four core, always-on Lambdas (interactions, followup, update-dns,
+watchdog) read AWS region from `process.env.AWS_REGION_` (trailing
+underscore — `AWS_REGION` is reserved by the Lambda runtime). The Pulumi
+infra program sets the variable with that name in every function definition
 (`app/packages/infra/src/lambdas.ts`'s `defineLambdas`), including
-efs-seeder's — but efs-seeder never reads it, since it makes no AWS SDK
-calls (see below).
+efs-seeder's and health-check's — but efs-seeder never reads it, since it
+makes no AWS SDK calls (see below).
 
 ## interactions
 
@@ -175,19 +178,32 @@ Failure modes:
 | **Package** | `@hyveon/lambda-watchdog` |
 | **Trigger** | EventBridge schedule at `rate(${watchdog_interval_minutes} minute(s))`. No event payload. |
 | **Pulumi** | `app/packages/infra/src/lambdas.ts` (`watchdogFunction`, `watchdogScheduleRule`). |
-| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`. |
-| **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`. |
+| **IAM** | `ecs:ListTasks` / `DescribeTasks` / `StopTask` / `TagResource` / `ListTagsForResource`, `cloudwatch:GetMetricStatistics`, and — only when at least one game declares a `healthCheck` — `lambda:InvokeFunction` scoped to the health-check function's ARN. |
+| **Env vars** | `ECS_CLUSTER`, `GAME_NAMES`, `IDLE_CHECKS`, `MIN_PACKETS`, `CHECK_WINDOW_MINUTES`, `AWS_REGION_`, `HEALTH_CHECKS` (JSON map, game → that game's `healthCheck` declaration; `{}` when no game opts in), `HEALTH_CHECK_FUNCTION_NAME` (the health-check function's name; empty string when it doesn't exist). |
 
 ### Behaviour
 
 1. `ListTasks(desiredStatus: RUNNING)` across the cluster. Paginates.
 2. `DescribeTasks` on the batch to get attachments and tags.
-3. For each task:
-   - Resolve the ENI ID from attachments.
-   - `cloudwatch.GetMetricStatistics` → `AWS/EC2/NetworkPacketsIn` over
-     the last `CHECK_WINDOW_MINUTES`. If the call fails, assume **active**
-     (fails-safe for fresh tasks with no metrics yet).
-   - If `packets < MIN_PACKETS`:
+3. For each task, resolve its game from the task-def family, then get a
+   verdict from exactly one of two sources — never both:
+   - **`HEALTH_CHECKS[game]` is absent** (the common case today): resolve
+     the ENI ID from attachments, then `cloudwatch.GetMetricStatistics` →
+     `AWS/EC2/NetworkPacketsIn` over the last `CHECK_WINDOW_MINUTES`. If the
+     call fails, assume **active** (fails-safe for fresh tasks with no
+     metrics yet). Idle iff `packets < MIN_PACKETS`.
+   - **`HEALTH_CHECKS[game]` is present**: synchronously `Invoke` the
+     health-check Lambda (`RequestResponse`) with
+     `{ game, taskArn, healthCheck }`. A failed invoke — throttled, the
+     function absent or unreachable, a timeout, a `FunctionError`, or a
+     malformed response — is fail-active (assumed active) and does **not**
+     increment the idle counter, the same treatment a failed CloudWatch
+     query gets. The invoked verdict's `reason` is folded into this Lambda's
+     own idle/shutdown log line, so one line explains verdict, idle count,
+     and (eventually) shutdown regardless of which source produced it. See
+     `game-health-checks`'s OpenSpec capability and the `health-check`
+     section below for the check itself.
+   - If idle by whichever source applied:
      - Increment the `idle_checks` tag.
      - If the counter reaches `IDLE_CHECKS`:
        - `StopTask` with reason `Watchdog: idle for {N} minutes`. This Lambda
@@ -200,11 +216,16 @@ Failure modes:
 
 Watchdog state lives **only** in the `idle_checks` ECS task tag. It's
 inherently scoped to the task — when the task goes away, so does the
-state, which is exactly what we want. Do not move it to DDB/SSM.
+state, which is exactly what we want. Do not move it to DDB/SSM. The
+watchdog itself gains no VPC attachment and no health-check credential from
+this routing — it only ever holds the ARN it's permitted to invoke.
 
 Failure modes:
 
 - CloudWatch query fails → treated as active (no accidental shutdowns).
+- Health-check invoke fails, or the health-check itself reports a
+  failure-derived verdict → treated as active, same as a CloudWatch
+  failure.
 - Tagging fails → logged; a task might hang around a cycle longer than
   intended.
 - `StopTask` fails → logged; next schedule tick retries.
@@ -264,6 +285,71 @@ Failure modes:
 - EFS mount not ready (mount targets still propagating) → Lambda invocation
   fails; the deploy reports the error — retry once mount targets are up
   (~30 s after the EFS mount target's creation).
+
+## health-check
+
+| | |
+|---|---|
+| **Package** | `@hyveon/lambda-health-check` |
+| **Trigger** | Synchronous invoke (`InvocationType: RequestResponse`) from the watchdog Lambda, once per running task belonging to a game that declares a `healthCheck`. Not exposed externally, and invocable only by the watchdog — no Function URL, no resource-based `aws.lambda.Permission`; the grant is an IAM identity-policy statement on the watchdog's own role. |
+| **Pulumi** | `app/packages/infra/src/lambdas.ts` (`healthCheckFunction`, `healthCheckLogGroup`). **A single shared function, conditionally created** — provisioned only when at least one game declares `healthCheck` (`iam.ts`'s `gamesWithHealthChecks`), unlike efs-seeder's one-function-per-game shape. A deployment where no game opts in gets no health-check function, role, security group, or log group. |
+| **IAM** | Single shared role: `logs:CreateLogGroup`/`CreateLogStream`/`PutLogEvents`, `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface` (required for Lambda VPC networking), `ecs:DescribeTasks` scoped to the deployed cluster, and — only when at least one opted-in game references a credential — `secretsmanager:GetSecretValue` scoped to exactly those `auth.secretArn` values. |
+| **Env vars** | `AWS_REGION_` only. Everything else it needs (`game`, `taskArn`, the full `healthCheck` declaration) arrives in the invocation payload from the watchdog. |
+
+### Behaviour
+
+Invocation payload: `{ game: string, taskArn: string, healthCheck: GameServerHealthCheck }`.
+
+1. Resolve the checked task's private IPv4 address from ECS
+   `DescribeTasks` attachment details — the same attachment-walking shape
+   the watchdog's own ENI resolution uses, reading `privateIPv4Address`
+   instead of `networkInterfaceId`. This is the *only* source of the
+   request's destination host; the declared configuration never supplies
+   one, closing the SSRF surface by construction rather than by validation.
+2. When `healthCheck.auth` is present, fetch the credential's raw value
+   from Secrets Manager and inject it as a single, fixed `Authorization`
+   header — never interpolated into the path, query string, or any
+   declared header — overriding any operator-supplied `Authorization`
+   entry in `healthCheck.headers`.
+3. Issue the declared request (`scheme`/`port`/`path`/`method`/`headers`),
+   bounded by `healthCheck.timeoutMs` as a single wall-clock budget, with
+   no redirect following (a 3xx response is a failed check, not a hop to
+   chase).
+4. Delegate the verdict to the pure evaluation engine
+   (`src/engine.ts`, no I/O, table-tested in isolation): parse the
+   response body as JSON, resolve `activeWhen.jsonPath` (plain field
+   access and numeric array indices only — no wildcards, filters, or
+   recursive descent), and apply `activeWhen.operator`. The condition
+   holding means active; not holding means idle.
+
+**Fail-active is the rule at every failure point** — a check that can't
+produce a conclusive verdict is reported active, never idle, matching the
+watchdog's own fail-active handling of a failed CloudWatch query:
+
+- Non-2xx response status.
+- Response body that isn't valid JSON.
+- `activeWhen.jsonPath` resolving to no value, or to a non-scalar
+  (object/array) value.
+- A value the declared `activeWhen.operator` can't compare (e.g. a string
+  where `greaterThan` expects a number).
+- Any transport or credential failure — timeout, refused connection, an
+  unavailable secret.
+
+Every verdict carries a `reason` naming the JSONPath and operator involved,
+**never the resolved response value** — a game's response body may carry
+player identities or network addresses. Logs `debug` on entry with
+`{ game, kind, port }` and on a genuine verdict; a failure-derived verdict
+(the fail-active cases above) logs at `warn` instead, so a persistently
+broken check surfaces as a repeating fault rather than silent, ever-growing
+cost.
+
+Failure modes:
+
+- Any of the fail-active cases above → verdict `{ active: true, reason,
+  failureDerived: true }`, logged at `warn`.
+- The health-check function itself is throttled, absent, or times out →
+  the *watchdog* (not this Lambda) treats the failed invoke as fail-active
+  — see the watchdog section above.
 
 ## The `/server-start` critical path, assembled
 

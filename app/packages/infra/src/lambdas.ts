@@ -167,7 +167,7 @@
 import path from 'node:path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import type { GameServerConfig } from '@hyveon/shared';
+import type { GameServerConfig, GameServerHealthCheck } from '@hyveon/shared';
 import type { EfsResources } from './efs.js';
 import { stripTrailingDots } from './hostedZoneName.js';
 import type { IamRoleResources } from './iam.js';
@@ -222,6 +222,24 @@ export interface LambdaResources {
   efsSeederLogGroups: Record<string, aws.cloudwatch.LogGroup>;
   /** One Lambda function per game with `file_seeds`, keyed the same way as {@link efsSeederLogGroups} and `iam.ts`'s `IamRoleResources.efsSeederRoles` (`aws_lambda_function.efs_seeder`). Empty when no game declares seeds. */
   efsSeederFunctions: Record<string, aws.lambda.Function>;
+
+  /**
+   * The shared health-check Lambda's log group. `undefined` exactly when
+   * `roles.healthCheckLambdaRole` is (no game declares a `healthCheck`). No
+   * HCL analogue (added post-migration).
+   */
+  healthCheckLogGroup: aws.cloudwatch.LogGroup | undefined;
+  /**
+   * The shared health-check Lambda invoked by the watchdog for a game with a
+   * declared `healthCheck`, in place of the CloudWatch network-packet
+   * heuristic — a single function serving every opted-in game, unlike the
+   * per-game {@link efsSeederFunctions}. No Function URL: it is invocable
+   * only by the watchdog, via the identity-policy grant in
+   * `iam.ts`'s `IamPolicyResources.watchdogLambdaPolicy`, never a
+   * resource-based `aws.lambda.Permission`. `undefined` exactly when
+   * {@link healthCheckLogGroup} is. No HCL analogue (added post-migration).
+   */
+  healthCheckFunction: aws.lambda.Function | undefined;
 }
 
 /** Arguments {@link defineLambdas} needs to declare every Lambda function and its wiring. */
@@ -259,6 +277,16 @@ export interface DefineLambdasArgs {
    * silently omitting `vpc_config.security_group_ids`.
    */
   efsSeederSecurityGroupId: pulumi.Input<string> | undefined;
+  /**
+   * The shared health-check Lambda security group's id —
+   * `securityGroups.ts`'s `SecurityGroupResources.healthCheck?.id`.
+   * `undefined` is only valid when no game declares a `healthCheck`
+   * (mirroring {@link efsSeederSecurityGroupId}'s own contract exactly) —
+   * passing `undefined` while `roles.healthCheckLambdaRole` exists is a
+   * caller bug and {@link defineLambdas} throws rather than silently
+   * omitting `vpc_config.security_group_ids`.
+   */
+  healthCheckSecurityGroupId: pulumi.Input<string> | undefined;
   /** The `game_servers` security group's id (`securityGroups.ts`'s `SecurityGroupResources.gameServers.id`) — the followup function's `SECURITY_GROUP_ID` environment variable. */
   gameServersSecurityGroupId: pulumi.Input<string>;
   /** The ECS cluster's name (`ecs.ts`'s `EcsResources.cluster.name`) — the followup and watchdog functions' `ECS_CLUSTER` environment variable. */
@@ -394,6 +422,27 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
 }
 
 /**
+ * Builds the `HEALTH_CHECKS` JSON object the watchdog reads to route a
+ * game's idle decision to the health-check Lambda instead of the
+ * CloudWatch heuristic — game name → that game's full `healthCheck`
+ * declaration, same sorted-key iteration as {@link connectMessagesByGame}.
+ * Omits every game with no declared `healthCheck`.
+ *
+ * @param gameServers - The configured game-server map.
+ * @returns A game name → `GameServerHealthCheck` record, omitting games with no declared health check.
+ */
+function healthChecksByGame(gameServers: Record<string, GameServerConfig>): Record<string, GameServerHealthCheck> {
+  const result: Record<string, GameServerHealthCheck> = {};
+  for (const game of Object.keys(gameServers).sort()) {
+    const healthCheck = gameServers[game].healthCheck;
+    if (healthCheck != null) {
+      result[game] = healthCheck;
+    }
+  }
+  return result;
+}
+
+/**
  * Declares every Lambda function, its log group, its permissions, the
  * interactions Function URL, and the watchdog/dns-updater EventBridge
  * rule/target/permission triples — see this file's doc for the full
@@ -423,6 +472,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     roles,
     publicSubnetIds,
     efsSeederSecurityGroupId,
+    healthCheckSecurityGroupId,
     gameServersSecurityGroupId,
     ecsClusterName,
     ecsClusterArn,
@@ -450,6 +500,12 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     throw new Error(
       'defineLambdas: at least one game declares file_seeds but efsSeederSecurityGroupId is undefined — ' +
         'pass securityGroups.efsSeeder?.id (defineSecurityGroups must be called with the same gameServers map).',
+    );
+  }
+  if (roles.healthCheckLambdaRole && healthCheckSecurityGroupId === undefined) {
+    throw new Error(
+      'defineLambdas: at least one game declares healthCheck but healthCheckSecurityGroupId is undefined — ' +
+        'pass securityGroups.healthCheck?.id (defineSecurityGroups must be called with the same gameServers map).',
     );
   }
 
@@ -573,6 +629,57 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     opts,
   );
 
+  // ── Health-check Lambda — declared BEFORE watchdog so its function name
+  // is in scope for watchdog's HEALTH_CHECK_FUNCTION_NAME env var below,
+  // matching the followup-before-interactions reference direction above.
+  // Single shared function, conditional on `roles.healthCheckLambdaRole`
+  // existing — checks the role itself (not a freshly-recomputed
+  // `gamesWithHealthChecks`) for the same "never drift from what
+  // `defineIamRoles` actually created" reason `efsSeederFunctions` checks
+  // `roles.efsSeederRoles` below. No Function URL: invoked only by the
+  // watchdog, via the IAM identity-policy grant in `iam.ts`'s
+  // `watchdogLambdaPolicy`, never a resource-based `aws.lambda.Permission`.
+  let healthCheckLogGroup: aws.cloudwatch.LogGroup | undefined;
+  let healthCheckFunction: aws.lambda.Function | undefined;
+
+  if (roles.healthCheckLambdaRole) {
+    // Non-null per the up-front validation above — re-asserted as a local
+    // const rather than a bare `!` at the use site, same as `seederSecurityGroupId` below.
+    const healthCheckSg = healthCheckSecurityGroupId as pulumi.Input<string>;
+
+    healthCheckLogGroup = new aws.cloudwatch.LogGroup(
+      `${projectName}-health-check-logs`,
+      {
+        name: `/aws/lambda/${projectName}-health-check`,
+        retentionInDays: 7,
+        tags: { Name: `${projectName}-health-check-logs` },
+      },
+      opts,
+    );
+
+    healthCheckFunction = new aws.lambda.Function(
+      `${projectName}-health-check`,
+      {
+        name: `${projectName}-health-check`,
+        role: roles.healthCheckLambdaRole.arn,
+        handler: LAMBDA_HANDLER,
+        runtime: LAMBDA_RUNTIME,
+        code: lambdaCode(bundlePath(lambdaBundlesDir, 'health-check')),
+        // Above every individual check's own timeoutMs ceiling (10s) to give
+        // headroom for the ECS DescribeTasks + Secrets Manager calls that
+        // precede the checked request itself.
+        timeout: 30,
+        vpcConfig: {
+          subnetIds: publicSubnetIds,
+          securityGroupIds: [healthCheckSg],
+        },
+        environment: { variables: { AWS_REGION_: awsRegion } },
+        tags: { Name: `${projectName}-health-check` },
+      },
+      { ...opts, dependsOn: [healthCheckLogGroup] },
+    );
+  }
+
   // ── Watchdog Lambda + EventBridge schedule ─────────────────────────────────
   const watchdogFunction = new aws.lambda.Function(
     `${projectName}-watchdog`,
@@ -593,6 +700,8 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
           MIN_PACKETS: String(watchdogMinPackets),
           CHECK_WINDOW_MINUTES: String(watchdogIntervalMinutes),
           AWS_REGION_: awsRegion,
+          HEALTH_CHECKS: JSON.stringify(healthChecksByGame(gameServers)),
+          HEALTH_CHECK_FUNCTION_NAME: healthCheckFunction ? healthCheckFunction.name : '',
         },
       },
       tags: { Name: `${projectName}-watchdog` },
@@ -816,5 +925,7 @@ export function defineLambdas(args: DefineLambdasArgs): LambdaResources {
     dnsUpdaterEventBridgePermission,
     efsSeederLogGroups,
     efsSeederFunctions,
+    healthCheckLogGroup,
+    healthCheckFunction,
   };
 }

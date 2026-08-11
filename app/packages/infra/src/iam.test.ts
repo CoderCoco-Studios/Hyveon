@@ -2,7 +2,14 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { defineIamPolicies, defineIamRoles, gamesWithFileSeeds, type DefineIamPoliciesArgs, type IamRoleResources } from './iam.js';
+import {
+  defineIamPolicies,
+  defineIamRoles,
+  gamesWithFileSeeds,
+  gamesWithHealthChecks,
+  type DefineIamPoliciesArgs,
+  type IamRoleResources,
+} from './iam.js';
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
@@ -24,10 +31,23 @@ const DEFERRED_ARN_VALUES = {
   ecsClusterName: 'hyveon-cluster',
 };
 
-/** The deferred-ARN parameters passed to every `defineIamPolicies` call under test — see {@link DEFERRED_ARN_VALUES}'s doc. */
+/**
+ * The deferred-ARN parameters passed to every `defineIamPolicies` call under
+ * test — see {@link DEFERRED_ARN_VALUES}'s doc. `gameServers` defaults to
+ * {@link FIXTURE_GAME_SERVERS} (no game declares `healthCheck`) and
+ * `healthCheckFunctionArn` to `undefined`, matching that default — tests
+ * exercising the health-check policy override both.
+ */
 const DEFERRED_ARGS: Pick<
   DefineIamPoliciesArgs,
-  'efsFileSystemArn' | 'dynamodbDiscordTableArn' | 'discordPublicKeySecretArn' | 'followupLambdaArn' | 'hostedZoneId' | 'ecsClusterName'
+  | 'efsFileSystemArn'
+  | 'dynamodbDiscordTableArn'
+  | 'discordPublicKeySecretArn'
+  | 'followupLambdaArn'
+  | 'hostedZoneId'
+  | 'ecsClusterName'
+  | 'gameServers'
+  | 'healthCheckFunctionArn'
 > = {
   efsFileSystemArn: DEFERRED_ARN_VALUES.efsFileSystemArn,
   dynamodbDiscordTableArn: pulumi.output(DEFERRED_ARN_VALUES.dynamodbDiscordTableArn),
@@ -35,6 +55,8 @@ const DEFERRED_ARGS: Pick<
   followupLambdaArn: DEFERRED_ARN_VALUES.followupLambdaArn,
   hostedZoneId: DEFERRED_ARN_VALUES.hostedZoneId,
   ecsClusterName: DEFERRED_ARN_VALUES.ecsClusterName,
+  gameServers: FIXTURE_GAME_SERVERS,
+  healthCheckFunctionArn: undefined,
 };
 
 /** Resolves every leaf role/attachment `defineIamRoles` declares, guaranteeing the mock recorder has captured the full role set before assertions run (see `pulumiMocks.ts`'s `promiseOf` doc). */
@@ -48,6 +70,7 @@ async function runDefineIamRoles(args: Parameters<typeof defineIamRoles>[0]): Pr
     promiseOf(roles.dnsUpdaterLambdaRole.id),
     promiseOf(roles.fileBrowserSchedulerRole.id),
     ...Object.values(roles.efsSeederRoles).map((role) => promiseOf(role.id)),
+    ...(roles.healthCheckLambdaRole ? [promiseOf(roles.healthCheckLambdaRole.id)] : []),
   ]);
   return roles;
 }
@@ -62,6 +85,7 @@ async function runDefineIamPolicies(args: Parameters<typeof defineIamPolicies>[0
     promiseOf(policies.dnsUpdaterLambdaPolicy.id),
     promiseOf(policies.fileBrowserSchedulerPolicy.id),
     ...Object.values(policies.efsSeederPolicies).map((policy) => promiseOf(policy.id)),
+    ...(policies.healthCheckLambdaPolicy ? [promiseOf(policies.healthCheckLambdaPolicy.id)] : []),
   ]);
   return policies;
 }
@@ -113,6 +137,38 @@ describe('gamesWithFileSeeds', () => {
       },
     };
     expect(Object.keys(gamesWithFileSeeds(gameServers))).toEqual(['echo']);
+  });
+});
+
+/** A `gameServers` map extending {@link FIXTURE_GAME_SERVERS} with one game (`echo`) declaring an authenticated `healthCheck` — exercises the health-check role/policy/secretsmanager-scoping shape. */
+const GAME_SERVERS_WITH_HEALTH_CHECK: Record<string, GameServerConfig> = {
+  ...FIXTURE_GAME_SERVERS,
+  echo: {
+    image: 'example/echo:latest',
+    cpu: 1024,
+    memory: 2048,
+    ports: [{ container: 8211, protocol: 'tcp' }],
+    volumes: [{ name: 'saves', container_path: '/data' }],
+    healthCheck: {
+      kind: 'http',
+      scheme: 'http',
+      port: 8211,
+      path: '/status',
+      method: 'GET',
+      timeoutMs: 2000,
+      auth: { secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-echo-token-AbCdEf' },
+      activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+    },
+  },
+};
+
+describe('gamesWithHealthChecks', () => {
+  it('should return an empty map when no game declares healthCheck', () => {
+    expect(gamesWithHealthChecks(FIXTURE_GAME_SERVERS)).toEqual({});
+  });
+
+  it('should include only games declaring healthCheck', () => {
+    expect(Object.keys(gamesWithHealthChecks(GAME_SERVERS_WITH_HEALTH_CHECK))).toEqual(['echo']);
   });
 });
 
@@ -202,6 +258,27 @@ describe('defineIamRoles', () => {
     expect(parsedPolicy(role, 'assumeRolePolicy')).toEqual({
       Version: '2012-10-17',
       Statement: [{ Action: 'sts:AssumeRole', Effect: 'Allow', Principal: { Service: 'scheduler.amazonaws.com' } }],
+    });
+  });
+
+  it('should declare no health-check role when no game declares healthCheck', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const roles = await runDefineIamRoles({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, provider });
+
+    expect(roles.healthCheckLambdaRole).toBeUndefined();
+  });
+
+  it('should declare a single shared health-check role when at least one game declares healthCheck', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const roles = await runDefineIamRoles({ projectName: 'hyveon', gameServers: GAME_SERVERS_WITH_HEALTH_CHECK, provider });
+
+    expect(roles.healthCheckLambdaRole).toBeDefined();
+    const role = findByName(mocks.resources, 'hyveon-health-check-lambda');
+    expect(role.type).toBe('aws:iam/role:Role');
+    expect(role.inputs.name).toBe('hyveon-health-check-lambda');
+    expect(parsedPolicy(role, 'assumeRolePolicy')).toEqual({
+      Version: '2012-10-17',
+      Statement: [{ Action: 'sts:AssumeRole', Effect: 'Allow', Principal: { Service: 'lambda.amazonaws.com' } }],
     });
   });
 });
@@ -356,5 +433,90 @@ describe('defineIamPolicies', () => {
         },
       ],
     });
+  });
+
+  it('should declare no health-check policy when no game declares healthCheck', async () => {
+    const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
+    const policies = await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
+
+    expect(policies.healthCheckLambdaPolicy).toBeUndefined();
+  });
+
+  it('should grant the health-check policy ec2/ecs access plus secretsmanager scoped to exactly the referenced secret ARNs', async () => {
+    const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
+    const policies = await runDefineIamPolicies({
+      projectName: 'hyveon',
+      provider,
+      roles,
+      ...DEFERRED_ARGS,
+      gameServers: GAME_SERVERS_WITH_HEALTH_CHECK,
+    });
+
+    expect(policies.healthCheckLambdaPolicy).toBeDefined();
+    const policy = findByName(mocks.resources, 'hyveon-health-check-lambda-policy');
+    expect(policy.inputs.role).toBe(await promiseOf(roles.healthCheckLambdaRole!.id));
+    expect(parsedPolicy(policy, 'policy')).toEqual({
+      Version: '2012-10-17',
+      Statement: [
+        { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: 'arn:aws:logs:*:*:*' },
+        {
+          Effect: 'Allow',
+          Action: ['ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', 'ec2:DeleteNetworkInterface'],
+          Resource: '*',
+        },
+        {
+          Effect: 'Allow',
+          Action: ['ecs:DescribeTasks'],
+          Resource: `arn:aws:ecs:*:*:task/${DEFERRED_ARN_VALUES.ecsClusterName}/*`,
+        },
+        {
+          Effect: 'Allow',
+          Action: ['secretsmanager:GetSecretValue'],
+          Resource: [GAME_SERVERS_WITH_HEALTH_CHECK.echo.healthCheck!.auth!.secretArn],
+        },
+      ],
+    });
+  });
+
+  it('should omit the secretsmanager statement from the health-check policy when no opted-in game references a credential', async () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      echo: {
+        ...GAME_SERVERS_WITH_HEALTH_CHECK.echo,
+        healthCheck: { ...GAME_SERVERS_WITH_HEALTH_CHECK.echo.healthCheck!, auth: undefined },
+      },
+    };
+    const { provider, roles } = await arrangeRoles(gameServers);
+    await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS, gameServers });
+
+    const policy = findByName(mocks.resources, 'hyveon-health-check-lambda-policy');
+    const statements = (parsedPolicy(policy, 'policy') as { Statement: { Action: string[] }[] }).Statement;
+    expect(statements.some((s) => s.Action.includes('secretsmanager:GetSecretValue'))).toBe(false);
+  });
+
+  it('should grant the watchdog policy lambda:InvokeFunction on the health-check function ARN when provided', async () => {
+    const { provider, roles } = await arrangeRoles(GAME_SERVERS_WITH_HEALTH_CHECK);
+    const healthCheckFunctionArn = 'arn:aws:lambda:us-east-1:123456789012:function:hyveon-health-check';
+    await runDefineIamPolicies({
+      projectName: 'hyveon',
+      provider,
+      roles,
+      ...DEFERRED_ARGS,
+      gameServers: GAME_SERVERS_WITH_HEALTH_CHECK,
+      healthCheckFunctionArn,
+    });
+
+    const policy = findByName(mocks.resources, 'hyveon-watchdog-lambda-policy');
+    const statements = (parsedPolicy(policy, 'policy') as { Statement: { Action: string[]; Resource: string }[] }).Statement;
+    expect(statements).toContainEqual({ Effect: 'Allow', Action: ['lambda:InvokeFunction'], Resource: healthCheckFunctionArn });
+  });
+
+  it('should omit lambda:InvokeFunction from the watchdog policy when no health-check function exists', async () => {
+    const { provider, roles } = await arrangeRoles(FIXTURE_GAME_SERVERS);
+    await runDefineIamPolicies({ projectName: 'hyveon', provider, roles, ...DEFERRED_ARGS });
+
+    const policy = findByName(mocks.resources, 'hyveon-watchdog-lambda-policy');
+    const statements = (parsedPolicy(policy, 'policy') as { Statement: { Action: string[] }[] }).Statement;
+    expect(statements.some((s) => s.Action.includes('lambda:InvokeFunction'))).toBe(false);
   });
 });

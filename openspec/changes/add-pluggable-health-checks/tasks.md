@@ -28,13 +28,13 @@
 
 ## 5. Infrastructure
 
-- [ ] 5.1 Derive the participating set once in `iam.ts` from `gamesWithHealthChecks` and create the health-check role only when it is non-empty, following the `efsSeederRoles` pattern
-- [ ] 5.2 Write the role's policy: the standard log statement, the three `ec2:*NetworkInterface` actions required by any `vpcConfig` Lambda, `ecs:DescribeTasks` scoped to the cluster, and `secretsmanager:GetSecretValue` scoped to exactly the `auth.secretArn` values opted-in games reference
-- [ ] 5.3 Add the conditional `healthCheckSg` in `securityGroups.ts` following `efsSeederSg` — `namePrefix`, no inline egress — plus a standalone egress rule per declared health-check port toward `gameServersSg`, and the matching ingress on `gameServersSg`
-- [ ] 5.4 Declare the function in `lambdas.ts` gated on the roles map being non-empty: shared bundle, `vpcConfig` on the public subnets with the new security group, `AWS_REGION_`, its log group, and the invoke permission for the watchdog role only — no Function URL
-- [ ] 5.5 Add the opted-in-games env var to the watchdog's existing `environment.variables`, built by a sorted-key helper alongside `connectMessagesByGame` and `firstPortByGame`
-- [ ] 5.6 Assert the zero-footprint property in the infra tests: a `DeploymentConfig` where no game declares `healthCheck` yields no health-check role, policy, security group, rule, log group, or function
-- [ ] 5.7 Assert in infra tests that the health-check Lambda's `vpcConfig` places it on the same public subnets, with the same internet-gateway route, as every other Lambda — confirming its `ecs:DescribeTasks` and `secretsmanager:GetSecretValue` calls need no NAT gateway or VPC endpoint, only the IAM statements from 5.2
+- [x] 5.1 Derive the participating set once in `iam.ts` from `gamesWithHealthChecks` and create the health-check role only when it is non-empty, following the `efsSeederRoles` pattern
+- [x] 5.2 Write the role's policy: the standard log statement, the three `ec2:*NetworkInterface` actions required by any `vpcConfig` Lambda, `ecs:DescribeTasks` scoped to the cluster, and `secretsmanager:GetSecretValue` scoped to exactly the `auth.secretArn` values opted-in games reference
+- [x] 5.3 Add the conditional `healthCheckSg` in `securityGroups.ts` following `efsSeederSg` — `namePrefix`, no inline egress — plus a standalone egress rule per declared health-check port toward `gameServersSg`, and the matching ingress on `gameServersSg`
+- [x] 5.4 Declare the function in `lambdas.ts` gated on the roles map being non-empty: shared bundle, `vpcConfig` on the public subnets with the new security group, `AWS_REGION_`, its log group, and the invoke permission for the watchdog role only — no Function URL
+- [x] 5.5 Add the opted-in-games env var to the watchdog's existing `environment.variables`, built by a sorted-key helper alongside `connectMessagesByGame` and `firstPortByGame`
+- [x] 5.6 Assert the zero-footprint property in the infra tests: a `DeploymentConfig` where no game declares `healthCheck` yields no health-check role, policy, security group, rule, log group, or function
+- [x] 5.7 Assert in infra tests that the health-check Lambda's `vpcConfig` places it on the same public subnets, with the same internet-gateway route, as every other Lambda — confirming its `ecs:DescribeTasks` and `secretsmanager:GetSecretValue` calls need no NAT gateway or VPC endpoint, only the IAM statements from 5.2
 
 ## 6. Operator interface
 
@@ -43,7 +43,7 @@
 
 ## 7. Documentation and gates
 
-- [ ] 7.1 Update `docs/docs/components/lambdas.md` — the new function, its conditional provisioning, and the watchdog's verdict routing
-- [ ] 7.2 Update `docs/docs/components/infra.md` — the conditional resources, the security-group rules, and the port-level confinement caveat
+- [x] 7.1 Update `docs/docs/components/lambdas.md` — the new function, its conditional provisioning, and the watchdog's verdict routing
+- [x] 7.2 Update `docs/docs/components/infra.md` — the conditional resources, the security-group rules, and the port-level confinement caveat
 - [ ] 7.3 Update the add/edit-game wizard page under `docs/docs/app/`
 - [ ] 7.4 Run `npm run app:lint`, `npm run app:typecheck`, `npm run app:test`, and `npm run app:test:integration`, and confirm each exits zero
