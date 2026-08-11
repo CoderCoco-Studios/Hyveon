@@ -20,8 +20,8 @@ panel's Pause/Resume, Levels filter, and search controls described below
 (it shows only the bare scrolling log view).
 :::
 
-Four sections, in order: **Watchdog Configuration**, **Cloud Setup**,
-**General**, **Diagnostics**.
+Five sections, in order: **Watchdog Configuration**, **Cloud Health**,
+**Cloud Setup**, **General**, **Diagnostics**.
 
 ## Watchdog Configuration
 
@@ -43,6 +43,47 @@ nothing in AWS. That dead flow was removed (#348); the three real tunables are
 now read and written in exactly one place — see
 [General → Watchdog tuning](#watchdog-tuning) below for what each field means,
 its default, and tuning advice.
+
+## Cloud Health
+
+An always-visible checklist of AWS-account prerequisites the deployed
+infrastructure depends on but Pulumi itself won't surface as a plan/apply
+error — things IAM or another service rejects at runtime instead, with no
+in-app way to discover why. It runs once on mount and again only when you
+press **Refresh**; there is no polling.
+
+It ships with one check:
+
+| Check | What it verifies |
+|---|---|
+| **ECS service-linked role** | Whether the `AWSServiceRoleForECS` service-linked role exists in the account. Its absence makes ECS `RunTask` fail with `InvalidParameterException` when a game server starts — with nothing in the UI to explain why. |
+
+Each row shows an icon, the check's label, and a status badge:
+
+| Status | Badge | Meaning |
+|---|---|---|
+| `ok` | **OK** (green) | The check passed. No Fix button. |
+| `missing` | **Missing** (red) | The prerequisite isn't in place yet. |
+| `error` | **Error** (red) | The check itself failed to run (e.g. an unexpected AWS SDK error) rather than confirming the prerequisite is absent. |
+
+A row in `missing` or `error` status shows a **Fix** button. Pressing it
+tries to remediate inline using the operator's stored AWS credentials — for
+the ECS role, that means calling `CreateServiceLinkedRoleCommand` directly.
+One of three things happens:
+
+- **Fixed** — the whole list refetches, and the row now shows **OK**.
+- **Failed** — an unexpected error; the row shows the raw error message in
+  place of its usual detail text, and Fix can be pressed again.
+- **Needs a policy update** — the fix call itself came back
+  `AccessDeniedException`, meaning the operator's `HyveonDeployAll` policy
+  predates the permission this check's fix needs. The row shows an amber
+  explanation ("Your Hyveon deploy policy needs updating. Apply the JSON
+  below via your CloudFormation stack, then click Fix again.") followed by
+  the current `HyveonDeployAll` policy JSON in a scrollable code block, with
+  a copy button. Apply that JSON to the `HyveonDeployAll` CloudFormation
+  stack (see [Setup → Create and authorise an IAM
+  user](/setup#1-create-and-authorise-an-iam-user)), then press **Fix**
+  again.
 
 ## Cloud Setup
 
