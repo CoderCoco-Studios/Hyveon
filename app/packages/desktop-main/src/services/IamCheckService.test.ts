@@ -123,6 +123,19 @@ describe('IamCheckService', () => {
       expect(calls[2]!.args[0].input.ActionNames).toHaveLength(20);
     });
 
+    it('should supply the iam:AWSServiceName context entry so the ECS SLR condition evaluates correctly', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      await service.checkPermissions();
+
+      const calls = iamMock.commandCalls(SimulatePrincipalPolicyCommand);
+      expect(calls[0]!.args[0].input.ContextEntries).toEqual([
+        { ContextKeyName: 'iam:AWSServiceName', ContextKeyValues: ['ecs.amazonaws.com'], ContextKeyType: 'string' },
+      ]);
+    });
+
     it('should pass the caller ARN from GetCallerIdentity as the PolicySourceArn', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:role/hyveon-role' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });

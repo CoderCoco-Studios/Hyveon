@@ -14,6 +14,22 @@ import { GUIDED_PROFILE_NAME } from './GuidedIamService.js';
  */
 const SIMULATE_BATCH_SIZE = 50;
 
+/**
+ * `ContextEntries` supplied on every `SimulatePrincipalPolicyCommand` call.
+ * `HYVEON_DEPLOY_ALL_ACTIONS` includes `iam:CreateServiceLinkedRole`, whose
+ * only grant (`HyveonServiceLinkedRoles` in `@hyveon/shared`'s
+ * `HYVEON_DEPLOY_ALL_STATEMENTS`) is conditioned on
+ * `StringEquals: { 'iam:AWSServiceName': 'ecs.amazonaws.com' }`. AWS's
+ * simulator evaluates an unsupplied condition context key as not matching,
+ * so without this entry that action simulates as denied for every account,
+ * including correctly-configured ones. Safe to include unconditionally for
+ * the whole batch — the simulator only consults a context entry for
+ * actions/statements that actually reference that key.
+ */
+const SIMULATE_CONTEXT_ENTRIES = [
+  { ContextKeyName: 'iam:AWSServiceName', ContextKeyValues: ['ecs.amazonaws.com'], ContextKeyType: 'string' as const },
+];
+
 /** Outcome of {@link IamCheckService.checkPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
@@ -132,7 +148,11 @@ export class IamCheckService {
       const client = this.createIamClient(region, source);
       for (const batch of this.chunk(actions, SIMULATE_BATCH_SIZE)) {
         const response = await client.send(
-          new SimulatePrincipalPolicyCommand({ PolicySourceArn: callerArn, ActionNames: [...batch] }),
+          new SimulatePrincipalPolicyCommand({
+            PolicySourceArn: callerArn,
+            ActionNames: [...batch],
+            ContextEntries: SIMULATE_CONTEXT_ENTRIES,
+          }),
         );
         for (const result of response.EvaluationResults ?? []) {
           if (result.EvalDecision !== 'allowed' && result.EvalActionName) {
