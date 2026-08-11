@@ -138,6 +138,15 @@ the IAM user by hand instead:
         "arn:aws:s3:::${project_name}-tfstate",
         "arn:aws:s3:::${project_name}-tfstate/*"
       ]
+    },
+    {
+      "Sid": "HyveonServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*",
+      "Condition": {
+        "StringEquals": { "iam:AWSServiceName": "ecs.amazonaws.com" }
+      }
     }
   ]
 }

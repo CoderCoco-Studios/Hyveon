@@ -33,6 +33,7 @@ export const HYVEON_DEPLOY_ALL_ACTIONS: readonly string[] = [
   's3:PutLifecycleConfiguration',
   's3:PutEncryptionConfiguration',
   's3:PutBucketPublicAccessBlock',
+  'iam:CreateServiceLinkedRole',
 ];
 
 /**
@@ -54,6 +55,8 @@ interface HyveonDeployAllStatement {
    * ARN array for the two bucket-scoped statements.
    */
   readonly Resource: string | readonly string[] | ((projectName: string) => readonly string[]);
+  /** IAM condition block, e.g. restricting `iam:CreateServiceLinkedRole` to one AWS service. */
+  readonly Condition?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /**
@@ -137,6 +140,15 @@ export const HYVEON_DEPLOY_ALL_STATEMENTS: readonly HyveonDeployAllStatement[] =
       `arn:aws:s3:::${projectName}-tfstate/*`,
     ],
   },
+  {
+    Sid: 'HyveonServiceLinkedRoles',
+    Effect: 'Allow',
+    Action: 'iam:CreateServiceLinkedRole',
+    Resource: 'arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*',
+    Condition: {
+      StringEquals: { 'iam:AWSServiceName': 'ecs.amazonaws.com' },
+    },
+  },
 ];
 
 /**
@@ -149,6 +161,7 @@ interface RenderedPolicyStatement {
   readonly Effect: 'Allow';
   readonly Action: string | readonly string[];
   readonly Resource: string | readonly string[];
+  readonly Condition?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /**
@@ -174,6 +187,7 @@ export function generateHyveonDeployAllPolicy(
       Effect: statement.Effect,
       Action: statement.Action,
       Resource: typeof statement.Resource === 'function' ? statement.Resource(projectName) : statement.Resource,
+      ...(statement.Condition ? { Condition: statement.Condition } : {}),
     })),
   };
 }

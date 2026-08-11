@@ -22,7 +22,13 @@ const SETUP_DOC_PATH = resolve(__dirname, '../../../../docs/docs/setup.md');
  * `docs/docs/setup.md`.
  */
 function parseDocPolicy(): {
-  Statement: Array<{ Sid: string; Effect: string; Action: string | string[]; Resource: string | string[] }>;
+  Statement: Array<{
+    Sid: string;
+    Effect: string;
+    Action: string | string[];
+    Resource: string | string[];
+    Condition?: Record<string, Record<string, string>>;
+  }>;
 } {
   const markdown = readFileSync(SETUP_DOC_PATH, 'utf-8');
   const match = markdown.match(/```json\n([\s\S]*?)\n```/);
@@ -30,7 +36,13 @@ function parseDocPolicy(): {
     throw new Error('Could not find the HyveonDeployAll policy JSON block in docs/docs/setup.md');
   }
   return JSON.parse(match[1]!) as {
-    Statement: Array<{ Sid: string; Effect: string; Action: string | string[]; Resource: string | string[] }>;
+    Statement: Array<{
+      Sid: string;
+      Effect: string;
+      Action: string | string[];
+      Resource: string | string[];
+      Condition?: Record<string, Record<string, string>>;
+    }>;
   };
 }
 
@@ -80,13 +92,16 @@ function normalizeResource(resource: string | readonly string[]): string[] {
  * `${project_name}` as documentation notation, not a literal CloudFormation
  * intrinsic.
  */
-function extractDocStatements(projectName: string): Array<{ Sid: string; Effect: string; Action: string[]; Resource: string[] }> {
+function extractDocStatements(
+  projectName: string,
+): Array<{ Sid: string; Effect: string; Action: string[]; Resource: string[]; Condition?: Record<string, Record<string, string>> }> {
   const policy = parseDocPolicy();
   return policy.Statement.map((statement) => ({
     Sid: statement.Sid,
     Effect: statement.Effect,
     Action: normalizeActions(statement.Action),
     Resource: normalizeResource(statement.Resource).map((arn) => arn.replaceAll('${project_name}', projectName)),
+    Condition: statement.Condition,
   }));
 }
 
@@ -121,6 +136,7 @@ describe('generateHyveonDeployAllPolicy', () => {
       Effect: statement.Effect,
       Action: normalizeActions(statement.Action),
       Resource: normalizeResource(statement.Resource),
+      Condition: statement.Condition,
     }));
 
     expect(generatedStatements).toHaveLength(docStatements.length);
@@ -130,6 +146,7 @@ describe('generateHyveonDeployAllPolicy', () => {
       expect(statement.Effect).toBe(docStatement.Effect);
       expect(new Set(statement.Action)).toEqual(new Set(docStatement.Action));
       expect(new Set(statement.Resource)).toEqual(new Set(docStatement.Resource));
+      expect(statement.Condition).toEqual(docStatement.Condition);
     });
   });
 });
