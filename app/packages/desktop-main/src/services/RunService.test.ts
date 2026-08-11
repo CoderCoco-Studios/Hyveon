@@ -14,7 +14,12 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { DEFAULT_LOCK_TTL_MS, RunLockClearNotConfirmedError, RunService } from './RunService.js';
+import {
+  DEFAULT_LOCK_TTL_MS,
+  RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS,
+  RunLockClearNotConfirmedError,
+  RunService,
+} from './RunService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 import type { StackOutputs } from '@hyveon/shared';
@@ -368,6 +373,76 @@ describe('RunService', () => {
       const second = await service.mintLockClearConfirmationToken();
       expect(first).not.toBe(second);
       await expect(service.clearLock(first)).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+  });
+
+  describe('RunService.clearLock', () => {
+    it('should throw RunLockClearNotConfirmedError when no token has ever been minted', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      await expect(service.clearLock('bogus-token')).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should throw RunLockClearNotConfirmedError when the supplied token does not match the most recently minted one', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      await service.mintLockClearConfirmationToken();
+      await expect(service.clearLock('wrong-token')).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should throw RunLockClearNotConfirmedError when the minted token has expired', async () => {
+      vi.useFakeTimers();
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken();
+      vi.advanceTimersByTime(RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS + 1);
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+      vi.useRealTimers();
+    });
+
+    it('should clear the lock and allow a subsequent createRun on a valid, fresh token', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken();
+      await service.clearLock(token);
+      expect(service.getCurrentLock()).toBeUndefined();
+      expect(releaseRunLockMock).toHaveBeenCalledWith(lock.runId);
+      await expect(service.createRun('apply', 'someone-else')).resolves.toMatchObject({ initiator: 'someone-else' });
+    });
+
+    it('should refuse to clear (token no longer bound to the current lock) when a different run has since acquired the lock', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken();
+      await service.releaseRun((service.getCurrentLock()!).runId); // original run finishes on its own
+      const newLock = await service.createRun('apply', 'someone-else'); // a new, legitimate run starts
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+      expect(service.getCurrentLock()).toMatchObject({ runId: newLock.runId }); // untouched
+    });
+
+    it('should consume the token: a second clearLock() call reusing an already-consumed token is rejected', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken();
+      await service.clearLock(token);
+      await service.createRun('apply', 'someone-else');
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should clear a durable-only lock (no in-memory lock in this process) on a valid, fresh token', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      const durableLock: RunLock = {
+        runId: 'other-process-run-id',
+        kind: 'apply',
+        initiator: 'someone-else',
+        acquiredAt: '2026-08-10T03:52:26.761Z',
+        expiresAt: '2026-08-10T04:52:26.761Z',
+      };
+      getRunLockMock.mockResolvedValue(durableLock);
+      const token = await service.mintLockClearConfirmationToken();
+      getRunLockMock.mockResolvedValue(durableLock); // still held at confirm time
+      await service.clearLock(token);
+      expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
     });
   });
 });

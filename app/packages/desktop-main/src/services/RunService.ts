@@ -263,4 +263,79 @@ export class RunService {
     };
     return token;
   }
+
+  /**
+   * Throws {@link RunLockClearNotConfirmedError} unless `token` matches the
+   * most recently minted, not-yet-expired, not-yet-consumed confirmation
+   * token AND the lock it was bound to (by `runId`) is still the one
+   * currently held — i.e. no different run has acquired the lock since the
+   * token was minted. On success, consumes the token (clears
+   * {@link pendingLockClearConfirmation}) and returns the bound `runId`.
+   *
+   * Unlike `PulumiService.assertFreshLockClearConfirmation` this is `async`:
+   * the "still current" check must consult the same durable fallback
+   * {@link mintLockClearConfirmationToken} used to bind the token in the
+   * first place (see Task 2), or a token minted from a durable-only lock
+   * (this process has no matching in-memory field) would always fail here.
+   * The two awaits this adds (`getStackOutputs()`, `store.getRunLock()`) are
+   * both read-only and idempotent, so no double-release risk is introduced.
+   * Mirrors {@link mintLockClearConfirmationToken}'s handling of a rejected
+   * durable read: caught, logged via `logger.warn`, and treated as no lock
+   * found rather than letting the raw error escape.
+   *
+   * @param token - The token to validate, as returned by
+   *   {@link mintLockClearConfirmationToken}.
+   * @returns The `runId` the (now-consumed) token was bound to.
+   * @throws {@link RunLockClearNotConfirmedError} if `token` is missing,
+   *   wrong, expired, or bound to a `runId` the currently held lock (checked
+   *   in-memory, then durably) no longer matches.
+   */
+  private async assertFreshLockClearConfirmation(token: string): Promise<string> {
+    const pending = this.pendingLockClearConfirmation;
+    let current = this.getCurrentLock();
+    if (!current) {
+      const tableName = (await this.config.getStackOutputs())?.runsTableName;
+      if (tableName) {
+        try {
+          current = await this.store.getRunLock();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn('RunService.assertFreshLockClearConfirmation: failed to read DynamoDB apply lock', {
+            error: message,
+          });
+        }
+      }
+    }
+    if (
+      !pending ||
+      pending.token !== token ||
+      Date.now() > pending.expiresAt ||
+      !current ||
+      current.runId !== pending.runId
+    ) {
+      throw new RunLockClearNotConfirmedError();
+    }
+    this.pendingLockClearConfirmation = null;
+    return pending.runId;
+  }
+
+  /**
+   * Clears the run lock currently held, gated behind a fresh confirmation
+   * token minted via {@link mintLockClearConfirmationToken} — an operator
+   * recovery path for a lock a crashed/abandoned run left standing past what
+   * its holder intended, without waiting for {@link DEFAULT_LOCK_TTL_MS} to
+   * elapse. Delegates to the existing {@link releaseRun} once the token is
+   * validated; introduces no new release semantics.
+   *
+   * @param token - The confirmation token to validate.
+   * @throws {@link RunLockClearNotConfirmedError} if `token` is missing,
+   *   wrong, expired, or no longer bound to the currently held lock (a
+   *   different run has since acquired it).
+   */
+  async clearLock(token: string): Promise<void> {
+    logger.debug('RunService.clearLock: clearing confirmed-stale run lock');
+    const runId = await this.assertFreshLockClearConfirmation(token);
+    await this.releaseRun(runId);
+    logger.warn('run lock cleared by explicit operator confirmation (unrecognized-lock recovery)', { runId });
+  }
 }
