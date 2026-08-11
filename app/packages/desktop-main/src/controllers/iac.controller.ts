@@ -4,7 +4,7 @@ import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import { RunLockHeldError } from '@hyveon/shared';
-import type { DeploymentConfigDiff, StackOutputs } from '@hyveon/shared';
+import type { DeploymentConfigDiff, RunLock, StackOutputs } from '@hyveon/shared';
 import {
   PulumiService,
   PulumiOperationInFlightError,
@@ -276,6 +276,15 @@ interface IacPlanAck {
   error?: string;
   conflict?: 'preview' | 'up' | 'destroy' | 'rollback';
   staleLock?: StaleLockInfo;
+  /**
+   * The durable apply lock currently held by another run, present only when
+   * the rejection was `RunLockHeldError` (as opposed to a
+   * `PulumiOperationInFlightError` busy refusal, which populates `conflict`
+   * identically but has no lock to attach — that flag means *this* process
+   * is busy right now). Lets the renderer offer a "Clear lock and retry"
+   * action only for the genuinely clearable case.
+   */
+  runLock?: RunLock;
 }
 
 /**
@@ -992,7 +1001,7 @@ export class IacController implements OnModuleInit {
     } catch (err) {
       if (err instanceof RunLockHeldError) {
         logger.error('apply rejected: apply lock already held', { planRunId: payload.planRunId, lock: err.lock });
-        return { started: false, error: err.message, conflict: 'up' };
+        return { started: false, error: err.message, conflict: 'up', runLock: err.lock };
       }
       if (err instanceof PulumiOperationInFlightError) {
         // Mirrors plan()'s pre-flight conflict shape: the in-process
@@ -1189,7 +1198,7 @@ export class IacController implements OnModuleInit {
     } catch (err) {
       if (err instanceof RunLockHeldError) {
         logger.error('destroy rejected: apply lock already held', { runId, lock: err.lock });
-        return { started: false, error: err.message, conflict: 'destroy' };
+        return { started: false, error: err.message, conflict: 'destroy', runLock: err.lock };
       }
       if (err instanceof PulumiOperationInFlightError) {
         // Mirrors apply()'s equivalent branch — see that catch block's

@@ -1,7 +1,7 @@
 import type { Page, ElectronApplication } from '../fixtures/index.js';
 import { test, expect, launchElectron, applyHyveonMocks } from '../fixtures/index.js';
 import { IacPage } from '../pages/index.js';
-import type { ChangeSummary } from '@hyveon/shared';
+import type { ChangeSummary, RunLock } from '@hyveon/shared';
 import type { IacStaleLockInfo } from '@hyveon/desktop-preload';
 
 /**
@@ -310,5 +310,100 @@ test.describe('iac page', () => {
     await expect(banner).toContainText('hyveon-prod');
     await expect(banner).toContainText('alice@ci-runner');
     await expect(banner).toContainText('pid 4321');
+  });
+
+  test('should clear a stuck run lock and allow manual resubmission', async () => {
+    const runLock: RunLock = {
+      runId: 'r1',
+      kind: 'apply',
+      initiator: 'chris',
+      acquiredAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 55 * 60 * 1000).toISOString(),
+    };
+
+    await applyHyveonMocks(win);
+    // Seeds plan/approve/runs.get/runs.logs for the default happy-path apply
+    // run (APPLY_RUN_ID); the `iac.apply` handler itself is overridden below
+    // so the first submission reports the durable-lock refusal instead.
+    await mockIac(win);
+    const mintedToken = 'tok';
+    await win.evaluate(
+      ({ runLock, applyRunId, mintedToken }) => {
+        const hyveon = (window as unknown as Record<string, unknown>)['hyveon'] as {
+          __test: { mock: (channel: string, handler: unknown) => void };
+        };
+
+        // First submission is refused because a durable RunLock is held
+        // (apply/destroy only — see `IacPlanAck.runLock`'s doc comment);
+        // every later call — the operator's manual resubmit — succeeds.
+        let applyCalls = 0;
+        hyveon.__test.mock('iac.apply', () => {
+          applyCalls += 1;
+          if (applyCalls === 1) {
+            return Promise.resolve({
+              started: false,
+              conflict: 'up',
+              error: 'Run lock already held by "chris"',
+              runLock,
+            });
+          }
+          return Promise.resolve({ started: true, runId: applyRunId });
+        });
+        // Record the confirmationToken the clear handler actually receives,
+        // using window.__calledChannels as the in-browser store (mirrors
+        // dashboard.spec.ts's IPC-call-capture pattern) — proves the
+        // mint→clear token-passing chain is exercised end to end, not just
+        // independently mocked.
+        (window as unknown as Record<string, unknown>)['__calledChannels'] = {} as Record<string, unknown>;
+        hyveon.__test.mock('iac.runs.lock.clear.mintToken', () => Promise.resolve({ token: mintedToken }));
+        hyveon.__test.mock('iac.runs.lock.clear', (payload: { confirmationToken: string }) => {
+          (
+            (window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, unknown>
+          )['iac.runs.lock.clear.confirmationToken'] = payload.confirmationToken;
+          return Promise.resolve({ cleared: true });
+        });
+      },
+      { runLock, applyRunId: APPLY_RUN_ID, mintedToken },
+    );
+
+    await iac.gotoViaSidebar();
+    await iac.runPlanButton().click();
+    await expect(iac.approveButton()).toBeEnabled();
+    await iac.approveButton().click();
+    await expect(iac.applyButton()).toBeEnabled();
+
+    // First submission is refused — BUSY banner plus the original error
+    // banner both appear, and the runLock ack unlocks the clear action.
+    await iac.applyButton().click();
+    await expect(iac.runLockAlreadyHeldText()).toBeVisible();
+    await expect(iac.clearRunLockButton()).toBeVisible();
+
+    await iac.clearRunLockButton().click();
+    await iac.confirmClearLockButton().click();
+    await expect(iac.runLockClearedToast()).toBeVisible();
+
+    // The `confirmationToken` sent on `iac.runs.lock.clear` must be the
+    // non-empty token actually minted via `iac.runs.lock.clear.mintToken` —
+    // proves `iac.page.tsx` wires the mint→clear chain correctly rather than
+    // sending a blank or fabricated token.
+    const capturedToken = await win.evaluate(
+      () =>
+        ((window as unknown as Record<string, unknown>)['__calledChannels'] as Record<string, unknown>)[
+          'iac.runs.lock.clear.confirmationToken'
+        ],
+    );
+    expect(capturedToken).toBe(mintedToken);
+    expect(typeof capturedToken).toBe('string');
+    expect(capturedToken).not.toHaveLength(0);
+
+    // Returns to the ready-to-submit state: both the original error banner
+    // and the BUSY banner's clear action are gone, and clearing never
+    // auto-resubmits on its own.
+    await expect(iac.runLockAlreadyHeldText()).not.toBeVisible();
+    await expect(iac.clearRunLockButton()).not.toBeVisible();
+
+    // Operator resubmits manually — this time it succeeds.
+    await iac.applyButton().click();
+    await expect(iac.applyCompleteText()).toBeVisible();
   });
 });

@@ -946,7 +946,7 @@ describe('IacController', () => {
 
       const result = await new IacController(pulumi, audit).apply(APPLY_PAYLOAD, ctx);
 
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up' });
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'up', runLock: heldLock });
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });
@@ -1218,7 +1218,7 @@ describe('IacController', () => {
 
       const result = await new IacController(pulumi, audit).destroy(DESTROY_PAYLOAD, ctx);
 
-      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'destroy' });
+      expect(result).toEqual({ started: false, error: expect.any(String), conflict: 'destroy', runLock: heldLock });
       expect(sender.send).not.toHaveBeenCalled();
       expect(record).not.toHaveBeenCalled();
     });

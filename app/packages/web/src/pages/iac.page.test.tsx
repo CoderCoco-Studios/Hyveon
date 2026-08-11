@@ -9,6 +9,9 @@ const apiMock = vi.hoisted(() => ({
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
+const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
+
 /**
  * Stub for `window.hyveon.iac` — `plan`/`approve`/`apply` are plain
  * `vi.fn()`s resolved per-test; `runs.streamLogs` and `runs.get` are keyed
@@ -26,6 +29,10 @@ const hyveonMock = {
     runs: {
       get: vi.fn(),
       streamLogs: vi.fn(),
+      lock: {
+        mintToken: vi.fn(),
+        clear: vi.fn(),
+      },
     },
     lock: {
       mintToken: vi.fn(),
@@ -124,6 +131,10 @@ describe('IacPage', () => {
     hyveonMock.iac.runs.streamLogs.mockReset();
     hyveonMock.iac.lock.mintToken.mockReset();
     hyveonMock.iac.lock.clear.mockReset();
+    hyveonMock.iac.runs.lock.mintToken.mockReset().mockResolvedValue({ token: 'test-token' });
+    hyveonMock.iac.runs.lock.clear.mockReset().mockResolvedValue({ cleared: true });
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
   });
 
   it('should render the Run plan trigger in the idle state', () => {
@@ -196,6 +207,143 @@ describe('IacPage', () => {
 
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.some((el) => el.textContent?.includes('an apply run is already in progress'))).toBe(true);
+  });
+
+  describe('BusyBanner run-lock clear action', () => {
+    it('should show no clear action on BusyBanner when the busy ack has no runLock (workspace busy, not a durable lock)', async () => {
+      // plan/preview never acquires the durable RunLock, so its only busy refusal is
+      // PulumiOperationInFlightError — always conflict: 'preview', never a runLock.
+      hyveonMock.iac.plan.mockResolvedValue({ started: false, conflict: 'preview', error: 'preview is already in flight' });
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/i }));
+      const alerts = await screen.findAllByRole('alert');
+      expect(alerts.some((el) => el.textContent?.match(/workspace busy/i))).toBe(true);
+      expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
+    });
+
+    it('should show a clear action on BusyBanner when the busy ack carries runLock, clear it on confirm, and return to ready state for manual resubmission', async () => {
+      // Only apply/destroy can be refused with a durable RunLockHeldError (and thus
+      // carry runLock) — plan/preview structurally cannot, see the test above.
+      const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-01T00:05:00.000Z' };
+      hyveonMock.iac.apply.mockResolvedValueOnce({
+        started: false,
+        conflict: 'up',
+        error: 'Run lock already held by "chris"',
+        runLock: heldLock,
+      });
+      hyveonMock.iac.apply.mockResolvedValueOnce({ started: true, runId: APPLY_RUN_ID });
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+
+      await userEvent.click(applyBtn);
+      const alerts = await screen.findAllByRole('alert');
+      expect(alerts.some((el) => el.textContent?.match(/run lock already held/i))).toBe(true); // original ErrorBanner
+      await userEvent.click(await screen.findByRole('button', { name: /clear lock and retry/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
+
+      // The mint call must bind to the SPECIFIC lock instance the dialog
+      // displayed (heldLock.runId), not just "mint for whatever's held" —
+      // closes the TOCTOU gap a stale-lock race would otherwise open.
+      expect(hyveonMock.iac.runs.lock.mintToken).toHaveBeenCalledWith({ expectedRunId: heldLock.runId });
+      expect(hyveonMock.iac.runs.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'test-token' });
+      await waitFor(() =>
+        expect(toastMock.success).toHaveBeenCalledWith(expect.stringMatching(/run lock cleared/i)),
+      );
+      // returns to ready state: both the BUSY banner and the original ErrorBanner are gone
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /clear lock and retry/i })).not.toBeInTheDocument();
+
+      // clearing does not auto-resubmit; the operator retries manually
+      expect(hyveonMock.iac.apply).toHaveBeenCalledTimes(1);
+      await userEvent.click(screen.getByRole('button', { name: /^Apply$/ }));
+      expect(hyveonMock.iac.apply).toHaveBeenCalledTimes(2);
+    });
+
+    it('should show an inline error and keep the banner in place when confirming the clear fails (stale token)', async () => {
+      const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-01T00:05:00.000Z' };
+      hyveonMock.iac.apply.mockResolvedValueOnce({
+        started: false,
+        conflict: 'up',
+        error: 'Run lock already held by "chris"',
+        runLock: heldLock,
+      });
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+      hyveonMock.iac.runs.lock.clear.mockReset().mockResolvedValue({
+        cleared: false,
+        error: 'run lock clear refused: confirmation token expired',
+      });
+
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+
+      await userEvent.click(applyBtn);
+      await screen.findByRole('button', { name: /clear lock and retry/i });
+      await userEvent.click(screen.getByRole('button', { name: /clear lock and retry/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
+
+      expect(hyveonMock.iac.runs.lock.clear).toHaveBeenCalledWith({ confirmationToken: 'test-token' });
+      expect(await screen.findByText('run lock clear refused: confirmation token expired')).toBeInTheDocument();
+      // the banner and its retry action are still present — onCleared() must not have fired
+      expect(screen.getByRole('button', { name: /clear lock and retry/i })).toBeInTheDocument();
+    });
+
+    it('should surface an inline error and never call clear() when the held lock changed since the dialog opened (mint refused)', async () => {
+      // Server-side TOCTOU close: RunService.mintLockClearConfirmationToken
+      // refuses to mint (RunLockChangedError) when the currently held lock's
+      // runId no longer matches the runLock the dialog displayed — the
+      // renderer surfaces the mint rejection inline and never proceeds to
+      // clear().
+      const heldLock = { runId: 'r1', kind: 'apply', initiator: 'chris', acquiredAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-01T00:05:00.000Z' };
+      hyveonMock.iac.apply.mockResolvedValueOnce({
+        started: false,
+        conflict: 'up',
+        error: 'Run lock already held by "chris"',
+        runLock: heldLock,
+      });
+      seedSuccessfulPlan();
+      hyveonMock.iac.approve.mockResolvedValue({
+        approved: true,
+        approvedBy: 'alice',
+        approvedAt: new Date().toISOString(),
+      });
+      hyveonMock.iac.runs.lock.mintToken
+        .mockReset()
+        .mockRejectedValue(new Error('run lock clear-token mint refused: the run lock has changed'));
+
+      renderPage(<IacPage />);
+      await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+      const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+
+      await userEvent.click(applyBtn);
+      await screen.findByRole('button', { name: /clear lock and retry/i });
+      await userEvent.click(screen.getByRole('button', { name: /clear lock and retry/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^clear lock$/i })); // confirm dialog
+
+      expect(hyveonMock.iac.runs.lock.mintToken).toHaveBeenCalledWith({ expectedRunId: heldLock.runId });
+      expect(hyveonMock.iac.runs.lock.clear).not.toHaveBeenCalled();
+      expect(await screen.findByText(/the run lock has changed/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /clear lock and retry/i })).toBeInTheDocument();
+    });
   });
 
   describe('stale-lock recovery', () => {

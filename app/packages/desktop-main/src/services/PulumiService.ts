@@ -55,6 +55,7 @@ import {
 } from './PulumiCancellation.js';
 import { runTreatingLeakedPromiseAsSuccess } from './PulumiLeakedPromise.js';
 import { classifyStackLockConflict, isStackLockConflict, PulumiUnrecognizedLockError } from './PulumiLockRecovery.js';
+import { LockClearConfirmationGate } from './LockClearConfirmationGate.js';
 import type { PersistRunRecordParams, PreflightMarkerParams } from './RunRecordService.js';
 
 /**
@@ -388,18 +389,15 @@ interface PulumiPendingDestroyConfirmation {
 }
 
 /**
- * The most recently minted lock-clear-confirmation token, its expiry, and
- * the target it's bound to — set by
- * {@link PulumiService.mintLockClearConfirmationToken} and consumed
- * (single-use) by {@link PulumiService.assertFreshLockClearConfirmation} the
- * moment a {@link PulumiService.clearStaleLock} call validates it. Mirrors
- * {@link PulumiPendingDestroyConfirmation}'s target-binding design exactly.
+ * The target a lock-clear-confirmation token is bound to at mint time —
+ * the shared {@link LockClearConfirmationGate}'s `TBinding` for
+ * `PulumiService`'s gate. Compared field-by-field against the CURRENT
+ * target when {@link PulumiService.assertFreshLockClearConfirmation}
+ * validates a token, mirroring {@link PulumiPendingDestroyConfirmation}'s
+ * target-binding design exactly (see that interface's doc comment for the
+ * full "why state bucket/region, not just stack/project" reasoning).
  */
-interface PulumiPendingLockClearConfirmation {
-  /** The single-use token the renderer must supply back to {@link PulumiService.clearStaleLock}. */
-  token: string;
-  /** `Date.now() + LOCK_CLEAR_CONFIRMATION_TTL_MS`, captured at mint time. */
-  expiresAt: number;
+interface PulumiLockClearBinding {
   /** The self-managed backend's configured state bucket at mint time, or `undefined` if unconfigured. */
   stateBucket: string | undefined;
   /** The state bucket's configured AWS region at mint time. */
@@ -682,11 +680,20 @@ export class PulumiService {
   private pendingDestroyConfirmation: PulumiPendingDestroyConfirmation | null = null;
 
   /**
-   * The most recently minted lock-clear-confirmation token, its expiry, and
-   * its bound target — see {@link PulumiPendingLockClearConfirmation}'s doc
-   * comment for the full contract.
+   * Mint/assert/consume gate for the lock-clear confirmation token — see
+   * {@link LockClearConfirmationGate}, shared-shape with `RunService`'s own
+   * lock-clear gate. Bound here to a {@link PulumiLockClearBinding} (the
+   * self-managed backend's state bucket/region/stack/project), compared
+   * field-by-field.
    */
-  private pendingLockClearConfirmation: PulumiPendingLockClearConfirmation | null = null;
+  private readonly lockClearGate = new LockClearConfirmationGate<PulumiLockClearBinding>(
+    LOCK_CLEAR_CONFIRMATION_TTL_MS,
+    (minted, current) =>
+      minted.stateBucket === current.stateBucket &&
+      minted.stateBucketRegion === current.stateBucketRegion &&
+      minted.stackName === current.stackName &&
+      minted.projectName === current.projectName,
+  );
 
   /**
    * `engine` is `apply`'s route to
@@ -3381,15 +3388,12 @@ export class PulumiService {
    * moment the renderer shows its stale-lock confirmation dialog.
    */
   mintLockClearConfirmationToken(): string {
-    this.pendingLockClearConfirmation = {
-      token: randomUUID(),
-      expiresAt: Date.now() + LOCK_CLEAR_CONFIRMATION_TTL_MS,
+    return this.lockClearGate.mint({
       stateBucket: this.store.get('bootstrap')?.stateBucket,
       stateBucketRegion: this.store.get('aws')?.region,
       stackName: PULUMI_STACK_NAME,
       projectName: PULUMI_PROJECT_NAME,
-    };
-    return this.pendingLockClearConfirmation.token;
+    });
   }
 
   /**
@@ -4743,53 +4747,49 @@ export class PulumiService {
    * recently minted, not-yet-expired, not-yet-consumed lock-clear
    * confirmation token AND `currentStateBucket`/`currentStateBucketRegion`
    * match the target the token was minted against — mirrors
-   * {@link assertFreshDestroyConfirmation} exactly. Fully synchronous, so
-   * token consumption is atomic the same way that method's is. Does NOT
-   * clear {@link pendingLockClearConfirmation} on failure — a still-valid
-   * token remains usable by a subsequent call.
+   * {@link assertFreshDestroyConfirmation} exactly, delegating the actual
+   * mint/expiry/binding check to the shared {@link LockClearConfirmationGate}
+   * and mapping its rejection reason to the same specific `logger.warn` line
+   * this method logged before the extraction. Fully synchronous, so token
+   * consumption is atomic the same way that method's is. Does NOT consume
+   * the pending mint on failure — a still-valid token remains usable by a
+   * subsequent call.
    */
   private assertFreshLockClearConfirmation(
     token: string,
     currentStateBucket: string | undefined,
     currentStateBucketRegion: string | undefined,
   ): void {
-    const pending = this.pendingLockClearConfirmation;
-    if (!pending) {
-      logger.warn('pulumi lock clear confirmation rejected: no confirmation token has ever been minted');
-      throw new LockClearNotConfirmedError();
+    const current: PulumiLockClearBinding = {
+      stateBucket: currentStateBucket,
+      stateBucketRegion: currentStateBucketRegion,
+      stackName: PULUMI_STACK_NAME,
+      projectName: PULUMI_PROJECT_NAME,
+    };
+    const result = this.lockClearGate.assertFresh(token, current);
+    if (result.ok) return;
+    switch (result.reason) {
+      case 'no-token-minted':
+        logger.warn('pulumi lock clear confirmation rejected: no confirmation token has ever been minted');
+        break;
+      case 'token-mismatch':
+        logger.warn(
+          'pulumi lock clear confirmation rejected: supplied token does not match the most recently minted token',
+        );
+        break;
+      case 'expired':
+        logger.warn('pulumi lock clear confirmation rejected: the most recently minted token has expired');
+        break;
+      case 'binding-mismatch':
+        logger.warn(
+          'pulumi lock clear confirmation rejected: token is bound to a different target — the state bucket/region ' +
+            '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
+            'between',
+          { currentStateBucket, currentStateBucketRegion },
+        );
+        break;
     }
-    if (pending.token !== token) {
-      logger.warn(
-        'pulumi lock clear confirmation rejected: supplied token does not match the most recently minted token',
-      );
-      throw new LockClearNotConfirmedError();
-    }
-    if (Date.now() > pending.expiresAt) {
-      logger.warn('pulumi lock clear confirmation rejected: the most recently minted token has expired', {
-        expiresAt: pending.expiresAt,
-      });
-      throw new LockClearNotConfirmedError();
-    }
-    if (
-      pending.stateBucket !== currentStateBucket ||
-      pending.stateBucketRegion !== currentStateBucketRegion ||
-      pending.stackName !== PULUMI_STACK_NAME ||
-      pending.projectName !== PULUMI_PROJECT_NAME
-    ) {
-      logger.warn(
-        'pulumi lock clear confirmation rejected: token is bound to a different target — the state bucket/region ' +
-          '(or project/stack) changed since the token was minted, most likely via a Reconfigure completing in ' +
-          'between',
-        {
-          mintedStateBucket: pending.stateBucket,
-          currentStateBucket,
-          mintedStateBucketRegion: pending.stateBucketRegion,
-          currentStateBucketRegion,
-        },
-      );
-      throw new LockClearNotConfirmedError();
-    }
-    this.pendingLockClearConfirmation = null;
+    throw new LockClearNotConfirmedError();
   }
 
   /**

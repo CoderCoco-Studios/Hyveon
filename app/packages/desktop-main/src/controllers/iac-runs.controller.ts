@@ -8,7 +8,7 @@ import {
   type PulumiRunChunk,
   type PulumiRunRecord,
 } from '../services/PulumiService.js';
-import { RunService } from '../services/RunService.js';
+import { RunLockChangedError, RunLockClearNotConfirmedError, RunService } from '../services/RunService.js';
 import { RunRecordService, type ListRunsOpts } from '../services/RunRecordService.js';
 import { logger } from '../logger.js';
 
@@ -24,6 +24,41 @@ export interface IacRunsLogUrlResult {
 export interface IacRunsLogUrlPayload {
   logKey: string;
   expiresInSeconds?: number;
+}
+
+/** Result {@link IacRunsController.mintLockClearToken} resolves with. */
+export interface IacRunsLockMintAck {
+  token: string;
+}
+
+/**
+ * Payload accepted by {@link IacRunsController.mintLockClearToken}.
+ * `expectedRunId` must be the `runId` of the {@link RunLock} the renderer
+ * displayed to the operator (`ack.runLock.runId` on the plan/apply/destroy
+ * ack that reported the busy conflict) — binds the minted token to that
+ * SPECIFIC lock instance rather than "whatever lock happens to be held"
+ * (see `RunLockChangedError`'s doc comment in `RunService.ts` for the
+ * TOCTOU this closes).
+ */
+export interface IacRunsLockMintPayload {
+  expectedRunId: string;
+}
+
+/** Payload accepted by {@link IacRunsController.clearLock}. */
+export interface IacRunsLockClearPayload {
+  confirmationToken: string;
+}
+
+/**
+ * Result {@link IacRunsController.clearLock} resolves with. `cleared: false`
+ * means nothing was cleared (the token was missing/wrong/expired, or no
+ * longer bound to the currently held lock) — `error` describes why. Never
+ * throws for an unconfirmed clear; only a malformed payload throws
+ * (`BadRequestException`).
+ */
+export interface IacRunsLockClearAck {
+  cleared: boolean;
+  error?: string;
 }
 
 /** Payload accepted by {@link IacRunsController.get}. */
@@ -327,5 +362,85 @@ export class IacRunsController implements OnModuleInit {
 
     const url = await this.runRecordService.getLogUrl(logKey, payload.expiresInSeconds);
     return { url };
+  }
+
+  /**
+   * Mints a fresh, single-use confirmation token the renderer must supply
+   * back on {@link clearLock}'s payload before it expires — the RunLock
+   * analogue of `IacController.mintLockClearToken`, for the durable apply
+   * lock (`RunService`) rather than the Pulumi backend lock.
+   *
+   * `payload.expectedRunId` must be the `runId` of the lock the renderer
+   * displayed to the operator — `RunService.mintLockClearConfirmationToken()`
+   * refuses to mint (throwing {@link RunLockChangedError}) when a DIFFERENT
+   * lock is now held, closing the TOCTOU gap where the displayed lock was
+   * released and replaced by a new, legitimate one before the operator
+   * confirmed. It also throws a plain `Error` when no lock is currently held
+   * at all (in-memory or durable). Both are expected races, not server
+   * faults — caught here and reported as a clean `BadRequestException` so
+   * the renderer never sees an unmodeled IPC rejection for either.
+   *
+   * @throws `BadRequestException` when `payload.expectedRunId` isn't a
+   *   non-empty string, when no run lock is currently held, or when the
+   *   currently held lock's `runId` doesn't match `payload.expectedRunId`.
+   *
+   * Reachable via the Electron IPC transport (`iac.runs.lock.clear.mintToken`).
+   */
+  @MessagePattern('iac.runs.lock.clear.mintToken')
+  async mintLockClearToken(@Payload() payload: IacRunsLockMintPayload): Promise<IacRunsLockMintAck> {
+    logger.debug('IacRunsController: iac.runs.lock.clear.mintToken invoked');
+    const expectedRunId = payload?.expectedRunId;
+    if (typeof expectedRunId !== 'string' || expectedRunId.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: 'iac.runs.lock.clear.mintToken requires a non-empty expectedRunId string',
+      });
+    }
+    try {
+      const token = await this.runService.mintLockClearConfirmationToken(expectedRunId);
+      return { token };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const reason = err instanceof RunLockChangedError ? 'the held lock has changed' : 'no run lock currently held';
+      logger.warn(`iac.runs.lock.clear.mintToken rejected: ${reason}`, { error: message });
+      throw new BadRequestException({ success: false, error: message });
+    }
+  }
+
+  /**
+   * Clears the current run lock by invoking `RunService.clearLock()`,
+   * gated behind `payload.confirmationToken` (minted via
+   * {@link mintLockClearToken}) — mirrors `IacController.clearStaleLock`'s
+   * ack shape: a rejected/unconfirmed clear resolves `{ cleared: false, error }`
+   * rather than throwing, so the renderer never sees an unhandled IPC
+   * rejection for the expected "token stale" case.
+   *
+   * @throws `BadRequestException` when `payload.confirmationToken` isn't a
+   *   non-empty string.
+   *
+   * Reachable via the Electron IPC transport (`iac.runs.lock.clear`).
+   */
+  @MessagePattern('iac.runs.lock.clear')
+  async clearLock(@Payload() payload: IacRunsLockClearPayload): Promise<IacRunsLockClearAck> {
+    logger.debug('IacRunsController: iac.runs.lock.clear invoked');
+    const token = payload?.confirmationToken;
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: 'iac.runs.lock.clear requires a non-empty confirmationToken string',
+      });
+    }
+    try {
+      await this.runService.clearLock(token);
+      return { cleared: true };
+    } catch (err) {
+      if (err instanceof RunLockClearNotConfirmedError) {
+        logger.warn('iac.runs.lock.clear rejected: confirmation not fresh', { error: err.message });
+        return { cleared: false, error: err.message };
+      }
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error('iac.runs.lock.clear error', { error });
+      return { cleared: false, error };
+    }
   }
 }

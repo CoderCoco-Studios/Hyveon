@@ -14,7 +14,13 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { DEFAULT_LOCK_TTL_MS, RunService } from './RunService.js';
+import {
+  DEFAULT_LOCK_TTL_MS,
+  RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS,
+  RunLockChangedError,
+  RunLockClearNotConfirmedError,
+  RunService,
+} from './RunService.js';
 import { ConfigService } from './ConfigService.js';
 import { logger } from '../logger.js';
 import type { StackOutputs } from '@hyveon/shared';
@@ -70,6 +76,7 @@ beforeEach(() => {
   getRunLockMock.mockReset();
   releaseRunLockMock.mockReset();
   acquireRunLockMock.mockResolvedValue(undefined);
+  getRunLockMock.mockResolvedValue(undefined);
   releaseRunLockMock.mockResolvedValue(undefined);
 });
 
@@ -302,6 +309,189 @@ describe('RunService', () => {
         expect.stringContaining('RunService.releaseRun'),
         expect.objectContaining({ runId: lock.runId }),
       );
+    });
+  });
+
+  describe('RunLockClearNotConfirmedError', () => {
+    it('should carry a descriptive message naming the required mint/clear sequence', () => {
+      const err = new RunLockClearNotConfirmedError();
+      expect(err.name).toBe('RunLockClearNotConfirmedError');
+      expect(err.message).toMatch(/mintLockClearConfirmationToken/);
+      expect(err.message).toMatch(/clearLock/);
+    });
+  });
+
+  describe('RunService.mintLockClearConfirmationToken', () => {
+    it('should throw when no lock is currently held, in-memory or durable', async () => {
+      const service = makeService();
+      getRunLockMock.mockResolvedValue(undefined);
+      await expect(service.mintLockClearConfirmationToken('any-run-id')).rejects.toThrow(
+        /no run lock is currently held/i,
+      );
+    });
+
+    it('should mint a token when a lock is held in-memory and expectedRunId matches it', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken(lock.runId);
+      expect(typeof token).toBe('string');
+      expect(token.length).toBeGreaterThan(0);
+    });
+
+    it('should mint a token bound to the durable lock when this process has no in-memory lock (cross-process/restart recovery)', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      const durableLock: RunLock = {
+        runId: 'other-process-run-id',
+        kind: 'apply',
+        initiator: 'someone-else',
+        acquiredAt: '2026-08-10T03:52:26.761Z',
+        expiresAt: '2026-08-10T04:52:26.761Z',
+      };
+      getRunLockMock.mockResolvedValue(durableLock);
+      const token = await service.mintLockClearConfirmationToken(durableLock.runId);
+      expect(typeof token).toBe('string');
+      // bound to the durable lock's runId, not this process's (empty) in-memory state
+      await expect(service.clearLock(token)).resolves.toBeUndefined();
+      expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
+    });
+
+    it('should treat a rejected durable lock read as no lock held, not let the raw error escape', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      getRunLockMock.mockRejectedValue(new Error('DynamoDB throttled'));
+      await expect(service.mintLockClearConfirmationToken('any-run-id')).rejects.toThrow(
+        /no run lock is currently held/i,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('RunService.mintLockClearConfirmationToken'),
+        expect.objectContaining({ error: expect.stringContaining('DynamoDB throttled') }),
+      );
+    });
+
+    it('should supersede a previously minted, unconsumed token', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const first = await service.mintLockClearConfirmationToken(lock.runId);
+      const second = await service.mintLockClearConfirmationToken(lock.runId);
+      expect(first).not.toBe(second);
+      await expect(service.clearLock(first)).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should refuse to mint with RunLockChangedError when expectedRunId does not match the currently held lock', async () => {
+      // Closes the TOCTOU gap Finding 1 identified: the operator's dialog
+      // displayed a lock that has since been released and replaced by a
+      // different, legitimate lock — minting must refuse rather than
+      // silently binding a token to the NEW lock.
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+
+      await expect(service.mintLockClearConfirmationToken('some-other-run-id')).rejects.toThrow(
+        RunLockChangedError,
+      );
+    });
+
+    it('should not mint (leaving any prior pending token usable) when expectedRunId mismatches', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const validToken = await service.mintLockClearConfirmationToken(lock.runId);
+
+      await expect(service.mintLockClearConfirmationToken('wrong-run-id')).rejects.toThrow(RunLockChangedError);
+
+      // The mismatch attempt above minted nothing new — the prior valid
+      // token is still usable.
+      await expect(service.clearLock(validToken)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('RunService.clearLock', () => {
+    it('should throw RunLockClearNotConfirmedError when no token has ever been minted', async () => {
+      const service = makeService();
+      await service.createRun('apply', 'chris');
+      await expect(service.clearLock('bogus-token')).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should throw RunLockClearNotConfirmedError when the supplied token does not match the most recently minted one', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      await service.mintLockClearConfirmationToken(lock.runId);
+      await expect(service.clearLock('wrong-token')).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should throw RunLockClearNotConfirmedError when the minted token has expired', async () => {
+      vi.useFakeTimers();
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken(lock.runId);
+      vi.advanceTimersByTime(RUN_LOCK_CLEAR_CONFIRMATION_TTL_MS + 1);
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+      vi.useRealTimers();
+    });
+
+    it('should clear the lock and allow a subsequent createRun on a valid, fresh token', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken(lock.runId);
+      await service.clearLock(token);
+      expect(service.getCurrentLock()).toBeUndefined();
+      expect(releaseRunLockMock).toHaveBeenCalledWith(lock.runId);
+      await expect(service.createRun('apply', 'someone-else')).resolves.toMatchObject({ initiator: 'someone-else' });
+    });
+
+    it('should refuse to clear (token no longer bound to the current lock) when a different run has since acquired the lock', async () => {
+      const service = makeService();
+      const originalLock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken(originalLock.runId);
+      await service.releaseRun(originalLock.runId); // original run finishes on its own
+      const newLock = await service.createRun('apply', 'someone-else'); // a new, legitimate run starts
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+      expect(service.getCurrentLock()).toMatchObject({ runId: newLock.runId }); // untouched
+    });
+
+    it('should consume the token: a second clearLock() call reusing an already-consumed token is rejected', async () => {
+      const service = makeService();
+      const lock = await service.createRun('apply', 'chris');
+      const token = await service.mintLockClearConfirmationToken(lock.runId);
+      await service.clearLock(token);
+      await service.createRun('apply', 'someone-else');
+      await expect(service.clearLock(token)).rejects.toThrow(RunLockClearNotConfirmedError);
+    });
+
+    it('should clear a durable-only lock (no in-memory lock in this process) on a valid, fresh token', async () => {
+      const service = makeService(); // fresh instance: currentLock is null
+      const durableLock: RunLock = {
+        runId: 'other-process-run-id',
+        kind: 'apply',
+        initiator: 'someone-else',
+        acquiredAt: '2026-08-10T03:52:26.761Z',
+        expiresAt: '2026-08-10T04:52:26.761Z',
+      };
+      getRunLockMock.mockResolvedValue(durableLock);
+      const token = await service.mintLockClearConfirmationToken(durableLock.runId);
+      getRunLockMock.mockResolvedValue(durableLock); // still held at confirm time
+      await service.clearLock(token);
+      expect(releaseRunLockMock).toHaveBeenCalledWith(durableLock.runId);
+    });
+
+    it('should mint and clear an in-memory-only lock via createRun/clearLock without touching the DynamoDB-backed calls when runs_table_name is not configured', async () => {
+      const service = makeService(null);
+      const lock = await service.createRun('apply', 'chris');
+      expect(acquireRunLockMock).not.toHaveBeenCalled();
+
+      const token = await service.mintLockClearConfirmationToken(lock.runId);
+      expect(getRunLockMock).not.toHaveBeenCalled();
+
+      await service.clearLock(token);
+
+      expect(releaseRunLockMock).not.toHaveBeenCalled();
+      expect(service.getCurrentLock()).toBeUndefined();
+      await expect(service.createRun('apply', 'someone-else')).resolves.toMatchObject({ initiator: 'someone-else' });
+    });
+  });
+
+  describe('RunLockChangedError', () => {
+    it('should carry a descriptive message naming the TOCTOU it guards against', () => {
+      const err = new RunLockChangedError();
+      expect(err.name).toBe('RunLockChangedError');
+      expect(err.message).toMatch(/run lock has changed/i);
     });
   });
 });

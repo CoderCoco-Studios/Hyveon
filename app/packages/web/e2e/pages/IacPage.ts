@@ -76,6 +76,38 @@ export class IacPage {
     return this.page.getByRole('alert').filter({ hasText: 'Backend lock in the way' });
   }
 
+  /**
+   * "Clear lock and retry" action rendered inside the BUSY banner — only
+   * present when a plan/apply/destroy submission's ack carries `runLock`
+   * (a durable `RunLockHeldError`, apply/destroy only; `plan` never acquires
+   * the durable lock). Opens a `ConfirmDialog`; the dialog's own confirm
+   * button ("Clear lock") is not wrapped here since callers need direct
+   * `page`/`win` access to scope it to the currently-open dialog.
+   */
+  clearRunLockButton(): Locator {
+    return this.page.getByRole('button', { name: /clear lock and retry/i });
+  }
+
+  /**
+   * The `ConfirmDialog`'s own confirm button ("Clear lock") — scoped by
+   * exact match so it isn't confused with {@link clearRunLockButton}'s
+   * "Clear lock and retry" trigger. Only meaningful once
+   * {@link clearRunLockButton} has been clicked and the dialog is open.
+   */
+  confirmClearLockButton(): Locator {
+    return this.page.getByRole('button', { name: 'Clear lock', exact: true });
+  }
+
+  /** Inline error/error-banner text shown when a submission was refused because the durable run lock is already held by another run. */
+  runLockAlreadyHeldText(): Locator {
+    return this.page.getByText(/Run lock already held/i);
+  }
+
+  /** Success toast shown once `hyveon.iac.runs.lock.clear()` reports `cleared: true`. */
+  runLockClearedToast(): Locator {
+    return this.page.getByText(/Run lock cleared/i);
+  }
+
   // ── Approve ──────────────────────────────────────────────────────────
 
   /** Approve-plan button — enabled once the plan run reaches `awaiting_approval`. */
