@@ -108,9 +108,9 @@ means the count depends on `config.gameServers`.
 | `network.ts` | VPC and public networking. | `aws.ec2.Vpc` (1), `InternetGateway` (1), `Subnet` (2, fixed — not config-driven), `RouteTable` (1, with an inline default route), `RouteTableAssociation` (2). |
 | `securityGroups.ts` | The security groups guarding game tasks, the file manager, EFS, and the EFS-seeder Lambdas. | `aws.ec2.SecurityGroup` — 3 fixed (game servers, file manager, EFS) + 1 conditional (EFS-seeder, only when at least one game declares `file_seeds`). Ingress/egress on all four groups are inline arrays, EXCEPT the EFS-seeder group's egress: one conditional standalone `aws.ec2.SecurityGroupRule` (egress, port 2049/tcp only, scoped to the EFS security group) — the seeder group carries no inline `egress` at all, so the standalone rule can't conflict with an inline one on the same group (see the file's own doc, "`efsSeederSg`'s egress — standalone rule, not inline"). |
 | `efs.ts` | The shared encrypted EFS filesystem and its access points. | `aws.efs.FileSystem` (1), `MountTarget` (one per public subnet), `AccessPoint` (one per game/volume pair, plus one per HTTPS game for Caddy's certificate storage). |
-| `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. |
+| `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. The per-game log group and task definition both carry a `Game=<game>` tag (see "Cost allocation tags" below); the cluster does not. |
 | `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 6 fixed (task execution, watchdog, followup, interactions, dns-updater, FileBrowser auto-stop scheduler) + 1 per game with `file_seeds`. `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 5 fixed + 1 per seeder game. The scheduler role trusts `scheduler.amazonaws.com` and its policy grants only `ecs:StopTask`, scoped to the deployed cluster's tasks — used by `FileManagerService`'s per-launch auto-stop schedule, not by any Lambda. |
-| `lambdas.ts` | The five Lambda functions, their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). |
+| `lambdas.ts` | The five Lambda functions, their log groups, the interactions Function URL, and the two EventBridge rule/target pairs. | `aws.lambda.Function` — 4 fixed + 1 per seeder game (`{projectName}-efs-seeder-{game}`). `aws.cloudwatch.LogGroup` — 4 fixed + 1 per seeder game. `aws.lambda.FunctionUrl` (1). `aws.lambda.Permission` (4). `aws.cloudwatch.EventRule` (2: watchdog schedule, ECS task-state-change). `EventTarget` (2). The per-seeder-game function and log group carry a `Game=<game>` tag; the 4 fixed Lambdas do not. |
 | `dynamodb.ts` | The two DynamoDB tables this program manages. | `aws.dynamodb.Table` — 2 fixed: Discord state (TTL on `expiresAt`), audit log. Both `PAY_PER_REQUEST`. The run-history table is bootstrap-managed, not declared here — see "The runs table invariant" below. |
 | `secrets.ts` | The two Discord Secrets Manager secrets plus the FileBrowser helper's shared credential-hash secret, and all three's create-only placeholder versions. | `aws.secretsmanager.Secret` (3, `recoveryWindowInDays: 0`). `SecretVersion` (3, seeded with a placeholder string and `ignoreChanges: ['secretString']` so the app can edit them afterwards without a redeploy overwriting the value). The FileBrowser secret is ONE shared secret across every game (not per-game) — `FileManagerService` overwrites it with a fresh bcrypt hash on every launch, purely as an audit record; the container itself gets the hash directly via command-line flags, never by reading this secret back. |
 | `route53.ts` | Hosted-zone lookup **only**. | **Zero Pulumi resources** — one data-source call, `aws.route53.getZoneOutput()`. See the DNS invariant below. |
@@ -119,6 +119,45 @@ means the count depends on `config.gameServers`.
 | `program.ts` | The package's entry point: constructs both AWS providers, calls every `defineX()` in dependency order, and builds the stack outputs object. | `aws.Provider` (2 — the default region, plus a fixed `us-east-1` alias for the Discord domain's ACM certificate, which CloudFront requires). |
 | `index.ts` | Barrel re-export of every `defineX()`, helper, and type. | none |
 | `testing/fixtures.ts`, `testing/pulumiMocks.ts` | Test-only: shared game-config fixtures and a `pulumi.runtime.setMocks()` harness. | none |
+
+## Cost allocation tags
+
+Every Pulumi-managed resource carries `Project=hyveon` (applied once via
+`defaultTags` on both `aws.Provider`s in `program.ts`). In addition, the
+resources whose cost AWS meters independently per game — per-game ECS task
+definitions and their CloudWatch log groups (`ecs.ts`), and the per-game
+EFS-seeder Lambda and its log group (`lambdas.ts`) — carry a `Game=<game>`
+tag, where `<game>` is the game's key in `DeploymentConfig.gameServers`.
+
+Resources shared across every game (the ECS cluster, security groups,
+DynamoDB tables, the four project-wide Lambdas, and the EFS filesystem and
+its access points) intentionally do **not** carry a `Game` tag — EFS in
+particular bills at the filesystem level, so tagging its per-game access
+points would not let Cost Explorer split EFS cost by game (access points
+aren't separately billed resources).
+
+Dynamically-launched ECS Fargate tasks (via `RunTask`, never a persistent
+`aws.ecs.Service` — see the no-persistent-Service invariant above) inherit
+`Game` from their task definition via `propagateTags: 'TASK_DEFINITION'`
+(`AwsCloudProvider.startWorkload`) — this is what makes the tag reach the
+resource AWS actually bills Fargate compute against.
+
+**One-time manual step required — Pulumi cannot do this:** to see costs
+broken down by `Game` in AWS Cost Explorer, activate `Game` (and `Project`,
+if not already active) as a cost allocation tag: AWS Billing console →
+Cost allocation tags → select the tag → Activate. This is not retroactive
+(only usage after activation is tagged in cost data) and can take up to 24
+hours to appear in Cost Explorer.
+
+Once activated, pull a per-game breakdown with:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=2026-08-01,End=2026-09-01 \
+  --granularity MONTHLY \
+  --metrics UnblendedCost \
+  --group-by Type=TAG,Key=Game
+```
 
 ## The DNS invariant, precisely
 
