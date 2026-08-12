@@ -32,7 +32,6 @@ import type {
   DriftEntry,
   DriftReport,
   GameListEntry,
-  GameServer,
   GameStatus,
   RedactedGameServer,
 } from '@hyveon/shared';
@@ -269,8 +268,8 @@ function auditEntry(
   actor: string,
   action: AuditAction,
   game: string,
-  before: GameServer | null,
-  after: GameServer | null,
+  before: RedactedGameServer | null,
+  after: RedactedGameServer | null,
   versionId?: string,
 ): AuditEntry {
   const timestamp = new Date(new Date(DEMO_NOW).getTime() - offsetHours * 3_600_000).toISOString();

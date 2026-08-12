@@ -41,7 +41,7 @@ export class GameWizardDraftService {
         }
         return null;
       }
-      return redactSecretFields(stored);
+      return redactSecretFields(backfillHealthCheck(stored));
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
       return null;
@@ -142,14 +142,17 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
     Array.isArray(candidate.environment) &&
     candidate.environment.every(isWizardDraftEnvironmentVariable) &&
     typeof candidate.https === 'boolean' &&
-    isWizardDraftHealthCheck(candidate.healthCheck)
+    // `healthCheck` was added after this draft slot shipped — a draft
+    // autosaved before then has no such field, and that must still be
+    // treated as valid rather than discarding the whole draft as malformed.
+    (candidate.healthCheck === undefined || isWizardDraftHealthCheck(candidate.healthCheck))
   );
 }
 
 /** Narrows `value` to a well-formed health-check draft. */
 function isWizardDraftHealthCheck(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<GameWizardDraft['healthCheck']>;
+  const candidate = value as Partial<NonNullable<GameWizardDraft['healthCheck']>>;
   return (
     typeof candidate.enabled === 'boolean' &&
     typeof candidate.scheme === 'string' &&
@@ -212,6 +215,32 @@ function isWizardDraftEnvironmentVariable(value: unknown): boolean {
  * is already configured; the operator re-enters the blanked values
  * themselves.
  */
+/**
+ * Default "no health check configured" shape, matching
+ * `emptyHealthCheckDraft()` in `wizard-form.utils.ts` (`@hyveon/web`) — kept
+ * in sync manually, per {@link GameWizardDraft}'s doc comment, since
+ * `desktop-main` can't import from `@hyveon/web`.
+ */
+const DEFAULT_HEALTH_CHECK_DRAFT: NonNullable<GameWizardDraft['healthCheck']> = {
+  enabled: false,
+  scheme: 'http',
+  port: null,
+  path: '',
+  method: 'GET',
+  timeoutMs: 2000,
+  jsonPath: '',
+  operator: 'equals',
+  value: '',
+  secretArn: '',
+  secretSet: false,
+};
+
+/** Fills in a missing `healthCheck` on a draft autosaved before that field existed, with {@link DEFAULT_HEALTH_CHECK_DRAFT}. */
+function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDraft {
+  if (stored.draft.healthCheck) return stored;
+  return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
+}
+
 function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraft {
   return {
     ...stored,
@@ -219,7 +248,7 @@ function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraf
       ...stored.draft,
       file_seeds: stored.draft.file_seeds.map((seed) => ({ ...seed, content: '', content_base64: '' })),
       environment: stored.draft.environment.map((variable) => ({ ...variable, value: '' })),
-      healthCheck: { ...stored.draft.healthCheck, secretArn: '' },
+      healthCheck: { ...(stored.draft.healthCheck ?? DEFAULT_HEALTH_CHECK_DRAFT), secretArn: '' },
     },
   };
 }

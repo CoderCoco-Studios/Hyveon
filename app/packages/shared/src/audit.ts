@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import type { GameServer } from './gameServerConfig.js';
+import type { RedactedGameServer } from './gameServerConfig.js';
 
 /**
  * The kind of mutation an {@link AuditEntry} records. Mirrors the CRUD verbs
@@ -42,10 +42,10 @@ export interface AuditEntry {
   action: AuditAction;
   /** The `game_servers` map key the mutation applied to. */
   game: string;
-  /** The game's configuration before the mutation, or `null` for `add`. */
-  before: GameServer | null;
-  /** The game's configuration after the mutation, or `null` for `remove`. */
-  after: GameServer | null;
+  /** The game's configuration before the mutation, redacted, or `null` for `add`. */
+  before: RedactedGameServer | null;
+  /** The game's configuration after the mutation, redacted, or `null` for `remove`. */
+  after: RedactedGameServer | null;
   /** S3 object version id of `deployment-config.json` produced by the write, if known. */
   versionId?: string;
 }

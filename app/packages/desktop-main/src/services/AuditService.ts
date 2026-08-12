@@ -11,7 +11,7 @@
 import * as os from 'node:os';
 import { Inject, Injectable } from '@nestjs/common';
 import { buildAuditSk } from '@hyveon/shared';
-import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, GameServer } from '@hyveon/shared';
+import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, RedactedGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
 import { AUDIT_LOG_STORE } from '../modules/cloud-provider.tokens.js';
@@ -28,10 +28,10 @@ export interface RecordAuditEntryParams {
   action: AuditAction;
   /** The `game_servers` map key the mutation applied to. */
   game: string;
-  /** The game's configuration before the mutation, or `null` for `add`. */
-  before: GameServer | null;
-  /** The game's configuration after the mutation, or `null` for `remove`. */
-  after: GameServer | null;
+  /** The game's configuration before the mutation, redacted, or `null` for `add`. */
+  before: RedactedGameServer | null;
+  /** The game's configuration after the mutation, redacted, or `null` for `remove`. */
+  after: RedactedGameServer | null;
   /** S3 object version id of `deployment-config.json` produced by the write, if known. */
   versionId?: string;
 }
