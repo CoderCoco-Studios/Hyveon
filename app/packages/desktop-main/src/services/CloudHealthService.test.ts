@@ -10,6 +10,7 @@ vi.mock('../logger.js', () => ({
 import { CloudHealthService } from './CloudHealthService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import type { ConfigService } from './ConfigService.js';
+import type { DeploymentConfigService } from './DeploymentConfigService.js';
 
 const iamMock = mockClient(IAMClient);
 
@@ -24,13 +25,20 @@ function makeConfig(): ConfigService {
   return { getRegion: vi.fn().mockReturnValue('us-east-1') } as Partial<ConfigService> as ConfigService;
 }
 
+/** Builds a stub {@link DeploymentConfigService} whose `getTopLevelSettings()` resolves with the given project name. */
+function makeDeploymentConfig(projectName = 'hyveon'): DeploymentConfigService {
+  return {
+    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: { projectName } }),
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+}
+
 beforeEach(() => {
   iamMock.reset();
 });
 
 describe('CloudHealthService.getChecks', () => {
   it('should include exactly one check with id "ecs-service-linked-role"', () => {
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const checks = service.getChecks();
 
@@ -42,7 +50,7 @@ describe('CloudHealthService.getChecks', () => {
 describe('ECS service-linked role check', () => {
   it('should report ok when the role exists', async () => {
     iamMock.on(GetRoleCommand).resolves({ Role: { RoleName: 'AWSServiceRoleForECS' } as never });
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.check();
 
@@ -52,7 +60,7 @@ describe('ECS service-linked role check', () => {
   it('should report missing when the role does not exist', async () => {
     const err = Object.assign(new Error('not found'), { name: 'NoSuchEntityException' });
     iamMock.on(GetRoleCommand).rejects(err);
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.check();
 
@@ -61,7 +69,7 @@ describe('ECS service-linked role check', () => {
 
   it('should report error for an unexpected failure', async () => {
     iamMock.on(GetRoleCommand).rejects(new Error('boom'));
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.check();
 
@@ -72,7 +80,7 @@ describe('ECS service-linked role check', () => {
 describe('ECS service-linked role fix', () => {
   it('should report fixed when creation succeeds', async () => {
     iamMock.on(CreateServiceLinkedRoleCommand).resolves({});
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.fix();
 
@@ -82,7 +90,7 @@ describe('ECS service-linked role fix', () => {
   it('should report fixed when the role already exists', async () => {
     const err = Object.assign(new Error('Service linked role already exists'), { name: 'InvalidInputException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.fix();
 
@@ -92,7 +100,7 @@ describe('ECS service-linked role fix', () => {
   it('should report needsPolicyUpdate with policy JSON when access is denied', async () => {
     const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.fix();
 
@@ -102,7 +110,7 @@ describe('ECS service-linked role fix', () => {
 
   it('should report failed for an unexpected error', async () => {
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(new Error('boom'));
-    const service = new CloudHealthService(makeStore(), makeConfig());
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.fix();
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+/** Stub {@link api} surface for `cloudHealthList`/`cloudHealthFix`, hoisted so `vi.mock` below can reference it. */
 const apiMock = vi.hoisted(() => ({
   cloudHealthList: vi.fn(),
   cloudHealthFix: vi.fn(),

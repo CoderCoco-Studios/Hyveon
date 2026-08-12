@@ -30,6 +30,20 @@ const SIMULATE_CONTEXT_ENTRIES = [
   { ContextKeyName: 'iam:AWSServiceName', ContextKeyValues: ['ecs.amazonaws.com'], ContextKeyType: 'string' as const },
 ];
 
+/**
+ * `HYVEON_DEPLOY_ALL_ACTIONS` entries granted on a specific resource ARN —
+ * `HyveonServiceLinkedRoles`/its paired `iam:GetRole` statement in
+ * `@hyveon/shared`'s `iamPolicy.ts`, both scoped to
+ * `arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*` —
+ * rather than `Resource: '*'` like the rest of the action set.
+ * `SimulatePrincipalPolicyCommand` defaults an omitted `ResourceArns` to
+ * evaluating against a generic "all resources" context, which isn't
+ * guaranteed to match a resource-scoped Allow statement; these actions are
+ * simulated separately, with `ResourceArns` set to the real service-linked-role
+ * ARN, so a correctly-scoped policy doesn't simulate as denied.
+ */
+const RESOURCE_SCOPED_ACTIONS = new Set(['iam:CreateServiceLinkedRole', 'iam:GetRole']);
+
 /** Outcome of {@link IamCheckService.checkPermissions}. */
 export type IamCheckStatus = 'passed' | 'missing' | 'warning';
 
@@ -143,22 +157,22 @@ export class IamCheckService {
     }
 
     const actions = this.actionsToCheck();
+    const wildcardActions = actions.filter((action) => !RESOURCE_SCOPED_ACTIONS.has(action));
+    const resourceScopedActions = actions.filter((action) => RESOURCE_SCOPED_ACTIONS.has(action));
     const denied: string[] = [];
     try {
       const client = this.createIamClient(region, source);
-      for (const batch of this.chunk(actions, SIMULATE_BATCH_SIZE)) {
-        const response = await client.send(
-          new SimulatePrincipalPolicyCommand({
-            PolicySourceArn: callerArn,
-            ActionNames: [...batch],
-            ContextEntries: SIMULATE_CONTEXT_ENTRIES,
-          }),
+      denied.push(...(await this.simulateActions(client, callerArn, wildcardActions)));
+      if (resourceScopedActions.length > 0) {
+        const serviceLinkedRoleArn = this.toServiceLinkedRoleArn(callerArn);
+        denied.push(
+          ...(await this.simulateActions(
+            client,
+            callerArn,
+            resourceScopedActions,
+            serviceLinkedRoleArn ? [serviceLinkedRoleArn] : undefined,
+          )),
         );
-        for (const result of response.EvaluationResults ?? []) {
-          if (result.EvalDecision !== 'allowed' && result.EvalActionName) {
-            denied.push(result.EvalActionName);
-          }
-        }
       }
     } catch (err) {
       const message = this.describeError(err);
@@ -172,7 +186,15 @@ export class IamCheckService {
     if (denied.length === 0) {
       return { status: 'passed', origin, blocking: false };
     }
-    return { status: 'missing', policyJson: this.buildPolicyJson(denied), origin, blocking: origin === 'guided' };
+    // Deduped defensively: `wildcardActions`/`resourceScopedActions` partition
+    // `actions`, so a real simulation never reports the same action name from
+    // both calls — but nothing stops a future action set from doing so.
+    return {
+      status: 'missing',
+      policyJson: this.buildPolicyJson([...new Set(denied)]),
+      origin,
+      blocking: origin === 'guided',
+    };
   }
 
   /**
@@ -230,6 +252,55 @@ export class IamCheckService {
     }
     const [, partition, accountId, roleNameWithPath] = match;
     return `arn:${partition}:iam::${accountId}:role/${roleNameWithPath}`;
+  }
+
+  /**
+   * Runs `iam:SimulatePrincipalPolicy` over `actionNames`, chunked at
+   * {@link SIMULATE_BATCH_SIZE}, and returns the action names that came back
+   * denied. Pass `resourceArns` for actions granted on a specific resource
+   * (see {@link RESOURCE_SCOPED_ACTIONS}) — omitted for the `Resource: '*'`
+   * batch, matching the simulator's own default.
+   */
+  private async simulateActions(
+    client: IAMClient,
+    callerArn: string,
+    actionNames: readonly string[],
+    resourceArns?: readonly string[],
+  ): Promise<string[]> {
+    const denied: string[] = [];
+    for (const batch of this.chunk(actionNames, SIMULATE_BATCH_SIZE)) {
+      const response = await client.send(
+        new SimulatePrincipalPolicyCommand({
+          PolicySourceArn: callerArn,
+          ActionNames: [...batch],
+          ContextEntries: SIMULATE_CONTEXT_ENTRIES,
+          ResourceArns: resourceArns ? [...resourceArns] : undefined,
+        }),
+      );
+      for (const result of response.EvaluationResults ?? []) {
+        if (result.EvalDecision !== 'allowed' && result.EvalActionName) {
+          denied.push(result.EvalActionName);
+        }
+      }
+    }
+    return denied;
+  }
+
+  /**
+   * Builds the account's `AWSServiceRoleForECS` service-linked-role ARN from
+   * `callerArn`'s account ID, for simulating {@link RESOURCE_SCOPED_ACTIONS}
+   * against their real resource. Returns `undefined` if `callerArn` doesn't
+   * carry a recognizable account ID (shouldn't happen for a real IAM
+   * user/role ARN, but simulation degrades to the unscoped default rather
+   * than throwing if it ever does).
+   */
+  private toServiceLinkedRoleArn(callerArn: string): string | undefined {
+    const match = /^arn:(aws[a-zA-Z0-9-]*):iam::(\d+):/.exec(callerArn);
+    if (!match) {
+      return undefined;
+    }
+    const [, partition, accountId] = match;
+    return `arn:${partition}:iam::${accountId}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS`;
   }
 
   private buildPolicyJson(actions: string[]): string {

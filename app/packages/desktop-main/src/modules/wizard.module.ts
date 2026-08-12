@@ -7,6 +7,7 @@ import { GuidedIamService } from '../services/GuidedIamService.js';
 import { CloudHealthService } from '../services/CloudHealthService.js';
 import { ElectronStoreModule } from './electron-store.module.js';
 import { ConfigModule } from './config.module.js';
+import { DeploymentConfigModule } from './deployment-config.module.js';
 
 /**
  * Groups the first-run wizard's providers (see
@@ -21,10 +22,14 @@ import { ConfigModule } from './config.module.js';
  * guided-IAM-bootstrap, and cloud-health-check flows. Also imports
  * `ConfigModule` — `CloudHealthService` additionally injects `ConfigService`
  * (for `getRegion()`, building its `IAMClient`), which no other provider in
- * this module previously required.
+ * this module previously required. Also imports `DeploymentConfigModule` so
+ * `CloudHealthService` can resolve the operator's configured project name
+ * for its `HyveonDeployAll` remediation policy — `DeploymentConfigModule`
+ * only depends on `ConfigModule`/`CloudProviderModule`, so this doesn't
+ * introduce a module cycle back to `WizardModule`.
  */
 @Module({
-  imports: [ElectronStoreModule, ConfigModule],
+  imports: [ElectronStoreModule, ConfigModule, DeploymentConfigModule],
   providers: [
     AwsProfileService,
     BootstrapService,

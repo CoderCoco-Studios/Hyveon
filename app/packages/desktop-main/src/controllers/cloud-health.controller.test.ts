@@ -8,6 +8,7 @@ vi.mock('../logger.js', () => ({
 import { CloudHealthController } from './cloud-health.controller.js';
 import type { CloudHealthService, CloudHealthCheck } from '../services/CloudHealthService.js';
 
+/** Builds a stub {@link CloudHealthService} whose `getChecks()` returns the given fixed set of checks. */
 function makeService(checks: CloudHealthCheck[]): CloudHealthService {
   return { getChecks: vi.fn().mockReturnValue(checks) } as Partial<CloudHealthService> as CloudHealthService;
 }

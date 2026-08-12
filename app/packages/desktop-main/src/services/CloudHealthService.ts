@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { IAMClient, GetRoleCommand, CreateServiceLinkedRoleCommand } from '@aws-sdk/client-iam';
-import { generateHyveonDeployAllPolicy } from '@hyveon/shared';
+import { generateHyveonDeployAllPolicy, DEPLOYMENT_CONFIG_DEFAULTS } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { ConfigService } from './ConfigService.js';
+import { DeploymentConfigService } from './DeploymentConfigService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveAwsClientCredentialsWithSignature } from './awsCredentialSource.js';
 
@@ -48,6 +49,7 @@ export class CloudHealthService {
   constructor(
     private readonly store: ElectronStoreService,
     private readonly config: ConfigService,
+    private readonly deploymentConfig: DeploymentConfigService,
   ) {}
 
   /** Returns every registered {@link CloudHealthCheck}. Add future checks here. */
@@ -87,6 +89,26 @@ export class CloudHealthService {
     }
   }
 
+  /**
+   * Resolves the operator's configured project name for building an
+   * account-specific `HyveonDeployAll` policy. Falls back to
+   * {@link DEPLOYMENT_CONFIG_DEFAULTS}'s project name — both when the
+   * setting is unset and when `deployment-config.json` can't be read yet
+   * (e.g. setup hasn't reached the point of provisioning the configuration
+   * bucket) — since the remediation policy is still useful with the default
+   * name in that case.
+   */
+  private async getProjectName(): Promise<string> {
+    try {
+      const { settings } = await this.deploymentConfig.getTopLevelSettings();
+      return settings.projectName ?? DEPLOYMENT_CONFIG_DEFAULTS.projectName;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('CloudHealthService.getProjectName: falling back to the default project name', { message });
+      return DEPLOYMENT_CONFIG_DEFAULTS.projectName;
+    }
+  }
+
   private async fixEcsServiceLinkedRole(): Promise<CloudHealthFixResult> {
     logger.debug('CloudHealthService.fixEcsServiceLinkedRole: attempting fix');
     try {
@@ -106,7 +128,11 @@ export class CloudHealthService {
         logger.warn('CloudHealthService.fixEcsServiceLinkedRole: access denied, deploy policy needs updating', {
           message,
         });
-        return { outcome: 'needsPolicyUpdate', policyJson: JSON.stringify(generateHyveonDeployAllPolicy(), null, 2) };
+        const projectName = await this.getProjectName();
+        return {
+          outcome: 'needsPolicyUpdate',
+          policyJson: JSON.stringify(generateHyveonDeployAllPolicy(projectName), null, 2),
+        };
       }
       logger.error('CloudHealthService.fixEcsServiceLinkedRole: unexpected failure', { message });
       return { outcome: 'failed', message };
