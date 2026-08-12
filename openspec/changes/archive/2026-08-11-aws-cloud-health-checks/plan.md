@@ -29,11 +29,11 @@
 **Interfaces:**
 - Produces: `HYVEON_DEPLOY_ALL_STATEMENTS` gains a `HyveonServiceLinkedRoles` entry; `generateHyveonDeployAllPolicy()` output includes a `Condition` field on any statement that declares one. Task 2 imports `generateHyveonDeployAllPolicy` from `@hyveon/shared` to build the `needsPolicyUpdate` fallback JSON.
 
-- [ ] **Step 1: Read the exact current bodies of the three untouched test helpers before editing them**
+- [x] **Step 1: Read the exact current bodies of the three untouched test helpers before editing them**
 
 Read `app/packages/shared/src/iamPolicy.test.ts` lines 40-91 in full (`extractDocActions`, `normalizeActions`, `normalizeResource`, `extractDocStatements`) — the plan needs their exact current bodies to extend correctly, and they weren't fully captured during research.
 
-- [ ] **Step 2: Add the new action and statement to `iamPolicy.ts`**
+- [x] **Step 2: Add the new action and statement to `iamPolicy.ts`**
 
 In `HYVEON_DEPLOY_ALL_ACTIONS` (lines 9-36), add `'iam:CreateServiceLinkedRole'` to the array.
 
@@ -76,7 +76,7 @@ Extend `RenderedPolicyStatement` (lines 142-158) the same way (add the same opti
     })),
 ```
 
-- [ ] **Step 3: Update `docs/docs/setup.md`**
+- [x] **Step 3: Update `docs/docs/setup.md`**
 
 Open `docs/docs/setup.md`, find the `HyveonDeployAll` policy JSON code block (the one `iamPolicy.test.ts` parses via the first ` ```json ` fence), and append a matching statement as the **last** entry (position must match `HYVEON_DEPLOY_ALL_STATEMENTS`'s order, since the test compares statement-by-index):
 
@@ -92,7 +92,7 @@ Open `docs/docs/setup.md`, find the `HyveonDeployAll` policy JSON code block (th
     }
 ```
 
-- [ ] **Step 4: Extend `iamPolicy.test.ts` to assert `Condition` matches too**
+- [x] **Step 4: Extend `iamPolicy.test.ts` to assert `Condition` matches too**
 
 Based on the bodies read in Step 1, extend `extractDocStatements()`'s return type and mapping to also capture each statement's `Condition` field (pass it through unchanged — it's already a plain object in the parsed JSON), and extend the third test ("should match ... statement-for-statement, including Effect and Resource") to also assert:
 
@@ -102,12 +102,12 @@ Based on the bodies read in Step 1, extend `extractDocStatements()`'s return typ
 
 adding `Condition?: Record<string, Record<string, string>>` to both the generated-statement projection and the doc-parser's returned type shape used by that test.
 
-- [ ] **Step 5: Run the test suite for this file**
+- [x] **Step 5: Run the test suite for this file**
 
 Run: `npm run app:test -- iamPolicy.test.ts`
 Expected: PASS — all four `describe` blocks green, including the new `Condition` assertion.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/packages/shared/src/iamPolicy.ts app/packages/shared/src/iamPolicy.test.ts docs/docs/setup.md
@@ -126,7 +126,7 @@ git commit -m "feat(shared): add HyveonServiceLinkedRoles IAM statement for ECS 
 - Consumes: `ElectronStoreService` (constructor param, for `resolveAwsClientCredentialsWithSignature`), `ConfigService.getRegion(): string` (constructor param), `generateHyveonDeployAllPolicy` from `@hyveon/shared`.
 - Produces: `CloudHealthCheckStatus = 'ok' | 'missing' | 'error'`, `CloudHealthCheckResult = { status: CloudHealthCheckStatus; message?: string }`, `CloudHealthFixOutcome = 'fixed' | 'needsPolicyUpdate' | 'failed'`, `CloudHealthFixResult = { outcome: CloudHealthFixOutcome; policyJson?: string; message?: string }`, `CloudHealthCheck = { id: string; label: string; check(): Promise<CloudHealthCheckResult>; fix(): Promise<CloudHealthFixResult> }`, `class CloudHealthService { getChecks(): CloudHealthCheck[] }`. Task 3's `CloudHealthController` consumes `CloudHealthService.getChecks()`.
 
-- [ ] **Step 1: Write the failing test file**
+- [x] **Step 1: Write the failing test file**
 
 Create `app/packages/desktop-main/src/services/CloudHealthService.test.ts`:
 
@@ -244,12 +244,12 @@ describe('ECS service-linked role fix', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm run app:test -- CloudHealthService.test.ts`
 Expected: FAIL — `Cannot find module './CloudHealthService.js'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `app/packages/desktop-main/src/services/CloudHealthService.ts`:
 
@@ -371,12 +371,12 @@ export class CloudHealthService {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npm run app:test -- CloudHealthService.test.ts`
 Expected: PASS — all 7 tests green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/packages/desktop-main/src/services/CloudHealthService.ts app/packages/desktop-main/src/services/CloudHealthService.test.ts
@@ -397,7 +397,7 @@ git commit -m "feat(desktop-main): add CloudHealthService with ECS service-linke
 - Consumes: `CloudHealthService.getChecks()` (Task 2).
 - Produces: IPC patterns `cloudHealth.list` → `Promise<CloudHealthCheckSummary[]>` where `CloudHealthCheckSummary = { id: string; label: string; status: CloudHealthCheckStatus; message?: string }`; `cloudHealth.fix` (payload `{ id: string }`) → `Promise<CloudHealthFixResult>`. Task 4 (preload) consumes these exact channel names and shapes.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/packages/desktop-main/src/controllers/cloud-health.controller.test.ts`:
 
@@ -457,12 +457,12 @@ describe('CloudHealthController.fix', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm run app:test -- cloud-health.controller.test.ts`
 Expected: FAIL — `Cannot find module './cloud-health.controller.js'`.
 
-- [ ] **Step 3: Write the controller**
+- [x] **Step 3: Write the controller**
 
 Create `app/packages/desktop-main/src/controllers/cloud-health.controller.ts`:
 
@@ -512,7 +512,7 @@ export class CloudHealthController {
 }
 ```
 
-- [ ] **Step 4: Register in `WizardModule` and `AppModule`**
+- [x] **Step 4: Register in `WizardModule` and `AppModule`**
 
 In `app/packages/desktop-main/src/modules/wizard.module.ts`, add `CloudHealthService` to both `providers` and `exports` arrays, and import it at the top of the file:
 
@@ -547,17 +547,17 @@ import { CloudHealthController } from './controllers/cloud-health.controller.js'
 
 `CloudHealthController` resolves `CloudHealthService` via `WizardModule`'s export since `WizardModule` is already listed in `AppModule`'s `imports`.
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `npm run app:test -- cloud-health.controller.test.ts`
 Expected: PASS — all 3 tests green.
 
-- [ ] **Step 6: Run the full desktop-main build to catch module-wiring errors**
+- [x] **Step 6: Run the full desktop-main build to catch module-wiring errors**
 
 Run: `npm run app:typecheck`
 Expected: PASS — no missing-provider errors from Nest's DI graph.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/packages/desktop-main/src/controllers/cloud-health.controller.ts app/packages/desktop-main/src/controllers/cloud-health.controller.test.ts app/packages/desktop-main/src/modules/wizard.module.ts app/packages/desktop-main/src/app.module.ts
@@ -576,7 +576,7 @@ git commit -m "feat(desktop-main): add CloudHealthController IPC surface"
 - Consumes: IPC channel names `cloudHealth.list` / `cloudHealth.fix` (Task 3).
 - Produces: `window.hyveon.cloudHealth.list(): Promise<CloudHealthCheckSummary[]>`, `window.hyveon.cloudHealth.fix(id: string): Promise<CloudHealthFixResult>`. Task 5 (`api.service.ts`) consumes these.
 
-- [ ] **Step 1: Add types and the `HyveonCloudHealthApi` interface**
+- [x] **Step 1: Add types and the `HyveonCloudHealthApi` interface**
 
 In `app/packages/desktop-preload/src/hyveon-api.ts`, near `HyveonGamesApi` (around line 1103), add:
 
@@ -620,7 +620,7 @@ Then add a field to the `HyveonApi` interface (near line 1998, alongside `drift`
   cloudHealth: HyveonCloudHealthApi;
 ```
 
-- [ ] **Step 2: Implement the bridge in `preload.ts`**
+- [x] **Step 2: Implement the bridge in `preload.ts`**
 
 In `app/packages/desktop-preload/src/preload.ts`, add a block to the `api` object (near the `drift`/`audit` blocks, after `costs`):
 
@@ -631,12 +631,12 @@ In `app/packages/desktop-preload/src/preload.ts`, add a block to the `api` objec
   },
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `npm run app:typecheck`
 Expected: PASS — `HyveonApi` implementation in `preload.ts` satisfies the extended interface.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/packages/desktop-preload/src/hyveon-api.ts app/packages/desktop-preload/src/preload.ts
@@ -654,7 +654,7 @@ git commit -m "feat(desktop-preload): add cloudHealth IPC bridge"
 - Consumes: `window.hyveon.cloudHealth` (Task 4).
 - Produces: `api.cloudHealthList(): Promise<CloudHealthCheckSummary[]>`, `api.cloudHealthFix(id: string): Promise<CloudHealthFixResult>`. Task 6 (`CloudHealthSection`) consumes these.
 
-- [ ] **Step 1: Add mirrored types and passthrough methods**
+- [x] **Step 1: Add mirrored types and passthrough methods**
 
 Per this file's existing convention (each type mirrors its `@hyveon/desktop-preload` counterpart with a "keep this copy in sync" TSDoc note), add near the top of `app/packages/web/src/api.service.ts`:
 
@@ -688,12 +688,12 @@ Add to the `api` object (near `drift`/`audit`, around line 489):
   cloudHealthFix: async (id: string): Promise<CloudHealthFixResult> => hyveon().cloudHealth.fix(id),
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `npm run app:typecheck`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/packages/web/src/api.service.ts
@@ -714,7 +714,7 @@ git commit -m "feat(web): add cloudHealth API passthrough"
 - Consumes: `api.cloudHealthList()`, `api.cloudHealthFix(id)` (Task 5).
 - Produces: `export function CloudHealthSection(): JSX.Element`, mounted with no props on `settings.page.tsx`.
 
-- [ ] **Step 1: Extend `settings.page.test.tsx`'s API mock so existing tests don't break**
+- [x] **Step 1: Extend `settings.page.test.tsx`'s API mock so existing tests don't break**
 
 In `app/packages/web/src/pages/settings.page.test.tsx`, add to the `vi.hoisted` `apiMock` object:
 
@@ -729,7 +729,7 @@ and to the `beforeEach` reset block:
     apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
 ```
 
-- [ ] **Step 2: Write the failing component test**
+- [x] **Step 2: Write the failing component test**
 
 Create `app/packages/web/src/components/cloud-health-section.component.test.tsx`:
 
@@ -812,12 +812,12 @@ describe('CloudHealthSection', () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `npm run app:test -- cloud-health-section.component.test.tsx`
 Expected: FAIL — `Cannot find module './cloud-health-section.component.js'`.
 
-- [ ] **Step 4: Write the component**
+- [x] **Step 4: Write the component**
 
 Create `app/packages/web/src/components/cloud-health-section.component.tsx`:
 
@@ -945,12 +945,12 @@ export function CloudHealthSection() {
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `npm run app:test -- cloud-health-section.component.test.tsx`
 Expected: PASS — all 5 tests green.
 
-- [ ] **Step 6: Mount on `settings.page.tsx`**
+- [x] **Step 6: Mount on `settings.page.tsx`**
 
 In `app/packages/web/src/pages/settings.page.tsx`, add the import:
 
@@ -969,12 +969,12 @@ Insert a new section between the Watchdog block (ending line 89) and the Cloud S
 
 ```
 
-- [ ] **Step 7: Run the full settings page test file**
+- [x] **Step 7: Run the full settings page test file**
 
 Run: `npm run app:test -- settings.page.test.tsx`
 Expected: PASS — existing tests still green with the extended `apiMock`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add app/packages/web/src/components/cloud-health-section.component.tsx app/packages/web/src/components/cloud-health-section.component.test.tsx app/packages/web/src/pages/settings.page.tsx app/packages/web/src/pages/settings.page.test.tsx
@@ -991,15 +991,15 @@ git commit -m "feat(web): add Cloud Health checklist to Settings page"
 **Interfaces:**
 - N/A — documentation only.
 
-- [ ] **Step 1: Add a "Cloud Health" section to `docs/docs/app/settings.md`**
+- [x] **Step 1: Add a "Cloud Health" section to `docs/docs/app/settings.md`**
 
 Read the existing "Cloud Setup" section of `docs/docs/app/settings.md` for the house style, then add a new section (placed to match the page's actual section order after Task 6's UI change) describing: the always-visible checklist, that it ships with one check (ECS service-linked role), the check/fix cycle, and the `needsPolicyUpdate` fallback (apply the shown policy JSON via CloudFormation, then retry).
 
-- [ ] **Step 2: Confirm the `HyveonDeployAll` policy JSON block in `docs/docs/setup.md` already reflects the new statement**
+- [x] **Step 2: Confirm the `HyveonDeployAll` policy JSON block in `docs/docs/setup.md` already reflects the new statement**
 
 This was done in Task 1, Step 3. Run: `npm run app:test -- iamPolicy.test.ts` once more here as a final confirmation the docs and generator are still in sync after all other changes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/docs/app/settings.md
@@ -1012,21 +1012,21 @@ git commit -m "docs(app): document the Cloud Health checklist"
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Lint**
+- [x] **Step 1: Lint**
 
 Run: `npm run app:lint`
 Expected: PASS, no errors.
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `npm run app:typecheck`
 Expected: PASS, no errors.
 
-- [ ] **Step 3: Full unit suite**
+- [x] **Step 3: Full unit suite**
 
 Run: `npm run app:test`
 Expected: PASS, all tests green including every file touched above.
 
-- [ ] **Step 4: Open the PR**
+- [x] **Step 4: Open the PR**
 
 Follow `.claude/commands/pr.md` (the `/pr` skill) — Conventional Commits title, e.g. `feat(app): add AWS Cloud Health checklist to Settings`, body summarizing the change and linking back to this OpenSpec change (`openspec/changes/aws-cloud-health-checks/`).

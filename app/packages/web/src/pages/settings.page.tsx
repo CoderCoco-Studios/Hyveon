@@ -6,6 +6,7 @@ import { WatchdogPanel } from '../components/watchdog-panel.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.component.js';
 import { Button } from '../components/ui/button.component.js';
+import { CloudHealthSection } from '../components/cloud-health-section.component.js';
 
 /**
  * Client-side state for the Cloud Setup section's Pulumi engine version row —
@@ -86,6 +87,12 @@ export function SettingsPage() {
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Watchdog Configuration</h3>
         <WatchdogPanel />
+      </div>
+
+      {/* Cloud Health section: always-visible AWS account-prerequisite checklist. */}
+      <div className="mb-8">
+        <h3 className="text-lg font-medium mb-4">Cloud Health</h3>
+        <CloudHealthSection />
       </div>
 
       {/*

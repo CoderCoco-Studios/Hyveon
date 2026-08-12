@@ -123,6 +123,40 @@ describe('IamCheckService', () => {
       expect(calls[2]!.args[0].input.ActionNames).toHaveLength(20);
     });
 
+    it('should supply the iam:AWSServiceName context entry so the ECS SLR condition evaluates correctly', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      await service.checkPermissions();
+
+      const calls = iamMock.commandCalls(SimulatePrincipalPolicyCommand);
+      expect(calls[0]!.args[0].input.ContextEntries).toEqual([
+        { ContextKeyName: 'iam:AWSServiceName', ContextKeyValues: ['ecs.amazonaws.com'], ContextKeyType: 'string' },
+      ]);
+    });
+
+    it('should simulate iam:CreateServiceLinkedRole and iam:GetRole separately, scoped to the real service-linked-role ARN', async () => {
+      stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:user/hyveon' });
+      iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });
+      const service = new IamCheckService(makeStore({ region: 'us-west-2' }));
+
+      await service.checkPermissions();
+
+      const calls = iamMock.commandCalls(SimulatePrincipalPolicyCommand);
+      const resourceScopedCall = calls.find((call) =>
+        (call.args[0].input.ActionNames ?? []).includes('iam:CreateServiceLinkedRole'),
+      );
+      expect(resourceScopedCall!.args[0].input.ActionNames).toEqual(
+        expect.arrayContaining(['iam:CreateServiceLinkedRole', 'iam:GetRole']),
+      );
+      expect(resourceScopedCall!.args[0].input.ResourceArns).toEqual([
+        'arn:aws:iam::123456789012:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS',
+      ]);
+      const wildcardCall = calls.find((call) => call !== resourceScopedCall);
+      expect(wildcardCall!.args[0].input.ResourceArns).toBeUndefined();
+    });
+
     it('should pass the caller ARN from GetCallerIdentity as the PolicySourceArn', async () => {
       stsMock.on(GetCallerIdentityCommand).resolves({ Arn: 'arn:aws:iam::123456789012:role/hyveon-role' });
       iamMock.on(SimulatePrincipalPolicyCommand).resolves({ EvaluationResults: [] });

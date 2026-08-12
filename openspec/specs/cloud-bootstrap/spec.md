@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines SDK-only backend bootstrap in the desktop main process: creating and configuring the state bucket and the configuration bucket idempotently via AWS SDK v3 (never shelling out to the `aws` CLI or Terraform, and never importable from the renderer), running a best-effort IAM permission simulation against `HyveonDeployAll`, and exposing each bootstrap operation over IPC with per-resource progress reporting.
-
 ## Requirements
-
 ### Requirement: SDK-only bootstrap in the main process
 
 All backend bootstrap operations (state bucket, configuration bucket, IAM simulation) SHALL be performed via AWS SDK v3 clients in the desktop main process — never by shelling out to a CLI and never by invoking the infrastructure engine, which cannot provision the backend it is configured to read from. The renderer MUST NOT import any `@aws-sdk/*` package; an ESLint rule SHALL enforce this ban for `@hyveon/web`. SDK clients MUST be constructed with the credentials and region selected in the credentials step (profile via the SDK credential chain, or paste-flow values decrypted in the main process).
@@ -132,3 +130,29 @@ Each bootstrap operation (state bucket, configuration bucket, IAM check) SHALL b
 
 - **WHEN** the renderer invokes the bootstrap IPC methods for the two buckets and the IAM check
 - **THEN** each resolves with a per-resource status the step renders, and a failure in one resource reports `failed` with its error message without masking the others
+
+### Requirement: HyveonDeployAll permits creating the ECS service-linked role
+
+The `HyveonDeployAll` policy SHALL include a statement (`HyveonServiceLinkedRoles`)
+granting `iam:CreateServiceLinkedRole`, scoped to the resource path
+`arn:aws:iam::*:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS*`
+and conditioned on `iam:AWSServiceName` equal to `ecs.amazonaws.com`. This
+statement MUST NOT grant `iam:CreateServiceLinkedRole` for any other AWS
+service, and adding it MUST NOT require any change beyond the shared policy
+generator (`app/packages/shared/src/iamPolicy.ts`), since the CloudFormation
+template and `docs/docs/setup.md` are both derived from that single source
+and locked in sync by `iamPolicy.test.ts`.
+
+#### Scenario: Policy JSON includes the scoped statement
+
+- **WHEN** the `HyveonDeployAll` policy JSON is generated from `iamPolicy.ts`
+- **THEN** it contains a `HyveonServiceLinkedRoles` statement permitting
+  `iam:CreateServiceLinkedRole` only for the ECS service-linked-role ARN
+  path, conditioned on `iam:AWSServiceName: ecs.amazonaws.com`
+
+#### Scenario: Generated artifacts stay in sync
+
+- **WHEN** the policy generator changes
+- **THEN** `iamPolicy.test.ts` fails if the CloudFormation template or
+  `docs/docs/setup.md` policy JSON block drifts from the generator's output
+

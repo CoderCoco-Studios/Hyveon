@@ -444,6 +444,47 @@ export interface AuditPageResult {
 }
 
 /**
+ * Status of a single Cloud Health check.
+ *
+ * Mirrors `CloudHealthCheckStatus` in `@hyveon/desktop-preload` — keep this
+ * copy in sync with it.
+ */
+export type CloudHealthCheckStatus = 'ok' | 'missing' | 'error';
+
+/**
+ * One row's worth of data for the Settings page's Cloud Health checklist.
+ *
+ * Mirrors `CloudHealthCheckSummary` in `@hyveon/desktop-preload` — keep this
+ * copy in sync with it.
+ */
+export interface CloudHealthCheckSummary {
+  id: string;
+  label: string;
+  status: CloudHealthCheckStatus;
+  message?: string;
+}
+
+/**
+ * Outcome of attempting to fix a single Cloud Health check.
+ *
+ * Mirrors `CloudHealthFixOutcome` in `@hyveon/desktop-preload` — keep this
+ * copy in sync with it.
+ */
+export type CloudHealthFixOutcome = 'fixed' | 'needsPolicyUpdate' | 'failed';
+
+/**
+ * Result of a Cloud Health fix attempt.
+ *
+ * Mirrors `CloudHealthFixResult` in `@hyveon/desktop-preload` — keep this
+ * copy in sync with it.
+ */
+export interface CloudHealthFixResult {
+  outcome: CloudHealthFixOutcome;
+  policyJson?: string;
+  message?: string;
+}
+
+/**
  * Returns the `window.hyveon` IPC bridge, throwing a descriptive error if it is
  * absent. The bridge is injected by the Electron preload script, so a missing
  * one means the renderer is running outside Electron (e.g. a plain browser).
@@ -531,4 +572,7 @@ export const api = {
 
   audit: async (opts?: { limit?: number; before?: string }): Promise<AuditPageResult> =>
     hyveon().audit.list(opts),
+
+  cloudHealthList: async (): Promise<CloudHealthCheckSummary[]> => hyveon().cloudHealth.list(),
+  cloudHealthFix: async (id: string): Promise<CloudHealthFixResult> => hyveon().cloudHealth.fix(id),
 };

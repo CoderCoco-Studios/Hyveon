@@ -695,6 +695,11 @@ const api: HyveonApi = {
     estimate: () => invoke('costs.estimate'),
   },
 
+  cloudHealth: {
+    list: () => invoke('cloudHealth.list'),
+    fix: (id: string) => invoke('cloudHealth.fix', { id }),
+  },
+
   logs: {
     get: (game: string, limit?: number) => invoke('logs.get', { game, limit }),
     stream: openLogsStream,

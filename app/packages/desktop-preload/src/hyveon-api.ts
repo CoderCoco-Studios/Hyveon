@@ -1218,6 +1218,37 @@ export interface IacApproveAck {
 // Per-namespace sub-interfaces
 // ---------------------------------------------------------------------------
 
+/** Status of a single Cloud Health check, as surfaced by `cloudHealth.list`. */
+export type CloudHealthCheckStatus = 'ok' | 'missing' | 'error';
+
+/** One row's worth of data for the Settings page's Cloud Health checklist. */
+export interface CloudHealthCheckSummary {
+  id: string;
+  label: string;
+  status: CloudHealthCheckStatus;
+  message?: string;
+}
+
+/** Outcome of attempting to fix a single Cloud Health check. */
+export type CloudHealthFixOutcome = 'fixed' | 'needsPolicyUpdate' | 'failed';
+
+/** Result of a `cloudHealth.fix` call. */
+export interface CloudHealthFixResult {
+  outcome: CloudHealthFixOutcome;
+  /** Present when `outcome` is `'needsPolicyUpdate'` — the current `HyveonDeployAll` policy JSON to apply. */
+  policyJson?: string;
+  /** Present when `outcome` is `'failed'` — an actionable, human-readable message. */
+  message?: string;
+}
+
+/** Cloud Health checklist: lists AWS-account prerequisite checks and attempts one-click fixes. */
+export interface HyveonCloudHealthApi {
+  /** Runs every registered health check and returns one summary per check. */
+  list: () => Promise<CloudHealthCheckSummary[]>;
+  /** Attempts to fix the check with the given id. */
+  fix: (id: string) => Promise<CloudHealthFixResult>;
+}
+
 /** Game-server lifecycle: list games, query status, start/stop ECS tasks. */
 export interface HyveonGamesApi {
   /** Lists games merged from the declared config (`gameServers`) and deployed state (tfstate). */
@@ -2167,6 +2198,8 @@ export interface HyveonApi {
   diagnostics: HyveonDiagnosticsApi;
   /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */
   audit: HyveonAuditApi;
+  /** AWS account-prerequisite health checklist surfaced on the Settings page. */
+  cloudHealth: HyveonCloudHealthApi;
   /**
    * Iac orchestration: stack initialization plus plan/apply/destroy/rollback
    * against the Pulumi-backed engine. The namespace is `iac`, and its
