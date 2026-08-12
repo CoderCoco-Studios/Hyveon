@@ -55,6 +55,11 @@
             "type": "command",
             "command": "node .claude/hooks/guard-require-worktree.js",
             "statusMessage": "Checking worktree isolation..."
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-git-worktree-add-path.js",
+            "statusMessage": "Checking git worktree add path is under .claude/worktrees/..."
           }
         ]
       }
