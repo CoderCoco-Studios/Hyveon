@@ -4,7 +4,11 @@
  * permission decision on stdout.
  */
 
-export function readStdin() {
+import type { PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
+
+export type { PreToolUseHookInput };
+
+export function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
     process.stdin.setEncoding('utf8');
@@ -16,18 +20,21 @@ export function readStdin() {
   });
 }
 
-export function deny(reason) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: reason,
-        additionalContext: reason,
-      },
-    }),
-  );
+function respond(permissionDecision: PreToolUseHookSpecificOutput['permissionDecision'], reason: string): never {
+  const output: SyncHookJSONOutput = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision,
+      permissionDecisionReason: reason,
+      additionalContext: reason,
+    },
+  };
+  process.stdout.write(JSON.stringify(output));
   process.exit(0);
+}
+
+export function deny(reason: string): never {
+  return respond('deny', reason);
 }
 
 /**
@@ -36,21 +43,11 @@ export function deny(reason) {
  * confidently allow or deny on its own (e.g. it couldn't parse or validate
  * its input), so the failure isn't silently swallowed.
  */
-export function ask(reason) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'ask',
-        permissionDecisionReason: reason,
-        additionalContext: reason,
-      },
-    }),
-  );
-  process.exit(0);
+export function ask(reason: string): never {
+  return respond('ask', reason);
 }
 
 /** Exits the hook script with no output, letting the guarded tool call proceed. */
-export function allow() {
+export function allow(): never {
   process.exit(0);
 }

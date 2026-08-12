@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * PreToolUse guard (Bash): blocks every `git worktree add` invoked directly
  * via Bash, per .claude/rules/worktree.md. Worktree creation must go through
@@ -12,20 +12,25 @@
  * EnterWorktree hook has no reason to distrust.
  */
 
-import { readStdin, deny, ask, allow } from './lib/hook-io.js';
+import { readStdin, deny, ask, allow, type PreToolUseHookInput } from './lib/hook-io.js';
 
 const raw = await readStdin();
 if (!raw.trim()) allow();
 
-let input;
+let input: PreToolUseHookInput;
 try {
   input = JSON.parse(raw);
 } catch (err) {
-  ask(`guard-git-worktree-add-path couldn't parse its PreToolUse input as JSON (${err.message}) — unable to check whether this Bash command is a \`git worktree add\`. Confirm before proceeding.`);
+  const message = err instanceof Error ? err.message : String(err);
+  ask(
+    `guard-git-worktree-add-path couldn't parse its PreToolUse input as JSON (${message}) — ` +
+      'unable to check whether this Bash command is a `git worktree add`. Confirm before proceeding.',
+  );
 }
 
 if (input.tool_name !== 'Bash') allow();
-const command = (input.tool_input && input.tool_input.command) || '';
+const toolInput = input.tool_input as { command?: string } | undefined;
+const command = typeof toolInput?.command === 'string' ? toolInput.command : '';
 
 if (!/git\s+worktree\s+add\b/.test(command)) allow();
 
