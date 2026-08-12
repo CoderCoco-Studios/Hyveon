@@ -2,21 +2,17 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StorageStep } from './storage-step.component.js';
-import type { WizardDraft } from './wizard-form.utils.js';
+import { createEmptyWizardDraft, type WizardDraft } from './wizard-form.utils.js';
 
 /** Builds a minimal draft for the Storage step; only `volumes`/`file_seeds` matter here. */
 function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   return {
+    ...createEmptyWizardDraft(),
     name: 'minecraft',
     image: 'itzg/minecraft-server',
-    connect_message: '',
     cpu: 1024,
     memory: 2048,
-    ports: [],
     volumes: [{ name: 'data', container_path: '/data' }],
-    file_seeds: [],
-    environment: [],
-    https: false,
     ...overrides,
   };
 }

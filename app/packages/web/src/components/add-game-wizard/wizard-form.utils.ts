@@ -20,7 +20,13 @@ import {
   type GameServerValidationIssue,
 } from '@hyveon/shared/gameServerValidator';
 import { ADD_GAME_WIZARD_STEPS, type AddGameWizardStep } from '@hyveon/shared';
-import type { CreateGamePayload, GameServer } from '../../api.service.js';
+import type {
+  CreateGamePayload,
+  GameServer,
+  GameServerHealthCheck,
+  GameServerHealthCheckCondition,
+  RedactedGameServer,
+} from '../../api.service.js';
 
 /**
  * Ordered steps of the add-game wizard, matching issue #99's scope.
@@ -79,6 +85,49 @@ export interface WizardDraftEnvironmentVariable {
 }
 
 /**
+ * Draft form of the optional `healthCheck` declaration. `enabled` toggles
+ * whether the game gets a `healthCheck` at all; every other field is only
+ * meaningful when it's `true`. `secretArn` is write-only — the operator
+ * types a new ARN here to set or replace the credential, and it is always
+ * submitted empty on edit (leaving an already-configured credential
+ * untouched); {@link secretSet}, populated from the redacted read-side
+ * shape, is the only signal of whether a credential is already configured.
+ * `value` stores the declared comparison value as free text; it is parsed
+ * to a JSON scalar (number/boolean/null/string) on submit, and is unused
+ * (and not submitted) when `operator` is `"exists"`.
+ */
+export interface WizardDraftHealthCheck {
+  enabled: boolean;
+  scheme: string;
+  port: number | null;
+  path: string;
+  method: string;
+  timeoutMs: number | null;
+  jsonPath: string;
+  operator: string;
+  value: string;
+  secretArn: string;
+  secretSet: boolean;
+}
+
+/** Blank {@link WizardDraftHealthCheck}, used both for a brand-new draft and for a declared game with no `healthCheck`. */
+function emptyHealthCheckDraft(): WizardDraftHealthCheck {
+  return {
+    enabled: false,
+    scheme: 'http',
+    port: null,
+    path: '',
+    method: 'GET',
+    timeoutMs: 2000,
+    jsonPath: '',
+    operator: 'equals',
+    value: '',
+    secretArn: '',
+    secretSet: false,
+  };
+}
+
+/**
  * In-progress state of the add-game wizard, covering every field across all
  * six steps. Field names mirror `GameServer` (snake_case) since the draft
  * is converted directly into a proposed entry for {@link validateGameServer}.
@@ -94,6 +143,7 @@ export interface WizardDraft {
   file_seeds: WizardDraftFileSeed[];
   environment: WizardDraftEnvironmentVariable[];
   https: boolean;
+  healthCheck: WizardDraftHealthCheck;
 }
 
 /** Builds a blank {@link WizardDraft} — the wizard's initial state before the operator has entered anything. */
@@ -109,6 +159,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     file_seeds: [],
     environment: [],
     https: false,
+    healthCheck: emptyHealthCheckDraft(),
   };
 }
 
@@ -127,7 +178,7 @@ export function createEmptyWizardDraft(): WizardDraft {
  * either way — the strict check just makes the draft show `false` instead of
  * a value the checkbox can't actually mean.
  */
-export function draftFromGameServer(game: GameServer): WizardDraft {
+export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
   return {
     name: game.name,
     image: game.image,
@@ -144,6 +195,65 @@ export function draftFromGameServer(game: GameServer): WizardDraft {
     })),
     environment: (game.environment ?? []).map((variable) => ({ name: variable.name, value: variable.value })),
     https: game.https === true,
+    healthCheck: game.healthCheck
+      ? {
+          enabled: true,
+          scheme: game.healthCheck.scheme,
+          port: game.healthCheck.port,
+          path: game.healthCheck.path,
+          method: game.healthCheck.method,
+          timeoutMs: game.healthCheck.timeoutMs,
+          jsonPath: game.healthCheck.activeWhen.jsonPath,
+          operator: game.healthCheck.activeWhen.operator,
+          value: game.healthCheck.activeWhen.value === undefined ? '' : String(game.healthCheck.activeWhen.value),
+          secretArn: '',
+          secretSet: game.healthCheck.secretSet,
+        }
+      : emptyHealthCheckDraft(),
+  };
+}
+
+/** Parses a health-check comparison value's free-text form into the JSON scalar `validateGameServer` expects: `"true"`/`"false"`/`"null"` recognized as their literal, a numeric string as a number, anything else passed through as a string. */
+function parseHealthCheckValue(raw: string): string | number | boolean | null {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (raw === 'null') return null;
+  if (raw.trim().length > 0 && !Number.isNaN(Number(raw))) return Number(raw);
+  return raw;
+}
+
+/**
+ * Converts a {@link WizardDraftHealthCheck} into the `healthCheck` field of
+ * a proposed/submitted entry, or `undefined` when the operator hasn't
+ * enabled one. `secretArn` is only included when the operator typed a new
+ * value — an empty field submits no `auth` at all, which
+ * `GamesWriteService`'s update path must then treat as "leave the existing
+ * credential, if any, unchanged" rather than as "clear it" (see
+ * `docs/docs/app/games.md`).
+ */
+function healthCheckFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCheck | undefined {
+  if (!draft.enabled) {
+    return undefined;
+  }
+
+  const activeWhen: GameServerHealthCheckCondition =
+    draft.operator === 'exists'
+      ? { jsonPath: draft.jsonPath, operator: 'exists' }
+      : {
+          jsonPath: draft.jsonPath,
+          operator: draft.operator as GameServerHealthCheckCondition['operator'],
+          value: parseHealthCheckValue(draft.value),
+        };
+
+  return {
+    kind: 'http',
+    scheme: draft.scheme as GameServerHealthCheck['scheme'],
+    port: draft.port ?? 0,
+    path: draft.path,
+    method: draft.method as GameServerHealthCheck['method'],
+    timeoutMs: draft.timeoutMs ?? 0,
+    activeWhen,
+    ...(draft.secretArn.trim().length > 0 ? { auth: { secretArn: draft.secretArn.trim() } } : {}),
   };
 }
 
@@ -181,6 +291,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
           : undefined,
       environment: draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
       https: draft.https,
+      healthCheck: healthCheckFromDraft(draft.healthCheck),
     },
   };
 }
@@ -206,6 +317,7 @@ export function stepForIssuePath(path: string): WizardStep {
     case 'memory':
       return 'resources';
     case 'ports':
+    case 'healthCheck':
       return 'networking';
     case 'volumes':
     case 'file_seeds':
@@ -279,6 +391,7 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
     environment:
       draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
     https: draft.https,
+    healthCheck: healthCheckFromDraft(draft.healthCheck),
   };
 }
 

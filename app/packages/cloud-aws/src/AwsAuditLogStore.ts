@@ -1,6 +1,6 @@
 import { DynamoDBClient, type DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, GameServer } from '@hyveon/shared';
+import type { AuditAction, AuditEntry, AuditLogStore, AuditPageResult, RedactedGameServer } from '@hyveon/shared';
 import { resolveDefaultAwsRegion } from './awsRegionEnv.js';
 
 /**
@@ -179,8 +179,8 @@ export class AwsAuditLogStore implements AuditLogStore {
       actor: item['actor'] as string,
       action: item['action'] as AuditAction,
       game: item['game'] as string,
-      before: item['before'] ? (JSON.parse(item['before'] as string) as GameServer) : null,
-      after: item['after'] ? (JSON.parse(item['after'] as string) as GameServer) : null,
+      before: item['before'] ? (JSON.parse(item['before'] as string) as RedactedGameServer) : null,
+      after: item['after'] ? (JSON.parse(item['after'] as string) as RedactedGameServer) : null,
       ...(item['versionId'] !== undefined ? { versionId: item['versionId'] as string } : {}),
     }));
 

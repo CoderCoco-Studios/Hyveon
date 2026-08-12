@@ -240,6 +240,52 @@ export interface GameServer {
 export type GameServerConfig = Omit<GameServer, 'name'>;
 
 /**
+ * {@link GameServerHealthCheck} with the credential reference redacted —
+ * `auth` is replaced by a `secretSet` boolean, consistent with how the
+ * system treats every other secret it holds (e.g.
+ * `RedactedDiscordConfig.botTokenSet`/`publicKeySet`). Every other field is
+ * carried through unchanged; none of them are secret.
+ */
+export type RedactedGameServerHealthCheck = Omit<GameServerHealthCheck, 'auth'> & {
+  /** Whether `auth` is set on the underlying declaration — never the credential reference itself. */
+  secretSet: boolean;
+};
+
+/**
+ * {@link GameServer} with {@link GameServer.healthCheck} redacted via
+ * {@link RedactedGameServerHealthCheck} — the shape returned to the
+ * renderer wherever a declared game crosses the IPC boundary (`games.list`,
+ * `games.create`, `games.update`). Built by {@link redactGameServer}.
+ */
+export type RedactedGameServer = Omit<GameServer, 'healthCheck'> & {
+  healthCheck?: RedactedGameServerHealthCheck;
+};
+
+/**
+ * Redacts a {@link GameServer} for the renderer: replaces
+ * `healthCheck.auth` with a `secretSet` boolean, never the credential
+ * reference itself. A game with no `healthCheck` (or a `healthCheck` with
+ * no `auth`) round-trips unchanged aside from `secretSet` always being
+ * present when `healthCheck` is.
+ *
+ * Pure function — no I/O — mirroring `canRun.ts`'s convention so the
+ * `games.list`/`games.create`/`games.update` IPC handlers
+ * (`@hyveon/desktop-main`) and `mergeGameLists` share exactly one copy of
+ * this rule instead of re-deriving it at each call site.
+ *
+ * @param game - The declared entry, as read from `DeploymentConfig.gameServers`.
+ * @returns The same entry with `healthCheck` redacted.
+ */
+export function redactGameServer(game: GameServer): RedactedGameServer {
+  const { healthCheck, ...rest } = game;
+  if (!healthCheck) {
+    return rest;
+  }
+  const { auth, ...healthCheckRest } = healthCheck;
+  return { ...rest, healthCheck: { ...healthCheckRest, secretSet: auth != null } };
+}
+
+/**
  * Response entry for the merged games list (the `games.list` IPC channel /
  * `/api/games` HTTP route). Combines the declared view
  * (`DeploymentConfig.gameServers`, via {@link GameServer}) with the deployed
@@ -257,10 +303,12 @@ export interface GameListEntry {
   /** True when this game has a deployed ECS task definition in tfstate. */
   deployed: boolean;
   /**
-   * Full declared configuration for this game (parsed from
-   * `DeploymentConfig.gameServers`). Only present when `declared` is true.
+   * Declared configuration for this game (parsed from
+   * `DeploymentConfig.gameServers`), with any health-check credential
+   * redacted via {@link redactGameServer}. Only present when `declared` is
+   * true.
    */
-  config?: GameServer;
+  config?: RedactedGameServer;
   /**
    * Drift finding for this game, from `DriftService.computeDrift`. Present
    * whenever the game has an entry in the current `DriftReport`, regardless

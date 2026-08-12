@@ -83,6 +83,19 @@ const sampleDraft = {
   file_seeds: [],
   environment: [],
   https: false,
+  healthCheck: {
+    enabled: false,
+    scheme: 'http',
+    port: null,
+    path: '',
+    method: 'GET',
+    timeoutMs: 2000,
+    jsonPath: '',
+    operator: 'equals',
+    value: '',
+    secretArn: '',
+    secretSet: false,
+  },
 };
 
 describe('GamesPage', () => {

@@ -29,7 +29,7 @@ import type {
   GameWriteResult,
   UpdateGamePayload,
 } from '@hyveon/shared';
-import { OptimisticLockError, validateGameServer } from '@hyveon/shared';
+import { OptimisticLockError, redactGameServer, validateGameServer } from '@hyveon/shared';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
@@ -146,12 +146,22 @@ export class GamesWriteService {
   async updateGame(payload: UpdateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.updateGame: updating game server entry', { game: payload.name });
     const siblings = await this.deploymentConfig.getGameServers();
-    const validation = validateGameServer(payload.name, payload.config, siblings);
+    const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
+
+    // The wizard/edit form omits `healthCheck.auth` to mean "leave the
+    // existing credential unchanged" (see wizard-form.utils.ts's
+    // `healthCheckFromDraft` and docs/docs/app/games.md) — since this write
+    // path replaces the whole entry rather than patching it, that omitted
+    // auth has to be spliced back in from the prior config here.
+    const incomingConfig =
+      payload.config.healthCheck && !payload.config.healthCheck.auth && before?.healthCheck?.auth
+        ? { ...payload.config, healthCheck: { ...payload.config.healthCheck, auth: before.healthCheck.auth } }
+        : payload.config;
+
+    const validation = validateGameServer(payload.name, incomingConfig, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
     }
-
-    const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
     const { name, ...config } = validation.data;
     let write: { etag: string; versionId?: string };
@@ -247,8 +257,8 @@ export class GamesWriteService {
     await this.audit.record({
       action: AUDIT_ACTION_BY_WRITE_ACTION[action],
       game: name,
-      before: audit.before,
-      after: audit.after,
+      before: audit.before ? redactGameServer(audit.before) : null,
+      after: audit.after ? redactGameServer(audit.after) : null,
       versionId: audit.versionId,
     });
 
@@ -257,7 +267,7 @@ export class GamesWriteService {
     const driftReport = computeDriftFromOutputs(declared, outputs);
     const games = mergeGameLists(declared, outputs?.gameNames ?? [], driftReport.entries);
 
-    return { ok: true, game, games };
+    return { ok: true, game: game ? redactGameServer(game) : undefined, games };
   }
 
   /**

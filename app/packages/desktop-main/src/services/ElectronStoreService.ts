@@ -115,6 +115,20 @@ export interface GameWizardDraft {
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
   https: boolean;
+  /** Absent on a draft autosaved before this field existed — {@link GameWizardDraftService} backfills a default on read. */
+  healthCheck?: {
+    enabled: boolean;
+    scheme: string;
+    port: number | null;
+    path: string;
+    method: string;
+    timeoutMs: number | null;
+    jsonPath: string;
+    operator: string;
+    value: string;
+    secretArn: string;
+    secretSet: boolean;
+  };
 }
 
 /**

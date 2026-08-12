@@ -26,13 +26,22 @@ import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
 import { cn } from '@/lib/utils.utils';
-import type { WizardDraftPort } from './wizard-form.utils.js';
+import { messageFor, type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
 
 /** Protocol options offered in each row's dropdown; `game_servers[].ports[].protocol` is a plain string server-side, but only these two are meaningful for an ECS/Fargate task definition. */
 const PROTOCOL_OPTIONS = ['tcp', 'udp'] as const;
 
 /** Blank row appended by the "Add port" button. */
 const EMPTY_PORT: WizardDraftPort = { container: null, protocol: 'tcp' };
+
+/** `healthCheck.scheme` options. */
+const HEALTH_CHECK_SCHEME_OPTIONS = ['http', 'https'] as const;
+
+/** `healthCheck.method` options. */
+const HEALTH_CHECK_METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'HEAD'] as const;
+
+/** `healthCheck.activeWhen.operator` options. */
+const HEALTH_CHECK_OPERATOR_OPTIONS = ['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains', 'exists'] as const;
 
 /** Props for {@link NetworkingStep}. */
 export interface NetworkingStepProps {
@@ -46,6 +55,10 @@ export interface NetworkingStepProps {
   https: boolean;
   /** Called with the new value whenever the HTTPS toggle is flipped. */
   onHttpsChange: (https: boolean) => void;
+  /** Current draft value of the optional `healthCheck` declaration. */
+  healthCheck: WizardDraftHealthCheck;
+  /** Called with a partial patch whenever a health-check field changes. */
+  onHealthCheckChange: (patch: Partial<WizardDraftHealthCheck>) => void;
 }
 
 /**
@@ -66,7 +79,15 @@ function rowError(issues: GameServerValidationIssue[], index: number): GameServe
  * with a container-port input, protocol select, and remove button, plus an
  * "Add port" button that appends {@link EMPTY_PORT}.
  */
-export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }: NetworkingStepProps) {
+export function NetworkingStep({
+  ports,
+  issues,
+  onChange,
+  https,
+  onHttpsChange,
+  healthCheck,
+  onHealthCheckChange,
+}: NetworkingStepProps) {
   function addRow() {
     onChange([...ports, { ...EMPTY_PORT }]);
   }
@@ -202,6 +223,188 @@ export function NetworkingStep({ ports, issues, onChange, https, onHttpsChange }
       <Button type="button" variant="secondary" size="sm" onClick={addRow}>
         Add port
       </Button>
+
+      <div className="space-y-3 border-t border-[var(--color-border)] pt-4">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--color-foreground)]">Health check</h3>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Judge this server active/idle by an HTTP request instead of network traffic. Leave off to keep the
+            default network-traffic heuristic.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            id="health-check-enabled"
+            type="checkbox"
+            checked={healthCheck.enabled}
+            onChange={(event) => onHealthCheckChange({ enabled: event.target.checked })}
+            className="size-3.5 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
+          />
+          <Label htmlFor="health-check-enabled" className="cursor-pointer">
+            Enable authoritative health check
+          </Label>
+        </div>
+
+        {healthCheck.enabled && (
+          <div className="space-y-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
+            <div className="flex flex-wrap gap-3">
+              <div className="w-24">
+                <Label htmlFor="health-check-scheme">Scheme</Label>
+                <select
+                  id="health-check-scheme"
+                  value={healthCheck.scheme}
+                  onChange={(event) => onHealthCheckChange({ scheme: event.target.value })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {HEALTH_CHECK_SCHEME_OPTIONS.map((scheme) => (
+                    <option key={scheme} value={scheme}>
+                      {scheme}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex-1">
+                <Label htmlFor="health-check-port">Port</Label>
+                <select
+                  id="health-check-port"
+                  value={healthCheck.port ?? ''}
+                  aria-invalid={Boolean(messageFor(issues, 'healthCheck.port'))}
+                  aria-describedby={messageFor(issues, 'healthCheck.port') ? 'health-check-port-error' : undefined}
+                  onChange={(event) => onHealthCheckChange({ port: event.target.value === '' ? null : Number(event.target.value) })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  <option value="">Select a declared port…</option>
+                  {ports
+                    .filter((port) => port.container !== null)
+                    .map((port) => (
+                      <option key={`${port.container}-${port.protocol}`} value={port.container ?? ''}>
+                        {port.container}/{port.protocol}
+                      </option>
+                    ))}
+                </select>
+                {messageFor(issues, 'healthCheck.port') && (
+                  <p id="health-check-port-error" role="alert" className="text-xs text-[var(--color-red)]">
+                    {messageFor(issues, 'healthCheck.port')}
+                  </p>
+                )}
+              </div>
+
+              <div className="w-28">
+                <Label htmlFor="health-check-method">Method</Label>
+                <select
+                  id="health-check-method"
+                  value={healthCheck.method}
+                  onChange={(event) => onHealthCheckChange({ method: event.target.value })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {HEALTH_CHECK_METHOD_OPTIONS.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="w-32">
+                <Label htmlFor="health-check-timeout">Timeout (ms)</Label>
+                <Input
+                  id="health-check-timeout"
+                  type="number"
+                  value={healthCheck.timeoutMs ?? ''}
+                  aria-invalid={Boolean(messageFor(issues, 'healthCheck.timeoutMs'))}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    onHealthCheckChange({ timeoutMs: raw === '' ? null : Number(raw) });
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="health-check-path">Request path</Label>
+              <Input
+                id="health-check-path"
+                value={healthCheck.path}
+                aria-invalid={Boolean(messageFor(issues, 'healthCheck.path'))}
+                aria-describedby={messageFor(issues, 'healthCheck.path') ? 'health-check-path-error' : undefined}
+                placeholder="/status"
+                onChange={(event) => onHealthCheckChange({ path: event.target.value })}
+              />
+              {messageFor(issues, 'healthCheck.path') && (
+                <p id="health-check-path-error" role="alert" className="text-xs text-[var(--color-red)]">
+                  {messageFor(issues, 'healthCheck.path')}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1">
+                <Label htmlFor="health-check-json-path">Response JSON path</Label>
+                <Input
+                  id="health-check-json-path"
+                  value={healthCheck.jsonPath}
+                  placeholder="players.online"
+                  onChange={(event) => onHealthCheckChange({ jsonPath: event.target.value })}
+                />
+              </div>
+
+              <div className="w-40">
+                <Label htmlFor="health-check-operator">Operator</Label>
+                <select
+                  id="health-check-operator"
+                  value={healthCheck.operator}
+                  onChange={(event) => onHealthCheckChange({ operator: event.target.value })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {HEALTH_CHECK_OPERATOR_OPTIONS.map((operator) => (
+                    <option key={operator} value={operator}>
+                      {operator}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {healthCheck.operator !== 'exists' && (
+                <div className="flex-1">
+                  <Label htmlFor="health-check-value">Comparison value</Label>
+                  <Input
+                    id="health-check-value"
+                    value={healthCheck.value}
+                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.activeWhen.value'))}
+                    onChange={(event) => onHealthCheckChange({ value: event.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+            {messageFor(issues, 'healthCheck.activeWhen.value') && (
+              <p role="alert" className="text-xs text-[var(--color-red)]">
+                {messageFor(issues, 'healthCheck.activeWhen.value')}
+              </p>
+            )}
+
+            <div>
+              <Label htmlFor="health-check-secret">
+                Credential (Secrets Manager ARN){healthCheck.secretSet ? ' — a credential is already set' : ''}
+              </Label>
+              <Input
+                id="health-check-secret"
+                value={healthCheck.secretArn}
+                aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.secretArn'))}
+                placeholder={
+                  healthCheck.secretSet ? 'Leave blank to keep the existing credential' : 'arn:aws:secretsmanager:...'
+                }
+                onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
+              />
+              <p className="text-xs text-[var(--color-muted-foreground)]">
+                Injected as the request&apos;s <code>Authorization</code> header. The credential value itself never
+                appears here — only whether one is configured.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -118,4 +118,35 @@ describe('mergeGameLists', () => {
 
     expect(result).toEqual([{ name: 'rust', declared: true, deployed: true, config: rust, drift: undefined }]);
   });
+
+  it('should redact a declared game\'s health-check credential to secretSet, never the ARN, before it reaches the caller', () => {
+    const secretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-token-AbCdEf';
+    const palworld: GameServer = {
+      ...buildGameServer('palworld'),
+      healthCheck: {
+        kind: 'http',
+        scheme: 'http',
+        port: 8211,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        auth: { secretArn },
+        activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+      },
+    };
+
+    const result = mergeGameLists([palworld], []);
+
+    expect(result[0]!.config?.healthCheck).toEqual({
+      kind: 'http',
+      scheme: 'http',
+      port: 8211,
+      path: '/status',
+      method: 'GET',
+      timeoutMs: 2000,
+      activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+      secretSet: true,
+    });
+    expect(JSON.stringify(result)).not.toContain(secretArn);
+  });
 });

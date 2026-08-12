@@ -1,4 +1,4 @@
-import type { DriftEntry, GameListEntry, GameServer } from '@hyveon/shared';
+import { redactGameServer, type DriftEntry, type GameListEntry, type GameServer } from '@hyveon/shared';
 
 /**
  * Merges the declared view of games (`deployment-config.json`'s `gameServers`
@@ -9,9 +9,11 @@ import type { DriftEntry, GameListEntry, GameServer } from '@hyveon/shared';
  * A game appears exactly once in the result, keyed by name, with `declared`
  * and `deployed` flags set independently so callers can distinguish
  * "declared but not yet applied" from "live but no longer declared" from
- * "both". `config` is only populated for declared games. `drift` is attached
- * from `driftEntries` when a matching finding exists, for any `DriftKind` —
- * callers decide which kinds are worth surfacing.
+ * "both". `config` is only populated for declared games, and run through
+ * `redactGameServer()` — this is the seam where a declared game's health-check
+ * credential reference is redacted before it ever reaches the IPC boundary.
+ * `drift` is attached from `driftEntries` when a matching finding exists,
+ * for any `DriftKind` — callers decide which kinds are worth surfacing.
  *
  * Pure function — no I/O, no side effects. Ordering is deterministic: entries
  * appear in `declared` (`deployment-config.json`) order first, followed by any deployed-only
@@ -34,7 +36,7 @@ export function mergeGameLists(
       name: config.name,
       declared: true,
       deployed: false,
-      config,
+      config: redactGameServer(config),
       drift: toDrift(driftByName.get(config.name)),
     });
   }

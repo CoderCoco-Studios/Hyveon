@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NetworkingStep } from './networking-step.component.js';
-import type { WizardDraftPort } from './wizard-form.utils.js';
+import { createEmptyWizardDraft, type WizardDraftPort } from './wizard-form.utils.js';
 
 /** Two-row port fixture used across most cases below. */
 function makePorts(): WizardDraftPort[] {
@@ -12,9 +12,14 @@ function makePorts(): WizardDraftPort[] {
   ];
 }
 
+/** Disabled health-check draft shared by every case below that isn't specifically testing the health-check block. */
+const DISABLED_HEALTH_CHECK = createEmptyWizardDraft().healthCheck;
+
 describe('NetworkingStep', () => {
   it('should render "No ports configured yet" when the ports array is empty', () => {
-    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} />);
+    render(<NetworkingStep ports={[]} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()} />);
 
     expect(screen.getByText('No ports configured yet.')).toBeInTheDocument();
   });
@@ -29,6 +34,8 @@ describe('NetworkingStep', () => {
         onChange={onChange}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -51,6 +58,8 @@ describe('NetworkingStep', () => {
         onChange={onChange}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -69,6 +78,8 @@ describe('NetworkingStep', () => {
         onChange={onChange}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -93,6 +104,8 @@ describe('NetworkingStep', () => {
         onChange={onChange}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -113,6 +126,8 @@ describe('NetworkingStep', () => {
         onChange={vi.fn()}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -132,6 +147,8 @@ describe('NetworkingStep', () => {
         onChange={vi.fn()}
         https={false}
         onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
       />,
     );
 
@@ -145,7 +162,9 @@ describe('NetworkingStep', () => {
 
   describe('HTTPS toggle', () => {
     it('should render unchecked and without a callout by default', () => {
-      render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()} />);
+      render(<NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={false} onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()} />);
 
       expect(screen.getByLabelText('Enable HTTPS (Caddy sidecar)')).not.toBeChecked();
       expect(screen.queryByText(/opens ports 443 and 80/)).not.toBeInTheDocument();
@@ -161,6 +180,8 @@ describe('NetworkingStep', () => {
           onChange={vi.fn()}
           https={false}
           onHttpsChange={onHttpsChange}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
         />,
       );
 
@@ -179,6 +200,8 @@ describe('NetworkingStep', () => {
           onChange={vi.fn()}
           https={true}
           onHttpsChange={onHttpsChange}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
         />,
       );
 
@@ -189,7 +212,9 @@ describe('NetworkingStep', () => {
 
     it('should render the warning callout, describing all three consequences, only when enabled', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} />,
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()} />,
       );
 
       const callout = screen.getByText(/opens ports 443 and 80/);
@@ -200,7 +225,9 @@ describe('NetworkingStep', () => {
 
     it('should reference the callout via aria-describedby on the toggle while it is shown', () => {
       render(
-        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()} />,
+        <NetworkingStep ports={makePorts()} issues={[]} onChange={vi.fn()} https={true} onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()} />,
       );
 
       const toggle = screen.getByLabelText('Enable HTTPS (Caddy sidecar)');
@@ -215,6 +242,8 @@ describe('NetworkingStep', () => {
           onChange={vi.fn()}
           https={true}
           onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
         />,
       );
 

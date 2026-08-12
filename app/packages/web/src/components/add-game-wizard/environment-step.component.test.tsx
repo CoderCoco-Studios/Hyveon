@@ -2,21 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EnvironmentStep } from './environment-step.component.js';
-import type { WizardDraft } from './wizard-form.utils.js';
+import { createEmptyWizardDraft, type WizardDraft } from './wizard-form.utils.js';
 
 /** Builds a minimal draft for the Environment step; only `environment` matters here. */
 function makeDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
   return {
+    ...createEmptyWizardDraft(),
     name: 'minecraft',
     image: 'itzg/minecraft-server',
-    connect_message: '',
     cpu: 1024,
     memory: 2048,
-    ports: [],
-    volumes: [],
-    file_seeds: [],
-    environment: [],
-    https: false,
     ...overrides,
   };
 }

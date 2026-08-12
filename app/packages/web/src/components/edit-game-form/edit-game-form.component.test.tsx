@@ -4,7 +4,7 @@ import { render, screen, waitFor, type RenderResult } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { EditGameForm } from './edit-game-form.component.js';
-import type { GameServer } from '../../api.service.js';
+import type { RedactedGameServer } from '../../api.service.js';
 
 /** Renders `<EditGameForm>` wrapped in a `MemoryRouter` — the "apply this change" hint links to `/iac`. */
 function renderForm(ui: ReactElement): RenderResult {
@@ -24,8 +24,8 @@ const apiMock = vi.hoisted(() => ({
 }));
 vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
-/** A fully-populated declared game used to prefill the form under test. */
-function sampleGame(overrides: Partial<GameServer> = {}): GameServer {
+/** A fully-populated declared game (redacted, as read back from the IPC boundary) used to prefill the form under test. */
+function sampleGame(overrides: Partial<RedactedGameServer> = {}): RedactedGameServer {
   return {
     name: 'mygame',
     image: 'itzg/minecraft-server',

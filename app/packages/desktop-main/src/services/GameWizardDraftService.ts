@@ -12,8 +12,9 @@ import { ElectronStoreService, type GameWizardDraft, type StoredGameWizardDraft 
  *
  * @remarks
  * {@link get} redacts secret-shaped fields (`environment[].value`,
- * `file_seeds[].content`/`content_base64`) before returning — the operator
- * re-enters those values on resume. This keeps pasted credentials or other
+ * `file_seeds[].content`/`content_base64`, `healthCheck.secretArn`) before
+ * returning — the operator re-enters those values on resume. This keeps
+ * pasted credentials or other
  * sensitive environment values from ever crossing the IPC boundary into the
  * renderer, matching the "secrets never reach the renderer" invariant. The
  * full, unredacted draft (including those fields) is still what gets
@@ -40,7 +41,7 @@ export class GameWizardDraftService {
         }
         return null;
       }
-      return redactSecretFields(stored);
+      return redactSecretFields(backfillHealthCheck(stored));
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
       return null;
@@ -140,7 +141,30 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
     candidate.file_seeds.every(isWizardDraftFileSeed) &&
     Array.isArray(candidate.environment) &&
     candidate.environment.every(isWizardDraftEnvironmentVariable) &&
-    typeof candidate.https === 'boolean'
+    typeof candidate.https === 'boolean' &&
+    // `healthCheck` was added after this draft slot shipped — a draft
+    // autosaved before then has no such field, and that must still be
+    // treated as valid rather than discarding the whole draft as malformed.
+    (candidate.healthCheck === undefined || isWizardDraftHealthCheck(candidate.healthCheck))
+  );
+}
+
+/** Narrows `value` to a well-formed health-check draft. */
+function isWizardDraftHealthCheck(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<NonNullable<GameWizardDraft['healthCheck']>>;
+  return (
+    typeof candidate.enabled === 'boolean' &&
+    typeof candidate.scheme === 'string' &&
+    (candidate.port === null || (typeof candidate.port === 'number' && Number.isFinite(candidate.port))) &&
+    typeof candidate.path === 'string' &&
+    typeof candidate.method === 'string' &&
+    (candidate.timeoutMs === null || (typeof candidate.timeoutMs === 'number' && Number.isFinite(candidate.timeoutMs))) &&
+    typeof candidate.jsonPath === 'string' &&
+    typeof candidate.operator === 'string' &&
+    typeof candidate.value === 'string' &&
+    typeof candidate.secretArn === 'string' &&
+    typeof candidate.secretSet === 'boolean'
   );
 }
 
@@ -182,12 +206,41 @@ function isWizardDraftEnvironmentVariable(value: unknown): boolean {
 
 /**
  * Returns a copy of `stored` with secret-shaped fields blanked out —
- * `environment[].value` and `file_seeds[].content`/`content_base64` — so the
- * renderer never receives operator-entered values it might consider
- * sensitive (e.g. a pasted database password). Everything else, including
- * row `name`/`path`/`mode`, is preserved so the resumed form can still show
- * which rows existed; the operator re-enters the blanked values themselves.
+ * `environment[].value`, `file_seeds[].content`/`content_base64`, and
+ * `healthCheck.secretArn` — so the renderer never receives operator-entered
+ * values it might consider sensitive (e.g. a pasted database password or a
+ * health-check credential reference). Everything else, including row
+ * `name`/`path`/`mode` and `healthCheck.secretSet`, is preserved so the
+ * resumed form can still show which rows existed and whether a credential
+ * is already configured; the operator re-enters the blanked values
+ * themselves.
  */
+/**
+ * Default "no health check configured" shape, matching
+ * `emptyHealthCheckDraft()` in `wizard-form.utils.ts` (`@hyveon/web`) — kept
+ * in sync manually, per {@link GameWizardDraft}'s doc comment, since
+ * `desktop-main` can't import from `@hyveon/web`.
+ */
+const DEFAULT_HEALTH_CHECK_DRAFT: NonNullable<GameWizardDraft['healthCheck']> = {
+  enabled: false,
+  scheme: 'http',
+  port: null,
+  path: '',
+  method: 'GET',
+  timeoutMs: 2000,
+  jsonPath: '',
+  operator: 'equals',
+  value: '',
+  secretArn: '',
+  secretSet: false,
+};
+
+/** Fills in a missing `healthCheck` on a draft autosaved before that field existed, with {@link DEFAULT_HEALTH_CHECK_DRAFT}. */
+function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDraft {
+  if (stored.draft.healthCheck) return stored;
+  return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
+}
+
 function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraft {
   return {
     ...stored,
@@ -195,6 +248,7 @@ function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraf
       ...stored.draft,
       file_seeds: stored.draft.file_seeds.map((seed) => ({ ...seed, content: '', content_base64: '' })),
       environment: stored.draft.environment.map((variable) => ({ ...variable, value: '' })),
+      healthCheck: { ...(stored.draft.healthCheck ?? DEFAULT_HEALTH_CHECK_DRAFT), secretArn: '' },
     },
   };
 }

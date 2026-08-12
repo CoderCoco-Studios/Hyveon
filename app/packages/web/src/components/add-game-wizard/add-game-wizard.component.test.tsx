@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
 import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/gameServerValidator';
+import { createEmptyWizardDraft } from './wizard-form.utils.js';
 
 /**
  * Stub for the `@/api.service.js` module: `games()` backs the existing-games
@@ -309,8 +310,8 @@ describe('AddGameWizard — resuming from a saved draft', () => {
     render(
       <AddGameWizard
         initialDraft={{
-          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
-          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+          ...createEmptyWizardDraft(),
+          name: 'resumed', image: 'some/image', cpu: 256, memory: 512,
         }}
         initialStepIndex={1}
       />,
@@ -331,8 +332,9 @@ describe('AddGameWizard — resuming from a saved draft', () => {
       render(
         <AddGameWizard
           initialDraft={{
-            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
-            ports: [], volumes: [], file_seeds: [], environment: [{ name: 'DB_PASSWORD', value: '' }], https: false,
+            ...createEmptyWizardDraft(),
+            name: 'resumed', image: 'some/image', cpu: 256, memory: 512,
+            environment: [{ name: 'DB_PASSWORD', value: '' }],
           }}
           initialStepIndex={0}
         />,
@@ -356,8 +358,8 @@ describe('AddGameWizard — resuming from a saved draft', () => {
       render(
         <AddGameWizard
           initialDraft={{
-            name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
-            ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+            ...createEmptyWizardDraft(),
+            name: 'resumed', image: 'some/image', cpu: 256, memory: 512,
           }}
           initialStepIndex={0}
         />,
@@ -378,8 +380,8 @@ describe('AddGameWizard — resuming from a saved draft', () => {
     render(
       <AddGameWizard
         initialDraft={{
-          name: 'resumed', image: 'some/image', connect_message: '', cpu: 256, memory: 512,
-          ports: [], volumes: [], file_seeds: [], environment: [], https: false,
+          ...createEmptyWizardDraft(),
+          name: 'resumed', image: 'some/image', cpu: 256, memory: 512,
         }}
         initialStepIndex={0}
         hideTrigger
