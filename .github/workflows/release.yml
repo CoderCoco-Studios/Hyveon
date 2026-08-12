@@ -175,7 +175,6 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: '--model claude-sonnet-5 --allowedTools "Read,Write" --max-turns 10'
-          show_full_output: 'true'
           prompt: |
             Read the git-cliff changelog context JSON at cliff-context.json and
             the rendered changelog at raw-changelog.md (both in the repo root).
@@ -258,6 +257,28 @@ jobs:
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 -w0)"
           git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
           git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "${{ steps.release-tag.outputs.tag }}"
+
+      - name: Remove stale draft release for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # action-gh-release's dedup logic canonicalizes on the *oldest*
+          # existing release for a tag when more than one is found, and
+          # never copies the fresh body over to it - so re-running this
+          # workflow against an already-tagged release (skip_bump replay
+          # mode, or a retried run) would silently keep serving whatever
+          # body the first-ever release for that tag had. Deleting any
+          # existing draft up front forces a clean create every time.
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\" and .draft == true) | .id" | head -1)
+
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting stale draft release $RELEASE_ID for tag $TAG"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/$RELEASE_ID"
+          fi
 
       - name: Publish draft release
         uses: softprops/action-gh-release@v2
