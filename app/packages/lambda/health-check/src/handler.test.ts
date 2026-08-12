@@ -15,6 +15,7 @@ const ecsMock = mockClient(ECSClient);
 const secretsManagerMock = mockClient(SecretsManagerClient);
 
 process.env['AWS_REGION_'] = 'us-east-1';
+process.env['ECS_CLUSTER'] = 'test-cluster';
 
 const { handler } = await import('./handler.js');
 

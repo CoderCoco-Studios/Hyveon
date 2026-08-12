@@ -30,6 +30,13 @@ function region(): string {
   return process.env['AWS_REGION_'] ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'] ?? 'us-east-1';
 }
 
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing required env var ${name}`);
+  return v;
+}
+
+const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
 const ecs = new ECSClient({ region: region() });
 const secretsManager = new SecretsManagerClient({ region: region() });
 
@@ -65,7 +72,7 @@ function getPrivateIpAddress(task: Task): string | null {
 }
 
 async function resolveTaskHost(taskArn: string): Promise<string> {
-  const resp = await ecs.send(new DescribeTasksCommand({ tasks: [taskArn] }));
+  const resp = await ecs.send(new DescribeTasksCommand({ cluster: ECS_CLUSTER, tasks: [taskArn] }));
   const task = resp.tasks?.[0];
   if (!task) {
     throw new Error(`ECS task ${taskArn} was not found`);
@@ -83,7 +90,7 @@ async function resolveAuthValue(healthCheck: GameServerHealthCheck): Promise<str
     return undefined;
   }
   const resp = await secretsManager.send(new GetSecretValueCommand({ SecretId: healthCheck.auth.secretArn }));
-  if (!resp.SecretString) {
+  if (resp.SecretString === undefined) {
     throw new Error('Secret has no string value');
   }
   return resp.SecretString;
@@ -98,6 +105,11 @@ async function resolveAuthValue(healthCheck: GameServerHealthCheck): Promise<str
 function buildHeaders(healthCheck: GameServerHealthCheck, authValue: string | undefined): Record<string, string> {
   const headers = { ...(healthCheck.headers ?? {}) };
   if (authValue !== undefined) {
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === 'authorization') {
+        delete headers[key];
+      }
+    }
     headers['Authorization'] = authValue;
   }
   return headers;
@@ -120,8 +132,7 @@ export const handler = async (event: HealthCheckEvent): Promise<HealthCheckVerdi
   log('debug', 'health check invoked', { game, kind: healthCheck.kind, port: healthCheck.port });
 
   try {
-    const host = await resolveTaskHost(taskArn);
-    const authValue = await resolveAuthValue(healthCheck);
+    const [host, authValue] = await Promise.all([resolveTaskHost(taskArn), resolveAuthValue(healthCheck)]);
     const headers = buildHeaders(healthCheck, authValue);
     const url = `${healthCheck.scheme}://${host}:${healthCheck.port}${healthCheck.path}`;
 
