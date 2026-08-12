@@ -150,7 +150,7 @@ export const gameServerHealthCheckSchema = z.object({
         return;
       }
       for (const [key, value] of Object.entries(headers)) {
-        if (CREDENTIAL_LIKE_HEADER_VALUE_PATTERN.test(value)) {
+        if (key.toLowerCase() === 'authorization' || CREDENTIAL_LIKE_HEADER_VALUE_PATTERN.test(value)) {
           ctx.addIssue({
             code: 'custom',
             message: `healthCheck.headers.${key} looks like it embeds a credential directly; use healthCheck.auth.secretArn instead.`,
@@ -571,17 +571,35 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
 
   const issues: GameServerValidationIssue[] = [];
 
-  if (!entry.ports.some((port) => port.container === healthCheck.port)) {
+  if (!entry.ports.some((port) => port.container === healthCheck.port && port.protocol === 'tcp')) {
     issues.push({
       path: 'healthCheck.port',
-      message: `healthCheck.port ${healthCheck.port} is not among this game server's declared ports.`,
+      message: `healthCheck.port ${healthCheck.port} is not among this game server's declared tcp ports.`,
     });
   }
 
-  if (healthCheck.activeWhen.operator !== 'exists' && healthCheck.activeWhen.value === undefined) {
+  const { operator, value } = healthCheck.activeWhen;
+  if (operator === 'exists') {
+    if (value !== undefined) {
+      issues.push({
+        path: 'healthCheck.activeWhen.value',
+        message: `healthCheck.activeWhen.value must not be set for operator "exists"; it takes no value.`,
+      });
+    }
+  } else if (value === undefined) {
     issues.push({
       path: 'healthCheck.activeWhen.value',
-      message: `healthCheck.activeWhen.value is required for operator "${healthCheck.activeWhen.operator}"; only "exists" takes none.`,
+      message: `healthCheck.activeWhen.value is required for operator "${operator}"; only "exists" takes none.`,
+    });
+  } else if ((operator === 'greaterThan' || operator === 'lessThan') && typeof value !== 'number') {
+    issues.push({
+      path: 'healthCheck.activeWhen.value',
+      message: `healthCheck.activeWhen.value must be a number for operator "${operator}".`,
+    });
+  } else if (operator === 'contains' && typeof value !== 'string') {
+    issues.push({
+      path: 'healthCheck.activeWhen.value',
+      message: `healthCheck.activeWhen.value must be a string for operator "contains".`,
     });
   }
 
