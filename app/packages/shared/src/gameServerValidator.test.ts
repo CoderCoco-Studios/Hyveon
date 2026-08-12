@@ -448,6 +448,130 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('health check', () => {
+    /** Build a minimal, fully-valid healthCheck object targeting container port 25565; override any fields per test. */
+    function makeHealthCheck(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        kind: 'http',
+        scheme: 'http',
+        port: 25565,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+        ...overrides,
+      };
+    }
+
+    it('should accept a fully valid health check', () => {
+      const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck() }), []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a port not among the game server\'s declared ports', () => {
+      const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck({ port: 9999 }) }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.port')).toBe(true);
+      }
+    });
+
+    it.each(['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains'] as const)(
+      'should reject operator "%s" declared without a value',
+      (operator) => {
+        const result = validateGameServer(
+          'game',
+          makeProposed({ healthCheck: makeHealthCheck({ activeWhen: { jsonPath: 'players.online', operator } }) }),
+          [],
+        );
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.issues.some((i) => i.path === 'healthCheck.activeWhen.value')).toBe(true);
+        }
+      },
+    );
+
+    it('should accept operator "exists" declared without a value', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({ activeWhen: { jsonPath: 'players.online', operator: 'exists' } }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a timeoutMs below the supported range', () => {
+      const result = validateGameServer('game', makeProposed({ healthCheck: makeHealthCheck({ timeoutMs: 50 }) }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.timeoutMs')).toBe(true);
+      }
+    });
+
+    it('should reject a timeoutMs above the supported range', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ healthCheck: makeHealthCheck({ timeoutMs: 10001 }) }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.timeoutMs')).toBe(true);
+      }
+    });
+
+    it('should reject a request path that is not rooted at "/"', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ healthCheck: makeHealthCheck({ path: 'status' }) }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.path')).toBe(true);
+      }
+    });
+
+    it('should reject a malformed auth.secretArn', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ healthCheck: makeHealthCheck({ auth: { secretArn: 'not-an-arn' } }) }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.auth.secretArn')).toBe(true);
+      }
+    });
+
+    it('should accept a well-formed auth.secretArn', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({
+            auth: { secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-token-AbCdEf' },
+          }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a header value that looks like an inline bearer token', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ healthCheck: makeHealthCheck({ headers: { Authorization: 'Bearer sk-abcdef1234567890' } }) }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.headers.Authorization')).toBe(true);
+      }
+    });
+  });
+
   describe('structural (zod) failures', () => {
     it('should surface a missing required field with its JSON-path issue.path', () => {
       const proposed = makeProposed();

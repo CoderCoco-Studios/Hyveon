@@ -89,6 +89,85 @@ export const gameServerFileSeedSchema = z.object({
   mode: z.string().optional(),
 });
 
+/** Matches a Secrets Manager secret ARN, e.g. `arn:aws:secretsmanager:us-east-1:123456789012:secret:foo-AbCdEf`. */
+const SECRET_ARN_PATTERN = /^arn:aws:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+$/;
+
+/**
+ * Matches a header value that looks like it embeds a credential directly —
+ * a bearer token, a basic-auth pair, or a long opaque API-key-shaped string
+ * — rather than a plain non-sensitive value. Declared headers are for
+ * non-sensitive values only; a credential must be expressed through
+ * `auth.secretArn` instead.
+ */
+const CREDENTIAL_LIKE_HEADER_VALUE_PATTERN = /^(bearer\s+\S+|basic\s+[a-z0-9+/=]{8,}|[a-z0-9._-]{20,})$/i;
+
+/** Matches a JSONPath restricted to plain field access and numeric array indices — no wildcards, filters, slices, or recursive descent. */
+const HEALTH_CHECK_JSON_PATH_PATTERN = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$/;
+
+/** Zod schema mirroring `GameServerHealthCheckAuth`. */
+export const gameServerHealthCheckAuthSchema = z.object({
+  secretArn: z
+    .string()
+    .regex(
+      SECRET_ARN_PATTERN,
+      'healthCheck.auth.secretArn must be a Secrets Manager secret ARN (arn:aws:secretsmanager:<region>:<account>:secret:<name>).',
+    ),
+});
+
+/** Zod schema mirroring `GameServerHealthCheckCondition`. */
+export const gameServerHealthCheckConditionSchema = z.object({
+  jsonPath: z
+    .string()
+    .regex(
+      HEALTH_CHECK_JSON_PATH_PATTERN,
+      'healthCheck.activeWhen.jsonPath must be a plain field-access JSONPath (e.g. "players.online"), with only field names and numeric array indices.',
+    ),
+  operator: z.enum(['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains', 'exists']),
+  value: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+});
+
+/**
+ * Zod schema mirroring `GameServerHealthCheck`. Structural only — the
+ * cross-field rules (declared port must be among the entry's own `ports`;
+ * every operator except `exists` requires a `value`) live in
+ * {@link checkHealthCheckRules} instead, since they need sibling fields of
+ * the same entry that a single-field schema can't see.
+ */
+export const gameServerHealthCheckSchema = z.object({
+  kind: z.literal('http'),
+  scheme: z.enum(['http', 'https']),
+  port: z.number(),
+  path: z
+    .string()
+    .min(1, 'healthCheck.path must not be empty.')
+    .refine((path) => path.startsWith('/'), 'healthCheck.path must be an absolute path (start with "/").'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'HEAD']),
+  headers: z
+    .record(z.string(), z.string())
+    .optional()
+    .superRefine((headers, ctx) => {
+      if (!headers) {
+        return;
+      }
+      for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === 'authorization' || CREDENTIAL_LIKE_HEADER_VALUE_PATTERN.test(value)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `healthCheck.headers.${key} looks like it embeds a credential directly; use healthCheck.auth.secretArn instead.`,
+            path: [key],
+          });
+        }
+      }
+    }),
+  auth: gameServerHealthCheckAuthSchema.optional(),
+  timeoutMs: z
+    .number()
+    .int('healthCheck.timeoutMs must be an integer.')
+    .min(100, 'healthCheck.timeoutMs must be between 100 and 10000 milliseconds inclusive.')
+    .max(10000, 'healthCheck.timeoutMs must be between 100 and 10000 milliseconds inclusive.'),
+  activeWhen: gameServerHealthCheckConditionSchema,
+});
+
 /**
  * Zod schema mirroring {@link GameServer} field-for-field, minus `name`
  * (which is the `game_servers` map key, not an attribute of the app's
@@ -111,6 +190,7 @@ export const gameServerSchema = z.object({
   https: z.boolean().optional(),
   connect_message: z.string().optional(),
   file_seeds: z.array(gameServerFileSeedSchema).optional(),
+  healthCheck: gameServerHealthCheckSchema.optional(),
 });
 
 /** Structural (name-less) shape validated by {@link gameServerSchema}. */
@@ -477,6 +557,56 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
 }
 
 /**
+ * Validates the cross-field business rules for a declared `healthCheck` that
+ * the structural schema ({@link gameServerHealthCheckSchema}) can't express:
+ * the declared port must be one of the entry's own `ports`, and every
+ * comparison operator except `exists` requires a `value` to compare
+ * against. A no-op when `healthCheck` is absent.
+ */
+function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidationIssue[] {
+  const healthCheck = entry.healthCheck;
+  if (!healthCheck) {
+    return [];
+  }
+
+  const issues: GameServerValidationIssue[] = [];
+
+  if (!entry.ports.some((port) => port.container === healthCheck.port && port.protocol === 'tcp')) {
+    issues.push({
+      path: 'healthCheck.port',
+      message: `healthCheck.port ${healthCheck.port} is not among this game server's declared tcp ports.`,
+    });
+  }
+
+  const { operator, value } = healthCheck.activeWhen;
+  if (operator === 'exists') {
+    if (value !== undefined) {
+      issues.push({
+        path: 'healthCheck.activeWhen.value',
+        message: `healthCheck.activeWhen.value must not be set for operator "exists"; it takes no value.`,
+      });
+    }
+  } else if (value === undefined) {
+    issues.push({
+      path: 'healthCheck.activeWhen.value',
+      message: `healthCheck.activeWhen.value is required for operator "${operator}"; only "exists" takes none.`,
+    });
+  } else if ((operator === 'greaterThan' || operator === 'lessThan') && typeof value !== 'number') {
+    issues.push({
+      path: 'healthCheck.activeWhen.value',
+      message: `healthCheck.activeWhen.value must be a number for operator "${operator}".`,
+    });
+  } else if (operator === 'contains' && typeof value !== 'string') {
+    issues.push({
+      path: 'healthCheck.activeWhen.value',
+      message: `healthCheck.activeWhen.value must be a string for operator "contains".`,
+    });
+  }
+
+  return issues;
+}
+
+/**
  * Validates a proposed `game_servers` entry: structural shape (via
  * {@link gameServerSchema}) plus the business rules — Fargate CPU/memory
  * pairing, absolute paths for volumes/file_seeds, connect-message placeholder
@@ -509,6 +639,7 @@ export function validateGameServer(
     issues.push(...checkAbsolutePaths(parsed.data));
     issues.push(...checkEnvironmentVariables(parsed.data));
     issues.push(...checkConnectMessagePlaceholders(parsed.data.connect_message));
+    issues.push(...checkHealthCheckRules(parsed.data));
   }
 
   // Port-collision and HTTPS-rule detection only need `ports` (and, for
