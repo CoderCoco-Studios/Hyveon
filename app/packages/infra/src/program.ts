@@ -416,6 +416,7 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     roles: iamRoles,
     publicSubnetIds: network.publicSubnets.map((subnet) => subnet.id),
     efsSeederSecurityGroupId: securityGroups.efsSeeder?.id,
+    healthCheckSecurityGroupId: securityGroups.healthCheck?.id,
     gameServersSecurityGroupId: securityGroups.gameServers.id,
     ecsClusterName: ecs.cluster.name,
     ecsClusterArn: ecs.cluster.arn,
@@ -455,6 +456,8 @@ export function defineAll(config: DeploymentConfig, options: InfraProgramOptions
     followupLambdaArn: lambdas.followupFunction.arn,
     hostedZoneId: route53.zoneId,
     ecsClusterName: ecs.cluster.name,
+    gameServers: config.gameServers,
+    healthCheckFunctionArn: lambdas.healthCheckFunction?.arn,
   });
 
   // ── Per-game EFS-seeder Lambda invocations ──────────────────────────────────

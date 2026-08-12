@@ -16,9 +16,32 @@ async function runDefineSecurityGroups(
     promiseOf(result.efs.id),
     ...(result.efsSeeder ? [promiseOf(result.efsSeeder.id)] : []),
     ...(result.efsSeederEgressRule ? [promiseOf(result.efsSeederEgressRule.id)] : []),
+    ...(result.healthCheck ? [promiseOf(result.healthCheck.id)] : []),
+    ...result.healthCheckEgressRules.map((rule) => promiseOf(rule.id)),
   ]);
   return result;
 }
+
+/** A `gameServers` map extending {@link FIXTURE_GAME_SERVERS} with one game (`echo`) declaring a `healthCheck` on port 8211. */
+const GAME_SERVERS_WITH_HEALTH_CHECK: Record<string, GameServerConfig> = {
+  ...FIXTURE_GAME_SERVERS,
+  echo: {
+    image: 'example/echo:latest',
+    cpu: 1024,
+    memory: 2048,
+    ports: [{ container: 8211, protocol: 'tcp' }],
+    volumes: [{ name: 'saves', container_path: '/data' }],
+    healthCheck: {
+      kind: 'http',
+      scheme: 'http',
+      port: 8211,
+      path: '/status',
+      method: 'GET',
+      timeoutMs: 2000,
+      activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
+    },
+  },
+};
 
 /** Finds the single recorded resource with the given Pulumi logical name, failing loudly if there isn't exactly one. */
 function findByName(resources: RecordedResource[], name: string): RecordedResource {
@@ -296,5 +319,85 @@ describe('defineSecurityGroups', () => {
     const sg = findByName(mocks.resources, 'hyveon-sg');
     const ingress = sg.inputs.ingress as Array<{ fromPort: number }>;
     expect(ingress.filter((rule) => rule.fromPort === 25565)).toHaveLength(1);
+  });
+
+  it('should declare no health-check security group or egress rules when no game declares healthCheck', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineSecurityGroups({
+      projectName: 'hyveon',
+      gameServers: FIXTURE_GAME_SERVERS,
+      vpcId: 'vpc-mock',
+      provider,
+    });
+
+    expect(result.healthCheck).toBeUndefined();
+    expect(result.healthCheckEgressRules).toEqual([]);
+    expect(mocks.resources.some((resource) => resource.name === 'hyveon-health-check-sg')).toBe(false);
+  });
+
+  it('should declare the health-check security group with no inline egress, and a matching ingress entry on the game-servers group, when a game declares healthCheck', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineSecurityGroups({
+      projectName: 'hyveon',
+      gameServers: GAME_SERVERS_WITH_HEALTH_CHECK,
+      vpcId: 'vpc-mock',
+      provider,
+    });
+
+    expect(result.healthCheck).toBeDefined();
+    const healthCheckSg = findByName(mocks.resources, 'hyveon-health-check-sg');
+    expect(healthCheckSg.type).toBe('aws:ec2/securityGroup:SecurityGroup');
+    expect(healthCheckSg.inputs.namePrefix).toBe('hyveon-health-check-sg-');
+    expect(healthCheckSg.inputs.vpcId).toBe('vpc-mock');
+    // No inline egress — its egress need is a standalone `SecurityGroupRule`, asserted below.
+    expect(healthCheckSg.inputs.egress).toBeUndefined();
+
+    const gameServersSg = findByName(mocks.resources, 'hyveon-sg');
+    const ingress = gameServersSg.inputs.ingress as Array<{ description: string; fromPort: number; securityGroups?: string[] }>;
+    const healthCheckIngress = ingress.find((rule) => rule.description === 'Health-check Lambda — port 8211/tcp');
+    expect(healthCheckIngress).toBeDefined();
+    expect(healthCheckIngress?.fromPort).toBe(8211);
+    expect(healthCheckIngress?.securityGroups).toEqual([await promiseOf(result.healthCheck!.id)]);
+  });
+
+  it('should scope the health-check security group egress to declared ports only, via a standalone rule per port', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const result = await runDefineSecurityGroups({
+      projectName: 'hyveon',
+      gameServers: GAME_SERVERS_WITH_HEALTH_CHECK,
+      vpcId: 'vpc-mock',
+      provider,
+    });
+
+    expect(result.healthCheckEgressRules).toHaveLength(1);
+    const rule = findByName(mocks.resources, 'hyveon-health-check-egress-8211');
+    expect(rule.type).toBe('aws:ec2/securityGroupRule:SecurityGroupRule');
+    expect(rule.inputs.type).toBe('egress');
+    expect(rule.inputs.fromPort).toBe(8211);
+    expect(rule.inputs.toPort).toBe(8211);
+    expect(rule.inputs.protocol).toBe('tcp');
+    expect(rule.inputs.securityGroupId).toBe(await promiseOf(result.healthCheck!.id));
+    expect(rule.inputs.sourceSecurityGroupId).toBe(await promiseOf(result.gameServers.id));
+  });
+
+  it('should declare only one egress rule per distinct health-check port across multiple games', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...GAME_SERVERS_WITH_HEALTH_CHECK,
+      foxtrot: {
+        image: 'example/foxtrot:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8211, protocol: 'tcp' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        healthCheck: { ...GAME_SERVERS_WITH_HEALTH_CHECK.echo.healthCheck! },
+      },
+    };
+    const result = await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    expect(result.healthCheckEgressRules).toHaveLength(1);
+    expect(
+      mocks.resources.filter((resource) => resource.type === 'aws:ec2/securityGroupRule:SecurityGroupRule'),
+    ).toHaveLength(1);
   });
 });

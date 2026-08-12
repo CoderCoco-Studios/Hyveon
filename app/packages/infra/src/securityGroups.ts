@@ -1,7 +1,13 @@
 /**
- * Security-group resources: `game_servers`, `file_manager`, `efs`, and a
+ * Security-group resources: `game_servers`, `file_manager`, `efs`, a
  * conditional `efs_seeder` group for EFS-seeder Lambdas
- * (`aws_security_group.efs_seeder` in the HCL equivalent).
+ * (`aws_security_group.efs_seeder` in the HCL equivalent), and a conditional
+ * `health-check` group (no HCL analogue — added post-migration) for the
+ * health-check Lambda. The health-check group follows the exact same
+ * "no inline egress, standalone rule(s) instead" shape as `efs_seeder`, one
+ * standalone egress rule per distinct declared health-check port rather than
+ * one fixed NFS port — see "`efsSeederSg`'s egress" below, which the
+ * health-check group's egress rules mirror.
  *
  * `efs_seeder` lives in THIS file, not `lambdas.ts`. Declaring the seeder
  * security group in `lambdas.ts` and attaching its ingress rule to `efs` as
@@ -63,7 +69,7 @@
 import * as aws from '@pulumi/aws';
 import type * as pulumi from '@pulumi/pulumi';
 import type { GameServerConfig } from '@hyveon/shared';
-import { gamesWithFileSeeds } from './iam.js';
+import { gamesWithFileSeeds, gamesWithHealthChecks } from './iam.js';
 
 /** Every resource {@link defineSecurityGroups} declares, keyed by role. */
 export interface SecurityGroupResources {
@@ -94,6 +100,24 @@ export interface SecurityGroupResources {
    * when {@link efsSeeder} is `undefined` (no game declares `file_seeds`).
    */
   efsSeederEgressRule: aws.ec2.SecurityGroupRule | undefined;
+  /**
+   * Shared security group for the health-check Lambda, conditional on at
+   * least one configured game declaring a `healthCheck` (see `iam.ts`'s
+   * `gamesWithHealthChecks`). `undefined` when no game opts in, mirroring
+   * {@link efsSeeder}'s gate. Carries no inline egress — its outbound
+   * reach is granted exclusively via {@link healthCheckEgressRules}, one
+   * standalone rule per distinct declared health-check port, following the
+   * same "no inline rules to conflict with" reasoning as `efsSeederSg`'s
+   * egress (see this file's doc).
+   */
+  healthCheck: aws.ec2.SecurityGroup | undefined;
+  /**
+   * Standalone egress rules scoping {@link healthCheck}'s outbound traffic to
+   * {@link gameServers}, one per distinct port declared across every opted-in
+   * game's `healthCheck.port` — never a blanket rule. Empty when
+   * {@link healthCheck} is `undefined`.
+   */
+  healthCheckEgressRules: aws.ec2.SecurityGroupRule[];
 }
 
 /** Arguments {@link defineSecurityGroups} needs to declare the security groups. */
@@ -188,7 +212,9 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
   const opts: pulumi.CustomResourceOptions = { provider };
 
   // Non-HTTPS game ports — open directly to the internet.
-  const gamePortIngress = dedupedDirectGamePorts(gameServers).map((port) => ({
+  const gamePortIngress: pulumi.Input<aws.types.input.ec2.SecurityGroupIngress>[] = dedupedDirectGamePorts(
+    gameServers,
+  ).map((port) => ({
     description: `Game port ${port.port}/${port.protocol}`,
     fromPort: port.port,
     toPort: port.port,
@@ -208,6 +234,44 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
         toPort: httpsPort,
         protocol: 'tcp',
         cidrBlocks: ['0.0.0.0/0'],
+      });
+    }
+  }
+
+  // ── Health-check Lambda security group — declared BEFORE `gameServers`
+  // below so its id is in scope for `gameServers`'s own conditional ingress
+  // entries (one per distinct declared health-check port, sourced from this
+  // group rather than the open internet). Same "no inline egress, standalone
+  // rule instead" shape as `efsSeederSg` — see this file's doc.
+  const healthCheckGames = gamesWithHealthChecks(gameServers);
+  const healthCheckPorts = [...new Set(Object.values(healthCheckGames).map((config) => config.healthCheck!.port))];
+
+  const healthCheckSg =
+    healthCheckPorts.length > 0
+      ? new aws.ec2.SecurityGroup(
+          `${projectName}-health-check-sg`,
+          {
+            namePrefix: `${projectName}-health-check-sg-`,
+            description: 'Health-check Lambda — outbound to game-server tasks on declared health-check ports only',
+            vpcId,
+            // No inline egress — its egress rules are standalone
+            // `aws.ec2.SecurityGroupRule`s declared below, once `gameServers`
+            // exists. See this file's doc, "`efsSeederSg`'s egress —
+            // standalone rule, not inline (issue #349)", for why.
+            tags: { Name: `${projectName}-health-check-sg` },
+          },
+          opts,
+        )
+      : undefined;
+
+  if (healthCheckSg) {
+    for (const port of healthCheckPorts) {
+      gamePortIngress.push({
+        description: `Health-check Lambda — port ${port}/tcp`,
+        fromPort: port,
+        toPort: port,
+        protocol: 'tcp',
+        securityGroups: [healthCheckSg.id],
       });
     }
   }
@@ -346,11 +410,36 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
       )
     : undefined;
 
+  // Standalone egress rules for `healthCheckSg` — declared here, after
+  // `gameServersSg` exists, since each needs its `.id` as
+  // `sourceSecurityGroupId`. One rule per distinct declared health-check
+  // port (never a blanket rule), safe as standalone rules for the same
+  // "no inline rules to conflict with" reason as `efsSeederEgressRule`.
+  const healthCheckEgressRules = healthCheckSg
+    ? healthCheckPorts.map(
+        (port) =>
+          new aws.ec2.SecurityGroupRule(
+            `${projectName}-health-check-egress-${port}`,
+            {
+              type: 'egress',
+              fromPort: port,
+              toPort: port,
+              protocol: 'tcp',
+              securityGroupId: healthCheckSg.id,
+              sourceSecurityGroupId: gameServersSg.id,
+            },
+            opts,
+          ),
+      )
+    : [];
+
   return {
     gameServers: gameServersSg,
     fileManager: fileManagerSg,
     efs: efsSg,
     efsSeeder: efsSeederSg,
     efsSeederEgressRule,
+    healthCheck: healthCheckSg,
+    healthCheckEgressRules,
   };
 }
