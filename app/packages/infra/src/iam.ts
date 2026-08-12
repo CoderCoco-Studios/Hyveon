@@ -222,6 +222,28 @@ export function gamesWithFileSeeds(gameServers: Record<string, GameServerConfig>
 }
 
 /**
+ * Filters a game-server map down to entries declaring a `healthCheck` —
+ * exactly the games whose running tasks are checked via the shared
+ * health-check Lambda instead of the network-traffic heuristic, and thus the
+ * set that determines whether that Lambda, its role, and its security group
+ * are provisioned at all (see `lambda-runtime-currency`/`game-health-checks`
+ * OpenSpec capabilities). Unlike {@link gamesWithFileSeeds}, this set backs a
+ * single shared role rather than one role per game.
+ *
+ * @param gameServers - The configured game-server map to filter.
+ * @returns The subset of `gameServers` entries declaring a `healthCheck`, keyed the same way.
+ */
+export function gamesWithHealthChecks(gameServers: Record<string, GameServerConfig>): Record<string, GameServerConfig> {
+  const result: Record<string, GameServerConfig> = {};
+  for (const [game, config] of Object.entries(gameServers)) {
+    if (config.healthCheck != null) {
+      result[game] = config;
+    }
+  }
+  return result;
+}
+
+/**
  * Builds an IAM trust (assume-role) policy document granting `sts:AssumeRole`
  * to a single AWS service principal, JSON-encoded exactly as every ported
  * HCL `assume_role_policy` block's `jsonencode(...)` call produces — the

@@ -79,6 +79,68 @@ export interface GameServerFileSeed {
   mode?: string;
 }
 
+/** Credential reference for an authenticated health check. Carries only a Secrets Manager ARN — never a raw value. */
+export interface GameServerHealthCheckAuth {
+  /** ARN of the Secrets Manager secret whose value is injected as the outbound request's `Authorization` header. */
+  secretArn: string;
+}
+
+/**
+ * Single comparison evaluated against the health-check response body to
+ * derive the active/idle verdict.
+ */
+export interface GameServerHealthCheckCondition {
+  /**
+   * JSONPath into the parsed JSON response body, restricted to plain field
+   * access and numeric array indices (no wildcards, filters, slices, or
+   * recursive descent). Must resolve to exactly one scalar value except for
+   * the `exists` operator, which tests cardinality only.
+   */
+  jsonPath: string;
+  /**
+   * Comparison applied to the resolved value. `equals`/`notEquals` compare
+   * by strict JSON type and value; `greaterThan`/`lessThan` compare
+   * numerically; `contains` requires a string resolved value and tests for a
+   * substring; `exists` tests only whether `jsonPath` resolves to anything.
+   */
+  operator: 'equals' | 'notEquals' | 'greaterThan' | 'lessThan' | 'contains' | 'exists';
+  /** Value to compare the resolved value against. Required for every operator except `exists`, which takes none. */
+  value?: string | number | boolean | null;
+}
+
+/**
+ * Declarative HTTP health check: a request to issue against the running game
+ * task, and a single condition on its response that determines the verdict.
+ * The destination host is never part of this declaration — it is always the
+ * checked task's own network address, resolved at check time from the
+ * container platform, so no declared value can redirect a check elsewhere.
+ */
+export interface GameServerHealthCheck {
+  /** Check-kind discriminator. Only `'http'` is supported today; more kinds may be added later without restructuring existing configuration. */
+  kind: 'http';
+  /** Request scheme. */
+  scheme: 'http' | 'https';
+  /** Container port to issue the request against. Must be one of the game's declared {@link GameServer.ports}. */
+  port: number;
+  /** Request path, rooted at `/`. */
+  path: string;
+  /** HTTP method to issue. */
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'HEAD';
+  /** Additional request headers. Never used to carry a credential — see {@link auth} — and rejected at validation time if a value resembles one. */
+  headers?: Record<string, string>;
+  /**
+   * Optional credential reference. When present, the resolved secret value
+   * is injected as a single, fixed `Authorization` header (the secret's raw
+   * value, no `Bearer ` prefix), overriding any `Authorization` entry in
+   * {@link headers}.
+   */
+  auth?: GameServerHealthCheckAuth;
+  /** Request timeout in milliseconds, bounding the entire request (connect, send, receive) as one wall-clock budget. Must be between 100 and 10000 inclusive. */
+  timeoutMs: number;
+  /** The single condition evaluated against the response body to derive the active/idle verdict. */
+  activeWhen: GameServerHealthCheckCondition;
+}
+
 /**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers`'s `game_servers` map (historically the
@@ -154,6 +216,14 @@ export interface GameServer {
    * EFS.
    */
   file_seeds?: GameServerFileSeed[];
+  /**
+   * Authoritative liveness check consulted instead of the network-traffic
+   * heuristic when deciding whether this game's running tasks are idle.
+   * Default when omitted: the network-traffic heuristic (unchanged). When
+   * present, it REPLACES that heuristic rather than combining with it, so
+   * exactly one verdict source applies to this game.
+   */
+  healthCheck?: GameServerHealthCheck;
 }
 
 /**

@@ -15,7 +15,10 @@
   },
   "dependencies": {
     "@pulumi/aws": "7.39.0",
-    "@pulumi/pulumi": "3.255.0"
+    "@pulumi/pulumi": "3.255.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@swc/core": "^1.15.46",

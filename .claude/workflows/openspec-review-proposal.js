@@ -9,12 +9,28 @@ export const meta = {
   ],
 }
 
-const CHANGE_DIR = (args && args.changeDir) || ""
+let ARGS
+try {
+  ARGS = typeof args === "string" ? JSON.parse(args) : args
+} catch {
+  ARGS = null
+}
+if (!ARGS || typeof ARGS !== "object") ARGS = {}
+const isSafeChangeDir = d => typeof d === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(d)
+const CHANGE_DIR = isSafeChangeDir(ARGS.changeDir) ? ARGS.changeDir : ""
 if (!CHANGE_DIR) {
-  return { error: "No change directory provided." }
+  return { error: "No valid change directory provided." }
 }
 const ROOT = "openspec/changes/" + CHANGE_DIR
-const HEAD_REF = (args && args.headRefOid) || null
+const HEAD_REF = ARGS.headRefOid || null
+const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+const RAW_EFFORT = typeof ARGS.effort === "string" ? ARGS.effort.trim().toLowerCase() : ""
+const effortProvided = Object.prototype.hasOwnProperty.call(ARGS, "effort") && ARGS.effort !== null
+if (effortProvided && (typeof ARGS.effort !== "string" || ![...VALID_EFFORTS, "ultra"].includes(RAW_EFFORT))) {
+  return { error: "Invalid effort value." }
+}
+const EFFORT = RAW_EFFORT === "ultra" ? "max" : (VALID_EFFORTS.includes(RAW_EFFORT) ? RAW_EFFORT : null)
+const EFFORT_OPTS = EFFORT ? { effort: EFFORT } : {}
 
 const ANGLES = [
   { label: "scenarios", text:
@@ -154,7 +170,7 @@ const finderOuts = await parallel(ANGLES.map(a => () =>
     "an unreviewable proposal, a contradiction another change will hit). Pass every candidate with a " +
     "nameable failure scenario through; an independent verifier judges them next. If nothing " +
     "qualifies, return an empty list.\n\nStructured output only.",
-    { label: a.label, phase: "Find", schema: CANDIDATES_SCHEMA }
+    { label: a.label, phase: "Find", schema: CANDIDATES_SCHEMA, ...EFFORT_OPTS }
   ).then(r => {
     if (!r) return []
     log(a.label + ": " + r.candidates.length + " candidates")
@@ -178,7 +194,7 @@ const verified = (await parallel(groups.map(g => async () => {
     "- **PLAUSIBLE** — the concern is real but you can't fully confirm it from the docs alone.\n" +
     "- **REFUTED** — factually wrong (quote the line that disproves it), or already handled elsewhere.\n\n" +
     "Structured output only. Evidence must quote or cite the relevant line(s).",
-    { label: "verify:" + short + "(" + g.length + ")", phase: "Verify", schema: GROUP_VERDICT_SCHEMA }
+    { label: "verify:" + short + "(" + g.length + ")", phase: "Verify", schema: GROUP_VERDICT_SCHEMA, ...EFFORT_OPTS }
   )
   if (!r) return g.map(c => ({ ...c, verdict: "PLAUSIBLE", evidence: "Verifier call failed — defaulting to PLAUSIBLE so nothing is silently dropped." }))
   const byIdx = {}
@@ -205,7 +221,7 @@ const report = await agent(
   ranked.length + " findings survived verification, numbered [0]-[" + (ranked.length - 1) + "]:\n\n" + block + "\n" +
   "Return decisions BY INDEX. Merge findings describing the same root cause (list extras in `merge`). " +
   "Order most-severe first. Keep at most " + MAX_FINDINGS + " decisions. Write a 2-3 sentence summary.\n\nStructured output only.",
-  { label: "synthesize", schema: REPORT_SCHEMA }
+  { label: "synthesize", schema: REPORT_SCHEMA, ...EFFORT_OPTS }
 )
 const decisions = report && Array.isArray(report.decisions) ? report.decisions : []
 const seen = new Set()
