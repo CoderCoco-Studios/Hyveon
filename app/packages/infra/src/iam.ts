@@ -326,6 +326,21 @@ function logStatement(): { Effect: string; Action: string[]; Resource: string } 
 }
 
 /**
+ * Builds the `ec2:CreateNetworkInterface`/`DescribeNetworkInterfaces`/`DeleteNetworkInterface`
+ * statement every VPC-attached Lambda inline policy in this module needs to
+ * manage its ENI. A factory for the same reason as {@link logStatement}.
+ *
+ * @returns A fresh `Statement` entry object for the VPC-networking grant.
+ */
+function vpcNetworkingStatement(): { Effect: string; Action: string[]; Resource: string } {
+  return {
+    Effect: 'Allow',
+    Action: ['ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', 'ec2:DeleteNetworkInterface'],
+    Resource: '*',
+  };
+}
+
+/**
  * Declares every IAM role and the managed-policy attachment — see this
  * file's doc for the full address table and why roles and policies are
  * split across two functions. Needs nothing from any later step (every
@@ -572,12 +587,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
           Version: '2012-10-17',
           Statement: [
             logStatement(),
-            {
-              // Required for Lambda VPC networking.
-              Effect: 'Allow',
-              Action: ['ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', 'ec2:DeleteNetworkInterface'],
-              Resource: '*',
-            },
+            vpcNetworkingStatement(),
             {
               Effect: 'Allow',
               Action: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
@@ -635,12 +645,7 @@ export function defineIamPolicies(args: DefineIamPoliciesArgs): IamPolicyResourc
             Version: '2012-10-17',
             Statement: [
               logStatement(),
-              {
-                // Required for Lambda VPC networking.
-                Effect: 'Allow',
-                Action: ['ec2:CreateNetworkInterface', 'ec2:DescribeNetworkInterfaces', 'ec2:DeleteNetworkInterface'],
-                Resource: '*',
-              },
+              vpcNetworkingStatement(),
               {
                 Effect: 'Allow',
                 Action: ['ecs:DescribeTasks'],
