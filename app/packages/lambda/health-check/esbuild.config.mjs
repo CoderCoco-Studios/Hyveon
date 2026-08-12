@@ -12,5 +12,6 @@ await build({
   format: 'cjs',
   minify: true,
   sourcemap: true,
+  external: ['@aws-sdk/*'],
   logLevel: 'info',
 });

@@ -35,7 +35,8 @@ function tokenizePath(jsonPath: string): JsonPathSegment[] {
       if (end === -1) {
         break;
       }
-      segments.push(Number(jsonPath.slice(i + 1, end)));
+      const index = jsonPath.slice(i + 1, end);
+      segments.push(index.length > 0 ? Number(index) : NaN);
       i = end + 1;
       continue;
     }
@@ -171,7 +172,7 @@ export function evaluateHealthCheck(config: GameServerHealthCheck, status: numbe
     return { active: true, reason: `health check failed: value at declared path "${jsonPath}" is not a scalar` };
   }
 
-  const holds = evaluateOperator(operator, resolved.value, expected ?? undefined);
+  const holds = evaluateOperator(operator, resolved.value, expected);
   if (holds === 'incomparable') {
     return {
       active: true,
