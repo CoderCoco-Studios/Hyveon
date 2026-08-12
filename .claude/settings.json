@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); path=$(echo \"$input\" | jq -r \".tool_input.path // empty\"); if [ -n \"$path\" ] && [[ \"$path\" != *.claude/worktrees* ]]; then jq -n --arg reason \"EnterWorktree path must be under .claude/worktrees/ (got: $path). Use name to create a new worktree, or point path at an existing one under .claude/worktrees/.\" \"{hookSpecificOutput:{hookEventName:\\\"PreToolUse\\\",permissionDecision:\\\"deny\\\",permissionDecisionReason:\\$reason}}\"; else echo \"{}\"; fi",
+            "command": "bun run .claude/hooks/guard-enter-worktree-path.ts",
             "statusMessage": "Checking EnterWorktree path is under .claude/worktrees/..."
           },
           {
@@ -55,6 +55,11 @@
             "type": "command",
             "command": "node .claude/hooks/guard-require-worktree.js",
             "statusMessage": "Checking worktree isolation..."
+          },
+          {
+            "type": "command",
+            "command": "bun run .claude/hooks/guard-git-worktree-add-path.ts",
+            "statusMessage": "Checking git worktree add path is under .claude/worktrees/..."
           }
         ]
       }
