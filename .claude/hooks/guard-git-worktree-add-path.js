@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * PreToolUse guard (Bash): blocks `git worktree add` commands whose target
- * path isn't under .claude/worktrees/, per .claude/rules/worktree.md.
+ * PreToolUse guard (Bash): blocks every `git worktree add` invoked directly
+ * via Bash, per .claude/rules/worktree.md. Worktree creation must go through
+ * the `EnterWorktree` tool — never the raw git subcommand, even when the
+ * target path is under .claude/worktrees/.
  *
  * Without this, `EnterWorktree`'s own path check (which only validates the
  * `path` arg passed *to that tool*) can be bypassed by creating the worktree
@@ -48,21 +50,14 @@ async function main() {
   if (input.tool_name !== 'Bash') return;
   const command = (input.tool_input && input.tool_input.command) || '';
 
-  const match = command.match(/git\s+worktree\s+add\s+(?:-\S+\s+)*(\S+)/);
-  if (!match) return;
+  if (!/git\s+worktree\s+add\b/.test(command)) return;
 
-  let targetPath = match[1];
-  if (targetPath === '-b' || targetPath === '--force' || targetPath === '-f') return;
-  targetPath = targetPath.replace(/^["']|["']$/g, '');
-
-  if (!targetPath.includes('.claude/worktrees')) {
-    deny(
-      `git worktree add path must be under .claude/worktrees/ (got: ${targetPath}). ` +
-        'Use EnterWorktree with name to create a worktree, or if a manual `git worktree add` ' +
-        'is required (branching from a non-main base per .claude/rules/worktree.md), target ' +
-        'a path under .claude/worktrees/.',
-    );
-  }
+  deny(
+    'Direct `git worktree add` is blocked — worktree creation must go through the ' +
+      'EnterWorktree tool, not the raw git subcommand (per .claude/rules/worktree.md). ' +
+      'Use EnterWorktree with `name` to create a worktree, or `path` to switch into one ' +
+      'that already exists.',
+  );
 }
 
 main();
