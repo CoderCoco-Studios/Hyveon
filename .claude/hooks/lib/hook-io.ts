@@ -8,6 +8,11 @@ import type { PreToolUseHookInput, PreToolUseHookSpecificOutput, SyncHookJSONOut
 
 export type { PreToolUseHookInput };
 
+/** Narrows `value` to a non-null object, e.g. after `JSON.parse` of untrusted input. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 export function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
