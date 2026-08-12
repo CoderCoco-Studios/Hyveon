@@ -14,21 +14,46 @@
 
 import { readStdin, deny, ask, allow, isRecord, type PreToolUseHookInput } from './lib/hook-io.js';
 
+/** Git global options that consume the following token as their value (`-C <path>`, not `-C<path>`). */
+const GLOBAL_OPTIONS_WITH_SEPARATE_VALUE = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--super-prefix',
+  '--exec-path',
+  '--config-env',
+]);
+
 /**
  * Detects a direct `git worktree add` inside one shell "simple command" —
  * i.e. not crossing a `;`, `&&`, `||`, `|`, or newline into an unrelated
- * command. Tolerates Git global options ahead of the subcommand (`git -C
- * /repo worktree add ...`, `git --git-dir=/repo/.git worktree add ...`),
- * which a literal `git\s+worktree\s+add` match misses entirely.
+ * command. Tokenizes on whitespace, walks past Git global options ahead of
+ * the subcommand (`git -C /repo worktree add ...`, `git
+ * --git-dir=/repo/.git worktree add ...`), then requires `worktree` and
+ * `add` to be exactly the subcommand and its immediate next positional
+ * token — not just present anywhere in the segment. A looser
+ * word-presence check would also deny unrelated commands like `git
+ * worktree list --format=add` or `git config worktree.useRelativePaths add`.
  *
- * This is a heuristic, not a real shell parser — quoting tricks and command
- * substitution can still evade it. Given that, false positives (an unrelated
- * command denied) are the safe failure mode here, not false negatives.
+ * This is a heuristic, not a real shell parser — it doesn't handle quoted
+ * arguments containing whitespace, and quoting tricks or command
+ * substitution can still evade it.
  */
 function isDirectWorktreeAdd(command: string): boolean {
-  return command
-    .split(/[;&|\n]+/)
-    .some((segment) => /^\s*git\b/.test(segment) && /\bworktree\b/.test(segment) && /\badd\b/.test(segment));
+  return command.split(/[;&|\n]+/).some((segment) => {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    if (tokens[0] !== 'git') return false;
+
+    let i = 1;
+    while (i < tokens.length && tokens[i].startsWith('-')) {
+      const isSelfContained = tokens[i].includes('=') || !GLOBAL_OPTIONS_WITH_SEPARATE_VALUE.has(tokens[i]);
+      i += isSelfContained ? 1 : 2;
+    }
+
+    return tokens[i] === 'worktree' && tokens[i + 1] === 'add';
+  });
 }
 
 const raw = await readStdin();
