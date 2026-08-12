@@ -258,31 +258,32 @@ jobs:
           git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
           git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "${{ steps.release-tag.outputs.tag }}"
 
-      - name: Remove stale draft release for this tag
+      - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release-tag.outputs.tag }}
+          NOTES_PATH: ${{ steps.summary.outputs.notes_path }}
         run: |
           set -euo pipefail
 
-          # action-gh-release's dedup logic canonicalizes on the *oldest*
-          # existing release for a tag when more than one is found, and
-          # never copies the fresh body over to it - so re-running this
-          # workflow against an already-tagged release (skip_bump replay
-          # mode, or a retried run) would silently keep serving whatever
-          # body the first-ever release for that tag had. Deleting any
-          # existing draft up front forces a clean create every time.
+          # package.yml's own `release` job runs separately on the tag push
+          # (Electron builds take several minutes per platform) and attaches
+          # the packaged binaries to whatever draft release exists for this
+          # tag. Deleting-and-recreating the release here (the previous
+          # approach) destroyed those assets on every skip_bump replay run,
+          # and also hit GitHub's tag/release-index eventual consistency
+          # ("not yet discoverable") since nothing but a moment separates
+          # the delete from the recreate. Update the body of the existing
+          # draft in place instead - no assets touched, no delete/recreate
+          # race - and only create fresh when this tag has no release yet.
           RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" \
             --jq ".[] | select(.tag_name == \"$TAG\" and .draft == true) | .id" | head -1)
 
           if [ -n "$RELEASE_ID" ]; then
-            echo "Deleting stale draft release $RELEASE_ID for tag $TAG"
-            gh api -X DELETE "repos/${{ github.repository }}/releases/$RELEASE_ID"
+            echo "Updating body of existing draft release $RELEASE_ID for tag $TAG"
+            gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
+              --field body=@"$NOTES_PATH"
+          else
+            echo "No existing release for tag $TAG - creating a new draft"
+            gh release create "$TAG" --draft --title "$TAG" --notes-file "$NOTES_PATH"
           fi
-
-      - name: Publish draft release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release-tag.outputs.tag }}
-          draft: true
-          body_path: ${{ steps.summary.outputs.notes_path }}
