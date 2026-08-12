@@ -10,6 +10,15 @@ export interface HealthCheckVerdict {
    * bodies may carry player identities or network addresses.
    */
   reason: string;
+  /**
+   * True when this verdict was forced active by a failure to obtain a
+   * conclusive verdict (a non-2xx status, an unparseable body, an
+   * unresolved path, or an incomparable value) rather than reflecting the
+   * check's actual outcome. Lets a caller log a persistently failing check
+   * at a severity that surfaces it as a fault, distinct from routine
+   * activity.
+   */
+  failureDerived: boolean;
 }
 
 type JsonPathSegment = string | number;
@@ -146,14 +155,18 @@ function evaluateOperator(
  */
 export function evaluateHealthCheck(config: GameServerHealthCheck, status: number, rawBody: string): HealthCheckVerdict {
   if (status < 200 || status >= 300) {
-    return { active: true, reason: `health check failed: response status ${status} was not successful` };
+    return {
+      active: true,
+      reason: `health check failed: response status ${status} was not successful`,
+      failureDerived: true,
+    };
   }
 
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
   } catch {
-    return { active: true, reason: 'health check failed: response body was not valid JSON' };
+    return { active: true, reason: 'health check failed: response body was not valid JSON', failureDerived: true };
   }
 
   const { jsonPath, operator, value: expected } = config.activeWhen;
@@ -161,15 +174,23 @@ export function evaluateHealthCheck(config: GameServerHealthCheck, status: numbe
 
   if (operator === 'exists') {
     return resolved.found
-      ? { active: true, reason: `condition holds: a value exists at "${jsonPath}"` }
-      : { active: false, reason: `condition does not hold: no value at "${jsonPath}"` };
+      ? { active: true, reason: `condition holds: a value exists at "${jsonPath}"`, failureDerived: false }
+      : { active: false, reason: `condition does not hold: no value at "${jsonPath}"`, failureDerived: false };
   }
 
   if (!resolved.found) {
-    return { active: true, reason: `health check failed: no value at declared path "${jsonPath}"` };
+    return {
+      active: true,
+      reason: `health check failed: no value at declared path "${jsonPath}"`,
+      failureDerived: true,
+    };
   }
   if (!isScalar(resolved.value)) {
-    return { active: true, reason: `health check failed: value at declared path "${jsonPath}" is not a scalar` };
+    return {
+      active: true,
+      reason: `health check failed: value at declared path "${jsonPath}" is not a scalar`,
+      failureDerived: true,
+    };
   }
 
   const holds = evaluateOperator(operator, resolved.value, expected);
@@ -177,10 +198,15 @@ export function evaluateHealthCheck(config: GameServerHealthCheck, status: numbe
     return {
       active: true,
       reason: `health check failed: value at "${jsonPath}" could not be compared with operator "${operator}"`,
+      failureDerived: true,
     };
   }
 
   return holds
-    ? { active: true, reason: `condition holds: "${jsonPath}" satisfies operator "${operator}"` }
-    : { active: false, reason: `condition does not hold: "${jsonPath}" does not satisfy operator "${operator}"` };
+    ? { active: true, reason: `condition holds: "${jsonPath}" satisfies operator "${operator}"`, failureDerived: false }
+    : {
+        active: false,
+        reason: `condition does not hold: "${jsonPath}" does not satisfy operator "${operator}"`,
+        failureDerived: false,
+      };
 }

@@ -14,11 +14,11 @@
 
 ## 3. Health-check Lambda handler
 
-- [ ] 3.1 Implement the handler: accept `{ game, taskArn, healthCheck }`, resolve the task's private address from the ECS `DescribeTasks` attachment details, fetch the credential from Secrets Manager only when `auth` is present, issue the request with the declared timeout, and delegate the verdict to the engine
-- [ ] 3.2 Return fail-active for transport and credential failures — timeout, refused connection, unavailable secret — with the normalized `err instanceof Error ? err.message : String(err)` message in the reason
-- [ ] 3.3 Log `debug` on entry with `{ game, kind, port }` and the verdict with `{ game, kind, active, reason }`; log a failure-derived verdict at `warn`; never log the credential or the response body
-- [ ] 3.4 Test the handler with `aws-sdk-client-mock` for ECS and Secrets Manager and a mocked fetch seam: assert the host comes from the ECS attachment and never from config, the secret is fetched only when `auth` is present, and no secret value reaches the logger
-- [ ] 3.5 Add `@hyveon/lambda-health-check` to the explicit enumeration in `build:lambdas` in `app/package.json`
+- [x] 3.1 Implement the handler: accept `{ game, taskArn, healthCheck }`, resolve the task's private address from the ECS `DescribeTasks` attachment details, fetch the credential from Secrets Manager only when `auth` is present, issue the request with the declared timeout, and delegate the verdict to the engine
+- [x] 3.2 Return fail-active for transport and credential failures — timeout, refused connection, unavailable secret — with the normalized `err instanceof Error ? err.message : String(err)` message in the reason
+- [x] 3.3 Log `debug` on entry with `{ game, kind, port }` and the verdict with `{ game, kind, active, reason }`; log a failure-derived verdict at `warn`; never log the credential or the response body
+- [x] 3.4 Test the handler with `aws-sdk-client-mock` for ECS and Secrets Manager and a mocked fetch seam: assert the host comes from the ECS attachment and never from config, the secret is fetched only when `auth` is present, and no secret value reaches the logger
+- [x] 3.5 Add `@hyveon/lambda-health-check` to the explicit enumeration in `build:lambdas` in `app/package.json`
 
 ## 4. Watchdog routing
 
