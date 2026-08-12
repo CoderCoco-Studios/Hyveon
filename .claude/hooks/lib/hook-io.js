@@ -23,6 +23,7 @@ export function deny(reason) {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
         permissionDecisionReason: reason,
+        additionalContext: reason,
       },
     }),
   );
@@ -42,6 +43,7 @@ export function ask(reason) {
         hookEventName: 'PreToolUse',
         permissionDecision: 'ask',
         permissionDecisionReason: reason,
+        additionalContext: reason,
       },
     }),
   );
