@@ -6,20 +6,20 @@
 
 import { readStdin, deny } from './lib/hook-io.js';
 
-async function main() {
+guard: {
   const raw = await readStdin();
-  if (!raw.trim()) return;
+  if (!raw.trim()) break guard;
 
   let input;
   try {
     input = JSON.parse(raw);
   } catch {
-    return;
+    break guard;
   }
 
-  if (input.tool_name !== 'EnterWorktree') return;
+  if (input.tool_name !== 'EnterWorktree') break guard;
   const path = (input.tool_input && input.tool_input.path) || '';
-  if (!path) return;
+  if (!path) break guard;
 
   if (!path.includes('.claude/worktrees')) {
     deny(
@@ -28,5 +28,3 @@ async function main() {
     );
   }
 }
-
-main();

@@ -14,21 +14,21 @@
 
 import { readStdin, deny } from './lib/hook-io.js';
 
-async function main() {
+guard: {
   const raw = await readStdin();
-  if (!raw.trim()) return;
+  if (!raw.trim()) break guard;
 
   let input;
   try {
     input = JSON.parse(raw);
   } catch {
-    return;
+    break guard;
   }
 
-  if (input.tool_name !== 'Bash') return;
+  if (input.tool_name !== 'Bash') break guard;
   const command = (input.tool_input && input.tool_input.command) || '';
 
-  if (!/git\s+worktree\s+add\b/.test(command)) return;
+  if (!/git\s+worktree\s+add\b/.test(command)) break guard;
 
   deny(
     'Direct `git worktree add` is blocked — worktree creation must go through the ' +
@@ -37,5 +37,3 @@ async function main() {
       'that already exists.',
   );
 }
-
-main();
