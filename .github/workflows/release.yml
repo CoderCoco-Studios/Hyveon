@@ -237,16 +237,12 @@ jobs:
         if: ${{ inputs.skip_bump != true }}
         env:
           GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET_VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "${{ steps.bot-identity.outputs.name }}"
           git config user.email "${{ steps.bot-identity.outputs.email }}"
-
-          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --workspaces=false
-
-          git add package.json package-lock.json
-          git commit -m "chore(release): ${{ steps.release-tag.outputs.tag }}"
-          git tag -a "${{ steps.release-tag.outputs.tag }}" -m "${{ steps.release-tag.outputs.tag }}"
 
           # persist-credentials was disabled at checkout so the AI summary
           # step (repo-wide Read/Write, no path scoping) never had the App
@@ -255,8 +251,30 @@ jobs:
           # to .git/config (which `git remote set-url` or re-enabling
           # persist-credentials would do).
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 -w0)"
-          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
-          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "${{ steps.release-tag.outputs.tag }}"
+
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
+            # git-cliff's --bumped-version can recompute a version that's
+            # already in package.json (e.g. the FROM tag it measured from
+            # wasn't actually the latest one) - `npm version` hard-errors
+            # on a no-op version ("Version not changed"), which crashed a
+            # rerun that had nothing left to bump. Skip the commit; the
+            # tag below still gets created if it's somehow missing.
+            echo "package.json is already at $TARGET_VERSION - nothing to bump"
+          else
+            npm version "$TARGET_VERSION" --no-git-tag-version --workspaces=false
+            git add package.json package-lock.json
+            git commit -m "chore(release): $TAG"
+            git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin main
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin - nothing to create"
+          else
+            git tag -a "$TAG" -m "$TAG"
+            git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "$TAG"
+          fi
 
       - name: Publish draft release
         env:
