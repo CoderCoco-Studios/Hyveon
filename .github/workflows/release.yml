@@ -175,6 +175,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: '--model claude-sonnet-5 --allowedTools "Read,Write" --max-turns 10'
+          show_full_output: 'true'
           prompt: |
             Read the git-cliff changelog context JSON at cliff-context.json and
             the rendered changelog at raw-changelog.md (both in the repo root).
