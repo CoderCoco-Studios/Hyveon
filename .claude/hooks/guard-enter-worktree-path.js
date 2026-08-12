@@ -4,27 +4,25 @@
  * `path` arg isn't under .claude/worktrees/, per .claude/rules/worktree.md.
  */
 
-import { readStdin, deny } from './lib/hook-io.js';
+import { readStdin, deny, allow } from './lib/hook-io.js';
 
-guard: {
-  const raw = await readStdin();
-  if (!raw.trim()) break guard;
+const raw = await readStdin();
+if (!raw.trim()) allow();
 
-  let input;
-  try {
-    input = JSON.parse(raw);
-  } catch {
-    break guard;
-  }
+let input;
+try {
+  input = JSON.parse(raw);
+} catch {
+  allow();
+}
 
-  if (input.tool_name !== 'EnterWorktree') break guard;
-  const path = (input.tool_input && input.tool_input.path) || '';
-  if (!path) break guard;
+if (input.tool_name !== 'EnterWorktree') allow();
+const path = (input.tool_input && input.tool_input.path) || '';
+if (!path) allow();
 
-  if (!path.includes('.claude/worktrees')) {
-    deny(
-      `EnterWorktree path must be under .claude/worktrees/ (got: ${path}). ` +
-        'Use name to create a new worktree, or point path at an existing one under .claude/worktrees/.',
-    );
-  }
+if (!path.includes('.claude/worktrees')) {
+  deny(
+    `EnterWorktree path must be under .claude/worktrees/ (got: ${path}). ` +
+      'Use name to create a new worktree, or point path at an existing one under .claude/worktrees/.',
+  );
 }

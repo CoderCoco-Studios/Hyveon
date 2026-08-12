@@ -12,28 +12,26 @@
  * EnterWorktree hook has no reason to distrust.
  */
 
-import { readStdin, deny } from './lib/hook-io.js';
+import { readStdin, deny, allow } from './lib/hook-io.js';
 
-guard: {
-  const raw = await readStdin();
-  if (!raw.trim()) break guard;
+const raw = await readStdin();
+if (!raw.trim()) allow();
 
-  let input;
-  try {
-    input = JSON.parse(raw);
-  } catch {
-    break guard;
-  }
-
-  if (input.tool_name !== 'Bash') break guard;
-  const command = (input.tool_input && input.tool_input.command) || '';
-
-  if (!/git\s+worktree\s+add\b/.test(command)) break guard;
-
-  deny(
-    'Direct `git worktree add` is blocked — worktree creation must go through the ' +
-      'EnterWorktree tool, not the raw git subcommand (per .claude/rules/worktree.md). ' +
-      'Use EnterWorktree with `name` to create a worktree, or `path` to switch into one ' +
-      'that already exists.',
-  );
+let input;
+try {
+  input = JSON.parse(raw);
+} catch {
+  allow();
 }
+
+if (input.tool_name !== 'Bash') allow();
+const command = (input.tool_input && input.tool_input.command) || '';
+
+if (!/git\s+worktree\s+add\b/.test(command)) allow();
+
+deny(
+  'Direct `git worktree add` is blocked — worktree creation must go through the ' +
+    'EnterWorktree tool, not the raw git subcommand (per .claude/rules/worktree.md). ' +
+    'Use EnterWorktree with `name` to create a worktree, or `path` to switch into one ' +
+    'that already exists.',
+);

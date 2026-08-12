@@ -27,3 +27,8 @@ export function deny(reason) {
     }),
   );
 }
+
+/** Exits the hook script with no output, letting the guarded tool call proceed. */
+export function allow() {
+  process.exit(0);
+}
