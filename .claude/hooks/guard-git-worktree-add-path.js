@@ -12,7 +12,7 @@
  * EnterWorktree hook has no reason to distrust.
  */
 
-import { readStdin, deny, allow } from './lib/hook-io.js';
+import { readStdin, deny, ask, allow } from './lib/hook-io.js';
 
 const raw = await readStdin();
 if (!raw.trim()) allow();
@@ -20,8 +20,8 @@ if (!raw.trim()) allow();
 let input;
 try {
   input = JSON.parse(raw);
-} catch {
-  allow();
+} catch (err) {
+  ask(`guard-git-worktree-add-path couldn't parse its PreToolUse input as JSON (${err.message}) — unable to check whether this Bash command is a \`git worktree add\`. Confirm before proceeding.`);
 }
 
 if (input.tool_name !== 'Bash') allow();
