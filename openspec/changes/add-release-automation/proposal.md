@@ -11,7 +11,7 @@ Hyveon has a build/package pipeline (`.github/workflows/package.yml`) but no way
   - `skip_bump` (boolean, default `false`) — when `true`, regenerates the changelog and AI summary for an **already-tagged** release without bumping the version, committing, or creating a new tag. Used to improve a release's description or give the AI summarizer more context after the fact.
   - `tag` (optional) — required when `skip_bump: true`; identifies which existing tag's release to regenerate.
 - Changelog and version-bump computation via `git-cliff` (Conventional Commits parsing, `--bumped-version`, `--context` JSON output) driven directly via `npx`, not the community wrapper action.
-- New Node script (`.github/scripts/release-notes.mjs`) that reads git-cliff's structured changelog context and calls the Claude API (`claude-opus-5`) to produce an engaging, user-facing "what's new" summary, falling back to the raw changelog if the API call fails.
+- An AI summary step, driven by `anthropics/claude-code-action@v1` authenticated with a `CLAUDE_CODE_OAUTH_TOKEN` (bills against the Claude subscription used to generate it, not metered API usage), reads git-cliff's structured changelog context and produces an engaging, user-facing "what's new" summary, falling back to the raw changelog if the step fails.
 - Version bump: `npm version --no-git-tag-version` against the **root `package.json`** only (workspace packages are not independently versioned — they ship inside one Electron installer).
 - The workflow commits the version bump and pushes the tag directly to `main`, authenticated via a GitHub App installation token (`actions/create-github-app-token`) rather than `GITHUB_TOKEN` (which does not trigger downstream `push: tags` workflows) or a personal PAT.
 - A draft GitHub Release is created/updated (`softprops/action-gh-release`, `draft: true`) with the AI-generated summary as the body and the raw changelog attached in a collapsed `<details>` section, requiring human review/publish before it goes live.
@@ -28,8 +28,8 @@ _(none — `package.yml`'s existing tag-triggered publish job is consumed as-is;
 
 ## Impact
 
-- **New files**: `.github/workflows/release.yml`, `.github/scripts/release-notes.mjs`, a `cliff.toml` (git-cliff config) at repo root.
-- **New repo secrets/vars**: `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY`, `ANTHROPIC_API_KEY`.
+- **New files**: `.github/workflows/release.yml`, a `cliff.toml` (git-cliff config) at repo root.
+- **New repo secrets/vars**: `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`.
 - **GitHub settings (manual, out-of-band)**: new GitHub App installation; `enforce-main-branch-protection` ruleset gains one more bypass actor.
 - **`package.json` (root)**: `version` field will actually advance for the first time (currently frozen at `0.1.0`).
 - **Docs**: `docs/docs/guides/maintainer.md` release section needs to document the new trigger, inputs, and the one-time GitHub App setup steps.

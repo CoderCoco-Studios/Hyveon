@@ -1,0 +1,71 @@
+# git-cliff configuration for Hyveon's release-automation workflow.
+# Invoked via `npx git-cliff@2.13.1` from `.github/workflows/release.yml` —
+# never installed as a project dependency. Commit types mirror the set
+# enforced for PR titles in CLAUDE.md's Git & PR workflow section.
+
+[changelog]
+header = ""
+# Groups are rendered in a fixed priority order (feat, fix, refactor, docs,
+# test, chore, perf, build, ci, style, then anything else) instead of Tera's
+# `group_by` insertion order, which would otherwise follow whichever commit
+# type happened to appear first chronologically in the range - matching the
+# canonical commit-type order in CLAUDE.md's Git & PR workflow section.
+body = """
+{% set group_order = ["Features", "Bug Fixes", "Refactoring", "Documentation", "Tests", "Chores", "Performance", "Build System", "Continuous Integration", "Style", "Other"] %}
+{% for group in group_order %}
+{% set group_commits = commits | filter(attribute="group", value=group) %}
+{% if group_commits %}
+### {{ group }}
+{% for commit in group_commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+{{ commit.message | upper_first }} \
+({{ commit.id | truncate(length=7, end="") }})\
+{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}\
+{% if commit.breaking %} [**breaking**]{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9]*"
+skip_tags = ""
+ignore_tags = ""
+topo_order = false
+sort_commits = "oldest"
+
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^perf", group = "Performance" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^build", group = "Build System" },
+  { message = "^ci", group = "Continuous Integration" },
+  { message = "^style", group = "Style" },
+  { message = "^chore\\(release\\):", skip = true },
+  { message = "^chore", group = "Chores" },
+  { message = ".*", group = "Other" },
+]
+
+# A commit is breaking when it carries a `!` before the `:` (e.g. `feat!:`,
+# `feat(scope)!:`) or a `BREAKING CHANGE:` footer — both standard Conventional
+# Commits breaking-change markers, parsed by git-cliff's `conventional_commits`
+# mode without any extra config here.
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = true
+# Without this, `--bumped-version` on a repo with zero prior tags computes an
+# unprefixed "0.1.0" internally and then fails because it doesn't match
+# `tag_pattern` above (a real git-cliff 2.13.1 behavior, verified locally) -
+# this makes the same first-release case produce a valid starting tag instead.
+initial_tag = "v0.1.0"

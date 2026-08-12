@@ -154,7 +154,7 @@ See `CONTRIBUTING.md` for the full list. Two things that bite people:
 
 ## CI
 
-Seven workflows live in `.github/workflows/`:
+Eight workflows live in `.github/workflows/`:
 
 - **`lint.yml`** — two jobs: ESLint (`npm run app:lint`) and a full
   cross-workspace typecheck (`npm run app:typecheck`). Runs on every
@@ -179,6 +179,8 @@ Seven workflows live in `.github/workflows/`:
   as `docs-build.yml`, then deploys to GitHub Pages. Triggers on push to
   `main` (`docs/**` paths) plus `workflow_dispatch`. Node 24. To preview doc
   changes locally, run `cd docs && npm install && npm start`.
+- **`release.yml`** — `workflow_dispatch`-only. Cuts a release: see
+  "Release / deploy" below.
 
 There is also CodeQL security analysis configured at the org level (see
 `CONTRIBUTING.md`).
@@ -406,11 +408,63 @@ executes it and CI's e2e job never writes to `docs/static/img/app/`.
 
 ## Release / deploy
 
-There is no versioned release. "Deploying" = running `npm run app:build:lambdas`,
-then plan/approve/apply from the app's Infrastructure page, and then
-packaging/running the Electron app (`npm run desktop:package`, or
-`npm run desktop:run` to build and launch without producing an installer)
-from whatever machine holds the AWS credentials.
+"Deploying" the running system is still: `npm run app:build:lambdas`, then
+plan/approve/apply from the app's Infrastructure page, then packaging/running
+the Electron app (`npm run desktop:package`, or `npm run desktop:run` to
+build and launch without producing an installer) from whatever machine holds
+the AWS credentials. That's unchanged by the release process below.
+
+Cutting a **versioned GitHub Release** of the packaged installers, however,
+is a one-click `workflow_dispatch` run of `.github/workflows/release.yml`:
+
+1. Go to **Actions → Release → Run workflow** on `main`.
+2. Optionally fill in:
+   - `from` / `to` — override the changelog range. Both default: `from` to
+     the most recent `v*` tag reachable from `to` (or the repo root commit if
+     none exists), `to` to `HEAD`.
+   - `bump` — `auto` (default, derived from Conventional Commit types and
+     breaking-change markers in range), or an explicit `major`/`minor`/`patch`
+     override.
+   - `skip_bump` + `tag` — **replay mode**. Set `skip_bump: true` and supply
+     an existing tag to regenerate that release's changelog and AI summary
+     in place, without bumping the version or creating a new commit/tag. Use
+     this to improve a release's notes after the fact.
+3. The workflow computes the changelog and semver bump with `git-cliff`
+   (config at root `cliff.toml`), bumps root `package.json` only (workspace
+   packages aren't independently versioned — they all ship inside one
+   Electron installer), commits and tags that bump on `main`, and pushes
+   both using a dedicated GitHub App installation token (not `GITHUB_TOKEN`,
+   which doesn't trigger downstream tag-push workflows, and not a personal
+   PAT).
+4. The pushed tag wakes `package.yml`'s existing tag-triggered `release` job,
+   which builds installers for all three platforms and attaches them to the
+   same GitHub Release.
+5. An `anthropics/claude-code-action` step (authenticated with a
+   `CLAUDE_CODE_OAUTH_TOKEN`, which bills against the Claude subscription
+   that generated it rather than metered API usage) turns the structured
+   changelog into a user-facing "what's new" summary, used as the release
+   body; if that step fails or produces no output, the raw grouped changelog
+   is published as the body instead so the run never fails solely on the AI
+   step.
+6. The release is always created as a **draft** — nothing goes public until
+   a human opens it on GitHub and clicks Publish.
+
+### One-time setup (repo admin only)
+
+The workflow cannot push to `main` until this is done once, in GitHub's UI,
+by someone with admin access — it is not automatable from a PR:
+
+1. Create an org-owned GitHub App ("Hyveon Release Bot") with **Contents:
+   read & write** permission only, and install it on this repo.
+2. Store the App's credentials as the `RELEASE_APP_ID` repo/org variable and
+   the `RELEASE_APP_PRIVATE_KEY` repo/org secret.
+3. Store a `CLAUDE_CODE_OAUTH_TOKEN` repo secret for the AI summary step —
+   generate it locally with `claude setup-token` under whichever Claude
+   subscription should be billed for release summaries.
+4. Add the App as an **Always** bypass actor on the
+   `enforce-main-branch-protection` ruleset (Settings → Rules → Rulesets) —
+   the same pattern already used for the ruleset's two existing bypass
+   actors.
 
 ## Useful references
 
