@@ -33,6 +33,13 @@ function git(args) {
 }
 
 async function main() {
+  // CI runners check out a fresh, isolated clone per run - the same
+  // guarantee a worktree gives locally - so the worktree rule doesn't
+  // apply there. Without this, every Write/Edit/git-commit in a
+  // claude-code-action step gets denied, since a plain checkout is
+  // never a linked worktree.
+  if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') return;
+
   const raw = await readStdin();
   if (!raw.trim()) return;
 
