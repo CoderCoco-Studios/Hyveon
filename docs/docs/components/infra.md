@@ -55,8 +55,38 @@ separate lock table:
   `s3://<stateBucket>?region=<region>` — the same state bucket the first-run
   wizard's bootstrap step creates (versioned, AES-256 encrypted, no public
   access). `secretsProvider: 'passphrase'` — there is no Pulumi Cloud
-  account and no access token anywhere in this app; a random passphrase is
-  generated once per stack and stored encrypted via `SafeStorageService`.
+  account and no access token anywhere in this app.
+- The passphrase itself is **derived, not stored**. On every
+  `PulumiWorkspaceService.getOrCreateStack` call, the seam resolves the AWS
+  account ID the active credential source authenticates against
+  (`sts:GetCallerIdentity`, `resolveAwsAccountId`) and runs
+  `HMAC-SHA256(PULUMI_PASSPHRASE_DERIVATION_SALT, accountId + PULUMI_STACK_NAME)`
+  (`deriveStackPassphrase`). The result is never written to
+  `ElectronStoreService` or anywhere else on disk — any machine authenticated
+  against the same AWS account reproduces the identical passphrase. This
+  fixes a real gap: a second or replacement machine pointed at the same S3
+  state bucket previously had no way to decrypt the existing stack's state,
+  since the old passphrase was generated once and stored encrypted (via
+  `SafeStorageService`, backed by the OS keychain) in that one install's
+  local config only.
+  `PULUMI_PASSPHRASE_DERIVATION_SALT` is frozen once shipped — changing it
+  would re-key every already-migrated install.
+- **This passphrase is not a confidentiality boundary.** The infrastructure
+  program never calls `pulumi.secret(...)` on any config or output
+  (`program.ts`), so nothing sensitive is actually gated behind it — it
+  exists only because the Automation API requires a secrets provider to be
+  configured at all. Deriving it from an account ID and a fixed stack name
+  (both already visible to anyone with read access to the AWS account) is
+  fine precisely because of that.
+- Installs that still hold a legacy stored passphrase (`pulumi.passphrase`
+  in `ElectronStoreService`, now `@deprecated` and read-only) migrate
+  automatically and silently on first run under this code: the stack is
+  re-encrypted from the legacy passphrase to the newly derived one via the
+  `pulumi` CLI, and the legacy entry is deleted only once that succeeds. See
+  `PulumiWorkspaceService.migrateLegacyPassphrase` for the mechanism.
+  `pulumi.stackInitialized` is separate, purely-local bookkeeping ("has this
+  install ever created/selected the stack") — it plays no role in passphrase
+  resolution.
 - **Locking is a lock *object* written into the state bucket itself**, not a
   DynamoDB table — this is how Pulumi's CLI implements its self-managed S3
   backend. A stale lock left by a crashed operation is recoverable through

@@ -309,7 +309,7 @@ process output to show here):
 
 | Phase | What it does |
 |---|---|
-| **Resolving the Pulumi engine** | Downloads and verifies the pinned Pulumi CLI engine on first use, and constructs the Automation API workspace against your S3 backend — generating a fresh secrets passphrase the first time |
+| **Resolving the Pulumi engine** | Downloads and verifies the pinned Pulumi CLI engine on first use; the workspace construction that follows derives the stack's secrets passphrase from your authenticated AWS account ID rather than generating or storing one, so any machine with valid credentials for the same account reproduces the identical passphrase |
 | **Installing provider plugins** | Explicitly installs the `@pulumi/aws` provider plugin your deployment will need |
 | **Creating the stack** | Runs a `pulumi refresh` against the brand-new, still-empty stack to prove the whole round trip — engine, backend, credentials, and plugin — actually works |
 
@@ -369,8 +369,15 @@ Confirming it:
 - Does **not** touch any AWS resources already created (buckets, tables, the
   CloudFormation stack, a rotated IAM key) — those stay exactly as they are.
   It also does not touch an already-initialized Pulumi stack's own state or
-  secrets passphrase, since that belongs to infrastructure you may already be
-  running, not to wizard progress.
+  its secrets passphrase, since that belongs to infrastructure you may
+  already be running, not to wizard progress. On most installs there's no
+  stored passphrase to preserve at all — it's derived fresh from your AWS
+  account ID every time the stack is opened, never written to disk. An
+  install that hasn't yet completed its one-time automatic migration from an
+  older, locally-stored passphrase is the one exception: until that
+  migration runs, the stored value is still the only thing that can decrypt
+  the existing stack's state, so Start Over leaves it in place rather than
+  risk making that state undecryptable.
 
 The window reloads once the reset completes.
 
