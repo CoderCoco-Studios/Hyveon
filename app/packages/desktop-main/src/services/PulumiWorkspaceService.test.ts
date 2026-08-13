@@ -75,6 +75,7 @@ import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
+import { STSClient } from '@aws-sdk/client-sts';
 
 /** Minimal `PulumiCommand`-shaped object the mocked SDK is given. */
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
@@ -916,17 +917,24 @@ describe('deriveStackPassphrase', () => {
 });
 
 describe('resolveAwsAccountId', () => {
-  /** Builds a minimal STS client stub whose `send` resolves/rejects as configured. */
-  function stubStsClient(send: ReturnType<typeof vi.fn>) {
-    return { send } as unknown as import('@aws-sdk/client-sts').STSClient;
+  /**
+   * Builds a genuine `STSClient` instance for `stsClientFactory` tests to
+   * return — construction performs no network I/O, so this is safe to call
+   * directly in a test. Each test then `vi.spyOn(client, 'send')`s the real
+   * instance to control the `GetCallerIdentity` response, which yields a
+   * correctly-typed mock with zero `as unknown as T` casts.
+   */
+  function stubStsClient(): STSClient {
+    return new STSClient({ region: 'us-west-2', credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' } });
   }
 
   it('should return the Account field from a successful GetCallerIdentity call', async () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
-    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
-    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+    const client = stubStsClient();
+    vi.spyOn(client, 'send').mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(client);
 
     const result = await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
 
@@ -938,8 +946,9 @@ describe('resolveAwsAccountId', () => {
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
     store.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
-    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
-    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+    const client = stubStsClient();
+    vi.spyOn(client, 'send').mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(client);
 
     await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
 
@@ -953,8 +962,9 @@ describe('resolveAwsAccountId', () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
-    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
-    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+    const client = stubStsClient();
+    vi.spyOn(client, 'send').mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(client);
 
     await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
 
@@ -970,8 +980,9 @@ describe('resolveAwsAccountId', () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
-    const send = vi.fn().mockResolvedValue({});
-    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+    const client = stubStsClient();
+    vi.spyOn(client, 'send').mockResolvedValue({});
+    const stsClientFactory = vi.fn().mockReturnValue(client);
 
     await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
       'sts:GetCallerIdentity did not return an AWS account ID.',
@@ -982,8 +993,9 @@ describe('resolveAwsAccountId', () => {
     const safeStorage = makeAvailableSafeStorage();
     const store = new ElectronStoreService(safeStorage);
     store.set('aws', { region: 'us-west-2', profile: 'personal' });
-    const send = vi.fn().mockRejectedValue(new Error('some unrelated STS failure'));
-    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+    const client = stubStsClient();
+    vi.spyOn(client, 'send').mockRejectedValue(new Error('some unrelated STS failure'));
+    const stsClientFactory = vi.fn().mockReturnValue(client);
 
     await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
       'some unrelated STS failure',

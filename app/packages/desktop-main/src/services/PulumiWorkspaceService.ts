@@ -119,6 +119,7 @@ export function deriveStackPassphrase(accountId: string, stackName: string): str
  * @param stsClientFactory - Test seam — defaults to constructing a plain
  *   `new STSClient(config)`; tests inject a stub that returns a client whose
  *   `send` is `vi.fn()`.
+ * @returns The 12-digit AWS account ID from `GetCallerIdentity`'s `Account` field.
  * @throws `Error` if no credential source is configured (defensive only —
  *   see remarks above) or if the `GetCallerIdentity` response has no
  *   `Account` field.
