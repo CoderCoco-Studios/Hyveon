@@ -373,6 +373,10 @@ export class PulumiWorkspaceService {
    *   selected (see {@link resolveCredentialEnvVars}).
    * @throws `Error` (normalized `.message` only) if `resolveAwsAccountId`'s
    *   `sts:GetCallerIdentity` call fails.
+   * @throws `Error` with a keychain-unlock message if a legacy `pulumi.passphrase`
+   *   is stored but the OS keychain is currently unavailable to decrypt it —
+   *   checked before migration is attempted, never left to surface as a
+   *   confusing `pulumi` CLI "incorrect passphrase" error instead.
    */
   async getOrCreateStack(input: PulumiWorkspaceInput): Promise<Stack> {
     if (!input.backendReady) {
@@ -417,11 +421,27 @@ export class PulumiWorkspaceService {
 
     // Legacy migration: an install that pre-dates the derivation scheme
     // still holds a randomly-generated passphrase in `pulumi.passphrase`.
-    // Presence is checked via the raw store read (no decrypt attempted) so a
-    // keychain-unavailable read doesn't silently hand a garbage ciphertext
-    // blob to `getPulumiPassphrase()` as if it were a real passphrase.
-    const legacyPassphrase =
-      this.store.get('pulumi')?.passphrase !== undefined ? this.store.getPulumiPassphrase() : undefined;
+    // Presence alone does NOT mean it is safe to decrypt: `SafeStorageService.decrypt`
+    // does not throw when the OS keychain is merely unavailable/locked — it
+    // silently returns the raw ciphertext blob unchanged (see that method's
+    // own remarks). So keychain availability is checked explicitly, BEFORE
+    // ever calling `getPulumiPassphrase()`, to avoid handing that garbage
+    // blob to the `pulumi` CLI as if it were the real passphrase (which would
+    // fail with a confusing "incorrect passphrase"-style CLI error, giving
+    // the operator no indication that unlocking their OS keychain is the fix).
+    const hasLegacyPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
+    if (hasLegacyPassphrase && !this.store.isSafeStorageAvailable()) {
+      logger.error(
+        'PulumiWorkspaceService: cannot migrate the legacy Pulumi passphrase because the OS keychain is unavailable',
+        { stackName: PULUMI_STACK_NAME },
+      );
+      throw new Error(
+        'Cannot access this stack: a legacy Pulumi secrets passphrase is stored but the OS keychain is ' +
+          'currently unavailable, so it cannot be decrypted. Unlock your OS keychain (Keychain Access, ' +
+          'libsecret, or Windows Credential Manager) and try again.',
+      );
+    }
+    const legacyPassphrase = hasLegacyPassphrase ? this.store.getPulumiPassphrase() : undefined;
     if (legacyPassphrase !== undefined) {
       await this.migrateLegacyPassphrase(legacyPassphrase, passphrase, {
         pulumiCommand,
@@ -552,6 +572,22 @@ export class PulumiWorkspaceService {
    * the child env (the Automation API's own `pulumiHome` option is exactly
    * this env var for spawned commands).
    *
+   * @remarks
+   * This CLI invocation runs with `cwd: workDir` BEFORE `LocalWorkspace.create`
+   * has had any chance to (re)write `Pulumi.yaml`/`Pulumi.<stack>.yaml` in
+   * that directory — `getOrCreateStack` calls this method first and only
+   * constructs the workspace afterward. The `pulumi` CLI therefore implicitly
+   * depends on a project file already existing in `workDir` from a prior run
+   * under the old (pre-derivation) code, which always created it via
+   * `LocalWorkspace.createOrSelectStack` before this migration path existed.
+   * Edge case: an install whose `workDir` was wiped (e.g. a reinstall, or a
+   * manual cache clear) while the store's legacy `pulumi.passphrase` survived
+   * would fail this migration with a "no Pulumi project found"-style CLI
+   * error, since there is nothing here to fall back to creating a default
+   * project file first — that install needs a full manual reset (clear the
+   * legacy store entry and let `getOrCreateStack` proceed as a genuinely new
+   * stack) rather than an automatic retry fixing it.
+   *
    * @param legacyPassphrase - Decrypted legacy passphrase, read by the caller
    *   via {@link ElectronStoreService.getPulumiPassphrase} before this is
    *   called — this function never touches `SafeStorageService` itself.
@@ -606,6 +642,13 @@ export class PulumiWorkspaceService {
    * {@link migrateLegacyPassphrase}, never escaping this method as a raw
    * child-process error.
    *
+   * @remarks
+   * Listens on `'close'`, not `'exit'` — Node's own docs call out that
+   * `'exit'` can fire before all stdout/stderr data events have been
+   * flushed/read, which could truncate the `stderr` this method accumulates
+   * for the failure message; `'close'` guarantees every stdio stream has
+   * finished before the event fires.
+   *
    * @param command - Absolute path to the resolved `pulumi` binary
    *   (`PulumiCommand.command`).
    * @param args - CLI arguments (see {@link migrateLegacyPassphrase}).
@@ -635,7 +678,7 @@ export class PulumiWorkspaceService {
       child.once('error', (err) => {
         rejectPromise(err);
       });
-      child.once('exit', (code) => {
+      child.once('close', (code) => {
         if (code === 0) {
           resolvePromise();
         } else {

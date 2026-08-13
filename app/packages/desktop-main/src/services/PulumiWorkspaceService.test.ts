@@ -251,7 +251,7 @@ function createOrSelectWs(callIndex = 0): FakeWorkspace {
 
 /**
  * Minimal `ChildProcess`-shaped fake for `migrateLegacyPassphrase`'s
- * `spawn()` seam: a plain `EventEmitter` (for `'error'`/`'exit'`) with a
+ * `spawn()` seam: a plain `EventEmitter` (for `'error'`/`'close'`) with a
  * `stdin` writable that records what was written to it (the new passphrase,
  * per the Step 3.0 spike's finding that it's supplied via stdin, not an env
  * var) and a `stderr` readable `EventEmitter` `runChangeSecretsProviderCli`
@@ -283,7 +283,7 @@ function queueSpawnResult(result: { code: number | null } | { error: Error }): {
       if ('error' in result) {
         emitter.emit('error', result.error);
       } else {
-        emitter.emit('exit', result.code);
+        emitter.emit('close', result.code);
       }
     });
     return emitter;
@@ -930,6 +930,30 @@ describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migratio
 
     expect(spawnMock).not.toHaveBeenCalled();
     expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should fail with a clear keychain-unavailable error before attempting migration, when a legacy passphrase is stored but the keychain is unavailable', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = makeStoreWithDefaultCredentials(safeStorage);
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    // Keychain becomes unavailable AFTER the legacy value was written —
+    // mirrors a keychain that's locked/unavailable at read time, per
+    // `SafeStorageService.decrypt`'s own remarks on write/read-time
+    // availability mismatches.
+    vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(false);
+    const { service } = makeService({ safeStorage, store });
+
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(/OS keychain is currently unavailable/);
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
+    // Legacy entry must be left untouched — same retry-safety contract as
+    // any other migration failure.
+    expect(store.get('pulumi')?.passphrase).toBeDefined();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: cannot migrate the legacy Pulumi passphrase because the OS keychain is unavailable',
+      { stackName: PULUMI_STACK_NAME },
+    );
   });
 });
 

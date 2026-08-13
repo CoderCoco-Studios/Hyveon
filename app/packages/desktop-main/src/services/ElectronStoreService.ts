@@ -214,11 +214,11 @@ export interface AppStoreSchema {
   };
   /**
    * Automation API secrets-passphrase storage (see `PulumiWorkspaceService`).
-   * The passphrase is generated once, the first time a Pulumi stack is
-   * created, and reused for the lifetime of that stack — a missing or
-   * undecryptable entry for a stack that already exists must never be
-   * silently replaced (a new passphrase cannot decrypt state encrypted with
-   * the old one).
+   * The passphrase itself is now derived on every operation from the
+   * authenticated AWS account ID (see `deriveStackPassphrase`) rather than
+   * generated once and stored — this object retains only the one-time
+   * migration/bookkeeping fields below (`stackInitialized`, the deprecated
+   * legacy `passphrase`, lock ownership, and rollback-orphan records).
    */
   pulumi?: {
     /**
@@ -298,6 +298,18 @@ export class ElectronStoreService {
    */
   isElectron(): boolean {
     return this.readIsElectron();
+  }
+
+  /**
+   * Returns `true` when the injected {@link SafeStorageService} can currently
+   * encrypt/decrypt — i.e. {@link SafeStorageService.isAvailable}. Exposed so
+   * callers that need to fail loudly before attempting a decrypt-dependent
+   * operation (e.g. `PulumiWorkspaceService.getOrCreateStack`'s legacy
+   * passphrase migration) can check availability without taking their own
+   * `SafeStorageService` constructor dependency.
+   */
+  isSafeStorageAvailable(): boolean {
+    return this.safeStorage.isAvailable();
   }
 
   /**
@@ -497,6 +509,11 @@ export class ElectronStoreService {
    * availability itself).
    *
    * @param value - Plaintext passphrase to encrypt and store.
+   *
+   * @deprecated Read-only during the one-time legacy migration; no
+   * production code writes new values — only test callers remain. Kept
+   * (rather than deleted) solely because those tests still seed a legacy
+   * store entry through it.
    */
   setPulumiPassphrase(value: string): void {
     const encrypted = this.safeStorage.encrypt(value);
