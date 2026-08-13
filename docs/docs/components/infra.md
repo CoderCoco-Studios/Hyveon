@@ -84,6 +84,15 @@ separate lock table:
   re-encrypted from the legacy passphrase to the newly derived one via the
   `pulumi` CLI, and the legacy entry is deleted only once that succeeds. See
   `PulumiWorkspaceService.migrateLegacyPassphrase` for the mechanism.
+  **A stack created before this change ships is still encrypted under its
+  legacy passphrase until some install actually runs this migration** — a
+  brand-new second machine cannot derive its way into decrypting it until
+  then, since the derived value only matches what the stack is encrypted
+  with after that one-time re-encryption has happened somewhere. In
+  practice this is a non-issue: the first launch of any install already
+  running this code (including the original machine) performs the
+  migration automatically, so it is very unlikely an operator would ever
+  reach for a second machine before that has already occurred once.
   `pulumi.stackInitialized` is separate, purely-local bookkeeping ("has this
   install ever created/selected the stack") — it plays no role in passphrase
   resolution.

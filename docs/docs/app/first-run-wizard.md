@@ -309,7 +309,7 @@ process output to show here):
 
 | Phase | What it does |
 |---|---|
-| **Resolving the Pulumi engine** | Downloads and verifies the pinned Pulumi CLI engine on first use; the workspace construction that follows derives the stack's secrets passphrase from your authenticated AWS account ID rather than generating or storing one, so any machine with valid credentials for the same account reproduces the identical passphrase |
+| **Resolving the Pulumi engine** | Downloads and verifies the pinned Pulumi CLI engine on first use; the workspace construction that follows derives the stack's secrets passphrase from your authenticated AWS account ID rather than generating or storing one, so any machine with valid credentials for the same account reproduces the identical passphrase (once that stack has been re-encrypted to the derived value — see [Infra program](/components/infra) for the one-time legacy migration this happens through) |
 | **Installing provider plugins** | Explicitly installs the `@pulumi/aws` provider plugin your deployment will need |
 | **Creating the stack** | Runs a `pulumi refresh` against the brand-new, still-empty stack to prove the whole round trip — engine, backend, credentials, and plugin — actually works |
 

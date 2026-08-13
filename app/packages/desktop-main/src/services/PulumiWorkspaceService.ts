@@ -54,6 +54,15 @@ export const PULUMI_STACK_NAME = 'production';
 export const PULUMI_PASSPHRASE_DERIVATION_SALT = 'hyveon:pulumi-stack-passphrase:v1';
 
 /**
+ * Bound on how long {@link PulumiWorkspaceService.runChangeSecretsProviderCli}
+ * waits for the `pulumi stack change-secrets-provider` child process before
+ * force-killing it and rejecting — without this, a wedged CLI invocation
+ * would hang the awaiting {@link PulumiWorkspaceService.migrateLegacyPassphrase}
+ * call (and therefore every Pulumi operation for the session) indefinitely.
+ */
+const CHANGE_SECRETS_PROVIDER_TIMEOUT_MS = 30_000;
+
+/**
  * Deterministically derives this install's Pulumi secrets passphrase from
  * the AWS account ID the current operation is authenticated against and the
  * (always-fixed) stack name, so any machine holding valid credentials for
@@ -136,6 +145,11 @@ export async function resolveAwsAccountId(
     new STSClient(config),
 ): Promise<string> {
   const credentials = resolveAwsClientCredentials(store);
+  if (credentials === undefined) {
+    throw new Error(
+      'No AWS credential source is configured — cannot resolve the AWS account ID to derive the Pulumi passphrase.',
+    );
+  }
   const client = stsClientFactory({ region, credentials });
   const response = await client.send(new GetCallerIdentityCommand({}));
   if (!response.Account) {
@@ -659,8 +673,9 @@ export class PulumiWorkspaceService {
    * @param newPassphrase - Written to the child's stdin, followed by a
    *   newline, then the stream is closed.
    * @returns Resolves with no value on a zero exit code.
-   * @throws A plain `Error` describing a non-zero exit (stderr included) or
-   *   the raw spawn failure.
+   * @throws A plain `Error` describing a non-zero exit (stderr included), a
+   *   timeout (see {@link CHANGE_SECRETS_PROVIDER_TIMEOUT_MS}), or the raw
+   *   spawn/stdin failure.
    */
   private runChangeSecretsProviderCli(
     command: string,
@@ -672,13 +687,36 @@ export class PulumiWorkspaceService {
     return new Promise((resolvePromise, rejectPromise) => {
       const child = spawn(command, args, { cwd, env });
       let stderr = '';
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        child.kill('SIGTERM');
+        rejectPromise(new Error('pulumi stack change-secrets-provider timed out'));
+      }, CHANGE_SECRETS_PROVIDER_TIMEOUT_MS);
       child.stderr?.on('data', (chunk: Buffer) => {
         stderr += chunk.toString();
       });
+      // An unhandled 'error' on child.stdin (e.g. EPIPE if the process exits
+      // before reading the write below) would otherwise crash the Electron
+      // main process — Node only guarantees a stream's 'error' is non-fatal
+      // once something is actually listening for it.
+      child.stdin?.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        rejectPromise(err);
+      });
       child.once('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         rejectPromise(err);
       });
       child.once('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (code === 0) {
           resolvePromise();
         } else {

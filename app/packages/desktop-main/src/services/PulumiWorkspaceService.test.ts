@@ -267,15 +267,23 @@ function queueSpawnResult(result: { code: number | null } | { error: Error }): {
 } {
   const stdinWrites: string[] = [];
   const stderr = new EventEmitter();
-  const stdin: Partial<Writable> = {
+  // A real Writable (or the production `child.stdin`) is an EventEmitter —
+  // `runChangeSecretsProviderCli`'s EPIPE-safety listener calls `.on('error', ...)`
+  // on it, so the fake must be one too, not just an object with `write`/`end`.
+  // Typed as this minimal interface (not `Partial<Writable>`) because
+  // `Writable`'s full `addListener` overload set is what an `Object.assign`
+  // onto a real `EventEmitter` can't structurally satisfy — production code
+  // only ever calls `write`/`end`/`on('error', ...)` on `child.stdin`.
+  type FakeStdin = Pick<Writable, 'write' | 'end'> & EventEmitter;
+  const stdin: FakeStdin = Object.assign(new EventEmitter(), {
     write: vi.fn((chunk: string) => {
       stdinWrites.push(chunk);
       return true;
     }),
     end: vi.fn(),
-  };
+  }) as FakeStdin;
   const emitter = Object.assign(new EventEmitter(), { stdin, stderr }) as EventEmitter & {
-    stdin: Writable;
+    stdin: FakeStdin;
     stderr: EventEmitter;
   };
   spawnMock.mockImplementationOnce(() => {

@@ -629,6 +629,35 @@ export type PulumiDestroyOutcome =
   | { kind: 'failed'; error: PulumiDestroyError | PulumiUnrecognizedLockError };
 
 /**
+ * Whether this install has ever successfully created or selected the Pulumi
+ * stack, for the three UX-guard call sites below ({@link PulumiService.getStackOutputs},
+ * {@link PulumiService.destroy}, {@link PulumiService.clearStaleLock}) that
+ * need to distinguish "nothing to do yet" from a real operation attempt.
+ *
+ * @remarks
+ * `pulumi.stackInitialized` (see {@link ElectronStoreService}) is written
+ * going forward by every successful {@link PulumiWorkspaceService.getOrCreateStack}
+ * call, but an install that already had a stack deployed BEFORE this flag
+ * existed has no such record — it only has the now-deprecated
+ * `pulumi.passphrase` (see {@link PulumiWorkspaceService.migrateLegacyPassphrase}),
+ * which was written only when a stack had genuinely already been created.
+ * Treating that legacy field's presence as equivalent evidence backfills the
+ * signal for exactly one launch: `PulumiWorkspaceService.getOrCreateStack`'s
+ * own migration path clears `pulumi.passphrase` and sets `stackInitialized`
+ * on its next successful call, after which this legacy branch is inert for
+ * that install. Without this, an upgrading install with a real deployed
+ * stack would see `getStackOutputs` report `null` ("not deployed") and
+ * `destroy`/`clearStaleLock` refuse with "no stack has ever been created"
+ * until an unrelated stack operation happened to run first and set the flag.
+ *
+ * @param store - The store {@link PulumiService}'s three call sites already have.
+ */
+function hasEverCreatedOrSelectedStack(store: ElectronStoreService): boolean {
+  const pulumi = store.get('pulumi');
+  return pulumi?.stackInitialized === true || pulumi?.passphrase !== undefined;
+}
+
+/**
  * Pulumi-backed service — see this file's top-level doc comment (above) for
  * the full picture: the error classes, {@link getStackOutputs}, and
  * {@link preview}.
@@ -1047,7 +1076,7 @@ export class PulumiService {
       return null;
     }
 
-    const stackInitialized = this.store.get('pulumi')?.stackInitialized === true;
+    const stackInitialized = hasEverCreatedOrSelectedStack(this.store);
     if (!stackInitialized) {
       return null;
     }
@@ -3737,7 +3766,7 @@ export class PulumiService {
             'Complete the bootstrap step before destroying.',
         );
       }
-      const stackExists = this.store.get('pulumi')?.stackInitialized === true;
+      const stackExists = hasEverCreatedOrSelectedStack(this.store);
       if (!stackExists) {
         throw new Error(
           'Cannot run pulumi destroy: no Pulumi stack has ever been created for this installation ' +
@@ -4597,7 +4626,7 @@ export class PulumiService {
           'Complete the bootstrap step first.',
       );
     }
-    const stackExists = this.store.get('pulumi')?.stackInitialized === true;
+    const stackExists = hasEverCreatedOrSelectedStack(this.store);
     if (!stackExists) {
       throw new Error(
         'Cannot clear the Pulumi backend lock: no Pulumi stack has ever been created for this installation ' +
