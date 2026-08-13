@@ -34,8 +34,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 `npm run app:lint` clean.
-- [ ] 6.2 `npm run app:typecheck` clean.
-- [ ] 6.3 `npm run app:test` full unit suite green.
-- [ ] 6.4 `npm run app:test:integration` green (Pulumi orchestration changed).
-- [ ] 6.5 Manually verify end-to-end on a real AWS test account if feasible: bootstrap from one credential set, then run a Pulumi operation using a second, independently-created credential set (e.g. a different IAM user) in the same account, confirming no `PulumiPassphraseUnavailableError`-equivalent failure occurs.
+- [x] 6.1 `npm run app:lint` clean.
+- [x] 6.2 `npm run app:typecheck` clean.
+- [x] 6.3 `npm run app:test` full unit suite green.
+- [x] 6.4 `npm run app:test:integration` green (Pulumi orchestration changed).
+- [ ] 6.5 Manually verify end-to-end on a real AWS test account if feasible: bootstrap from one credential set, then run a Pulumi operation using a second, independently-created credential set (e.g. a different IAM user) in the same account, confirming no `PulumiPassphraseUnavailableError`-equivalent failure occurs. **Deferred to the operator** — requires a real AWS test account, not scriptable in this implementation session; flagged in the PR description per the plan's own instruction.
