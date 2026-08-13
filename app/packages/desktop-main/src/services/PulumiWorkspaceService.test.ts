@@ -67,6 +67,8 @@ import {
   PulumiPassphraseUnavailableError,
   PULUMI_STACK_NAME,
   PULUMI_PROJECT_NAME,
+  deriveStackPassphrase,
+  resolveAwsAccountId,
   type PulumiWorkspaceInput,
 } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService } from './PulumiEngineService.js';
@@ -877,5 +879,114 @@ describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () =>
     await service.getOrCreateStack(baseInput());
 
     expect(engine.resolve).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('deriveStackPassphrase', () => {
+  it('should return the exact pinned digest for a fixed accountId/stackName pair, regression-pinning the derivation salt', () => {
+    // Computed once via a scratch Node script using the real
+    // PULUMI_PASSPHRASE_DERIVATION_SALT constant and HMAC-SHA256
+    // implementation, then hard-coded here as the expected RESULT — not
+    // recomputed at test time — so this test fails if the salt or the
+    // accountId/stackName concatenation order ever changes silently.
+    const result = deriveStackPassphrase('123456789012', 'production');
+
+    expect(result).toBe('d5a065d09f8c3ffc70f947e5670b107eff693bbc80058818cbe7938ceb86e3e0');
+  });
+
+  it('should produce a different passphrase for a different accountId, same stackName', () => {
+    const first = deriveStackPassphrase('123456789012', 'production');
+    const second = deriveStackPassphrase('999999999999', 'production');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('should produce a different passphrase for a different stackName, same accountId', () => {
+    const first = deriveStackPassphrase('123456789012', 'production');
+    const second = deriveStackPassphrase('123456789012', 'staging');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('should always return a 64-character lowercase hex string', () => {
+    const result = deriveStackPassphrase('123456789012', 'production');
+
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('resolveAwsAccountId', () => {
+  /** Builds a minimal STS client stub whose `send` resolves/rejects as configured. */
+  function stubStsClient(send: ReturnType<typeof vi.fn>) {
+    return { send } as unknown as import('@aws-sdk/client-sts').STSClient;
+  }
+
+  it('should return the Account field from a successful GetCallerIdentity call', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+
+    const result = await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    expect(result).toBe('123456789012');
+  });
+
+  it('should pass the resolved credentials (pasted keys) to the STS client factory', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
+    store.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+
+    await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    expect(stsClientFactory).toHaveBeenCalledWith({
+      region: 'us-west-2',
+      credentials: { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' },
+    });
+  });
+
+  it('should pass fromIni-shaped credentials to the STS client factory for a profile source', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const send = vi.fn().mockResolvedValue({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+
+    await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    const call = stsClientFactory.mock.calls[0]![0] as { region: string; credentials: unknown };
+    expect(call.region).toBe('us-west-2');
+    // `resolveAwsClientCredentials`'s doc comment describes the 'profile'
+    // case as `fromIni({ profile })`'s return value — a function — so this
+    // asserts that shape rather than the provider function's internals.
+    expect(typeof call.credentials).toBe('function');
+  });
+
+  it('should throw when GetCallerIdentity resolves with no Account field', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const send = vi.fn().mockResolvedValue({});
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+
+    await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
+      'sts:GetCallerIdentity did not return an AWS account ID.',
+    );
+  });
+
+  it('should propagate a raw STS client error unchanged', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const send = vi.fn().mockRejectedValue(new Error('some unrelated STS failure'));
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient(send));
+
+    await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
+      'some unrelated STS failure',
+    );
   });
 });

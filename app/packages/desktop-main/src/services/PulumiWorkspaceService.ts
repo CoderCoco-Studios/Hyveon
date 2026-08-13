@@ -1,9 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 // The explicit `/index.js` is required, not cosmetic — see `PulumiEngineService.ts`'s
 // comment on this same import: the main bundle is ESM, `@pulumi/pulumi` is
 // externalized, and `@pulumi/pulumi` is CommonJS with no `exports` map, so the
@@ -20,6 +21,7 @@ import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineSer
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveCredentialEnvVars } from './PulumiCredentialResolver.js';
+import { resolveAwsClientCredentials, type AwsClientCredentials } from './awsCredentialSource.js';
 
 /**
  * Bare Pulumi project name — see {@link PULUMI_STACK_NAME}'s doc comment for
@@ -40,6 +42,106 @@ export const PULUMI_PROJECT_NAME = 'hyveon';
  * construct a qualified stack name anywhere else.
  */
 export const PULUMI_STACK_NAME = 'production';
+
+/**
+ * Fixed HMAC key {@link deriveStackPassphrase} uses to turn an AWS account ID
+ * and stack name into a reproducible secrets passphrase. FROZEN once
+ * shipped — see {@link deriveStackPassphrase}'s doc comment for why changing
+ * this value later is equivalent to a breaking migration and must be treated
+ * as one (every already-migrated install's stack is encrypted under a
+ * passphrase derived using this exact string).
+ */
+export const PULUMI_PASSPHRASE_DERIVATION_SALT = 'hyveon:pulumi-stack-passphrase:v1';
+
+/**
+ * Deterministically derives this install's Pulumi secrets passphrase from
+ * the AWS account ID the current operation is authenticated against and the
+ * (always-fixed) stack name, so any machine holding valid credentials for
+ * the same AWS account derives the identical value — the portability
+ * mechanism the `pulumi-engine-runtime` delta spec's "A second machine
+ * operates on an existing stack" scenario requires. Computed fresh on every
+ * `getOrCreateStack` call; the result is never written to
+ * `ElectronStoreService` or anywhere else on disk.
+ *
+ * @remarks
+ * This is HMAC-SHA256, not a general-purpose KDF (scrypt/argon2/bcrypt) —
+ * deliberately, because {@link PULUMI_PASSPHRASE_DERIVATION_SALT} is not a
+ * confidentiality boundary and the input space (`accountId` + `stackName`)
+ * is not attacker-guessable low-entropy secret material the way a
+ * user-chosen password would be; it is two identifiers already visible to
+ * anyone with read access to the AWS account. Per the delta spec: "The
+ * passphrase MUST NOT be treated as a confidentiality boundary — the
+ * infrastructure program does not mark any Pulumi stack config or output as
+ * secret." HMAC-SHA256 buys determinism and collision resistance, which is
+ * all this needs.
+ *
+ * @param accountId - The 12-digit AWS account ID from
+ *   `sts:GetCallerIdentity`'s `Account` field (see {@link resolveAwsAccountId}).
+ * @param stackName - The Pulumi stack name (always {@link PULUMI_STACK_NAME}
+ *   in production; parameterized here only so unit tests can assert
+ *   different-input/different-output without a real STS call).
+ * @returns A 64-character lowercase hex string (the raw HMAC-SHA256 digest).
+ */
+export function deriveStackPassphrase(accountId: string, stackName: string): string {
+  return createHmac('sha256', PULUMI_PASSPHRASE_DERIVATION_SALT)
+    .update(accountId + stackName)
+    .digest('hex');
+}
+
+/**
+ * Resolves the AWS account ID the currently-configured credential source
+ * (the same one {@link resolveCredentialEnvVars} resolves for the Pulumi
+ * engine's own child-process environment — see
+ * {@link PulumiWorkspaceService.getOrCreateStack}) authenticates against, via
+ * `sts:GetCallerIdentity`. Feeds {@link deriveStackPassphrase}'s `accountId`
+ * parameter.
+ *
+ * @remarks
+ * Deliberately does not itself throw a typed "no credential source
+ * configured" error — {@link PulumiWorkspaceService.getOrCreateStack} already
+ * calls `resolveCredentialEnvVars(this.store)` earlier in the same method for
+ * the exact same store, which throws `PulumiCredentialsNotConfiguredError`
+ * first if nothing is selected. This function is only ever reached once that
+ * call has already succeeded, so `resolveAwsClientCredentials` is
+ * guaranteed not to return the `undefined` ("no profile stored") case here
+ * in practice — the type still allows it (this function's own `store`
+ * argument doesn't know what the caller already checked), so a defensive
+ * throw is kept for that branch rather than silently constructing an
+ * `STSClient` with no credentials and letting the SDK's own default
+ * provider-chain fallback obscure the real cause.
+ *
+ * @param store - Resolves the active AWS credential source (same store
+ *   `getOrCreateStack` already has).
+ * @param region - Region for the `STSClient` — `GetCallerIdentity` is a
+ *   global/region-agnostic STS action, but the SDK still requires a region
+ *   to construct the client; `input.stateBucketRegion` is reused rather than
+ *   introducing a second region concept.
+ * @param stsClientFactory - Test seam — defaults to constructing a plain
+ *   `new STSClient(config)`; tests inject a stub that returns a client whose
+ *   `send` is `vi.fn()`.
+ * @throws `Error` if no credential source is configured (defensive only —
+ *   see remarks above) or if the `GetCallerIdentity` response has no
+ *   `Account` field.
+ * @throws Raw AWS SDK errors from `sts:GetCallerIdentity` propagate
+ *   unchanged — `getOrCreateStack`'s existing single try/catch around the
+ *   SDK calls it makes does not wrap this call, so a credentials/network
+ *   failure here surfaces as-is, matching how every other pre-engine
+ *   failure in this method already behaves.
+ */
+export async function resolveAwsAccountId(
+  store: ElectronStoreService,
+  region: string,
+  stsClientFactory: (config: { region: string; credentials: AwsClientCredentials }) => STSClient = (config) =>
+    new STSClient(config),
+): Promise<string> {
+  const credentials = resolveAwsClientCredentials(store);
+  const client = stsClientFactory({ region, credentials });
+  const response = await client.send(new GetCallerIdentityCommand({}));
+  if (!response.Account) {
+    throw new Error('sts:GetCallerIdentity did not return an AWS account ID.');
+  }
+  return response.Account;
+}
 
 /** Number of cryptographically-random bytes used to generate a new secrets passphrase — see {@link PulumiWorkspaceService.generatePassphrase}'s doc comment for why 32 bytes was chosen. */
 const PASSPHRASE_ENTROPY_BYTES = 32;
