@@ -21,9 +21,7 @@ export type AwsClientCredentials = StaticAwsCredentials | ReturnType<typeof from
  * {@link ElectronStoreService.getPastedCredentials} throws while decrypting a
  * stored pasted-credentials entry — Electron's `safeStorage.decryptString`
  * throws its own raw `Error` for a corrupt or foreign ciphertext blob (e.g.
- * encrypted on a different machine or OS user account; the same underlying
- * condition `PulumiWorkspaceService.resolveStoredPassphrase` already
- * classifies as `'existing-stack-decrypt-failed'` for the passphrase case).
+ * encrypted on a different machine or OS user account).
  * That raw error has no distinguishing type of its own, so a caller further
  * up the stack that classifies failures by `instanceof` (see
  * `PulumiService.classifyGetOrCreateStackFailure`) has no way to tell it

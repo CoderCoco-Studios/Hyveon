@@ -193,7 +193,7 @@ function makeService(opts?: {
   const safeStorage = opts?.safeStorage ?? makeAvailableSafeStorage();
   const store = opts?.store ?? makeStoreWithDefaultCredentials(safeStorage);
   const engine = opts?.engine ?? stubEngine();
-  const service = new TestablePulumiWorkspaceService(engine, safeStorage, store);
+  const service = new TestablePulumiWorkspaceService(engine, store);
   vi.spyOn(service, 'resolveUserDataPath').mockReturnValue(opts?.userDataPath ?? '/fake/userData');
   return { service, engine, safeStorage, store };
 }
@@ -588,9 +588,10 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
 
     // "Second machine": a completely fresh store with no `pulumi` key at all
     // — exactly like a reinstall, a wiped userData, or a second machine
-    // pointed at the same state bucket. Before this fix, this scenario threw
-    // PulumiPassphraseUnavailableError (reason 'existing-stack-no-local-record')
-    // — this is the literal regression test for the bug this change fixes.
+    // pointed at the same state bucket. Before the passphrase-derivation
+    // change, this scenario threw a typed "no local passphrase record"
+    // error — this is the literal regression test for the bug that change
+    // fixed.
     const secondMachineSafeStorage = makeAvailableSafeStorage();
     const secondMachineStore = new ElectronStoreService(secondMachineSafeStorage);
     secondMachineStore.set('aws', { region: 'us-west-2', profile: 'personal' });

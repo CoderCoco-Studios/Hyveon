@@ -51,16 +51,16 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 
 /** `bootstrap`/`aws`/`pulumi` fields `clearStaleLock()` reads off the store before ever calling Pulumi — mirrors `PulumiService.destroy.test.ts`'s identical fixture. */
-const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secret', awsRegion: 'us-east-1' };
+const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', stackInitialized: true, awsRegion: 'us-east-1' };
 
 /** Builds a real `ElectronStoreService` (in-memory Map outside Electron) with the given fields pre-seeded — mirrors `PulumiService.destroy.test.ts`'s identical helper. */
-function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?: string } = {}): ElectronStoreService {
+function makeStore(opts: { stateBucket?: string; stackInitialized?: boolean; awsRegion?: string } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
     store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
-  if (opts.passphrase !== undefined) {
-    store.set('pulumi', { passphrase: opts.passphrase });
+  if (opts.stackInitialized !== undefined) {
+    store.set('pulumi', { stackInitialized: opts.stackInitialized });
   }
   if (opts.awsRegion !== undefined) {
     store.set('aws', { region: opts.awsRegion });
@@ -68,7 +68,7 @@ function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?
   return store;
 }
 
-/** A fully-configured store (state bucket, passphrase, AWS region). */
+/** A fully-configured store (state bucket, stackInitialized, AWS region). */
 function makeFullyConfiguredStore(): ElectronStoreService {
   return makeStore(FULLY_CONFIGURED);
 }
@@ -264,7 +264,7 @@ describe('PulumiService.clearStaleLock', () => {
 
   it('should reject with a descriptive Error, and never call getOrCreateStack, when the state bucket / AWS region is not configured', async () => {
     const workspace = makeWorkspace();
-    const store = makeStore({ passphrase: 'enc-secret' });
+    const store = makeStore({ stackInitialized: true });
     const service = makeService({ workspace, store });
     const token = service.mintLockClearConfirmationToken();
 
@@ -272,7 +272,7 @@ describe('PulumiService.clearStaleLock', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
-  it('should reject with a descriptive Error, and never call getOrCreateStack, when no Pulumi stack has ever been created (no passphrase on record)', async () => {
+  it('should reject with a descriptive Error, and never call getOrCreateStack, when no Pulumi stack has ever been created (no stack initialization on record)', async () => {
     const workspace = makeWorkspace();
     const store = makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' });
     const service = makeService({ workspace, store });

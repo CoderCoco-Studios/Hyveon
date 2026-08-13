@@ -40,11 +40,7 @@ import {
   RollbackNoConfigVersionError,
   RollbackVersionMissingError,
 } from './PulumiService.js';
-import {
-  PulumiBackendNotBootstrappedError,
-  PulumiPassphraseUnavailableError,
-  type PulumiWorkspaceService,
-} from './PulumiWorkspaceService.js';
+import { PulumiBackendNotBootstrappedError, type PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
@@ -70,19 +66,19 @@ const _opMapMatchesChangeSummary: OpMap = {} as ChangeSummary;
 /** Builds a real `ElectronStoreService` (in-memory Map outside Electron) with the given fields pre-seeded. */
 function makeStore(opts: {
   stateBucket?: string;
-  passphrase?: string;
+  stackInitialized?: boolean;
   awsRegion?: string;
 } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
     store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
-  if (opts.passphrase !== undefined) {
-    // Bypass the encrypted accessor pair — presence is checked via the raw
-    // `get('pulumi')?.passphrase !== undefined` idiom `PulumiService` uses as
-    // its `stackExists` proxy, so a plaintext placeholder is enough; nothing
-    // in this file ever calls `getPulumiPassphrase()` to decrypt it.
-    store.set('pulumi', { passphrase: opts.passphrase });
+  if (opts.stackInitialized !== undefined) {
+    // `PulumiService` uses `get('pulumi')?.stackInitialized === true` as its
+    // `stackExists` proxy — see `PulumiWorkspaceService.getOrCreateStack`,
+    // which sets this flag only after a real `Stack.createOrSelect` call
+    // has succeeded once for this install.
+    store.set('pulumi', { stackInitialized: opts.stackInitialized });
   }
   if (opts.awsRegion !== undefined) {
     store.set('aws', { region: opts.awsRegion });
@@ -129,7 +125,7 @@ function makeService(
 }
 
 /** Every field {@link makeStore} needs set for `getStackOutputs()` to reach the Pulumi call. */
-const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secret', awsRegion: 'us-east-1' };
+const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', stackInitialized: true, awsRegion: 'us-east-1' };
 
 /** Builds a `PulumiWorkspaceService` stub whose `getOrCreateStack` resolves to a stack stub wrapping `outputs`. */
 function makeWorkspace(outputs: OutputMap | Error): PulumiWorkspaceService {
@@ -179,7 +175,7 @@ describe('PulumiService.getStackOutputs', () => {
     expect(workspace.getOrCreateStack).not.toHaveBeenCalled();
   });
 
-  it('should return null without calling PulumiWorkspaceService when no passphrase is stored (never deployed)', async () => {
+  it('should return null without calling PulumiWorkspaceService when the stack has never been initialized (never deployed)', async () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
     const service = makeService(workspace, makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' }));
 
@@ -191,7 +187,7 @@ describe('PulumiService.getStackOutputs', () => {
     const workspace = makeWorkspace(FULL_OUTPUT_MAP);
     const service = makeService(
       workspace,
-      makeStore({ stateBucket: 'my-state-bucket', passphrase: 'enc-secret' }),
+      makeStore({ stateBucket: 'my-state-bucket', stackInitialized: true }),
     );
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
@@ -286,25 +282,6 @@ describe('PulumiService.getStackOutputs', () => {
 
   it('should return null (not throw) when getOrCreateStack throws PulumiBackendNotBootstrappedError', async () => {
     const workspace = makeWorkspace(new PulumiBackendNotBootstrappedError('my-state-bucket'));
-    const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
-
-    await expect(service.getStackOutputs()).resolves.toBeNull();
-  });
-
-  it('should return null (not throw) when getOrCreateStack throws PulumiPassphraseUnavailableError', async () => {
-    // The never-throw contract holds for every failure kind,
-    // not just PulumiBackendNotBootstrappedError — see the follow-up review
-    // that caught RunService/AuditService/RunRecordService assuming this
-    // method could never reject. PulumiPassphraseUnavailableError is a
-    // concrete, realistically-reachable example (e.g. the keychain becomes
-    // unavailable between the passphrase-presence check and the decrypt) —
-    // constructing the real class here (not a generic Error) so this test
-    // actually exercises that specific, documented failure mode rather than
-    // duplicating the generic "any other error" case below under a
-    // type-specific-sounding name.
-    const workspace = makeWorkspace(
-      new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable'),
-    );
     const service = makeService(workspace, makeStore(FULLY_CONFIGURED));
 
     await expect(service.getStackOutputs()).resolves.toBeNull();
