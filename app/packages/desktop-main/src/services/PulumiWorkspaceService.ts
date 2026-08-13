@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -14,7 +15,7 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 // calls `Stack.createOrSelect` directly rather than going through
 // `LocalWorkspace.createOrSelectStack`'s convenience wrapper.
 import { LocalWorkspace, Stack } from '@pulumi/pulumi/automation/index.js';
-import type { LocalWorkspaceOptions, ProjectSettings, PulumiFn } from '@pulumi/pulumi/automation/index.js';
+import type { LocalWorkspaceOptions, ProjectSettings, PulumiCommand, PulumiFn } from '@pulumi/pulumi/automation/index.js';
 import { logger } from '../logger.js';
 import { PulumiEngineService, type PulumiPhaseCallback } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
@@ -435,8 +436,11 @@ export class PulumiWorkspaceService {
    * second machine operates on an existing stack" scenario). Installs that
    * pre-date this derivation still hold a legacy stored passphrase — a
    * one-time migration step reconciling that legacy value with the newly
-   * derived one is added separately (see this file's later revisions for the
-   * migration step, inserted here before credential resolution).
+   * derived one runs here too (see {@link migrateLegacyPassphrase}), inserted
+   * right after the new passphrase is derived and before it is ever used to
+   * construct the real workspace — NOT before credential resolution, since
+   * the migration's own CLI invocation needs the already-resolved
+   * credential/backend env vars to reach the same S3-backed state.
    *
    * `LocalWorkspace.create` and `Stack.createOrSelect` are wrapped in a
    * single try/catch: a failure that looks like a missing bucket (see
@@ -502,6 +506,27 @@ export class PulumiWorkspaceService {
     }
     const passphrase = deriveStackPassphrase(accountId, PULUMI_STACK_NAME);
 
+    // Legacy migration: an install that pre-dates the derivation scheme
+    // still holds a randomly-generated passphrase in `pulumi.passphrase`.
+    // Presence is checked via the raw store read (no decrypt attempted) —
+    // same rationale as `resolveStoredPassphrase`'s own doc comment.
+    const legacyPassphrase =
+      this.store.get('pulumi')?.passphrase !== undefined ? this.store.getPulumiPassphrase() : undefined;
+    if (legacyPassphrase !== undefined) {
+      await this.migrateLegacyPassphrase(legacyPassphrase, passphrase, {
+        pulumiCommand,
+        pulumiHome,
+        workDir,
+        envVars: { ...credentialEnvVars, PULUMI_BACKEND_URL: backendUrl, AWS_REGION: input.stateBucketRegion },
+      });
+      const current = this.store.get('pulumi') ?? {};
+      const { passphrase: _removed, ...rest } = current;
+      this.store.set('pulumi', rest);
+      logger.debug('PulumiWorkspaceService: migrated legacy passphrase to derived value', {
+        stackName: PULUMI_STACK_NAME,
+      });
+    }
+
     const envVars: LocalWorkspaceOptions['envVars'] = {
       // Resolved credential vars first — see PulumiWorkspaceInput's
       // `credentialEnvVars` doc comment — so a credential source (whether
@@ -547,6 +572,170 @@ export class PulumiWorkspaceService {
       }
       throw err;
     }
+  }
+
+  /**
+   * One-time, automatic migration for an install that still holds a legacy
+   * randomly-generated passphrase in `pulumi.passphrase` (pre-dates this
+   * derivation scheme). Re-encrypts the stack's secrets provider from the
+   * legacy value to `newPassphrase` via the `pulumi` CLI's own
+   * `stack change-secrets-provider` command, spawned directly as a child
+   * process — {@link PulumiWorkspaceService} has no public Automation API
+   * method for this. `Stack.exportStack`/`importStack` do not rewrite the
+   * checkpoint's `secrets_providers` block, and `Stack.changeSecretsProvider`
+   * does not exist on the `@pulumi/pulumi@3.255.0` SDK this repo pins.
+   *
+   * MUST be called with the same `pulumiCommand`/`pulumiHome`/`workDir`/
+   * `envVars` (backend URL, region, credentials) `getOrCreateStack` is about
+   * to use for the real operation, so re-encryption targets the same S3
+   * state — a mismatched backend/region would silently re-key a different
+   * (or nonexistent) stack.
+   *
+   * Deletes the legacy `pulumi.passphrase` store entry ONLY after
+   * re-encryption succeeds — see {@link getOrCreateStack}'s own call site.
+   * Any failure (network, malformed CLI output, non-zero exit) is normalized
+   * and rethrown as a plain `Error`, leaving the legacy entry untouched, so
+   * the NEXT `getOrCreateStack` call retries this same migration with the
+   * same still-valid legacy passphrase, per the delta spec's "Legacy
+   * migration is retried after a failed re-encryption" scenario.
+   *
+   * @remarks
+   * ## Step 3.0 spike finding — the exact CLI contract (verified, not assumed)
+   *
+   * Determined by reading `pulumi/pulumi`'s own source at the exact pinned
+   * tag (`pkg/cmd/pulumi/stack/stack_change_secrets_provider.go`,
+   * `pkg/cmd/pulumi/stack/secrets.go`, `pkg/secrets/passphrase/manager.go` at
+   * `v3.255.0`) AND empirically confirmed end-to-end by running the exact
+   * binary this repo's own `PulumiEngineService` resolves (found already
+   * cached at `PULUMI_ENGINE_VERSION` from prior work in this repo, so no
+   * fresh download was needed) against a scratch `file://` backend — a stack
+   * was created under an "old" passphrase with a secret config value set,
+   * rotated via the sequence below, and then verified: the OLD passphrase
+   * afterward fails with `error: incorrect passphrase`, and the NEW
+   * passphrase successfully decrypts the (re-encrypted) config value. High
+   * confidence — this is not a `--help`-output guess.
+   *
+   * The command is `pulumi stack change-secrets-provider passphrase --stack <name> --non-interactive`,
+   * run with `cwd` set to `workDir` (equivalent
+   * to `--cwd`, just via the spawned process's own working directory rather
+   * than an extra flag). Two passphrases are involved, and — critically —
+   * they are supplied through two DIFFERENT channels, not both via
+   * `PULUMI_CONFIG_PASSPHRASE`:
+   *   - The OLD (legacy) passphrase decrypts the CURRENT secrets provider,
+   *     and is read from the `PULUMI_CONFIG_PASSPHRASE` env var (the normal
+   *     passphrase-provider env-var lookup, `readPassphrase(useEnv: true)`
+   *     in `manager.go`).
+   *   - The NEW passphrase is for the secrets provider being rotated TO.
+   *     Because the new and current provider are both `passphrase`,
+   *     `stack_change_secrets_provider.go` sets `rotateSecretsProvider` to
+   *     `true`, which routes `promptForNewPassphrase(rotate: true)` down a
+   *     branch that — whenever the process is non-interactive (no TTY on
+   *     stdin/stdout, which a spawned child process's piped stdio always is,
+   *     reinforced here by the explicit `--non-interactive` flag) — reads
+   *     EXACTLY ONE LINE from stdin as the new passphrase, with NO
+   *     confirmation re-prompt (the interactive "enter twice" flow is
+   *     skipped entirely in this branch). `PULUMI_CONFIG_PASSPHRASE` cannot
+   *     carry both values at once, so the new value has to go through stdin.
+   *
+   * So: write `${newPassphrase}\n` to the child's stdin and close it: no
+   * second line, no confirmation. `PULUMI_HOME` is also set explicitly on
+   * the child env (the Automation API's own `pulumiHome` option is exactly
+   * this env var for spawned commands).
+   *
+   * @param legacyPassphrase - Decrypted legacy passphrase, read by the caller
+   *   via {@link ElectronStoreService.getPulumiPassphrase} before this is
+   *   called (mirrors `resolveStoredPassphrase`'s old decrypt-then-use
+   *   pattern — this function never touches `SafeStorageService` itself).
+   * @param newPassphrase - The freshly {@link deriveStackPassphrase}-derived
+   *   value the caller is about to use for the real operation.
+   * @param ctx - `pulumiCommand`/`pulumiHome`/`workDir`/`envVars` (sans
+   *   `PULUMI_CONFIG_PASSPHRASE`, which this function sets itself to
+   *   `legacyPassphrase` — the new value is supplied via stdin instead, per
+   *   the spike finding above).
+   * @throws A plain `Error` (never a raw child-process error — normalized
+   *   per `.claude/rules/logging.md`) if the CLI invocation fails. The legacy
+   *   store entry is left in place in every throw case — see
+   *   {@link getOrCreateStack}'s call site.
+   */
+  private async migrateLegacyPassphrase(
+    legacyPassphrase: string,
+    newPassphrase: string,
+    ctx: { pulumiCommand: PulumiCommand; pulumiHome: string; workDir: string; envVars: Record<string, string> },
+  ): Promise<void> {
+    const args = ['stack', 'change-secrets-provider', 'passphrase', '--stack', PULUMI_STACK_NAME, '--non-interactive'];
+    // `child_process.spawn`'s `env` option REPLACES the child's environment
+    // rather than merging with `process.env` (unlike `execa`, which the SDK's
+    // own internal `PulumiCommand.run` uses with its default `extendEnv`
+    // behaviour) — `process.env` is spread first so PATH/HOME/etc. are still
+    // inherited, exactly as every other invocation of this binary in this
+    // service relies on.
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...ctx.envVars,
+      PULUMI_HOME: ctx.pulumiHome,
+      PULUMI_SKIP_UPDATE_CHECK: 'true',
+      PULUMI_CONFIG_PASSPHRASE: legacyPassphrase,
+    };
+
+    try {
+      await this.runChangeSecretsProviderCli(ctx.pulumiCommand.command, args, ctx.workDir, env, newPassphrase);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('PulumiWorkspaceService: failed to re-encrypt the legacy Pulumi passphrase', { error: message });
+      throw new Error(`Failed to migrate the legacy Pulumi secrets passphrase: ${message}`);
+    }
+  }
+
+  /**
+   * Spawns `pulumi stack change-secrets-provider passphrase` and drives it
+   * to completion per {@link migrateLegacyPassphrase}'s spike-finding
+   * doc comment: writes `${newPassphrase}\n` to stdin (the only input the
+   * non-interactive rotate path reads) and resolves on a zero exit code.
+   * Rejects with a plain `Error` carrying the process's stderr on a non-zero
+   * exit, or the raw spawn error (e.g. `ENOENT`) if the binary itself
+   * couldn't be started — both cases are caught and re-normalized by
+   * {@link migrateLegacyPassphrase}, never escaping this method as a raw
+   * child-process error.
+   *
+   * @param command - Absolute path to the resolved `pulumi` binary
+   *   (`PulumiCommand.command`).
+   * @param args - CLI arguments (see {@link migrateLegacyPassphrase}).
+   * @param cwd - Working directory for the child process — `ctx.workDir`,
+   *   equivalent to passing `--cwd` explicitly.
+   * @param env - Full child environment, already merged with `process.env`
+   *   by the caller.
+   * @param newPassphrase - Written to the child's stdin, followed by a
+   *   newline, then the stream is closed.
+   * @returns Resolves with no value on a zero exit code.
+   * @throws A plain `Error` describing a non-zero exit (stderr included) or
+   *   the raw spawn failure.
+   */
+  private runChangeSecretsProviderCli(
+    command: string,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    newPassphrase: string,
+  ): Promise<void> {
+    return new Promise((resolvePromise, rejectPromise) => {
+      const child = spawn(command, args, { cwd, env });
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      child.once('error', (err) => {
+        rejectPromise(err);
+      });
+      child.once('exit', (code) => {
+        if (code === 0) {
+          resolvePromise();
+        } else {
+          rejectPromise(new Error(`pulumi stack change-secrets-provider exited with code ${String(code)}: ${stderr.trim()}`));
+        }
+      });
+      child.stdin?.write(`${newPassphrase}\n`);
+      child.stdin?.end();
+    });
   }
 
   /**

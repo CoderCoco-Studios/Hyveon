@@ -34,13 +34,16 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import type { Writable } from 'node:stream';
 
-const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock } = vi.hoisted(() => ({
+const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock, spawnMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
   createOrSelectMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  spawnMock: vi.fn(),
 }));
 
 vi.mock('@pulumi/pulumi/automation/index.js', () => ({
@@ -49,6 +52,14 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
 }));
 
 vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock, existsSync: existsSyncMock }));
+
+// Mocked file-wide for the legacy-passphrase-migration describe block below —
+// `migrateLegacyPassphrase` spawns the resolved `pulumi` binary directly
+// (see that method's own doc comment for why: no public Automation API
+// covers `stack change-secrets-provider`). Tests build a minimal fake
+// `ChildProcess`-shaped `EventEmitter` with `stdin`/`stderr` streams via
+// {@link fakeChildProcess} rather than letting a real process spawn.
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
 // Mocked file-wide — this hoisted `vi.mock` replaces the module for every
 // test in this file, not only the "credentials are not logged" describe
@@ -238,6 +249,48 @@ function createOrSelectWs(callIndex = 0): FakeWorkspace {
   return createOrSelectMock.mock.calls[callIndex]![1] as FakeWorkspace;
 }
 
+/**
+ * Minimal `ChildProcess`-shaped fake for `migrateLegacyPassphrase`'s
+ * `spawn()` seam: a plain `EventEmitter` (for `'error'`/`'exit'`) with a
+ * `stdin` writable that records what was written to it (the new passphrase,
+ * per the Step 3.0 spike's finding that it's supplied via stdin, not an env
+ * var) and a `stderr` readable `EventEmitter` `runChangeSecretsProviderCli`
+ * accumulates for its failure message.
+ *
+ * Queues one `spawnMock` return value that resolves/rejects on the next
+ * microtask (`queueMicrotask`) so a test can simply `await` the
+ * `getOrCreateStack` call that triggers it, rather than manually
+ * interleaving the fake process's events with the production `await` chain.
+ */
+function queueSpawnResult(result: { code: number | null } | { error: Error }): {
+  stdinWrites: string[];
+} {
+  const stdinWrites: string[] = [];
+  const stderr = new EventEmitter();
+  const stdin: Partial<Writable> = {
+    write: vi.fn((chunk: string) => {
+      stdinWrites.push(chunk);
+      return true;
+    }),
+    end: vi.fn(),
+  };
+  const emitter = Object.assign(new EventEmitter(), { stdin, stderr }) as EventEmitter & {
+    stdin: Writable;
+    stderr: EventEmitter;
+  };
+  spawnMock.mockImplementationOnce(() => {
+    queueMicrotask(() => {
+      if ('error' in result) {
+        emitter.emit('error', result.error);
+      } else {
+        emitter.emit('exit', result.code);
+      }
+    });
+    return emitter;
+  });
+  return { stdinWrites };
+}
+
 beforeEach(() => {
   createMock.mockReset();
   createOrSelectMock.mockReset();
@@ -247,6 +300,7 @@ beforeEach(() => {
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  spawnMock.mockReset();
   stsMock.reset();
   // Default: every test's implicit `resolveAwsAccountId` call (via the real
   // `STSClient` `getOrCreateStack` constructs) resolves to a fixed account
@@ -795,6 +849,86 @@ describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () =>
     await service.getOrCreateStack(baseInput());
 
     expect(engine.resolve).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migration', () => {
+  /** The legacy plaintext passphrase seeded into the store for these tests. */
+  const LEGACY_PASSPHRASE = 'legacy-random-value';
+
+  it('should re-encrypt via the CLI and remove the legacy store entry when a legacy passphrase is present', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    const spawned = queueSpawnResult({ code: 0 });
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(spawnMock).toHaveBeenCalledOnce();
+    const [command, args, opts] = spawnMock.mock.calls[0] as [string, string[], { env: Record<string, string> }];
+    expect(command).toBe(FAKE_COMMAND.command);
+    expect(args).toEqual(['stack', 'change-secrets-provider', 'passphrase', '--stack', PULUMI_STACK_NAME, '--non-interactive']);
+    // Old passphrase decrypts the current provider via the env var...
+    expect(opts.env['PULUMI_CONFIG_PASSPHRASE']).toBe(LEGACY_PASSPHRASE);
+    // ...new passphrase is supplied over stdin (the Step 3.0 spike finding),
+    // as a single line, no confirmation.
+    expect(spawned.stdinWrites).toEqual([`${deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME)}\n`]);
+
+    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    // The real operation still proceeds with the NEW derived passphrase.
+    const ws = createOrSelectWs();
+    expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should log stack name only, never either passphrase value, on successful migration', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 0 });
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: migrated legacy passphrase to derived value',
+      { stackName: PULUMI_STACK_NAME },
+    );
+    const allLoggerCalls = [
+      ...loggerMock.debug.mock.calls,
+      ...loggerMock.info.mock.calls,
+      ...loggerMock.warn.mock.calls,
+      ...loggerMock.error.mock.calls,
+    ];
+    const serialized = JSON.stringify(allLoggerCalls);
+    expect(serialized).not.toContain(LEGACY_PASSPHRASE);
+    expect(serialized).not.toContain(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+  });
+
+  it('should leave the legacy passphrase in the store when re-encryption fails, so the next call retries with the same value', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 1 });
+
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(
+      /Failed to migrate the legacy Pulumi secrets passphrase/,
+    );
+    expect(store.get('pulumi')?.passphrase).toBeDefined();
+    expect(store.getPulumiPassphrase()).toBe(LEGACY_PASSPHRASE);
+    expect(createOrSelectMock).not.toHaveBeenCalled();
+
+    // Retry: the CLI succeeds this time.
+    queueSpawnResult({ code: 0 });
+    await service.getOrCreateStack(baseInput());
+
+    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should not attempt migration at all when no legacy passphrase is stored', async () => {
+    const { service } = makeService();
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
   });
 });
 
