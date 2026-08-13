@@ -123,10 +123,10 @@ export function deriveStackPassphrase(accountId: string, stackName: string): str
  *   see remarks above) or if the `GetCallerIdentity` response has no
  *   `Account` field.
  * @throws Raw AWS SDK errors from `sts:GetCallerIdentity` propagate
- *   unchanged — `getOrCreateStack`'s existing single try/catch around the
- *   SDK calls it makes does not wrap this call, so a credentials/network
- *   failure here surfaces as-is, matching how every other pre-engine
- *   failure in this method already behaves.
+ *   unchanged out of this function — {@link PulumiWorkspaceService.getOrCreateStack}
+ *   is the one that catches and normalizes them (its own dedicated try/catch
+ *   around this call, per `.claude/rules/logging.md`'s "never let a raw
+ *   SDK/Node error object escape uncaught" rule), not this function itself.
  */
 export async function resolveAwsAccountId(
   store: ElectronStoreService,
@@ -444,9 +444,22 @@ export class PulumiWorkspaceService {
    * {@link PulumiBackendNotBootstrappedError} as a backstop for when
    * `backendReady` was wrong, rather than surfacing raw Pulumi/gocloud
    * stderr to the operator. `resolveAwsAccountId`'s STS call happens BEFORE
-   * this try/catch (see {@link resolveAwsAccountId}'s own doc comment) — a
-   * credentials/network failure there is a distinct failure surface from
-   * "backend not bootstrapped" and propagates unchanged, un-reclassified.
+   * this try/catch, in its own small dedicated try/catch (see
+   * {@link resolveAwsAccountId}'s own doc comment) — a credentials/network
+   * failure there is a distinct failure surface from "backend not
+   * bootstrapped" and is never reclassified as
+   * {@link PulumiBackendNotBootstrappedError}; it is only normalized
+   * (`err instanceof Error ? err.message : String(err)`, logged via
+   * `logger.warn`) and rethrown as a plain `Error` with just that message,
+   * per `.claude/rules/logging.md`.
+   *
+   * @throws {@link PulumiBackendNotBootstrappedError} if `input.backendReady`
+   *   is `false`, or (reclassified) if `LocalWorkspace.create`/
+   *   `Stack.createOrSelect` fail in a way that looks like a missing bucket.
+   * @throws `PulumiCredentialsNotConfiguredError` if no credential source is
+   *   selected (see {@link resolveCredentialEnvVars}).
+   * @throws `Error` (normalized `.message` only) if `resolveAwsAccountId`'s
+   *   `sts:GetCallerIdentity` call fails.
    */
   async getOrCreateStack(input: PulumiWorkspaceInput): Promise<Stack> {
     if (!input.backendReady) {
@@ -477,7 +490,16 @@ export class PulumiWorkspaceService {
     // doc comment for why redundancy was chosen over picking one).
     const backendUrl = `s3://${input.stateBucket}?region=${encodeURIComponent(input.stateBucketRegion)}`;
 
-    const accountId = await resolveAwsAccountId(this.store, input.stateBucketRegion);
+    let accountId: string;
+    try {
+      accountId = await resolveAwsAccountId(this.store, input.stateBucketRegion);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('PulumiWorkspaceService.getOrCreateStack: sts:GetCallerIdentity failed while deriving the secrets passphrase', {
+        error: message,
+      });
+      throw new Error(message);
+    }
     const passphrase = deriveStackPassphrase(accountId, PULUMI_STACK_NAME);
 
     const envVars: LocalWorkspaceOptions['envVars'] = {
@@ -648,16 +670,16 @@ export class PulumiWorkspaceService {
    * common (already-has-a-local-passphrase) path never reaches this method
    * at all.
    *
+   * @remarks
+   * TEMPORARILY UNUSED — see {@link resolveStoredPassphrase}'s `@remarks`
+   * for why this is deliberately not deleted yet.
+   *
    * @param ws - The `LocalWorkspace` {@link getOrCreateStack} already
    *   constructed for this call (backend URL, credentials, and
    *   `secretsProvider` already configured, passphrase not yet set) — reused
    *   here for the `listStacks()` probe so no second workspace needs to be
    *   built, and reused again by the caller for `Stack.createOrSelect` once
    *   this method returns.
-   *
-   * @remarks
-   * TEMPORARILY UNUSED — see {@link resolveStoredPassphrase}'s `@remarks`
-   * for why this is deliberately not deleted yet.
    */
   // @ts-expect-error -- unused pending the dead-code removal task; see the @remarks above.
   private async resolveNewPassphrase(ws: LocalWorkspace): Promise<string> {

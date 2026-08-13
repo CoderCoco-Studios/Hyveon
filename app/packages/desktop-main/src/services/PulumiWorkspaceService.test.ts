@@ -503,7 +503,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
     // No more real-backend probe to disambiguate a passphrase — nothing in
     // the fake workspace exposes `listStacks` any more (see this file's own
     // doc comment on `FakeWorkspace`).
-    expect((createOrSelectWs() as Record<string, unknown>)['listStacks']).toBeUndefined();
+    expect('listStacks' in createOrSelectWs()).toBe(false);
   });
 
   it('should select an already-existing stack on the SAME machine, deriving the identical passphrase as the prior call', async () => {
@@ -554,6 +554,24 @@ describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portab
     const secondMachinePassphrase = createOrSelectWs(1).envVars['PULUMI_CONFIG_PASSPHRASE'];
     expect(secondMachinePassphrase).toBe(firstMachinePassphrase);
     expect(secondMachinePassphrase).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+  });
+
+  it('should normalize and rethrow a plain Error when sts:GetCallerIdentity fails, and log it via logger.warn', async () => {
+    const { service } = makeService();
+    stsMock.on(GetCallerIdentityCommand).rejects(new Error('expired credentials'));
+
+    const caught = await service.getOrCreateStack(baseInput()).catch((err: unknown) => err);
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('expired credentials');
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('sts:GetCallerIdentity failed'),
+      expect.objectContaining({ error: 'expired credentials' }),
+    );
+    // The STS failure must never be misclassified as a missing-bucket /
+    // not-bootstrapped error — that reclassification only applies to
+    // `LocalWorkspace.create`/`Stack.createOrSelect` failures.
+    expect(caught).not.toBeInstanceOf(PulumiBackendNotBootstrappedError);
   });
 });
 
