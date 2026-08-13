@@ -10,10 +10,9 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 // externalized, and `@pulumi/pulumi` is CommonJS with no `exports` map, so the
 // bare directory specifier `@pulumi/pulumi/automation` fails with
 // `ERR_UNSUPPORTED_DIR_IMPORT` in the packaged app.
-// `Stack` is imported as a VALUE (not type-only) since `resolveNewPassphrase`
-// (see its doc comment) calls `Stack.createOrSelect` directly
-// rather than going through `LocalWorkspace.createOrSelectStack`'s convenience
-// wrapper, so it can query `listStacks()` on the same workspace first.
+// `Stack` is imported as a VALUE (not type-only) since `getOrCreateStack`
+// calls `Stack.createOrSelect` directly rather than going through
+// `LocalWorkspace.createOrSelectStack`'s convenience wrapper.
 import { LocalWorkspace, Stack } from '@pulumi/pulumi/automation/index.js';
 import type { LocalWorkspaceOptions, ProjectSettings, PulumiFn } from '@pulumi/pulumi/automation/index.js';
 import { logger } from '../logger.js';
@@ -390,14 +389,12 @@ export interface PulumiWorkspaceInput {
  *    account or access token, ever.
  *  - The bare {@link PULUMI_STACK_NAME} — never a qualified
  *    `organization/<project>/<stack>` name.
- *  - Passphrase generation, storage (via {@link ElectronStoreService}'s
- *    accessor pair — this service never calls {@link SafeStorageService}'s
- *    `encrypt`/`decrypt` directly), and "fail loudly, never regenerate for
- *    an existing stack" semantics — covering both a locally-stored-but-
- *    unreadable passphrase and an existing remote stack with no local
- *    record at all, the latter detected via a genuine `workspace.listStacks()`
- *    probe against the real backend rather than trusted from the caller (see
- *    {@link resolveStoredPassphrase}/{@link resolveNewPassphrase}).
+ *  - A secrets passphrase derived deterministically from the currently
+ *    authenticated AWS account ID and {@link PULUMI_STACK_NAME} (see
+ *    {@link deriveStackPassphrase}/{@link resolveAwsAccountId}) — never
+ *    stored, never read from disk, and identical on any machine
+ *    authenticated against the same AWS account, so a second machine can
+ *    resume an existing stack with no local passphrase record at all.
  *
  * Deliberately does **not** implement `preview`/`up`/`destroy` — those are
  * `PulumiService`'s, which calls {@link getOrCreateStack} and then drives the
@@ -417,75 +414,43 @@ export class PulumiWorkspaceService {
 
   /**
    * Resolves the engine, ensures the stable `pulumiHome`/`workDir`
-   * directories exist, constructs the Automation API workspace, resolves
-   * (generating if this is genuinely the first time — see
-   * {@link resolveNewPassphrase}) the secrets passphrase, and selects or
-   * creates {@link PULUMI_STACK_NAME} on it. Throws
+   * directories exist, derives the secrets passphrase from the currently
+   * authenticated AWS account (see {@link deriveStackPassphrase}/
+   * {@link resolveAwsAccountId} — never stored, never read from disk), and
+   * selects or creates {@link PULUMI_STACK_NAME} on it. Throws
    * {@link PulumiBackendNotBootstrappedError} if `input.backendReady` is
-   * `false` (checked before anything else), or
-   * {@link PulumiPassphraseUnavailableError} if a usable passphrase cannot be
-   * obtained. Also throws `PulumiCredentialsNotConfiguredError` (from
-   * `PulumiCredentialResolver.ts`, via {@link resolveCredentialEnvVars}) when
-   * `input.credentialEnvVars` is omitted and the store has no credential
-   * source selected at all — see
+   * `false` (checked before anything else). Also throws
+   * `PulumiCredentialsNotConfiguredError` (from `PulumiCredentialResolver.ts`,
+   * via {@link resolveCredentialEnvVars}) when `input.credentialEnvVars` is
+   * omitted and the store has no credential source selected at all — see
    * {@link PulumiWorkspaceInput.credentialEnvVars}'s doc comment for why
    * resolution happens here unconditionally rather than trusting every
    * future caller to remember to pass it.
    *
-   * ## Call order
+   * Because the passphrase is derived, not stored, the same AWS account
+   * always reproduces the identical value on any machine — there is no more
+   * "stored vs. generate vs. probe the real backend" branching, and no more
+   * `workspace.listStacks()` round-trip to disambiguate a second machine
+   * from a genuinely new stack (the `pulumi-engine-runtime` delta spec's "A
+   * second machine operates on an existing stack" scenario). Installs that
+   * pre-date this derivation still hold a legacy stored passphrase — a
+   * one-time migration step reconciling that legacy value with the newly
+   * derived one is added separately (see this file's later revisions for the
+   * migration step, inserted here before credential resolution).
    *
-   * `stack init` under `--non-interactive` is a hard exit-1 without
-   * `PULUMI_CONFIG_PASSPHRASE` already set, so the passphrase question is
-   * resolved before the engine wherever it can be answered locally. If a
-   * passphrase is already stored, {@link resolveStoredPassphrase} resolves it
-   * immediately, ahead of credentials/engine/backend — the common case for
-   * every operation after this install's stack already exists. If nothing is
-   * stored, `safeStorage.isAvailable()` is still checked immediately (a
-   * purely local precondition), and only the ONE remaining question — does
-   * {@link PULUMI_STACK_NAME} already exist in the REAL backend — is deferred
-   * to {@link resolveNewPassphrase}, since that genuinely needs a constructed
-   * `LocalWorkspace` (built after the engine resolves, since a
-   * `pulumiCommand` is required) to query `listStacks()` against it. This
-   * adds one extra read-only `pulumi stack ls` round-trip, but ONLY on the
-   * "no local passphrase, keychain available" path (first-ever stack
-   * creation, or a reinstall/second-machine pointed at the same state
-   * bucket) — the "this install already created the stack" path never
-   * reaches {@link resolveNewPassphrase} at all, and reuses the SAME
-   * workspace instance for `Stack.createOrSelect`.
-   *
-   * The SDK calls this method makes (`LocalWorkspace.create`,
-   * `workspace.listStacks()`, `Stack.createOrSelect`) are wrapped in a single
-   * try/catch: a failure that looks like a missing bucket (see
+   * `LocalWorkspace.create` and `Stack.createOrSelect` are wrapped in a
+   * single try/catch: a failure that looks like a missing bucket (see
    * {@link BUCKET_MISSING_PATTERN}) is re-classified into
    * {@link PulumiBackendNotBootstrappedError} as a backstop for when
    * `backendReady` was wrong, rather than surfacing raw Pulumi/gocloud
-   * stderr to the operator; every other failure (including
-   * {@link PulumiPassphraseUnavailableError}, whose message never matches
-   * that pattern) propagates unchanged.
+   * stderr to the operator. `resolveAwsAccountId`'s STS call happens BEFORE
+   * this try/catch (see {@link resolveAwsAccountId}'s own doc comment) — a
+   * credentials/network failure there is a distinct failure surface from
+   * "backend not bootstrapped" and propagates unchanged, un-reclassified.
    */
   async getOrCreateStack(input: PulumiWorkspaceInput): Promise<Stack> {
     if (!input.backendReady) {
       throw new PulumiBackendNotBootstrappedError(input.stateBucket);
-    }
-
-    // Fast path: a passphrase is already stored locally — resolve (or throw
-    // trying to) BEFORE touching credentials, the engine, or the backend at
-    // all, exactly mirroring this method's pre-Finding-1 ordering/behavior
-    // for what is by far the most common call (every operation after this
-    // install's stack already exists).
-    const hasStoredPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
-    let passphrase: string | undefined;
-    if (hasStoredPassphrase) {
-      passphrase = this.resolveStoredPassphrase();
-    } else if (!this.safeStorage.isAvailable()) {
-      // Also checked here, before credentials/engine/backend, rather than
-      // deferred into `resolveNewPassphrase` below: unlike "does the remote
-      // stack already exist" (which genuinely needs a real workspace to ask
-      // the backend), "is the keychain available at all" is a purely local
-      // precondition this seam can check for free — failing fast on it
-      // avoids an unnecessary `listStacks()` round-trip for an operation that
-      // was never going to be able to generate/store a passphrase anyway.
-      throw new PulumiPassphraseUnavailableError('new-stack-keychain-unavailable');
     }
 
     // Credential resolution is unconditional: `input.credentialEnvVars` is
@@ -496,8 +461,6 @@ export class PulumiWorkspaceService {
     // credential source selected at all, rather than silently proceeding
     // with no credential vars (which would let the engine fall back to its
     // own default AWS credential chain, exactly what spec.md:100 forbids).
-    // Independent of passphrase resolution, so kept ahead of engine
-    // resolution exactly as before — cheap, and never touches Pulumi itself.
     const credentialEnvVars = input.credentialEnvVars ?? resolveCredentialEnvVars(this.store);
 
     const engineStartedAt = Date.now();
@@ -514,11 +477,9 @@ export class PulumiWorkspaceService {
     // doc comment for why redundancy was chosen over picking one).
     const backendUrl = `s3://${input.stateBucket}?region=${encodeURIComponent(input.stateBucketRegion)}`;
 
-    // Deliberately NO `PULUMI_CONFIG_PASSPHRASE` yet unless the fast path
-    // above already resolved one — see this method's own "Call order" doc
-    // section for why a genuinely new passphrase can only be added once
-    // {@link resolveNewPassphrase} (below) has had a chance to query this
-    // same workspace's `listStacks()`.
+    const accountId = await resolveAwsAccountId(this.store, input.stateBucketRegion);
+    const passphrase = deriveStackPassphrase(accountId, PULUMI_STACK_NAME);
+
     const envVars: LocalWorkspaceOptions['envVars'] = {
       // Resolved credential vars first — see PulumiWorkspaceInput's
       // `credentialEnvVars` doc comment — so a credential source (whether
@@ -528,6 +489,7 @@ export class PulumiWorkspaceService {
       PULUMI_BACKEND_URL: backendUrl,
       PULUMI_SKIP_UPDATE_CHECK: 'true',
       AWS_REGION: input.stateBucketRegion,
+      PULUMI_CONFIG_PASSPHRASE: passphrase,
     };
 
     const opts: LocalWorkspaceOptions = {
@@ -550,13 +512,12 @@ export class PulumiWorkspaceService {
       const createStartedAt = Date.now();
       const ws = await LocalWorkspace.create(opts);
       logger.debug('PulumiWorkspaceService: LocalWorkspace created', { elapsedMs: Date.now() - createStartedAt });
-      passphrase ??= await this.resolveNewPassphrase(ws);
-      ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase;
       const stackStartedAt = Date.now();
       const stack = await Stack.createOrSelect(PULUMI_STACK_NAME, ws);
       logger.debug('PulumiWorkspaceService: stack created/selected', {
         elapsedMs: Date.now() - stackStartedAt,
       });
+      this.store.set('pulumi', { ...(this.store.get('pulumi') ?? {}), stackInitialized: true });
       return stack;
     } catch (err) {
       if (looksLikeMissingBucket(err)) {
@@ -614,7 +575,19 @@ export class PulumiWorkspaceService {
    * this method exists to prevent. So the keychain's current availability is
    * checked explicitly before ever attempting the decrypt. Only ever called
    * when presence has already been confirmed by the caller.
+   *
+   * @remarks
+   * TEMPORARILY UNUSED as of the derive-then-`createOrSelect` rewrite of
+   * {@link getOrCreateStack} — this repo's `noUnusedLocals` tsconfig setting
+   * would otherwise fail the build for a private method with no call site.
+   * Deliberately NOT deleted here: it (and {@link resolveNewPassphrase},
+   * {@link generatePassphrase}, {@link PulumiPassphraseUnavailableError})
+   * are removed together in a later task once the legacy-passphrase
+   * migration step that still needs this file's stored-passphrase read path
+   * has landed. Remove the `@ts-expect-error` suppression below in that same
+   * task.
    */
+  // @ts-expect-error -- unused pending the dead-code removal task; see the @remarks above.
   private resolveStoredPassphrase(): string {
     if (!this.safeStorage.isAvailable()) {
       throw new PulumiPassphraseUnavailableError('existing-stack-keychain-unavailable');
@@ -681,7 +654,12 @@ export class PulumiWorkspaceService {
    *   here for the `listStacks()` probe so no second workspace needs to be
    *   built, and reused again by the caller for `Stack.createOrSelect` once
    *   this method returns.
+   *
+   * @remarks
+   * TEMPORARILY UNUSED — see {@link resolveStoredPassphrase}'s `@remarks`
+   * for why this is deliberately not deleted yet.
    */
+  // @ts-expect-error -- unused pending the dead-code removal task; see the @remarks above.
   private async resolveNewPassphrase(ws: LocalWorkspace): Promise<string> {
     const startedAt = Date.now();
     const summaries = await ws.listStacks();
