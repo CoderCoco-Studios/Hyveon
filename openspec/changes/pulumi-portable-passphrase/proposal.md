@@ -81,9 +81,12 @@ undocumented passphrase-backup workaround.
   created" signal, unrelated to the passphrase's cryptographic role; these
   move to a new `pulumi.stackInitialized: boolean` flag.
 - Electron-store schema: adds `pulumi.stackInitialized: boolean`, written on
-  every successful `getOrCreateStack`; `pulumi.passphrase` is kept
-  (`@deprecated`, read-only) until the one-time migration removes it per
-  install, then removed from the type entirely in a later change.
+  every successful `getOrCreateStack`, replacing the `pulumi.passphrase !==
+  undefined` existence check at the three `PulumiService.ts` call sites
+  above. `pulumi.passphrase` is kept in the type permanently (`@deprecated`,
+  read-only, write/generation paths removed) as the one-time per-install
+  migration's input — it is not scheduled for removal in a later change,
+  since an install that has not yet run the migrating code still needs it.
 - `docs/docs/components/infra.md` — passphrase/secrets-provider section
   rewritten to describe the derived, portable model and state explicitly
   that it is not a confidentiality boundary.

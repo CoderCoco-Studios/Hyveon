@@ -1039,6 +1039,8 @@ MODIFIED requirement has a task that satisfies it:
 | A second machine operates on an existing stack | Task 2 Step 2.3's third new test (replaces the old throw-based "Finding 1" block with a success assertion) — this is the change's core bug fix |
 | A legacy per-machine passphrase is migrated automatically | Task 3 Step 3.1 (implementation) + 3.2 (success test) |
 | Legacy migration is retried after a failed re-encryption | Task 3 Step 3.2's third test |
+| Local initialization marker is set after a successful stack operation | Task 2 Step 2.2 (`pulumi.stackInitialized`) + Step 2.2's fourth test |
+| Local initialization marker is not set on failure | Task 2 Step 2.2's fifth test (`should not set pulumi.stackInitialized when createOrSelect fails`) |
 
 **Placeholder scan** — every code block above either (a) is real,
 copy-pasteable TypeScript against symbols confirmed to exist in the actual

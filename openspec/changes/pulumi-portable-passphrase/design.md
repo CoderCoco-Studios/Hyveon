@@ -189,9 +189,14 @@ portable passphrase avoids that entirely.
 - **Choice**: delete `PulumiPassphraseUnavailableError` and its reason enum,
   `generatePassphrase`, `resolveStoredPassphrase`, `resolveNewPassphrase`,
   the `workspace.listStacks()` "no local record" probe and its
-  create-vs-select branching in `getOrCreateStack`, the `pulumi.passphrase`
-  store field (after the one-time migration read), and wizard-side error
-  surfacing tied to those failure reasons.
+  create-vs-select branching in `getOrCreateStack`, and wizard-side error
+  surfacing tied to those failure reasons. The `pulumi.passphrase` store
+  field's *write/generation* paths are removed in this same change, but the
+  field itself stays in the type permanently, marked `@deprecated` — see D3's
+  migration note: any install that has not yet launched the new code still
+  needs it as the one-time migration's input, and there is no way to know in
+  advance that every possible install has already migrated, so this is not a
+  "removed in a later change" cleanup item.
 - **Rationale**: under the derived-passphrase model, none of these failure
   modes can occur — the passphrase is always computable from data the
   caller already has (account ID + stack name), so there is no "keychain

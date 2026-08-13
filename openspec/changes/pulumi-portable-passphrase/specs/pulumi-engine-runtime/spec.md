@@ -10,6 +10,8 @@ The secrets passphrase MUST be present in the engine environment before the firs
 
 For an install that still holds a legacy random passphrase in its OS-level encrypted store from before this behavior existed, the seam MUST perform a one-time, automatic migration the next time the workspace is constructed: read the legacy passphrase, re-encrypt the stack's secrets provider to the newly-derived passphrase, and remove the legacy passphrase from the encrypted store only after the re-encryption succeeds. This migration MUST require no user action and MUST be safely retryable — if re-encryption fails, the legacy passphrase MUST remain in place so the next launch retries with the same still-valid value.
 
+Because the passphrase is no longer stored, the seam MUST record a separate, non-secret local marker — set after a stack has been successfully created or selected at least once on this install — for any caller that needs to distinguish "this install has never interacted with a stack" from "this install has, but is not currently holding a decrypted passphrase in memory." This marker MUST NOT be used as, or treated as equivalent to, a passphrase or any other secret value.
+
 #### Scenario: Operations use the self-managed backend
 
 - **WHEN** any infrastructure operation runs
@@ -39,6 +41,16 @@ For an install that still holds a legacy random passphrase in its OS-level encry
 
 - **WHEN** the workspace is constructed on an install whose encrypted store still holds a legacy randomly-generated passphrase for the stack
 - **THEN** the seam re-encrypts the stack's secrets provider to the newly-derived passphrase, removes the legacy passphrase from the encrypted store, and completes the operation, with no user-facing action required
+
+#### Scenario: Local initialization marker is set after a successful stack operation
+
+- **WHEN** the seam successfully creates or selects the stack
+- **THEN** it records a non-secret local marker that this install has interacted with a stack at least once, without writing the passphrase itself anywhere
+
+#### Scenario: Local initialization marker is not set on failure
+
+- **WHEN** stack creation or selection fails
+- **THEN** the local initialization marker is not set (or, if already set from a prior success, is left unchanged)
 
 #### Scenario: Legacy migration is retried after a failed re-encryption
 
