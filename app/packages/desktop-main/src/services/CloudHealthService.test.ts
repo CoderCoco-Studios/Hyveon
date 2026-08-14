@@ -16,6 +16,21 @@ import type { ElectronStoreService } from './ElectronStoreService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
 
+/** Widens {@link CloudHealthService}'s protected test seams to public so specs can spy on them without casts. */
+class TestableCloudHealthService extends CloudHealthService {
+  public override getPolicyDownloadPath(): string {
+    return super.getPolicyDownloadPath();
+  }
+
+  public override readIsElectron(): boolean {
+    return super.readIsElectron();
+  }
+
+  public override openExternalUrl(url: string): Promise<void> {
+    return super.openExternalUrl(url);
+  }
+}
+
 const iamMock = mockClient(IAMClient);
 const stsMock = mockClient(STSClient);
 const mockWrite = vi.mocked(writeFileSync);
@@ -144,10 +159,8 @@ describe('ECS service-linked role fix', () => {
 
 describe('CloudHealthService.writePolicyToDisk', () => {
   it('should write the given JSON to the resolved download path and return it', () => {
-    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
-    vi.spyOn(service as unknown as { getPolicyDownloadPath(): string }, 'getPolicyDownloadPath').mockReturnValue(
-      '/tmp/hyveon-deploy-all-policy.json',
-    );
+    const service = new TestableCloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service, 'getPolicyDownloadPath').mockReturnValue('/tmp/hyveon-deploy-all-policy.json');
 
     const result = service.writePolicyToDisk('{"Version":"2012-10-17"}');
 
@@ -166,8 +179,8 @@ describe('CloudHealthService.openPolicyConsole', () => {
   });
 
   it('should report opened: false when not running inside Electron', async () => {
-    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
-    vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(false);
+    const service = new TestableCloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service, 'readIsElectron').mockReturnValue(false);
 
     const result = await service.openPolicyConsole('https://console.aws.amazon.com/iam/home');
 
@@ -175,11 +188,9 @@ describe('CloudHealthService.openPolicyConsole', () => {
   });
 
   it('should report opened: true when shell.openExternal succeeds', async () => {
-    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
-    vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
-    vi.spyOn(service as unknown as { openExternalUrl(url: string): Promise<void> }, 'openExternalUrl').mockResolvedValue(
-      undefined,
-    );
+    const service = new TestableCloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service, 'readIsElectron').mockReturnValue(true);
+    vi.spyOn(service, 'openExternalUrl').mockResolvedValue(undefined);
 
     const result = await service.openPolicyConsole('https://console.aws.amazon.com/iam/home');
 
