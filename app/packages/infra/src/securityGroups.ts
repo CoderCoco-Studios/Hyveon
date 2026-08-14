@@ -165,11 +165,19 @@ export interface GamePort {
  * matching the legacy tool's `optional(bool, false)` default and the HCL's
  * `!cfg.https` filter.
  *
+ * Classifies via an explicit allowlist (`undefined` or `'public'`), not a
+ * negative `!== 'internal'` test — `deployment-config.json` is read without
+ * re-validation (see {@link dedupedInternalGamePorts}'s doc), so an
+ * unrecognized `visibility` value (a typo, or a future third state written
+ * by a newer app build) must fail CLOSED, landing in neither this function's
+ * result nor {@link dedupedInternalGamePorts}'s, rather than defaulting to
+ * the open internet.
+ *
  * @param gameServers - The configured game-server map to derive ports from.
  * @returns The deduplicated public port/protocol pairs, in first-seen order.
  */
 export function dedupedDirectGamePorts(gameServers: Record<string, GameServerConfig>): GamePort[] {
-  return dedupedGamePortsByVisibility(gameServers, (visibility) => visibility !== 'internal');
+  return dedupedGamePortsByVisibility(gameServers, (visibility) => visibility === undefined || visibility === 'public');
 }
 
 /**
@@ -263,20 +271,23 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     cidrBlocks: ['0.0.0.0/0'],
   }));
 
-  // VPC CIDR — resolved once, used only by internal-visibility ports below.
-  // A plain data lookup (no resource declared), consistent with how vpcId
-  // itself is already resolved from a data source upstream of this file.
-  const vpc = aws.ec2.getVpcOutput({ id: vpcId }, opts);
-
+  // Internal-visibility game ports — VPC CIDR only, resolved via a plain
+  // data lookup (no resource declared) only when at least one such port
+  // exists, so a deployment with none (every deployment predating this
+  // field) doesn't pay for an extra AWS API round trip on every
+  // preview/apply. Mirrors the `hasHttpsGame` guard below.
   const internalPorts = dedupedInternalGamePorts(gameServers);
-  for (const port of internalPorts) {
-    gamePortIngress.push({
-      description: `Game port ${port.port}/${port.protocol} (internal)`,
-      fromPort: port.port,
-      toPort: port.port,
-      protocol: port.protocol,
-      cidrBlocks: [vpc.cidrBlock],
-    });
+  if (internalPorts.length > 0) {
+    const vpcCidrBlock = aws.ec2.getVpcOutput({ id: vpcId }, opts).cidrBlock;
+    for (const port of internalPorts) {
+      gamePortIngress.push({
+        description: `Game port ${port.port}/${port.protocol} (internal)`,
+        fromPort: port.port,
+        toPort: port.port,
+        protocol: port.protocol,
+        cidrBlocks: [vpcCidrBlock],
+      });
+    }
   }
 
   // HTTPS games — public 443/80 for the in-task Caddy sidecar, only declared

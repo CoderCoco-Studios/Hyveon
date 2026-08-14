@@ -1,5 +1,5 @@
 import * as aws from '@pulumi/aws';
-import type { GameServerConfig } from '@hyveon/shared';
+import type { GameServerConfig, GameServerPort } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { dedupedDirectGamePorts, dedupedInternalGamePorts, defineSecurityGroups, hasHttpsGame } from './securityGroups.js';
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
@@ -116,6 +116,19 @@ describe('dedupedDirectGamePorts', () => {
     };
     expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 1234, protocol: 'tcp' }]);
   });
+
+  it('should exclude a port with an unrecognized visibility value (fails closed, not open to the internet)', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      typoGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as GameServerPort],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    expect(dedupedDirectGamePorts(gameServers)).toEqual([]);
+  });
 });
 
 describe('dedupedInternalGamePorts', () => {
@@ -151,6 +164,19 @@ describe('dedupedInternalGamePorts', () => {
 
   it('should return an empty array when no game declares an internal port', () => {
     expect(dedupedInternalGamePorts(FIXTURE_GAME_SERVERS)).toEqual([]);
+  });
+
+  it('should exclude a port with an unrecognized visibility value (fails closed, matching dedupedDirectGamePorts)', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      typoGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as GameServerPort],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    expect(dedupedInternalGamePorts(gameServers)).toEqual([]);
   });
 });
 
@@ -232,6 +258,14 @@ describe('defineSecurityGroups', () => {
     expect(internalRule).toBeDefined();
     expect(internalRule?.cidrBlocks).toEqual(['10.0.0.0/16']);
     expect(ingress.some((rule) => rule.fromPort === 8212 && rule.cidrBlocks?.includes('0.0.0.0/0'))).toBe(false);
+    expect(mocks.calls.some((call) => call.token === 'aws:ec2/getVpc:getVpc')).toBe(true);
+  });
+
+  it('should not look up the VPC CIDR block at all when no game declares an internal-visibility port', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers: FIXTURE_GAME_SERVERS, vpcId: 'vpc-mock', provider });
+
+    expect(mocks.calls.some((call) => call.token === 'aws:ec2/getVpc:getVpc')).toBe(false);
   });
 
   it('should declare no 443/80 HTTPS rules when no game has https: true', async () => {
