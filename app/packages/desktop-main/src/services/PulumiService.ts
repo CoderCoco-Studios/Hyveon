@@ -3187,6 +3187,31 @@ export class PulumiService {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+
+        // Clear the in-flight flag NOW, immediately after invalidating the
+        // cache and before `persistRunRecord` below — not only in the outer
+        // `finally` (which doesn't run until after that call). `stack.up()`
+        // has already fully completed by this point, so nothing further in
+        // this method touches the shared workDir the flag actually guards
+        // (see the outer `finally`'s own comment making that same claim for
+        // its later clear). Leaving the flag set through `persistRunRecord`
+        // left a real window where a concurrent `ConfigService.getStackOutputs()`
+        // call — including `persistRunRecord`'s OWN internal read, plus any
+        // external caller such as the Games or Drift page's poll — would hit
+        // `PulumiService.getStackOutputs()`'s in-flight guard, get a false
+        // "not deployed" `null`, and have `ConfigService` cache that `null`
+        // for `STACK_OUTPUTS_NULL_TTL_MS` (20s) even though the invalidation
+        // above had already cleared the stale entry moments earlier — i.e.
+        // this apply's own success would re-poison the cache it just fixed.
+        // The outer `finally`'s later `this.operationInFlight = null` (gated
+        // on `ownsOperationInFlight`) must not fire again on this path: a
+        // concurrent call can already have claimed `operationInFlight` for
+        // itself in the window between this clear and the `finally` below,
+        // so resetting `ownsOperationInFlight` here is what actually makes
+        // that later clear a no-op instead of nulling out that successor's
+        // guard.
+        this.operationInFlight = null;
+        ownsOperationInFlight = false;
       }
 
       await this.persistRunRecord(
@@ -4051,6 +4076,21 @@ export class PulumiService {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+
+        // Clear the in-flight flag NOW — mirrors apply()'s identical fix (see
+        // that method's own comment at its matching call site for the full
+        // rationale). Without this, a concurrent `getStackOutputs()` call
+        // landing between this invalidation and the outer `finally`'s later
+        // clear would re-poison the cache with a false "not deployed" `null`
+        // for `STACK_OUTPUTS_NULL_TTL_MS`, right after this destroy's own
+        // success just cleared it.
+        //
+        // Also reset `ownsOperationInFlight` here — mirrors apply()'s
+        // identical fix — so the outer `finally`'s gated clear can't null
+        // out a successor operation's guard if one claims
+        // `operationInFlight` before this call reaches that `finally`.
+        this.operationInFlight = null;
+        ownsOperationInFlight = false;
       }
 
       await this.persistRunRecord(
