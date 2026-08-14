@@ -192,7 +192,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 | `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`/`diagnostics.reportError`/`diagnostics.reportLog`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. Two renderer-forwarding channels land in the same `main-*.log` file but stay distinguishable by line prefix: `diagnostics.reportError` forwards a renderer-side crash (from the top-level `ErrorBoundary` or a `window.onerror`/`unhandledrejection` listener) via `DiagnosticsService.logRendererError`, writing `renderer error (${source}): ${message}`; `diagnostics.reportLog` forwards batched `console.log`/`info`/`warn`/`error` calls (every call, not just crashes — see `installConsoleForwarding()` below) via `DiagnosticsService.logRendererConsoleBatch`, writing one `renderer console (${level}): ${message}` line per entry (level mapped `log`→`debug`, others 1:1) plus a combined `renderer console: ${n} entries dropped (queue capacity exceeded)` warning per flush when the renderer's own queue overflowed. |
 | `IacController` | `iac.stack.initialize`, `iac.plan`, `iac.apply`, `iac.destroy.mintToken`, `iac.destroy`, `iac.output`, `iac.approve`, `iac.rollback.resolve`, `iac.rollback.confirm`, `iac.lock.clear` | Drives `PulumiService` (Automation API via `LocalWorkspace`, which launches the pinned `@pulumi/pulumi` engine as a child process through `LocalWorkspaceOptions.pulumiCommand` — the app downloads and verifies that engine itself, so no host-installed or PATH-discovered CLI is ever used) for the plan/apply/destroy/rollback pipeline. `iac.destroy.mintToken` issues the type-to-confirm token the UI requires before a `destroy` call is accepted; `iac.lock.clear` recovers a stale Pulumi backend lock. |
 | `IacRunsController` | `iac.runs.get`, `iac.runs.logs`, `iac.runs.list`, `iac.runs.logUrl`, `iac.runs.lock.clear.mintToken`, `iac.runs.lock.clear` | Run history: fetch a record, stream/fetch its log, list/paginate, resolve an offloaded S3 log link. `iac.runs.lock.clear.mintToken`/`iac.runs.lock.clear` recover a wedged durable run lock (`RunService`'s apply lock, distinct from `IacController`'s `iac.lock.clear` Pulumi-backend-lock recovery) — mint-then-confirm the same as `iac.destroy.mintToken`, backing the `/iac` page's busy-banner "Clear lock and retry" action described in [The workspace-busy banner](/app/iac#the-workspace-busy-banner). |
-| `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `DeploymentConfigService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. |
+| `IacSettingsController` | `iac.settings.get`, `iac.settings.update`, `iac.settings.engineVersion`, `iac.settings.autoUpdate.get`, `iac.settings.autoUpdate.update` | Reads/writes every top-level `deployment-config.json` field EXCEPT `gameServers` — backs the Settings page's [General section](/app/settings#general). `update` validates via the shared `validateDeploymentSettingsPatch` (`@hyveon/shared`) before delegating to `DeploymentConfigService.updateTopLevelSettings()`; a stale `expectedVersionId` returns `{ code: 'conflict' }` rather than silently overwriting a concurrent edit. `engineVersion` reads `PulumiEngineService.getResolvedVersion()` (`null` when not yet provisioned) — backs the [Cloud Setup section](/app/settings#cloud-setup)'s Pulumi engine version row. The `autoUpdate.*` pair reads/writes `ElectronStoreService`'s `enableAutoUpdate` flag (a local install-level setting, not a `deployment-config.json` field) — backs the [Updates section](/app/settings#updates)'s toggle. Both `engine` and `store` are optional constructor params so direct-construction test call sites keep compiling without stubbing them; a real `AppModule` bootstrap always resolves both. |
 | `WizardController` | first-run wizard channels (AWS profile/credentials, bootstrap, IAM check, guided-IAM CloudFormation bootstrap, progress) | Backs the in-app setup wizard — see the [setup guide](/setup). |
 
 ### Key services
@@ -322,11 +322,13 @@ Two services, both provided by `ElectronStoreModule`:
   `wizardCompleted`, the selected `activeCloud`/AWS profile/region, the
   bootstrap step's last-submitted resource names (state bucket, configuration
   bucket — so Settings' "Reconfigure" flow can rehydrate a non-default name),
-  pasted-credentials profiles keyed by profile name, and the single
+  pasted-credentials profiles keyed by profile name, the single
   in-progress add-game wizard draft (`addGameWizardDraft` — the draft's
   field values, which wizard step the operator was on, and when it was last
-  autosaved; see [Draft autosave](/app/games#draft-autosave)). Every secret
-  field (`aws.accessKeyId`, `aws.secretAccessKey`,
+  autosaved; see [Draft autosave](/app/games#draft-autosave)), and
+  `enableAutoUpdate` (off by default — gates `updater.ts`'s `electron-updater`
+  checks; editable via the [Updates section](/app/settings#updates)'s toggle).
+  Every secret field (`aws.accessKeyId`, `aws.secretAccessKey`,
   `creds.aws.<profile>.accessKeyId`/`secretAccessKey`) is encrypted via
   `SafeStorageService` on write and decrypted on the dedicated getter — there
   is no path that reads or writes those fields' raw ciphertext directly.
@@ -494,7 +496,7 @@ not the bare path:
 | `/logs` | Live log viewer | [`/app/logs`](/app/logs) |
 | `/costs` | Per-game Fargate cost estimates, AWS Cost Explorer link-out | [`/app/costs`](/app/costs) |
 | `/audit` | Audit log entries | [`/app/audit`](/app/audit) |
-| `/settings` | Watchdog summary, deployment settings, cloud setup, diagnostics | [`/app/settings`](/app/settings) |
+| `/settings` | Watchdog summary, cloud health, cloud setup, updates, deployment settings, diagnostics | [`/app/settings`](/app/settings) |
 | — | First-run setup wizard, shown in place of the router until `wizardCompleted` | [`/app/first-run-wizard`](/app/first-run-wizard) |
 
 For what each screen looks like and how to use it, start at

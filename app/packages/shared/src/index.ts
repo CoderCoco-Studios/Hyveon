@@ -11,6 +11,7 @@ export * from './stackOutputs.js';
 export * from './gameServerValidator.js';
 export * from './gamesWrite.js';
 export * from './deploymentSettingsWrite.js';
+export * from './autoUpdateSetting.js';
 export * from './drift.js';
 export * from './audit.js';
 export * from './runs.js';

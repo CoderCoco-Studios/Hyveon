@@ -91,6 +91,9 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 import type {
+  AutoUpdateSettingGetResult,
+  AutoUpdateSettingUpdatePayload,
+  AutoUpdateSettingWriteResult,
   CreateGamePayload,
   DeleteGamePayload,
   DeploymentSettingsGetResult,
@@ -818,6 +821,9 @@ const api: HyveonApi = {
       update: (payload: UpdateDeploymentSettingsPayload) =>
         invoke<DeploymentSettingsWriteResult>('iac.settings.update', payload),
       engineVersion: () => invoke<PulumiEngineVersionResult>('iac.settings.engineVersion'),
+      autoUpdateGet: () => invoke<AutoUpdateSettingGetResult>('iac.settings.autoUpdate.get'),
+      autoUpdateUpdate: (payload: AutoUpdateSettingUpdatePayload) =>
+        invoke<AutoUpdateSettingWriteResult>('iac.settings.autoUpdate.update', payload),
     },
   },
 };

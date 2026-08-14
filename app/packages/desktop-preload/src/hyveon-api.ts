@@ -10,6 +10,9 @@
  */
 
 import type {
+  AutoUpdateSettingGetResult,
+  AutoUpdateSettingUpdatePayload,
+  AutoUpdateSettingWriteResult,
   ChangeSummary,
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
@@ -69,6 +72,9 @@ import type {
  * renderer from.
  */
 export type {
+  AutoUpdateSettingGetResult,
+  AutoUpdateSettingUpdatePayload,
+  AutoUpdateSettingWriteResult,
   ChangeSummary,
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
@@ -2117,6 +2123,18 @@ export interface HyveonIacSettingsApi {
    * {@link PulumiEngineVersionResult}.
    */
   engineVersion: () => Promise<PulumiEngineVersionResult>;
+  /**
+   * Reads the current `enableAutoUpdate` flag by invoking the
+   * `iac.settings.autoUpdate.get` IPC channel — backs Settings' Updates row.
+   * See {@link AutoUpdateSettingGetResult}.
+   */
+  autoUpdateGet: () => Promise<AutoUpdateSettingGetResult>;
+  /**
+   * Writes the `enableAutoUpdate` flag by invoking the
+   * `iac.settings.autoUpdate.update` IPC channel. Takes effect on the next
+   * app start, not the current session — see {@link AutoUpdateSettingWriteResult}.
+   */
+  autoUpdateUpdate: (payload: AutoUpdateSettingUpdatePayload) => Promise<AutoUpdateSettingWriteResult>;
 }
 
 // ---------------------------------------------------------------------------

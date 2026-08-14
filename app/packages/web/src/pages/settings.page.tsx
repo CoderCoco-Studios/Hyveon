@@ -39,6 +39,15 @@ function engineVersionLabel(state: EngineVersionState): string {
 }
 
 /**
+ * Client-side state for the Updates section's `enableAutoUpdate` toggle —
+ * mirrors {@link EngineVersionState}'s loading/ready/error shape, and the
+ * same "genuine failure vs. an expected value" distinction: `'error'` means
+ * the IPC call itself failed or `window.hyveon.iac.settings` is unavailable,
+ * never a real `false` value.
+ */
+type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean } | 'error';
+
+/**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`
  * field except `gameServers`.
@@ -53,6 +62,7 @@ function engineVersionLabel(state: EngineVersionState): string {
 export function SettingsPage() {
   const [reconfiguring, setReconfiguring] = useState(false);
   const [engineVersion, setEngineVersion] = useState<EngineVersionState>('loading');
+  const [autoUpdate, setAutoUpdate] = useState<AutoUpdateState>('loading');
 
   useEffect(() => {
     // `settings` may be absent (`window.hyveon.iac.settings` unavailable) —
@@ -65,6 +75,31 @@ export function SettingsPage() {
       .then((result) => setEngineVersion({ status: 'ready', resolvedVersion: result.resolvedVersion }))
       .catch(() => setEngineVersion('error'));
   }, []);
+
+  useEffect(() => {
+    // Same pattern as the engine-version effect above: an absent bridge is
+    // routed through the rejected-promise path so `setAutoUpdate` only ever
+    // runs inside a promise callback.
+    const settings = window.hyveon?.iac?.settings;
+    const read = settings ? settings.autoUpdateGet() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    read
+      .then((result) => setAutoUpdate(result.ok ? { status: 'ready', enabled: result.enableAutoUpdate } : 'error'))
+      .catch(() => setAutoUpdate('error'));
+  }, []);
+
+  /**
+   * Flips `enableAutoUpdate` via the `autoUpdateUpdate` IPC channel. Only
+   * updates displayed state on a successful write — a failed write leaves
+   * the toggle showing its last-known-good value rather than optimistically
+   * flipping and silently reverting.
+   */
+  function handleAutoUpdateToggle(next: boolean) {
+    const settings = window.hyveon?.iac?.settings;
+    const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    write
+      .then((result) => setAutoUpdate(result.ok ? { status: 'ready', enabled: result.enableAutoUpdate } : 'error'))
+      .catch(() => setAutoUpdate('error'));
+  }
 
   if (reconfiguring) {
     return (
@@ -111,6 +146,38 @@ export function SettingsPage() {
           <Button type="button" variant="outline" onClick={() => setReconfiguring(true)}>
             Reconfigure
           </Button>
+        </div>
+      </div>
+
+      {/*
+        Updates section: toggles the `enableAutoUpdate` electron-store flag
+        that gates `desktop-main/src/updater.ts`'s `electron-updater` checks.
+        Applies on next app start, not the running session (`initUpdater`
+        only runs once at Electron boot) — the description text says so.
+      */}
+      <div className="mb-8">
+        <h3 className="text-lg font-medium mb-4">Updates</h3>
+        <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
+          <div>
+            <p className="text-sm font-medium">Automatic Updates</p>
+            <p className="text-sm text-muted-foreground">
+              {autoUpdate === 'loading'
+                ? 'Checking update setting…'
+                : autoUpdate === 'error'
+                  ? 'Unable to read the update setting.'
+                  : 'Check GitHub Releases for updates on app start. Applies on next app start.'}
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              aria-label="Automatic updates"
+              checked={autoUpdate !== 'loading' && autoUpdate !== 'error' && autoUpdate.enabled}
+              disabled={autoUpdate === 'loading'}
+              onChange={(e) => handleAutoUpdateToggle(e.target.checked)}
+              className="size-4 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
+            />
+          </label>
         </div>
       </div>
 

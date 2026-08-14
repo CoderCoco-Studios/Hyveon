@@ -23,9 +23,9 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
   const { autoUpdater } = await import('electron-updater');
   autoUpdater.logger = logger;
 
-  // Manual-testing-only for v1 (no Settings UI flips this flag yet): a
-  // detected update must not download or install itself. Both default to
-  // `true` in electron-updater, so they're pinned off explicitly here.
+  // v1 scaffold: a detected update must not download or install itself, even
+  // though the Settings page can now flip `enableAutoUpdate` on. Both default
+  // to `true` in electron-updater, so they're pinned off explicitly here.
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 

@@ -1,6 +1,9 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type {
+  AutoUpdateSettingGetResult,
+  AutoUpdateSettingUpdatePayload,
+  AutoUpdateSettingWriteResult,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   PulumiEngineVersionResult,
@@ -17,6 +20,9 @@ import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfig
 // packaged app during this task's own verification — see the class doc
 // comment above `engine`'s constructor parameter).
 import { PulumiEngineService } from '../services/PulumiEngineService.js';
+// Same value-import requirement as `PulumiEngineService` above — see that
+// import's doc comment.
+import { ElectronStoreService } from '../services/ElectronStoreService.js';
 
 /**
  * IPC-only controller for the deployment-settings editor — reads and writes
@@ -40,18 +46,22 @@ import { PulumiEngineService } from '../services/PulumiEngineService.js';
 @Controller()
 export class IacSettingsController {
   /**
-   * `engine` is typed optional (`?`) purely so existing test call sites that
-   * construct `new IacSettingsController(deploymentConfig)` directly (bypassing Nest's
-   * DI container) keep compiling without also stubbing it — mirrors
-   * `IacController`'s identical `audit`/`runRecord`/`config` optionality (see
-   * that class's own constructor doc comment). Every real bootstrap through
-   * `AppModule` still resolves a concrete `PulumiEngineService` regardless of
-   * this TS-level optionality; {@link engineVersion} treats an absent
-   * `engine` the same as "not yet provisioned" rather than throwing.
+   * `engine` and `store` are both typed optional (`?`) purely so existing
+   * test call sites that construct `new IacSettingsController(deploymentConfig)`
+   * directly (bypassing Nest's DI container) keep compiling without also
+   * stubbing them — mirrors `IacController`'s identical
+   * `audit`/`runRecord`/`config` optionality (see that class's own
+   * constructor doc comment). Every real bootstrap through `AppModule` still
+   * resolves a concrete `PulumiEngineService`/`ElectronStoreService`
+   * regardless of this TS-level optionality; {@link engineVersion} treats an
+   * absent `engine` the same as "not yet provisioned" rather than throwing,
+   * and {@link getAutoUpdate}/{@link updateAutoUpdate} treat an absent
+   * `store` the same way.
    */
   constructor(
     private readonly deploymentConfig: DeploymentConfigService,
     private readonly engine?: PulumiEngineService,
+    private readonly store?: ElectronStoreService,
   ) {}
 
   /**
@@ -170,5 +180,44 @@ export class IacSettingsController {
   engineVersion(): PulumiEngineVersionResult {
     logger.debug('IacSettingsController: iac.settings.engineVersion invoked');
     return { resolvedVersion: this.engine?.getResolvedVersion() ?? null };
+  }
+
+  /**
+   * Reads the `enableAutoUpdate` electron-store flag that gates
+   * `desktop-main/src/updater.ts`'s update checks. An absent `store` (test
+   * call sites that construct this controller directly, per {@link store}'s
+   * doc comment) is treated the same as an absent stored value — `false`,
+   * never a thrown error, mirroring {@link engineVersion}'s `?? null`
+   * fallback for an absent `engine`.
+   *
+   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.get`).
+   */
+  @MessagePattern('iac.settings.autoUpdate.get')
+  getAutoUpdate(): AutoUpdateSettingGetResult {
+    logger.debug('IacSettingsController: iac.settings.autoUpdate.get invoked');
+    return { ok: true, enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false };
+  }
+
+  /**
+   * Writes the `enableAutoUpdate` electron-store flag. Takes effect on the
+   * next app start — `initUpdater` only runs once at Electron boot
+   * (`electron-entry.ts`), so this write has no effect on the currently
+   * running session.
+   *
+   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.update`).
+   */
+  @MessagePattern('iac.settings.autoUpdate.update')
+  updateAutoUpdate(@Payload() payload: AutoUpdateSettingUpdatePayload): AutoUpdateSettingWriteResult {
+    logger.debug('IacSettingsController: iac.settings.autoUpdate.update invoked');
+    try {
+      if (!this.store) {
+        return { ok: false, code: 'error', message: 'Settings store is unavailable.' };
+      }
+      this.store.set('enableAutoUpdate', payload.enableAutoUpdate);
+      return { ok: true, enableAutoUpdate: payload.enableAutoUpdate };
+    } catch (err) {
+      logger.error('Failed to write enableAutoUpdate setting', { err });
+      return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the auto-update setting.' };
+    }
   }
 }
