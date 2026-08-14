@@ -63,6 +63,7 @@ export const GAME_NAME_PATTERN_DESCRIPTION =
 export const gameServerPortSchema = z.object({
   container: z.number(),
   protocol: z.string(),
+  visibility: z.enum(['public', 'internal']).optional(),
 });
 
 /** Zod schema mirroring `GameServerEnvironmentVariable`. */

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateGameServer,
+  gameServerPortSchema,
   getFargateCpuOptions,
   getFargateMemoryOptions,
   estimateFargateHourlyCost,
@@ -598,6 +599,28 @@ describe('validateGameServer', () => {
         expect(result.issues.some((i) => i.path === 'volumes')).toBe(true);
       }
     });
+  });
+});
+
+describe('gameServerPortSchema', () => {
+  it('should accept a port with visibility omitted', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept visibility "public"', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'public' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept visibility "internal"', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'internal' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject an unrecognized visibility value', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'vpc-only' });
+    expect(result.success).toBe(false);
   });
 });
 
