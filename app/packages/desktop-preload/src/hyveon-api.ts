@@ -537,7 +537,7 @@ export interface GameWizardDraft {
   connect_message: string;
   cpu: number | null;
   memory: number | null;
-  ports: { container: number | null; protocol: string }[];
+  ports: { container: number | null; protocol: string; visibility?: 'public' | 'internal' }[];
   volumes: { name: string; container_path: string }[];
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];
