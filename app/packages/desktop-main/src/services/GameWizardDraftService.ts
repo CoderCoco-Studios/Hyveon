@@ -179,7 +179,7 @@ function isWizardDraftPort(value: unknown): boolean {
 }
 
 /** Narrows `value` to a well-formed volume row: `name`/`container_path` are both strings. */
-function isWizardDraftVolume(value: unknown): boolean {
+function isWizardDraftVolume(value: unknown): value is GameWizardDraft['volumes'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { name?: unknown; container_path?: unknown };
   return typeof candidate.name === 'string' && typeof candidate.container_path === 'string';
