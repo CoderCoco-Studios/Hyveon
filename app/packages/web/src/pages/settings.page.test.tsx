@@ -207,16 +207,35 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(toggle).toBeChecked());
     });
 
-    it('should leave the toggle in its prior state when the write fails', async () => {
-      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+    it('should keep the checkbox reflecting the last confirmed value when the write fails, not drop to the no-value error state', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: false, code: 'error', message: 'nope' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).toBeChecked());
+      await userEvent.click(toggle);
+
+      await waitFor(() => expect(screen.getByText('Failed to save — still showing the last saved value.')).toBeInTheDocument());
+      expect(toggle).toBeChecked();
+      expect(screen.queryByText('Unable to read the update setting.')).not.toBeInTheDocument();
+    });
+
+    it('should keep the checkbox unchecked and clear the write-error message on a subsequent successful toggle', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValueOnce({ ok: false, code: 'error', message: 'nope' });
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
 
       const toggle = await screen.findByLabelText('Automatic updates');
       await waitFor(() => expect(toggle).not.toBeChecked());
       await userEvent.click(toggle);
+      await waitFor(() => expect(screen.getByText('Failed to save — still showing the last saved value.')).toBeInTheDocument());
 
-      await waitFor(() => expect(screen.getByText('Unable to read the update setting.')).toBeInTheDocument());
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValueOnce({ ok: true, enableAutoUpdate: true });
+      await userEvent.click(toggle);
+
+      await waitFor(() => expect(toggle).toBeChecked());
+      expect(screen.queryByText('Failed to save — still showing the last saved value.')).not.toBeInTheDocument();
     });
   });
 

@@ -41,11 +41,13 @@ function engineVersionLabel(state: EngineVersionState): string {
 /**
  * Client-side state for the Updates section's `enableAutoUpdate` toggle —
  * mirrors {@link EngineVersionState}'s loading/ready/error shape, and the
- * same "genuine failure vs. an expected value" distinction: `'error'` means
- * the IPC call itself failed or `window.hyveon.iac.settings` is unavailable,
- * never a real `false` value.
+ * same "genuine failure vs. an expected value" distinction: bare `'error'`
+ * means the *initial read* failed and no value is known at all. Once a value
+ * is known, a *write* failure stays in the `ready` shape with
+ * `writeError: true` — the checkbox keeps showing the last confirmed
+ * `enabled` value rather than dropping to the no-known-value error state.
  */
-type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean } | 'error';
+type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean; writeError?: boolean } | 'error';
 
 /**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
@@ -88,17 +90,25 @@ export function SettingsPage() {
   }, []);
 
   /**
-   * Flips `enableAutoUpdate` via the `autoUpdateUpdate` IPC channel. Only
-   * updates displayed state on a successful write — a failed write leaves
-   * the toggle showing its last-known-good value rather than optimistically
-   * flipping and silently reverting.
+   * Flips `enableAutoUpdate` via the `autoUpdateUpdate` IPC channel. On
+   * success, replaces the confirmed `enabled` value. On failure, uses a
+   * functional update so the last confirmed `enabled` value survives —
+   * the checkbox keeps reflecting what's actually persisted, with
+   * `writeError: true` surfaced as inline copy, rather than dropping to the
+   * no-known-value error state a failed write shouldn't imply.
    */
   function handleAutoUpdateToggle(next: boolean) {
     const settings = window.hyveon?.iac?.settings;
     const write = settings ? settings.autoUpdateUpdate({ enableAutoUpdate: next }) : Promise.reject(new Error('hyveon IPC bridge unavailable'));
     write
-      .then((result) => setAutoUpdate(result.ok ? { status: 'ready', enabled: result.enableAutoUpdate } : 'error'))
-      .catch(() => setAutoUpdate('error'));
+      .then((result) => {
+        if (result.ok) {
+          setAutoUpdate({ status: 'ready', enabled: result.enableAutoUpdate });
+        } else {
+          setAutoUpdate((prev) => (typeof prev === 'object' ? { ...prev, writeError: true } : 'error'));
+        }
+      })
+      .catch(() => setAutoUpdate((prev) => (typeof prev === 'object' ? { ...prev, writeError: true } : 'error')));
   }
 
   if (reconfiguring) {
@@ -165,7 +175,9 @@ export function SettingsPage() {
                 ? 'Checking update setting…'
                 : autoUpdate === 'error'
                   ? 'Unable to read the update setting.'
-                  : 'Check GitHub Releases for updates on app start. Applies on next app start.'}
+                  : autoUpdate.writeError
+                    ? 'Failed to save — still showing the last saved value.'
+                    : 'Check GitHub Releases for updates on app start. Applies on next app start.'}
             </p>
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">

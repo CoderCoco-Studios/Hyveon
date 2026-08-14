@@ -210,6 +210,9 @@ export class IacSettingsController {
   updateAutoUpdate(@Payload() payload: AutoUpdateSettingUpdatePayload): AutoUpdateSettingWriteResult {
     logger.debug('IacSettingsController: iac.settings.autoUpdate.update invoked');
     try {
+      if (typeof payload?.enableAutoUpdate !== 'boolean') {
+        return { ok: false, code: 'error', message: 'enableAutoUpdate must be a boolean.' };
+      }
       if (!this.store) {
         return { ok: false, code: 'error', message: 'Settings store is unavailable.' };
       }

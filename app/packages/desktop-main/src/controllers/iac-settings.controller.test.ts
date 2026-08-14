@@ -318,5 +318,14 @@ describe('IacSettingsController', () => {
       const result = controller.updateAutoUpdate({ enableAutoUpdate: true });
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
     });
+
+    it('should reject a non-boolean payload without writing to the store', () => {
+      const store = makeStore();
+      const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
+      // @ts-expect-error deliberately malformed payload — IPC boundary has no runtime type guarantee
+      const result = controller.updateAutoUpdate({ enableAutoUpdate: 'true' });
+      expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
+      expect(store.set).not.toHaveBeenCalled();
+    });
   });
 });
