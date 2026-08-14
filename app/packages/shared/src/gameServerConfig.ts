@@ -31,6 +31,21 @@ export interface GameServerPort {
    * validation block's same requirement.
    */
   protocol: string;
+  /**
+   * Network reachability for this port on the shared `game_servers`
+   * security group. `'public'` ingresses from `0.0.0.0/0` (the open
+   * internet); `'internal'` ingresses from the VPC's CIDR block only, so
+   * the port is reachable from anything inside the VPC (e.g. the
+   * health-check Lambda) but not from the internet. Omitted is treated
+   * identically to `'public'` — mirrors the {@link GameServer.https}
+   * `undefined ≡ false` contract — so every configuration written before
+   * this field existed keeps its current `0.0.0.0/0` ingress unchanged.
+   * Only affects non-HTTPS games: an HTTPS game's container ports are
+   * never individually security-group-ingressed (the in-task Caddy
+   * sidecar proxies to them over localhost), so this field is a no-op
+   * there.
+   */
+  visibility?: 'public' | 'internal';
 }
 
 /** Environment variable injected into the game server container. */
