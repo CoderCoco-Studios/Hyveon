@@ -127,7 +127,7 @@ function describeError(err: unknown): string {
  * matching means a wording change to a guard message can't silently
  * misclassify a refusal as an unexpected exception (or vice versa).
  */
-function isGuardRefusal(err: unknown): boolean {
+function isGuardRefusal(err: unknown): err is WorkloadGuardError {
   return err instanceof WorkloadGuardError;
 }
 
