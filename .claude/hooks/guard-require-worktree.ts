@@ -46,6 +46,8 @@ if (toolName === 'Bash') {
   const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
   const command = typeof toolInput.command === 'string' ? toolInput.command : '';
   if (!GIT_ADD_COMMIT.test(command)) allow();
+} else if (toolName === 'CreateWorktree') {
+  deny('Blocked: Required to use the EnterWorktree tool instead');
 } else if (toolName !== 'Edit' && toolName !== 'Write') {
   allow();
 }
