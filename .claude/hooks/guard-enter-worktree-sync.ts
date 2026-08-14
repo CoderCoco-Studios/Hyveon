@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * PreToolUse guard (EnterWorktree): keeps local `main` in sync before a new
  * worktree branches from it, per .claude/rules/worktree.md step 3.
@@ -10,25 +10,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { deny } from './lib/hook-io.js';
 
-function git(args) {
+function git(args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function deny(reason) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: reason,
-      },
-    }),
-  );
-}
-
-function main() {
-  let branch;
+function main(): void {
+  let branch: string;
   try {
     branch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
   } catch {
@@ -45,14 +34,13 @@ function main() {
         '(`git stash -u`), or discard them before branching a new worktree ' +
         'off main.',
     );
-    return;
   }
 
   try {
     git(['fetch', 'origin', 'main']);
   } catch (err) {
-    deny(`EnterWorktree blocked: \`git fetch origin main\` failed: ${err.message}`);
-    return;
+    const message = err instanceof Error ? err.message : String(err);
+    deny(`EnterWorktree blocked: \`git fetch origin main\` failed: ${message}`);
   }
 
   const local = git(['rev-parse', 'main']);
@@ -66,14 +54,13 @@ function main() {
         '(diverged). Resolve manually (push, rebase, or reset) before ' +
         'branching a new worktree off main.',
     );
-    return;
   }
 
   try {
     git(['merge', '--ff-only', 'origin/main']);
   } catch (err) {
-    deny(`EnterWorktree blocked: fast-forwarding main to origin/main failed: ${err.message}`);
-    return;
+    const message = err instanceof Error ? err.message : String(err);
+    deny(`EnterWorktree blocked: fast-forwarding main to origin/main failed: ${message}`);
   }
 
   process.stdout.write(

@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/guard-superpowers-paths.js",
+            "command": "bun run .claude/hooks/guard-superpowers-paths.ts",
             "statusMessage": "Checking brainstorm/plan output path against routing rule..."
           }
         ]
@@ -33,7 +33,7 @@
           },
           {
             "type": "command",
-            "command": "node .claude/hooks/guard-enter-worktree-sync.js",
+            "command": "bun run .claude/hooks/guard-enter-worktree-sync.ts",
             "statusMessage": "Syncing local main with origin before branching worktree..."
           }
         ]
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/guard-require-worktree.js",
+            "command": "bun run .claude/hooks/guard-require-worktree.ts",
             "statusMessage": "Checking worktree isolation..."
           }
         ]
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/guard-require-worktree.js",
+            "command": "bun run .claude/hooks/guard-require-worktree.ts",
             "statusMessage": "Checking worktree isolation..."
           },
           {
