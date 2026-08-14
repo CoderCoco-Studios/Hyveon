@@ -11,6 +11,7 @@ import { readStdin, deny, ask, allow, isRecord } from './lib/hook-io.js';
 /** Fields this guard reads from the PreToolUse payload — not the full hook contract. */
 interface EnterWorktreeHookInput {
   tool_name: string;
+  cwd?: string;
   tool_input?: { path?: string; name?: string };
 }
 
@@ -24,9 +25,9 @@ function resolveReal(path: string): string {
 }
 
 /** True containment check against the resolved `.claude/worktrees` directory — not a substring match, which `.claude/worktrees/../outside` or a `.claude/worktrees-old` sibling would defeat. */
-function isUnderClaudeWorktrees(candidate: string): boolean {
-  const root = resolveReal(resolve(process.cwd(), '.claude/worktrees'));
-  const target = resolveReal(resolve(process.cwd(), candidate));
+function isUnderClaudeWorktrees(candidate: string, cwd: string): boolean {
+  const root = resolveReal(resolve(cwd, '.claude/worktrees'));
+  const target = resolveReal(resolve(cwd, candidate));
   return target === root || target.startsWith(root + sep);
 }
 
@@ -64,7 +65,7 @@ if (input.tool_input !== undefined && !isRecord(input.tool_input)) {
 const path = input.tool_input?.path || '';
 if (!path) allow();
 
-if (!isUnderClaudeWorktrees(path)) {
+if (!isUnderClaudeWorktrees(path, input.cwd || process.cwd())) {
   deny(
     `EnterWorktree path must be under .claude/worktrees/ (got: ${path}). ` +
       'Use name to create a new worktree, or point path at an existing one under .claude/worktrees/.',
