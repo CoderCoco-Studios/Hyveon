@@ -176,10 +176,14 @@ export function dedupedDirectGamePorts(gameServers: Record<string, GameServerCon
  * Deduplicated set of container port/protocol pairs across every
  * non-HTTPS game server whose {@link GameServerPort.visibility} is exactly
  * `'internal'` — the counterpart to {@link dedupedDirectGamePorts}. Ports
- * cannot appear in both functions' results: `checkPortCollisions`
- * (`@hyveon/shared`'s `gameServerValidator.ts`) already rejects two games,
- * or two ports within one game, declaring the same `(port, protocol)` pair,
- * so a given key can only ever carry one `visibility` value.
+ * cannot appear in both functions' results on the validated write path:
+ * `checkPortCollisions` (`@hyveon/shared`'s `gameServerValidator.ts`) already
+ * rejects two games, or two ports within one game, declaring the same
+ * `(port, protocol)` pair, so a given key can only ever carry one
+ * `visibility` value there — but a hand-edited `deployment-config.json` is
+ * not re-validated on read, so that file could in principle declare the same
+ * `(port, protocol)` pair twice with different `visibility` values; this
+ * function's `Map`-based dedup then keeps whichever entry it sees first.
  *
  * @param gameServers - The configured game-server map to derive ports from.
  * @returns The deduplicated internal port/protocol pairs, in first-seen order.

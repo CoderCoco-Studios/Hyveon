@@ -261,10 +261,23 @@ Caddy sidecar's fixed 443/80 ingress, which is unaffected by `visibility`.
   rule (see above) is what actually scopes reachability to that one caller,
   and it exists independently of `visibility`.
 
-A port can never appear in both the public and internal ingress sets:
-`checkPortCollisions` (`@hyveon/shared`'s `gameServerValidator.ts`) already
-rejects two ports sharing a `(port, protocol)` pair, so a given
-port/protocol key carries exactly one `visibility` value.
+A port can never appear in both the public and internal ingress sets on the
+validated write path: `checkPortCollisions` (`@hyveon/shared`'s
+`gameServerValidator.ts`) already rejects two ports sharing a `(port,
+protocol)` pair, so a given port/protocol key carries exactly one
+`visibility` value there. A hand-edited `deployment-config.json` is not
+re-validated on read, so that guarantee only holds for configs written through
+the validated path (the wizard / `GamesWriteService`), not for a file edited
+by hand outside it.
+
+Container port 443/80 on `tcp` is reserved for the Caddy sidecar
+deployment-wide, not just within the game that declares `https: true`:
+`checkReservedHttpsPortsAcrossDeployment` (`@hyveon/shared`'s
+`gameServerValidator.ts`) rejects ANY game — https or not — declaring
+443/80/tcp whenever any game in the deployment has `https: true`, so a
+different, non-HTTPS game can't mark 443/tcp `'internal'` and have it leak
+public via the Caddy sidecar's unconditional `0.0.0.0/0` ingress on the same
+port (security-group ingress rules union).
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 
