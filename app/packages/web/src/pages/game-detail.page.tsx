@@ -161,6 +161,7 @@ export function GameDetailPage() {
                       <TableRow>
                         <TableHead>Container port</TableHead>
                         <TableHead>Protocol</TableHead>
+                        <TableHead>Visibility</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -168,6 +169,7 @@ export function GameDetailPage() {
                         <TableRow key={`${port.container}-${port.protocol}`}>
                           <TableCell className="font-[var(--font-mono)]">{port.container}</TableCell>
                           <TableCell className="uppercase">{port.protocol}</TableCell>
+                          <TableCell>{port.visibility === 'internal' ? 'VPC-only' : 'Public'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

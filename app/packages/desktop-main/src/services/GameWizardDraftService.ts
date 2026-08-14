@@ -41,7 +41,7 @@ export class GameWizardDraftService {
         }
         return null;
       }
-      return redactSecretFields(backfillHealthCheck(stored));
+      return redactSecretFields(backfillHealthCheck(backfillPortVisibility(stored)));
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
       return null;
@@ -150,7 +150,7 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
 }
 
 /** Narrows `value` to a well-formed health-check draft. */
-function isWizardDraftHealthCheck(value: unknown): boolean {
+function isWizardDraftHealthCheck(value: unknown): value is NonNullable<GameWizardDraft['healthCheck']> {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<NonNullable<GameWizardDraft['healthCheck']>>;
   return (
@@ -168,13 +168,19 @@ function isWizardDraftHealthCheck(value: unknown): boolean {
   );
 }
 
-/** Narrows `value` to a well-formed port row: `container` is a finite number or `null`, `protocol` is a string. */
-function isWizardDraftPort(value: unknown): boolean {
+/**
+ * Narrows `value` to a well-formed port row: `container` is a finite number
+ * or `null`, `protocol` is a string, and `visibility` — added after this
+ * draft slot shipped, so a draft autosaved before then has no such field —
+ * is either absent or exactly `'public'`/`'internal'`.
+ */
+function isWizardDraftPort(value: unknown): value is GameWizardDraft['ports'][number] {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { container?: unknown; protocol?: unknown };
+  const candidate = value as { container?: unknown; protocol?: unknown; visibility?: unknown };
   return (
     (candidate.container === null || (typeof candidate.container === 'number' && Number.isFinite(candidate.container))) &&
-    typeof candidate.protocol === 'string'
+    typeof candidate.protocol === 'string' &&
+    (candidate.visibility === undefined || candidate.visibility === 'public' || candidate.visibility === 'internal')
   );
 }
 
@@ -186,7 +192,7 @@ function isWizardDraftVolume(value: unknown): value is GameWizardDraft['volumes'
 }
 
 /** Narrows `value` to a well-formed file-seed row: `path`/`content`/`content_base64`/`mode` are all strings. */
-function isWizardDraftFileSeed(value: unknown): boolean {
+function isWizardDraftFileSeed(value: unknown): value is GameWizardDraft['file_seeds'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { path?: unknown; content?: unknown; content_base64?: unknown; mode?: unknown };
   return (
@@ -198,7 +204,7 @@ function isWizardDraftFileSeed(value: unknown): boolean {
 }
 
 /** Narrows `value` to a well-formed environment-variable row: `name`/`value` are both strings. */
-function isWizardDraftEnvironmentVariable(value: unknown): boolean {
+function isWizardDraftEnvironmentVariable(value: unknown): value is GameWizardDraft['environment'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { name?: unknown; value?: unknown };
   return typeof candidate.name === 'string' && typeof candidate.value === 'string';
@@ -239,6 +245,26 @@ const DEFAULT_HEALTH_CHECK_DRAFT: NonNullable<GameWizardDraft['healthCheck']> = 
 function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDraft {
   if (stored.draft.healthCheck) return stored;
   return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
+}
+
+/**
+ * Fills in a missing `ports[].visibility` on a draft autosaved before that
+ * field existed, defaulting to `'public'` — matching the `undefined` ≡
+ * `'public'` contract `GameServerPort.visibility` documents in the
+ * `\@hyveon/shared` workspace package. Without this, a pre-existing draft
+ * reaches the renderer's `WizardDraftPort` (which declares `visibility` as
+ * always-concrete, never `undefined`) with a missing field, rendering the
+ * Networking step's visibility `<select>` as uncontrolled.
+ */
+function backfillPortVisibility(stored: StoredGameWizardDraft): StoredGameWizardDraft {
+  if (stored.draft.ports.every((port) => port.visibility !== undefined)) return stored;
+  return {
+    ...stored,
+    draft: {
+      ...stored.draft,
+      ports: stored.draft.ports.map((port) => ({ ...port, visibility: port.visibility ?? 'public' })),
+    },
+  };
 }
 
 function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraft {

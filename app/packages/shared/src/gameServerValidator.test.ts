@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateGameServer,
+  gameServerPortSchema,
   getFargateCpuOptions,
   getFargateMemoryOptions,
   estimateFargateHourlyCost,
@@ -448,6 +449,108 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('reserved https ports across the deployment', () => {
+    it.each([
+      { container: 443 as const, protocol: 'tcp' },
+      { container: 80 as const, protocol: 'tcp' },
+    ])(
+      'should reject a non-https game declaring $container/$protocol when another game has https enabled',
+      ({ container, protocol }) => {
+        const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+        const result = validateGameServer(
+          'internal-proxy',
+          makeProposed({ ports: [{ container, protocol, visibility: 'internal' }] }),
+          [existing],
+        );
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(
+            result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('lobby') && i.message.includes('https')),
+          ).toBe(true);
+        }
+      },
+    );
+
+    it('should accept a non-https game declaring 443/tcp when no game in the deployment has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'internal-proxy',
+        makeProposed({ ports: [{ container: 443, protocol: 'tcp', visibility: 'internal' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should not flag a non-tcp port on 443 even when another game has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'internal-proxy',
+        makeProposed({ ports: [{ container: 443, protocol: 'udp' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should still reject an https:true game declaring 443 in its own ports (within-game rule unchanged)', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('443'))).toBe(true);
+      }
+    });
+
+    it('should report exactly one issue (not a duplicate) when an https:true game declares its own reserved port', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.filter((i) => i.message.includes('443'))).toHaveLength(1);
+      }
+    });
+
+    it('should reject enabling https on a game when a sibling already declares 443/tcp internal (order-independent reservation)', () => {
+      const existing = makeExisting({
+        name: 'internal-proxy',
+        https: false,
+        ports: [{ container: 443, protocol: 'tcp', visibility: 'internal' }],
+      });
+      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some((i) => i.path === 'ports' && i.message.includes('internal-proxy') && i.message.includes('443')),
+        ).toBe(true);
+      }
+    });
+
+    it('should accept enabling https when no sibling declares 443/80 tcp', () => {
+      const existing = makeExisting({ name: 'valheim', ports: [{ container: 2456, protocol: 'udp' }] });
+      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(true);
+    });
+
+    it('should not flag the entry being edited in place against itself when it already has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'lobby',
+        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe('health check', () => {
     /** Build a minimal, fully-valid healthCheck object targeting container port 25565; override any fields per test. */
     function makeHealthCheck(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -598,6 +701,28 @@ describe('validateGameServer', () => {
         expect(result.issues.some((i) => i.path === 'volumes')).toBe(true);
       }
     });
+  });
+});
+
+describe('gameServerPortSchema', () => {
+  it('should accept a port with visibility omitted', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept visibility "public"', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'public' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept visibility "internal"', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'internal' });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject an unrecognized visibility value', () => {
+    const result = gameServerPortSchema.safeParse({ container: 25565, protocol: 'tcp', visibility: 'vpc-only' });
+    expect(result.success).toBe(false);
   });
 });
 

@@ -58,10 +58,11 @@ export type WizardMode = 'create' | 'edit';
 /** Placeholder name used to validate a draft before the operator has typed one, so the port-collision self-exclusion check never accidentally matches a real existing game. */
 const DRAFT_NAME_PLACEHOLDER = '__draft__';
 
-/** Draft form of a single `GameServerPort` row. `container` is `null` until the operator fills in the field, so an empty row can be told apart from a mistyped one. */
+/** Draft form of a single `GameServerPort` row. `container` is `null` until the operator fills in the field, so an empty row can be told apart from a mistyped one. `visibility` is always a concrete `'public'`/`'internal'` value in the draft (never `undefined`) — a form control needs something to bind to; `draftToPayload` collapses `'public'` back to an omitted field on submit. */
 export interface WizardDraftPort {
   container: number | null;
   protocol: string;
+  visibility: 'public' | 'internal';
 }
 
 /** Draft form of a single `GameServerVolume` row. */
@@ -185,7 +186,11 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
     connect_message: game.connect_message ?? '',
     cpu: game.cpu,
     memory: game.memory,
-    ports: game.ports.map((port) => ({ container: port.container, protocol: port.protocol })),
+    ports: game.ports.map((port) => ({
+      container: port.container,
+      protocol: port.protocol,
+      visibility: port.visibility === 'internal' ? 'internal' : 'public',
+    })),
     volumes: game.volumes.map((volume) => ({ name: volume.name, container_path: volume.container_path })),
     file_seeds: (game.file_seeds ?? []).map((seed) => ({
       path: seed.path,
@@ -277,7 +282,11 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
       image,
       cpu: draft.cpu ?? 0,
       memory: draft.memory ?? 0,
-      ports: draft.ports.map((port) => ({ container: port.container ?? 0, protocol: port.protocol })),
+      ports: draft.ports.map((port) => ({
+        container: port.container ?? 0,
+        protocol: port.protocol,
+        ...(port.visibility === 'internal' ? { visibility: 'internal' as const } : {}),
+      })),
       volumes: draft.volumes.map((volume) => ({ name: volume.name, container_path: volume.container_path })),
       connect_message: connectMessage.length > 0 ? connectMessage : undefined,
       file_seeds:
@@ -376,7 +385,11 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
     image: draft.image.trim(),
     cpu: draft.cpu,
     memory: draft.memory,
-    ports: draft.ports.map((port) => ({ container: port.container, protocol: port.protocol })),
+    ports: draft.ports.map((port) => ({
+      container: port.container,
+      protocol: port.protocol,
+      ...(port.visibility === 'internal' ? { visibility: 'internal' as const } : {}),
+    })),
     volumes: draft.volumes.map((volume) => ({ name: volume.name, container_path: volume.container_path })),
     connect_message: draft.connect_message.trim().length > 0 ? draft.connect_message : undefined,
     file_seeds:

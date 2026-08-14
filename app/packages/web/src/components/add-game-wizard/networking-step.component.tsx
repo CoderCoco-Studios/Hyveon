@@ -1,8 +1,9 @@
 /**
  * "Networking" step of the add-game wizard (#99) — a row editor for
  * {@link WizardDraftPort} entries (`container` port + `protocol`). Each row
- * exposes a container-port number input and a protocol select, plus a
- * "Remove" button; a trailing "Add port" button appends a blank row.
+ * exposes a container-port number input, a protocol select, and a
+ * Public/VPC-only visibility select, plus a "Remove" button; a trailing
+ * "Add port" button appends a blank row.
  *
  * The component itself holds no state — every edit (add/remove/edit) is
  * expressed as a brand-new `ports` array passed to `onChange`, mirroring the
@@ -32,7 +33,10 @@ import { messageFor, type WizardDraftHealthCheck, type WizardDraftPort } from '.
 const PROTOCOL_OPTIONS = ['tcp', 'udp'] as const;
 
 /** Blank row appended by the "Add port" button. */
-const EMPTY_PORT: WizardDraftPort = { container: null, protocol: 'tcp' };
+const EMPTY_PORT: WizardDraftPort = { container: null, protocol: 'tcp', visibility: 'public' };
+
+/** `visibility` options offered in each row's dropdown. */
+const VISIBILITY_OPTIONS = ['public', 'internal'] as const;
 
 /** `healthCheck.scheme` options. */
 const HEALTH_CHECK_SCHEME_OPTIONS = ['http', 'https'] as const;
@@ -195,6 +199,22 @@ export function NetworkingStep({
                   {PROTOCOL_OPTIONS.map((protocol) => (
                     <option key={protocol} value={protocol}>
                       {protocol.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex-1">
+                <Label htmlFor={`port-visibility-${index}`}>Visibility</Label>
+                <select
+                  id={`port-visibility-${index}`}
+                  value={port.visibility}
+                  onChange={(event) => updateRow(index, { visibility: event.target.value as WizardDraftPort['visibility'] })}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {VISIBILITY_OPTIONS.map((visibility) => (
+                    <option key={visibility} value={visibility}>
+                      {visibility === 'public' ? 'Public' : 'VPC-only'}
                     </option>
                   ))}
                 </select>

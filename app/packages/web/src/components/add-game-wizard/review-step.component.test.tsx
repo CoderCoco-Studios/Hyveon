@@ -12,7 +12,7 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     connect_message: 'Connect at {hostname}',
     cpu: 1024,
     memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
+    ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
     environment: [{ name: 'EULA', value: 'true' }],
@@ -89,6 +89,26 @@ describe('ReviewStep — empty optional sections', () => {
     render(<ReviewStep draft={makeFullDraft({ ports: [] })} />);
 
     expect(screen.getByText('No ports configured.')).toBeInTheDocument();
+  });
+
+  it('should show "VPC-only" for an internal-visibility port', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft({ ports: [{ container: 25565, protocol: 'tcp', visibility: 'internal' }] })}
+      />,
+    );
+
+    expect(screen.getByText('VPC-only')).toBeInTheDocument();
+  });
+
+  it('should show "Public" for a public-visibility port', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft({ ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }] })}
+      />,
+    );
+
+    expect(screen.getByText('Public')).toBeInTheDocument();
   });
 
   it('should show a "no volumes configured" placeholder when volumes is empty', () => {

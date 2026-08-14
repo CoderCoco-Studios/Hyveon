@@ -403,20 +403,34 @@ function connectMessagesByGame(gameServers: Record<string, GameServerConfig>): R
 
 /**
  * Builds the `GAME_PORTS` JSON object shared by the followup and dns-updater
- * functions, mirroring
- * `jsonencode({ for g, cfg in var.game_servers : g => cfg.ports[0].container if length(cfg.ports) > 0 })` —
- * same sorted-key iteration as {@link connectMessagesByGame}.
+ * functions — consumed to render the player-facing `host:port` connect
+ * string, so the port chosen here must be one the internet can actually
+ * reach. Mirrors the legacy tool's
+ * `jsonencode({ for g, cfg in var.game_servers : g => cfg.ports[0].container if length(cfg.ports) > 0 })`
+ * for every game whose `ports` are entirely `'public'`/omitted-visibility —
+ * the legacy tool had no `visibility` concept, so that mirroring can only
+ * hold where every port is public. When a game's first port is declared
+ * `visibility: 'internal'` (e.g. a management/health port placed first —
+ * see `docs/docs/app/games.md`'s Networking step docs), this instead picks
+ * that game's first `'public'`/omitted-visibility port, so the advertised
+ * connect address is never a port the security group blocks from outside
+ * the VPC. Falls back to `ports[0]` only if a game declares no public port
+ * at all — reproducing the pre-`visibility` behavior rather than omitting
+ * the game entirely, since some port is a better guess than none. Same
+ * sorted-key iteration as {@link connectMessagesByGame}.
  *
  * @param gameServers - The configured game-server map.
- * @returns A game name → first-container-port record, omitting games with no ports.
+ * @returns A game name → first-public-container-port record, omitting games with no ports.
  */
 function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<string, number> {
   const result: Record<string, number> = {};
   for (const game of Object.keys(gameServers).sort()) {
     const ports = gameServers[game].ports;
-    if (ports.length > 0) {
-      result[game] = ports[0].container;
+    if (ports.length === 0) {
+      continue;
     }
+    const publicPort = ports.find((port) => port.visibility === undefined || port.visibility === 'public');
+    result[game] = (publicPort ?? ports[0]).container;
   }
   return result;
 }

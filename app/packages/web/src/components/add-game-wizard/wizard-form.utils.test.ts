@@ -23,7 +23,7 @@ function makeValidDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     image: 'itzg/minecraft-server',
     cpu: 1024,
     memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
+    ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     ...overrides,
   };
@@ -202,8 +202,8 @@ describe('validateNetworkingStep', () => {
     const issues = validateNetworkingStep(
       makeValidDraft({
         ports: [
-          { container: 25565, protocol: 'tcp' },
-          { container: 25565, protocol: 'TCP' },
+          { container: 25565, protocol: 'tcp', visibility: 'public' },
+          { container: 25565, protocol: 'TCP', visibility: 'public' },
         ],
       }),
       [],
@@ -214,7 +214,7 @@ describe('validateNetworkingStep', () => {
   it('should flag a port that collides with an already-declared game (cross-game collision)', () => {
     const existing = makeExistingGame({ name: 'valheim', ports: [{ container: 25565, protocol: 'tcp' }] });
     const issues = validateNetworkingStep(
-      makeValidDraft({ name: 'minecraft', ports: [{ container: 25565, protocol: 'tcp' }] }),
+      makeValidDraft({ name: 'minecraft', ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }] }),
       [existing],
     );
     expect(issues.some((issue) => issue.path === 'ports[0]' && issue.message.includes('valheim'))).toBe(true);
@@ -223,7 +223,7 @@ describe('validateNetworkingStep', () => {
   it('should not flag a self-collision when re-validating an already-declared game under its own name', () => {
     const existing = makeExistingGame({ name: 'minecraft', ports: [{ container: 25565, protocol: 'tcp' }] });
     const issues = validateNetworkingStep(
-      makeValidDraft({ name: 'minecraft', ports: [{ container: 25565, protocol: 'tcp' }] }),
+      makeValidDraft({ name: 'minecraft', ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }] }),
       [existing],
     );
     expect(issues).toEqual([]);
@@ -244,7 +244,7 @@ describe('validateNetworkingStep', () => {
     // the empty volumes array. The HTTPS rules must not be silently
     // skipped as a result — they only depend on `ports`/`https`.
     const issues = validateNetworkingStep(
-      makeValidDraft({ https: true, ports: [{ container: 8080, protocol: 'udp' }], volumes: [] }),
+      makeValidDraft({ https: true, ports: [{ container: 8080, protocol: 'udp', visibility: 'public' }], volumes: [] }),
       [],
     );
     expect(issues.some((issue) => issue.path === 'ports[0]')).toBe(true);
@@ -360,7 +360,7 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
       connect_message: '',
       cpu: game.cpu,
       memory: game.memory,
-      ports: game.ports,
+      ports: game.ports.map((port) => ({ ...port, visibility: 'public' })),
       volumes: game.volumes,
       file_seeds: [],
       environment: [],
@@ -437,6 +437,60 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
 
     const draft = draftFromGameServer(game);
     expect(draft.https).toBe(false);
+  });
+});
+
+describe('port visibility round-trip', () => {
+  it('should read visibility "internal" from a declared game via draftFromGameServer', () => {
+    const game = {
+      name: 'palworld',
+      image: 'example/palworld:latest',
+      cpu: 1024,
+      memory: 2048,
+      ports: [
+        { container: 8211, protocol: 'udp', visibility: 'public' as const },
+        { container: 8212, protocol: 'tcp', visibility: 'internal' as const },
+      ],
+      volumes: [{ name: 'saves', container_path: '/data' }],
+    } as Partial<RedactedGameServer> as RedactedGameServer;
+    const draft = draftFromGameServer(game);
+    expect(draft.ports).toEqual([
+      { container: 8211, protocol: 'udp', visibility: 'public' },
+      { container: 8212, protocol: 'tcp', visibility: 'internal' },
+    ]);
+  });
+
+  it('should default visibility to "public" when reading a declared port with visibility omitted', () => {
+    const game = {
+      name: 'palworld',
+      image: 'example/palworld:latest',
+      cpu: 1024,
+      memory: 2048,
+      ports: [{ container: 8211, protocol: 'udp' }],
+      volumes: [{ name: 'saves', container_path: '/data' }],
+    } as Partial<RedactedGameServer> as RedactedGameServer;
+    const draft = draftFromGameServer(game);
+    expect(draft.ports).toEqual([{ container: 8211, protocol: 'udp', visibility: 'public' }]);
+  });
+
+  it('should submit visibility "internal" as-is and omit visibility entirely for "public" ports in draftToPayload', () => {
+    const draft = {
+      ...createEmptyWizardDraft(),
+      name: 'palworld',
+      image: 'example/palworld:latest',
+      cpu: 1024,
+      memory: 2048,
+      ports: [
+        { container: 8211, protocol: 'udp', visibility: 'public' as const },
+        { container: 8212, protocol: 'tcp', visibility: 'internal' as const },
+      ],
+      volumes: [{ name: 'saves', container_path: '/data' }],
+    };
+    const payload = draftToPayload(draft);
+    expect(payload.config.ports).toEqual([
+      { container: 8211, protocol: 'udp' },
+      { container: 8212, protocol: 'tcp', visibility: 'internal' },
+    ]);
   });
 });
 

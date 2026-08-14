@@ -87,8 +87,13 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
             <ul className="space-y-1">
               {draft.ports.map((port, index) => (
                 <li key={index} className="flex items-center justify-between gap-4 py-1 text-sm">
-                  <span className="font-[var(--font-mono)]">{port.container ?? '—'}</span>
-                  <span className="uppercase text-[var(--color-muted-foreground)]">{port.protocol}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-[var(--font-mono)]">{port.container ?? '—'}</span>
+                    <span className="uppercase text-[var(--color-muted-foreground)]">{port.protocol}</span>
+                  </span>
+                  <span className="text-xs text-[var(--color-muted-foreground)]">
+                    {port.visibility === 'internal' ? 'VPC-only' : 'Public'}
+                  </span>
                 </li>
               ))}
             </ul>

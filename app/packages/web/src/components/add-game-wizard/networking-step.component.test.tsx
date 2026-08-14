@@ -7,8 +7,8 @@ import { createEmptyWizardDraft, type WizardDraftPort } from './wizard-form.util
 /** Two-row port fixture used across most cases below. */
 function makePorts(): WizardDraftPort[] {
   return [
-    { container: 25565, protocol: 'tcp' },
-    { container: 25566, protocol: 'udp' },
+    { container: 25565, protocol: 'tcp', visibility: 'public' },
+    { container: 25566, protocol: 'udp', visibility: 'public' },
   ];
 }
 
@@ -42,9 +42,9 @@ describe('NetworkingStep', () => {
     await user.click(screen.getByRole('button', { name: 'Add port' }));
 
     expect(onChange).toHaveBeenCalledWith([
-      { container: 25565, protocol: 'tcp' },
-      { container: 25566, protocol: 'udp' },
-      { container: null, protocol: 'tcp' },
+      { container: 25565, protocol: 'tcp', visibility: 'public' },
+      { container: 25566, protocol: 'udp', visibility: 'public' },
+      { container: null, protocol: 'tcp', visibility: 'public' },
     ]);
   });
 
@@ -66,7 +66,7 @@ describe('NetworkingStep', () => {
     const removeButtons = screen.getAllByRole('button', { name: /Remove port/ });
     await user.click(removeButtons[0]);
 
-    expect(onChange).toHaveBeenCalledWith([{ container: 25566, protocol: 'udp' }]);
+    expect(onChange).toHaveBeenCalledWith([{ container: 25566, protocol: 'udp', visibility: 'public' }]);
   });
 
   it('should update the container port for the edited row when its number input changes', () => {
@@ -89,8 +89,8 @@ describe('NetworkingStep', () => {
     fireEvent.change(containerInput, { target: { value: '9000' } });
 
     expect(onChange).toHaveBeenCalledWith([
-      { container: 25565, protocol: 'tcp' },
-      { container: 9000, protocol: 'udp' },
+      { container: 25565, protocol: 'tcp', visibility: 'public' },
+      { container: 9000, protocol: 'udp', visibility: 'public' },
     ]);
   });
 
@@ -113,8 +113,32 @@ describe('NetworkingStep', () => {
     await user.selectOptions(protocolSelect, 'udp');
 
     expect(onChange).toHaveBeenCalledWith([
-      { container: 25565, protocol: 'udp' },
-      { container: 25566, protocol: 'udp' },
+      { container: 25565, protocol: 'udp', visibility: 'public' },
+      { container: 25566, protocol: 'udp', visibility: 'public' },
+    ]);
+  });
+
+  it('should update the visibility for the edited row when its select changes to "internal"', () => {
+    const onChange = vi.fn();
+    render(
+      <NetworkingStep
+        ports={makePorts()}
+        issues={[]}
+        onChange={onChange}
+        https={false}
+        onHttpsChange={vi.fn()}
+        healthCheck={DISABLED_HEALTH_CHECK}
+        onHealthCheckChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Visibility', { selector: '#port-visibility-0' }), {
+      target: { value: 'internal' },
+    });
+
+    expect(onChange).toHaveBeenCalledWith([
+      { container: 25565, protocol: 'tcp', visibility: 'internal' },
+      { container: 25566, protocol: 'udp', visibility: 'public' },
     ]);
   });
 
