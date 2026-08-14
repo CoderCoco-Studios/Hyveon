@@ -150,7 +150,7 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
 }
 
 /** Narrows `value` to a well-formed health-check draft. */
-function isWizardDraftHealthCheck(value: unknown): boolean {
+function isWizardDraftHealthCheck(value: unknown): value is NonNullable<GameWizardDraft['healthCheck']> {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<NonNullable<GameWizardDraft['healthCheck']>>;
   return (
@@ -174,7 +174,7 @@ function isWizardDraftHealthCheck(value: unknown): boolean {
  * draft slot shipped, so a draft autosaved before then has no such field —
  * is either absent or exactly `'public'`/`'internal'`.
  */
-function isWizardDraftPort(value: unknown): boolean {
+function isWizardDraftPort(value: unknown): value is GameWizardDraft['ports'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { container?: unknown; protocol?: unknown; visibility?: unknown };
   return (
@@ -185,14 +185,14 @@ function isWizardDraftPort(value: unknown): boolean {
 }
 
 /** Narrows `value` to a well-formed volume row: `name`/`container_path` are both strings. */
-function isWizardDraftVolume(value: unknown): boolean {
+function isWizardDraftVolume(value: unknown): value is GameWizardDraft['volumes'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { name?: unknown; container_path?: unknown };
   return typeof candidate.name === 'string' && typeof candidate.container_path === 'string';
 }
 
 /** Narrows `value` to a well-formed file-seed row: `path`/`content`/`content_base64`/`mode` are all strings. */
-function isWizardDraftFileSeed(value: unknown): boolean {
+function isWizardDraftFileSeed(value: unknown): value is GameWizardDraft['file_seeds'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { path?: unknown; content?: unknown; content_base64?: unknown; mode?: unknown };
   return (
@@ -204,7 +204,7 @@ function isWizardDraftFileSeed(value: unknown): boolean {
 }
 
 /** Narrows `value` to a well-formed environment-variable row: `name`/`value` are both strings. */
-function isWizardDraftEnvironmentVariable(value: unknown): boolean {
+function isWizardDraftEnvironmentVariable(value: unknown): value is GameWizardDraft['environment'][number] {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { name?: unknown; value?: unknown };
   return typeof candidate.name === 'string' && typeof candidate.value === 'string';

@@ -429,7 +429,7 @@ function firstPortByGame(gameServers: Record<string, GameServerConfig>): Record<
     if (ports.length === 0) {
       continue;
     }
-    const publicPort = ports.find((port) => port.visibility !== 'internal');
+    const publicPort = ports.find((port) => port.visibility === undefined || port.visibility === 'public');
     result[game] = (publicPort ?? ports[0]).container;
   }
   return result;

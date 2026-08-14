@@ -516,6 +516,27 @@ describe('defineLambdas', () => {
       expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ managementFirst: 8211 });
     });
 
+    it('should not advertise a port with an unrecognized visibility value ahead of a real public port', async () => {
+      const gameServers: Record<string, GameServerConfig> = {
+        typoVisibility: {
+          image: 'example/typo:latest',
+          cpu: 1024,
+          memory: 2048,
+          ports: [
+            { container: 8212, protocol: 'tcp', visibility: 'vpc-only' as GameServerConfig['ports'][number]['visibility'] },
+            { container: 8211, protocol: 'udp' },
+          ],
+          volumes: [{ name: 'saves', container_path: '/data' }],
+        },
+      };
+      const { provider, roles, efs } = await arrangeDependencies(gameServers);
+      await runDefineLambdas(buildArgs({ gameServers, roles, efs, provider }));
+
+      const fn = findByName(mocks.resources, 'hyveon-followup');
+      const variables = (fn.inputs.environment as { variables: Record<string, unknown> }).variables;
+      expect(JSON.parse(variables.GAME_PORTS as string)).toEqual({ typoVisibility: 8211 });
+    });
+
     it('should fall back to the first port when every declared port is internal-visibility', async () => {
       const gameServers: Record<string, GameServerConfig> = {
         allInternal: {

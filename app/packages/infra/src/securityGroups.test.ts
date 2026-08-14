@@ -123,7 +123,7 @@ describe('dedupedDirectGamePorts', () => {
         image: 'example/game:latest',
         cpu: 1024,
         memory: 2048,
-        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as GameServerPort],
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as unknown as GameServerPort],
         volumes: [{ name: 'saves', container_path: '/data' }],
       },
     };
@@ -172,7 +172,7 @@ describe('dedupedInternalGamePorts', () => {
         image: 'example/game:latest',
         cpu: 1024,
         memory: 2048,
-        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as GameServerPort],
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'vpc-only' } as unknown as GameServerPort],
         volumes: [{ name: 'saves', container_path: '/data' }],
       },
     };
