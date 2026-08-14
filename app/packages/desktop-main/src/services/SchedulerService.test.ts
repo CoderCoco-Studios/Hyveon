@@ -83,9 +83,9 @@ describe('SchedulerService', () => {
       expect(input.Target?.Arn).toBe('arn:aws:scheduler:::aws-sdk:ecs:stopTask');
       expect(input.Target?.RoleArn).toBe('arn:aws:iam::123:role/filebrowser-scheduler');
       expect(JSON.parse(input.Target!.Input!)).toEqual({
-        cluster: 'game-cluster',
-        task: 'arn:aws:ecs:us-east-1:123:task/game-cluster/abc',
-        reason: expect.any(String),
+        Cluster: 'game-cluster',
+        Task: 'arn:aws:ecs:us-east-1:123:task/game-cluster/abc',
+        Reason: expect.any(String),
       });
     });
 
