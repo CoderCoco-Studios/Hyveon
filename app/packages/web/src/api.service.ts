@@ -570,8 +570,18 @@ export type CloudHealthFixOutcome = 'fixed' | 'needsPolicyUpdate' | 'failed';
 export interface CloudHealthFixResult {
   outcome: CloudHealthFixOutcome;
   policyJson?: string;
+  policyConsoleUrl?: string;
   message?: string;
 }
+
+/**
+ * Result of attempting to open a console URL in the operator's default
+ * browser.
+ *
+ * Mirrors `OpenConsoleResult` in `@hyveon/desktop-preload` — keep this copy
+ * in sync with it.
+ */
+export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
 
 /**
  * Returns the `window.hyveon` IPC bridge, throwing a descriptive error if it is
@@ -664,4 +674,8 @@ export const api = {
 
   cloudHealthList: async (): Promise<CloudHealthCheckSummary[]> => hyveon().cloudHealth.list(),
   cloudHealthFix: async (id: string): Promise<CloudHealthFixResult> => hyveon().cloudHealth.fix(id),
+  cloudHealthDownloadPolicy: async (policyJson: string): Promise<{ path: string }> =>
+    hyveon().cloudHealth.downloadPolicy(policyJson),
+  cloudHealthOpenPolicyConsole: async (url: string): Promise<OpenConsoleResult> =>
+    hyveon().cloudHealth.openPolicyConsole(url),
 };

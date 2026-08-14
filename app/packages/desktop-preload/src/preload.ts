@@ -698,6 +698,8 @@ const api: HyveonApi = {
   cloudHealth: {
     list: () => invoke('cloudHealth.list'),
     fix: (id: string) => invoke('cloudHealth.fix', { id }),
+    downloadPolicy: (policyJson: string) => invoke('cloudHealth.downloadPolicy', { policyJson }),
+    openPolicyConsole: (url: string) => invoke('cloudHealth.openPolicyConsole', { url }),
   },
 
   logs: {

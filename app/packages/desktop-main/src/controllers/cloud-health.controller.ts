@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CloudHealthService, type CloudHealthCheckStatus, type CloudHealthFixResult } from '../services/CloudHealthService.js';
+import type { OpenConsoleResult } from '../services/GuidedIamService.js';
 import { logger } from '../logger.js';
 
 /** One row's worth of data for the Settings page's Cloud Health checklist. */
@@ -41,5 +42,19 @@ export class CloudHealthController {
       return { outcome: 'failed', message: `Unknown health check id: ${payload.id}` };
     }
     return check.fix();
+  }
+
+  /** Writes `payload.policyJson` to disk and returns the path it was written to. */
+  @MessagePattern('cloudHealth.downloadPolicy')
+  downloadPolicy(@Payload() payload: { policyJson: string }): { path: string } {
+    logger.debug('CloudHealthController: cloudHealth.downloadPolicy invoked');
+    return this.cloudHealth.writePolicyToDisk(payload.policyJson);
+  }
+
+  /** Opens `payload.url` (an IAM console link) in the operator's default browser. */
+  @MessagePattern('cloudHealth.openPolicyConsole')
+  async openPolicyConsole(@Payload() payload: { url: string }): Promise<OpenConsoleResult> {
+    logger.debug('CloudHealthController: cloudHealth.openPolicyConsole invoked');
+    return this.cloudHealth.openPolicyConsole(payload.url);
   }
 }
