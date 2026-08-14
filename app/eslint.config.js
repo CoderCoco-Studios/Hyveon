@@ -183,6 +183,12 @@ export default tseslint.config(
       // same AWS-SDK-direct reasoning as IamCheckService above.
       'packages/desktop-main/src/services/CloudHealthService.ts',
       'packages/desktop-main/src/services/CloudHealthService.test.ts',
+      // resolveAwsAccountId resolves sts:GetCallerIdentity to feed
+      // deriveStackPassphrase (pulumi-portable-passphrase) — no
+      // cloud-agnostic STS interface exists in @hyveon/shared/cloud.js,
+      // same AWS-SDK-direct reasoning as IamCheckService above.
+      'packages/desktop-main/src/services/PulumiWorkspaceService.ts',
+      'packages/desktop-main/src/services/PulumiWorkspaceService.test.ts',
     ],
     rules: {
       '@typescript-eslint/no-restricted-imports': ['error', {

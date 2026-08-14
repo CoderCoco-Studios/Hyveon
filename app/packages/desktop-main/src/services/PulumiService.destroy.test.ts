@@ -80,16 +80,16 @@ const TEST_USERNAME = 'test-initiator';
 const TEST_HOSTNAME = 'test-host';
 
 /** `bootstrap`/`aws`/`pulumi` fields `destroy()` reads off the store before ever calling Pulumi. */
-const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', passphrase: 'enc-secret', awsRegion: 'us-east-1' };
+const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', stackInitialized: true, awsRegion: 'us-east-1' };
 
 /** Builds a real `ElectronStoreService` (in-memory Map outside Electron) with the given fields pre-seeded — mirrors `PulumiService.apply.test.ts`'s identical helper. */
-function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?: string } = {}): ElectronStoreService {
+function makeStore(opts: { stateBucket?: string; stackInitialized?: boolean; awsRegion?: string } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
     store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
-  if (opts.passphrase !== undefined) {
-    store.set('pulumi', { passphrase: opts.passphrase });
+  if (opts.stackInitialized !== undefined) {
+    store.set('pulumi', { stackInitialized: opts.stackInitialized });
   }
   if (opts.awsRegion !== undefined) {
     store.set('aws', { region: opts.awsRegion });
@@ -97,7 +97,7 @@ function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?
   return store;
 }
 
-/** A fully-configured store (state bucket, passphrase, AWS region). */
+/** A fully-configured store (state bucket, stackInitialized, AWS region). */
 function makeFullyConfiguredStore(): ElectronStoreService {
   return makeStore(FULLY_CONFIGURED);
 }
@@ -470,13 +470,13 @@ describe('PulumiService.destroy confirmation gate', () => {
     // to fail an ordinary "is anything deployed yet" check doesn't also
     // burn the operator's single-use confirmation.
     //
-    // Uses the "stack never created" (missing passphrase) check rather than
-    // the state-bucket check specifically because `passphrase` is NOT part
-    // of target binding — minting with the bucket/region already configured
-    // (so the token's recorded target matches on retry) but the passphrase
-    // still unset isolates "was the token consumed" from "does the target
-    // still match", which changing the bucket between mint and retry would
-    // conflate.
+    // Uses the "stack never created" (no stackInitialized record) check
+    // rather than the state-bucket check specifically because
+    // `stackInitialized` is NOT part of target binding — minting with the
+    // bucket/region already configured (so the token's recorded target
+    // matches on retry) but `stackInitialized` still unset isolates "was the
+    // token consumed" from "does the target still match", which changing the
+    // bucket between mint and retry would conflate.
     const workspace = makeWorkspace(makeHappyPathDestroy());
     const store = makeStore({ stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' });
     const service = makeService({ workspace, store });
@@ -485,11 +485,11 @@ describe('PulumiService.destroy confirmation gate', () => {
     await expect(collectDestroyChunks(service.destroy(token))).rejects.toThrow(/no Pulumi stack has ever been created/i);
 
     // The token was NOT consumed by the first (no-stack-yet) attempt —
-    // record a passphrase on the SAME store in place and retry with the
+    // record stackInitialized on the SAME store in place and retry with the
     // SAME token on the SAME service instance: it must succeed, proving the
     // token is still valid rather than having been silently spent on the
     // earlier refusal.
-    store.set('pulumi', { passphrase: 'enc-secret' });
+    store.set('pulumi', { stackInitialized: true });
 
     await expect(collectDestroyChunks(service.destroy(token))).resolves.toBeDefined();
   });
@@ -595,7 +595,7 @@ describe('PulumiService.destroy gate ordering and reservations', () => {
 
     const store = new ElectronStoreService(new SafeStorageService());
     store.set('bootstrap', { stateBucket: 'my-state-bucket', configurationBucket: 'hyveon-config' });
-    store.set('pulumi', { passphrase: 'enc-secret' });
+    store.set('pulumi', { stackInitialized: true });
     store.set('aws', { region: 'us-east-1' });
 
     // preview()'s post-settlement plan-hash step reads the saved plan

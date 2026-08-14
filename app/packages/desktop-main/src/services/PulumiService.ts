@@ -39,12 +39,7 @@ import {
   PulumiEngineCacheWriteError,
 } from './PulumiEngineService.js';
 import type { PulumiPhaseCallback, PulumiProvisioningPhase } from './PulumiEngineService.js';
-import {
-  PULUMI_PROJECT_NAME,
-  PULUMI_STACK_NAME,
-  PulumiWorkspaceService,
-  PulumiPassphraseUnavailableError,
-} from './PulumiWorkspaceService.js';
+import { PULUMI_PROJECT_NAME, PULUMI_STACK_NAME, PulumiWorkspaceService } from './PulumiWorkspaceService.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
 import { AwsPastedCredentialDecryptError } from './awsCredentialSource.js';
 import {
@@ -634,6 +629,35 @@ export type PulumiDestroyOutcome =
   | { kind: 'failed'; error: PulumiDestroyError | PulumiUnrecognizedLockError };
 
 /**
+ * Whether this install has ever successfully created or selected the Pulumi
+ * stack, for the three UX-guard call sites below ({@link PulumiService.getStackOutputs},
+ * {@link PulumiService.destroy}, {@link PulumiService.clearStaleLock}) that
+ * need to distinguish "nothing to do yet" from a real operation attempt.
+ *
+ * @remarks
+ * `pulumi.stackInitialized` (see {@link ElectronStoreService}) is written
+ * going forward by every successful {@link PulumiWorkspaceService.getOrCreateStack}
+ * call, but an install that already had a stack deployed BEFORE this flag
+ * existed has no such record — it only has the now-deprecated
+ * `pulumi.passphrase` (see {@link PulumiWorkspaceService.migrateLegacyPassphrase}),
+ * which was written only when a stack had genuinely already been created.
+ * Treating that legacy field's presence as equivalent evidence backfills the
+ * signal for exactly one launch: `PulumiWorkspaceService.getOrCreateStack`'s
+ * own migration path clears `pulumi.passphrase` and sets `stackInitialized`
+ * on its next successful call, after which this legacy branch is inert for
+ * that install. Without this, an upgrading install with a real deployed
+ * stack would see `getStackOutputs` report `null` ("not deployed") and
+ * `destroy`/`clearStaleLock` refuse with "no stack has ever been created"
+ * until an unrelated stack operation happened to run first and set the flag.
+ *
+ * @param store - The store {@link PulumiService}'s three call sites already have.
+ */
+function hasEverCreatedOrSelectedStack(store: ElectronStoreService): boolean {
+  const pulumi = store.get('pulumi');
+  return pulumi?.stackInitialized === true || pulumi?.passphrase !== undefined;
+}
+
+/**
  * Pulumi-backed service — see this file's top-level doc comment (above) for
  * the full picture: the error classes, {@link getStackOutputs}, and
  * {@link preview}.
@@ -967,46 +991,39 @@ export class PulumiService {
    *
    * ## Never deployed yet: three independent short-circuits, no Pulumi call
    *
-   * A mere outputs *read* should never need to take the extra `listStacks()`
-   * round-trip {@link PulumiWorkspaceService.getOrCreateStack} performs for a
-   * genuinely-new stack — that round-trip exists to protect passphrase
-   * generation, and a read has no reason to pay
-   * for it when the store already makes "nothing has ever been deployed"
-   * obvious locally. So this method checks, in order, for evidence that a
-   * stack could possibly exist BEFORE ever calling into Pulumi, returning
-   * `null` immediately if any check fails:
+   * A mere outputs *read* should never make a real Pulumi call at all when
+   * the store already makes "nothing has ever been deployed" obvious
+   * locally. So this method checks, in order, for evidence that a stack
+   * could possibly exist BEFORE ever calling into Pulumi, returning `null`
+   * immediately if any check fails:
    *
    * 1. `bootstrap.stateBucket` is configured — no backend has even been
    *    bootstrapped otherwise (mirrors `PulumiBackendNotBootstrappedError`'s
    *    condition, checked here directly so the "not deployed" path never
    *    even constructs a `PulumiWorkspaceInput`).
-   * 2. A secrets passphrase is already stored
-   *    (`store.get('pulumi')?.passphrase !== undefined`) — this is exactly
-   *    the same local-record check
-   *    {@link PulumiWorkspaceService.getOrCreateStack} itself uses to decide
-   *    whether it can skip its own `listStacks()` probe (see
-   *    `PulumiWorkspaceService.resolveStoredPassphrase`'s doc comment): a
-   *    passphrase is only ever persisted the first time a stack is genuinely
-   *    created. Its absence means either nothing has ever been deployed from
-   *    this install, or a stack exists remotely with no local passphrase
-   *    record (`PulumiPassphraseUnavailableError`'s
-   *    `'existing-stack-no-local-record'` case, which
-   *    {@link PulumiWorkspaceService.getOrCreateStack} would now correctly
-   *    detect and refuse rather than misgenerate a passphrase for) — either
-   *    way, this method degrades to "not deployed" rather than pay for the
-   *    round-trip on a mere read.
+   * 2. `pulumi.stackInitialized` is `true` in the store
+   *    (`store.get('pulumi')?.stackInitialized === true`) — set by
+   *    {@link PulumiWorkspaceService.getOrCreateStack} only after a real
+   *    `Stack.createOrSelect` call has succeeded once for this install. Its
+   *    absence means nothing has ever been deployed from this install, so
+   *    this method degrades to "not deployed" rather than pay for a real
+   *    Pulumi round-trip on a mere read. Since the secrets passphrase is now
+   *    derived from the authenticated AWS account (see
+   *    {@link PulumiWorkspaceService.getOrCreateStack}), there is no longer a
+   *    "protect passphrase generation" concern this flag needs to guard —
+   *    the flag exists purely as a local shortcut to skip an unnecessary
+   *    round-trip, not to prevent an unsafe regeneration.
    * 3. `aws.region` is configured — needed to build the backend URL; absent
    *    only if the wizard's credentials step was never completed, which
    *    implies nothing was ever deployed either.
    *
    * **These three checks are a proxy for "a stack might exist", not a
-   * proof.** A destroyed stack, or a passphrase persisted by a failed/
+   * proof.** A destroyed stack, or `stackInitialized` left set by a failed/
    * abandoned create attempt, both leave the store looking exactly like
    * "existing stack" when the remote stack may not actually be there — this
    * is a best-effort no-create guarantee, not a proven one; but the WORST
-   * case if it's ever wrong is an extra `getOrCreateStack` round-trip (which
-   * safely determines the truth itself via `listStacks()`), never a
-   * corrupted passphrase, since {@link PulumiWorkspaceService.getOrCreateStack}
+   * case if it's ever wrong is an extra `getOrCreateStack` round-trip, never
+   * a corrupted stack, since {@link PulumiWorkspaceService.getOrCreateStack}
    * itself never trusts any caller's belief about stack existence at all.
    *
    * Only once all three checks pass does this call
@@ -1014,17 +1031,17 @@ export class PulumiService {
    * and a no-op `program` — reading `stack.outputs()` never invokes the
    * program; see below) and `stack.outputs()`, inside a
    * catch-all: ANY failure from either call — `PulumiBackendNotBootstrappedError`,
-   * `PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`,
-   * engine-resolution failures, or a `CommandError` from the underlying
-   * `pulumi stack output` invocation — is logged and degraded to `null`.
-   * This is a deliberate, blunt catch-all rather than a nuanced per-error
-   * classification: callers cannot tell "genuinely not deployed" apart from
-   * "deployed, but this read failed" from the return value alone, which is
-   * an acceptable trade against the alternative (an unhandled rejection
-   * reaching code that assumed synchronous-style read semantics never
-   * throw). A future change that wants callers to distinguish those cases
-   * should do so deliberately, call-site by call-site, not by loosening this
-   * method's contract back open.
+   * `PulumiCredentialsNotConfiguredError`, engine-resolution failures, or a
+   * `CommandError` from the underlying `pulumi stack output` invocation — is
+   * logged and degraded to `null`. This is a deliberate, blunt catch-all
+   * rather than a nuanced per-error classification: callers cannot tell
+   * "genuinely not deployed" apart from "deployed, but this read failed"
+   * from the return value alone, which is an acceptable trade against the
+   * alternative (an unhandled rejection reaching code that assumed
+   * synchronous-style read semantics never throw). A future change that
+   * wants callers to distinguish those cases should do so deliberately,
+   * call-site by call-site, not by loosening this method's contract back
+   * open.
    *
    * ## Why a no-op `program` is safe here
    *
@@ -1059,8 +1076,8 @@ export class PulumiService {
       return null;
     }
 
-    const hasStoredPassphrase = this.store.get('pulumi')?.passphrase !== undefined;
-    if (!hasStoredPassphrase) {
+    const stackInitialized = hasEverCreatedOrSelectedStack(this.store);
+    if (!stackInitialized) {
       return null;
     }
 
@@ -1220,7 +1237,7 @@ export class PulumiService {
    *    provisioning failure (`PulumiEngineNetworkError`/
    *    `PulumiEngineIntegrityError`/`PulumiEngineCacheWriteError`), and
    *    anything thrown strictly before `engine.resolve()` runs
-   *    (`PulumiPassphraseUnavailableError`, `PulumiCredentialsNotConfiguredError`)
+   *    (`PulumiCredentialsNotConfiguredError`, `AwsPastedCredentialDecryptError`)
    *    — none of the pre-engine cases has its own phase slot in this
    *    method's 3-phase model, so they bucket into
    *    'engine' as the closest fit.
@@ -1414,9 +1431,8 @@ export class PulumiService {
    * regardless of event timing — verified against
    * `PulumiWorkspaceService.getOrCreateStack`'s actual control flow
    * (`PulumiWorkspaceService.ts`): every pre-engine-or-engine failure is one
-   * of exactly six typed errors — {@link PulumiPassphraseUnavailableError},
-   * `PulumiCredentialsNotConfiguredError`, and
-   * `AwsPastedCredentialDecryptError` (all resolved/thrown before or without
+   * of exactly five typed errors — `PulumiCredentialsNotConfiguredError` and
+   * `AwsPastedCredentialDecryptError` (both resolved/thrown before or without
    * ever needing a genuine `LocalWorkspace.createOrSelectStack`/
    * `Stack.createOrSelect` round-trip against the backend — see below), or
    * one of `PulumiEngineNetworkError`/`PulumiEngineIntegrityError`/
@@ -1437,18 +1453,9 @@ export class PulumiService {
    * that in this typed class — credential resolution happens strictly
    * before `engine.resolve()` (see `getOrCreateStack`'s own body), so it is
    * genuinely a pre-engine failure.
-   *
-   * `PulumiPassphraseUnavailableError`'s `'existing-stack-no-local-record'`
-   * and `'new-stack-keychain-unavailable'` reasons can be thrown after
-   * `engine.resolve()` succeeds, once a genuine `LocalWorkspace` exists to
-   * probe (see {@link PulumiWorkspaceService.getOrCreateStack}'s "Call
-   * order" doc section) — irrelevant here, since this classifier keys on
-   * the thrown error's TYPE, never on which phase happened to be running
-   * when it was thrown.
    */
   private static classifyGetOrCreateStackFailure(err: unknown): 'engine' | 'operation' {
     const isPreEngineOrEngineFailure =
-      err instanceof PulumiPassphraseUnavailableError ||
       err instanceof PulumiCredentialsNotConfiguredError ||
       err instanceof AwsPastedCredentialDecryptError ||
       err instanceof PulumiEngineNetworkError ||
@@ -3663,7 +3670,8 @@ export class PulumiService {
    *   top-of-function busy check).
    * @throws A descriptive `Error` if `preMintedRunId` doesn't match
    *   {@link RUN_ID_PATTERN}, if the state bucket/region aren't configured, or
-   *   if no stack has ever been created (no passphrase on record).
+   *   if no stack has ever been created (no Pulumi stack initialization on
+   *   record).
    * @throws `RunLockHeldError` (`@hyveon/shared`, unwrapped) if the durable
    *   lock reservation loses its atomic race.
    * @throws {@link DestroyNotConfirmedError} if `confirmationToken` is
@@ -3758,11 +3766,11 @@ export class PulumiService {
             'Complete the bootstrap step before destroying.',
         );
       }
-      const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+      const stackExists = hasEverCreatedOrSelectedStack(this.store);
       if (!stackExists) {
         throw new Error(
           'Cannot run pulumi destroy: no Pulumi stack has ever been created for this installation ' +
-            '(no secrets passphrase on record) — nothing to destroy.',
+            '(no Pulumi stack initialization on record) — nothing to destroy.',
         );
       }
 
@@ -4618,11 +4626,11 @@ export class PulumiService {
           'Complete the bootstrap step first.',
       );
     }
-    const stackExists = this.store.get('pulumi')?.passphrase !== undefined;
+    const stackExists = hasEverCreatedOrSelectedStack(this.store);
     if (!stackExists) {
       throw new Error(
         'Cannot clear the Pulumi backend lock: no Pulumi stack has ever been created for this installation ' +
-          '(no secrets passphrase on record) — nothing to clear.',
+          '(no Pulumi stack initialization on record) — nothing to clear.',
       );
     }
 

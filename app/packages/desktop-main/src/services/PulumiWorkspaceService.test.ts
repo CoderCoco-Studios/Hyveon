@@ -1,48 +1,49 @@
 /**
  * Unit tests for `PulumiWorkspaceService` — the Automation API
- * workspace/backend/passphrase seam. `getOrCreateStack` builds the real
- * `LocalWorkspace` itself and, only when no LOCAL passphrase record exists,
- * asks that workspace's own `listStacks()` whether the stack already exists
- * in the REAL backend before ever generating a fresh passphrase.
+ * workspace/backend/passphrase seam. `getOrCreateStack` derives the secrets
+ * passphrase from the AWS account ID `resolveAwsAccountId` resolves (via a
+ * real `STSClient` instance, intercepted file-wide by `stsMock` — see
+ * `DEFAULT_TEST_ACCOUNT_ID`) and `deriveStackPassphrase`, sets it directly on
+ * `LocalWorkspaceOptions.envVars` before ever constructing the workspace, and
+ * calls `Stack.createOrSelect` — no more stored-passphrase branching and no
+ * more `workspace.listStacks()` backend probe.
  *
  * `ElectronStoreService`/`SafeStorageService` are used as *real* instances
- * (non-Electron Map-fallback path), not stubs — the spec-critical passphrase
- * scenarios depend on the actual interaction between this service and those
- * two collaborators (in particular, `SafeStorageService.decrypt()`'s silent
- * "return the raw ciphertext unchanged when the keychain is currently
- * unavailable" behaviour — see `PulumiWorkspaceService.resolvePassphrase`'s
- * doc comment). `SafeStorageService.encrypt`/`decrypt` are spied with a
- * reversible `enc-<plaintext>` transform (mirroring
- * `ElectronStoreService.test.ts`'s round-trip helper) rather than left
- * un-stubbed, because the real implementation would otherwise require the
- * native `electron` module once `isAvailable()` is mocked `true`. Only
- * `PulumiEngineService` (whose own resolution is already covered by its own
- * test file) and the Pulumi SDK itself are module-mocked.
+ * (non-Electron Map-fallback path), not stubs, for tests exercising
+ * credential resolution and the `pulumi.stackInitialized` bookkeeping flag.
+ * `SafeStorageService.encrypt`/`decrypt` are spied with a reversible
+ * `enc-<plaintext>` transform (mirroring `ElectronStoreService.test.ts`'s
+ * round-trip helper) rather than left un-stubbed, because the real
+ * implementation would otherwise require the native `electron` module once
+ * `isAvailable()` is mocked `true`. Only `PulumiEngineService` (whose own
+ * resolution is already covered by its own test file) and the Pulumi SDK
+ * itself are module-mocked.
  *
  * ## Mocking `LocalWorkspace.create` / `Stack.createOrSelect`
  *
  * `getOrCreateStack` builds the workspace itself via the lower-level
- * `LocalWorkspace.create(opts)`, then (only when no local passphrase is
- * stored) calls `ws.listStacks()` on it, then calls `Stack.createOrSelect`
- * with that same instance — rather than the single convenience
+ * `LocalWorkspace.create(opts)`, then calls `Stack.createOrSelect` with that
+ * same instance — rather than the single convenience
  * `LocalWorkspace.createOrSelectStack(args, opts)` call. `createMock`
  * (mocking `LocalWorkspace.create`) resolves with a fake, mutable `ws`
  * object carrying its own `envVars` (a shallow copy of `opts.envVars`,
- * mirroring the real SDK's constructor) and a `listStacks` mock — so the
- * production code's `ws.envVars['PULUMI_CONFIG_PASSPHRASE'] = passphrase`
- * mutation is observable via the SAME object `createOrSelectMock` is later
- * called with.
+ * mirroring the real SDK's constructor), so `createOrSelectWs()` below can
+ * read the exact `PULUMI_CONFIG_PASSPHRASE` value the production code built
+ * `opts.envVars` with.
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import type { Writable } from 'node:stream';
 
-const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock } = vi.hoisted(() => ({
+const { createMock, createOrSelectMock, mkdirSyncMock, existsSyncMock, loggerMock, spawnMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
   createOrSelectMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
   loggerMock: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  spawnMock: vi.fn(),
 }));
 
 vi.mock('@pulumi/pulumi/automation/index.js', () => ({
@@ -51,6 +52,14 @@ vi.mock('@pulumi/pulumi/automation/index.js', () => ({
 }));
 
 vi.mock('node:fs', () => ({ mkdirSync: mkdirSyncMock, existsSync: existsSyncMock }));
+
+// Mocked file-wide for the legacy-passphrase-migration describe block below —
+// `migrateLegacyPassphrase` spawns the resolved `pulumi` binary directly
+// (see that method's own doc comment for why: no public Automation API
+// covers `stack change-secrets-provider`). Tests build a minimal fake
+// `ChildProcess`-shaped `EventEmitter` with `stdin`/`stderr` streams via
+// {@link fakeChildProcess} rather than letting a real process spawn.
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
 // Mocked file-wide — this hoisted `vi.mock` replaces the module for every
 // test in this file, not only the "credentials are not logged" describe
@@ -64,18 +73,37 @@ import type { PulumiFn, Stack } from '@pulumi/pulumi/automation/index.js';
 import {
   PulumiWorkspaceService,
   PulumiBackendNotBootstrappedError,
-  PulumiPassphraseUnavailableError,
   PULUMI_STACK_NAME,
   PULUMI_PROJECT_NAME,
+  deriveStackPassphrase,
+  resolveAwsAccountId,
   type PulumiWorkspaceInput,
 } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService } from './PulumiEngineService.js';
 import { SafeStorageService } from './SafeStorageService.js';
 import { ElectronStoreService } from './ElectronStoreService.js';
 import { resolveCredentialEnvVars, PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
+import { mockClient } from 'aws-sdk-client-mock';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
+
+/**
+ * Typed stand-in for the AWS STS SDK client, shared across the
+ * `resolveAwsAccountId` tests below — see `IamCheckService.test.ts` for the
+ * same convention.
+ */
+const stsMock = mockClient(STSClient);
 
 /** Minimal `PulumiCommand`-shaped object the mocked SDK is given. */
 const FAKE_COMMAND = { command: '/fake/userData/pulumi/versions/3.255.0/bin/pulumi', version: null };
+
+/**
+ * The AWS account ID `stsMock` returns by default for every test in this
+ * file — `getOrCreateStack` now calls `resolveAwsAccountId` unconditionally
+ * (via a real `STSClient` instance, intercepted file-wide by `stsMock`), so
+ * every test needs a `GetCallerIdentity` response even when it isn't
+ * exercising `resolveAwsAccountId`/`deriveStackPassphrase` directly.
+ */
+const DEFAULT_TEST_ACCOUNT_ID = '111122223333';
 
 /** Fake `Stack` the mocked `Stack.createOrSelect` resolves with. */
 const FAKE_STACK = { name: PULUMI_STACK_NAME } as Partial<Stack> as Stack;
@@ -86,7 +114,6 @@ const FAKE_PROGRAM: PulumiFn = async () => ({});
 /** Shape of the fake workspace object `createMock` resolves with — see this file's own doc comment. */
 interface FakeWorkspace {
   envVars: Record<string, string>;
-  listStacks: ReturnType<typeof vi.fn>;
   pulumiHome?: string;
   workDir?: string;
   secretsProvider?: string;
@@ -166,7 +193,7 @@ function makeService(opts?: {
   const safeStorage = opts?.safeStorage ?? makeAvailableSafeStorage();
   const store = opts?.store ?? makeStoreWithDefaultCredentials(safeStorage);
   const engine = opts?.engine ?? stubEngine();
-  const service = new TestablePulumiWorkspaceService(engine, safeStorage, store);
+  const service = new TestablePulumiWorkspaceService(engine, store);
   vi.spyOn(service, 'resolveUserDataPath').mockReturnValue(opts?.userDataPath ?? '/fake/userData');
   return { service, engine, safeStorage, store };
 }
@@ -213,12 +240,63 @@ function createOpts(callIndex = 0) {
 
 /**
  * Extracts the fake `ws` object `Stack.createOrSelect` was called with for
- * the `callIndex`-th `getOrCreateStack` call (0-based) — carries the FINAL
- * envVars, including `PULUMI_CONFIG_PASSPHRASE`, since this service mutates
- * `ws.envVars` in place after the stored or new passphrase resolves.
+ * the `callIndex`-th `getOrCreateStack` call (0-based) — carries the same
+ * `envVars` (including the derived `PULUMI_CONFIG_PASSPHRASE`) that
+ * `LocalWorkspace.create` was called with, since the passphrase is now set
+ * directly on `opts.envVars` before workspace construction.
  */
 function createOrSelectWs(callIndex = 0): FakeWorkspace {
   return createOrSelectMock.mock.calls[callIndex]![1] as FakeWorkspace;
+}
+
+/**
+ * Minimal `ChildProcess`-shaped fake for `migrateLegacyPassphrase`'s
+ * `spawn()` seam: a plain `EventEmitter` (for `'error'`/`'close'`) with a
+ * `stdin` writable that records what was written to it (the new passphrase,
+ * per the Step 3.0 spike's finding that it's supplied via stdin, not an env
+ * var) and a `stderr` readable `EventEmitter` `runChangeSecretsProviderCli`
+ * accumulates for its failure message.
+ *
+ * Queues one `spawnMock` return value that resolves/rejects on the next
+ * microtask (`queueMicrotask`) so a test can simply `await` the
+ * `getOrCreateStack` call that triggers it, rather than manually
+ * interleaving the fake process's events with the production `await` chain.
+ */
+function queueSpawnResult(result: { code: number | null } | { error: Error }): {
+  stdinWrites: string[];
+} {
+  const stdinWrites: string[] = [];
+  const stderr = new EventEmitter();
+  // A real Writable (or the production `child.stdin`) is an EventEmitter —
+  // `runChangeSecretsProviderCli`'s EPIPE-safety listener calls `.on('error', ...)`
+  // on it, so the fake must be one too, not just an object with `write`/`end`.
+  // Typed as this minimal interface (not `Partial<Writable>`) because
+  // `Writable`'s full `addListener` overload set is what an `Object.assign`
+  // onto a real `EventEmitter` can't structurally satisfy — production code
+  // only ever calls `write`/`end`/`on('error', ...)` on `child.stdin`.
+  type FakeStdin = Pick<Writable, 'write' | 'end'> & EventEmitter;
+  const stdin: FakeStdin = Object.assign(new EventEmitter(), {
+    write: vi.fn((chunk: string) => {
+      stdinWrites.push(chunk);
+      return true;
+    }),
+    end: vi.fn(),
+  }) as FakeStdin;
+  const emitter = Object.assign(new EventEmitter(), { stdin, stderr }) as EventEmitter & {
+    stdin: FakeStdin;
+    stderr: EventEmitter;
+  };
+  spawnMock.mockImplementationOnce(() => {
+    queueMicrotask(() => {
+      if ('error' in result) {
+        emitter.emit('error', result.error);
+      } else {
+        emitter.emit('close', result.code);
+      }
+    });
+    return emitter;
+  });
+  return { stdinWrites };
 }
 
 beforeEach(() => {
@@ -230,6 +308,13 @@ beforeEach(() => {
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  spawnMock.mockReset();
+  stsMock.reset();
+  // Default: every test's implicit `resolveAwsAccountId` call (via the real
+  // `STSClient` `getOrCreateStack` constructs) resolves to a fixed account
+  // ID — tests that care about the derived passphrase's exact value or a
+  // different account override this explicitly.
+  stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
 
   // Default: no `Pulumi.{yaml,yml,json}` exists yet in `workDir` (a brand-new
   // workspace directory) — every test that cares about an EXISTING project
@@ -238,16 +323,13 @@ beforeEach(() => {
 
   // `LocalWorkspace.create` resolves with a fake, mutable workspace whose
   // `envVars` starts as a shallow copy of what was passed in (mirroring the
-  // real SDK's constructor — see this file's own doc comment) and whose
-  // `listStacks()` defaults to "nothing exists yet" (the overwhelmingly
-  // common case in these tests: a genuinely new stack, or a stack this same
-  // install already created and therefore never even calls `listStacks` at
-  // all — see the "no local passphrase" describe block below for why).
+  // real SDK's constructor — see this file's own doc comment). No more
+  // `listStacks()` — the derive-then-`createOrSelect` model never probes the
+  // real backend to disambiguate a passphrase.
   createMock.mockImplementation(async (opts: { envVars?: Record<string, string> }) => {
     const ws: FakeWorkspace = {
       ...opts,
       envVars: { ...opts.envVars },
-      listStacks: vi.fn().mockResolvedValue([]),
     };
     return ws;
   });
@@ -445,9 +527,7 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
   });
 
   it('should re-classify a missing-bucket-shaped failure from Stack.createOrSelect into PulumiBackendNotBootstrappedError as a backstop', async () => {
-    const { service, store } = makeService();
-    // Fast path (stored passphrase) so `Stack.createOrSelect` is reached without a `listStacks` probe.
-    store.setPulumiPassphrase('already-stored');
+    const { service } = makeService();
     createOrSelectMock.mockRejectedValueOnce(
       new Error('unable to get metadata: NoSuchBucket: The specified bucket does not exist'),
     );
@@ -473,192 +553,107 @@ describe('PulumiWorkspaceService.getOrCreateStack — backend-not-bootstrapped',
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — passphrase generated once and reused', () => {
-  it('should generate and store a passphrase on first use, then reuse the identical value on later calls', async () => {
-    const { service, store } = makeService();
+describe('PulumiWorkspaceService.getOrCreateStack — derived passphrase (portability fix)', () => {
+  it('should derive and use a passphrase on first-ever stack creation, with no listStacks probe', async () => {
+    const { service } = makeService();
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
+
+    await service.getOrCreateStack(baseInput());
+
+    const ws = createOrSelectWs();
+    expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+    // No more real-backend probe to disambiguate a passphrase — nothing in
+    // the fake workspace exposes `listStacks` any more (see this file's own
+    // doc comment on `FakeWorkspace`).
+    expect('listStacks' in createOrSelectWs()).toBe(false);
+  });
+
+  it('should select an already-existing stack on the SAME machine, deriving the identical passphrase as the prior call', async () => {
+    const { service } = makeService();
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
 
     await service.getOrCreateStack(baseInput());
     const firstPassphrase = createOrSelectWs(0).envVars['PULUMI_CONFIG_PASSPHRASE'];
-    expect(firstPassphrase).toBeTruthy();
-    expect(store.get('pulumi')?.passphrase).toBeDefined();
-    // Confirms the store holds the *encrypted* form, not the plaintext used in envVars.
-    expect(store.get('pulumi')?.passphrase).toBe(`enc-${firstPassphrase}`);
 
-    // The stack now genuinely exists (a real passphrase is now stored) — this
-    // second call must take the fast, already-stored-passphrase path.
     await service.getOrCreateStack(baseInput());
     const secondPassphrase = createOrSelectWs(1).envVars['PULUMI_CONFIG_PASSPHRASE'];
 
     expect(secondPassphrase).toBe(firstPassphrase);
   });
 
-  it('should generate a passphrase with at least 256 bits of entropy (32+ raw bytes)', async () => {
-    const { service } = makeService();
+  it('should select an already-existing stack from a SECOND machine with no local passphrase record, deriving the identical passphrase without error', async () => {
+    // "First machine": a store that has already interacted with this stack.
+    const firstMachineSafeStorage = makeAvailableSafeStorage();
+    const firstMachineStore = new ElectronStoreService(firstMachineSafeStorage);
+    firstMachineStore.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const { service: firstMachineService } = makeService({
+      safeStorage: firstMachineSafeStorage,
+      store: firstMachineStore,
+    });
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
+    await firstMachineService.getOrCreateStack(baseInput());
+    const firstMachinePassphrase = createOrSelectWs(0).envVars['PULUMI_CONFIG_PASSPHRASE'];
 
-    await service.getOrCreateStack(baseInput());
+    // "Second machine": a completely fresh store with no `pulumi` key at all
+    // — exactly like a reinstall, a wiped userData, or a second machine
+    // pointed at the same state bucket. Before the passphrase-derivation
+    // change, this scenario threw a typed "no local passphrase record"
+    // error — this is the literal regression test for the bug that change
+    // fixed.
+    const secondMachineSafeStorage = makeAvailableSafeStorage();
+    const secondMachineStore = new ElectronStoreService(secondMachineSafeStorage);
+    secondMachineStore.set('aws', { region: 'us-west-2', profile: 'personal' });
+    const { service: secondMachineService } = makeService({
+      safeStorage: secondMachineSafeStorage,
+      store: secondMachineStore,
+    });
+    // Same AWS account authenticates from the second machine — the whole
+    // point of deriving from the account ID rather than storing locally.
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: DEFAULT_TEST_ACCOUNT_ID });
 
-    const passphrase = createOrSelectWs().envVars['PULUMI_CONFIG_PASSPHRASE'];
-    // base64 of N bytes decodes back to N bytes.
-    expect(Buffer.from(passphrase, 'base64').length).toBeGreaterThanOrEqual(32);
+    await secondMachineService.getOrCreateStack(baseInput());
+
+    expect(createOrSelectMock).toHaveBeenCalledTimes(2);
+    const secondMachinePassphrase = createOrSelectWs(1).envVars['PULUMI_CONFIG_PASSPHRASE'];
+    expect(secondMachinePassphrase).toBe(firstMachinePassphrase);
+    expect(secondMachinePassphrase).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
   });
 
-  it('should throw PulumiPassphraseUnavailableError and write nothing when the keychain is unavailable for a brand-new stack', async () => {
-    const safeStorage = new SafeStorageService();
-    vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(false);
-    const store = new ElectronStoreService(safeStorage);
-    const { service } = makeService({ safeStorage, store });
+  it('should normalize and rethrow a plain Error when sts:GetCallerIdentity fails, and log it via logger.warn', async () => {
+    const { service } = makeService();
+    stsMock.on(GetCallerIdentityCommand).rejects(new Error('expired credentials'));
 
-    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
+    const caught = await service.getOrCreateStack(baseInput()).catch((err: unknown) => err);
 
-    expect(createOrSelectMock).not.toHaveBeenCalled();
-    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('expired credentials');
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('sts:GetCallerIdentity failed'),
+      expect.objectContaining({ error: 'expired credentials' }),
+    );
+    // The STS failure must never be misclassified as a missing-bucket /
+    // not-bootstrapped error — that reclassification only applies to
+    // `LocalWorkspace.create`/`Stack.createOrSelect` failures.
+    expect(caught).not.toBeInstanceOf(PulumiBackendNotBootstrappedError);
   });
 });
 
-describe('PulumiWorkspaceService.getOrCreateStack — missing passphrase for an existing stack fails loudly (spec-critical)', () => {
-  /**
-   * Simulates "a stack already exists" by pre-populating the store with a
-   * passphrase entry via a real `setPulumiPassphrase` call — exercising the
-   * exact accessor pair `PulumiWorkspaceService` itself uses, rather than
-   * poking the schema directly.
-   */
-  function seedExistingPassphrase(safeStorage: SafeStorageService): ElectronStoreService {
-    const store = new ElectronStoreService(safeStorage);
-    store.setPulumiPassphrase('original-passphrase-that-encrypted-real-state');
-    return store;
-  }
+describe('PulumiWorkspaceService.getOrCreateStack — pulumi.stackInitialized bookkeeping', () => {
+  it('should set pulumi.stackInitialized after successfully creating/selecting a stack', async () => {
+    const { service, store } = makeService();
 
-  it('should throw PulumiPassphraseUnavailableError and never call Stack.createOrSelect when the keychain is currently unavailable', async () => {
-    const safeStorage = makeAvailableSafeStorage(); // available while seeding
-    const store = seedExistingPassphrase(safeStorage);
-    const storedBefore = store.get('pulumi')?.passphrase;
+    await service.getOrCreateStack(baseInput());
 
-    // Keychain goes unavailable for the actual operation.
-    vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(false);
-    const { service } = makeService({ safeStorage, store });
-
-    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
-
-    expect(createOrSelectMock).not.toHaveBeenCalled();
-    // Never silently regenerated — the original ciphertext is untouched.
-    expect(store.get('pulumi')?.passphrase).toBe(storedBefore);
+    expect(store.get('pulumi')?.stackInitialized).toBe(true);
   });
 
-  it('should throw PulumiPassphraseUnavailableError and never call Stack.createOrSelect when the stored ciphertext cannot be decrypted', async () => {
-    const safeStorage = makeAvailableSafeStorage();
-    const store = seedExistingPassphrase(safeStorage);
-    const storedBefore = store.get('pulumi')?.passphrase;
+  it('should not set pulumi.stackInitialized when createOrSelect fails', async () => {
+    const { service, store } = makeService();
+    createOrSelectMock.mockRejectedValueOnce(new Error('some unrelated CLI failure'));
 
-    // Corrupted/foreign ciphertext: safeStorage is available, but decrypting
-    // this particular blob fails (e.g. encrypted on a different machine).
-    vi.spyOn(safeStorage, 'decrypt').mockImplementation(() => {
-      throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');
-    });
-    const { service } = makeService({ safeStorage, store });
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow('some unrelated CLI failure');
 
-    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
-
-    expect(createOrSelectMock).not.toHaveBeenCalled();
-    expect(store.get('pulumi')?.passphrase).toBe(storedBefore);
-  });
-
-  it('should never silently generate a replacement passphrase that could not decrypt the existing stack', async () => {
-    const safeStorage = makeAvailableSafeStorage();
-    const store = seedExistingPassphrase(safeStorage);
-    const originalCiphertext = store.get('pulumi')?.passphrase;
-
-    vi.spyOn(safeStorage, 'decrypt').mockImplementation(() => {
-      throw new Error('decrypt failed');
-    });
-    const setSpy = vi.spyOn(store, 'setPulumiPassphrase');
-    const { service } = makeService({ safeStorage, store });
-
-    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(PulumiPassphraseUnavailableError);
-
-    // The write path was never even attempted.
-    expect(setSpy).not.toHaveBeenCalled();
-    expect(store.get('pulumi')?.passphrase).toBe(originalCiphertext);
-  });
-
-  describe('Finding 1 (final review): reinstall / wiped userData / second machine against an existing remote stack', () => {
-    it('should throw PulumiPassphraseUnavailableError with reason existing-stack-no-local-record when listStacks reports the stack already exists remotely and no local passphrase was ever stored', async () => {
-      // No seeding at all — nothing has ever been stored locally, exactly
-      // like a reinstall or a second machine pointed at the same state
-      // bucket. Before Finding 1's fix, this scenario was indistinguishable
-      // from a genuinely brand-new stack and silently generated a fresh,
-      // WRONG passphrase (permanently wedging the install). The fix: query
-      // the REAL backend via `listStacks()` before ever deciding.
-      const safeStorage = makeAvailableSafeStorage();
-      const store = new ElectronStoreService(safeStorage);
-      store.set('aws', { region: 'us-west-2', profile: 'personal' });
-      const setSpy = vi.spyOn(store, 'setPulumiPassphrase');
-      const { service } = makeService({ safeStorage, store });
-      // Simulate the remote backend genuinely already having this stack —
-      // `listStacks()` (queried against the real `s3://` backend in
-      // production) returns a summary for PULUMI_STACK_NAME.
-      createMock.mockImplementationOnce(async (opts: { envVars?: Record<string, string> }) => ({
-        ...opts,
-        envVars: { ...opts.envVars },
-        listStacks: vi.fn().mockResolvedValue([{ name: PULUMI_STACK_NAME, current: true }]),
-      }));
-
-      let caught: unknown;
-      try {
-        await service.getOrCreateStack(baseInput());
-      } catch (err) {
-        caught = err;
-      }
-
-      expect(caught).toBeInstanceOf(PulumiPassphraseUnavailableError);
-      expect((caught as PulumiPassphraseUnavailableError).reason).toBe('existing-stack-no-local-record');
-      expect(createOrSelectMock).not.toHaveBeenCalled();
-      // Critically: no passphrase was silently generated and persisted for a
-      // stack that already has real, different encrypted state remotely.
-      expect(setSpy).not.toHaveBeenCalled();
-      expect(store.get('pulumi')?.passphrase).toBeUndefined();
-    });
-
-    it('should call listStacks on the SAME workspace it later hands to Stack.createOrSelect, not a second instance', async () => {
-      const safeStorage = makeAvailableSafeStorage();
-      const store = new ElectronStoreService(safeStorage);
-      store.set('aws', { region: 'us-west-2', profile: 'personal' });
-      const { service } = makeService({ safeStorage, store });
-
-      await service.getOrCreateStack(baseInput());
-
-      expect(createMock).toHaveBeenCalledOnce();
-      const ws = createOrSelectWs();
-      expect(ws.listStacks).toHaveBeenCalledOnce();
-    });
-
-    it('should generate and persist a new passphrase when listStacks confirms the stack does not exist remotely (genuinely new stack, unaffected by the fix)', async () => {
-      const safeStorage = makeAvailableSafeStorage();
-      const store = new ElectronStoreService(safeStorage);
-      store.set('aws', { region: 'us-west-2', profile: 'personal' });
-      const { service } = makeService({ safeStorage, store });
-      // Default createMock impl already resolves listStacks() to `[]` — the
-      // genuinely-new-stack case this fix must not regress.
-
-      await service.getOrCreateStack(baseInput());
-
-      const ws = createOrSelectWs();
-      expect(ws.listStacks).toHaveBeenCalledOnce();
-      expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBeTruthy();
-      expect(store.get('pulumi')?.passphrase).toBeDefined();
-    });
-
-    it('should never call listStacks at all when a passphrase is already stored locally (common-case path is unaffected)', async () => {
-      const safeStorage = makeAvailableSafeStorage();
-      const store = new ElectronStoreService(safeStorage);
-      store.set('aws', { region: 'us-west-2', profile: 'personal' });
-      store.setPulumiPassphrase('already-stored-passphrase');
-      const { service } = makeService({ safeStorage, store });
-
-      await service.getOrCreateStack(baseInput());
-
-      const ws = createOrSelectWs();
-      expect(ws.listStacks).not.toHaveBeenCalled();
-    });
+    expect(store.get('pulumi')?.stackInitialized).toBeUndefined();
   });
 });
 
@@ -845,20 +840,6 @@ describe('PulumiWorkspaceService.getOrCreateStack — elapsed-time logging', () 
       expect.objectContaining({ elapsedMs: expect.any(Number) }),
     );
   });
-
-  it('should log elapsedMs around the listStacks probe on the no-local-passphrase path', async () => {
-    const safeStorage = makeAvailableSafeStorage();
-    const store = new ElectronStoreService(safeStorage);
-    store.set('aws', { region: 'us-west-2', profile: 'personal' });
-    const { service } = makeService({ safeStorage, store });
-
-    await service.getOrCreateStack(baseInput());
-
-    expect(loggerMock.debug).toHaveBeenCalledWith(
-      'PulumiWorkspaceService: listStacks resolved',
-      expect.objectContaining({ elapsedMs: expect.any(Number), stackCount: 0 }),
-    );
-  });
 });
 
 describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () => {
@@ -877,5 +858,228 @@ describe('PulumiWorkspaceService.getOrCreateStack — onPhase forwarding', () =>
     await service.getOrCreateStack(baseInput());
 
     expect(engine.resolve).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('PulumiWorkspaceService.getOrCreateStack — legacy passphrase migration', () => {
+  /** The legacy plaintext passphrase seeded into the store for these tests. */
+  const LEGACY_PASSPHRASE = 'legacy-random-value';
+
+  it('should re-encrypt via the CLI and remove the legacy store entry when a legacy passphrase is present', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    const spawned = queueSpawnResult({ code: 0 });
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(spawnMock).toHaveBeenCalledOnce();
+    const [command, args, opts] = spawnMock.mock.calls[0] as [string, string[], { env: Record<string, string> }];
+    expect(command).toBe(FAKE_COMMAND.command);
+    expect(args).toEqual(['stack', 'change-secrets-provider', 'passphrase', '--stack', PULUMI_STACK_NAME, '--non-interactive']);
+    // Old passphrase decrypts the current provider via the env var...
+    expect(opts.env['PULUMI_CONFIG_PASSPHRASE']).toBe(LEGACY_PASSPHRASE);
+    // ...new passphrase is supplied over stdin (the Step 3.0 spike finding),
+    // as a single line, no confirmation.
+    expect(spawned.stdinWrites).toEqual([`${deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME)}\n`]);
+
+    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    // The real operation still proceeds with the NEW derived passphrase.
+    const ws = createOrSelectWs();
+    expect(ws.envVars['PULUMI_CONFIG_PASSPHRASE']).toBe(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should log stack name only, never either passphrase value, on successful migration', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 0 });
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: migrated legacy passphrase to derived value',
+      { stackName: PULUMI_STACK_NAME },
+    );
+    const allLoggerCalls = [
+      ...loggerMock.debug.mock.calls,
+      ...loggerMock.info.mock.calls,
+      ...loggerMock.warn.mock.calls,
+      ...loggerMock.error.mock.calls,
+    ];
+    const serialized = JSON.stringify(allLoggerCalls);
+    expect(serialized).not.toContain(LEGACY_PASSPHRASE);
+    expect(serialized).not.toContain(deriveStackPassphrase(DEFAULT_TEST_ACCOUNT_ID, PULUMI_STACK_NAME));
+  });
+
+  it('should leave the legacy passphrase in the store when re-encryption fails, so the next call retries with the same value', async () => {
+    const { service, store } = makeService();
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    queueSpawnResult({ code: 1 });
+
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(
+      /Failed to migrate the legacy Pulumi secrets passphrase/,
+    );
+    expect(store.get('pulumi')?.passphrase).toBeDefined();
+    expect(store.getPulumiPassphrase()).toBe(LEGACY_PASSPHRASE);
+    expect(createOrSelectMock).not.toHaveBeenCalled();
+
+    // Retry: the CLI succeeds this time.
+    queueSpawnResult({ code: 0 });
+    await service.getOrCreateStack(baseInput());
+
+    expect(store.get('pulumi')?.passphrase).toBeUndefined();
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should not attempt migration at all when no legacy passphrase is stored', async () => {
+    const { service } = makeService();
+
+    await service.getOrCreateStack(baseInput());
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).toHaveBeenCalledOnce();
+  });
+
+  it('should fail with a clear keychain-unavailable error before attempting migration, when a legacy passphrase is stored but the keychain is unavailable', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = makeStoreWithDefaultCredentials(safeStorage);
+    store.setPulumiPassphrase(LEGACY_PASSPHRASE);
+    // Keychain becomes unavailable AFTER the legacy value was written —
+    // mirrors a keychain that's locked/unavailable at read time, per
+    // `SafeStorageService.decrypt`'s own remarks on write/read-time
+    // availability mismatches.
+    vi.spyOn(safeStorage, 'isAvailable').mockReturnValue(false);
+    const { service } = makeService({ safeStorage, store });
+
+    await expect(service.getOrCreateStack(baseInput())).rejects.toThrow(/OS keychain is currently unavailable/);
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(createOrSelectMock).not.toHaveBeenCalled();
+    // Legacy entry must be left untouched — same retry-safety contract as
+    // any other migration failure.
+    expect(store.get('pulumi')?.passphrase).toBeDefined();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'PulumiWorkspaceService: cannot migrate the legacy Pulumi passphrase because the OS keychain is unavailable',
+      { stackName: PULUMI_STACK_NAME },
+    );
+  });
+});
+
+describe('deriveStackPassphrase', () => {
+  it('should return the exact pinned digest for a fixed accountId/stackName pair, regression-pinning the derivation salt', () => {
+    // Computed once via a scratch Node script using the real
+    // PULUMI_PASSPHRASE_DERIVATION_SALT constant and HMAC-SHA256
+    // implementation, then hard-coded here as the expected RESULT — not
+    // recomputed at test time — so this test fails if the salt or the
+    // accountId/stackName concatenation order ever changes silently.
+    const result = deriveStackPassphrase('123456789012', 'production');
+
+    expect(result).toBe('d5a065d09f8c3ffc70f947e5670b107eff693bbc80058818cbe7938ceb86e3e0');
+  });
+
+  it('should produce a different passphrase for a different accountId, same stackName', () => {
+    const first = deriveStackPassphrase('123456789012', 'production');
+    const second = deriveStackPassphrase('999999999999', 'production');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('should produce a different passphrase for a different stackName, same accountId', () => {
+    const first = deriveStackPassphrase('123456789012', 'production');
+    const second = deriveStackPassphrase('123456789012', 'staging');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('should always return a 64-character lowercase hex string', () => {
+    const result = deriveStackPassphrase('123456789012', 'production');
+
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('resolveAwsAccountId', () => {
+  /**
+   * Builds a genuine `STSClient` instance for `stsClientFactory` tests to
+   * return — construction performs no network I/O, so this is safe to call
+   * directly in a test. The module-level `stsMock` (`aws-sdk-client-mock`)
+   * intercepts `send()` on every `STSClient` instance, including this one,
+   * so each test controls the `GetCallerIdentity` response via
+   * `stsMock.on(GetCallerIdentityCommand)` rather than spying on the
+   * instance directly — the same convention as `IamCheckService.test.ts`,
+   * and one that avoids `vi.spyOn`'s overload-inference problems against
+   * `STSClient.send`'s heavily overloaded signature.
+   */
+  function stubStsClient(): STSClient {
+    return new STSClient({ region: 'us-west-2', credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' } });
+  }
+
+  it('should return the Account field from a successful GetCallerIdentity call', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient());
+
+    const result = await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    expect(result).toBe('123456789012');
+  });
+
+  it('should pass the resolved credentials (pasted keys) to the STS client factory', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'hyveon-pasted' });
+    store.setPastedCredentials('hyveon-pasted', { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' });
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient());
+
+    await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    expect(stsClientFactory).toHaveBeenCalledWith({
+      region: 'us-west-2',
+      credentials: { accessKeyId: 'AKID123', secretAccessKey: 'SECRET456' },
+    });
+  });
+
+  it('should pass fromIni-shaped credentials to the STS client factory for a profile source', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient());
+
+    await resolveAwsAccountId(store, 'us-west-2', stsClientFactory);
+
+    const call = stsClientFactory.mock.calls[0]![0] as { region: string; credentials: unknown };
+    expect(call.region).toBe('us-west-2');
+    // `resolveAwsClientCredentials`'s doc comment describes the 'profile'
+    // case as `fromIni({ profile })`'s return value — a function — so this
+    // asserts that shape rather than the provider function's internals.
+    expect(typeof call.credentials).toBe('function');
+  });
+
+  it('should throw when GetCallerIdentity resolves with no Account field', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    stsMock.on(GetCallerIdentityCommand).resolves({});
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient());
+
+    await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
+      'sts:GetCallerIdentity did not return an AWS account ID.',
+    );
+  });
+
+  it('should propagate a raw STS client error unchanged', async () => {
+    const safeStorage = makeAvailableSafeStorage();
+    const store = new ElectronStoreService(safeStorage);
+    store.set('aws', { region: 'us-west-2', profile: 'personal' });
+    stsMock.on(GetCallerIdentityCommand).rejects(new Error('some unrelated STS failure'));
+    const stsClientFactory = vi.fn().mockReturnValue(stubStsClient());
+
+    await expect(resolveAwsAccountId(store, 'us-west-2', stsClientFactory)).rejects.toThrow(
+      'some unrelated STS failure',
+    );
   });
 });

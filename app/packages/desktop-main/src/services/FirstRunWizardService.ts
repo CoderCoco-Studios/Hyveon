@@ -186,10 +186,16 @@ export class FirstRunWizardService {
    * credentials/guided-IAM steps). The operator-facing escape hatch for a
    * wizard stuck in a bad state with no other way to start over.
    *
-   * Deliberately does **not** touch `pulumi.*` (passphrase, lock-ownership
-   * records, orphaned-rollback marker) — that state belongs to an
-   * already-provisioned Pulumi stack, not wizard progress, and clearing the
-   * passphrase would make that stack's encrypted state undecryptable.
+   * Deliberately does **not** touch `pulumi.*` (`stackInitialized`, the
+   * legacy `passphrase` field for as long as it can still exist mid-
+   * migration, lock-ownership records, orphaned-rollback marker) — that
+   * state belongs to an already-provisioned Pulumi stack, not wizard
+   * progress. `stackInitialized` is bookkeeping for a stack that already
+   * exists, not a wizard answer to replay. The legacy `passphrase` field, if
+   * still present, is the only value that can decrypt that stack's existing
+   * secure config/state until `PulumiWorkspaceService`'s automatic migration
+   * to the derived passphrase runs — clearing it early would make that
+   * stack's encrypted state undecryptable.
    */
   async reset(): Promise<void> {
     await rm(this.stateFilePath(), { force: true });

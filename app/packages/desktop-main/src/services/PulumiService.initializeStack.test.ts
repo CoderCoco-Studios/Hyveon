@@ -33,7 +33,6 @@ import {
   type ConfigCacheInvalidator,
 } from './PulumiService.js';
 import type { PulumiWorkspaceService } from './PulumiWorkspaceService.js';
-import { PulumiPassphraseUnavailableError } from './PulumiWorkspaceService.js';
 import type { PulumiEngineService, PulumiPhaseCallback } from './PulumiEngineService.js';
 import { PulumiEngineNetworkError } from './PulumiEngineService.js';
 import { PulumiCredentialsNotConfiguredError } from './PulumiCredentialResolver.js';
@@ -45,13 +44,13 @@ import { SafeStorageService } from './SafeStorageService.js';
 const FULLY_CONFIGURED = { stateBucket: 'my-state-bucket', awsRegion: 'us-east-1' };
 
 /** Builds a real `ElectronStoreService` (in-memory Map outside Electron) with the given fields pre-seeded. */
-function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?: string } = {}): ElectronStoreService {
+function makeStore(opts: { stateBucket?: string; stackInitialized?: boolean; awsRegion?: string } = {}): ElectronStoreService {
   const store = new ElectronStoreService(new SafeStorageService());
   if (opts.stateBucket !== undefined) {
     store.set('bootstrap', { stateBucket: opts.stateBucket, configurationBucket: '' });
   }
-  if (opts.passphrase !== undefined) {
-    store.set('pulumi', { passphrase: opts.passphrase });
+  if (opts.stackInitialized !== undefined) {
+    store.set('pulumi', { stackInitialized: opts.stackInitialized });
   }
   if (opts.awsRegion !== undefined) {
     store.set('aws', { region: opts.awsRegion });
@@ -59,14 +58,14 @@ function makeStore(opts: { stateBucket?: string; passphrase?: string; awsRegion?
   return store;
 }
 
-/** A fully-configured store (state bucket, AWS region) with no passphrase on record — the genuinely-new-stack case. */
+/** A fully-configured store (state bucket, AWS region) with no `stackInitialized` record — the genuinely-new-stack case. */
 function makeNewStackStore(): ElectronStoreService {
   return makeStore(FULLY_CONFIGURED);
 }
 
-/** The same fully-configured store, but with a passphrase already on record — the "stack already exists" case. */
+/** The same fully-configured store, but with `stackInitialized` already on record — the "stack already exists" case. */
 function makeExistingStackStore(): ElectronStoreService {
-  return makeStore({ ...FULLY_CONFIGURED, passphrase: 'enc-secret' });
+  return makeStore({ ...FULLY_CONFIGURED, stackInitialized: true });
 }
 
 /**
@@ -279,22 +278,6 @@ describe('PulumiService.initializeStack', () => {
       expect((caught as PulumiStackInitializationError).cause).toBe(cause);
     });
 
-    it("should tag a pre-engine passphrase failure as 'engine' (no better phase slot exists)", async () => {
-      const cause = new PulumiPassphraseUnavailableError('new-stack-keychain-unavailable');
-      const workspace = makeWorkspace({ rejectWith: cause, failBeforeEngine: true });
-      const service = makeService({ workspace });
-
-      let caught: unknown;
-      try {
-        await service.initializeStack();
-      } catch (err) {
-        caught = err;
-      }
-
-      expect(caught).toBeInstanceOf(PulumiStackInitializationError);
-      expect((caught as PulumiStackInitializationError).phase).toBe('engine');
-    });
-
     it("should tag a pre-engine credentials failure as 'engine' (no better phase slot exists)", async () => {
       const cause = new PulumiCredentialsNotConfiguredError();
       const workspace = makeWorkspace({ rejectWith: cause, failBeforeEngine: true });
@@ -319,8 +302,8 @@ describe('PulumiService.initializeStack', () => {
       // AwsPastedCredentialDecryptError (Finding 4's fix) — genuinely a
       // pre-engine failure (credential resolution happens strictly before
       // engine.resolve()), same class of mis-attribution bug the
-      // PulumiPassphraseUnavailableError/PulumiCredentialsNotConfiguredError
-      // tests above already cover for different error types.
+      // PulumiCredentialsNotConfiguredError test above already covers for a
+      // different error type.
       const cause = new AwsPastedCredentialDecryptError('hyveon-pasted', new Error('decrypt failed'));
       const workspace = makeWorkspace({ rejectWith: cause, failBeforeEngine: true });
       const service = makeService({ workspace });
@@ -439,15 +422,14 @@ describe('PulumiService.initializeStack', () => {
      * `this.store.get('pulumi')?.passphrase !== undefined`, definitionally
      * identical to `PulumiWorkspaceService`'s own internal check, which made
      * its "existing stack with no local record" guard permanently
-     * unreachable. `getOrCreateStack` now determines this itself via a real
-     * `listStacks()` probe against the backend — see
-     * `PulumiWorkspaceService.resolveNewPassphrase`'s doc comment — so
+     * unreachable. The secrets passphrase is now derived from the
+     * authenticated AWS account rather than stored/generated at all, so
      * `initializeStack` (this app's very first real caller of
      * `getOrCreateStack`, in the first-run wizard) no longer computes or
-     * passes any such field at all, regardless of whether a passphrase is
-     * already on record.
+     * passes any such field, regardless of whether `pulumi.stackInitialized`
+     * is already on record.
      */
-    it('should never pass a stackExists field, whether or not a passphrase is already on record', async () => {
+    it('should never pass a stackExists field, whether or not the stack is already initialized', async () => {
       const newStackWorkspace = makeWorkspace();
       const newStackService = makeService({ workspace: newStackWorkspace, store: makeNewStackStore() });
       await newStackService.initializeStack();
@@ -547,9 +529,9 @@ describe('PulumiService.initializeStack', () => {
         }),
       } as unknown as ModuleRef;
 
-      // destroy()'s own gate requires a passphrase on record (mirrors
-      // PulumiService.destroy.test.ts's own fixtures) — without one its
-      // gate rejects with "no Pulumi stack has ever been created" before
+      // destroy()'s own gate requires pulumi.stackInitialized on record
+      // (mirrors PulumiService.destroy.test.ts's own fixtures) — without it
+      // its gate rejects with "no Pulumi stack has ever been created" before
       // ever setting operationInFlight, which would make this test's
       // initializeStack() call race right past the guard it's meant to
       // exercise.

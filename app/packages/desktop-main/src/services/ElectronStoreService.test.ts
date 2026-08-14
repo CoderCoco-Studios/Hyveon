@@ -286,6 +286,12 @@ describe('ElectronStoreService — setPulumiPassphrase / getPulumiPassphrase', (
 
     expect(result).toBe('super-secret-passphrase');
   });
+
+  it('should round-trip pulumi.stackInitialized via plain get/set, unencrypted', () => {
+    service.set('pulumi', { stackInitialized: true });
+
+    expect(service.get('pulumi')?.stackInitialized).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
