@@ -460,8 +460,8 @@ describe('port visibility round-trip', () => {
         { container: 8212, protocol: 'tcp', visibility: 'internal' as const },
       ],
       volumes: [{ name: 'saves', container_path: '/data' }],
-    };
-    const draft = draftFromGameServer(game as unknown as Parameters<typeof draftFromGameServer>[0]);
+    } as Partial<RedactedGameServer> as RedactedGameServer;
+    const draft = draftFromGameServer(game);
     expect(draft.ports).toEqual([
       { container: 8211, protocol: 'udp', visibility: 'public' },
       { container: 8212, protocol: 'tcp', visibility: 'internal' },
@@ -476,8 +476,8 @@ describe('port visibility round-trip', () => {
       memory: 2048,
       ports: [{ container: 8211, protocol: 'udp' }],
       volumes: [{ name: 'saves', container_path: '/data' }],
-    };
-    const draft = draftFromGameServer(game as unknown as Parameters<typeof draftFromGameServer>[0]);
+    } as Partial<RedactedGameServer> as RedactedGameServer;
+    const draft = draftFromGameServer(game);
     expect(draft.ports).toEqual([{ container: 8211, protocol: 'udp', visibility: 'public' }]);
   });
 
