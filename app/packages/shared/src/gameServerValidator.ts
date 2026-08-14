@@ -557,15 +557,20 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
   return issues;
 }
 
+/** `true` for container port 443 or 80 on protocol `tcp` (case-insensitively, like {@link portKey}) — the Caddy sidecar's fixed, unconditional ingress. `443/udp`/`80/udp` never collide with it, since Caddy only ever binds `tcp`. */
+function isCaddyReservedPort(port: GameServerPort): boolean {
+  return (port.container === 443 || port.container === 80) && port.protocol.toLowerCase() === 'tcp';
+}
+
 /**
  * Rejects container port 443 or 80 on protocol `tcp` for ANY game — https or
- * not — when at least one game in the whole deployment (including the
- * proposed entry itself) has `https: true`. This is the cross-deployment
- * counterpart to {@link checkHttpsPortRules}: that function only reserves
- * 80/443 within the `ports` array of the game that itself declares
- * `https: true`, so a *different*, non-HTTPS game was previously free to
- * declare `{ container: 443, protocol: 'tcp', visibility: 'internal' }` in
- * its own entry. Since security-group ingress rules union, that internal-only
+ * not — when at least one game in the whole deployment has `https: true`.
+ * This is the cross-deployment counterpart to {@link checkHttpsPortRules}:
+ * that function only reserves 80/443 within the `ports` array of the game
+ * that itself declares `https: true`, so a *different*, non-HTTPS game was
+ * previously free to declare
+ * `{ container: 443, protocol: 'tcp', visibility: 'internal' }` in its own
+ * entry. Since security-group ingress rules union, that internal-only
  * rule then sat alongside the Caddy sidecar's unconditional `0.0.0.0/0`
  * ingress on the same port (`defineSecurityGroups`,
  * `@hyveon/infra`'s `securityGroups.ts`) and the port was reachable from the
@@ -574,19 +579,30 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
  * exists, matching the spec's "internal port unreachable from the internet"
  * guarantee.
  *
- * Only matches protocol `tcp` (case-insensitively, like {@link portKey}) —
- * `443/udp` or `80/udp` never collide with the Caddy sidecar, which only
- * ever binds `tcp`.
+ * Two directions are both covered, so the write that introduces the
+ * deployment-wide reservation can't be bypassed by declaring the port first
+ * and enabling HTTPS on a different game second:
+ *  - `!isHttps` — the proposed entry declares 80/443/tcp while some *other*,
+ *    already-declared game has `https: true`: rejected against the proposed
+ *    entry's own `ports`, anchored on `ports[i]`.
+ *  - `isHttps` — the proposed entry is the one turning `https: true` on.
+ *    {@link checkHttpsPortRules} already rejects 80/443 within its own
+ *    `ports` (so checking the proposed entry's own ports again here would
+ *    just duplicate that issue under different wording); instead this scans
+ *    every *other* already-declared game's `ports` and rejects the write if
+ *    any of them already holds 443/80/tcp — the direction the original,
+ *    single-pass version of this function missed. The offending port
+ *    belongs to a different game than the one being written, so the issue
+ *    is anchored on `path: 'ports'` rather than a specific index.
  *
  * @param name - The `game_servers` map key the proposed entry would be saved
- *   under; used to exclude the entry being edited in place from
- *   `existingGameServers` when it also happens to have `https: true`.
+ *   under; excluded from the sibling scan so editing an already-`https` game
+ *   in place doesn't flag itself.
  * @param ports - The proposed entry's structurally-valid `ports` list.
  * @param isHttps - Whether the proposed entry itself declares `https: true`.
  * @param existingGameServers - Every other already-declared `game_servers`
  *   entry.
- * @returns One issue per offending `ports[]` entry, naming the game whose
- *   `https: true` reserves the port.
+ * @returns One issue per offending port, in either direction described above.
  */
 function checkReservedHttpsPortsAcrossDeployment(
   name: string,
@@ -594,17 +610,34 @@ function checkReservedHttpsPortsAcrossDeployment(
   isHttps: boolean,
   existingGameServers: GameServer[],
 ): GameServerValidationIssue[] {
-  const reservingGameName = isHttps
-    ? name
-    : existingGameServers.find((existing) => existing.name !== name && existing.https === true)?.name;
+  if (isHttps) {
+    const issues: GameServerValidationIssue[] = [];
+    for (const existing of existingGameServers) {
+      if (existing.name === name) {
+        continue;
+      }
+      for (const port of existing.ports) {
+        if (isCaddyReservedPort(port)) {
+          issues.push({
+            path: 'ports',
+            message: `Cannot enable https: game "${existing.name}" already declares port ${port.container}/${port.protocol}, which becomes reserved for the Caddy sidecar once any game is https. Free that port on "${existing.name}" first.`,
+          });
+        }
+      }
+    }
+    return issues;
+  }
 
+  const reservingGameName = existingGameServers.find(
+    (existing) => existing.name !== name && existing.https === true,
+  )?.name;
   if (reservingGameName === undefined) {
     return [];
   }
 
   const issues: GameServerValidationIssue[] = [];
   ports.forEach((port, index) => {
-    if ((port.container === 443 || port.container === 80) && port.protocol.toLowerCase() === 'tcp') {
+    if (isCaddyReservedPort(port)) {
       issues.push({
         path: `ports[${index}]`,
         message: `Port ${port.container}/${port.protocol} is reserved for the Caddy sidecar because game "${reservingGameName}" has https enabled.`,

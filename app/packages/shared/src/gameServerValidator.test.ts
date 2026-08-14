@@ -502,6 +502,53 @@ describe('validateGameServer', () => {
         expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('443'))).toBe(true);
       }
     });
+
+    it('should report exactly one issue (not a duplicate) when an https:true game declares its own reserved port', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.filter((i) => i.message.includes('443'))).toHaveLength(1);
+      }
+    });
+
+    it('should reject enabling https on a game when a sibling already declares 443/tcp internal (order-independent reservation)', () => {
+      const existing = makeExisting({
+        name: 'internal-proxy',
+        https: false,
+        ports: [{ container: 443, protocol: 'tcp', visibility: 'internal' }],
+      });
+      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some((i) => i.path === 'ports' && i.message.includes('internal-proxy') && i.message.includes('443')),
+        ).toBe(true);
+      }
+    });
+
+    it('should accept enabling https when no sibling declares 443/80 tcp', () => {
+      const existing = makeExisting({ name: 'valheim', ports: [{ container: 2456, protocol: 'udp' }] });
+      const result = validateGameServer('lobby', makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }), [
+        existing,
+      ]);
+      expect(result.success).toBe(true);
+    });
+
+    it('should not flag the entry being edited in place against itself when it already has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'lobby',
+        makeProposed({ https: true, ports: [{ container: 8080, protocol: 'tcp' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
   });
 
   describe('health check', () => {
