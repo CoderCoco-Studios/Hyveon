@@ -28,7 +28,7 @@ const DECLARED_GAME = {
     image: 'itzg/minecraft-server:latest',
     cpu: 1024,
     memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
+    ports: [{ container: 25565, protocol: 'tcp', visibility: 'internal' }],
     environment: [{ name: 'EULA', value: 'TRUE' }],
     volumes: [{ name: 'minecraft-data', container_path: '/data' }],
     https: false,
@@ -106,6 +106,26 @@ describe('GameDetailPage', () => {
       expect(await screen.findByRole('heading', { name: 'Ports' })).toBeInTheDocument();
       expect(screen.getByText('25565')).toBeInTheDocument();
       expect(screen.getByText('tcp')).toBeInTheDocument();
+    });
+
+    it('should show "VPC-only" for an internal-visibility port', async () => {
+      renderDetailPage('minecraft');
+
+      await screen.findByRole('heading', { name: 'Ports' });
+      expect(screen.getByText('VPC-only')).toBeInTheDocument();
+    });
+
+    it('should show "Public" for a port with visibility omitted', async () => {
+      apiMock.games.mockResolvedValue({
+        games: [
+          { ...DECLARED_GAME, config: { ...DECLARED_GAME.config, ports: [{ container: 25565, protocol: 'tcp' }] } },
+          GHOST_GAME,
+        ],
+      });
+      renderDetailPage('minecraft');
+
+      await screen.findByRole('heading', { name: 'Ports' });
+      expect(screen.getByText('Public')).toBeInTheDocument();
     });
 
     it('should render the Volumes section with the volume name and container path', async () => {

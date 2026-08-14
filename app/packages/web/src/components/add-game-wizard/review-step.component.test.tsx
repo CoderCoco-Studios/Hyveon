@@ -91,6 +91,26 @@ describe('ReviewStep — empty optional sections', () => {
     expect(screen.getByText('No ports configured.')).toBeInTheDocument();
   });
 
+  it('should show "VPC-only" for an internal-visibility port', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft({ ports: [{ container: 25565, protocol: 'tcp', visibility: 'internal' }] })}
+      />,
+    );
+
+    expect(screen.getByText('VPC-only')).toBeInTheDocument();
+  });
+
+  it('should show "Public" for a public-visibility port', () => {
+    render(
+      <ReviewStep
+        draft={makeFullDraft({ ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }] })}
+      />,
+    );
+
+    expect(screen.getByText('Public')).toBeInTheDocument();
+  });
+
   it('should show a "no volumes configured" placeholder when volumes is empty', () => {
     render(<ReviewStep draft={makeFullDraft({ volumes: [] })} />);
 
