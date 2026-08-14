@@ -67,6 +67,37 @@ sidecar's own public 443/80 ingress, exactly as before this change.
 
 ---
 
+### Requirement: Container ports 443 and 80 (tcp) are reserved deployment-wide when any game is HTTPS
+Whenever any game in the deployment has `https: true`, no game — including a
+non-HTTPS game, and regardless of that port's declared `visibility` — MAY
+declare container port 443 or 80 with protocol `tcp`. This closes an
+interaction gap between per-port `visibility` and the pre-existing,
+unconditional public ingress the in-task Caddy sidecar requires on 443/80
+whenever any HTTPS game exists: without this reservation, a non-HTTPS game
+could mark 443 or 80 `'internal'` and still have it reachable from the
+internet, because security-group ingress rules union rather than override.
+
+#### Scenario: A non-HTTPS game cannot declare 443/tcp when another game is HTTPS
+- **WHEN** a non-HTTPS game attempts to declare container port 443 or 80
+  with protocol `tcp`, and any game in the deployment (itself or another)
+  has `https: true`
+- **THEN** validation SHALL reject the configuration, identifying which
+  HTTPS-enabled game reserves that port
+
+#### Scenario: 443/80 remain available when no game is HTTPS
+- **WHEN** a game declares container port 443 or 80 with protocol `tcp`,
+  and no game in the deployment has `https: true`
+- **THEN** validation SHALL accept the configuration — this reservation
+  only applies once an HTTPS game exists
+
+#### Scenario: UDP on 443/80 is never reserved
+- **WHEN** a game declares container port 443 or 80 with protocol `udp`,
+  regardless of whether any game has `https: true`
+- **THEN** validation SHALL accept the configuration — the reservation is
+  scoped to `tcp` only, matching the Caddy sidecar's own protocol
+
+---
+
 ### Requirement: Wizard exposes per-port visibility
 The add/edit-game wizard in `@hyveon/web` SHALL let an operator set each
 declared port's visibility to Public or VPC-only, defaulting new ports to
