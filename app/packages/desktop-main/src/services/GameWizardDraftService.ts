@@ -150,7 +150,7 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
 }
 
 /** Narrows `value` to a well-formed health-check draft. */
-function isWizardDraftHealthCheck(value: unknown): value is NonNullable<GameWizardDraft['healthCheck']> {
+function isWizardDraftHealthCheck(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<NonNullable<GameWizardDraft['healthCheck']>>;
   return (
@@ -169,7 +169,7 @@ function isWizardDraftHealthCheck(value: unknown): value is NonNullable<GameWiza
 }
 
 /** Narrows `value` to a well-formed port row: `container` is a finite number or `null`, `protocol` is a string. */
-function isWizardDraftPort(value: unknown): value is GameWizardDraft['ports'][number] {
+function isWizardDraftPort(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { container?: unknown; protocol?: unknown };
   return (
@@ -186,7 +186,7 @@ function isWizardDraftVolume(value: unknown): value is GameWizardDraft['volumes'
 }
 
 /** Narrows `value` to a well-formed file-seed row: `path`/`content`/`content_base64`/`mode` are all strings. */
-function isWizardDraftFileSeed(value: unknown): value is GameWizardDraft['file_seeds'][number] {
+function isWizardDraftFileSeed(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { path?: unknown; content?: unknown; content_base64?: unknown; mode?: unknown };
   return (
@@ -198,7 +198,7 @@ function isWizardDraftFileSeed(value: unknown): value is GameWizardDraft['file_s
 }
 
 /** Narrows `value` to a well-formed environment-variable row: `name`/`value` are both strings. */
-function isWizardDraftEnvironmentVariable(value: unknown): value is GameWizardDraft['environment'][number] {
+function isWizardDraftEnvironmentVariable(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { name?: unknown; value?: unknown };
   return typeof candidate.name === 'string' && typeof candidate.value === 'string';
