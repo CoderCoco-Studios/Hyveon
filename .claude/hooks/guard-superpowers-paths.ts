@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * PreToolUse guard (Write|Edit): blocks writes to docs/superpowers/specs/**
  * or docs/superpowers/plans/**, per .claude/rules/spec-driven-development.md's
@@ -13,6 +13,8 @@
  * openspec/schemas/superpowers-bridge/README.md, "Entry & exit gates".
  */
 
+import { readStdin, deny, allow, isRecord } from './lib/hook-io.js';
+
 const GUARD_PATTERN = /(^|\/)docs\/superpowers\/(specs|plans)\//;
 
 const DENY_REASON =
@@ -23,43 +25,23 @@ const DENY_REASON =
   'openspec/changes/<name>/brainstorm.md or plan.md instead. See ' +
   'openspec/schemas/superpowers-bridge/README.md, section "Entry & exit gates".';
 
-function readStdin() {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on('end', () => resolve(data));
-    process.stdin.on('error', reject);
-  });
+const raw = await readStdin();
+if (!raw.trim()) allow();
+
+let parsed: unknown;
+try {
+  parsed = JSON.parse(raw);
+} catch {
+  // Malformed hook input isn't this guard's problem to report — stay silent
+  // and let the tool call proceed rather than blocking on a parse error.
+  allow();
 }
 
-async function main() {
-  const raw = await readStdin();
-  if (!raw.trim()) return;
+const filePath =
+  isRecord(parsed) && isRecord(parsed.tool_input) && typeof parsed.tool_input.file_path === 'string'
+    ? parsed.tool_input.file_path
+    : undefined;
 
-  let input;
-  try {
-    input = JSON.parse(raw);
-  } catch {
-    // Malformed hook input isn't this guard's problem to report — stay silent
-    // and let the tool call proceed rather than blocking on a parse error.
-    return;
-  }
+if (!filePath || !GUARD_PATTERN.test(filePath)) allow();
 
-  const filePath = input && input.tool_input && input.tool_input.file_path;
-  if (!filePath || !GUARD_PATTERN.test(filePath)) return;
-
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: DENY_REASON,
-      },
-    }),
-  );
-}
-
-main();
+deny(DENY_REASON);
