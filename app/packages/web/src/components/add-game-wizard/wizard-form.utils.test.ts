@@ -12,7 +12,6 @@ import {
   validateReviewStep,
   canAdvance,
   type WizardDraft,
-  type WizardDraftPort,
 } from './wizard-form.utils.js';
 import type { RedactedGameServer } from '../../api.service.js';
 
@@ -442,13 +441,6 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
 });
 
 describe('port visibility round-trip', () => {
-  it('should default a new WizardDraftPort to visibility "public" via createEmptyWizardDraft plus a manually appended row', () => {
-    // NetworkingStep appends EMPTY_PORT, which this test simulates directly
-    // since createEmptyWizardDraft() itself starts with an empty ports array.
-    const port: WizardDraftPort = { container: null, protocol: 'tcp', visibility: 'public' };
-    expect(port.visibility).toBe('public');
-  });
-
   it('should read visibility "internal" from a declared game via draftFromGameServer', () => {
     const game = {
       name: 'palworld',
