@@ -109,7 +109,7 @@ export interface GameServer {
   image: string;
   cpu: number;
   memory: number;
-  ports: { container: number; protocol: string }[];
+  ports: { container: number; protocol: string; visibility?: 'public' | 'internal' }[];
   environment?: { name: string; value: string }[];
   volumes: { name: string; container_path: string }[];
   https?: boolean;
@@ -177,7 +177,7 @@ export interface GameWizardDraft {
   connect_message: string;
   cpu: number | null;
   memory: number | null;
-  ports: { container: number | null; protocol: string }[];
+  ports: { container: number | null; protocol: string; visibility: 'public' | 'internal' }[];
   volumes: { name: string; container_path: string }[];
   file_seeds: { path: string; content: string; content_base64: string; mode: string }[];
   environment: { name: string; value: string }[];

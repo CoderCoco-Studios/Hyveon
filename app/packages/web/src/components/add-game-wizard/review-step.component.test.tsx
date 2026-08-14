@@ -12,7 +12,7 @@ function makeFullDraft(overrides: Partial<WizardDraft> = {}): WizardDraft {
     connect_message: 'Connect at {hostname}',
     cpu: 1024,
     memory: 2048,
-    ports: [{ container: 25565, protocol: 'tcp' }],
+    ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' }],
     volumes: [{ name: 'data', container_path: '/data' }],
     file_seeds: [{ path: '/data/server.properties', content: 'foo=bar', content_base64: '', mode: '' }],
     environment: [{ name: 'EULA', value: 'true' }],
