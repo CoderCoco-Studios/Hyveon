@@ -355,7 +355,7 @@ describe('FileManagerService', () => {
       expect(at.getTime()).toBeGreaterThan(Date.now());
     });
 
-    it('should not create a schedule (and should still succeed) when fileBrowserSchedulerRoleArn is missing from stack outputs', async () => {
+    it('should not create a schedule, but should still succeed and warn in the message, when fileBrowserSchedulerRoleArn is missing from stack outputs', async () => {
       const outputs: StackOutputs = { ...DEFAULT_OUTPUTS, fileBrowserSchedulerRoleArn: '' };
       const { service: ecs } = makeEcs();
       const { stub: schedulerStub, service: scheduler } = makeScheduler();
@@ -365,9 +365,10 @@ describe('FileManagerService', () => {
 
       expect(result.success).toBe(true);
       expect(schedulerStub.createStopSchedule).not.toHaveBeenCalled();
+      expect(result.message).toMatch(/warning/i);
     });
 
-    it('should still succeed when schedule creation itself fails', async () => {
+    it('should still succeed but warn in the message when schedule creation itself fails', async () => {
       const { service: ecs } = makeEcs();
       const { service: scheduler } = makeScheduler({ createStopSchedule: vi.fn().mockResolvedValue(false) });
       const svc = buildService({ ecs, scheduler });
@@ -375,6 +376,18 @@ describe('FileManagerService', () => {
       const result = await svc.start('minecraft');
 
       expect(result.success).toBe(true);
+      expect(result.message).toMatch(/warning/i);
+    });
+
+    it('should not warn in the message when the schedule is created successfully', async () => {
+      const { service: ecs } = makeEcs();
+      const { service: scheduler } = makeScheduler();
+      const svc = buildService({ ecs, scheduler });
+
+      const result = await svc.start('minecraft');
+
+      expect(result.success).toBe(true);
+      expect(result.message).not.toMatch(/warning/i);
     });
 
     it('should fail when task-definition registration returns null', async () => {

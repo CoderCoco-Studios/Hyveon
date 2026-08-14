@@ -112,10 +112,15 @@ export class SchedulerService {
           Target: {
             Arn: ECS_STOP_TASK_TARGET_ARN,
             RoleArn: params.roleArn,
+            // EventBridge Scheduler's `aws-sdk:` universal target expects the
+            // PascalCase SDK-model parameter names for the target API
+            // (`Cluster`/`Task`/`Reason`), not ECS's own lowercase wire
+            // field names — sending the latter fails with "Request payload
+            // is missing the following field(s): Task".
             Input: JSON.stringify({
-              cluster: params.cluster,
-              task: params.taskArn,
-              reason: 'Auto-stopped: FileBrowser helper TTL expired',
+              Cluster: params.cluster,
+              Task: params.taskArn,
+              Reason: 'Auto-stopped: FileBrowser helper TTL expired',
             }),
           },
         }),

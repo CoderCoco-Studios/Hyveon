@@ -282,24 +282,30 @@ export class FileManagerService {
     });
 
     if (result) {
+      let scheduleWarning = '';
       if (outputs.fileBrowserSchedulerRoleArn) {
         // Best-effort: a failed auto-stop schedule must not fail the launch
         // itself (the operator can still stop the task manually) — see
-        // `SchedulerService.createStopSchedule`'s doc.
-        await this.scheduler.createStopSchedule({
+        // `SchedulerService.createStopSchedule`'s doc. The failure is still
+        // surfaced in the returned message so it isn't silently log-only.
+        const scheduled = await this.scheduler.createStopSchedule({
           name: this.scheduleName(game),
           cluster: outputs.ecsClusterName,
           taskArn: result.taskArn,
           roleArn: outputs.fileBrowserSchedulerRoleArn,
           at: new Date(Date.now() + FILEBROWSER_AUTO_STOP_MS),
         });
+        if (!scheduled) {
+          scheduleWarning = ' Warning: failed to schedule auto-stop — remember to stop it manually.';
+        }
       } else {
         logger.warn('fileBrowserSchedulerRoleArn not in the deployed stack outputs — FileBrowser task will not auto-stop', { game });
+        scheduleWarning = ' Warning: auto-stop is not configured for this deployment — remember to stop it manually.';
       }
 
       return {
         success: true,
-        message: `File manager for '${game}' is starting. It will be ready in ~30 seconds.`,
+        message: `File manager for '${game}' is starting. It will be ready in ~30 seconds.${scheduleWarning}`,
         taskArn: result.taskArn,
         credentials: { username: FILEBROWSER_USERNAME, password },
       };
