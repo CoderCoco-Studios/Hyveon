@@ -145,7 +145,7 @@ means the count depends on `config.gameServers`.
 | File | Purpose | Resources |
 |---|---|---|
 | `network.ts` | VPC and public networking. | `aws.ec2.Vpc` (1), `InternetGateway` (1), `Subnet` (2, fixed — not config-driven), `RouteTable` (1, with an inline default route), `RouteTableAssociation` (2). |
-| `securityGroups.ts` | The security groups guarding game tasks, the file manager, EFS, the EFS-seeder Lambdas, and the health-check Lambda. | `aws.ec2.SecurityGroup` — 3 fixed (game servers, file manager, EFS) + 1 conditional (EFS-seeder, only when at least one game declares `file_seeds`) + 1 conditional (health-check, only when at least one game declares `healthCheck`). Ingress/egress on the three fixed groups are inline arrays, EXCEPT the EFS-seeder and health-check groups' egress: each is one or more conditional standalone `aws.ec2.SecurityGroupRule`s instead (EFS-seeder: one rule, port 2049/tcp to the EFS security group; health-check: one rule per distinct declared health-check port, to the game-servers security group) — neither seeder nor health-check group carries any inline `egress` at all, so the standalone rules can't conflict with an inline one on the same group (see the file's own doc, "`efsSeederSg`'s egress — standalone rule, not inline"). The health-check group's matching ingress (into `gameServers`) is a second in-line entry per declared port on that group's own `ingress` array, the same shape as the EFS-seeder group's ingress into `efs`. |
+| `securityGroups.ts` | The security groups guarding game tasks, the file manager, EFS, the EFS-seeder Lambdas, and the health-check Lambda. | `aws.ec2.SecurityGroup` — 3 fixed (game servers, file manager, EFS) + 1 conditional (EFS-seeder, only when at least one game declares `file_seeds`) + 1 conditional (health-check, only when at least one game declares `healthCheck`). Ingress/egress on the three fixed groups are inline arrays, EXCEPT the EFS-seeder and health-check groups' egress: each is one or more conditional standalone `aws.ec2.SecurityGroupRule`s instead (EFS-seeder: one rule, port 2049/tcp to the EFS security group; health-check: one rule per distinct declared health-check port, to the game-servers security group) — neither seeder nor health-check group carries any inline `egress` at all, so the standalone rules can't conflict with an inline one on the same group (see the file's own doc, "`efsSeederSg`'s egress — standalone rule, not inline"). The health-check group's matching ingress (into `gameServers`) is a second in-line entry per declared port on that group's own `ingress` array, the same shape as the EFS-seeder group's ingress into `efs`. `gameServers`'s `ingress` array also includes one entry per non-HTTPS game port declared `visibility: 'internal'`, sourced from the VPC's own CIDR block (`aws.ec2.getVpcOutput({ id: vpcId })`, a plain data lookup — no resource declared) rather than `0.0.0.0/0` — alongside the public/HTTPS/health-check-sourced entries already described above. |
 | `efs.ts` | The shared encrypted EFS filesystem and its access points. | `aws.efs.FileSystem` (1), `MountTarget` (one per public subnet), `AccessPoint` (one per game/volume pair, plus one per HTTPS game for Caddy's certificate storage). |
 | `ecs.ts` | The ECS cluster and per-game task definitions. | `aws.ecs.Cluster` (1), `aws.cloudwatch.LogGroup` (one per game, `/ecs/{game}-server`), `aws.ecs.TaskDefinition` (one per game, family `{game}-server`). **No `aws.ecs.Service` is ever declared** — upholding the no-persistent-Service invariant. The per-game log group and task definition both carry a `Game=<game>` tag (see "Cost allocation tags" below); the cluster does not. |
 | `iam.ts` | Every IAM role and inline policy, split into `defineIamRoles`/`defineIamPolicies` because policies need a Lambda ARN that doesn't exist until after `lambdas.ts` runs. | `aws.iam.Role` — 6 fixed (task execution, watchdog, followup, interactions, dns-updater, FileBrowser auto-stop scheduler) + 1 per game with `file_seeds` + 1 conditional, **single shared** role (health-check — not per-game, unlike the EFS-seeder role, since one function serves every opted-in game). `RolePolicyAttachment` (1, the managed ECS task-execution policy). `RolePolicy` — 5 fixed + 1 per seeder game + 1 conditional (health-check's own policy). The scheduler role trusts `scheduler.amazonaws.com` and its policy grants only `ecs:StopTask`, scoped to the deployed cluster's tasks — used by `FileManagerService`'s per-launch auto-stop schedule, not by any Lambda. The watchdog's own policy gains a conditional `lambda:InvokeFunction` statement, scoped to the health-check function's ARN, only when that function exists. |
@@ -234,6 +234,37 @@ specific task's private address resolved from ECS, so reachability alone
 never redirects a check at the wrong task. Splitting `gameServers` into
 per-game security groups would close this gap but touches every ingress
 rule and task definition in the program; not done here.
+
+## Per-port visibility: public vs. internal ingress
+
+Each entry in a game's `ports` array (`GameServerPort`, `@hyveon/shared`)
+carries an optional `visibility?: 'public' | 'internal'` field. `undefined`
+is treated identically to `'public'` — there is no third state — matching
+the same `undefined ≡ default` contract as `GameServerConfig.https`. Only
+non-HTTPS games' ports are affected: `securityGroups.ts` derives both the
+public and internal ingress sets (`dedupedDirectGamePorts` /
+`dedupedInternalGamePorts`) from the same `!config.https` filter, so an
+HTTPS game's ports never appear in either set — HTTPS games expose only the
+Caddy sidecar's fixed 443/80 ingress, which is unaffected by `visibility`.
+
+- **`'public'` or omitted** — ingress sourced from `0.0.0.0/0`, exactly as
+  before this field existed.
+- **`'internal'`** — ingress sourced from the VPC's own CIDR block, resolved
+  once via `aws.ec2.getVpcOutput({ id: vpcId })` and reused for every
+  internal-visibility port. This makes the port reachable from **anything
+  inside the VPC** — not scoped to a specific caller, Lambda, or task. It is
+  a coarser restriction than "only the health-check Lambda can reach this,"
+  the same caveat the previous section makes about health-check egress
+  rules: marking a health-check port `'internal'` narrows its exposure from
+  the whole internet down to the whole VPC, not down to the health-check
+  Lambda specifically — the health-check Lambda's own SG-sourced ingress
+  rule (see above) is what actually scopes reachability to that one caller,
+  and it exists independently of `visibility`.
+
+A port can never appear in both the public and internal ingress sets:
+`checkPortCollisions` (`@hyveon/shared`'s `gameServerValidator.ts`) already
+rejects two ports sharing a `(port, protocol)` pair, so a given
+port/protocol key carries exactly one `visibility` value.
 
 ## The runs table invariant — bootstrap-managed, not Pulumi-managed
 
