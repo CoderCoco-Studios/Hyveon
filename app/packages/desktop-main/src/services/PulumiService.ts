@@ -3204,8 +3204,14 @@ export class PulumiService {
         // above had already cleared the stale entry moments earlier — i.e.
         // this apply's own success would re-poison the cache it just fixed.
         // The outer `finally`'s later `this.operationInFlight = null` (gated
-        // on `ownsOperationInFlight`) becomes a harmless no-op on this path.
+        // on `ownsOperationInFlight`) must not fire again on this path: a
+        // concurrent call can already have claimed `operationInFlight` for
+        // itself in the window between this clear and the `finally` below,
+        // so resetting `ownsOperationInFlight` here is what actually makes
+        // that later clear a no-op instead of nulling out that successor's
+        // guard.
         this.operationInFlight = null;
+        ownsOperationInFlight = false;
       }
 
       await this.persistRunRecord(
@@ -4078,7 +4084,13 @@ export class PulumiService {
         // clear would re-poison the cache with a false "not deployed" `null`
         // for `STACK_OUTPUTS_NULL_TTL_MS`, right after this destroy's own
         // success just cleared it.
+        //
+        // Also reset `ownsOperationInFlight` here — mirrors apply()'s
+        // identical fix — so the outer `finally`'s gated clear can't null
+        // out a successor operation's guard if one claims
+        // `operationInFlight` before this call reaches that `finally`.
         this.operationInFlight = null;
+        ownsOperationInFlight = false;
       }
 
       await this.persistRunRecord(
