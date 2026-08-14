@@ -449,6 +449,61 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('reserved https ports across the deployment', () => {
+    it.each([
+      { container: 443 as const, protocol: 'tcp' },
+      { container: 80 as const, protocol: 'tcp' },
+    ])(
+      'should reject a non-https game declaring $container/$protocol when another game has https enabled',
+      ({ container, protocol }) => {
+        const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+        const result = validateGameServer(
+          'internal-proxy',
+          makeProposed({ ports: [{ container, protocol, visibility: 'internal' }] }),
+          [existing],
+        );
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(
+            result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('lobby') && i.message.includes('https')),
+          ).toBe(true);
+        }
+      },
+    );
+
+    it('should accept a non-https game declaring 443/tcp when no game in the deployment has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'internal-proxy',
+        makeProposed({ ports: [{ container: 443, protocol: 'tcp', visibility: 'internal' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should not flag a non-tcp port on 443 even when another game has https enabled', () => {
+      const existing = makeExisting({ name: 'lobby', https: true, ports: [{ container: 8080, protocol: 'tcp' }] });
+      const result = validateGameServer(
+        'internal-proxy',
+        makeProposed({ ports: [{ container: 443, protocol: 'udp' }] }),
+        [existing],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should still reject an https:true game declaring 443 in its own ports (within-game rule unchanged)', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ https: true, ports: [{ container: 443, protocol: 'tcp' }] }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'ports[0]' && i.message.includes('443'))).toBe(true);
+      }
+    });
+  });
+
   describe('health check', () => {
     /** Build a minimal, fully-valid healthCheck object targeting container port 25565; override any fields per test. */
     function makeHealthCheck(overrides: Record<string, unknown> = {}): Record<string, unknown> {

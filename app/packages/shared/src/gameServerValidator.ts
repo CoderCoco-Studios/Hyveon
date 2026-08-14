@@ -558,6 +558,64 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
 }
 
 /**
+ * Rejects container port 443 or 80 on protocol `tcp` for ANY game — https or
+ * not — when at least one game in the whole deployment (including the
+ * proposed entry itself) has `https: true`. This is the cross-deployment
+ * counterpart to {@link checkHttpsPortRules}: that function only reserves
+ * 80/443 within the `ports` array of the game that itself declares
+ * `https: true`, so a *different*, non-HTTPS game was previously free to
+ * declare `{ container: 443, protocol: 'tcp', visibility: 'internal' }` in
+ * its own entry. Since security-group ingress rules union, that internal-only
+ * rule then sat alongside the Caddy sidecar's unconditional `0.0.0.0/0`
+ * ingress on the same port (`defineSecurityGroups`,
+ * `@hyveon/infra`'s `securityGroups.ts`) and the port was reachable from the
+ * internet regardless of its declared `visibility` — this function closes
+ * that gap by reserving 443/80/tcp deployment-wide whenever any HTTPS game
+ * exists, matching the spec's "internal port unreachable from the internet"
+ * guarantee.
+ *
+ * Only matches protocol `tcp` (case-insensitively, like {@link portKey}) —
+ * `443/udp` or `80/udp` never collide with the Caddy sidecar, which only
+ * ever binds `tcp`.
+ *
+ * @param name - The `game_servers` map key the proposed entry would be saved
+ *   under; used to exclude the entry being edited in place from
+ *   `existingGameServers` when it also happens to have `https: true`.
+ * @param ports - The proposed entry's structurally-valid `ports` list.
+ * @param isHttps - Whether the proposed entry itself declares `https: true`.
+ * @param existingGameServers - Every other already-declared `game_servers`
+ *   entry.
+ * @returns One issue per offending `ports[]` entry, naming the game whose
+ *   `https: true` reserves the port.
+ */
+function checkReservedHttpsPortsAcrossDeployment(
+  name: string,
+  ports: GameServerPort[],
+  isHttps: boolean,
+  existingGameServers: GameServer[],
+): GameServerValidationIssue[] {
+  const reservingGameName = isHttps
+    ? name
+    : existingGameServers.find((existing) => existing.name !== name && existing.https === true)?.name;
+
+  if (reservingGameName === undefined) {
+    return [];
+  }
+
+  const issues: GameServerValidationIssue[] = [];
+  ports.forEach((port, index) => {
+    if ((port.container === 443 || port.container === 80) && port.protocol.toLowerCase() === 'tcp') {
+      issues.push({
+        path: `ports[${index}]`,
+        message: `Port ${port.container}/${port.protocol} is reserved for the Caddy sidecar because game "${reservingGameName}" has https enabled.`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
  * Validates the cross-field business rules for a declared `healthCheck` that
  * the structural schema ({@link gameServerHealthCheckSchema}) can't express:
  * the declared port must be one of the entry's own `ports`, and every
@@ -611,9 +669,12 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
  * Validates a proposed `game_servers` entry: structural shape (via
  * {@link gameServerSchema}) plus the business rules — Fargate CPU/memory
  * pairing, absolute paths for volumes/file_seeds, connect-message placeholder
- * allowlisting, HTTPS port constraints (only when `https === true`), and
+ * allowlisting, HTTPS port constraints (only when `https === true`),
  * container-port collisions (within the entry itself and against every
- * other entry in `existingGameServers`).
+ * other entry in `existingGameServers`), and the deployment-wide 443/80/tcp
+ * reservation ({@link checkReservedHttpsPortsAcrossDeployment}) that applies
+ * to every game, https or not, whenever any game in the deployment has
+ * `https: true`.
  *
  * @param name - The `game_servers` map key this entry would be saved under.
  *   Used to build the returned {@link GameServer} on success, and to skip
@@ -653,9 +714,11 @@ export function validateGameServer(
     .safeParse(isRecord(proposed) ? proposed['ports'] : undefined);
   if (portsResult.success) {
     issues.push(...checkPortCollisions(name, portsResult.data, existingGameServers));
-    if (isRecord(proposed) && proposed['https'] === true) {
+    const isHttps = isRecord(proposed) && proposed['https'] === true;
+    if (isHttps) {
       issues.push(...checkHttpsPortRules(portsResult.data));
     }
+    issues.push(...checkReservedHttpsPortsAcrossDeployment(name, portsResult.data, isHttps, existingGameServers));
   }
 
   if (issues.length > 0) {
