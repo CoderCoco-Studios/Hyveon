@@ -109,6 +109,16 @@ these are easy to violate while making an otherwise reasonable change.
 - **No raw `process.env` in business logic.** Wrap env access behind a service method so
   tests stub it with `vi.spyOn` instead of mutating `process.env`.
 
+## Markdown formatting
+
+- **No hard line wrap.** Write one sentence or paragraph per line and let the renderer
+  (GitHub, Docusaurus, editor soft-wrap) handle line breaks. Manual wraps at ~80 columns
+  cause ragged reflow and noisy diffs (a one-word edit rewraps the whole paragraph) in
+  content that's read rendered, not as a fixed-width text file — this file, `docs/docs/**`,
+  `openspec/**`, PR/issue bodies.
+- Applies to prose only — code blocks, tables, and existing wrapped text don't need
+  reflowing on unrelated edits.
+
 Three complementary test tiers:
 
 | Tier | Command | What runs |
