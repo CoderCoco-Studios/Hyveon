@@ -77,13 +77,19 @@ One of three things happens:
 - **Needs a policy update** — the fix call itself came back
   `AccessDeniedException`, meaning the operator's `HyveonDeployAll` policy
   predates the permission this check's fix needs. The row shows an amber
-  explanation ("Your Hyveon deploy policy needs updating. Apply the JSON
-  below via your CloudFormation stack, then click Fix again.") followed by
-  the current `HyveonDeployAll` policy JSON in a scrollable code block, with
-  a copy button. Apply that JSON to the `HyveonDeployAll` CloudFormation
-  stack (see [Setup → Create and authorise an IAM
-  user](/setup#1-create-and-authorise-an-iam-user)), then press **Fix**
-  again.
+  explanation directing the operator to the IAM console, followed by the
+  current `HyveonDeployAll` policy JSON in a scrollable code block with a
+  copy button, an **Open in AWS Console** button (deep-links straight to the
+  `HyveonDeployAll` managed policy's edit page, scoped to the caller's
+  account ID via `sts:GetCallerIdentity`; falls back to showing the URL as
+  text if a browser can't be launched automatically), and a **Download
+  JSON** button (writes the policy to disk for `aws iam
+  create-policy-version` or similar AWS CLI use). Note this is a **direct
+  IAM policy update**, not a CloudFormation operation — the JSON is a bare
+  policy document (no `Resources` section), so pasting it into
+  CloudFormation's "Create/Update Stack" flow fails with a template-format
+  error. Update the existing policy directly (IAM console → Policies →
+  `HyveonDeployAll` → Edit policy → JSON), then press **Fix** again.
 
 ## Cloud Setup
 

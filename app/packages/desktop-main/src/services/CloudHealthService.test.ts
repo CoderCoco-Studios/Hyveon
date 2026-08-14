@@ -2,17 +2,23 @@ import 'reflect-metadata';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import { IAMClient, GetRoleCommand, CreateServiceLinkedRoleCommand } from '@aws-sdk/client-iam';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('fs', () => ({ writeFileSync: vi.fn() }));
+
+import { writeFileSync } from 'fs';
 import { CloudHealthService } from './CloudHealthService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { DeploymentConfigService } from './DeploymentConfigService.js';
 
 const iamMock = mockClient(IAMClient);
+const stsMock = mockClient(STSClient);
+const mockWrite = vi.mocked(writeFileSync);
 
 function makeStore(): ElectronStoreService {
   return {
@@ -34,6 +40,8 @@ function makeDeploymentConfig(projectName = 'hyveon'): DeploymentConfigService {
 
 beforeEach(() => {
   iamMock.reset();
+  stsMock.reset();
+  mockWrite.mockReset();
 });
 
 describe('CloudHealthService.getChecks', () => {
@@ -97,15 +105,31 @@ describe('ECS service-linked role fix', () => {
     expect(result).toEqual({ outcome: 'fixed' });
   });
 
-  it('should report needsPolicyUpdate with policy JSON when access is denied', async () => {
+  it('should report needsPolicyUpdate with policy JSON and a console URL when access is denied', async () => {
     const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
     iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
+    stsMock.on(GetCallerIdentityCommand).resolves({ Account: '123456789012' });
     const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
 
     const result = await service.getChecks()[0]!.fix();
 
     expect(result.outcome).toBe('needsPolicyUpdate');
     expect(result.policyJson).toContain('HyveonServiceLinkedRoles');
+    expect(result.policyConsoleUrl).toBe(
+      'https://console.aws.amazon.com/iam/home#/policies/arn:aws:iam::123456789012:policy/HyveonDeployAll',
+    );
+  });
+
+  it('should omit the console URL when the account ID cannot be resolved', async () => {
+    const err = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException' });
+    iamMock.on(CreateServiceLinkedRoleCommand).rejects(err);
+    stsMock.on(GetCallerIdentityCommand).rejects(new Error('sts unavailable'));
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+
+    const result = await service.getChecks()[0]!.fix();
+
+    expect(result.outcome).toBe('needsPolicyUpdate');
+    expect(result.policyConsoleUrl).toBeUndefined();
   });
 
   it('should report failed for an unexpected error', async () => {
@@ -115,5 +139,50 @@ describe('ECS service-linked role fix', () => {
     const result = await service.getChecks()[0]!.fix();
 
     expect(result).toEqual({ outcome: 'failed', message: 'boom' });
+  });
+});
+
+describe('CloudHealthService.writePolicyToDisk', () => {
+  it('should write the given JSON to the resolved download path and return it', () => {
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service as unknown as { getPolicyDownloadPath(): string }, 'getPolicyDownloadPath').mockReturnValue(
+      '/tmp/hyveon-deploy-all-policy.json',
+    );
+
+    const result = service.writePolicyToDisk('{"Version":"2012-10-17"}');
+
+    expect(result).toEqual({ path: '/tmp/hyveon-deploy-all-policy.json' });
+    expect(mockWrite).toHaveBeenCalledWith('/tmp/hyveon-deploy-all-policy.json', '{"Version":"2012-10-17"}');
+  });
+});
+
+describe('CloudHealthService.openPolicyConsole', () => {
+  it('should report opened: false for a non-https URL without attempting to open it', async () => {
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+
+    const result = await service.openPolicyConsole('http://console.aws.amazon.com/iam/home');
+
+    expect(result).toEqual({ opened: false, url: 'http://console.aws.amazon.com/iam/home' });
+  });
+
+  it('should report opened: false when not running inside Electron', async () => {
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(false);
+
+    const result = await service.openPolicyConsole('https://console.aws.amazon.com/iam/home');
+
+    expect(result).toEqual({ opened: false, url: 'https://console.aws.amazon.com/iam/home' });
+  });
+
+  it('should report opened: true when shell.openExternal succeeds', async () => {
+    const service = new CloudHealthService(makeStore(), makeConfig(), makeDeploymentConfig());
+    vi.spyOn(service as unknown as { readIsElectron(): boolean }, 'readIsElectron').mockReturnValue(true);
+    vi.spyOn(service as unknown as { openExternalUrl(url: string): Promise<void> }, 'openExternalUrl').mockResolvedValue(
+      undefined,
+    );
+
+    const result = await service.openPolicyConsole('https://console.aws.amazon.com/iam/home');
+
+    expect(result).toEqual({ opened: true });
   });
 });

@@ -1250,6 +1250,12 @@ export interface CloudHealthFixResult {
   outcome: CloudHealthFixOutcome;
   /** Present when `outcome` is `'needsPolicyUpdate'` — the current `HyveonDeployAll` policy JSON to apply. */
   policyJson?: string;
+  /**
+   * Present when `outcome` is `'needsPolicyUpdate'` — a direct link to the
+   * `HyveonDeployAll` managed policy's edit page in the IAM console. Hand to
+   * `cloudHealth.openPolicyConsole`.
+   */
+  policyConsoleUrl?: string;
   /** Present when `outcome` is `'failed'` — an actionable, human-readable message. */
   message?: string;
 }
@@ -1260,6 +1266,10 @@ export interface HyveonCloudHealthApi {
   list: () => Promise<CloudHealthCheckSummary[]>;
   /** Attempts to fix the check with the given id. */
   fix: (id: string) => Promise<CloudHealthFixResult>;
+  /** Writes `policyJson` to disk and returns the path it was written to. */
+  downloadPolicy: (policyJson: string) => Promise<{ path: string }>;
+  /** Opens `url` (an IAM console link) in the operator's default browser. */
+  openPolicyConsole: (url: string) => Promise<OpenConsoleResult>;
 }
 
 /** Game-server lifecycle: list games, query status, start/stop ECS tasks. */
