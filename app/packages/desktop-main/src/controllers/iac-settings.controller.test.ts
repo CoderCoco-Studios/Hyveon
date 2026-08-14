@@ -5,6 +5,7 @@ import { OptimisticLockError } from '@hyveon/shared';
 import { IacSettingsController } from './iac-settings.controller.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 import type { PulumiEngineService } from '../services/PulumiEngineService.js';
+import type { ElectronStoreService } from '../services/ElectronStoreService.js';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -60,6 +61,16 @@ describe('IacSettingsController', () => {
     it('should register engineVersion on the "iac.settings.engineVersion" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.engineVersion);
       expect(pattern).toEqual(['iac.settings.engineVersion']);
+    });
+
+    it('should register getAutoUpdate on the "iac.settings.autoUpdate.get" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.getAutoUpdate);
+      expect(pattern).toEqual(['iac.settings.autoUpdate.get']);
+    });
+
+    it('should register updateAutoUpdate on the "iac.settings.autoUpdate.update" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.updateAutoUpdate);
+      expect(pattern).toEqual(['iac.settings.autoUpdate.update']);
     });
   });
 
@@ -243,6 +254,78 @@ describe('IacSettingsController', () => {
     it('should return resolvedVersion: null without throwing when no engine was injected', () => {
       const result = new IacSettingsController(makeDeploymentConfig()).engineVersion();
       expect(result).toEqual({ resolvedVersion: null });
+    });
+  });
+
+  describe('getAutoUpdate', () => {
+    /** Build an `ElectronStoreService` stub backed by an in-memory map, mirroring the real Map-backed fallback. */
+    function makeStore(initial: Record<string, unknown> = {}): ElectronStoreService {
+      const map = new Map<string, unknown>(Object.entries(initial));
+      return {
+        get: vi.fn((key: string) => map.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          map.set(key, value);
+        }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+    }
+
+    it('should return false when enableAutoUpdate was never set', () => {
+      const store = makeStore();
+      const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
+      expect(result).toEqual({ ok: true, enableAutoUpdate: false });
+    });
+
+    it('should return true when enableAutoUpdate is stored as true', () => {
+      const store = makeStore({ enableAutoUpdate: true });
+      const result = new IacSettingsController(makeDeploymentConfig(), undefined, store).getAutoUpdate();
+      expect(result).toEqual({ ok: true, enableAutoUpdate: true });
+    });
+
+    it('should return false without throwing when no store was injected', () => {
+      const result = new IacSettingsController(makeDeploymentConfig()).getAutoUpdate();
+      expect(result).toEqual({ ok: true, enableAutoUpdate: false });
+    });
+  });
+
+  describe('updateAutoUpdate', () => {
+    function makeStore(initial: Record<string, unknown> = {}): ElectronStoreService {
+      const map = new Map<string, unknown>(Object.entries(initial));
+      return {
+        get: vi.fn((key: string) => map.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          map.set(key, value);
+        }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+    }
+
+    it('should persist true and round-trip through a subsequent get', () => {
+      const store = makeStore();
+      const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
+      const writeResult = controller.updateAutoUpdate({ enableAutoUpdate: true });
+      expect(writeResult).toEqual({ ok: true, enableAutoUpdate: true });
+      expect(controller.getAutoUpdate()).toEqual({ ok: true, enableAutoUpdate: true });
+    });
+
+    it('should persist false', () => {
+      const store = makeStore({ enableAutoUpdate: true });
+      const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
+      const writeResult = controller.updateAutoUpdate({ enableAutoUpdate: false });
+      expect(writeResult).toEqual({ ok: true, enableAutoUpdate: false });
+    });
+
+    it('should return an error result without throwing when no store was injected', () => {
+      const controller = new IacSettingsController(makeDeploymentConfig());
+      const result = controller.updateAutoUpdate({ enableAutoUpdate: true });
+      expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
+    });
+
+    it('should reject a non-boolean payload without writing to the store', () => {
+      const store = makeStore();
+      const controller = new IacSettingsController(makeDeploymentConfig(), undefined, store);
+      // @ts-expect-error deliberately malformed payload — IPC boundary has no runtime type guarantee
+      const result = controller.updateAutoUpdate({ enableAutoUpdate: 'true' });
+      expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
+      expect(store.set).not.toHaveBeenCalled();
     });
   });
 });

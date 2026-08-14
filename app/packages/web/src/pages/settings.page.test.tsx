@@ -41,6 +41,8 @@ const hyveonMock = {
       get: vi.fn(),
       update: vi.fn(),
       engineVersion: vi.fn(),
+      autoUpdateGet: vi.fn(),
+      autoUpdateUpdate: vi.fn(),
     },
   },
 };
@@ -102,6 +104,8 @@ describe('SettingsPage', () => {
       .mockResolvedValue({ ok: true, settings: SAMPLE_DEPLOYMENT_SETTINGS, etag: 'etag-1' });
     hyveonMock.iac.settings.update.mockReset();
     hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
+    hyveonMock.iac.settings.autoUpdateGet.mockReset().mockResolvedValue({ ok: true, enableAutoUpdate: false });
+    hyveonMock.iac.settings.autoUpdateUpdate.mockReset();
     apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
   });
 
@@ -163,6 +167,75 @@ describe('SettingsPage', () => {
       renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
       expect(screen.getByText('Pulumi Engine')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconfigure$/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('Updates — Automatic Updates toggle', () => {
+    it('should render unchecked once the read resolves false', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      expect(toggle).not.toBeChecked();
+    });
+
+    it('should render checked once the read resolves true', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).toBeChecked());
+    });
+
+    it('should render a distinct error message, not a false-checked toggle, when the read rejects', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      expect(await screen.findByText('Unable to read the update setting.')).toBeInTheDocument();
+    });
+
+    it('should call autoUpdateUpdate with true and reflect the new checked state on toggle', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: true, enableAutoUpdate: true });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).not.toBeChecked());
+      await userEvent.click(toggle);
+
+      expect(hyveonMock.iac.settings.autoUpdateUpdate).toHaveBeenCalledWith({ enableAutoUpdate: true });
+      await waitFor(() => expect(toggle).toBeChecked());
+    });
+
+    it('should keep the checkbox reflecting the last confirmed value when the write fails, not drop to the no-value error state', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: true });
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: false, code: 'error', message: 'nope' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).toBeChecked());
+      await userEvent.click(toggle);
+
+      await waitFor(() => expect(screen.getByText('Failed to save — still showing the last saved value.')).toBeInTheDocument());
+      expect(toggle).toBeChecked();
+      expect(screen.queryByText('Unable to read the update setting.')).not.toBeInTheDocument();
+    });
+
+    it('should keep the checkbox unchecked and clear the write-error message on a subsequent successful toggle', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValueOnce({ ok: false, code: 'error', message: 'nope' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).not.toBeChecked());
+      await userEvent.click(toggle);
+      await waitFor(() => expect(screen.getByText('Failed to save — still showing the last saved value.')).toBeInTheDocument());
+
+      hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValueOnce({ ok: true, enableAutoUpdate: true });
+      await userEvent.click(toggle);
+
+      await waitFor(() => expect(toggle).toBeChecked());
+      expect(screen.queryByText('Failed to save — still showing the last saved value.')).not.toBeInTheDocument();
     });
   });
 

@@ -180,8 +180,10 @@ export interface AppStoreSchema {
   /**
    * Gates `electron-updater` update checks (see `updater.ts`). Absent or
    * `false` means disabled — the default for v1, since unsigned builds would
-   * fail Gatekeeper/SmartScreen regardless. No renderer/settings UI exposes
-   * this yet; flipping it is a manual electron-store edit.
+   * fail Gatekeeper/SmartScreen regardless. Readable/writable via the
+   * Settings page's Automatic Updates toggle (`IacSettingsController`'s
+   * `iac.settings.autoUpdate.get`/`.update` channels), in addition to this
+   * typed `get`/`set` surface directly.
    */
   enableAutoUpdate?: boolean;
   aws: {

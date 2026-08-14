@@ -82,9 +82,10 @@ signing is in place:
    looks for a `zip` asset in the release feed and explicitly ignores
    dmg/pkg, so without it macOS auto-update can never resolve an update no
    matter how correct the signing is.
-2. Flip the `enableAutoUpdate` default to `true` (or add a Settings-page
-   toggle — out of scope for this change) so new installs pick up updates
-   automatically.
+2. Flip the `enableAutoUpdate` default to `true` for new installs, or point
+   operators at the **Automatic Updates** toggle on the
+   [Settings page](/app/settings#updates) — that toggle already ships; this
+   step is just about the default, not the UI.
 3. Windows and Linux builds can be flag-on tested as soon as their respective
    signing is done, independently of macOS — only the macOS path is
    Gatekeeper-blocked pending Apple Developer enrollment.

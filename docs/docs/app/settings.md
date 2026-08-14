@@ -20,8 +20,8 @@ panel's Pause/Resume, Levels filter, and search controls described below
 (it shows only the bare scrolling log view).
 :::
 
-Five sections, in order: **Watchdog Configuration**, **Cloud Health**,
-**Cloud Setup**, **General**, **Diagnostics**.
+Six sections, in order: **Watchdog Configuration**, **Cloud Health**,
+**Cloud Setup**, **Updates**, **General**, **Diagnostics**.
 
 ## Watchdog Configuration
 
@@ -140,6 +140,46 @@ the full behaviour, including what Cancel can and cannot undo.
 Note that this section only reports the Pulumi engine version. Your AWS
 profile, region and bootstrap resource names are not shown here — they are
 inside the wizard.
+
+## Updates
+
+A single row, **Automatic Updates**, with a checkbox:
+
+> Check GitHub Releases for updates on app start. Applies on next app start.
+
+The checkbox reads and writes the `enableAutoUpdate` flag in the app's local
+electron-store config (not the deployment configuration in S3 — this setting
+is per-install, not per-deployment). It's **off by default**.
+
+What the flag actually controls: `initUpdater()` runs once, at Electron
+boot (`electron-entry.ts`). If the flag is off, it logs that update checks
+are disabled and returns without touching the network. If it's on, it uses
+`electron-updater` to check GitHub Releases for a newer version and logs the
+result (`[updater] update available` / `no update available` / a
+failed-check error) to the same diagnostics log described below. There is no
+"check now" button and no download or install — `autoDownload` and
+`autoInstallOnAppQuit` are both explicitly pinned `false`, so an available
+update is only detected and logged, never fetched or installed
+automatically. This is v1 scaffolding for a future real auto-update flow,
+not one yet.
+
+Two consequences worth calling out explicitly:
+
+- **Flipping the toggle mid-session does nothing.** `initUpdater()` only runs
+  once at startup, so the new value takes effect on the *next* app launch,
+  not immediately.
+- **Turning it on does not update the app.** It only makes the app check and
+  log whether a newer release exists on GitHub. Until a download/install path
+  ships, updating still means downloading and running the new installer
+  yourself.
+
+Toggling shows one of three states while in flight: `Checking update
+setting…` while the initial read is pending, `Unable to read the update
+setting.` if the IPC read/write itself failed, or the description above once
+a value is known. The checkbox only updates after a write resolves — there's
+no optimistic flip — but a *failed* write drops into the error state
+entirely, showing an unchecked box and the error text rather than reverting
+to whatever was checked before.
 
 ## General
 
