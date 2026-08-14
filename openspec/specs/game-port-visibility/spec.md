@@ -1,4 +1,12 @@
-## ADDED Requirements
+## Purpose
+
+Lets an operator mark a game server's port as `'internal'` — reachable only
+from inside the VPC — instead of `'public'` (open to the whole internet).
+This gives games with a management/REST port (e.g. a health check) a way to
+keep that port closed to the internet while their primary game port stays
+public.
+
+## Requirements
 
 ### Requirement: Per-port visibility field
 `GameServerPort` SHALL support an optional `visibility` field whose value,
