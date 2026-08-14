@@ -62,6 +62,24 @@
             "statusMessage": "Checking git worktree add path is under .claude/worktrees/..."
           }
         ]
+      },
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard search || echo 'graphify not installed — skipping guard' >&2"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || echo 'graphify not installed — skipping guard' >&2"
+          }
+        ]
       }
     ]
   }
