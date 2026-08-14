@@ -48,3 +48,4 @@ release/
 
 # Superpowers subagent-driven-development scratch workspace (ledgers, briefs, review packages)
 .superpowers/
+graphify-out/cache/
