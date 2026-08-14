@@ -124,6 +124,17 @@ export function installHyveonHttpBridge(): void {
         // which the page's mount effect does not catch — that class of
         // error is a synchronous throw, not a rejected promise.
         engineVersion: async () => ({ resolvedVersion: null }),
+        // Same situation and same "resolve, don't throw" rationale as
+        // `engineVersion` above — the Updates section's mount effect calls
+        // this unconditionally, so a chromium spec that merely visits
+        // `/settings` needs it to resolve, not throw `TypeError:
+        // settings.autoUpdateGet is not a function`.
+        autoUpdateGet: async () => ({ ok: true, enableAutoUpdate: false }),
+        autoUpdateUpdate: async () => ({
+          ok: false,
+          code: 'error',
+          message: 'iac.settings.autoUpdate.update has no HTTP route in the chromium e2e tier.',
+        }),
       },
     },
   };
