@@ -181,6 +181,25 @@ describe('EditGameForm', () => {
     );
   });
 
+  it('should persist a port visibility change to "internal" on submit', async () => {
+    apiMock.updateGame.mockResolvedValue({ ok: true, games: [] });
+    renderForm(<EditGameForm game={sampleGame({ ports: [{ container: 8212, protocol: 'tcp' }] })} />);
+
+    await screen.findByLabelText('Image');
+    await userEvent.selectOptions(screen.getByLabelText('Visibility'), 'internal');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(apiMock.updateGame).toHaveBeenCalledWith({
+        name: 'mygame',
+        config: {
+          ...samplePayloadConfig(),
+          ports: [{ container: 8212, protocol: 'tcp', visibility: 'internal' }],
+        },
+      }),
+    );
+  });
+
   it('should render an inline error and keep the edited draft on a server validation failure', async () => {
     apiMock.updateGame.mockResolvedValue({
       ok: false,
