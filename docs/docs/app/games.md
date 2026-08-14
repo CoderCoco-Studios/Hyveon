@@ -126,8 +126,17 @@ before submitting.
 > Declare every container port the server listens on.
 
 Starts empty. **Add port** appends a row with a **Container port** number
-field and a **Protocol** dropdown (`TCP` / `UDP`, defaulting to TCP). Each row
-has its own **Remove** button.
+field, a **Protocol** dropdown (`TCP` / `UDP`, defaulting to TCP), and a
+**Visibility** dropdown (`Public` / `VPC-only`, defaulting to Public). Each
+row has its own **Remove** button.
+
+Public ports are open to the whole internet, same as before this control
+existed. A port set to VPC-only is reachable only from inside the VPC —
+useful for a management/REST port a game exposes for the health check below,
+so the internet can't reach it but an in-VPC component (like the
+authoritative health check) still can. Note that this is VPC-wide
+reachability, not scoped to any one caller — see
+[Infra program reference](/components/infra) for the security-group detail.
 
 Two collision checks run continuously:
 
