@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws';
 import type { GameServerConfig } from '@hyveon/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dedupedDirectGamePorts, defineSecurityGroups, hasHttpsGame } from './securityGroups.js';
+import { dedupedDirectGamePorts, dedupedInternalGamePorts, defineSecurityGroups, hasHttpsGame } from './securityGroups.js';
 import { FIXTURE_GAME_SERVERS } from './testing/fixtures.js';
 import { installPulumiMocks, promiseOf, type RecordedResource } from './testing/pulumiMocks.js';
 
@@ -87,6 +87,71 @@ describe('dedupedDirectGamePorts', () => {
     };
     expect(dedupedDirectGamePorts(gameServers)).toEqual([]);
   });
+
+  it('should exclude ports declared visibility: "internal"', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      mixedGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [
+          { container: 25565, protocol: 'tcp' },
+          { container: 8212, protocol: 'tcp', visibility: 'internal' },
+        ],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 25565, protocol: 'tcp' }]);
+  });
+
+  it('should treat visibility: "public" the same as omitting visibility', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      onlyGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 1234, protocol: 'tcp', visibility: 'public' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    expect(dedupedDirectGamePorts(gameServers)).toEqual([{ port: 1234, protocol: 'tcp' }]);
+  });
+});
+
+describe('dedupedInternalGamePorts', () => {
+  it('should return only ports declared visibility: "internal"', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      mixedGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [
+          { container: 25565, protocol: 'tcp' },
+          { container: 8212, protocol: 'tcp', visibility: 'internal' },
+        ],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    expect(dedupedInternalGamePorts(gameServers)).toEqual([{ port: 8212, protocol: 'tcp' }]);
+  });
+
+  it('should exclude ports belonging to an https: true game', () => {
+    const gameServers: Record<string, GameServerConfig> = {
+      httpsGame: {
+        image: 'example/game:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'internal' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+        https: true,
+      },
+    };
+    expect(dedupedInternalGamePorts(gameServers)).toEqual([]);
+  });
+
+  it('should return an empty array when no game declares an internal port', () => {
+    expect(dedupedInternalGamePorts(FIXTURE_GAME_SERVERS)).toEqual([]);
+  });
 });
 
 describe('hasHttpsGame', () => {
@@ -145,6 +210,28 @@ describe('defineSecurityGroups', () => {
       },
     ]);
     expect(sg.inputs.egress).toEqual([{ fromPort: 0, toPort: 0, protocol: '-1', cidrBlocks: ['0.0.0.0/0'] }]);
+  });
+
+  it('should ingress a visibility: "internal" port from the VPC CIDR block instead of the open internet', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      ...FIXTURE_GAME_SERVERS,
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8212, protocol: 'tcp', visibility: 'internal' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const sg = findByName(mocks.resources, 'hyveon-sg');
+    const ingress = sg.inputs.ingress as Array<{ description: string; fromPort: number; cidrBlocks?: string[] }>;
+    const internalRule = ingress.find((rule) => rule.fromPort === 8212);
+    expect(internalRule).toBeDefined();
+    expect(internalRule?.cidrBlocks).toEqual(['10.0.0.0/16']);
+    expect(ingress.some((rule) => rule.fromPort === 8212 && rule.cidrBlocks?.includes('0.0.0.0/0'))).toBe(false);
   });
 
   it('should declare no 443/80 HTTPS rules when no game has https: true', async () => {

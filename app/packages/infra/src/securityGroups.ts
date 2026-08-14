@@ -9,6 +9,14 @@
  * one fixed NFS port — see "`efsSeederSg`'s egress" below, which the
  * health-check group's egress rules mirror.
  *
+ * `game_servers`'s `ingress` array draws from up to four sources: ports with
+ * `visibility` omitted or `'public'` ({@link dedupedDirectGamePorts},
+ * `0.0.0.0/0`), ports with `visibility: 'internal'`
+ * ({@link dedupedInternalGamePorts}, scoped to the VPC's own CIDR block via
+ * `aws.ec2.getVpcOutput`), the HTTPS Caddy sidecar (`0.0.0.0/0`, conditional
+ * on {@link hasHttpsGame}), and the health-check Lambda (SG-sourced,
+ * conditional on a game declaring `healthCheck`).
+ *
  * `efs_seeder` lives in THIS file, not `lambdas.ts`. Declaring the seeder
  * security group in `lambdas.ts` and attaching its ingress rule to `efs` as
  * a standalone `aws.ec2.SecurityGroupRule` would conflict with `@pulumi/aws`'s
@@ -142,12 +150,14 @@ export interface GamePort {
 
 /**
  * Deduplicated set of container port/protocol pairs across every
- * non-HTTPS game server, mirroring the legacy tool's
- * `local.direct_game_ports` local — a `distinct(flatten(...))` over every
- * game's `ports`, filtered to entries where `https` is falsy. Two games
- * declaring the same port and protocol yield exactly one entry here,
- * reproducing the HCL's `distinct()` dedup via a `Map` keyed on the
- * port/protocol pair.
+ * non-HTTPS game server whose {@link GameServerPort.visibility} is
+ * `'public'` or omitted, mirroring the legacy tool's `local.direct_game_ports`
+ * local — a `distinct(flatten(...))` over every game's `ports`, filtered to
+ * entries where `https` is falsy. Two games declaring the same port and
+ * protocol yield exactly one entry here, reproducing the HCL's `distinct()`
+ * dedup via a `Map` keyed on the port/protocol pair. A port declared
+ * `visibility: 'internal'` is excluded — see {@link dedupedInternalGamePorts}
+ * for its counterpart.
  *
  * `https` follows the `undefined ≡ false` contract documented on
  * `GameServerConfig.https` (`@hyveon/shared`'s `gameServerConfig.ts`) — a config entry
@@ -156,15 +166,42 @@ export interface GamePort {
  * `!cfg.https` filter.
  *
  * @param gameServers - The configured game-server map to derive ports from.
- * @returns The deduplicated port/protocol pairs, in first-seen order.
+ * @returns The deduplicated public port/protocol pairs, in first-seen order.
  */
 export function dedupedDirectGamePorts(gameServers: Record<string, GameServerConfig>): GamePort[] {
+  return dedupedGamePortsByVisibility(gameServers, (visibility) => visibility !== 'internal');
+}
+
+/**
+ * Deduplicated set of container port/protocol pairs across every
+ * non-HTTPS game server whose {@link GameServerPort.visibility} is exactly
+ * `'internal'` — the counterpart to {@link dedupedDirectGamePorts}. Ports
+ * cannot appear in both functions' results: `checkPortCollisions`
+ * (`@hyveon/shared`'s `gameServerValidator.ts`) already rejects two games,
+ * or two ports within one game, declaring the same `(port, protocol)` pair,
+ * so a given key can only ever carry one `visibility` value.
+ *
+ * @param gameServers - The configured game-server map to derive ports from.
+ * @returns The deduplicated internal port/protocol pairs, in first-seen order.
+ */
+export function dedupedInternalGamePorts(gameServers: Record<string, GameServerConfig>): GamePort[] {
+  return dedupedGamePortsByVisibility(gameServers, (visibility) => visibility === 'internal');
+}
+
+/** Shared dedup walk behind {@link dedupedDirectGamePorts}/{@link dedupedInternalGamePorts}, differing only in which `visibility` values `include` accepts. */
+function dedupedGamePortsByVisibility(
+  gameServers: Record<string, GameServerConfig>,
+  include: (visibility: 'public' | 'internal' | undefined) => boolean,
+): GamePort[] {
   const seen = new Map<string, GamePort>();
   for (const config of Object.values(gameServers)) {
     if (config.https) {
       continue;
     }
     for (const port of config.ports) {
+      if (!include(port.visibility)) {
+        continue;
+      }
       const key = `${port.container}-${port.protocol}`;
       if (!seen.has(key)) {
         seen.set(key, { port: port.container, protocol: port.protocol });
@@ -221,6 +258,22 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     protocol: port.protocol,
     cidrBlocks: ['0.0.0.0/0'],
   }));
+
+  // VPC CIDR — resolved once, used only by internal-visibility ports below.
+  // A plain data lookup (no resource declared), consistent with how vpcId
+  // itself is already resolved from a data source upstream of this file.
+  const vpc = aws.ec2.getVpcOutput({ id: vpcId }, opts);
+
+  const internalPorts = dedupedInternalGamePorts(gameServers);
+  for (const port of internalPorts) {
+    gamePortIngress.push({
+      description: `Game port ${port.port}/${port.protocol} (internal)`,
+      fromPort: port.port,
+      toPort: port.port,
+      protocol: port.protocol,
+      cidrBlocks: [vpc.cidrBlock],
+    });
+  }
 
   // HTTPS games — public 443/80 for the in-task Caddy sidecar, only declared
   // when at least one HTTPS game exists. Order (443 then 80) mirrors

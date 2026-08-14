@@ -97,6 +97,13 @@ const CALL_MOCKS: Record<string, Record<string, unknown>> = {
   'aws:index/getAvailabilityZones:getAvailabilityZones': {
     names: ['us-east-1a', 'us-east-1b', 'us-east-1c'],
   },
+  // `securityGroups.ts`'s `defineSecurityGroups` — resolves the VPC's own
+  // CIDR block so internal-visibility game ports can be scoped to it instead
+  // of the open internet. Fixed result regardless of the queried `id`,
+  // matching every other entry in this table.
+  'aws:ec2/getVpc:getVpc': {
+    cidrBlock: '10.0.0.0/16',
+  },
   // `route53.ts`'s `defineRoute53` — a fixed result regardless of the
   // queried `name`, matching every other entry in this table.
   'aws:route53/getZone:getZone': {
