@@ -15,7 +15,7 @@ function makeWindowService(): WindowService {
     toggleMaximize: vi.fn(),
     close: vi.fn(),
     isMaximized: vi.fn().mockReturnValue(false),
-  } as unknown as WindowService;
+  } as Partial<WindowService> as WindowService;
 }
 
 describe('WindowController', () => {

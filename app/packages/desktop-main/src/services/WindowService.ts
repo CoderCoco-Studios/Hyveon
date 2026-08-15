@@ -70,12 +70,19 @@ export class WindowService {
   }
 
   /**
+   * Queries the attached window's current maximized state.
+   *
    * @returns The attached window's current maximized state, or `false` if no
-   *   window is attached.
+   *   window is attached or if querying the window state fails.
    */
   isMaximized(): boolean {
     if (!this.win) return false;
-    return this.win.isMaximized();
+    try {
+      return this.win.isMaximized();
+    } catch (err) {
+      logger.warn(`WindowService: isMaximized failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   /**

@@ -8,7 +8,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 /** Build a minimal BrowserWindow stub with the methods/events WindowService touches. */
-function makeWin(): BrowserWindow {
+function makeWin(): Partial<BrowserWindow> & { __fire: (event: string) => void } {
   const listeners: Record<string, (() => void)[]> = {};
   return {
     minimize: vi.fn(),
@@ -22,7 +22,7 @@ function makeWin(): BrowserWindow {
     webContents: { send: vi.fn() },
     // Test-only escape hatch to fire a registered listener by event name.
     __fire: (event: string) => listeners[event]?.forEach((cb) => cb()),
-  } as unknown as BrowserWindow & { __fire: (event: string) => void };
+  } as Partial<BrowserWindow> & { __fire: (event: string) => void };
 }
 
 describe('WindowService', () => {
@@ -85,15 +85,15 @@ describe('WindowService', () => {
     });
 
     it('should push window.maximizedChange with true when the window fires its native maximize event', () => {
-      const win = makeWin() as BrowserWindow & { __fire: (event: string) => void };
-      service.attach(win);
+      const win = makeWin();
+      service.attach(win as BrowserWindow);
       win.__fire('maximize');
       expect(win.webContents.send).toHaveBeenCalledWith('window.maximizedChange', true);
     });
 
     it('should push window.maximizedChange with false when the window fires its native unmaximize event', () => {
-      const win = makeWin() as BrowserWindow & { __fire: (event: string) => void };
-      service.attach(win);
+      const win = makeWin();
+      service.attach(win as BrowserWindow);
       win.__fire('unmaximize');
       expect(win.webContents.send).toHaveBeenCalledWith('window.maximizedChange', false);
     });
