@@ -14,6 +14,8 @@ import { LOG_LEVEL_BADGE, detectLogLevel, type LogLevel } from '../lib/log-level
 
 const MAX_LINES = 1000;
 const AGE_TICK_MS = 10_000;
+/** Scroll distance (px) from the bottom within which the viewer still counts as "pinned to bottom". */
+const BOTTOM_PIN_THRESHOLD_PX = 24;
 
 interface LogLine {
   text: string;
@@ -66,7 +68,9 @@ function formatAge(ms: number): string {
  *   - An in-stream search input that highlights matches in the visible buffer
  *     without filtering them out.
  *   - A multi-select level filter that hides whole levels (default: all on).
- *   - An autoscroll toggle (default on; off freezes scroll position).
+ *   - An autoscroll toggle (default on; off freezes scroll position),
+ *     which also turns off automatically when the user scrolls away from
+ *     the bottom and back on when they scroll back near it.
  *   - A footer summary: line count + age of the oldest visible line.
  *
  * Pause buffers incoming lines; Resume flushes the buffer into the visible
@@ -247,12 +251,25 @@ export function LogsPage() {
   }, []);
 
   // Autoscroll: only stick to the bottom when both the toggle is on and we're
-  // not paused. Turning autoscroll off freezes the current scroll position.
+  // not paused. Turning autoscroll off (via the checkbox, or automatically by
+  // scrolling away from the bottom below) freezes the current scroll position.
   useEffect(() => {
     if (autoscroll && !paused && boxRef.current) {
       boxRef.current.scrollTop = boxRef.current.scrollHeight;
     }
   }, [lines, autoscroll, paused]);
+
+  /**
+   * Scrolling away from the bottom turns autoscroll off so incoming lines
+   * don't yank the view back down while reading; scrolling back within
+   * {@link BOTTOM_PIN_THRESHOLD_PX} of the bottom turns it back on.
+   */
+  const handleScroll = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAutoscroll(distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX);
+  }, []);
 
   const visibleLines = useMemo(
     () => lines.filter((l) => !(l.level && hiddenLevels.has(l.level))),
@@ -383,6 +400,8 @@ export function LogsPage() {
       {/* Log stream */}
       <div
         ref={boxRef}
+        onScroll={handleScroll}
+        data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
       >
         {visibleLines.length === 0 ? (
