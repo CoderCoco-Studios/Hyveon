@@ -6,6 +6,7 @@ import { bootstrap } from './main.js';
 import { electronRendererUrl, isPulumiSpikeEnabled, isTestMode } from './env.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
+import { WindowService } from './services/WindowService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
@@ -50,16 +51,57 @@ function setDefaultBrowserOpener(win: BrowserWindow): void {
 }
 
 /**
+ * Builds the platform-conditional `BrowserWindow` chrome options for the
+ * custom title bar. `titleBarStyle: 'hidden'` on every platform hides the OS
+ * title bar row so the app's own header can act as the draggable title bar
+ * (D1). Per-platform additions preserve each OS's native window-control
+ * convention rather than drawing app-side buttons everywhere (D2/D3):
+ *
+ * - macOS keeps native traffic-light buttons, repositioned via
+ *   `trafficLightPosition` to align with the merged header.
+ * - Windows keeps the native `titleBarOverlay` (including the Windows 11
+ *   snap-layout flyout), colored to match the header's background/text.
+ * - Linux gets neither — the renderer draws its own buttons there (Task 4),
+ *   since no native overlay/traffic-light equivalent exists on Linux.
+ *
+ * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
+ * `color`/`symbolColor` match `--color-surface` (#1a1d2e) and
+ * `--color-foreground` (#e1e4ed) from `app/packages/web/src/index.css`, the
+ * header's actual background/text colors — the app has no runtime theme
+ * switching yet, so these are hard-coded rather than resolved dynamically.
+ *
+ * @returns The platform-specific subset of `BrowserWindowConstructorOptions` to spread into `createWindow()`'s options.
+ */
+function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
+  const base: Partial<Electron.BrowserWindowConstructorOptions> = { titleBarStyle: 'hidden' };
+
+  if (process.platform === 'darwin') {
+    return { ...base, trafficLightPosition: { x: 12, y: 12 } };
+  }
+  if (process.platform === 'win32') {
+    return {
+      ...base,
+      titleBarOverlay: { color: '#1a1d2e', symbolColor: '#e1e4ed', height: 56 },
+    };
+  }
+  return base;
+}
+
+/**
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
+ *
+ * @returns The created `BrowserWindow`, so callers (`app.whenReady()`'s chain)
+ *   can attach it to `WindowService` once the Nest app is available.
  */
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
 
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     ...(icon ? { icon } : {}),
+    ...platformWindowChromeOptions(),
     webPreferences: {
       // electron-vite names the preload bundle after the input file, and
       // electron.vite.config.ts forces a .cjs extension so Node parses it
@@ -83,6 +125,8 @@ function createWindow(): void {
     console.error('[desktop-main] Renderer failed to load — quitting:', err);
     app.quit();
   });
+
+  return win;
 }
 
 app.whenReady().then(() => {
@@ -100,7 +144,8 @@ app.whenReady().then(() => {
         console.error('[desktop-main] updater init failed:', err);
       });
 
-      createWindow();
+      const win = createWindow();
+      nestApp.get(WindowService).attach(win);
 
       // SPIKE SCAFFOLDING — a leftover early prototype for validating the
       // Pulumi Automation API, now superseded by `PulumiEngineService`. Gated

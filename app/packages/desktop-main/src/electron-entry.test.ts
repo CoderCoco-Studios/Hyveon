@@ -74,7 +74,13 @@ const {
       return {
         loadURL: mockLoadURL,
         loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
+        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
+        on: vi.fn(),
+        isMaximized: vi.fn().mockReturnValue(false),
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        unmaximize: vi.fn(),
+        close: vi.fn(),
       };
     }),
     {
@@ -149,6 +155,12 @@ describe('electron-entry', () => {
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
     mockOpenExternal.mockResolvedValue(undefined);
+    // Default `nestApp.get(...)` return so `WindowService.attach(win)` (called
+    // unconditionally after createWindow()) doesn't throw in tests that don't
+    // care which service token was requested. Tests that assert on a specific
+    // token (e.g. ElectronStoreService, WindowService) override this via
+    // fakeNestApp.get.mockReturnValue(...) / mockImplementation(...).
+    fakeNestApp.get.mockReturnValue({ attach: vi.fn(), get: vi.fn() });
 
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
@@ -157,7 +169,13 @@ describe('electron-entry', () => {
       return {
         loadURL: mockLoadURL,
         loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
+        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
+        on: vi.fn(),
+        isMaximized: vi.fn().mockReturnValue(false),
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        unmaximize: vi.fn(),
+        close: vi.fn(),
       };
     });
 
@@ -435,6 +453,77 @@ describe('electron-entry', () => {
       const options = await createWindowOptions();
 
       expect(options).not.toHaveProperty('icon');
+    });
+  });
+
+  describe('platform-conditional BrowserWindow options', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
+
+    async function createWindowOptionsForPlatform(platform: string): Promise<Record<string, unknown>> {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      return MockBrowserWindow.mock.calls[0]?.[0] as Record<string, unknown>;
+    }
+
+    it('should always set titleBarStyle to hidden', async () => {
+      const options = await createWindowOptionsForPlatform('linux');
+      expect(options.titleBarStyle).toBe('hidden');
+    });
+
+    it('should set trafficLightPosition on macOS and no titleBarOverlay', async () => {
+      const options = await createWindowOptionsForPlatform('darwin');
+      expect(options.trafficLightPosition).toEqual({ x: 12, y: 12 });
+      expect(options.titleBarOverlay).toBeUndefined();
+    });
+
+    it('should set titleBarOverlay on Windows and no trafficLightPosition', async () => {
+      const options = await createWindowOptionsForPlatform('win32');
+      expect(options.titleBarOverlay).toEqual({
+        color: '#1a1d2e',
+        symbolColor: '#e1e4ed',
+        height: 56,
+      });
+      expect(options.trafficLightPosition).toBeUndefined();
+    });
+
+    it('should set neither trafficLightPosition nor titleBarOverlay on Linux', async () => {
+      const options = await createWindowOptionsForPlatform('linux');
+      expect(options.trafficLightPosition).toBeUndefined();
+      expect(options.titleBarOverlay).toBeUndefined();
+    });
+  });
+
+  describe('WindowService wiring', () => {
+    it('should resolve WindowService from the bootstrapped Nest app and attach the created window', async () => {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      expect(fakeNestApp.get).toHaveBeenCalledWith(WindowService);
+      expect(fakeWindowService.attach).toHaveBeenCalledOnce();
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(MockBrowserWindow.mock.results[0]?.value);
     });
   });
 });
