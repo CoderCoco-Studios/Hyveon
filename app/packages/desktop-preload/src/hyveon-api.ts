@@ -552,7 +552,11 @@ export interface GameWizardDraft {
     jsonPath: string;
     operator: string;
     value: string;
+    authType: 'none' | 'raw' | 'basic' | 'bearer';
     secretArn: string;
+    username: string;
+    password: string;
+    token: string;
     secretSet: boolean;
   };
 }

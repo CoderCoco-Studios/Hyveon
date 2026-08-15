@@ -14,6 +14,7 @@
 
 import {
   validateGameServer,
+  validateHealthCheckAuthInput,
   checkConnectMessagePlaceholders,
   GAME_NAME_PATTERN,
   GAME_NAME_PATTERN_DESCRIPTION,
@@ -25,6 +26,8 @@ import type {
   GameServer,
   GameServerHealthCheck,
   GameServerHealthCheckCondition,
+  GameServerHealthCheckAuthWriteInput,
+  GameServerHealthCheckWriteInput,
   RedactedGameServer,
 } from '../../api.service.js';
 
@@ -88,11 +91,16 @@ export interface WizardDraftEnvironmentVariable {
 /**
  * Draft form of the optional `healthCheck` declaration. `enabled` toggles
  * whether the game gets a `healthCheck` at all; every other field is only
- * meaningful when it's `true`. `secretArn` is write-only — the operator
- * types a new ARN here to set or replace the credential, and it is always
- * submitted empty on edit (leaving an already-configured credential
- * untouched); {@link secretSet}, populated from the redacted read-side
- * shape, is the only signal of whether a credential is already configured.
+ * meaningful when it's `true`. `authType` drives which credential fields are
+ * shown/submitted: `'none'` (no credential), `'raw'` (operator-supplied
+ * ARN, unchanged from before this field existed), `'basic'`
+ * (username+password), `'bearer'` (token). For `'basic'`/`'bearer'`,
+ * `username`/`password`/`token` are write-only — always blank on a resumed
+ * or edit-mode draft; `secretSet` (from the redacted read-side shape) is
+ * the only signal that a credential is already configured, regardless of
+ * type. See {@link healthCheckFromDraft}'s doc for exactly how these fields
+ * convert into the submitted `auth` write-input (including when a blank
+ * `'none'` selection submits `null` vs. `undefined`).
  * `value` stores the declared comparison value as free text; it is parsed
  * to a JSON scalar (number/boolean/null/string) on submit, and is unused
  * (and not submitted) when `operator` is `"exists"`.
@@ -107,7 +115,11 @@ export interface WizardDraftHealthCheck {
   jsonPath: string;
   operator: string;
   value: string;
+  authType: 'none' | 'raw' | 'basic' | 'bearer';
   secretArn: string;
+  username: string;
+  password: string;
+  token: string;
   secretSet: boolean;
 }
 
@@ -123,7 +135,11 @@ function emptyHealthCheckDraft(): WizardDraftHealthCheck {
     jsonPath: '',
     operator: 'equals',
     value: '',
+    authType: 'none',
     secretArn: '',
+    username: '',
+    password: '',
+    token: '',
     secretSet: false,
   };
 }
@@ -211,7 +227,11 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
           jsonPath: game.healthCheck.activeWhen.jsonPath,
           operator: game.healthCheck.activeWhen.operator,
           value: game.healthCheck.activeWhen.value === undefined ? '' : String(game.healthCheck.activeWhen.value),
+          authType: game.healthCheck.secretSet ? 'raw' : 'none',
           secretArn: '',
+          username: '',
+          password: '',
+          token: '',
           secretSet: game.healthCheck.secretSet,
         }
       : emptyHealthCheckDraft(),
@@ -230,13 +250,22 @@ function parseHealthCheckValue(raw: string): string | number | boolean | null {
 /**
  * Converts a {@link WizardDraftHealthCheck} into the `healthCheck` field of
  * a proposed/submitted entry, or `undefined` when the operator hasn't
- * enabled one. `secretArn` is only included when the operator typed a new
- * value — an empty field submits no `auth` at all, which
- * `GamesWriteService`'s update path must then treat as "leave the existing
- * credential, if any, unchanged" rather than as "clear it" (see
- * `docs/docs/app/games.md`).
+ * enabled one.
+ *
+ * `auth` follows the write-side convention `gamesWrite.ts` (`@hyveon/shared`)
+ * declares: `undefined` leaves an existing credential unchanged (the
+ * operator left every credential field blank on an edit), `null` explicitly
+ * clears an existing credential (the operator selected `authType: 'none'`
+ * on a draft that had `secretSet: true`), and a populated write-input object
+ * sets/replaces it. `raw` submits a `type: 'raw'` object with `secretArn`
+ * only when `secretArn` is non-blank; `basic` submits a `type: 'basic'`
+ * object with `username`/`password` only when at least one of the two is
+ * non-blank (so a half-filled edit still surfaces
+ * {@link validateHealthCheckAuthInput}'s "both required" issue rather than
+ * silently no-op'ing); `bearer` submits a `type: 'bearer'` object with
+ * `token` only when `token` is non-blank.
  */
-function healthCheckFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCheck | undefined {
+function healthCheckFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCheckWriteInput | undefined {
   if (!draft.enabled) {
     return undefined;
   }
@@ -250,16 +279,34 @@ function healthCheckFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCh
           value: parseHealthCheckValue(draft.value),
         };
 
-  return {
-    kind: 'http',
+  const base = {
+    kind: 'http' as const,
     scheme: draft.scheme as GameServerHealthCheck['scheme'],
     port: draft.port ?? 0,
     path: draft.path,
     method: draft.method as GameServerHealthCheck['method'],
     timeoutMs: draft.timeoutMs ?? 0,
     activeWhen,
-    ...(draft.secretArn.trim().length > 0 ? { auth: { secretArn: draft.secretArn.trim() } } : {}),
   };
+
+  const auth = healthCheckAuthInputFromDraft(draft);
+  return auth === undefined ? base : { ...base, auth };
+}
+
+/** Builds the `auth` write-input `healthCheckFromDraft` submits — see that function's doc for the `undefined`/`null`/object convention. */
+function healthCheckAuthInputFromDraft(draft: WizardDraftHealthCheck): GameServerHealthCheckAuthWriteInput | null | undefined {
+  switch (draft.authType) {
+    case 'none':
+      return draft.secretSet ? null : undefined;
+    case 'raw':
+      return draft.secretArn.trim().length > 0 ? { type: 'raw', secretArn: draft.secretArn.trim() } : undefined;
+    case 'basic':
+      return draft.username.trim().length > 0 || draft.password.trim().length > 0
+        ? { type: 'basic', username: draft.username.trim(), password: draft.password.trim() }
+        : undefined;
+    case 'bearer':
+      return draft.token.trim().length > 0 ? { type: 'bearer', token: draft.token.trim() } : undefined;
+  }
 }
 
 /**
@@ -404,8 +451,33 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
     environment:
       draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
     https: draft.https,
-    healthCheck: healthCheckFromDraft(draft.healthCheck),
+    healthCheck: toStructuralHealthCheckPreview(draft.healthCheck),
   };
+}
+
+/**
+ * Builds the `healthCheck` object passed to `validateGameServer` for the
+ * wizard's own client-side gating (`toProposedEntry`) — NOT the submitted
+ * payload (`draftToPayload` uses {@link healthCheckFromDraft} directly).
+ * `validateGameServer`'s persisted-shape schema always requires `secretArn`
+ * on a declared `auth`; for `basic`/`bearer` that ARN doesn't exist yet
+ * client-side (the app only creates it on submit), so `auth` is stripped
+ * from this preview object for those two types. The per-type plaintext
+ * requirement itself is still enforced — via
+ * {@link validateHealthCheckAuthInput}, called separately by
+ * {@link validateWizardDraft} — so nothing is silently skipped, only the
+ * ARN-shape check that can't apply yet.
+ */
+function toStructuralHealthCheckPreview(draft: WizardDraftHealthCheck): GameServerHealthCheck | undefined {
+  const withAuth = healthCheckFromDraft(draft);
+  if (!withAuth) {
+    return undefined;
+  }
+  if (!withAuth.auth || withAuth.auth.type === 'raw' || withAuth.auth.type === undefined) {
+    return withAuth as GameServerHealthCheck;
+  }
+  const { auth: _auth, ...rest } = withAuth;
+  return rest as GameServerHealthCheck;
 }
 
 /**
@@ -447,6 +519,10 @@ export function validateWizardDraft(
   mode: WizardMode = 'create',
 ): GameServerValidationIssue[] {
   const issues = [...checkName(draft.name, existingGames, mode), ...checkImage(draft.image)];
+
+  if (draft.healthCheck.enabled) {
+    issues.push(...validateHealthCheckAuthInput(healthCheckAuthInputFromDraft(draft.healthCheck) ?? undefined));
+  }
 
   const name = draft.name.trim().length > 0 ? draft.name.trim() : DRAFT_NAME_PLACEHOLDER;
   const result = validateGameServer(name, toProposedEntry(draft), existingGames);

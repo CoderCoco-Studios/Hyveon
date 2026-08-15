@@ -127,7 +127,12 @@ export interface GameWizardDraft {
     jsonPath: string;
     operator: string;
     value: string;
+    /** Absent on a draft autosaved before `authType`/`username`/`password`/`token` existed — {@link GameWizardDraftService} backfills a default on read. */
+    authType?: 'none' | 'raw' | 'basic' | 'bearer';
     secretArn: string;
+    username?: string;
+    password?: string;
+    token?: string;
     secretSet: boolean;
   };
 }

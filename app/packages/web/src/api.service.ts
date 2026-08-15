@@ -46,6 +46,27 @@ export interface GameServerHealthCheckAuth {
 }
 
 /**
+ * Operator-submitted shape of a health-check credential — only ever appears
+ * in a create/update payload, never in a persisted `GameServerHealthCheck`.
+ * `secretArn` is only meaningful for `type: 'raw'` (the operator's own
+ * pre-existing ARN); `basic`/`bearer` instead carry plaintext
+ * (`username`/`password`, or `token`) that the write path consumes once to
+ * create or update an app-owned secret, never persisting the plaintext
+ * itself.
+ *
+ * Mirrors `GameServerHealthCheckAuthWriteInput` in
+ * `@hyveon/shared/src/gameServerValidator.ts` — that file is the source of
+ * truth; keep this copy in sync with it.
+ */
+export interface GameServerHealthCheckAuthWriteInput {
+  type?: 'raw' | 'basic' | 'bearer';
+  secretArn?: string;
+  username?: string;
+  password?: string;
+  token?: string;
+}
+
+/**
  * Single comparison evaluated against a health check's response body.
  *
  * Mirrors `GameServerHealthCheckCondition` in
@@ -95,6 +116,21 @@ export interface RedactedGameServerHealthCheck extends Omit<GameServerHealthChec
 }
 
 /**
+ * Write-side shape of `GameServerHealthCheck.auth`: the operator-submitted
+ * {@link GameServerHealthCheckAuthWriteInput}, `null` to explicitly clear an
+ * existing credential, or `undefined` to leave whatever credential is
+ * already on record unchanged. Only ever appears in a create/update
+ * payload.
+ *
+ * Mirrors `GameServerHealthCheckWriteInput` in
+ * `@hyveon/shared/src/gamesWrite.ts` — that file is the source of truth;
+ * keep this copy in sync with it.
+ */
+export type GameServerHealthCheckWriteInput = Omit<GameServerHealthCheck, 'auth'> & {
+  auth?: GameServerHealthCheckAuthWriteInput | null;
+};
+
+/**
  * Per-game container configuration, keyed by game name in
  * `DeploymentConfig.gameServers` (`@hyveon/shared/src/deploymentConfig.ts`).
  * `healthCheck` here is the full, write-capable shape (with `auth`) — used
@@ -130,6 +166,20 @@ export interface GameServer {
 export interface RedactedGameServer extends Omit<GameServer, 'healthCheck'> {
   healthCheck?: RedactedGameServerHealthCheck;
 }
+
+/**
+ * Write-side shape of a `game_servers` entry submitted to `games.create` /
+ * `games.update`: identical to `Omit<GameServer, 'name'>` except
+ * `healthCheck`, which uses {@link GameServerHealthCheckWriteInput} so a
+ * `basic`/`bearer` credential can be submitted as plaintext rather than a
+ * pre-resolved `secretArn`.
+ *
+ * Mirrors `GameServerWriteConfig` in `@hyveon/shared/src/gamesWrite.ts` —
+ * that file is the source of truth; keep this copy in sync with it.
+ */
+export type GameServerWriteConfig = Omit<GameServer, 'name' | 'healthCheck'> & {
+  healthCheck?: GameServerHealthCheckWriteInput;
+};
 
 /**
  * Response entry for the merged games list (the `games.list` IPC channel).
@@ -192,7 +242,11 @@ export interface GameWizardDraft {
     jsonPath: string;
     operator: string;
     value: string;
+    authType: 'none' | 'raw' | 'basic' | 'bearer';
     secretArn: string;
+    username: string;
+    password: string;
+    token: string;
     secretSet: boolean;
   };
 }
@@ -327,7 +381,7 @@ export type GameWriteResult =
  */
 export interface CreateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
@@ -340,7 +394,7 @@ export interface CreateGamePayload {
  */
 export interface UpdateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
