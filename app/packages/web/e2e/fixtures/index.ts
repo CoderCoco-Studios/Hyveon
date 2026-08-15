@@ -15,7 +15,7 @@ import {
   COST_DATA,
   CONFIGURED_DISCORD_CONFIG,
 } from './game-data.js';
-import { AppLayout, DashboardPage, CostsPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
+import { AppLayout, DashboardPage, CostsPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
 import { installHyveonHttpBridge } from './hyveon-http-bridge.js';
 
 export type {
@@ -43,7 +43,7 @@ export {
   VALID_USER_ID,
   SAMPLE_LOG_LINES,
 } from './game-data.js';
-export { AppLayout, DashboardPage, CostsPage, DiscordPage, GuidedIamWizardPage, LogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
+export { AppLayout, DashboardPage, CostsPage, DiscordPage, GuidedIamWizardPage, LogsPage, InfrastructureLogsPage, SettingsPage, GamesPage, AuditPage } from '../pages/index.js';
 
 /** Per-spec overrides for the default `/api/*` stubs registered by `stubApis`. */
 export interface StubOptions {
@@ -95,6 +95,13 @@ export interface StubOptions {
    */
   logLines?: Record<string, string[]>;
   /**
+   * Initial log lines surfaced via `window.hyveon.logs.lambda.get(functionKey)`
+   * (used by the Infrastructure Logs page). Maps `LambdaFunctionKey` → seeded
+   * lines. Functions not present in the map receive an empty buffer. Same
+   * shape and rationale as {@link logLines} for the Games logs page.
+   */
+  lambdaLogLines?: Record<string, string[]>;
+  /**
    * Response(s) returned by `GET /api/audit` (the `audit.list` IPC channel),
    * consumed by the `/audit` page (issue #102). Either a fixed
    * `AuditPageResult` returned for every call, or a builder receiving the
@@ -128,6 +135,7 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   const games = opts.games ?? statuses.map((s) => s.game);
   const drift: DriftReport = opts.drift ?? { entries: [] };
   const logLines = opts.logLines ?? {};
+  const lambdaLogLines = opts.lambdaLogLines ?? {};
   const auditFn: (opts: { limit?: number; before?: string }) => AuditPageResult =
     typeof opts.audit === 'function'
       ? opts.audit
@@ -215,22 +223,43 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
   // namespace the bridge installed. The seeded logLines map is passed as a
   // serialisable arg.
   //
-  // The stream stub is an async generator that yields nothing and returns
-  // immediately, so the component's `for await` loop completes without emitting
-  // live chunks — specs drive off the seeded snapshot only.
+  // The stream stub returns a `HyveonStreamHandle`-shaped object (`next` /
+  // `cancel` / `Symbol.asyncIterator`) whose `next()` resolves `{ done: true }`
+  // immediately — not a bare async generator. `useLogTail`'s `stopStream()`
+  // unconditionally calls `streamRef.current?.cancel()` whenever a target
+  // changes (including the *second* `startStream` call when a spec switches
+  // games/functions); a bare async generator object has no `.cancel` method,
+  // so that call throws `TypeError: ....cancel is not a function` inside a
+  // React effect, which the top-level `ErrorBoundary` swallows into a silent
+  // "Something went wrong" screen. The `for await` loop still completes
+  // without emitting live chunks either way, so specs drive off the seeded
+  // snapshot only.
   await page.addInitScript(
-    ({ lines }: { lines: Record<string, string[]> }) => {
+    ({ lines, lambdaLines }: { lines: Record<string, string[]>; lambdaLines: Record<string, string[]> }) => {
       const existing = (window as unknown as Record<string, unknown>)['hyveon'] as Record<string, unknown> | undefined;
+      const noopStreamHandle = () => {
+        const handle = {
+          next: () => Promise.resolve({ done: true as const }),
+          cancel: () => {},
+          [Symbol.asyncIterator]: () => handle,
+        };
+        return handle;
+      };
       (window as unknown as Record<string, unknown>)['hyveon'] = {
         ...(existing ?? {}),
         logs: {
           get: (game: string) =>
             Promise.resolve({ game, lines: lines[game] ?? [] }),
-          stream: async function* (_game: string, _signal?: AbortSignal) {},
+          stream: (_game: string, _signal?: AbortSignal) => noopStreamHandle(),
+          lambda: {
+            get: (functionKey: string) =>
+              Promise.resolve({ functionKey, lines: lambdaLines[functionKey] ?? [] }),
+            stream: (_functionKey: string, _signal?: AbortSignal) => noopStreamHandle(),
+          },
         },
       };
     },
-    { lines: logLines },
+    { lines: logLines, lambdaLines: lambdaLogLines },
   );
 }
 
@@ -241,6 +270,8 @@ type E2EFixtures = {
   costs: CostsPage;
   /** Page object for the `/logs` route. */
   logs: LogsPage;
+  /** Page object for the `/logs/infrastructure` route. */
+  infraLogs: InfrastructureLogsPage;
   /** Page object for the `/settings` route. */
   settings: SettingsPage;
   /** Page object for the `/games` and `/games/:name` routes. */
@@ -262,6 +293,9 @@ export const test = base.extend<E2EFixtures>({
   },
   logs: async ({ page }, use) => {
     await use(new LogsPage(page));
+  },
+  infraLogs: async ({ page }, use) => {
+    await use(new InfrastructureLogsPage(page));
   },
   audit: async ({ page }, use) => {
     await use(new AuditPage(page));
