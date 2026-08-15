@@ -93,6 +93,9 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     const entry: LogLine = { text, level: detectLogLevel(text), receivedAt: Date.now() };
     if (pausedRef.current) {
       bufferRef.current.push(entry);
+      if (bufferRef.current.length > MAX_LINES) {
+        bufferRef.current.splice(0, bufferRef.current.length - MAX_LINES);
+      }
       setBufferedCount(bufferRef.current.length);
       return;
     }
@@ -155,7 +158,9 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       try {
         const data = await apiRef.current.get(target);
         if (cancelled) return;
-        setLines(data.lines.map((text) => ({ text, level: detectLogLevel(text), receivedAt: Date.now() })));
+        setLines(
+          data.lines.slice(-MAX_LINES).map((text) => ({ text, level: detectLogLevel(text), receivedAt: Date.now() })),
+        );
         startStream(target);
       } catch {
         if (!cancelled) {

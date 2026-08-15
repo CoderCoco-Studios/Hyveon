@@ -239,19 +239,23 @@ export class LogsService {
     let startTime: number | undefined;
     while (!signal.aborted) {
       try {
-        const result = await this.getClient().send(
-          new FilterLogEventsCommand({ logGroupName: logGroup, startTime }),
-        );
-        for (const event of result.events ?? []) {
-          const id = event.eventId ?? `${event.timestamp}:${event.message}`;
-          if (seen.has(id)) continue;
-          seen.add(id);
-          if (event.timestamp !== undefined) {
-            startTime = startTime === undefined ? event.timestamp : Math.max(startTime, event.timestamp);
+        let nextToken: string | undefined;
+        do {
+          const result = await this.getClient().send(
+            new FilterLogEventsCommand({ logGroupName: logGroup, startTime, nextToken }),
+          );
+          for (const event of result.events ?? []) {
+            const id = event.eventId ?? `${event.timestamp}:${event.message}`;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            if (event.timestamp !== undefined) {
+              startTime = startTime === undefined ? event.timestamp : Math.max(startTime, event.timestamp);
+            }
+            if (signal.aborted) return;
+            yield event.message ?? '';
           }
-          if (signal.aborted) return;
-          yield event.message ?? '';
-        }
+          nextToken = result.nextToken;
+        } while (nextToken && !signal.aborted);
       } catch (err) {
         if (signal.aborted) return;
         if (err instanceof Error && err.name === 'ResourceNotFoundException') {
