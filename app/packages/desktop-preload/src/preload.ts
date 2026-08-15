@@ -103,6 +103,7 @@ import type {
   HyveonStreamHandle,
   HyveonTestApi,
   LogChunk,
+  ManualUpdateCheckResult,
   PulumiEngineVersionResult,
   IacApplyPayload,
   IacApproveAck,
@@ -824,6 +825,7 @@ const api: HyveonApi = {
       autoUpdateGet: () => invoke<AutoUpdateSettingGetResult>('iac.settings.autoUpdate.get'),
       autoUpdateUpdate: (payload: AutoUpdateSettingUpdatePayload) =>
         invoke<AutoUpdateSettingWriteResult>('iac.settings.autoUpdate.update', payload),
+      autoUpdateCheck: () => invoke<ManualUpdateCheckResult>('iac.settings.autoUpdate.check'),
     },
   },
 };

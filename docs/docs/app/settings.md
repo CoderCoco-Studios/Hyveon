@@ -143,7 +143,7 @@ inside the wizard.
 
 ## Updates
 
-A single row, **Automatic Updates**, with a checkbox:
+The first row, **Automatic Updates**, has a checkbox:
 
 > Check GitHub Releases for updates on app start. Applies on next app start.
 
@@ -157,11 +157,11 @@ are disabled and returns without touching the network. If it's on, it uses
 `electron-updater` to check GitHub Releases for a newer version and logs the
 result (`[updater] update available` / `no update available` / a
 failed-check error) to the same diagnostics log described below. There is no
-"check now" button and no download or install — `autoDownload` and
-`autoInstallOnAppQuit` are both explicitly pinned `false`, so an available
-update is only detected and logged, never fetched or installed
-automatically. This is v1 scaffolding for a future real auto-update flow,
-not one yet.
+download or install here — `autoDownload` and `autoInstallOnAppQuit` are both
+explicitly pinned `false`, so an available update is only detected and
+logged, never fetched or installed automatically. This is v1 scaffolding for
+a future real auto-update flow, not one yet. (See [Check Now](#check-now)
+below for the on-demand equivalent this toggle does *not* control.)
 
 Two consequences worth calling out explicitly:
 
@@ -180,6 +180,33 @@ a value is known. The checkbox only updates after a write resolves — there's
 no optimistic flip — but a *failed* write drops into the error state
 entirely, showing an unchecked box and the error text rather than reverting
 to whatever was checked before.
+
+### Check Now
+
+A second row, **Check Now**, sits directly below the toggle with its own
+**Check for Updates** button. It runs a one-off `electron-updater` check via
+`checkForUpdatesNow()`, completely independent of the **Automatic Updates**
+toggle above — the toggle only gates `initUpdater()`'s automatic check at
+boot; pressing this button works the same whether the toggle is on or off.
+
+Same restriction as the automatic check: it never downloads or installs
+anything (`autoDownload` and `autoInstallOnAppQuit` stay pinned `false`) — it
+only reports what it found, inline in place of the row's description text:
+
+| State | Copy |
+|---|---|
+| Check in flight | `Checking for updates…` |
+| Up to date | `You're up to date.` |
+| Newer version found | `Update available: v<version>` |
+| Check failed | The raw error message (e.g. offline, a malformed feed) |
+
+Outside a real Electron main process — no `process.versions.electron`, e.g.
+the plain-Node integration test harness — the button still works but always
+reports `Update checks are only available in the packaged app.` rather than
+attempting a network call. This is not the same check as "packaged vs.
+`npm run desktop:dev`": a dev-mode Electron session still has
+`process.versions.electron` set, so it does attempt a real check. The button
+disables itself only while a check is in flight.
 
 ## General
 
