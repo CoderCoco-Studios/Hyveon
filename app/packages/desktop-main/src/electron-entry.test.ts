@@ -17,6 +17,7 @@ const {
   mockExistsSync,
   mockSetWindowOpenHandler,
   mockOpenExternal,
+  mockSetApplicationMenu,
   bootstrapMock,
   initUpdaterMock,
   fakeNestApp,
@@ -33,6 +34,8 @@ const {
   const mockSetWindowOpenHandler = vi.fn();
   /** Spy for `shell.openExternal`. */
   const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
+  /** Spy for `Menu.setApplicationMenu`. */
+  const mockSetApplicationMenu = vi.fn();
 
   /**
    * Collects every callback passed to `app.whenReady().then(cb)`.
@@ -101,6 +104,7 @@ const {
     mockExistsSync,
     mockSetWindowOpenHandler,
     mockOpenExternal,
+    mockSetApplicationMenu,
     bootstrapMock,
     initUpdaterMock,
     fakeNestApp,
@@ -123,6 +127,9 @@ vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
   shell: {
     openExternal: mockOpenExternal,
+  },
+  Menu: {
+    setApplicationMenu: mockSetApplicationMenu,
   },
 }));
 
@@ -149,6 +156,7 @@ describe('electron-entry', () => {
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
     mockOpenExternal.mockResolvedValue(undefined);
+    mockSetApplicationMenu.mockImplementation(() => undefined);
 
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
@@ -182,6 +190,15 @@ describe('electron-entry', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it('should clear the default application menu on import', async () => {
+    vi.resetModules();
+    vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+    await import('./electron-entry.js');
+
+    expect(mockSetApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
   });
 
   it('should call bootstrap() inside the app.whenReady() callback', async () => {
