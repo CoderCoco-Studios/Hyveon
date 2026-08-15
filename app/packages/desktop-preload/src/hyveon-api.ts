@@ -17,6 +17,7 @@ import type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ExportDiagnosticsBundleResult,
   ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
@@ -72,6 +73,10 @@ import type {
  * recovery flow) and is a pure data shape with nothing to isolate the
  * renderer from.
  *
+ * `ExportDiagnosticsBundleResult` (`@hyveon/shared/src/diagnosticsBundle.ts`)
+ * joins this group for the same reason — it backs `diagnostics.exportBundle`'s
+ * result and is a pure data shape with nothing to isolate the renderer from.
+ *
  * `ManualUpdateCheckResult` (`@hyveon/shared/src/autoUpdateSetting.ts`) joins
  * this group for the same reason — it backs the on-demand update-check
  * button in Settings' Updates section and is a pure data shape with nothing
@@ -85,6 +90,7 @@ export type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ExportDiagnosticsBundleResult,
   ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
@@ -1800,6 +1806,16 @@ export interface HyveonDiagnosticsApi {
    *   caller's own batch cap, if any.
    */
   reportLog: (entries: RendererLogEntry[], droppedCount?: number) => Promise<void>;
+  /**
+   * Prompts the operator for a save location via a native save dialog, then
+   * writes a `.zip` diagnostics bundle (recent logs, a redacted config
+   * summary, app/system metadata, and a best-effort AWS resource snapshot)
+   * there. Resolves `{ status: 'cancelled' }` — not an error — when the
+   * operator cancels the dialog.
+   */
+  exportBundle: () => Promise<ExportDiagnosticsBundleResult>;
+  /** Reveals `path` (a written bundle) in the OS's file manager via `shell.showItemInFolder`. Never rejects. */
+  showInFolder: (path: string) => Promise<void>;
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */

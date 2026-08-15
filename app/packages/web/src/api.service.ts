@@ -3,6 +3,10 @@
 // no bearer-token plumbing left in this module: the renderer talks to the main
 // process over IPC, not HTTP.
 
+import type { ExportDiagnosticsBundleResult } from '@hyveon/shared';
+
+export type { ExportDiagnosticsBundleResult };
+
 /** Live status for a single game, as returned by `GET /api/status` and `/api/status/:game`. */
 export interface GameStatus {
   game: string;
@@ -666,6 +670,8 @@ export const api = {
 
   diagnosticsTail: async (): Promise<{ lines: string[] }> => hyveon().diagnostics.tail(),
   diagnosticsLogPath: async (): Promise<{ path: string }> => hyveon().diagnostics.path(),
+  diagnosticsExportBundle: async (): Promise<ExportDiagnosticsBundleResult> => hyveon().diagnostics.exportBundle(),
+  diagnosticsShowInFolder: async (path: string): Promise<void> => hyveon().diagnostics.showInFolder(path),
 
   drift: async (): Promise<DriftReport> => hyveon().drift.get(),
 

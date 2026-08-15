@@ -82,6 +82,18 @@ export function installHyveonHttpBridge(): void {
     diagnostics: {
       tail: () => call('/api/diagnostics/tail'),
       path: () => call('/api/diagnostics/path'),
+      // `diagnostics.exportBundle`/`.showInFolder` are IPC-only in production
+      // with no HTTP route — same situation as `iac.settings.update` below.
+      // Unlike `tail`/`path`, nothing calls this unconditionally on mount
+      // (only an explicit "Export diagnostics bundle" click in
+      // `DiagnosticsPanel`), so a throwing stub — never exercised by a
+      // chromium spec that merely visits `/settings` — is correct here.
+      exportBundle: () => {
+        throw new Error('diagnostics.exportBundle has no HTTP route in the chromium e2e tier.');
+      },
+      showInFolder: () => {
+        throw new Error('diagnostics.showInFolder has no HTTP route in the chromium e2e tier.');
+      },
     },
     // Logs are IPC-only in production with no HTTP route; tier-1 overrides this
     // with a data-backed stub (see `stubApis`) and no tier-2 spec visits /logs,

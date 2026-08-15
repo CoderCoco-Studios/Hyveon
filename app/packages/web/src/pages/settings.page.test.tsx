@@ -196,6 +196,19 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('Unable to read the update setting.')).toBeInTheDocument();
     });
 
+    it('should disable the toggle and not blind-write on click when the initial read fails', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).toBeDisabled());
+
+      // A disabled checkbox ignores clicks — assert no write is attempted, since a click
+      // here would otherwise fire onChange(true) regardless of the real stored value.
+      await userEvent.click(toggle);
+      expect(hyveonMock.iac.settings.autoUpdateUpdate).not.toHaveBeenCalled();
+    });
+
     it('should call autoUpdateUpdate with true and reflect the new checked state on toggle', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: true, enableAutoUpdate: true });
