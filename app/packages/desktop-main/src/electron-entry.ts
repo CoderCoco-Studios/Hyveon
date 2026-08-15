@@ -69,8 +69,11 @@ function setDefaultBrowserOpener(win: BrowserWindow): void {
  *   traffic-light cluster in the header's `h-14` (56px) row: (56 - 16) / 2.
  * - Windows keeps the native `titleBarOverlay` (including the Windows 11
  *   snap-layout flyout), colored to match the header's background/text.
- * - Linux gets neither — the renderer draws its own buttons there (Task 4),
- *   since no native overlay/traffic-light equivalent exists on Linux.
+ * - Linux gets neither — the renderer draws its own buttons there (Task 4).
+ *   This is an implementation-simplicity choice for this change's scope, not
+ *   a platform limitation: Electron's `titleBarOverlay` has since gained
+ *   Linux support (see `design.md`'s D3), so a future change could migrate
+ *   Linux to the native overlay path instead.
  *
  * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
  * `color`/`symbolColor` match `--color-surface` (#1a1d2e) and
@@ -93,6 +96,51 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
     };
   }
   return base;
+}
+
+/**
+ * Width, in CSS px, below which the sidebar becomes `display: none` — matches
+ * `app-layout.component.tsx`'s `hidden md:flex` on the `<aside>` (Tailwind's
+ * `md` breakpoint).
+ */
+const SIDEBAR_BREAKPOINT_PX = 768;
+
+/** `trafficLightPosition` when the sidebar is visible — see `platformWindowChromeOptions()`'s doc comment for the 252/20 derivation. */
+const SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 252, y: 20 };
+
+/**
+ * `trafficLightPosition` when the sidebar is hidden (window narrower than
+ * `SIDEBAR_BREAKPOINT_PX`) — the header then starts at x: 0, so this matches
+ * the header's own 12px left inset instead of the sidebar-offset 252px.
+ */
+const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
+
+/**
+ * Keeps macOS's traffic-light cluster aligned with the header as the window
+ * is resized across the sidebar's responsive breakpoint. `trafficLightPosition`
+ * is a `BrowserWindow` constructor-time constant, so a fixed sidebar-offset
+ * value would be correct only while the sidebar stays visible (width at least
+ * 768px) —
+ * below that the sidebar is `display: none` (`app-layout.component.tsx`'s
+ * `hidden md:flex`) and the header starts at x: 0, leaving the constructor's
+ * offset floating in the middle of a now-sidebar-less header. Electron's
+ * `win.setWindowButtonPosition()` (the runtime setter for the
+ * `trafficLightPosition` constructor option — renamed in Electron's API, the
+ * constructor option itself is unchanged) can update the position at
+ * runtime, so this listens for the window's native `resize` event and
+ * switches between the two positions based on the window's current width.
+ *
+ * @param win - The macOS `BrowserWindow` to keep the traffic lights aligned on.
+ */
+function wireTrafficLightResizeHandling(win: BrowserWindow): void {
+  const applyPositionForWidth = (width: number): void => {
+    win.setWindowButtonPosition(
+      width >= SIDEBAR_BREAKPOINT_PX ? SIDEBAR_TRAFFIC_LIGHT_POSITION : NO_SIDEBAR_TRAFFIC_LIGHT_POSITION,
+    );
+  };
+
+  applyPositionForWidth(win.getBounds().width);
+  win.on('resize', () => applyPositionForWidth(win.getBounds().width));
 }
 
 /**
@@ -123,6 +171,10 @@ function createWindow(): BrowserWindow {
   });
 
   setDefaultBrowserOpener(win);
+
+  if (process.platform === 'darwin') {
+    wireTrafficLightResizeHandling(win);
+  }
 
   const rendererUrl = electronRendererUrl();
   const load = rendererUrl

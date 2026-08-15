@@ -13,9 +13,9 @@ const {
   mockOn,
   mockWhenReady,
   MockBrowserWindow,
+  makeWinInstance,
   mockGetAllWindows,
   mockExistsSync,
-  mockSetWindowOpenHandler,
   mockOpenExternal,
   bootstrapMock,
   initUpdaterMock,
@@ -62,6 +62,35 @@ const {
   }));
 
   /**
+   * Builds one mock `BrowserWindow` instance's method surface. Captures `on`/
+   * `once` listeners per-instance (keyed by event name) so tests can fire a
+   * specific window's `resize`/`closed` events via `__fireWin`, mirroring the
+   * `__fire` escape hatch in `WindowService.test.ts`'s `makeWin()`.
+   */
+  function makeWinInstance() {
+    const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+    const capture = (event: string, cb: (...args: unknown[]) => void) => {
+      (listeners[event] ??= []).push(cb);
+    };
+    return {
+      loadURL: mockLoadURL,
+      loadFile: mockLoadFile,
+      webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
+      on: vi.fn(capture),
+      once: vi.fn(capture),
+      isMaximized: vi.fn().mockReturnValue(false),
+      minimize: vi.fn(),
+      maximize: vi.fn(),
+      unmaximize: vi.fn(),
+      close: vi.fn(),
+      getBounds: vi.fn().mockReturnValue({ x: 0, y: 0, width: 1200, height: 800 }),
+      setWindowButtonPosition: vi.fn(),
+      // Test-only escape hatch to fire a registered listener by event name.
+      __fireWin: (event: string, ...args: unknown[]) => listeners[event]?.forEach((cb) => cb(...args)),
+    };
+  }
+
+  /**
    * Spy BrowserWindow constructor whose instances expose controlled load fns.
    *
    * The implementation must be a `function` expression rather than an arrow:
@@ -71,18 +100,7 @@ const {
    */
   const MockBrowserWindow = Object.assign(
     vi.fn().mockImplementation(function () {
-      return {
-        loadURL: mockLoadURL,
-        loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
-        on: vi.fn(),
-        once: vi.fn(),
-        isMaximized: vi.fn().mockReturnValue(false),
-        minimize: vi.fn(),
-        maximize: vi.fn(),
-        unmaximize: vi.fn(),
-        close: vi.fn(),
-      };
+      return makeWinInstance();
     }),
     {
       /** `BrowserWindow.getAllWindows()` static method used by the activate handler. */
@@ -104,6 +122,7 @@ const {
     mockOn,
     mockWhenReady,
     MockBrowserWindow,
+    makeWinInstance,
     mockGetAllWindows,
     mockExistsSync,
     mockSetWindowOpenHandler,
@@ -167,18 +186,7 @@ describe('electron-entry', () => {
     // cleared it between tests (clearMocks resets call history and return value
     // queues; mockImplementation persists, but we re-set to be defensive).
     MockBrowserWindow.mockImplementation(function () {
-      return {
-        loadURL: mockLoadURL,
-        loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
-        on: vi.fn(),
-        once: vi.fn(),
-        isMaximized: vi.fn().mockReturnValue(false),
-        minimize: vi.fn(),
-        maximize: vi.fn(),
-        unmaximize: vi.fn(),
-        close: vi.fn(),
-      };
+      return makeWinInstance();
     });
 
     // Re-apply mockOn and mockWhenReady implementations so callback capturing
@@ -506,6 +514,76 @@ describe('electron-entry', () => {
       const options = await createWindowOptionsForPlatform('linux');
       expect(options.trafficLightPosition).toBeUndefined();
       expect(options.titleBarOverlay).toBeUndefined();
+    });
+  });
+
+  describe('macOS traffic-light resize handling', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
+
+    /**
+     * Imports the entry point on macOS, fires the ready callback, and returns
+     * the created mock window instance (with `getBounds`/`setWindowButtonPosition`
+     * spies and the `__fireWin` escape hatch for firing its `resize` event).
+     */
+    async function createDarwinWindow(): Promise<
+      ReturnType<typeof makeWinInstance> & { __fireWin: (event: string, ...args: unknown[]) => void }
+    > {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      return MockBrowserWindow.mock.results[0]?.value;
+    }
+
+    it('should set trafficLightPosition to the sidebar-offset position for the initial (>=768px) window width', async () => {
+      const win = await createDarwinWindow();
+      // Default mock width is 1200px (>= the 768px `md` breakpoint).
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 252, y: 20 });
+    });
+
+    it('should switch to the no-sidebar position when the window is resized narrower than 768px', async () => {
+      const win = await createDarwinWindow();
+      win.setWindowButtonPosition.mockClear();
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 600, height: 800 });
+
+      win.__fireWin('resize');
+
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 12, y: 20 });
+    });
+
+    it('should switch back to the sidebar-offset position when the window is resized back to >=768px', async () => {
+      const win = await createDarwinWindow();
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 600, height: 800 });
+      win.__fireWin('resize');
+      win.setWindowButtonPosition.mockClear();
+
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 1000, height: 800 });
+      win.__fireWin('resize');
+
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 252, y: 20 });
+    });
+
+    it('should not wire resize-based traffic-light handling on win32 or linux', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      const win = MockBrowserWindow.mock.results[0]?.value as ReturnType<typeof makeWinInstance>;
+      expect(win.setWindowButtonPosition).not.toHaveBeenCalled();
     });
   });
 

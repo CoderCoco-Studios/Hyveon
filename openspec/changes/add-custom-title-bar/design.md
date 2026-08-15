@@ -75,6 +75,17 @@ mechanism wires the new window service to the live `BrowserWindow`.
   (240px wide), not the header — so the x-offset must account for the
   sidebar's width (240 + 12px inset = 252) or the traffic lights land on
   the sidebar's brand block instead of inside the header.
+- **Handled trade-off**: the sidebar itself is responsive (`hidden md:flex`,
+  Tailwind's `md` = 768px breakpoint) — below that width it's `display: none`
+  and the header starts at x: 0, so the 252px sidebar-offset position would
+  float in the middle of a now-sidebar-less header. `trafficLightPosition` is
+  a `BrowserWindow` constructor-time constant, so this can't be fixed with a
+  single static value; `electron-entry.ts` listens for the window's native
+  `resize` event and calls `win.setWindowButtonPosition()` (the runtime
+  setter for the `trafficLightPosition` constructor option in this Electron
+  version) at runtime to
+  switch between `{ x: 252, y: 20 }` (sidebar visible, width >= 768) and
+  `{ x: 12, y: 20 }` (sidebar hidden, matching the header's own left inset).
 - **Alternatives considered**: fully custom buttons on macOS too, for
   cross-platform visual consistency — rejected as unnecessary
   platform-convention divergence and extra testing surface for no
