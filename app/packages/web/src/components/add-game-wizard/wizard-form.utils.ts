@@ -473,7 +473,7 @@ function toStructuralHealthCheckPreview(draft: WizardDraftHealthCheck): GameServ
   if (!withAuth) {
     return undefined;
   }
-  if (!withAuth.auth || withAuth.auth.type === 'raw' || withAuth.auth.type === undefined) {
+  if (withAuth.auth === undefined || withAuth.auth?.type === 'raw') {
     return withAuth as GameServerHealthCheck;
   }
   const { auth: _auth, ...rest } = withAuth;

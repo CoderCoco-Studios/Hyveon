@@ -565,6 +565,17 @@ describe('health-check auth draft conversion', () => {
     const issues = validateNetworkingStep(draftWithHealthCheck({ authType: 'basic', username: 'admin' }), []);
     expect(issues.some((i) => i.path === 'healthCheck.auth.password')).toBe(true);
   });
+
+  it('should raise no networking-step issues when authType is "none" and a credential was previously set (explicit clear)', () => {
+    // Regression test: toStructuralHealthCheckPreview must strip a `null`
+    // auth (explicit clear) the same way it strips `basic`/`bearer`, not
+    // just treat it as "keep as-is" alongside `undefined`. Before the fix,
+    // the structural preview kept `auth: null` attached, which
+    // validateGameServer's schema (auth as an optional object) rejects —
+    // silently blocking the wizard's Next/Submit button for this case.
+    const issues = validateNetworkingStep(draftWithHealthCheck({ authType: 'none', secretSet: true }), []);
+    expect(issues).toEqual([]);
+  });
 });
 
 describe('canAdvance', () => {
