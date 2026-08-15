@@ -416,6 +416,148 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   });
 
+  it('should reserve space for the Windows titleBarOverlay in the header trailing group on win32', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'win32',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const header = screen.getByRole('banner');
+    const trailingGroup = header.querySelector('[data-titlebar-overlay-spacer]');
+    expect(trailingGroup).not.toBeNull();
+    // jsdom's CSS parser (cssstyle) re-serializes calc()/env() nesting in a
+    // different token order than authored, so assert on the substrings that
+    // survive re-serialization rather than the literal `env(titlebar-area-width`
+    // call syntax.
+    const style = trailingGroup?.getAttribute('style') ?? '';
+    expect(style).toContain('titlebar-area-width');
+    expect(style).toContain('calc(');
+  });
+
+  it('should NOT reserve space for the Windows titleBarOverlay on linux or darwin', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header.querySelector('[data-titlebar-overlay-spacer]')).toBeNull();
+  });
+
+  it('should mark the sidebar brand block as a drag region on darwin when window.hyveon.window is present', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'darwin',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const brandBlock = screen.getByTestId('sidebar-brand-block');
+    expect(brandBlock.style.getPropertyValue('-webkit-app-region')).toBe('drag');
+  });
+
+  it('should NOT mark the sidebar brand block as a drag region on win32', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'win32',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const brandBlock = screen.getByTestId('sidebar-brand-block');
+    expect(brandBlock.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
+  });
+
+  it('should NOT mark the sidebar brand block as a drag region on linux', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const brandBlock = screen.getByTestId('sidebar-brand-block');
+    expect(brandBlock.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
+  });
+
+  it('should NOT mark the sidebar brand block as a drag region when window.hyveon is absent', () => {
+    vi.unstubAllGlobals();
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const brandBlock = screen.getByTestId('sidebar-brand-block');
+    expect(brandBlock.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
+  });
+
   it('should call window.hyveon.window.minimize() when the Minimize button is clicked', async () => {
     const minimize = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('hyveon', {
@@ -492,13 +634,19 @@ describe('AppLayout — window chrome (custom title bar)', () => {
       </PollingProvider>,
     );
 
-    expect(screen.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
+    const maximizeButton = screen.getByRole('button', { name: 'Maximize' });
+    expect(maximizeButton).toBeInTheDocument();
+    expect(maximizeButton.querySelector('svg.lucide-square')).toBeInTheDocument();
+    expect(maximizeButton.querySelector('svg.lucide-copy')).not.toBeInTheDocument();
 
     await act(async () => {
       fireMaximizedChange(true);
     });
 
     expect(screen.queryByRole('button', { name: 'Maximize' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+    const restoreButton = screen.getByRole('button', { name: 'Restore' });
+    expect(restoreButton).toBeInTheDocument();
+    expect(restoreButton.querySelector('svg.lucide-copy')).toBeInTheDocument();
+    expect(restoreButton.querySelector('svg.lucide-square')).not.toBeInTheDocument();
   });
 });

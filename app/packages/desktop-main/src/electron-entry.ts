@@ -58,7 +58,15 @@ function setDefaultBrowserOpener(win: BrowserWindow): void {
  * convention rather than drawing app-side buttons everywhere (D2/D3):
  *
  * - macOS keeps native traffic-light buttons, repositioned via
- *   `trafficLightPosition` to align with the merged header.
+ *   `trafficLightPosition` to align with the merged header. `x: 252` is not
+ *   a fixed inset from the window edge the way `y: 20` is — the
+ *   `BrowserWindow`'s top-left corner is the sidebar's top-left corner (the
+ *   `<aside>` in `app-layout.component.tsx` is `w-60` / 240px wide, and it
+ *   renders to the left of the header), so the traffic lights must be offset
+ *   past the sidebar's full width before applying the header's own 12px
+ *   inset (240 + 12 = 252) or they land on top of the sidebar's brand block
+ *   instead of inside the header. `y: 20` vertically centers a ~16px-tall
+ *   traffic-light cluster in the header's `h-14` (56px) row: (56 - 16) / 2.
  * - Windows keeps the native `titleBarOverlay` (including the Windows 11
  *   snap-layout flyout), colored to match the header's background/text.
  * - Linux gets neither — the renderer draws its own buttons there (Task 4),
@@ -76,7 +84,7 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   const base: Partial<Electron.BrowserWindowConstructorOptions> = { titleBarStyle: 'hidden' };
 
   if (process.platform === 'darwin') {
-    return { ...base, trafficLightPosition: { x: 12, y: 12 } };
+    return { ...base, trafficLightPosition: { x: 252, y: 20 } };
   }
   if (process.platform === 'win32') {
     return {
@@ -144,8 +152,8 @@ app.whenReady().then(() => {
         console.error('[desktop-main] updater init failed:', err);
       });
 
-      const win = createWindow();
-      nestApp.get(WindowService).attach(win);
+      const windowService = nestApp.get(WindowService);
+      windowService.attach(createWindow());
 
       // SPIKE SCAFFOLDING — a leftover early prototype for validating the
       // Pulumi Automation API, now superseded by `PulumiEngineService`. Gated
@@ -169,9 +177,15 @@ app.whenReady().then(() => {
       }
 
       // On macOS re-create the window when the dock icon is clicked and there
-      // are no other windows open (standard macOS behaviour).
+      // are no other windows open (standard macOS behaviour). Re-attaching
+      // WindowService here (not just on the initial launch path above) matters:
+      // without it, WindowService would keep holding a reference to the
+      // destroyed original BrowserWindow, silently no-oping every subsequent
+      // IPC call from the renderer.
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        if (BrowserWindow.getAllWindows().length === 0) {
+          windowService.attach(createWindow());
+        }
       });
     })
     .catch((err: unknown) => {

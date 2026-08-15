@@ -19,6 +19,7 @@ import {
   Cloud,
   Minus,
   Square,
+  Copy,
 } from 'lucide-react';
 
 interface NavItem {
@@ -134,8 +135,24 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-60 border-r border-border bg-card flex-col">
-        {/* Brand */}
-        <div className="px-4 py-5 border-b border-border">
+        {/*
+          Brand block. On macOS this corner of the window is where the native
+          traffic-light buttons render (see `platformWindowChromeOptions()` in
+          `electron-entry.ts` — `trafficLightPosition` is offset by the sidebar's
+          240px width to land inside the header, not here), so this block must
+          also be a drag region or macOS users couldn't drag the window from
+          that corner. Windows/Linux don't render anything there, so this is
+          scoped to darwin only.
+        */}
+        <div
+          className="px-4 py-5 border-b border-border"
+          data-testid="sidebar-brand-block"
+          style={
+            window.hyveon?.window && window.hyveon.window.platform === 'darwin'
+              ? ({ WebkitAppRegion: 'drag' } as CSSProperties)
+              : undefined
+          }
+        >
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
               <Server className="w-5 h-5 text-white" />
@@ -227,6 +244,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
 
             <WindowControls />
+
+            {/*
+              Windows' titleBarOverlay reserves a region (top-right, per Electron's
+              docs) where the OS draws the overlay buttons — DOM elements there
+              cannot receive clicks. `env(titlebar-area-width)` is only meaningful
+              inside a WCO-enabled window (falls back to 100% elsewhere), so this
+              spacer only renders on win32; the trailing content above ends before
+              the reserved region begins.
+            */}
+            {window.hyveon?.window?.platform === 'win32' && (
+              <div
+                data-titlebar-overlay-spacer=""
+                aria-hidden="true"
+                style={{ width: 'calc(100% - env(titlebar-area-width, 100%))' }}
+              />
+            )}
           </div>
         </header>
 
@@ -350,7 +383,11 @@ function WindowControls() {
         aria-label={isMaximized ? 'Restore' : 'Maximize'}
         className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
       >
-        <Square className="w-3.5 h-3.5" aria-hidden="true" />
+        {isMaximized ? (
+          <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+        ) : (
+          <Square className="w-3.5 h-3.5" aria-hidden="true" />
+        )}
       </button>
       <button
         type="button"

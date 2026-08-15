@@ -64,13 +64,17 @@ mechanism wires the new window service to the live `BrowserWindow`.
   competes for it. Rejected.
 
 ### D2: Keep native traffic-light buttons on macOS
-- **Choice**: `titleBarStyle: 'hidden'` + `trafficLightPosition` on
-  macOS; the app draws no window-control buttons there — the OS still
+- **Choice**: `titleBarStyle: 'hidden'` + `trafficLightPosition: { x: 252, y: 20 }`
+  on macOS; the app draws no window-control buttons there — the OS still
   draws the traffic lights, just repositioned into the custom header.
 - **Rationale**: matches macOS user expectations and how most polished
   Electron apps (including Discord) handle it; avoids re-implementing
   double-click-to-zoom, hover states, and accessibility behavior the OS
-  already provides for free.
+  already provides for free. `trafficLightPosition` is relative to the
+  whole `BrowserWindow`, whose top-left corner is the `<aside>` sidebar
+  (240px wide), not the header — so the x-offset must account for the
+  sidebar's width (240 + 12px inset = 252) or the traffic lights land on
+  the sidebar's brand block instead of inside the header.
 - **Alternatives considered**: fully custom buttons on macOS too, for
   cross-platform visual consistency — rejected as unnecessary
   platform-convention divergence and extra testing surface for no
@@ -79,11 +83,13 @@ mechanism wires the new window service to the live `BrowserWindow`.
 ### D3: Native `titleBarOverlay` on Windows, app-drawn buttons only on Linux
 - **Choice**: Windows uses Electron's `titleBarOverlay` option (native
   overlay minimize/maximize/close, including the Windows 11
-  hover-to-snap flyout); Linux — which has no overlay equivalent — gets a
-  small custom React button group wired to the new IPC channels.
+  hover-to-snap flyout); Linux gets a small custom React button group
+  wired to the new IPC channels.
 - **Rationale**: `titleBarOverlay` is the least code for the most native
-  fidelity on Windows. Linux has no first-class Electron equivalent, so a
-  custom implementation is the only option there regardless.
+  fidelity on Windows. Linux gets app-drawn buttons here for implementation
+  simplicity within this change's scope, even though Electron's
+  `titleBarOverlay` has since gained Linux support — a future change could
+  migrate Linux to the native overlay path, but that's out of scope here.
 - **Alternatives considered**: fully custom buttons on both Windows and
   Linux for one shared code path — rejected because it forfeits the
   native Windows 11 snap-layout flyout for no benefit, and Windows is a

@@ -76,6 +76,7 @@ const {
         loadFile: mockLoadFile,
         webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
         on: vi.fn(),
+        once: vi.fn(),
         isMaximized: vi.fn().mockReturnValue(false),
         minimize: vi.fn(),
         maximize: vi.fn(),
@@ -171,6 +172,7 @@ describe('electron-entry', () => {
         loadFile: mockLoadFile,
         webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
         on: vi.fn(),
+        once: vi.fn(),
         isMaximized: vi.fn().mockReturnValue(false),
         minimize: vi.fn(),
         maximize: vi.fn(),
@@ -481,9 +483,12 @@ describe('electron-entry', () => {
       expect(options.titleBarStyle).toBe('hidden');
     });
 
-    it('should set trafficLightPosition on macOS and no titleBarOverlay', async () => {
+    it('should set trafficLightPosition on macOS, offset into the header past the sidebar, and no titleBarOverlay', async () => {
       const options = await createWindowOptionsForPlatform('darwin');
-      expect(options.trafficLightPosition).toEqual({ x: 12, y: 12 });
+      // The BrowserWindow's top-left corner is the sidebar (w-60 = 240px), not
+      // the header, so the traffic lights must be offset by the sidebar's width
+      // to land inside the header rather than on top of the sidebar brand block.
+      expect(options.trafficLightPosition).toEqual({ x: 252, y: 20 });
       expect(options.titleBarOverlay).toBeUndefined();
     });
 
@@ -524,6 +529,39 @@ describe('electron-entry', () => {
       expect(fakeNestApp.get).toHaveBeenCalledWith(WindowService);
       expect(fakeWindowService.attach).toHaveBeenCalledOnce();
       expect(fakeWindowService.attach).toHaveBeenCalledWith(MockBrowserWindow.mock.results[0]?.value);
+    });
+
+    it('should re-attach WindowService to the newly created window when activate fires with zero open windows', async () => {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      // Initial attach from the whenReady().then() path.
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(1);
+      const firstWindow = MockBrowserWindow.mock.results[0]?.value;
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(firstWindow);
+
+      // Simulate macOS re-opening the app from the dock after every window closed.
+      mockGetAllWindows.mockReturnValue([]);
+      const activateHandler = onCallbacks['activate'];
+      expect(activateHandler).toBeDefined();
+      activateHandler!();
+      await flushPromises();
+
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(2);
+      const secondWindow = MockBrowserWindow.mock.results[1]?.value;
+      expect(fakeWindowService.attach).toHaveBeenLastCalledWith(secondWindow);
     });
   });
 });

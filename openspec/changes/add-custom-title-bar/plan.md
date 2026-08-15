@@ -14,7 +14,7 @@
 
 - Channel names follow `<namespace>.<action>`: `window.minimize`, `window.toggleMaximize`, `window.close`, `window.isMaximized`, `window.maximizedChange` (D5).
 - `toggleMaximize` is a single request/response method — no separate `maximize`/`restore` channels (D5).
-- macOS: `titleBarStyle: 'hidden'` + `trafficLightPosition: { x: 12, y: 12 }`; the app renders **no** custom window-control buttons — the OS draws the traffic lights (D2).
+- macOS: `titleBarStyle: 'hidden'` + `trafficLightPosition: { x: 252, y: 20 }`; the app renders **no** custom window-control buttons — the OS draws the traffic lights (D2). The x-offset accounts for the sidebar's 240px width, since `trafficLightPosition` is relative to the whole `BrowserWindow` (whose top-left corner is the sidebar), not the header.
 - Windows: `titleBarStyle: 'hidden'` + `titleBarOverlay: { color, symbolColor, height: 56 }`; the app renders **no** custom window-control buttons — the OS draws the overlay (D3). `height: 56` matches the header's `h-14` Tailwind class (resolves design.md's first Open Question).
 - Linux: `titleBarStyle: 'hidden'`, no overlay; the app renders its own minimize/maximize-or-restore/close buttons using `lucide-react`'s `Minus`, `Square`, `X` (resolves design.md's second Open Question — no strong objection was raised, so the default assumption stands) (D3).
 - `window.hyveon.window.platform` is read from `process.platform` once at preload load time — never round-tripped through IPC (D6).
