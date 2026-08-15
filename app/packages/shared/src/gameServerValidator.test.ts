@@ -7,6 +7,7 @@ import {
   estimateFargateHourlyCost,
   FARGATE_VCPU_PER_HOUR,
   FARGATE_GB_PER_HOUR,
+  validateHealthCheckAuthInput,
 } from './gameServerValidator.js';
 import type { GameServer } from './gameServerConfig.js';
 
@@ -662,6 +663,70 @@ describe('validateGameServer', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should accept auth.type "raw" alongside a well-formed secretArn', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({
+            auth: { type: 'raw', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-token-AbCdEf' },
+          }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept auth.type "basic" alongside a well-formed secretArn (persisted app-owned shape)', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({
+            auth: { type: 'basic', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-auth-AbCdEf' },
+          }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept auth.type "bearer" alongside a well-formed secretArn (persisted app-owned shape)', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({
+            auth: { type: 'bearer', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-auth-AbCdEf' },
+          }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject an auth.type of "basic" with no secretArn (the persisted schema always requires one)', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({ healthCheck: makeHealthCheck({ auth: { type: 'basic' } }) }),
+        [],
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.path === 'healthCheck.auth.secretArn')).toBe(true);
+      }
+    });
+
+    it('should reject an unrecognized auth.type', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          healthCheck: makeHealthCheck({
+            auth: { type: 'oauth', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-token-AbCdEf' },
+          }),
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+    });
+
     it('should reject a header value that looks like an inline bearer token', () => {
       const result = validateGameServer(
         'game',
@@ -751,5 +816,58 @@ describe('estimateFargateHourlyCost', () => {
         Math.round(((cpu / 1024) * FARGATE_VCPU_PER_HOUR + (memory / 1024) * FARGATE_GB_PER_HOUR) * 10000) / 10000;
       expect(estimateFargateHourlyCost(cpu, memory)).toBe(expected);
     }
+  });
+});
+
+describe('validateHealthCheckAuthInput', () => {
+  it('should accept undefined (no credential change)', () => {
+    expect(validateHealthCheckAuthInput(undefined)).toEqual([]);
+  });
+
+  it('should accept null (explicit clear)', () => {
+    expect(validateHealthCheckAuthInput(null)).toEqual([]);
+  });
+
+  it('should accept a well-formed raw credential', () => {
+    const issues = validateHealthCheckAuthInput({
+      type: 'raw',
+      secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:game-token-AbCdEf',
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it('should reject a raw credential with no secretArn', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'raw' });
+    expect(issues.some((i) => i.path === 'healthCheck.auth.secretArn')).toBe(true);
+  });
+
+  it('should treat an omitted type the same as "raw"', () => {
+    const issues = validateHealthCheckAuthInput({ secretArn: 'not-an-arn' });
+    expect(issues.some((i) => i.path === 'healthCheck.auth.secretArn')).toBe(true);
+  });
+
+  it('should accept a well-formed basic credential', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'basic', username: 'admin', password: 'hunter2' });
+    expect(issues).toEqual([]);
+  });
+
+  it('should reject a basic credential missing a password', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'basic', username: 'admin' });
+    expect(issues.some((i) => i.path === 'healthCheck.auth.password')).toBe(true);
+  });
+
+  it('should reject a basic credential missing a username', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'basic', password: 'hunter2' });
+    expect(issues.some((i) => i.path === 'healthCheck.auth.username')).toBe(true);
+  });
+
+  it('should accept a well-formed bearer credential', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'bearer', token: 'sk-abc123' });
+    expect(issues).toEqual([]);
+  });
+
+  it('should reject a bearer credential missing a token', () => {
+    const issues = validateHealthCheckAuthInput({ type: 'bearer' });
+    expect(issues.some((i) => i.path === 'healthCheck.auth.token')).toBe(true);
   });
 });

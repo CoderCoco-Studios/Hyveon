@@ -44,7 +44,11 @@ const sampleDraft: GameWizardDraft = {
     jsonPath: '',
     operator: 'equals',
     value: '',
+    authType: 'none',
     secretArn: '',
+    username: '',
+    password: '',
+    token: '',
     secretSet: false,
   },
 };
