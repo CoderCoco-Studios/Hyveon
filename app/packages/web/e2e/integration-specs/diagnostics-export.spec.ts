@@ -10,6 +10,7 @@ async function listZipEntryNames(path: string): Promise<string[]> {
   const names: string[] = [];
   await new Promise<void>((resolve, reject) => {
     createReadStream(path)
+      .on('error', reject)
       .pipe(unzipper.Parse())
       .on('entry', (entry: unzipper.Entry) => {
         names.push(entry.path);

@@ -45,3 +45,13 @@ export interface AutoUpdateSettingWriteFailure {
 
 /** Discriminated union returned by the `iac.settings.autoUpdate.update` handler. */
 export type AutoUpdateSettingWriteResult = AutoUpdateSettingWriteSuccess | AutoUpdateSettingWriteFailure;
+
+/**
+ * Discriminated union returned by the `iac.settings.autoUpdate.check` handler —
+ * the result of an on-demand update check, independent of the
+ * `enableAutoUpdate` flag. Never implies a download or install occurred.
+ */
+export type ManualUpdateCheckResult =
+  | { ok: true; updateAvailable: true; version: string }
+  | { ok: true; updateAvailable: false }
+  | { ok: false; message: string };
