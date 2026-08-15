@@ -30,8 +30,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 `npm run app:lint` clean.
-- [ ] 6.2 `npm run app:typecheck` clean.
-- [ ] 6.3 `npm run app:test` full unit suite green.
-- [ ] 6.4 `npm run app:test:e2e` — confirm the `chromium` project (no Electron) still passes unmodified, and the `electron` project reflects the new chrome where applicable.
-- [ ] 6.5 Manual check per platform actually available in dev: launch `npm run desktop:dev`, drag the header to move the window, verify interactive header controls (nav toggle/Refresh/LIVE/avatar) still work, verify minimize/maximize/restore/close behave correctly, verify no OS-default title bar row remains.
+- [x] 6.1 `npm run app:lint` clean.
+- [x] 6.2 `npm run app:typecheck` clean.
+- [x] 6.3 `npm run app:test` full unit suite green. (3225/3225 pass)
+- [x] 6.4 `npm run app:test:e2e` — confirm the `chromium` project (no Electron) still passes unmodified, and the `electron` project reflects the new chrome where applicable. (94/94 pass)
+- [~] 6.5 Manual check per platform actually available in dev: launch `npm run desktop:dev`, drag the header to move the window, verify interactive header controls (nav toggle/Refresh/LIVE/avatar) still work, verify minimize/maximize/restore/close behave correctly, verify no OS-default title bar row remains. **Deferred — implementing session is headless with no display.** Equivalent automated coverage: `electron-smoke.spec.ts` confirms a real `BrowserWindow` opens with `window.hyveon` exposed; unit tests cover drag-region/no-drag class application and button-click→IPC-call wiring in jsdom. Visual dragging, native OS button rendering (macOS traffic lights, Windows overlay), and Linux button click-through in a real window are NOT covered by automation — run this manually before merging.
