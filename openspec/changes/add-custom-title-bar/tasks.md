@@ -13,9 +13,9 @@
 
 ## 3. BrowserWindow chrome (electron-entry.ts)
 
-- [ ] 3.1 Add platform-conditional `BrowserWindow` construction options in `createWindow()`: `titleBarStyle: 'hidden'` everywhere; macOS gets `trafficLightPosition`; Windows gets `titleBarOverlay` (color/symbolColor matched to the header theme, height matched to the header's rendered height — resolve the "Open Questions" height value from `design.md` here).
-- [ ] 3.2 After `createWindow()` returns the window (or by having `createWindow()` return it), call `nestApp.get(WindowService).attach(win)` in the `app.whenReady()` chain, following the same post-bootstrap resolution pattern already used for `initUpdater`/`ElectronStoreService`.
-- [ ] 3.3 Update `electron-entry.test.ts` for the new platform-conditional options and the `WindowService.attach` call.
+- [x] 3.1 Add platform-conditional `BrowserWindow` construction options in `createWindow()`: `titleBarStyle: 'hidden'` everywhere; macOS gets `trafficLightPosition`; Windows gets `titleBarOverlay` (color/symbolColor matched to the header theme, height matched to the header's rendered height — resolve the "Open Questions" height value from `design.md` here).
+- [x] 3.2 After `createWindow()` returns the window (or by having `createWindow()` return it), call `nestApp.get(WindowService).attach(win)` in the `app.whenReady()` chain, following the same post-bootstrap resolution pattern already used for `initUpdater`/`ElectronStoreService`.
+- [x] 3.3 Update `electron-entry.test.ts` for the new platform-conditional options and the `WindowService.attach` call.
 
 ## 4. Renderer — draggable header and platform-conditional controls
 
