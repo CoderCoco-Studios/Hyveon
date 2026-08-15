@@ -8,21 +8,21 @@ vi.mock('../logger.js', () => ({
 }));
 
 /** Build a WindowService stub with all methods wired to succeed. */
-function makeWindowService(): WindowService {
+function makeWindowService(): Partial<WindowService> {
   return {
     attach: vi.fn(),
     minimize: vi.fn(),
     toggleMaximize: vi.fn(),
     close: vi.fn(),
     isMaximized: vi.fn().mockReturnValue(false),
-  } as Partial<WindowService> as WindowService;
+  } as Partial<WindowService>;
 }
 
 describe('WindowController', () => {
   describe('minimize', () => {
     it('should delegate to WindowService.minimize', () => {
       const window = makeWindowService();
-      new WindowController(window).minimize();
+      new WindowController(window as WindowService).minimize();
       expect(window.minimize).toHaveBeenCalledOnce();
     });
   });
@@ -30,7 +30,7 @@ describe('WindowController', () => {
   describe('toggleMaximize', () => {
     it('should delegate to WindowService.toggleMaximize', () => {
       const window = makeWindowService();
-      new WindowController(window).toggleMaximize();
+      new WindowController(window as WindowService).toggleMaximize();
       expect(window.toggleMaximize).toHaveBeenCalledOnce();
     });
   });
@@ -38,7 +38,7 @@ describe('WindowController', () => {
   describe('close', () => {
     it('should delegate to WindowService.close', () => {
       const window = makeWindowService();
-      new WindowController(window).close();
+      new WindowController(window as WindowService).close();
       expect(window.close).toHaveBeenCalledOnce();
     });
   });
@@ -47,7 +47,7 @@ describe('WindowController', () => {
     it('should return the result of WindowService.isMaximized', () => {
       const window = makeWindowService();
       vi.mocked(window.isMaximized).mockReturnValue(true);
-      const result = new WindowController(window).isMaximized();
+      const result = new WindowController(window as WindowService).isMaximized();
       expect(result).toBe(true);
     });
   });
