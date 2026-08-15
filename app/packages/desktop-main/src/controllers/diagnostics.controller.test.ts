@@ -22,7 +22,7 @@ function makeDiagnostics(): DiagnosticsService {
 function makeBundle(): DiagnosticsBundleService {
   return {
     writeBundle: vi.fn().mockResolvedValue({ path: '/tmp/hyveon-diagnostics.zip' }),
-  } as unknown as DiagnosticsBundleService;
+  } as Partial<DiagnosticsBundleService> as DiagnosticsBundleService;
 }
 
 /** Widens `DiagnosticsController`'s protected test seams to public so specs can stub them without casts. */

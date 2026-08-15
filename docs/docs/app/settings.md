@@ -173,13 +173,13 @@ Two consequences worth calling out explicitly:
   ships, updating still means downloading and running the new installer
   yourself.
 
-Toggling shows one of three states while in flight: `Checking update
-setting…` while the initial read is pending, `Unable to read the update
-setting.` if the IPC read/write itself failed, or the description above once
-a value is known. The checkbox only updates after a write resolves — there's
-no optimistic flip — but a *failed* write drops into the error state
-entirely, showing an unchecked box and the error text rather than reverting
-to whatever was checked before.
+Toggling shows one of three states: `Checking update setting…` while the
+initial read is pending, `Unable to read the update setting.` if that
+initial read failed, or the description above once a value is known. The
+checkbox only updates after a write resolves — there's no optimistic flip.
+A *failed* write does not drop into the no-value error state or revert the
+checkbox — it keeps showing the last confirmed value and displays `Failed
+to save — still showing the last saved value.` inline instead.
 
 ## General
 

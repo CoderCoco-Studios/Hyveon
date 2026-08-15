@@ -188,14 +188,22 @@ export class IacSettingsController {
    * call sites that construct this controller directly, per {@link store}'s
    * doc comment) is treated the same as an absent stored value — `false`,
    * never a thrown error, mirroring {@link engineVersion}'s `?? null`
-   * fallback for an absent `engine`.
+   * fallback for an absent `engine`. A `store.get` call that throws (e.g. a
+   * corrupted electron-store file on disk) is caught and mapped to an
+   * `{ ok: false }` result, mirroring {@link updateAutoUpdate}'s own
+   * try/catch.
    *
    * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.get`).
    */
   @MessagePattern('iac.settings.autoUpdate.get')
   getAutoUpdate(): AutoUpdateSettingGetResult {
     logger.debug('IacSettingsController: iac.settings.autoUpdate.get invoked');
-    return { ok: true, enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false };
+    try {
+      return { ok: true, enableAutoUpdate: this.store?.get('enableAutoUpdate') ?? false };
+    } catch (err) {
+      logger.error('Failed to read enableAutoUpdate setting', { err });
+      return { ok: false, code: 'error', message: 'An unexpected error occurred while reading the auto-update setting.' };
+    }
   }
 
   /**

@@ -17,6 +17,7 @@ import type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ExportDiagnosticsBundleResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -70,6 +71,10 @@ import type {
  * reason — it backs {@link IacPlanAck.runLock} (the durable apply-lock
  * recovery flow) and is a pure data shape with nothing to isolate the
  * renderer from.
+ *
+ * `ExportDiagnosticsBundleResult` (`@hyveon/shared/src/diagnosticsBundle.ts`)
+ * joins this group for the same reason — it backs `diagnostics.exportBundle`'s
+ * result and is a pure data shape with nothing to isolate the renderer from.
  */
 export type {
   AutoUpdateSettingGetResult,
@@ -79,6 +84,7 @@ export type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ExportDiagnosticsBundleResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -1771,12 +1777,6 @@ export interface HyveonDriftApi {
   /** Returns the current drift report — games out of sync between declared and deployed state. */
   get: () => Promise<DriftReport>;
 }
-
-/** Result of `diagnostics.exportBundle` — the discriminant the renderer switches on. */
-export type ExportDiagnosticsBundleResult =
-  | { status: 'written'; path: string }
-  | { status: 'cancelled' }
-  | { status: 'error'; message: string };
 
 /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
 export interface HyveonDiagnosticsApi {

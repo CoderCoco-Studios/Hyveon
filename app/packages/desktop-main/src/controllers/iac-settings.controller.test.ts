@@ -285,6 +285,16 @@ describe('IacSettingsController', () => {
       const result = new IacSettingsController(makeDeploymentConfig()).getAutoUpdate();
       expect(result).toEqual({ ok: true, enableAutoUpdate: false });
     });
+
+    it('should return an error result without throwing when store.get throws', () => {
+      const failingStore = {
+        get: vi.fn(() => {
+          throw new Error('corrupted store file');
+        }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      const result = new IacSettingsController(makeDeploymentConfig(), undefined, failingStore).getAutoUpdate();
+      expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
+    });
   });
 
   describe('updateAutoUpdate', () => {

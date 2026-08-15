@@ -1,7 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { createRequire } from 'node:module';
-import type { RendererLogEntry } from '@hyveon/shared';
+import type { ExportDiagnosticsBundleResult, RendererLogEntry } from '@hyveon/shared';
 import { DiagnosticsService } from '../services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from '../services/DiagnosticsBundleService.js';
 import { logger } from '../logger.js';
@@ -19,12 +19,6 @@ export interface ReportRendererLogBatchInput {
   /** Entries the renderer's own client-side batch cap already dropped before sending, if any. */
   droppedCount?: number;
 }
-
-/** Result of `diagnostics.exportBundle` — the discriminant the renderer switches on. */
-export type ExportDiagnosticsBundleResult =
-  | { status: 'written'; path: string }
-  | { status: 'cancelled' }
-  | { status: 'error'; message: string };
 
 /** Payload accepted by `diagnostics.showInFolder`. */
 export interface ShowInFolderInput {
