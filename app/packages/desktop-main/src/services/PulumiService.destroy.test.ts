@@ -180,17 +180,27 @@ function makeUpdateSummary(overrides: Partial<UpdateSummary> = {}): UpdateSummar
   };
 }
 
-/** Builds a `PulumiWorkspaceService` stub whose `getOrCreateStack` resolves to a stack stub wrapping the given `destroy` implementation plus `cancel`/`info`. */
+/**
+ * Builds a `PulumiWorkspaceService` stub whose `getOrCreateStack` resolves to
+ * a stack stub wrapping the given `destroy` implementation plus
+ * `cancel`/`info`/`history`. `history` defaults to resolving `[]` (mirrors a
+ * backend with no prior updates) — pass `history` to exercise
+ * `resolveChangeSummaryFallback`'s `stack.history()` fallback.
+ */
 function makeWorkspace(
   destroyImpl: FakeStackDestroy,
-  extra: { cancel?: ReturnType<typeof vi.fn>; info?: ReturnType<typeof vi.fn> } = {},
+  extra: { cancel?: ReturnType<typeof vi.fn>; info?: ReturnType<typeof vi.fn>; history?: ReturnType<typeof vi.fn> } = {},
 ): PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> } {
   const destroyMock = vi.fn().mockImplementation(destroyImpl);
   const cancelMock = extra.cancel ?? vi.fn().mockResolvedValue(undefined);
   const infoMock = extra.info ?? vi.fn().mockResolvedValue(makeUpdateSummary());
-  const getOrCreateStack = vi
-    .fn()
-    .mockResolvedValue({ destroy: destroyMock, cancel: cancelMock, info: infoMock } as Partial<Stack> as Stack);
+  const historyMock = extra.history ?? vi.fn().mockResolvedValue([]);
+  const getOrCreateStack = vi.fn().mockResolvedValue({
+    destroy: destroyMock,
+    cancel: cancelMock,
+    info: infoMock,
+    history: historyMock,
+  } as Partial<Stack> as Stack);
   return { getOrCreateStack } as unknown as PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> };
 }
 
@@ -705,6 +715,47 @@ describe('PulumiService.destroy streaming and structured changeSummary', () => {
     expect(chunks).toEqual([{ stream: 'stdout', line: 'Destroying...' }]);
     expect(result).toMatchObject({ changeSummary: { delete: 4 } });
     expect(typeof (result as { runId: string }).runId).toBe('string');
+  });
+
+  it('should fall back to stack.history() for changeSummary when the summary event is never observed', async () => {
+    const historyMock = vi
+      .fn()
+      .mockResolvedValue([makeUpdateSummary({ kind: 'destroy', resourceChanges: { delete: 58 } })]);
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('Destroying...\n');
+        // Deliberately never calls onEvent — simulates the EventsServer
+        // dropping the final summaryEvent (see PulumiService.ts's
+        // `resolveChangeSummaryFallback` TSDoc).
+        return { stdout: 'Destroying...\n', stderr: '', summary: makeUpdateSummary() };
+      },
+      { history: historyMock },
+    );
+    const service = makeService({ workspace });
+    const token = service.mintDestroyConfirmationToken();
+
+    const { result } = await collectDestroyChunks(service.destroy(token));
+
+    expect(result).toMatchObject({ changeSummary: { delete: 58 } });
+  });
+
+  it('should ignore a stack.history() entry whose kind does not match the operation just run', async () => {
+    const historyMock = vi
+      .fn()
+      .mockResolvedValue([makeUpdateSummary({ kind: 'update', resourceChanges: { delete: 58 } })]);
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('Destroying...\n');
+        return { stdout: 'Destroying...\n', stderr: '', summary: makeUpdateSummary() };
+      },
+      { history: historyMock },
+    );
+    const service = makeService({ workspace });
+    const token = service.mintDestroyConfirmationToken();
+
+    const { result } = await collectDestroyChunks(service.destroy(token));
+
+    expect(result).toMatchObject({ changeSummary: {} });
   });
 });
 
