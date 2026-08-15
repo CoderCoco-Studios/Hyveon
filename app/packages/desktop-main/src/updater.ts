@@ -106,10 +106,22 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
     autoUpdater.once('update-not-available', onNotAvailable);
     autoUpdater.once('error', onError);
 
-    autoUpdater.checkForUpdates().catch(() => {
-      // electron-updater rethrows after emitting 'error' — the listener
-      // above already resolved the promise, so this is just avoiding an
-      // unhandled rejection.
-    });
+    autoUpdater
+      .checkForUpdates()
+      .then((result) => {
+        if (result === null) {
+          // Updater disabled (e.g. dev-mode or unsupported platform) — no
+          // event fires in this case, so the promise would otherwise never
+          // settle.
+          cleanup();
+          logger.info('[updater] manual check: updater is disabled');
+          resolve({ ok: false, message: 'Update checks are disabled for this build.' });
+        }
+      })
+      .catch(() => {
+        // electron-updater rethrows after emitting 'error' — the listener
+        // above already resolved the promise, so this is just avoiding an
+        // unhandled rejection.
+      });
   });
 }

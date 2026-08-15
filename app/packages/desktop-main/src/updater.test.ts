@@ -178,6 +178,14 @@ describe('checkForUpdatesNow', () => {
     expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
+  it('should resolve ok: false when checkForUpdates resolves null without firing an event (updater disabled)', async () => {
+    checkForUpdatesMock.mockResolvedValueOnce(null);
+
+    const result = await checkForUpdatesNow();
+
+    expect(result).toEqual({ ok: false, message: 'Update checks are disabled for this build.' });
+  });
+
   it('should remove all three listeners after resolving', async () => {
     checkForUpdatesMock.mockImplementationOnce(() => {
       mockAutoUpdater.emit('update-not-available');
