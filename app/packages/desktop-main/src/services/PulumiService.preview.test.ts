@@ -176,16 +176,23 @@ function makeHappyPathPreview(changeSummary: Record<string, number> = { create: 
   };
 }
 
-/** Minimal `UpdateSummary` fixture for `stack.history()` fallback tests — only the fields `resolveChangeSummaryFallback` reads matter. */
+/**
+ * Minimal `UpdateSummary` fixture for `stack.history()` fallback tests — only
+ * the fields `resolveChangeSummaryFallback` reads matter. `startTime`
+ * defaults to "now" (not a fixed literal) so it satisfies the fallback's
+ * recency check against the real `startedAt` the operation under test
+ * captures just before running — override it explicitly to test the
+ * staleness guard.
+ */
 function makeUpdateSummary(overrides: Partial<UpdateSummary> = {}): UpdateSummary {
   return {
     kind: 'preview',
-    startTime: new Date('2026-08-14T00:00:00Z'),
+    startTime: new Date(),
     message: '',
     environment: {},
     config: {},
     result: 'succeeded',
-    endTime: new Date('2026-08-14T00:00:26Z'),
+    endTime: new Date(),
     version: 1,
     ...overrides,
   };
@@ -595,6 +602,53 @@ describe('PulumiService.preview structured changeSummary', () => {
     const { result } = await collectPreviewChunks(service.preview());
 
     expect(result?.changeSummary).toEqual({});
+  });
+
+  it('should ignore a stack.history() entry that did not succeed', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('some output\n');
+        return { stdout: 'some output\n', stderr: '', changeSummary: {} };
+      },
+      // Matching kind, but the run failed — must not be misattributed.
+      [makeUpdateSummary({ kind: 'preview', result: 'failed', resourceChanges: { update: 4 } })],
+    );
+    const service = makeService({ workspace });
+
+    const { result } = await collectPreviewChunks(service.preview());
+
+    expect(result?.changeSummary).toEqual({});
+  });
+
+  it('should ignore a stack.history() entry older than the operation that just ran', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('some output\n');
+        return { stdout: 'some output\n', stderr: '', changeSummary: {} };
+      },
+      // A stale prior `preview` from well before this operation started.
+      [makeUpdateSummary({ kind: 'preview', startTime: new Date('2020-01-01T00:00:00Z'), resourceChanges: { update: 4 } })],
+    );
+    const service = makeService({ workspace });
+
+    const { result } = await collectPreviewChunks(service.preview());
+
+    expect(result?.changeSummary).toEqual({});
+  });
+
+  it('should treat a confirmed all-zero resourceChanges from stack.history() as real data, not a dropped event', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('some output\n');
+        return { stdout: 'some output\n', stderr: '', changeSummary: {} };
+      },
+      [makeUpdateSummary({ kind: 'preview', resourceChanges: { same: 0 } })],
+    );
+    const service = makeService({ workspace });
+
+    const { result } = await collectPreviewChunks(service.preview());
+
+    expect(result?.changeSummary).toEqual({ same: 0 });
   });
 });
 
