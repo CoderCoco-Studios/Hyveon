@@ -6,8 +6,32 @@
  * discriminated union without either package importing the other.
  */
 
-import type { GameServer, GameListEntry, RedactedGameServer } from './gameServerConfig.js';
-import type { GameServerValidationIssue } from './gameServerValidator.js';
+import type { GameServer, GameListEntry, RedactedGameServer, GameServerHealthCheck } from './gameServerConfig.js';
+import type { GameServerValidationIssue, GameServerHealthCheckAuthWriteInput } from './gameServerValidator.js';
+
+/**
+ * Write-side shape of `GameServerHealthCheck.auth`: the operator-submitted
+ * {@link GameServerHealthCheckAuthWriteInput}, `null` to explicitly clear an
+ * existing credential (deleting its app-owned secret if one backs it), or
+ * `undefined` to leave whatever credential is already on record unchanged.
+ * Only ever appears in a create/update payload — never in a persisted
+ * `GameServerHealthCheck`, which always resolves to a concrete
+ * `GameServerHealthCheckAuth | undefined`.
+ */
+export type GameServerHealthCheckWriteInput = Omit<GameServerHealthCheck, 'auth'> & {
+  auth?: GameServerHealthCheckAuthWriteInput | null;
+};
+
+/**
+ * Write-side shape of a `game_servers` entry submitted to `games.create` /
+ * `games.update`: identical to `Omit<GameServer, 'name'>` except
+ * `healthCheck`, which uses {@link GameServerHealthCheckWriteInput} so a
+ * `basic`/`bearer` credential can be submitted as plaintext rather than a
+ * pre-resolved `secretArn`.
+ */
+export type GameServerWriteConfig = Omit<GameServer, 'name' | 'healthCheck'> & {
+  healthCheck?: GameServerHealthCheckWriteInput;
+};
 
 /**
  * Successful create/update/delete. `game` is the affected entry's
@@ -92,7 +116,7 @@ export type GameWriteResult =
  */
 export interface CreateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
@@ -102,7 +126,7 @@ export interface CreateGamePayload {
  */
 export interface UpdateGamePayload {
   name: string;
-  config: Omit<GameServer, 'name'>;
+  config: GameServerWriteConfig;
   expectedVersionId?: string;
 }
 
