@@ -20,13 +20,14 @@ export class LogsPage {
   }
 
   /**
-   * Navigate to `/logs` by clicking the "Logs" sidebar link and waiting for
-   * the URL to settle. Use this in Electron e2e specs where the renderer is
-   * already at a route and navigation must go through the rendered sidebar
-   * rather than a raw `page.goto()` call.
+   * Navigate to `/logs` by clicking the "Game Logs" sidebar link (the child
+   * of the `Logs` group, which is itself a non-interactive heading) and
+   * waiting for the URL to settle. Use this in Electron e2e specs where the
+   * renderer is already at a route and navigation must go through the
+   * rendered sidebar rather than a raw `page.goto()` call.
    */
   async gotoViaSidebar(): Promise<void> {
-    await this.page.getByRole('link', { name: 'Logs' }).click();
+    await this.page.getByRole('link', { name: 'Game Logs' }).click();
     await this.page.waitForURL('**/logs');
   }
 

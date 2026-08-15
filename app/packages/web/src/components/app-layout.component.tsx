@@ -43,15 +43,18 @@ interface NavGroup {
 
 /**
  * The nested `Logs` sidebar entry — replaces the old flat `/logs` link with a
- * `Games` (`/logs`) and `Infrastructure` (`/logs/infrastructure`) child pair,
- * both always visible under the `Monitoring` section.
+ * `Game Logs` (`/logs`) and `Infra Logs` (`/logs/infrastructure`) child pair,
+ * both always visible under the `Monitoring` section. The child labels are
+ * `Game Logs`/`Infra Logs` rather than plain `Games`/`Infrastructure` so they
+ * don't collide in accessible name with the top-level Configuration links
+ * `Games` (`/games`) and `Infrastructure` (`/iac`).
  */
 const logsGroup: NavGroup = {
   label: 'Logs',
   icon: ScrollText,
   children: [
-    { to: '/logs', icon: ScrollText, label: 'Games' },
-    { to: '/logs/infrastructure', icon: ScrollText, label: 'Infrastructure' },
+    { to: '/logs', icon: ScrollText, label: 'Game Logs' },
+    { to: '/logs/infrastructure', icon: ScrollText, label: 'Infra Logs' },
   ],
 };
 
