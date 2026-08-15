@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Filter, Pause, Play, Search } from 'lucide-react';
 import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
@@ -10,16 +10,8 @@ import { HighlightedLine, LevelFilterMenu } from '../components/log-line-display
 import { GameCombobox } from '../components/game-combobox.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
-import { LOG_LEVEL_BADGE, detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
-
-const MAX_LINES = 1000;
-const AGE_TICK_MS = 10_000;
-
-interface LogLine {
-  text: string;
-  level: LogLevel | null;
-  receivedAt: number;
-}
+import { LOG_LEVEL_BADGE } from '../lib/log-level.utils.js';
+import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
 
 /** Shape of the react-router navigation state `GameCard` passes via `<Link to="/logs" state={{ game }}>`. */
 interface LogsNavState {
@@ -37,40 +29,23 @@ function gameFromLocationState(state: unknown): string | null {
   return typeof game === 'string' ? game : null;
 }
 
-/** Format a millisecond age as a compact "Xs ago" / "Xm ago" / "Xh ago" string. */
-function formatAge(ms: number): string {
-  if (ms < 1000) return 'just now';
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ago`;
-}
+const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
+  next: () => Promise.resolve({ done: true }),
+  cancel: () => {},
+  [Symbol.asyncIterator]: () => NO_HYVEON_STREAM_HANDLE,
+};
+
+/** Used only when `window.hyveon` is absent (non-Electron context); `useLogTail`'s own guard means neither method here actually runs. */
+const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
+  get: () => Promise.resolve({ lines: [] }),
+  stream: () => NO_HYVEON_STREAM_HANDLE,
+};
 
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
- * game. Fetches an initial snapshot via `window.hyveon.logs.get`, then consumes
- * a live IPC stream via `for await (… of window.hyveon.logs.stream(game))`,
- * cancelling by calling the returned {@link HyveonStreamHandle}'s `cancel()`.
- * Surfaces the stream through:
- *
- *   - Initial game selection: preselects the game named in the incoming
- *     `location.state.game` (set by `GameCard`'s "Logs" link) once the games
- *     list resolves, provided that game is actually present in the list;
- *     otherwise falls back to the first game in the list.
- *   - A LIVE/PAUSED status badge (pulsing cyan / muted slate).
- *   - A searchable game selector that resets the buffer on switch.
- *   - Per-line color-coded level badges (INFO/WARN/ERROR/DEBUG) detected via
- *     a simple word-boundary regex; falls back to plain text if not detected.
- *   - An in-stream search input that highlights matches in the visible buffer
- *     without filtering them out.
- *   - A multi-select level filter that hides whole levels (default: all on).
- *   - An autoscroll toggle (default on; off freezes scroll position).
- *   - A footer summary: line count + age of the oldest visible line.
- *
- * Pause buffers incoming lines; Resume flushes the buffer into the visible
- * stream — same behaviour as the previous panel.
+ * game. Owns game selection (list load, `GameCombobox`, navigation-state
+ * preselection); the fetch/stream/pause/filter/autoscroll engine itself is
+ * {@link useLogTail} (design.md D6), shared with `/logs/infrastructure`.
  */
 export function LogsPage() {
   const location = useLocation();
@@ -82,102 +57,24 @@ export function LogsPage() {
   const preselectedGameRef = useRef(gameFromLocationState(location.state));
   const [games, setGames] = useState<string[]>([]);
   const [selectedGame, setSelectedGame] = useState<string>('');
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [paused, setPaused] = useState(false);
-  const [autoscroll, setAutoscroll] = useState(true);
-  const [search, setSearch] = useState('');
-  const [hiddenLevels, setHiddenLevels] = useState<Set<LogLevel>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Lazy initialiser: `useState(Date.now())` would read the clock on every
-  // render (the value is discarded after the first), which makes the render
-  // impure. The function form is only invoked on mount.
-  const [now, setNow] = useState(() => Date.now());
-  const [bufferedCount, setBufferedCount] = useState(0);
+  const [loadGamesError, setLoadGamesError] = useState<string | null>(null);
 
-  const boxRef = useRef<HTMLDivElement>(null);
-  /** The in-flight log stream handle; calling `cancel()` on it also tells the main process to stop tailing. */
-  const streamRef = useRef<HyveonStreamHandle<LogChunk> | null>(null);
-  const pausedRef = useRef(false);
-  const bufferRef = useRef<LogLine[]>([]);
-
-  const appendLine = useCallback((text: string) => {
-    const entry: LogLine = { text, level: detectLogLevel(text), receivedAt: Date.now() };
-    if (pausedRef.current) {
-      bufferRef.current.push(entry);
-      setBufferedCount(bufferRef.current.length);
-      return;
-    }
-    setLines((prev) => {
-      const next = [...prev, entry];
-      return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
-    });
-  }, []);
-
-  const stopStream = useCallback(() => {
-    streamRef.current?.cancel();
-    streamRef.current = null;
-  }, []);
-
-  const startStream = useCallback(
-    (game: string) => {
-      if (!window.hyveon) {
-        setError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
-      stopStream();
-      const handle = window.hyveon.logs.stream(game);
-      streamRef.current = handle;
-
-      void (async () => {
-        try {
-          for await (const chunk of handle) {
-            appendLine(chunk);
-          }
-        } catch (err: unknown) {
-          // `cancel()` completes the iteration normally (no throw) — a thrown
-          // error here is a genuine stream failure. Still, ignore it if this
-          // stream has since been superseded (or torn down) by a newer call,
-          // whose own error/success state has already taken over the UI.
-          if (streamRef.current !== handle) return;
-          const message = err instanceof Error ? err.message : String(err);
-          setError(`Stream ended with error: ${message}`);
-        }
-      })();
-    },
-    [stopStream, appendLine],
-  );
-
-  const handlePauseToggle = useCallback(() => {
-    const nowPaused = !pausedRef.current;
-    pausedRef.current = nowPaused;
-    setPaused(nowPaused);
-    if (!nowPaused && bufferRef.current.length > 0) {
-      const buffered = bufferRef.current;
-      bufferRef.current = [];
-      setBufferedCount(0);
-      setLines((prev) => {
-        const next = [...prev, ...buffered];
-        return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
-      });
-    }
-  }, []);
-
-  /**
-   * Switch the tailed game, clearing everything that described the previous
-   * one: rendered lines, the paused-while-buffering queue, the paused flag
-   * and any stream error. The subsequent `selectedGame` effect re-seeds and
-   * re-subscribes.
-   */
-  const selectGame = useCallback((game: string) => {
-    setSelectedGame(game);
-    setLines([]);
-    bufferRef.current = [];
-    setBufferedCount(0);
-    pausedRef.current = false;
-    setPaused(false);
-    setError(null);
-  }, []);
+  const {
+    visibleLines,
+    paused,
+    autoscroll,
+    setAutoscroll,
+    search,
+    setSearch,
+    hiddenLevels,
+    toggleLevel,
+    error: tailError,
+    bufferedCount,
+    ageLabel,
+    boxRef,
+    handlePauseToggle,
+  } = useLogTail(selectedGame, window.hyveon ? window.hyveon.logs : NO_HYVEON_LOG_TAIL_API);
 
   // Load the games list once (this page is reachable independently of the dashboard).
   useEffect(() => {
@@ -194,7 +91,7 @@ export function LogsPage() {
           setSelectedGame((cur) => cur || initial);
         }
       } catch {
-        if (!cancelled) setError('Could not load games.');
+        if (!cancelled) setLoadGamesError('Could not load games.');
       }
     })();
     return () => {
@@ -202,74 +99,9 @@ export function LogsPage() {
     };
   }, []);
 
-  // (Re)start the stream when the game changes. The buffer/paused/error reset
-  // that used to open this effect now lives in `selectGame` below: clearing
-  // the previous game's view is a consequence of the user picking a new one,
-  // so it belongs in that event handler rather than in an effect reacting to
-  // the state change afterwards (`react-hooks/set-state-in-effect`).
-  useEffect(() => {
-    if (!selectedGame) return;
+  const error = loadGamesError ?? tailError;
 
-    let cancelled = false;
-    void (async () => {
-      if (!window.hyveon) {
-        if (!cancelled) setError('IPC bridge (window.hyveon) is not available in this context.');
-        return;
-      }
-      try {
-        const data = await window.hyveon.logs.get(selectedGame);
-        if (cancelled) return;
-        const seeded: LogLine[] = data.lines.map((text) => ({
-          text,
-          level: detectLogLevel(text),
-          receivedAt: Date.now(),
-        }));
-        setLines(seeded);
-        startStream(selectedGame);
-      } catch {
-        if (!cancelled) {
-          setError('Could not load initial logs; trying live stream.');
-          startStream(selectedGame);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      stopStream();
-    };
-  }, [selectedGame, startStream, stopStream]);
-
-  // Tick the "age" footer so it stays roughly fresh without re-rendering on every line.
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), AGE_TICK_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  // Autoscroll: only stick to the bottom when both the toggle is on and we're
-  // not paused. Turning autoscroll off freezes the current scroll position.
-  useEffect(() => {
-    if (autoscroll && !paused && boxRef.current) {
-      boxRef.current.scrollTop = boxRef.current.scrollHeight;
-    }
-  }, [lines, autoscroll, paused]);
-
-  const visibleLines = useMemo(
-    () => lines.filter((l) => !(l.level && hiddenLevels.has(l.level))),
-    [lines, hiddenLevels],
-  );
-
-  const oldest = visibleLines[0];
-  const ageLabel = oldest ? formatAge(now - oldest.receivedAt) : null;
-
-  const toggleLevel = (lvl: LogLevel) => {
-    setHiddenLevels((prev) => {
-      const next = new Set(prev);
-      if (next.has(lvl)) next.delete(lvl);
-      else next.add(lvl);
-      return next;
-    });
-  };
+  const toggleLevelHandler = (lvl: Parameters<typeof toggleLevel>[0]) => toggleLevel(lvl);
 
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
@@ -291,7 +123,7 @@ export function LogsPage() {
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
           {/* Game selector — always visible */}
-          <GameCombobox games={games} value={selectedGame} onChange={selectGame} />
+          <GameCombobox games={games} value={selectedGame} onChange={setSelectedGame} />
 
           {/* Filter toggle — only on mobile (md:hidden) */}
           <Button
@@ -320,7 +152,7 @@ export function LogsPage() {
                 className="pl-8"
               />
             </div>
-            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevel} />
+            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevelHandler} />
             <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
               <input
                 type="checkbox"
@@ -360,7 +192,7 @@ export function LogsPage() {
                 className="pl-8 w-full"
               />
             </div>
-            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevel} />
+            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevelHandler} />
             <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
               <input
                 type="checkbox"
@@ -446,4 +278,3 @@ function LiveBadge({ paused }: { paused: boolean }) {
     </div>
   );
 }
-
