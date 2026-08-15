@@ -7,6 +7,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   RestoreSecretCommand,
+  DescribeSecretCommand,
   ResourceNotFoundException,
   InvalidRequestException,
 } from '@aws-sdk/client-secrets-manager';
@@ -174,6 +175,7 @@ describe('upsertHealthCheckAuthSecret', () => {
       )
       .resolvesOnce({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
     secrets.on(RestoreSecretCommand).resolves({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
+    secrets.on(DescribeSecretCommand).resolves({ DeletedDate: new Date('2026-08-01T00:00:00Z') });
 
     const arn = await upsertHealthCheckAuthSecret('palworld', 'sk-abc123');
 
@@ -187,6 +189,7 @@ describe('upsertHealthCheckAuthSecret', () => {
 
   it('should rethrow an InvalidRequestException that is not about pending deletion, without attempting a restore', async () => {
     secrets.on(PutSecretValueCommand).rejects(new InvalidRequestException({ message: 'Some other invalid request.', $metadata: {} }));
+    secrets.on(DescribeSecretCommand).resolves({});
 
     await expect(upsertHealthCheckAuthSecret('palworld', 'sk-abc123')).rejects.toThrow('Some other invalid request.');
     expect(secrets.commandCalls(RestoreSecretCommand)).toHaveLength(0);

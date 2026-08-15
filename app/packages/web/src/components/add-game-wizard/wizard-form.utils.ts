@@ -227,7 +227,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
           jsonPath: game.healthCheck.activeWhen.jsonPath,
           operator: game.healthCheck.activeWhen.operator,
           value: game.healthCheck.activeWhen.value === undefined ? '' : String(game.healthCheck.activeWhen.value),
-          authType: game.healthCheck.secretSet ? 'raw' : 'none',
+          authType: game.healthCheck.secretSet ? (game.healthCheck.authType ?? 'raw') : 'none',
           secretArn: '',
           username: '',
           password: '',

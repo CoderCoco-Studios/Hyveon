@@ -5,6 +5,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   RestoreSecretCommand,
+  DescribeSecretCommand,
   ResourceNotFoundException,
   InvalidRequestException,
 } from '@aws-sdk/client-secrets-manager';
@@ -94,16 +95,21 @@ export function healthCheckAuthSecretName(gameId: string): string {
 }
 
 /**
- * `true` when `err` is Secrets Manager's `InvalidRequestException` for a
- * secret that's currently scheduled for deletion (i.e. within
+ * `true` when `err` is Secrets Manager's `InvalidRequestException` for `name`
+ * because the secret is currently scheduled for deletion (i.e. within
  * {@link deleteHealthCheckAuthSecret}'s default recovery window). Both
  * `PutSecretValueCommand` and `CreateSecretCommand` (same name) fail this
  * way for a pending-deletion secret — never `ResourceNotFoundException` —
  * so {@link upsertHealthCheckAuthSecret}'s create-fallback alone can't
  * recover from it; see that function's doc comment for the full flow.
+ *
+ * Confirms via `DescribeSecretCommand`'s `DeletedDate` rather than matching
+ * the exception message text, which AWS doesn't document as stable.
  */
-function isPendingDeletionError(err: unknown): boolean {
-  return err instanceof InvalidRequestException && /scheduled for deletion|marked for deletion/i.test(err.message ?? '');
+async function isPendingDeletionError(err: unknown, name: string): Promise<boolean> {
+  if (!(err instanceof InvalidRequestException)) return false;
+  const desc = await getClient().send(new DescribeSecretCommand({ SecretId: name }));
+  return desc.DeletedDate !== undefined;
 }
 
 /**
@@ -144,7 +150,7 @@ export async function upsertHealthCheckAuthSecret(gameId: string, value: string)
     }
     return putResp.ARN;
   } catch (err) {
-    if (isPendingDeletionError(err)) {
+    if (await isPendingDeletionError(err, name)) {
       await getClient().send(new RestoreSecretCommand({ SecretId: name }));
       const retryResp = await getClient().send(new PutSecretValueCommand({ SecretId: name, SecretString: value }));
       inProcessCache.delete(name);

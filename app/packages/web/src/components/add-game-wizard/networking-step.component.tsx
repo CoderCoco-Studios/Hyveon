@@ -442,11 +442,19 @@ export function NetworkingStep({
                     id="health-check-secret-arn"
                     value={healthCheck.secretArn}
                     aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.secretArn'))}
+                    aria-describedby={
+                      messageFor(issues, 'healthCheck.auth.secretArn') ? 'health-check-secret-arn-error' : undefined
+                    }
                     placeholder={
                       healthCheck.secretSet ? 'Leave blank to keep the existing credential' : 'arn:aws:secretsmanager:...'
                     }
                     onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
                   />
+                  {messageFor(issues, 'healthCheck.auth.secretArn') && (
+                    <p id="health-check-secret-arn-error" role="alert" className="text-xs text-[var(--color-red)]">
+                      {messageFor(issues, 'healthCheck.auth.secretArn')}
+                    </p>
+                  )}
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     You manage this secret&apos;s lifecycle yourself — the app only reads its value.
                   </p>
@@ -461,9 +469,17 @@ export function NetworkingStep({
                       id="health-check-username"
                       value={healthCheck.username}
                       aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.username'))}
+                      aria-describedby={
+                        messageFor(issues, 'healthCheck.auth.username') ? 'health-check-username-error' : undefined
+                      }
                       placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
                       onChange={(event) => onHealthCheckChange({ username: event.target.value })}
                     />
+                    {messageFor(issues, 'healthCheck.auth.username') && (
+                      <p id="health-check-username-error" role="alert" className="text-xs text-[var(--color-red)]">
+                        {messageFor(issues, 'healthCheck.auth.username')}
+                      </p>
+                    )}
                   </div>
                   <div className="flex-1">
                     <Label htmlFor="health-check-password">Password</Label>
@@ -472,9 +488,17 @@ export function NetworkingStep({
                       type="password"
                       value={healthCheck.password}
                       aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.password'))}
+                      aria-describedby={
+                        messageFor(issues, 'healthCheck.auth.password') ? 'health-check-password-error' : undefined
+                      }
                       placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
                       onChange={(event) => onHealthCheckChange({ password: event.target.value })}
                     />
+                    {messageFor(issues, 'healthCheck.auth.password') && (
+                      <p id="health-check-password-error" role="alert" className="text-xs text-[var(--color-red)]">
+                        {messageFor(issues, 'healthCheck.auth.password')}
+                      </p>
+                    )}
                   </div>
                   <p className="w-full text-xs text-[var(--color-muted-foreground)]">
                     The app stores this as a Secrets Manager secret it creates and manages for you.
@@ -487,11 +511,20 @@ export function NetworkingStep({
                   <Label htmlFor="health-check-token">Token</Label>
                   <Input
                     id="health-check-token"
+                    type="password"
                     value={healthCheck.token}
                     aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.token'))}
+                    aria-describedby={
+                      messageFor(issues, 'healthCheck.auth.token') ? 'health-check-token-error' : undefined
+                    }
                     placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
                     onChange={(event) => onHealthCheckChange({ token: event.target.value })}
                   />
+                  {messageFor(issues, 'healthCheck.auth.token') && (
+                    <p id="health-check-token-error" role="alert" className="text-xs text-[var(--color-red)]">
+                      {messageFor(issues, 'healthCheck.auth.token')}
+                    </p>
+                  )}
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     The app stores this as a Secrets Manager secret it creates and manages for you.
                   </p>

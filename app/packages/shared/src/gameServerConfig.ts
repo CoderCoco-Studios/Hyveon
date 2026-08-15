@@ -288,6 +288,15 @@ export type GameServerConfig = Omit<GameServer, 'name'>;
 export type RedactedGameServerHealthCheck = Omit<GameServerHealthCheck, 'auth'> & {
   /** Whether `auth` is set on the underlying declaration — never the credential reference itself. */
   secretSet: boolean;
+  /**
+   * `auth.type` carried through unredacted (it's a credential *shape*
+   * discriminator, not a secret), defaulting to `'raw'` when `auth` is set
+   * without an explicit `type` — mirroring {@link GameServerHealthCheckAuth."type"}'s
+   * own default. Omitted when `secretSet` is `false`. Lets the add-game
+   * wizard's edit flow (`draftFromGameServer`) restore the real `authType`
+   * instead of guessing `'raw'` for every configured credential.
+   */
+  authType?: 'raw' | 'basic' | 'bearer';
 };
 
 /**
@@ -321,7 +330,10 @@ export function redactGameServer(game: GameServer): RedactedGameServer {
     return rest;
   }
   const { auth, ...healthCheckRest } = healthCheck;
-  return { ...rest, healthCheck: { ...healthCheckRest, secretSet: auth != null } };
+  return {
+    ...rest,
+    healthCheck: { ...healthCheckRest, secretSet: auth != null, authType: auth ? (auth.type ?? 'raw') : undefined },
+  };
 }
 
 /**

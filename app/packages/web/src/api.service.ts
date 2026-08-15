@@ -113,6 +113,7 @@ export interface GameServerHealthCheck {
  */
 export interface RedactedGameServerHealthCheck extends Omit<GameServerHealthCheck, 'auth'> {
   secretSet: boolean;
+  authType?: 'raw' | 'basic' | 'bearer';
 }
 
 /**

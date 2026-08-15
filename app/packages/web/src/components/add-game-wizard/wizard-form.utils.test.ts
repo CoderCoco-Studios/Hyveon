@@ -390,6 +390,53 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
     });
   });
 
+  it.each([
+    ['raw' as const, 'raw' as const],
+    ['basic' as const, 'basic' as const],
+    ['bearer' as const, 'bearer' as const],
+  ])('should restore authType %s from the redacted authType on a configured credential', (persistedType, expectedAuthType) => {
+    const game = makeExistingGame({
+      name: 'palworld',
+      healthCheck: {
+        kind: 'http',
+        scheme: 'http',
+        port: 8211,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        jsonPath: '',
+        operator: 'equals',
+        activeWhen: { jsonPath: '', operator: 'equals' },
+        secretSet: true,
+        authType: persistedType,
+      } as unknown as RedactedGameServer['healthCheck'],
+    });
+
+    const draft = draftFromGameServer(game);
+
+    expect(draft.healthCheck.authType).toBe(expectedAuthType);
+  });
+
+  it('should fall back to "raw" authType when secretSet but no authType is present (legacy redacted shape)', () => {
+    const game = makeExistingGame({
+      name: 'palworld',
+      healthCheck: {
+        kind: 'http',
+        scheme: 'http',
+        port: 8211,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        activeWhen: { jsonPath: '', operator: 'equals' },
+        secretSet: true,
+      } as unknown as RedactedGameServer['healthCheck'],
+    });
+
+    const draft = draftFromGameServer(game);
+
+    expect(draft.healthCheck.authType).toBe('raw');
+  });
+
   it('should map environment rows from a GameServer onto the draft', () => {
     const draft = draftFromGameServer({
       name: 'mygame',
