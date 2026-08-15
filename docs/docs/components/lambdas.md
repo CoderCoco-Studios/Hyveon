@@ -307,10 +307,28 @@ Invocation payload: `{ game: string, taskArn: string, healthCheck: GameServerHea
    request's destination host; the declared configuration never supplies
    one, closing the SSRF surface by construction rather than by validation.
 2. When `healthCheck.auth` is present, fetch the credential's raw value
-   from Secrets Manager and inject it as a single, fixed `Authorization`
-   header — never interpolated into the path, query string, or any
+   from Secrets Manager and build the `Authorization` header value by
+   branching on `auth.type` (`'raw' | 'basic' | 'bearer'`, defaulting to
+   `'raw'` when absent):
+   - **`raw`** (or no `type` — every declaration made before `type`
+     existed) — the secret's raw string, verbatim, no prefix.
+   - **`bearer`** — `` `Bearer <secretValue>` ``.
+   - **`basic`** — parses the secret string as JSON shaped
+     `{ username: string, password: string }`, then base64-encodes
+     `username:password` into `` `Basic <encoded>` ``. A secret that isn't
+     valid JSON, or isn't shaped that way, makes header construction throw;
+     the handler's top-level `try`/`catch` (below) turns that into the same
+     fail-active verdict as any other credential failure — a broken `basic`
+     secret produces a repeating `warn`-level "active" verdict, not a crash.
+
+   The resulting value is injected as a single, fixed `Authorization`
+   header — never interpolated into the path, query string, or any other
    declared header — overriding any operator-supplied `Authorization`
-   entry in `healthCheck.headers`.
+   entry in `healthCheck.headers`. The Lambda only ever reads the secret at
+   `auth.secretArn`; it never creates, updates, or deletes one — that's the
+   desktop app's write path, covered by the existing `secretsmanager:*`
+   grant in the [`HyveonDeployAll` policy](/setup). This Lambda's own
+   `GetSecretValue`-only grant (above) is unaffected by `type`.
 3. Issue the declared request (`scheme`/`port`/`path`/`method`/`headers`),
    bounded by `healthCheck.timeoutMs` as a single wall-clock budget, with
    no redirect following (a 3xx response is a failed check, not a hop to

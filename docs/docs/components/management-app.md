@@ -44,7 +44,7 @@ types and permission logic.
 | `ddb/client.ts` | Lazy DynamoDB DocumentClient. Region fallback: `AWS_REGION_` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`. |
 | `ddb/configStore.ts` | `getDiscordConfig()` / `putDiscordConfig()` for the `CONFIG#discord` row. |
 | `ddb/pendingStore.ts` | `getPending()` / `putPending()` / `deletePending()` for `PENDING#{taskArn}`. `putPending()` sets `expiresAt = now + 15 minutes` so DDB TTL reaps stale rows. |
-| `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. |
+| `secrets/secretsStore.ts` | Secrets Manager wrapper with a 5-minute in-process cache. Recognises the infra program's `"placeholder"` seed value as "not configured". `invalidateSecretsCache()` is called by the Nest credentials endpoint. Also owns the app-owned health-check credential secret's full write lifecycle — `healthCheckAuthSecretName(gameId)` (deterministic name `hyveon-{gameId}-healthcheck-auth`, one per game), `upsertHealthCheckAuthSecret()` (tries `PutSecretValueCommand` first, falls back to `CreateSecretCommand` only on `ResourceNotFoundException` — no separate existence check), and `deleteHealthCheckAuthSecret()` (default recovery window, no-op if already absent). See [Games](/app/games#health-check-optional) for the operator-facing credential-type model this backs. |
 
 **Invariants**: `canRun()` lives in exactly one place; the four slash
 commands are JSON descriptors, not classes; secrets' raw values never
@@ -244,6 +244,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   `FilterLogEvents` every 2 s; `getRecentLogs` remains the snapshot path.
 - **`DriftService`** — see [Drift detection](#drift-detection) below.
 - **`DeploymentConfigService`** — see [`DeploymentConfigModule` / `DeploymentConfigService`](#deploymentconfigmodule--deploymentconfigservice) below.
+- **`GamesWriteService`** — backs `GamesController`'s `games.create`/`games.update`/`games.delete`. On a health-check credential change, it validates the operator-submitted plaintext, runs a structural `validateGameServer` pass against a non-mutating preview *before* touching Secrets Manager (so a rejected save — a port collision, a bad cpu/memory pairing, anything unrelated to `auth` — never creates, mutates, or deletes a secret), and only then calls `secretsStore.ts`'s `upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret` for a `basic`/`bearer` credential. Omitting `healthCheck.auth` on an update leaves the existing credential unchanged; submitting `auth: null` clears it (deleting the app-owned secret first, if the prior credential was `basic`/`bearer`); switching a credential away from `basic`/`bearer` deletes the now-orphaned app-owned secret; deleting the game deletes its app-owned secret too. Secret-deletion failures are logged and swallowed (cleanup must not block the write it's tidying up after); secret-creation/update failures are surfaced as a user-facing error.
 - **`GameWizardDraftService`** — owns the single in-progress add-game wizard
   draft slot on `ElectronStoreService` (`addGameWizardDraft`, see
   [Credential storage at rest](#credential-storage-at-rest) below). `get()`
@@ -339,13 +340,18 @@ Two services, both provided by `ElectronStoreModule`:
   on-disk write matches the plaintext-at-rest posture of the
   `deployment-config.json` write the draft eventually becomes on submit,
   which also isn't field-level encrypted. Those specific fields
-  (`environment[].value`, `file_seeds[].content`/`content_base64`) are,
-  however, never returned to the renderer: `GameWizardDraftService.get()`
-  blanks them out before the result crosses the IPC boundary, so a draft
-  resumed via the games-page banner comes back with row names/paths intact
-  but those values empty — the operator re-enters them. Only `save()` (from
-  the main process, in response to the wizard's own autosave) ever writes
-  the unredacted values; no read path echoes them back.
+  (`environment[].value`, `file_seeds[].content`/`content_base64`, and —
+  for a `healthCheck` credential — `secretArn`/`username`/`password`/
+  `token`) are, however, never returned to the renderer:
+  `GameWizardDraftService.get()` blanks them out before the result crosses
+  the IPC boundary, so a draft resumed via the games-page banner comes back
+  with row names/paths and the credential's chosen type (`authType`) intact,
+  but those value fields empty — the operator re-enters them. `secretSet`,
+  populated from the redacted read-side game-server shape rather than the
+  draft itself, is the only signal that a credential is already configured.
+  Only `save()` (from the main process, in response to the wizard's own
+  autosave) ever writes the unredacted values; no read path echoes them
+  back.
 
 ### `DeploymentConfigModule` / `DeploymentConfigService`
 
