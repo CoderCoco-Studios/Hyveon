@@ -847,6 +847,8 @@ const api: HyveonApi = {
       invoke('diagnostics.reportError', { message, stack, source }),
     reportLog: (entries: RendererLogEntry[], droppedCount?: number) =>
       invoke('diagnostics.reportLog', { entries, droppedCount }),
+    exportBundle: () => invoke('diagnostics.exportBundle'),
+    showInFolder: (path: string) => invoke('diagnostics.showInFolder', { path }),
   },
 
   audit: {

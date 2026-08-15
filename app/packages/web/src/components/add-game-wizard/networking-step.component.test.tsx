@@ -277,4 +277,116 @@ describe('NetworkingStep', () => {
       expect(screen.getByText('An https = true game server must declare at least one port.')).toBeInTheDocument();
     });
   });
+
+  describe('health-check auth type selector', () => {
+    /** Builds an enabled health-check draft; override any fields per test. */
+    function baseHealthCheck(overrides: Partial<typeof DISABLED_HEALTH_CHECK> = {}) {
+      return {
+        ...DISABLED_HEALTH_CHECK,
+        enabled: true,
+        port: 25565,
+        path: '/status',
+        jsonPath: 'players.online',
+        operator: 'exists',
+        ...overrides,
+      };
+    }
+
+    it('should render no credential fields when authType is "none"', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck()}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+      expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/secrets manager arn/i)).not.toBeInTheDocument();
+    });
+
+    it('should render only the ARN field when authType is "raw"', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck({ authType: 'raw' })}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/secrets manager arn/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/^username$/i)).not.toBeInTheDocument();
+    });
+
+    it('should render username and password fields when authType is "basic"', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck({ authType: 'basic' })}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/^username$/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
+    });
+
+    it('should render a token field when authType is "bearer"', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck({ authType: 'bearer' })}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText(/^token$/i)).toBeInTheDocument();
+    });
+
+    it('should call onHealthCheckChange with the new authType when the selector changes', () => {
+      const onHealthCheckChange = vi.fn();
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck()}
+          onHealthCheckChange={onHealthCheckChange}
+        />,
+      );
+      fireEvent.change(screen.getByLabelText(/credential type/i), { target: { value: 'basic' } });
+      expect(onHealthCheckChange).toHaveBeenCalledWith({ authType: 'basic' });
+    });
+
+    it('should show "a credential is already set" when secretSet is true, regardless of authType', () => {
+      render(
+        <NetworkingStep
+          ports={[{ container: 25565, protocol: 'tcp', visibility: 'public' }]}
+          issues={[]}
+          onChange={vi.fn()}
+          https={false}
+          onHttpsChange={vi.fn()}
+          healthCheck={baseHealthCheck({ authType: 'basic', secretSet: true })}
+          onHealthCheckChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(/a credential is already set/i)).toBeInTheDocument();
+    });
+  });
 });

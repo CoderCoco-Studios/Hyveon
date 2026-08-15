@@ -2387,4 +2387,92 @@ describe('preload dispatcher', () => {
       });
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // diagnostics.exportBundle
+  // ---------------------------------------------------------------------------
+
+  describe('diagnostics.exportBundle', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke the diagnostics.exportBundle channel with no payload', async () => {
+        ipcInvoke.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
+        const diagnostics = bridge['diagnostics'] as { exportBundle: () => Promise<unknown> };
+
+        const result = await diagnostics.exportBundle();
+
+        expect(ipcInvoke).toHaveBeenCalledWith('diagnostics.exportBundle');
+        expect(result).toEqual({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when diagnostics.exportBundle is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const mockHandler = vi.fn().mockResolvedValue({ status: 'cancelled' });
+        testApi.mock('diagnostics.exportBundle', mockHandler);
+
+        const diagnostics = bridge['diagnostics'] as { exportBundle: () => Promise<unknown> };
+        const result = await diagnostics.exportBundle();
+
+        expect(mockHandler).toHaveBeenCalled();
+        expect(result).toEqual({ status: 'cancelled' });
+        expect(ipcInvoke).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // diagnostics.showInFolder
+  // ---------------------------------------------------------------------------
+
+  describe('diagnostics.showInFolder', () => {
+    describe('real-IPC fallthrough', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('0');
+      });
+
+      it('should invoke the diagnostics.showInFolder channel with the path', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const diagnostics = bridge['diagnostics'] as { showInFolder: (path: string) => Promise<void> };
+
+        await diagnostics.showInFolder('/tmp/hyveon-diagnostics.zip');
+
+        expect(ipcInvoke).toHaveBeenCalledWith('diagnostics.showInFolder', { path: '/tmp/hyveon-diagnostics.zip' });
+      });
+    });
+
+    describe('mock-override', () => {
+      let bridge: Record<string, unknown>;
+
+      beforeEach(async () => {
+        bridge = await loadPreloadBridge('1');
+      });
+
+      it('should call the registered mock instead of ipcRenderer.invoke when diagnostics.showInFolder is mocked', async () => {
+        const testApi = bridge['__test'] as { mock: (channel: string, handler: unknown) => void };
+        const mockHandler = vi.fn().mockResolvedValue(undefined);
+        testApi.mock('diagnostics.showInFolder', mockHandler);
+
+        const diagnostics = bridge['diagnostics'] as { showInFolder: (path: string) => Promise<void> };
+        await diagnostics.showInFolder('/tmp/hyveon-diagnostics.zip');
+
+        expect(mockHandler).toHaveBeenCalledWith({ path: '/tmp/hyveon-diagnostics.zip' });
+        expect(ipcInvoke).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

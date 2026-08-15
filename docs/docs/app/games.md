@@ -180,7 +180,7 @@ Checking it exposes:
 | **Response JSON path** | A field path into the JSON response body, e.g. `players.online` (plain field access and numeric array indices only — no wildcards) |
 | **Operator** | `equals`, `notEquals`, `greaterThan`, `lessThan`, `contains`, or `exists`. `exists` hides the comparison-value field entirely — it only tests whether the path resolves to anything |
 | **Comparison value** | Compared against the resolved value; hidden when the operator is `exists` |
-| **Credential (Secrets Manager ARN)** | Optional. When set, injected as the request's `Authorization` header |
+| **Credential type** | `None` / `Raw ARN` / `Basic` / `Bearer` — see below |
 
 Two validations key off this block: a declared port not among this game's
 own ports (`healthCheck.port <N> is not among this game server's declared
@@ -188,11 +188,37 @@ ports.`), and a comparison operator declared without a value
 (`healthCheck.activeWhen.value is required for operator "<op>"; only
 "exists" takes none.`).
 
-**The credential value never comes back.** Once saved, re-opening the wizard
-or edit form shows *"a credential is already set"* next to the field — never
-the ARN, and never any secret value. Leaving the field blank on an edit
-leaves the existing credential untouched; typing a new ARN replaces it. This
-matches how the app treats every other secret it holds.
+**Credential type decides who owns the secret, and how it's injected.** The
+resolved secret's value becomes the request's `Authorization` header, built
+per type: **Raw ARN** injects the value verbatim, no prefix; **Bearer**
+injects `Bearer <value>`; **Basic** injects `Basic <base64(username:password)>`.
+
+| Credential type | What you enter | Who owns the secret | `Authorization` header |
+|---|---|---|---|
+| **None** | Nothing | No credential is sent | — |
+| **Raw ARN** | The ARN of a Secrets Manager secret you already manage | You. The app only reads its value — create, rotate and delete it yourself | The secret's value, verbatim |
+| **Basic** | Username and password | The app. It stores `{"username", "password"}` as JSON in a secret it creates and manages for you | `Basic <base64(username:password)>` |
+| **Bearer** | A token | The app. It stores the token as a secret it creates and manages for you | `Bearer <token>` |
+
+For **Basic** and **Bearer**, the app names the secret deterministically
+(`hyveon-{game}-healthcheck-auth`, one per game) and creates or updates it
+itself when you save — you never see or enter an ARN for those two types.
+
+**The credential value never comes back.** Every credential field (ARN,
+username, password, token) renders blank when you re-open the wizard or edit
+form. Whether one is already configured is signaled only by *"a credential
+is already set"* next to the Credential type selector — never the value, and
+independent of which type it was saved as.
+
+**Omitting vs. clearing on an edit works like every other secret field:**
+leaving the fields for the current type blank keeps the existing credential
+unchanged; switching to **None** and saving clears it (deleting the
+app-owned secret first if the previous credential was Basic or Bearer).
+Switching from Basic/Bearer to **Raw ARN** and entering a new ARN also
+deletes the now-orphaned app-owned secret — but selecting **Raw ARN** and
+leaving that field blank counts as "unchanged," so the prior Basic/Bearer
+secret is left in place and still referenced. Removing the game entirely
+always deletes its app-owned secret, if any.
 
 ### Step 4 — Storage
 
@@ -320,15 +346,16 @@ there is nothing to recover that reopening the form doesn't already give you.
 #### Draft resume and secrets
 
 Environment variable values (the Environment step), file-seed contents (the
-Storage step's file rows), and the health check's credential ARN (the
-Networking step's health-check block) are never included in a resumed
-draft — only the variable/file *names*, and whether a credential is set,
-come back. If you'd typed a database password, a health-check credential
-ARN, or other sensitive value before closing, you'll need to re-enter it
-after clicking Resume. This is deliberate: those fields are the most likely
-to hold something you'd consider a secret, so the app strips them out of
-what's read back to the wizard rather than round-tripping them through the
-Electron IPC layer on every resume.
+Storage step's file rows), and every health-check credential field — ARN,
+username, password, token (the Networking step's health-check block) — are
+never included in a resumed draft — only the variable/file *names*, the
+chosen credential type, and whether a credential is set, come back. If you'd
+typed a database password, a health-check credential ARN or basic/bearer
+credential, or other sensitive value before closing, you'll need to re-enter
+it after clicking Resume. This is deliberate: those fields are the most
+likely to hold something you'd consider a secret, so the app strips them out
+of what's read back to the wizard rather than round-tripping them through
+the Electron IPC layer on every resume.
 
 ## The game detail screen
 
@@ -379,9 +406,10 @@ you need a different name.
 
 `https` has the same toggle here as in the wizard's Networking step, and the
 same health-check block sits below it — enable/disable, request/condition
-fields, and the credential ARN input, identical to Step 3 of the wizard
-(including "a credential is already set" replacing any previous ARN, never
-echoing it back). `environment` is directly editable here too, in its own
+fields, and the credential-type selector with its per-type fields, identical
+to Step 3 of the wizard (including "a credential is already set" next to the
+selector, and every credential field rendering blank rather than echoing back
+a previous value). `environment` is directly editable here too, in its own
 **Environment** card — the same row editor (Variable name / Value, no
 minimum row count) as the wizard's Step 5.
 

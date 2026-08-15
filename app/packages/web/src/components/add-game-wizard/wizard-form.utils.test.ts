@@ -12,6 +12,7 @@ import {
   validateReviewStep,
   canAdvance,
   type WizardDraft,
+  type WizardDraftHealthCheck,
 } from './wizard-form.utils.js';
 import type { RedactedGameServer } from '../../api.service.js';
 
@@ -65,7 +66,11 @@ describe('createEmptyWizardDraft', () => {
         jsonPath: '',
         operator: 'equals',
         value: '',
+        authType: 'none',
         secretArn: '',
+        username: '',
+        password: '',
+        token: '',
         secretSet: false,
       },
     });
@@ -375,10 +380,61 @@ describe('draftFromGameServer / draftToPayload round-trip', () => {
         jsonPath: '',
         operator: 'equals',
         value: '',
+        authType: 'none',
         secretArn: '',
+        username: '',
+        password: '',
+        token: '',
         secretSet: false,
       },
     });
+  });
+
+  it.each([
+    ['raw' as const, 'raw' as const],
+    ['basic' as const, 'basic' as const],
+    ['bearer' as const, 'bearer' as const],
+  ])('should restore authType %s from the redacted authType on a configured credential', (persistedType, expectedAuthType) => {
+    const game = makeExistingGame({
+      name: 'palworld',
+      healthCheck: {
+        kind: 'http',
+        scheme: 'http',
+        port: 8211,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        jsonPath: '',
+        operator: 'equals',
+        activeWhen: { jsonPath: '', operator: 'equals' },
+        secretSet: true,
+        authType: persistedType,
+      } as unknown as RedactedGameServer['healthCheck'],
+    });
+
+    const draft = draftFromGameServer(game);
+
+    expect(draft.healthCheck.authType).toBe(expectedAuthType);
+  });
+
+  it('should fall back to "raw" authType when secretSet but no authType is present (legacy redacted shape)', () => {
+    const game = makeExistingGame({
+      name: 'palworld',
+      healthCheck: {
+        kind: 'http',
+        scheme: 'http',
+        port: 8211,
+        path: '/status',
+        method: 'GET',
+        timeoutMs: 2000,
+        activeWhen: { jsonPath: '', operator: 'equals' },
+        secretSet: true,
+      } as unknown as RedactedGameServer['healthCheck'],
+    });
+
+    const draft = draftFromGameServer(game);
+
+    expect(draft.healthCheck.authType).toBe('raw');
   });
 
   it('should map environment rows from a GameServer onto the draft', () => {
@@ -491,6 +547,81 @@ describe('port visibility round-trip', () => {
       { container: 8211, protocol: 'udp' },
       { container: 8212, protocol: 'tcp', visibility: 'internal' },
     ]);
+  });
+});
+
+describe('health-check auth draft conversion', () => {
+  /** Builds a draft with an enabled health check; override any `healthCheck` field per test. */
+  function draftWithHealthCheck(overrides: Partial<WizardDraftHealthCheck> = {}): WizardDraft {
+    const draft = createEmptyWizardDraft();
+    return {
+      ...draft,
+      ports: [{ container: 25565, protocol: 'tcp', visibility: 'public' as const }],
+      healthCheck: {
+        ...draft.healthCheck,
+        enabled: true,
+        port: 25565,
+        path: '/status',
+        jsonPath: 'players.online',
+        operator: 'exists',
+        authType: 'none',
+        username: '',
+        password: '',
+        token: '',
+        ...overrides,
+      },
+    };
+  }
+
+  it('should submit auth: undefined when authType is "none" and no credential was previously set', () => {
+    const payload = draftToPayload(draftWithHealthCheck());
+    expect(payload.config.healthCheck?.auth).toBeUndefined();
+  });
+
+  it('should submit auth: null when authType is "none" and a credential was previously set (explicit clear)', () => {
+    const payload = draftToPayload(draftWithHealthCheck({ secretSet: true }));
+    expect(payload.config.healthCheck?.auth).toBeNull();
+  });
+
+  it('should submit a raw auth write-input when authType is "raw" with a non-blank secretArn', () => {
+    const payload = draftToPayload(
+      draftWithHealthCheck({ authType: 'raw', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:foo-AbCdEf' }),
+    );
+    expect(payload.config.healthCheck?.auth).toEqual({
+      type: 'raw',
+      secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:foo-AbCdEf',
+    });
+  });
+
+  it('should submit a basic auth write-input when authType is "basic" with username and password', () => {
+    const payload = draftToPayload(draftWithHealthCheck({ authType: 'basic', username: 'admin', password: 'hunter2' }));
+    expect(payload.config.healthCheck?.auth).toEqual({ type: 'basic', username: 'admin', password: 'hunter2' });
+  });
+
+  it('should submit a bearer auth write-input when authType is "bearer" with a token', () => {
+    const payload = draftToPayload(draftWithHealthCheck({ authType: 'bearer', token: 'sk-abc123' }));
+    expect(payload.config.healthCheck?.auth).toEqual({ type: 'bearer', token: 'sk-abc123' });
+  });
+
+  it('should submit auth: undefined when authType is "basic" but both fields are blank (edit, unchanged)', () => {
+    const payload = draftToPayload(draftWithHealthCheck({ authType: 'basic', username: '', password: '', secretSet: true }));
+    expect(payload.config.healthCheck?.auth).toBeUndefined();
+  });
+
+  it('should flag a missing password on the networking step when authType is "basic" with only a username', () => {
+    const issues = validateNetworkingStep(draftWithHealthCheck({ authType: 'basic', username: 'admin' }), []);
+    expect(issues.some((i) => i.path === 'healthCheck.auth.password')).toBe(true);
+  });
+
+  it('should raise no networking-step issues when authType is "none" and a credential was previously set (explicit clear)', () => {
+    // Regression test: toStructuralHealthCheckPreview must strip a `null`
+    // auth (explicit clear) the same way it strips `basic`/`bearer`, not
+    // just treat it as "keep as-is" alongside `undefined`. Before the fix,
+    // the structural preview kept `auth: null` attached, which
+    // validateGameServer's schema (auth as an optional object) rejects —
+    // silently blocking the wizard's Next/Submit button for this case.
+    const issues = validateNetworkingStep(draftWithHealthCheck({ authType: 'none', secretSet: true }), []);
+    expect(issues).toEqual([]);
   });
 });
 

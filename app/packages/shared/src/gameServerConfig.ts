@@ -94,9 +94,33 @@ export interface GameServerFileSeed {
   mode?: string;
 }
 
-/** Credential reference for an authenticated health check. Carries only a Secrets Manager ARN — never a raw value. */
+/**
+ * Credential reference for an authenticated health check. Carries a
+ * Secrets Manager ARN — never a raw value — plus a `type` discriminator for
+ * how the resolved secret's value is turned into the outbound request's
+ * `Authorization` header.
+ */
 export interface GameServerHealthCheckAuth {
-  /** ARN of the Secrets Manager secret whose value is injected as the outbound request's `Authorization` header. */
+  /**
+   * Credential shape this reference declares. `'raw'` (the default when
+   * this field is absent) injects the resolved secret's raw value verbatim,
+   * no prefix — exactly the behavior every configuration had before this
+   * field existed. `'basic'` and `'bearer'` are both app-owned: the system
+   * creates, updates, and deletes the backing secret itself; the operator
+   * supplies only the credential's plaintext parts (never a `secretArn`) for
+   * those two types. See `GamesWriteService.resolveHealthCheckAuthSecret`
+   * (`@hyveon/desktop-main`) for the write-side resolution that turns
+   * operator-submitted plaintext into this field's `secretArn`.
+   */
+  type?: 'raw' | 'basic' | 'bearer';
+  /**
+   * ARN of the Secrets Manager secret whose value is injected as the
+   * outbound request's `Authorization` header. Operator-supplied and
+   * operator-owned for `type: 'raw'` (or no `type`). App-created and
+   * app-owned for `type: 'basic'`/`'bearer'` — deterministically named
+   * `hyveon-{gameId}-healthcheck-auth`; the operator never sees or enters
+   * this ARN for those two types.
+   */
   secretArn: string;
 }
 
@@ -264,6 +288,15 @@ export type GameServerConfig = Omit<GameServer, 'name'>;
 export type RedactedGameServerHealthCheck = Omit<GameServerHealthCheck, 'auth'> & {
   /** Whether `auth` is set on the underlying declaration — never the credential reference itself. */
   secretSet: boolean;
+  /**
+   * `auth.type` carried through unredacted (it's a credential *shape*
+   * discriminator, not a secret), defaulting to `'raw'` when `auth` is set
+   * without an explicit `type` — mirroring {@link GameServerHealthCheckAuth."type"}'s
+   * own default. Omitted when `secretSet` is `false`. Lets the add-game
+   * wizard's edit flow (`draftFromGameServer`) restore the real `authType`
+   * instead of guessing `'raw'` for every configured credential.
+   */
+  authType?: 'raw' | 'basic' | 'bearer';
 };
 
 /**
@@ -297,7 +330,10 @@ export function redactGameServer(game: GameServer): RedactedGameServer {
     return rest;
   }
   const { auth, ...healthCheckRest } = healthCheck;
-  return { ...rest, healthCheck: { ...healthCheckRest, secretSet: auth != null } };
+  return {
+    ...rest,
+    healthCheck: { ...healthCheckRest, secretSet: auth != null, authType: auth ? (auth.type ?? 'raw') : undefined },
+  };
 }
 
 /**

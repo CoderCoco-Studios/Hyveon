@@ -105,8 +105,9 @@ const CREDENTIAL_LIKE_HEADER_VALUE_PATTERN = /^(bearer\s+\S+|basic\s+[a-z0-9+/=]
 /** Matches a JSONPath restricted to plain field access and numeric array indices — no wildcards, filters, slices, or recursive descent. */
 const HEALTH_CHECK_JSON_PATH_PATTERN = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+|\[\d+\])*$/;
 
-/** Zod schema mirroring `GameServerHealthCheckAuth`. */
+/** Zod schema mirroring `GameServerHealthCheckAuth` — the persisted shape, always carrying a `secretArn` regardless of `type`. */
 export const gameServerHealthCheckAuthSchema = z.object({
+  type: z.enum(['raw', 'basic', 'bearer']).optional(),
   secretArn: z
     .string()
     .regex(
@@ -114,6 +115,104 @@ export const gameServerHealthCheckAuthSchema = z.object({
       'healthCheck.auth.secretArn must be a Secrets Manager secret ARN (arn:aws:secretsmanager:<region>:<account>:secret:<name>).',
     ),
 });
+
+/**
+ * Operator-submitted shape of a health-check credential, as it travels over
+ * the `games.create`/`games.update` IPC channels before the write path
+ * resolves a persisted `secretArn` — see `GameServerHealthCheckAuthWriteInput`'s
+ * doc comment for the full write-time contract.
+ */
+export const gameServerHealthCheckAuthInputSchema = z
+  .object({
+    type: z.enum(['raw', 'basic', 'bearer']).optional(),
+    secretArn: z.string().optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    token: z.string().optional(),
+  })
+  .superRefine((auth, ctx) => {
+    const type = auth.type ?? 'raw';
+    if (type === 'basic') {
+      if (!auth.username) {
+        ctx.addIssue({ code: 'custom', message: 'healthCheck.auth.username is required for type "basic".', path: ['username'] });
+      }
+      if (!auth.password) {
+        ctx.addIssue({ code: 'custom', message: 'healthCheck.auth.password is required for type "basic".', path: ['password'] });
+      }
+      return;
+    }
+    if (type === 'bearer') {
+      if (!auth.token) {
+        ctx.addIssue({ code: 'custom', message: 'healthCheck.auth.token is required for type "bearer".', path: ['token'] });
+      }
+      return;
+    }
+    if (!auth.secretArn) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'healthCheck.auth.secretArn is required for type "raw" (or no declared type).',
+        path: ['secretArn'],
+      });
+      return;
+    }
+    if (!SECRET_ARN_PATTERN.test(auth.secretArn)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'healthCheck.auth.secretArn must be a Secrets Manager secret ARN (arn:aws:secretsmanager:<region>:<account>:secret:<name>).',
+        path: ['secretArn'],
+      });
+    }
+  });
+
+/**
+ * Operator-submitted shape of a health-check credential — the type
+ * {@link gameServerHealthCheckAuthInputSchema} validates. Distinct from the
+ * persisted {@link GameServerHealthCheckAuth} (imported from
+ * `./gameServerConfig.js`) in `@hyveon/shared`'s `gameServerConfig.ts`:
+ * `secretArn` is only ever present here for `type: 'raw'` (the operator's
+ * own pre-existing ARN); `basic`/`bearer` instead carry plaintext
+ * (`username`/`password`, or `token`) that the write path consumes once to
+ * create or update an app-owned secret, never persisting the plaintext
+ * itself.
+ */
+export interface GameServerHealthCheckAuthWriteInput {
+  type?: 'raw' | 'basic' | 'bearer';
+  secretArn?: string;
+  username?: string;
+  password?: string;
+  token?: string;
+}
+
+/**
+ * Validates the per-type plaintext requirements of an operator-submitted
+ * health-check credential: `basic` requires both `username` and `password`;
+ * `bearer` requires a `token`; `raw` (or no declared `type`) requires a
+ * `secretArn`. Returns no issues for `undefined` or `null` — both are valid
+ * "no credential change" states on the write path (see
+ * `GameServerHealthCheckAuthWriteInput`'s doc and `gamesWrite.ts`'s
+ * `null`-means-clear / `undefined`-means-unchanged convention).
+ *
+ * Reused by both the wizard's client-side per-step validation
+ * (`@hyveon/web`'s `wizard-form.utils.ts`) and `GamesWriteService`'s
+ * server-side check, so the two can never phrase this rule differently.
+ *
+ * @param auth - The candidate write-input value, typically untrusted (e.g.
+ *   parsed JSON from an IPC payload).
+ * @returns Every validation issue found, each pathed under `healthCheck.auth`.
+ */
+export function validateHealthCheckAuthInput(auth: unknown): GameServerValidationIssue[] {
+  if (auth === undefined || auth === null) {
+    return [];
+  }
+  const result = gameServerHealthCheckAuthInputSchema.safeParse(auth);
+  if (result.success) {
+    return [];
+  }
+  return result.error.issues.map((issue) => ({
+    path: issue.path.length > 0 ? `healthCheck.auth.${formatPath(issue.path)}` : 'healthCheck.auth',
+    message: issue.message,
+  }));
+}
 
 /** Zod schema mirroring `GameServerHealthCheckCondition`. */
 export const gameServerHealthCheckConditionSchema = z.object({

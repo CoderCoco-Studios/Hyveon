@@ -30,6 +30,9 @@ import type {
   UpdateGamePayload,
 } from '@hyveon/shared';
 import { OptimisticLockError, redactGameServer, validateGameServer } from '@hyveon/shared';
+import type { GameServerWriteConfig } from '@hyveon/shared';
+import { validateHealthCheckAuthInput } from '@hyveon/shared/gameServerValidator';
+import { deleteHealthCheckAuthSecret, upsertHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
@@ -39,6 +42,15 @@ import { mergeGameLists } from './mergeGameLists.js';
 
 /** The three write operations this service performs — used to tag the audit log entry. */
 type GameWriteAction = 'create' | 'update' | 'delete';
+
+/**
+ * A syntactically-valid-but-inert Secrets Manager ARN used only to satisfy
+ * `gameServerHealthCheckAuthSchema`'s `secretArn` pattern during the
+ * structural pre-validation pass in {@link GamesWriteService.previewResolvedHealthCheckAuth} —
+ * never persisted, never used to address a real secret. See that method's
+ * doc comment for why a placeholder is needed at all.
+ */
+const STRUCTURAL_PREVIEW_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:000000000000:secret:pending-structural-preview';
 
 /** Maps a {@link GameWriteAction} to the {@link AuditAction} recorded via `AuditService.record()`. */
 const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
@@ -68,14 +80,25 @@ export class GamesWriteService {
    * collision against an existing game is caught), then delegates to
    * `DeploymentConfigService.addGameServer()`.
    *
+   * Before any of that: rejects a `payload.name` that already exists in
+   * `siblings` up front, with its own `{ code: 'validation' }` result.
+   * `validateGameServer()` has no duplicate-name rule of its own, so without
+   * this early check a duplicate name would only be caught later by
+   * `addGameServer()` throwing `GameServerEntryError` — by which point
+   * `resolveHealthCheckAuthSecret()` would already have overwritten the
+   * existing game's live health-check secret with the about-to-be-rejected
+   * credential. This check must run before that AWS mutation, not just
+   * before the config write.
+   *
    * Failure mapping:
    *  - Structural/business-rule validation failure → `{ code: 'validation' }`
    *    with the full issue list.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
    *  - `GameServerEntryError` with `reason: 'invalid-name'` or `'duplicate-name'`
-   *    (the proposed name is malformed, or already exists in `gameServers`) →
-   *    `{ code: 'validation' }` with a single `path: 'name'` issue.
+   *    (the proposed name is malformed, or — in a race the up-front check above
+   *    doesn't catch, e.g. a concurrent create of the same name — already exists
+   *    in `gameServers`) → `{ code: 'validation' }` with a single `path: 'name'` issue.
    *  - `GameServerEntryError` with any other reason (`'structural'` — the
    *    config document parsed but its `gameServers` map is missing/not an
    *    object) → the catch-all `{ code: 'error' }`, since it isn't a name
@@ -90,8 +113,40 @@ export class GamesWriteService {
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.createGame: creating game server entry', { game: payload.name });
+    const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
+    if (authIssues.length > 0) {
+      return { ok: false, code: 'validation', issues: authIssues };
+    }
+
     const siblings = await this.deploymentConfig.getGameServers();
-    const validation = validateGameServer(payload.name, payload.config, siblings);
+
+    // Duplicate-name check first: validateGameServer has no such rule
+    // (checkPortCollisions explicitly skips self-name comparisons), so
+    // without this a duplicate `payload.name` was only ever caught later by
+    // `addGameServer()` throwing — by which point resolveHealthCheckAuthSecret
+    // below would already have overwritten the EXISTING game's live secret
+    // with the about-to-be-rejected credential. Must run before both the
+    // structural preview and the real secret mutation.
+    if (siblings.some((sibling) => sibling.name === payload.name)) {
+      return {
+        ok: false,
+        code: 'validation',
+        issues: [{ path: 'name', message: `A game server named "${payload.name}" already exists.` }],
+      };
+    }
+
+    // Structural pass first, against a placeholder-secretArn preview that
+    // performs no Secrets Manager call — see resolveHealthCheckAuthSecret's
+    // doc comment for why the AWS-mutating call must not run until this
+    // (port collisions, cpu/memory pairing, etc.) has already succeeded.
+    const structuralPreview = this.previewResolvedHealthCheckAuth(payload.config, null);
+    const structuralValidation = validateGameServer(payload.name, structuralPreview, siblings);
+    if (!structuralValidation.success) {
+      return { ok: false, code: 'validation', issues: structuralValidation.issues };
+    }
+
+    const resolvedConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
+    const validation = validateGameServer(payload.name, resolvedConfig, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
     }
@@ -148,15 +203,24 @@ export class GamesWriteService {
     const siblings = await this.deploymentConfig.getGameServers();
     const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
-    // The wizard/edit form omits `healthCheck.auth` to mean "leave the
-    // existing credential unchanged" (see wizard-form.utils.ts's
-    // `healthCheckFromDraft` and docs/docs/app/games.md) — since this write
-    // path replaces the whole entry rather than patching it, that omitted
-    // auth has to be spliced back in from the prior config here.
-    const incomingConfig =
-      payload.config.healthCheck && !payload.config.healthCheck.auth && before?.healthCheck?.auth
-        ? { ...payload.config, healthCheck: { ...payload.config.healthCheck, auth: before.healthCheck.auth } }
-        : payload.config;
+    const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
+    if (authIssues.length > 0) {
+      return { ok: false, code: 'validation', issues: authIssues };
+    }
+
+    // Structural pass first, against a placeholder-secretArn preview that
+    // performs no Secrets Manager call — see resolveHealthCheckAuthSecret's
+    // doc comment for why the AWS-mutating call must not run until this
+    // (port collisions, cpu/memory pairing, etc.) has already succeeded.
+    const structuralPreview = this.previewResolvedHealthCheckAuth(payload.config, before);
+    const structuralValidation = validateGameServer(payload.name, structuralPreview, siblings);
+    if (!structuralValidation.success) {
+      return { ok: false, code: 'validation', issues: structuralValidation.issues };
+    }
+
+    // resolveHealthCheckAuthSecret now owns the "omitted auth means unchanged"
+    // splice that used to live inline here — see its own doc comment.
+    const incomingConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, before);
 
     const validation = validateGameServer(payload.name, incomingConfig, siblings);
     if (!validation.success) {
@@ -221,6 +285,10 @@ export class GamesWriteService {
         return this.setupIncompleteResult(err);
       }
       return this.errorResult(err);
+    }
+
+    if (before?.healthCheck?.auth && (before.healthCheck.auth.type === 'basic' || before.healthCheck.auth.type === 'bearer')) {
+      await this.deleteAppOwnedSecret(payload.name, before.healthCheck.auth.secretArn);
     }
 
     return this.successResult('delete', payload.name, undefined, { before, after: null, versionId: write.versionId });
@@ -316,5 +384,159 @@ export class GamesWriteService {
   private errorResult(err: unknown): GameWriteResult {
     logger.error('Game server write failed', { err });
     return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the game server configuration' };
+  }
+
+  /**
+   * Pure, non-mutating preview of what {@link resolveHealthCheckAuthSecret}
+   * would eventually produce, used to run `validateGameServer`'s structural/
+   * business-rule checks (port collisions, cpu/memory pairing, etc. — rules
+   * that have nothing to do with `auth` itself) *before* any Secrets Manager
+   * call happens.
+   *
+   * Mirrors {@link resolveHealthCheckAuthSecret}'s branching exactly, except
+   * it never calls `upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret`:
+   * a `basic`/`bearer` credential gets {@link STRUCTURAL_PREVIEW_SECRET_ARN}
+   * in place of a real secret ARN (the persisted schema requires some
+   * pattern-matching `secretArn` regardless of `type`, and no real one exists
+   * until the write actually happens), and the delete-on-clear/delete-on-
+   * switch-to-raw cases are simply skipped, since a delete doesn't change
+   * the shape being validated.
+   *
+   * Callers must still call {@link resolveHealthCheckAuthSecret} (only once
+   * this structural pass has succeeded) to get the real, persistable config
+   * and to actually perform the Secrets Manager mutation.
+   *
+   * @param config - The proposed write-side config (may be `undefined` when the entry has no `healthCheck` at all).
+   * @param before - The entry's prior persisted state, or `null` for a brand-new game.
+   * @returns `config` with `healthCheck.auth` resolved to a validation-ready shape — never the real persisted one.
+   */
+  private previewResolvedHealthCheckAuth(config: GameServerWriteConfig, before: GameServer | null): Omit<GameServer, 'name'> {
+    if (!config.healthCheck) {
+      return { ...config, healthCheck: undefined };
+    }
+
+    const { auth, ...healthCheckRest } = config.healthCheck;
+    const beforeAuth = before?.healthCheck?.auth;
+
+    if (auth === undefined) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } };
+    }
+
+    if (auth === null) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: undefined } };
+    }
+
+    const type = auth.type ?? 'raw';
+    if (type === 'raw') {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: { type: 'raw', secretArn: auth.secretArn as string } } };
+    }
+
+    return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn: STRUCTURAL_PREVIEW_SECRET_ARN } } };
+  }
+
+  /**
+   * Resolves `config.healthCheck.auth` into the persisted
+   * `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`), performing
+   * whatever Secrets Manager write the declared change requires:
+   *  - `auth` omitted → leave `before`'s credential unchanged (existing
+   *    behavior, unchanged from before this feature).
+   *  - `auth === null` → explicit clear. Deletes `before`'s app-owned secret
+   *    (if `before.auth.type` was `'basic'`/`'bearer'`) and returns `config`
+   *    with `healthCheck.auth` unset.
+   *  - `auth.type` `'raw'`/absent → the operator-supplied `secretArn` is
+   *    used as-is (already required by {@link validateHealthCheckAuthInput}
+   *    before this method runs). If `before`'s credential was app-owned
+   *    (`'basic'`/`'bearer'`), its now-orphaned secret is deleted.
+   *  - `auth.type` `'basic'`/`'bearer'` → builds the secret value
+   *    (`JSON.stringify({ username, password })` or the raw `token`) and
+   *    calls {@link upsertHealthCheckAuthSecret}, which creates the secret on
+   *    first save and updates it in place on every subsequent edit (see
+   *    that function's own doc for why no separate "does it already exist"
+   *    check is needed).
+   *
+   * @remarks
+   * Must only be called after {@link previewResolvedHealthCheckAuth}'s
+   * structural preview has already passed `validateGameServer` — this method
+   * is the one that actually talks to Secrets Manager
+   * (`upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret`), and that
+   * write must never happen ahead of a structural check that's unrelated to
+   * `auth` but could still reject the overall entry (a port collision, bad
+   * cpu/memory pairing, etc.) — doing so would leave a live secret mutated or
+   * deleted for a save that was never actually persisted.
+   *
+   * Never called for a `deleteGame` — that path calls
+   * {@link deleteHealthCheckAuthSecret} directly in {@link deleteGame} once
+   * the config removal itself has succeeded.
+   *
+   * @param gameId - The `game_servers` map key this entry is being saved under.
+   * @param config - The proposed write-side config (may be `undefined` when the entry has no `healthCheck` at all).
+   * @param before - The entry's prior persisted state, or `null` for a brand-new game.
+   * @returns `config` with `healthCheck.auth` resolved to the persisted shape (or `undefined`), ready for `validateGameServer`.
+   */
+  private async resolveHealthCheckAuthSecret(
+    gameId: string,
+    config: GameServerWriteConfig,
+    before: GameServer | null,
+  ): Promise<Omit<GameServer, 'name'>> {
+    if (!config.healthCheck) {
+      if (before?.healthCheck?.auth && (before.healthCheck.auth.type === 'basic' || before.healthCheck.auth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, before.healthCheck.auth.secretArn);
+      }
+      return { ...config, healthCheck: undefined };
+    }
+
+    const { auth, ...healthCheckRest } = config.healthCheck;
+    const beforeAuth = before?.healthCheck?.auth;
+
+    if (auth === undefined) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } };
+    }
+
+    if (auth === null) {
+      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
+      }
+      return { ...config, healthCheck: { ...healthCheckRest, auth: undefined } };
+    }
+
+    const type = auth.type ?? 'raw';
+    if (type === 'raw') {
+      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
+      }
+      return { ...config, healthCheck: { ...healthCheckRest, auth: { type: 'raw', secretArn: auth.secretArn as string } } };
+    }
+
+    const secretValue = type === 'basic' ? JSON.stringify({ username: auth.username, password: auth.password }) : (auth.token as string);
+    const secretArn = await this.upsertAppOwnedSecret(gameId, secretValue);
+    return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } };
+  }
+
+  /** Wraps {@link upsertHealthCheckAuthSecret}, normalizing and logging any Secrets Manager failure per this repo's logging convention. */
+  private async upsertAppOwnedSecret(gameId: string, value: string): Promise<string> {
+    try {
+      return await upsertHealthCheckAuthSecret(gameId, value);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('GamesWriteService.resolveHealthCheckAuthSecret: failed to create/update the health-check credential secret', {
+        game: gameId,
+        error: message,
+      });
+      throw new Error(`Failed to save the health-check credential: ${message}`);
+    }
+  }
+
+  /** Wraps {@link deleteHealthCheckAuthSecret}, logging (not throwing on) a Secrets Manager failure — a delete-cleanup failure must not block the config write it's tidying up after. */
+  private async deleteAppOwnedSecret(gameId: string, secretArn: string): Promise<void> {
+    try {
+      await deleteHealthCheckAuthSecret(gameId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('GamesWriteService.resolveHealthCheckAuthSecret: failed to delete an orphaned health-check credential secret', {
+        game: gameId,
+        secretArn,
+        error: message,
+      });
+    }
   }
 }

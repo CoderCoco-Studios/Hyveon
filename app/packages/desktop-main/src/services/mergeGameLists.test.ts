@@ -146,6 +146,7 @@ describe('mergeGameLists', () => {
       timeoutMs: 2000,
       activeWhen: { jsonPath: 'players.online', operator: 'greaterThan', value: 0 },
       secretSet: true,
+      authType: 'raw',
     });
     expect(JSON.stringify(result)).not.toContain(secretArn);
   });
