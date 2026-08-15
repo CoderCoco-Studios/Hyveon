@@ -3,6 +3,10 @@
 // no bearer-token plumbing left in this module: the renderer talks to the main
 // process over IPC, not HTTP.
 
+import type { ExportDiagnosticsBundleResult } from '@hyveon/shared';
+
+export type { ExportDiagnosticsBundleResult };
+
 /** Live status for a single game, as returned by `GET /api/status` and `/api/status/:game`. */
 export interface GameStatus {
   game: string;
@@ -582,17 +586,6 @@ export interface CloudHealthFixResult {
  * in sync with it.
  */
 export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
-
-/**
- * Result of `diagnostics.exportBundle`.
- *
- * Mirrors `ExportDiagnosticsBundleResult` in `@hyveon/desktop-preload` — keep
- * this copy in sync with it.
- */
-export type ExportDiagnosticsBundleResult =
-  | { status: 'written'; path: string }
-  | { status: 'cancelled' }
-  | { status: 'error'; message: string };
 
 /**
  * Returns the `window.hyveon` IPC bridge, throwing a descriptive error if it is

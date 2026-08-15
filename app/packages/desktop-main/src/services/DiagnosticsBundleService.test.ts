@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, createReadStream } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, createReadStream, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import unzipper from 'unzipper';
@@ -192,6 +192,44 @@ describe('DiagnosticsBundleService.writeBundle', () => {
     await expect(service.writeBundle(destinationPath)).rejects.toThrow();
 
     expect(existsSync(destinationPath)).toBe(false);
-    expect(existsSync(`${destinationPath}.tmp`)).toBe(false);
+    expect(readdirSync(tempDir)).toEqual([]);
+  });
+
+  it('should keep the other game statuses and stackOutputs when one game status lookup rejects', async () => {
+    const destinationPath = join(tempDir, 'bundle.zip');
+    const outputs = {
+      awsRegion: 'us-east-1',
+      ecsClusterName: 'hyveon-cluster',
+      domainName: 'example.com',
+      gameNames: ['minecraft', 'valheim'],
+    };
+    const partiallyFailingEcs = {
+      getStatus: vi.fn().mockImplementation((game: string) =>
+        game === 'valheim'
+          ? Promise.reject(new Error('ECS DescribeTasks failed'))
+          : Promise.resolve({ game, state: 'running' }),
+      ),
+    } as Partial<EcsService> as EcsService;
+    const service = new DiagnosticsBundleService(
+      makeDiagnostics(),
+      makeDeploymentConfig(),
+      makeConfig(outputs),
+      partiallyFailingEcs,
+      makeStore(),
+    );
+
+    const result = await service.writeBundle(destinationPath);
+
+    expect(result).toEqual({ path: destinationPath });
+    const entries = await readZipEntries(destinationPath);
+    const aws = JSON.parse(entries['aws-snapshot.json']!);
+    expect(aws.stackOutputs).toEqual(outputs);
+    expect(aws.games).toEqual([
+      { game: 'minecraft', state: 'running' },
+      { game: 'valheim', state: 'error', message: 'ECS DescribeTasks failed' },
+    ]);
+    // The AWS section as a whole still succeeds — errors.json stays empty, since the
+    // per-game failure is captured inline in aws-snapshot.json instead.
+    expect(JSON.parse(entries['errors.json']!)).toEqual([]);
   });
 });

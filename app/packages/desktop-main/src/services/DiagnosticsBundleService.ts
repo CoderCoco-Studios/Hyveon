@@ -3,6 +3,7 @@ import { ZipArchive } from 'archiver';
 import { createWriteStream } from 'node:fs';
 import { rm, rename } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import type { GameStatus } from '@hyveon/shared';
 import { logger } from '../logger.js';
@@ -14,7 +15,15 @@ import { ElectronStoreService } from './ElectronStoreService.js';
 import { buildDiagnosticsConfigSummary, type DiagnosticsConfigSummary } from './diagnosticsBundleAllowlist.js';
 import { scrubSecrets } from './diagnosticsLogScrubber.js';
 
-/** Number of trailing log lines gathered into the bundle's `logs.txt` — generous relative to the panel's 500-line tail since this is a one-shot export, not a polled view. */
+/**
+ * Requested number of trailing log lines for the bundle's `logs.txt` —
+ * higher than the live panel's 500-line tail since this is a one-shot
+ * export, not a polled view. Not a hard guarantee: `DiagnosticsService.readTail`
+ * reads a fixed ~200KB (`TAIL_READ_BYTES`) off the end of the log file
+ * before splitting into lines, regardless of the line count requested here,
+ * so a busy/verbose log can hit that byte cap and yield fewer than 2000
+ * lines — potentially no better than the panel's 500-line tail.
+ */
 const BUNDLE_LOG_TAIL_LINES = 2000;
 
 /** One entry in the bundle's `errors.json` — section name and a human-readable message only, never a raw error object or stack trace. */
@@ -170,12 +179,28 @@ export class DiagnosticsBundleService {
     };
   }
 
+  /**
+   * Gathers stack outputs plus a per-game `EcsService.getStatus` snapshot.
+   * Uses `Promise.allSettled` (not `Promise.all`) over the per-game calls so
+   * one game's rejection (e.g. a transient AWS API error) doesn't discard
+   * the already-resolved `stackOutputs` or the other games' statuses — a
+   * failed game is instead modeled as a `GameStatus` with `state: 'error'`
+   * and `message` set, the same shape `EcsService.getStatus` itself already
+   * uses for a resolvable-but-unhealthy workload.
+   */
   private async gatherAwsSnapshot(): Promise<DiagnosticsBundleAwsSnapshot> {
     const outputs = await this.config.getStackOutputs();
     if (!outputs) {
       return { stackOutputs: null, games: [] };
     }
-    const games = await Promise.all(outputs.gameNames.map((game) => this.ecs.getStatus(game)));
+    const results = await Promise.allSettled(outputs.gameNames.map((game) => this.ecs.getStatus(game)));
+    const games = results.map((result, index) => {
+      if (result.status === 'fulfilled') return result.value;
+      const game = outputs.gameNames[index]!;
+      const message = this.errorMessage(result.reason);
+      logger.warn('DiagnosticsBundleService.gatherAwsSnapshot: getStatus failed for game', { game, message });
+      return { game, state: 'error' as const, message };
+    });
     return {
       stackOutputs: {
         awsRegion: outputs.awsRegion,
@@ -208,20 +233,25 @@ export class DiagnosticsBundleService {
 
   /**
    * Streams `sections` plus `errors` into a `.zip` at `destinationPath` via
-   * `archiver`. Writes to a `${destinationPath}.tmp` sibling first and
-   * renames it into place only on success — a write failure partway through
-   * removes the temp file instead of leaving a partial archive at the final
-   * path (see this class's own doc comment).
+   * `archiver`. Writes to a `${destinationPath}.<uuid>.tmp` sibling first
+   * and renames it into place only on success — a write failure partway
+   * through removes the temp file instead of leaving a partial archive at
+   * the final path (see this class's own doc comment). The temp filename
+   * includes a `randomUUID()` suffix (matching this codebase's established
+   * unique-token convention, e.g. `RunService`/`PulumiService`) so
+   * concurrent `exportBundle` calls to the same destination never race on
+   * the same temp file.
    */
   private async writeZip(
     destinationPath: string,
     sections: { logs?: string; config?: DiagnosticsConfigSummary; metadata?: DiagnosticsBundleMetadata; aws?: DiagnosticsBundleAwsSnapshot },
     errors: DiagnosticsBundleErrorEntry[],
   ): Promise<void> {
-    const tempPath = `${destinationPath}.tmp`;
+    const tempPath = `${destinationPath}.${randomUUID()}.tmp`;
+    let output: ReturnType<typeof createWriteStream> | undefined;
     try {
       await new Promise<void>((resolve, reject) => {
-        const output = createWriteStream(tempPath);
+        output = createWriteStream(tempPath);
         const archive = new ZipArchive({ zlib: { level: 9 } });
 
         output.on('close', () => resolve());
@@ -240,7 +270,17 @@ export class DiagnosticsBundleService {
       });
       await rename(tempPath, destinationPath);
     } catch (err) {
-      await rm(tempPath, { force: true }).catch(() => {});
+      // Explicitly destroy the write stream before cleanup — on Windows an
+      // still-open handle on `tempPath` can make `rm` fail with EBUSY/EPERM.
+      output?.destroy();
+      try {
+        await rm(tempPath, { force: true });
+      } catch (cleanupErr) {
+        logger.warn('DiagnosticsBundleService.writeZip: failed to remove temp file after write failure', {
+          tempPath,
+          message: this.errorMessage(cleanupErr),
+        });
+      }
       throw err;
     }
   }

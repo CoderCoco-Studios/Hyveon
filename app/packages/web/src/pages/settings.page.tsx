@@ -185,7 +185,7 @@ export function SettingsPage() {
               type="checkbox"
               aria-label="Automatic updates"
               checked={autoUpdate !== 'loading' && autoUpdate !== 'error' && autoUpdate.enabled}
-              disabled={autoUpdate === 'loading'}
+              disabled={autoUpdate === 'loading' || autoUpdate === 'error'}
               onChange={(e) => handleAutoUpdateToggle(e.target.checked)}
               className="size-4 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
             />

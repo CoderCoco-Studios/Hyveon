@@ -1,5 +1,8 @@
-/** AWS access-key-id shape: `AKIA` followed by 16 uppercase alphanumeric characters. */
-const AWS_ACCESS_KEY_ID_PATTERN = /\bAKIA[A-Z0-9]{16}\b/g;
+/**
+ * AWS access-key-id shape: `AKIA` (long-term) or `ASIA` (temporary/STS
+ * session) prefix followed by 16 uppercase alphanumeric characters.
+ */
+const AWS_ACCESS_KEY_ID_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
 
 /**
  * A `token`/`key`/`secret`-ish label (optionally hyphenated, e.g.
@@ -9,7 +12,8 @@ const AWS_ACCESS_KEY_ID_PATTERN = /\bAKIA[A-Z0-9]{16}\b/g;
  * like "key" or "secret" used in ordinary prose (e.g. "the key thing"),
  * since those aren't followed by a `:`/`=` and a long value run.
  */
-const LABELED_SECRET_VALUE_PATTERN = /\b[\w-]*(?:token|key|secret)[\w-]*\s*[:=]\s*['"]?([A-Za-z0-9+/_-]{16,})['"]?/gi;
+const LABELED_SECRET_VALUE_PATTERN =
+  /\b([\w-]*(?:token|key|secret)[\w-]*\s*[:=]\s*['"]?)([A-Za-z0-9+/_-]{16,})(['"]?)/gi;
 
 /**
  * Regex-based secret scrubber applied to already-collected log text before
@@ -27,5 +31,8 @@ const LABELED_SECRET_VALUE_PATTERN = /\b[\w-]*(?:token|key|secret)[\w-]*\s*[:=]\
 export function scrubSecrets(text: string): string {
   return text
     .replace(AWS_ACCESS_KEY_ID_PATTERN, '[REDACTED]')
-    .replace(LABELED_SECRET_VALUE_PATTERN, (match, value: string) => match.replace(value, '[REDACTED]'));
+    .replace(
+      LABELED_SECRET_VALUE_PATTERN,
+      (_match, prefix: string, _value: string, suffix: string) => `${prefix}[REDACTED]${suffix}`,
+    );
 }
