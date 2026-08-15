@@ -4,7 +4,9 @@ import {
   PutSecretValueCommand,
   CreateSecretCommand,
   DeleteSecretCommand,
+  RestoreSecretCommand,
   ResourceNotFoundException,
+  InvalidRequestException,
 } from '@aws-sdk/client-secrets-manager';
 
 let cached: SecretsManagerClient | null = null;
@@ -92,6 +94,19 @@ export function healthCheckAuthSecretName(gameId: string): string {
 }
 
 /**
+ * `true` when `err` is Secrets Manager's `InvalidRequestException` for a
+ * secret that's currently scheduled for deletion (i.e. within
+ * {@link deleteHealthCheckAuthSecret}'s default recovery window). Both
+ * `PutSecretValueCommand` and `CreateSecretCommand` (same name) fail this
+ * way for a pending-deletion secret — never `ResourceNotFoundException` —
+ * so {@link upsertHealthCheckAuthSecret}'s create-fallback alone can't
+ * recover from it; see that function's doc comment for the full flow.
+ */
+function isPendingDeletionError(err: unknown): boolean {
+  return err instanceof InvalidRequestException && /scheduled for deletion|marked for deletion/i.test(err.message ?? '');
+}
+
+/**
  * Creates or updates the app-owned health-check credential secret for
  * `gameId`, and returns its ARN. Idempotent by construction: the secret name
  * is deterministic ({@link healthCheckAuthSecretName}), so this always tries
@@ -99,6 +114,20 @@ export function healthCheckAuthSecretName(gameId: string): string {
  * falls back to `CreateSecretCommand` when Secrets Manager reports the
  * secret doesn't exist yet — no separate "does it already exist" read is
  * needed, and no caller has to track prior ARNs across edits.
+ *
+ * A secret {@link deleteHealthCheckAuthSecret} previously scheduled for
+ * deletion (still within its default recovery window) makes both
+ * `PutSecretValueCommand` and `CreateSecretCommand` fail with
+ * `InvalidRequestException` rather than `ResourceNotFoundException` — so the
+ * create-fallback above never triggers for that case. This is the common
+ * "clear a credential, then immediately re-add it" operator workflow (or
+ * delete-then-recreate a game with the same name), so on that specific
+ * error this un-schedules the deletion via `RestoreSecretCommand` and
+ * retries `PutSecretValueCommand` once, rather than leaving the save failing
+ * for up to the whole recovery window. The deliberate default-recovery-window
+ * choice itself (see {@link deleteHealthCheckAuthSecret}'s doc) is
+ * unaffected: a secret that's cleared and never touched again is still
+ * eventually deleted by AWS.
  *
  * @param gameId - The `game_servers` map key this credential belongs to.
  * @param value - The secret's plaintext value — `JSON.stringify({ username, password })`
@@ -115,6 +144,15 @@ export async function upsertHealthCheckAuthSecret(gameId: string, value: string)
     }
     return putResp.ARN;
   } catch (err) {
+    if (isPendingDeletionError(err)) {
+      await getClient().send(new RestoreSecretCommand({ SecretId: name }));
+      const retryResp = await getClient().send(new PutSecretValueCommand({ SecretId: name, SecretString: value }));
+      inProcessCache.delete(name);
+      if (!retryResp.ARN) {
+        throw new Error(`PutSecretValueCommand (post-restore) for ${name} did not return an ARN`);
+      }
+      return retryResp.ARN;
+    }
     if (!(err instanceof ResourceNotFoundException)) {
       throw err;
     }

@@ -80,14 +80,25 @@ export class GamesWriteService {
    * collision against an existing game is caught), then delegates to
    * `DeploymentConfigService.addGameServer()`.
    *
+   * Before any of that: rejects a `payload.name` that already exists in
+   * `siblings` up front, with its own `{ code: 'validation' }` result.
+   * `validateGameServer()` has no duplicate-name rule of its own, so without
+   * this early check a duplicate name would only be caught later by
+   * `addGameServer()` throwing `GameServerEntryError` — by which point
+   * `resolveHealthCheckAuthSecret()` would already have overwritten the
+   * existing game's live health-check secret with the about-to-be-rejected
+   * credential. This check must run before that AWS mutation, not just
+   * before the config write.
+   *
    * Failure mapping:
    *  - Structural/business-rule validation failure → `{ code: 'validation' }`
    *    with the full issue list.
    *  - `OptimisticLockError` (stale `expectedVersionId`) → `{ code: 'conflict' }`
    *    with both etags.
    *  - `GameServerEntryError` with `reason: 'invalid-name'` or `'duplicate-name'`
-   *    (the proposed name is malformed, or already exists in `gameServers`) →
-   *    `{ code: 'validation' }` with a single `path: 'name'` issue.
+   *    (the proposed name is malformed, or — in a race the up-front check above
+   *    doesn't catch, e.g. a concurrent create of the same name — already exists
+   *    in `gameServers`) → `{ code: 'validation' }` with a single `path: 'name'` issue.
    *  - `GameServerEntryError` with any other reason (`'structural'` — the
    *    config document parsed but its `gameServers` map is missing/not an
    *    object) → the catch-all `{ code: 'error' }`, since it isn't a name
@@ -108,6 +119,21 @@ export class GamesWriteService {
     }
 
     const siblings = await this.deploymentConfig.getGameServers();
+
+    // Duplicate-name check first: validateGameServer has no such rule
+    // (checkPortCollisions explicitly skips self-name comparisons), so
+    // without this a duplicate `payload.name` was only ever caught later by
+    // `addGameServer()` throwing — by which point resolveHealthCheckAuthSecret
+    // below would already have overwritten the EXISTING game's live secret
+    // with the about-to-be-rejected credential. Must run before both the
+    // structural preview and the real secret mutation.
+    if (siblings.some((sibling) => sibling.name === payload.name)) {
+      return {
+        ok: false,
+        code: 'validation',
+        issues: [{ path: 'name', message: `A game server named "${payload.name}" already exists.` }],
+      };
+    }
 
     // Structural pass first, against a placeholder-secretArn preview that
     // performs no Secrets Manager call — see resolveHealthCheckAuthSecret's

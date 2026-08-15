@@ -677,6 +677,40 @@ describe('GamesWriteService', () => {
       expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
     });
 
+    it('should reject a createGame for a name that already exists without ever calling upsertHealthCheckAuthSecret', async () => {
+      // Regression coverage: an existing game "minecraft" already has a live
+      // basic credential. A duplicate createGame for the same name (with a
+      // DIFFERENT credential) must be rejected before resolveHealthCheckAuthSecret
+      // runs — otherwise the existing game's live secret gets overwritten by
+      // the about-to-be-rejected credential before addGameServer() ever gets
+      // a chance to reject the duplicate name itself.
+      const before = makeExistingGame({
+        name: 'minecraft',
+        healthCheck: makeHealthCheck({
+          auth: {
+            type: 'basic',
+            secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
+          },
+        }) as GameServerHealthCheck,
+      });
+      const { service, deploymentConfig } = makeService({ existingGameServers: [before] });
+
+      const result = await service.createGame({
+        name: 'minecraft',
+        config: makeConfig({
+          healthCheck: makeHealthCheck({ auth: { type: 'basic', username: 'admin', password: 'different-password' } }),
+        }),
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'validation',
+        issues: [{ path: 'name', message: expect.stringContaining('minecraft') }],
+      });
+      expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
+      expect(deploymentConfig.addGameServer).not.toHaveBeenCalled();
+    });
+
     it('should return a validation failure without calling Secrets Manager when a basic credential is missing a password', async () => {
       const { service } = makeService({ existingGameServers: [] });
 

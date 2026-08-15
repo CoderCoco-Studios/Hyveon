@@ -6,7 +6,9 @@ import {
   PutSecretValueCommand,
   CreateSecretCommand,
   DeleteSecretCommand,
+  RestoreSecretCommand,
   ResourceNotFoundException,
+  InvalidRequestException,
 } from '@aws-sdk/client-secrets-manager';
 import {
   SECRET_PLACEHOLDER,
@@ -157,6 +159,37 @@ describe('upsertHealthCheckAuthSecret', () => {
     secrets.on(PutSecretValueCommand).rejects(new Error('AccessDenied'));
 
     await expect(upsertHealthCheckAuthSecret('palworld', 'sk-abc123')).rejects.toThrow('AccessDenied');
+    expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
+  });
+
+  it('should restore a pending-deletion secret and retry PutSecretValue instead of falling through to CreateSecret', async () => {
+    secrets
+      .on(PutSecretValueCommand)
+      .rejectsOnce(
+        new InvalidRequestException({
+          message:
+            'You can\'t perform this operation on the secret because it was marked for deletion.',
+          $metadata: {},
+        }),
+      )
+      .resolvesOnce({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
+    secrets.on(RestoreSecretCommand).resolves({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
+
+    const arn = await upsertHealthCheckAuthSecret('palworld', 'sk-abc123');
+
+    expect(arn).toBe('arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf');
+    const restoreCalls = secrets.commandCalls(RestoreSecretCommand);
+    expect(restoreCalls).toHaveLength(1);
+    expect(restoreCalls[0]!.args[0]!.input.SecretId).toBe('hyveon-palworld-healthcheck-auth');
+    expect(secrets.commandCalls(PutSecretValueCommand)).toHaveLength(2);
+    expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
+  });
+
+  it('should rethrow an InvalidRequestException that is not about pending deletion, without attempting a restore', async () => {
+    secrets.on(PutSecretValueCommand).rejects(new InvalidRequestException({ message: 'Some other invalid request.', $metadata: {} }));
+
+    await expect(upsertHealthCheckAuthSecret('palworld', 'sk-abc123')).rejects.toThrow('Some other invalid request.');
+    expect(secrets.commandCalls(RestoreSecretCommand)).toHaveLength(0);
     expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
   });
 });
