@@ -146,7 +146,7 @@ export class DiagnosticsBundleService {
       assign(result.value);
       return;
     }
-    const message = this.errorMessage(result.reason);
+    const message = scrubSecrets(this.errorMessage(result.reason));
     errors.push({ section, message });
     logger.warn('DiagnosticsBundleService.writeBundle: section failed', { section, message });
   }
