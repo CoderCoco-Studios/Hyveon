@@ -13,7 +13,7 @@ export class AppLayout {
     return this.page.getByRole('heading', { name: 'Hyveon' });
   }
 
-  /** Sidebar nav link by visible label (e.g. "Logs", "Discord", "Settings"). */
+  /** Sidebar nav link by visible label (e.g. "Game Logs", "Discord", "Settings"). */
   sidebarLink(label: string): Locator {
     return this.page.getByRole('link', { name: label });
   }

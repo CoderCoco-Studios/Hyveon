@@ -397,6 +397,18 @@ describe('LogsService — Lambda log methods', () => {
       expect.objectContaining({ functionKey: 'interactions', error: 'denied' }),
     );
   });
+
+  it('should return an informational message (not an error) and skip logger.error when the Lambda log group does not exist yet', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(DescribeLogStreamsCommand).rejects(notFound);
+    const lines = await service.getRecentLambdaLogs('health-check');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toMatch(/error fetching logs/i);
+    expect(lines[0]).toMatch(/no log group/i);
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
 });
 
 describe('LogsService.streamLambdaLogs', () => {
@@ -438,5 +450,19 @@ describe('LogsService.streamLambdaLogs', () => {
     for await (const line of service.streamLambdaLogs('watchdog', ac.signal, 0)) lines.push(line);
     expect(lines).toEqual([]);
     expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(0);
+  });
+
+  it('should yield a single informational message and stop polling when the Lambda log group does not exist yet', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(FilterLogEventsCommand).rejects(notFound);
+    const ac = new AbortController();
+    const lines: string[] = [];
+    for await (const line of service.streamLambdaLogs('health-check', ac.signal, 0)) lines.push(line);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toMatch(/\[stream error\]/);
+    expect(lines[0]).toMatch(/no log group/i);
+    expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(1);
   });
 });

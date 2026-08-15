@@ -159,6 +159,13 @@ export class LogsService {
    * group/stream are folded into a single-element array, mirroring
    * {@link getRecentLogs}'s no-throw contract.
    *
+   * A `ResourceNotFoundException` (the log group itself doesn't exist yet)
+   * is an expected configuration state rather than a failure — it's how a
+   * conditionally-provisioned function like `health-check` looks before any
+   * game in the deployment declares a health check (see
+   * `app/packages/infra/src/lambdas.ts`) — so it's reported as an
+   * informational line without a `logger.error` call.
+   *
    * @param functionKey - Which Lambda function's log group to read from.
    * @param limit - Maximum number of recent log lines to return.
    * @returns The resolved log lines, or a single-element diagnostic array on failure.
@@ -189,6 +196,10 @@ export class LogsService {
       );
       return events.events?.map((e) => e.message ?? '') ?? [];
     } catch (err) {
+      if (err instanceof Error && err.name === 'ResourceNotFoundException') {
+        logger.warn('LogsService.getRecentLambdaLogs: log group does not exist yet', { functionKey, logGroup });
+        return [`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`];
+      }
       const message = err instanceof Error ? err.message : String(err);
       logger.error('LogsService.getRecentLambdaLogs: failed to fetch logs', { functionKey, logGroup, error: message });
       return [`Error fetching logs for ${functionKey}: ${String(err)}`];
@@ -204,6 +215,14 @@ export class LogsService {
    * that implementation). A poll failure yields a `[stream error]`-prefixed
    * sentinel line and the loop continues, matching `streamLogs`'s resilience
    * to a transient CloudWatch hiccup.
+   *
+   * A `ResourceNotFoundException` is handled separately: it means the log
+   * group doesn't exist at all (e.g. `health-check` before any game in the
+   * deployment declares a health check — see
+   * `app/packages/infra/src/lambdas.ts`), which won't spontaneously resolve
+   * while the operator is looking at the page. Rather than repeat a
+   * `[stream error]` line every `pollInterval` up to the viewer's line cap,
+   * this yields one informational line and returns, ending the generator.
    *
    * @param functionKey - Which Lambda function's log group to tail.
    * @param signal - Aborting this signal stops the poll loop and ends the generator.
@@ -234,8 +253,13 @@ export class LogsService {
           yield event.message ?? '';
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         if (signal.aborted) return;
+        if (err instanceof Error && err.name === 'ResourceNotFoundException') {
+          logger.warn('LogsService.streamLambdaLogs: log group does not exist yet, stopping poll', { functionKey, logGroup });
+          yield `No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`;
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
         yield `[stream error] ${message}`;
       }
       if (signal.aborted) return;

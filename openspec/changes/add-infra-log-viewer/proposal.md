@@ -13,7 +13,7 @@ this is a pure read/display addition with no infra changes.
 **Sidebar navigation**
 - From: a single flat `Logs` entry in the Monitoring section, linking to `/logs`.
 - To: a `Logs` group (always expanded, no collapse interaction) with two children:
-  `Games` (`/logs`, unchanged) and `Infrastructure` (`/logs/infrastructure`, new).
+  `Game Logs` (`/logs`, unchanged) and `Infra Logs` (`/logs/infrastructure`, new).
 - Reason: separates the two log domains (per-game workload tail vs. infra/Lambda tail)
   without adding generic collapsible-nav plumbing for a two-item case.
 - Impact: non-breaking. `/logs` URL and behavior unchanged.
