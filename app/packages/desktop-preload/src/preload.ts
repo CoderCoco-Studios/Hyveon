@@ -122,6 +122,8 @@ import type {
   IacRunsLockClearPayload,
   IacRunsLockMintAck,
   IacRunsLockMintPayload,
+  LambdaFunctionKey,
+  LambdaLogs,
   RunHistoryPageResult,
   StackInitPhaseEvent,
   StoredGameWizardDraft,
@@ -289,6 +291,56 @@ async function* streamLogs(game: string, signal?: AbortSignal): AsyncGenerator<L
     signal?.removeEventListener('abort', onAbort);
     // Consumer left before the stream ended (early break/return or abort) —
     // tell the main process to stop tailing so it doesn't leak the loop.
+    if (!ended) sendCancel();
+  }
+}
+
+/**
+ * Preload-internal — never exposed to the renderer directly (see
+ * {@link openLambdaLogsStream}). Bridges the per-stream chunk/end/cancel
+ * `logs.lambda.stream.<id>.*` channels into an {@link AsyncIterable} of
+ * log chunks, mirroring {@link streamLogs} exactly but against
+ * `logs.lambda.stream`/`logs.lambda.stream.<id>.cancel`.
+ *
+ * When a mock is registered for the `'logs.lambda.stream'` channel (test
+ * mode only), the mock handler is called with `(functionKey, signal)` —
+ * same convention as {@link streamLogs}'s `'logs.stream'` mock.
+ */
+async function* streamLambdaLogs(functionKey: LambdaFunctionKey, signal?: AbortSignal): AsyncGenerator<LogChunk> {
+  const streamMock = mockRegistry.get('logs.lambda.stream');
+  if (streamMock !== undefined) {
+    const mockIterable = streamMock(functionKey, signal) as AsyncIterable<LogChunk>;
+    yield* mockIterable;
+    return;
+  }
+  const { streamId } = (await invoke('logs.lambda.stream', functionKey)) as { streamId: string };
+  const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
+  const endChannel = `logs.lambda.stream.${streamId}.end`;
+  const sendCancel = () => ipcRenderer.send(`logs.lambda.stream.${streamId}.cancel`);
+  const buffer: LogChunk[] = [];
+  let ended = false;
+  let endError: string | undefined;
+  let wake: (() => void) | null = null;
+  const signalWake = () => { if (wake) { const fn = wake; wake = null; fn(); } };
+  const onChunk = (_evt: IpcRendererEvent, chunk: LogChunk) => { buffer.push(chunk); signalWake(); };
+  const onEnd = (_evt: IpcRendererEvent, data: { error?: string }) => { ended = true; endError = data?.error; signalWake(); };
+  const onAbort = () => sendCancel();
+  ipcRenderer.on(chunkChannel, onChunk);
+  ipcRenderer.once(endChannel, onEnd);
+  if (signal) {
+    if (signal.aborted) sendCancel();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    while (true) {
+      while (buffer.length > 0) yield buffer.shift()!;
+      if (ended) { if (endError) throw new Error(endError); return; }
+      await new Promise<void>((resolve) => { wake = resolve; });
+    }
+  } finally {
+    ipcRenderer.removeListener(chunkChannel, onChunk);
+    ipcRenderer.removeListener(endChannel, onEnd);
+    signal?.removeEventListener('abort', onAbort);
     if (!ended) sendCancel();
   }
 }
@@ -652,6 +704,17 @@ function openLogsStream(game: string): HyveonStreamHandle<LogChunk> {
 }
 
 /**
+ * Bridge-facing wrapper for {@link streamLambdaLogs}. Mints an
+ * `AbortController` that never leaves preload and returns a
+ * {@link HyveonStreamHandle} in place of the raw async generator — see
+ * {@link bridgeStream}.
+ */
+function openLambdaLogsStream(functionKey: LambdaFunctionKey): HyveonStreamHandle<LogChunk> {
+  const controller = new AbortController();
+  return bridgeStream(streamLambdaLogs(functionKey, controller.signal), controller);
+}
+
+/**
  * Bridge-facing wrapper for {@link streamStackInitialize}. Mints an
  * `AbortController` that never leaves preload and returns a
  * {@link HyveonStreamHandle} in place of the raw async generator — see
@@ -708,6 +771,11 @@ const api: HyveonApi = {
   logs: {
     get: (game: string, limit?: number) => invoke('logs.get', { game, limit }),
     stream: openLogsStream,
+    lambda: {
+      get: (functionKey: LambdaFunctionKey, limit?: number) =>
+        invoke<LambdaLogs>('logs.lambda.get', { functionKey, limit }),
+      stream: openLambdaLogsStream,
+    },
   },
 
   files: {
