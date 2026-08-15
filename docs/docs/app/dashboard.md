@@ -258,6 +258,8 @@ intervals pass without a successful poll it turns into a red
 The **Refresh** button in the top bar forces every poller to run immediately.
 The `LIVE` pill next to it summarises the same health across all pollers.
 
+The top bar doubles as the app's window title bar — drag any empty area of it to move the window, and on Linux it shows in-app minimize/maximize/close buttons since the OS title bar is hidden.
+
 Note that the underlying per-game cost estimates (`costs.estimate`) are
 fetched once on mount, not part of that 20-second cycle — see
 [The KPI strip](#the-kpi-strip) above. The **Current run rate** and
