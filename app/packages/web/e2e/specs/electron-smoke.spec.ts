@@ -30,7 +30,7 @@ test.describe('electron smoke', () => {
 
     try {
       const win = await app.firstWindow();
-      const hyveon = await win.evaluate(() => typeof (window as unknown as Record<string, unknown>)['hyveon']);
+      const hyveon = await win.evaluate(() => typeof window.hyveon);
       expect(hyveon).toBe('object');
     } finally {
       await app.close();
@@ -62,17 +62,29 @@ test.describe('electron smoke', () => {
       const appRegion = await layout.header().evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-app-region'));
       expect(appRegion).toBe('drag');
 
-      const platform = await win.evaluate(
-        () => (window as unknown as { hyveon: { window: { platform: NodeJS.Platform } } }).hyveon.window.platform,
-      );
+      // `window.hyveon` is globally typed as `HyveonApi | undefined` (see
+      // `@hyveon/desktop-preload`'s `declare global` in `index.ts`) and the
+      // previous test already established it's defined in this renderer —
+      // the `!` narrows that without an `as unknown as T` cast.
+      const platform = await win.evaluate(() => window.hyveon!.window.platform);
 
       if (platform === 'linux') {
         const minimizeButton = layout.windowControlButton('Minimize');
+        const maximizeButton = layout.windowControlButton('Maximize');
         const closeButton = layout.windowControlButton('Close');
         await expect(minimizeButton).toBeVisible();
         await expect(closeButton).toBeVisible();
         await expect(minimizeButton).toBeEnabled();
         await expect(closeButton).toBeEnabled();
+
+        // Exercise the real IPC round trip (preload -> ipcMain -> WindowController
+        // -> WindowService), not just that the buttons render — a missing
+        // WindowController registration would leave these clicks hanging
+        // forever with no other test at any tier catching it.
+        await maximizeButton.click();
+        await expect(layout.windowControlButton('Restore')).toBeVisible();
+        await layout.windowControlButton('Restore').click();
+        await expect(maximizeButton).toBeVisible();
       }
     } finally {
       await app.close();

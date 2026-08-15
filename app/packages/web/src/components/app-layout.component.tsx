@@ -125,10 +125,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Skip-to-content link — first focusable element, revealed on focus */}
+      {/* Skip-to-content link — first focusable element, revealed on focus.
+          Explicitly excluded from the macOS drag region: it renders `fixed`
+          at top-4/left-4, inside the sidebar brand block's drag area below,
+          and Electron's app-region hit-testing is purely rectangle-based
+          (not DOM nesting or z-index aware) — without `no-drag` here, a
+          sighted keyboard user who tabs to reveal this link and clicks it
+          drags the window instead of activating it. */}
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-card focus:text-foreground focus:rounded-[var(--radius-md)] focus:ring-2 focus:ring-[var(--color-primary)] focus:outline-none"
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
         Skip to main content
       </a>
@@ -373,7 +380,11 @@ function WindowControls() {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
-    if (!windowApi) return;
+    // Only Linux ever renders this component's buttons (see the doc comment
+    // above) — skip the isMaximized() IPC round-trip and the onMaximizedChange
+    // subscription entirely on macOS/Windows, where they exist only to drive
+    // state a `null` render never uses.
+    if (!windowApi || windowApi.platform !== 'linux') return;
     // A live `onMaximizedChange` push always wins over the initial
     // `isMaximized()` seed — if the seed's IPC round-trip resolves after a
     // real change event (e.g. the window is maximized the instant this

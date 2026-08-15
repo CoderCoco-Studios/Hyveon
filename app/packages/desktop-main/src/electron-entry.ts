@@ -51,6 +51,23 @@ function setDefaultBrowserOpener(win: BrowserWindow): void {
 }
 
 /**
+ * Width, in CSS px, below which the sidebar becomes `display: none` — matches
+ * `app-layout.component.tsx`'s `hidden md:flex` on the `<aside>` (Tailwind's
+ * `md` breakpoint).
+ */
+const SIDEBAR_BREAKPOINT_PX = 768;
+
+/** `trafficLightPosition` when the sidebar is visible — see `platformWindowChromeOptions()`'s doc comment for the 252/20 derivation. */
+const SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 252, y: 20 };
+
+/**
+ * `trafficLightPosition` when the sidebar is hidden (window narrower than
+ * `SIDEBAR_BREAKPOINT_PX`) — the header then starts at x: 0, so this matches
+ * the header's own 12px left inset instead of the sidebar-offset 252px.
+ */
+const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
+
+/**
  * Builds the platform-conditional `BrowserWindow` chrome options for the
  * custom title bar. `titleBarStyle: 'hidden'` on every platform hides the OS
  * title bar row so the app's own header can act as the draggable title bar
@@ -67,6 +84,9 @@ function setDefaultBrowserOpener(win: BrowserWindow): void {
  *   inset (240 + 12 = 252) or they land on top of the sidebar's brand block
  *   instead of inside the header. `y: 20` vertically centers a ~16px-tall
  *   traffic-light cluster in the header's `h-14` (56px) row: (56 - 16) / 2.
+ *   Reuses `SIDEBAR_TRAFFIC_LIGHT_POSITION` rather than repeating the
+ *   literal, so this constructor-time default and
+ *   `wireTrafficLightResizeHandling`'s runtime updates can never drift apart.
  * - Windows keeps the native `titleBarOverlay` (including the Windows 11
  *   snap-layout flyout), colored to match the header's background/text.
  * - Linux gets neither — the renderer draws its own buttons there (Task 4).
@@ -87,7 +107,7 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   const base: Partial<Electron.BrowserWindowConstructorOptions> = { titleBarStyle: 'hidden' };
 
   if (process.platform === 'darwin') {
-    return { ...base, trafficLightPosition: { x: 252, y: 20 } };
+    return { ...base, trafficLightPosition: SIDEBAR_TRAFFIC_LIGHT_POSITION };
   }
   if (process.platform === 'win32') {
     return {
@@ -97,23 +117,6 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   }
   return base;
 }
-
-/**
- * Width, in CSS px, below which the sidebar becomes `display: none` — matches
- * `app-layout.component.tsx`'s `hidden md:flex` on the `<aside>` (Tailwind's
- * `md` breakpoint).
- */
-const SIDEBAR_BREAKPOINT_PX = 768;
-
-/** `trafficLightPosition` when the sidebar is visible — see `platformWindowChromeOptions()`'s doc comment for the 252/20 derivation. */
-const SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 252, y: 20 };
-
-/**
- * `trafficLightPosition` when the sidebar is hidden (window narrower than
- * `SIDEBAR_BREAKPOINT_PX`) — the header then starts at x: 0, so this matches
- * the header's own 12px left inset instead of the sidebar-offset 252px.
- */
-const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
 
 /**
  * Keeps macOS's traffic-light cluster aligned with the header as the window
@@ -130,17 +133,30 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
  * runtime, so this listens for the window's native `resize` event and
  * switches between the two positions based on the window's current width.
  *
+ * The comparison against `SIDEBAR_BREAKPOINT_PX` — a *CSS*-px value matching
+ * the renderer's Tailwind `md` breakpoint — divides `getBounds().width` (a
+ * *device*-independent but zoom-*un*aware window width) by the page's current
+ * zoom factor first. Without that, pinch-zooming or Ctrl/Cmd-scroll-zooming
+ * the renderer shifts the CSS viewport width (and so the sidebar's
+ * `display: none` breakpoint) without changing `getBounds().width` at all,
+ * desyncing the traffic lights from wherever the header actually starts. A
+ * `zoom-changed` listener re-applies the position whenever that happens, not
+ * just on `resize`.
+ *
  * @param win - The macOS `BrowserWindow` to keep the traffic lights aligned on.
  */
 function wireTrafficLightResizeHandling(win: BrowserWindow): void {
   const applyPositionForWidth = (width: number): void => {
+    const cssWidth = width / win.webContents.getZoomFactor();
     win.setWindowButtonPosition(
-      width >= SIDEBAR_BREAKPOINT_PX ? SIDEBAR_TRAFFIC_LIGHT_POSITION : NO_SIDEBAR_TRAFFIC_LIGHT_POSITION,
+      cssWidth >= SIDEBAR_BREAKPOINT_PX ? SIDEBAR_TRAFFIC_LIGHT_POSITION : NO_SIDEBAR_TRAFFIC_LIGHT_POSITION,
     );
   };
+  const applyPositionForCurrentBounds = (): void => applyPositionForWidth(win.getBounds().width);
 
-  applyPositionForWidth(win.getBounds().width);
-  win.on('resize', () => applyPositionForWidth(win.getBounds().width));
+  applyPositionForCurrentBounds();
+  win.on('resize', applyPositionForCurrentBounds);
+  win.webContents.on('zoom-changed', applyPositionForCurrentBounds);
 }
 
 /**

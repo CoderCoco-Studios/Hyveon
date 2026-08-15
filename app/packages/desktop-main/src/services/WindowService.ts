@@ -3,6 +3,18 @@ import type { BrowserWindow } from 'electron';
 import { logger } from '../logger.js';
 
 /**
+ * Normalizes a caught error into a log-safe message, matching the
+ * `err instanceof Error ? err.message : String(err)` shape used throughout
+ * this file (and the rest of `desktop-main`'s services) so it's written once.
+ *
+ * @param err - The caught value, typed `unknown` per a `catch` clause.
+ * @returns `err.message` when `err` is an `Error`, otherwise its string form.
+ */
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Drives the single main `BrowserWindow`'s minimize/maximize/close chrome and
  * forwards its native maximize/unmaximize state to the renderer.
  *
@@ -27,22 +39,27 @@ export class WindowService {
    */
   attach(win: BrowserWindow): void {
     this.win = win;
-    win.on('maximize', () => this.pushMaximizedChange(true));
-    win.on('unmaximize', () => this.pushMaximizedChange(false));
-    // macOS re-creates the window on 'activate' when the dock icon is clicked
-    // with zero windows open (electron-entry.ts); without this listener, this
-    // service would keep holding a reference to the destroyed window until the
-    // next attach() call overwrites it, silently no-oping every IPC call in the
-    // meantime (see every method's `if (!this.win) return` guard above).
-    //
-    // The `this.win === win` identity check guards against a (currently
-    // unreachable, since Electron fires 'closed' before 'activate') ordering
-    // where attach(B) runs before window A's 'closed' listener fires — without
-    // it, A's stale listener would null out the reference to the already-live
-    // window B.
-    win.once('closed', () => {
-      if (this.win === win) this.win = null;
-    });
+    try {
+      win.on('maximize', () => this.pushMaximizedChange(true));
+      win.on('unmaximize', () => this.pushMaximizedChange(false));
+      // macOS re-creates the window on 'activate' when the dock icon is
+      // clicked with zero windows open (electron-entry.ts); without this
+      // listener, this service would keep holding a reference to the
+      // destroyed window until the next attach() call overwrites it, silently
+      // no-oping every IPC call in the meantime (see every method's
+      // `if (!this.win) return` guard above).
+      //
+      // The `this.win === win` identity check guards against a (currently
+      // unreachable, since Electron fires 'closed' before 'activate') ordering
+      // where attach(B) runs before window A's 'closed' listener fires —
+      // without it, A's stale listener would null out the reference to the
+      // already-live window B.
+      win.once('closed', () => {
+        if (this.win === win) this.win = null;
+      });
+    } catch (err) {
+      logger.warn(`WindowService: attach failed: ${errorMessage(err)}`);
+    }
   }
 
   /** Minimizes the attached window. No-op if no window is attached. */
@@ -51,7 +68,7 @@ export class WindowService {
     try {
       this.win.minimize();
     } catch (err) {
-      logger.warn(`WindowService: minimize failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`WindowService: minimize failed: ${errorMessage(err)}`);
     }
   }
 
@@ -69,7 +86,7 @@ export class WindowService {
         this.win.maximize();
       }
     } catch (err) {
-      logger.warn(`WindowService: toggleMaximize failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`WindowService: toggleMaximize failed: ${errorMessage(err)}`);
     }
   }
 
@@ -79,7 +96,7 @@ export class WindowService {
     try {
       this.win.close();
     } catch (err) {
-      logger.warn(`WindowService: close failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`WindowService: close failed: ${errorMessage(err)}`);
     }
   }
 
@@ -94,7 +111,7 @@ export class WindowService {
     try {
       return this.win.isMaximized();
     } catch (err) {
-      logger.warn(`WindowService: isMaximized failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`WindowService: isMaximized failed: ${errorMessage(err)}`);
       return false;
     }
   }
@@ -113,7 +130,7 @@ export class WindowService {
     try {
       this.win.webContents.send('window.maximizedChange', isMaximized);
     } catch (err) {
-      logger.warn(`WindowService: failed to push maximizedChange: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`WindowService: failed to push maximizedChange: ${errorMessage(err)}`);
     }
   }
 }

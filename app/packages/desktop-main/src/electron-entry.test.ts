@@ -75,7 +75,12 @@ const {
     return {
       loadURL: mockLoadURL,
       loadFile: mockLoadFile,
-      webContents: { setWindowOpenHandler: mockSetWindowOpenHandler, send: vi.fn() },
+      webContents: {
+        setWindowOpenHandler: mockSetWindowOpenHandler,
+        send: vi.fn(),
+        getZoomFactor: vi.fn().mockReturnValue(1),
+        on: vi.fn(),
+      },
       on: vi.fn(capture),
       once: vi.fn(capture),
       isMaximized: vi.fn().mockReturnValue(false),
