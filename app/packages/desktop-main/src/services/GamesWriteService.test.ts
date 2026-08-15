@@ -9,7 +9,13 @@ vi.mock('@hyveon/shared/secrets/secretsStore', () => ({
   deleteHealthCheckAuthSecret: vi.fn(),
 }));
 
-import type { GameServer, GameServerHealthCheck, GameServerWriteConfig, StackOutputs } from '@hyveon/shared';
+import type {
+  GameServer,
+  GameServerHealthCheck,
+  GameServerHealthCheckAuthWriteInput,
+  GameServerWriteConfig,
+  StackOutputs,
+} from '@hyveon/shared';
 import { OptimisticLockError } from '@hyveon/shared';
 import { upsertHealthCheckAuthSecret, deleteHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
 import { GamesWriteService } from './GamesWriteService.js';
@@ -72,13 +78,27 @@ function makeAudit(): AuditService {
 }
 
 /**
+ * Override shape accepted by {@link makeHealthCheck}. `auth` is deliberately
+ * typed as the wider write-input shape (`GameServerHealthCheckAuthWriteInput`,
+ * covering `{ type, username, password }`/`{ type, token }`/`{ secretArn }`)
+ * rather than the narrower persisted `GameServerHealthCheckAuth` — every
+ * persisted `{ type, secretArn }` value used in this file is already a valid
+ * `GameServerHealthCheckAuthWriteInput`, so one override type serves both the
+ * write-input call sites (fed straight into `makeConfig`) and the persisted
+ * `before`/`makeExistingGame` call sites (cast `as GameServerHealthCheck`).
+ */
+type HealthCheckOverrides = Omit<Partial<GameServerHealthCheck>, 'auth'> & {
+  auth?: GameServerHealthCheckAuthWriteInput | null;
+};
+
+/**
  * Build a minimal, fully-valid healthCheck object targeting container port
  * 25565 (matching {@link buildGameServer}'s declared ports); override any
  * fields — including `auth`, which may be a write-input shape
  * (`{ type, username, password }`/`{ type, token }`/`{ secretArn }`) or a
  * persisted shape (`{ type, secretArn }`) depending on the caller — per test.
  */
-function makeHealthCheck(overrides: Partial<GameServerHealthCheck> & Record<string, unknown> = {}): Partial<GameServerHealthCheck> {
+function makeHealthCheck(overrides: HealthCheckOverrides = {}): HealthCheckOverrides {
   return {
     kind: 'http',
     scheme: 'http',
