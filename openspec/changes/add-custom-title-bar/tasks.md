@@ -19,9 +19,9 @@
 
 ## 4. Renderer — draggable header and platform-conditional controls
 
-- [ ] 4.1 In `app-layout.component.tsx`, add `-webkit-app-region: drag` to the header (conditional on `window.hyveon?.window` being present) and `-webkit-app-region: no-drag` on every interactive child (mobile nav toggle, Refresh button, LIVE indicator, avatar placeholder).
-- [ ] 4.2 Add a small `WindowControls` component, rendered only when `window.hyveon?.window` is present: on macOS/Windows render nothing (reserve layout space only, per design D2/D3); on Linux render minimize/maximize-or-restore/close buttons using `lucide-react` icons (`Minus`, `Square`/`Copy`, `X`) wired to the preload methods, subscribing to `onMaximizedChange` to swap the maximize/restore icon.
-- [ ] 4.3 Extend `app-layout.component.test.tsx`: drag-region classes present/absent based on `window.hyveon` presence; Linux-only button rendering gated correctly per platform; button clicks call the expected preload methods; icon swaps on a simulated `onMaximizedChange` event.
+- [x] 4.1 In `app-layout.component.tsx`, add `-webkit-app-region: drag` to the header (conditional on `window.hyveon?.window` being present) and `-webkit-app-region: no-drag` on every interactive child (mobile nav toggle, Refresh button, LIVE indicator, avatar placeholder).
+- [x] 4.2 Add a small `WindowControls` component, rendered only when `window.hyveon?.window` is present: on macOS/Windows render nothing (reserve layout space only, per design D2/D3); on Linux render minimize/maximize-or-restore/close buttons using `lucide-react` icons (`Minus`, `Square`/`Copy`, `X`) wired to the preload methods, subscribing to `onMaximizedChange` to swap the maximize/restore icon.
+- [x] 4.3 Extend `app-layout.component.test.tsx`: drag-region classes present/absent based on `window.hyveon` presence; Linux-only button rendering gated correctly per platform; button clicks call the expected preload methods; icon swaps on a simulated `onMaximizedChange` event.
 
 ## 5. Docs
 
