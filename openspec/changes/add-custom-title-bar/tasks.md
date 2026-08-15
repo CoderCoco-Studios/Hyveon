@@ -25,8 +25,8 @@
 
 ## 5. Docs
 
-- [ ] 5.1 Update `docs/docs/components/management-app.md` IPC channel table with the five new `window.*` channels.
-- [ ] 5.2 Check `docs/docs/app/*` for any screenshot or written description of the top bar / title bar that now needs updating to reflect the merged header and platform-specific controls.
+- [x] 5.1 Update `docs/docs/components/management-app.md` IPC channel table with the five new `window.*` channels.
+- [x] 5.2 Check `docs/docs/app/*` for any screenshot or written description of the top bar / title bar that now needs updating to reflect the merged header and platform-specific controls.
 
 ## 6. Verification
 
