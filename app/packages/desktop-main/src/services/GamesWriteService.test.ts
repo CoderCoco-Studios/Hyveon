@@ -78,7 +78,7 @@ function makeAudit(): AuditService {
  * (`{ type, username, password }`/`{ type, token }`/`{ secretArn }`) or a
  * persisted shape (`{ type, secretArn }`) depending on the caller — per test.
  */
-function makeHealthCheck(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function makeHealthCheck(overrides: Partial<GameServerHealthCheck> & Record<string, unknown> = {}): Partial<GameServerHealthCheck> {
   return {
     kind: 'http',
     scheme: 'http',
@@ -593,7 +593,7 @@ describe('GamesWriteService', () => {
             type: 'bearer',
             secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
           },
-        }) as unknown as GameServerHealthCheck,
+        }) as GameServerHealthCheck,
       });
       const { service } = makeService({ existingGameServers: [before] });
 
@@ -613,7 +613,7 @@ describe('GamesWriteService', () => {
             type: 'basic',
             secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
           },
-        }) as unknown as GameServerHealthCheck,
+        }) as GameServerHealthCheck,
       });
       const { service } = makeService({ existingGameServers: [before] });
 
@@ -633,7 +633,7 @@ describe('GamesWriteService', () => {
             type: 'basic',
             secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-minecraft-healthcheck-auth-AbCdEf',
           },
-        }) as unknown as GameServerHealthCheck,
+        }) as GameServerHealthCheck,
       });
       const { service } = makeService({ existingGameServers: [before] });
 
@@ -647,7 +647,7 @@ describe('GamesWriteService', () => {
         name: 'minecraft',
         healthCheck: makeHealthCheck({
           auth: { type: 'raw', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:operator-owned-AbCdEf' },
-        }) as unknown as GameServerHealthCheck,
+        }) as GameServerHealthCheck,
       });
       const { service } = makeService({ existingGameServers: [before] });
 
@@ -667,6 +667,48 @@ describe('GamesWriteService', () => {
 
       expect(result).toMatchObject({ ok: false, code: 'validation' });
       expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    it('should return a validation failure without calling Secrets Manager when a valid basic credential accompanies an unrelated cpu/memory pairing failure', async () => {
+      // auth.type is a valid, otherwise-savable 'basic' credential — the
+      // only thing wrong with this entry is the Fargate cpu/memory pairing
+      // (256 cpu only pairs with 512-1024 memory), a structural rule that
+      // has nothing to do with `auth`. Regression coverage for the
+      // ordering bug: `resolveHealthCheckAuthSecret`'s Secrets Manager
+      // write must never run before this kind of unrelated failure is
+      // known, or a rejected save still leaves a live secret mutated.
+      const { service } = makeService({ existingGameServers: [] });
+
+      const result = await service.createGame({
+        name: 'minecraft',
+        config: makeConfig({
+          cpu: 256,
+          memory: 4096,
+          healthCheck: makeHealthCheck({ auth: { type: 'basic', username: 'admin', password: 'hunter2' } }),
+        }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'validation' });
+      expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
+    });
+
+    it('should return a validation failure without calling Secrets Manager on updateGame when a valid bearer credential accompanies an unrelated cpu/memory pairing failure', async () => {
+      const before = makeExistingGame({ name: 'minecraft' });
+      const { service } = makeService({ existingGameServers: [before] });
+
+      const result = await service.updateGame({
+        name: 'minecraft',
+        config: makeConfig({
+          cpu: 256,
+          memory: 4096,
+          healthCheck: makeHealthCheck({ auth: { type: 'bearer', token: 'new-token' } }),
+        }),
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'validation' });
+      expect(upsertHealthCheckAuthSecret).not.toHaveBeenCalled();
+      expect(deleteHealthCheckAuthSecret).not.toHaveBeenCalled();
     });
   });
 });

@@ -43,6 +43,15 @@ import { mergeGameLists } from './mergeGameLists.js';
 /** The three write operations this service performs — used to tag the audit log entry. */
 type GameWriteAction = 'create' | 'update' | 'delete';
 
+/**
+ * A syntactically-valid-but-inert Secrets Manager ARN used only to satisfy
+ * `gameServerHealthCheckAuthSchema`'s `secretArn` pattern during the
+ * structural pre-validation pass in {@link GamesWriteService.previewResolvedHealthCheckAuth} —
+ * never persisted, never used to address a real secret. See that method's
+ * doc comment for why a placeholder is needed at all.
+ */
+const STRUCTURAL_PREVIEW_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:000000000000:secret:pending-structural-preview';
+
 /** Maps a {@link GameWriteAction} to the {@link AuditAction} recorded via `AuditService.record()`. */
 const AUDIT_ACTION_BY_WRITE_ACTION: Record<GameWriteAction, AuditAction> = {
   create: 'add',
@@ -97,8 +106,20 @@ export class GamesWriteService {
     if (authIssues.length > 0) {
       return { ok: false, code: 'validation', issues: authIssues };
     }
-    const resolvedConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
+
     const siblings = await this.deploymentConfig.getGameServers();
+
+    // Structural pass first, against a placeholder-secretArn preview that
+    // performs no Secrets Manager call — see resolveHealthCheckAuthSecret's
+    // doc comment for why the AWS-mutating call must not run until this
+    // (port collisions, cpu/memory pairing, etc.) has already succeeded.
+    const structuralPreview = this.previewResolvedHealthCheckAuth(payload.config, null);
+    const structuralValidation = validateGameServer(payload.name, structuralPreview, siblings);
+    if (!structuralValidation.success) {
+      return { ok: false, code: 'validation', issues: structuralValidation.issues };
+    }
+
+    const resolvedConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
     const validation = validateGameServer(payload.name, resolvedConfig, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
@@ -159,6 +180,16 @@ export class GamesWriteService {
     const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
     if (authIssues.length > 0) {
       return { ok: false, code: 'validation', issues: authIssues };
+    }
+
+    // Structural pass first, against a placeholder-secretArn preview that
+    // performs no Secrets Manager call — see resolveHealthCheckAuthSecret's
+    // doc comment for why the AWS-mutating call must not run until this
+    // (port collisions, cpu/memory pairing, etc.) has already succeeded.
+    const structuralPreview = this.previewResolvedHealthCheckAuth(payload.config, before);
+    const structuralValidation = validateGameServer(payload.name, structuralPreview, siblings);
+    if (!structuralValidation.success) {
+      return { ok: false, code: 'validation', issues: structuralValidation.issues };
     }
 
     // resolveHealthCheckAuthSecret now owns the "omitted auth means unchanged"
@@ -330,6 +361,54 @@ export class GamesWriteService {
   }
 
   /**
+   * Pure, non-mutating preview of what {@link resolveHealthCheckAuthSecret}
+   * would eventually produce, used to run `validateGameServer`'s structural/
+   * business-rule checks (port collisions, cpu/memory pairing, etc. — rules
+   * that have nothing to do with `auth` itself) *before* any Secrets Manager
+   * call happens.
+   *
+   * Mirrors {@link resolveHealthCheckAuthSecret}'s branching exactly, except
+   * it never calls `upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret`:
+   * a `basic`/`bearer` credential gets {@link STRUCTURAL_PREVIEW_SECRET_ARN}
+   * in place of a real secret ARN (the persisted schema requires some
+   * pattern-matching `secretArn` regardless of `type`, and no real one exists
+   * until the write actually happens), and the delete-on-clear/delete-on-
+   * switch-to-raw cases are simply skipped, since a delete doesn't change
+   * the shape being validated.
+   *
+   * Callers must still call {@link resolveHealthCheckAuthSecret} (only once
+   * this structural pass has succeeded) to get the real, persistable config
+   * and to actually perform the Secrets Manager mutation.
+   *
+   * @param config - The proposed write-side config (may be `undefined` when the entry has no `healthCheck` at all).
+   * @param before - The entry's prior persisted state, or `null` for a brand-new game.
+   * @returns `config` with `healthCheck.auth` resolved to a validation-ready shape — never the real persisted one.
+   */
+  private previewResolvedHealthCheckAuth(config: GameServerWriteConfig, before: GameServer | null): Omit<GameServer, 'name'> {
+    if (!config.healthCheck) {
+      return { ...config, healthCheck: undefined };
+    }
+
+    const { auth, ...healthCheckRest } = config.healthCheck;
+    const beforeAuth = before?.healthCheck?.auth;
+
+    if (auth === undefined) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } };
+    }
+
+    if (auth === null) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: undefined } };
+    }
+
+    const type = auth.type ?? 'raw';
+    if (type === 'raw') {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: { type: 'raw', secretArn: auth.secretArn as string } } };
+    }
+
+    return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn: STRUCTURAL_PREVIEW_SECRET_ARN } } };
+  }
+
+  /**
    * Resolves `config.healthCheck.auth` into the persisted
    * `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`), performing
    * whatever Secrets Manager write the declared change requires:
@@ -348,6 +427,16 @@ export class GamesWriteService {
    *    first save and updates it in place on every subsequent edit (see
    *    that function's own doc for why no separate "does it already exist"
    *    check is needed).
+   *
+   * @remarks
+   * Must only be called after {@link previewResolvedHealthCheckAuth}'s
+   * structural preview has already passed `validateGameServer` — this method
+   * is the one that actually talks to Secrets Manager
+   * (`upsertHealthCheckAuthSecret`/`deleteHealthCheckAuthSecret`), and that
+   * write must never happen ahead of a structural check that's unrelated to
+   * `auth` but could still reject the overall entry (a port collision, bad
+   * cpu/memory pairing, etc.) — doing so would leave a live secret mutated or
+   * deleted for a save that was never actually persisted.
    *
    * Never called for a `deleteGame` — that path calls
    * {@link deleteHealthCheckAuthSecret} directly in {@link deleteGame} once
