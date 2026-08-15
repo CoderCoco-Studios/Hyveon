@@ -8,6 +8,8 @@ import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 const apiMock = vi.hoisted(() => ({
   diagnosticsTail: vi.fn(),
   diagnosticsLogPath: vi.fn(),
+  diagnosticsExportBundle: vi.fn(),
+  diagnosticsShowInFolder: vi.fn(),
 }));
 vi.mock('../api.service.js', () => ({ api: apiMock }));
 
@@ -240,5 +242,86 @@ describe('DiagnosticsPanel', () => {
     expect(box.scrollTop).toBe(0);
 
     vi.useRealTimers();
+  });
+
+  describe('Export diagnostics bundle button', () => {
+    it('should show a loading label while the export IPC call is in flight', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockReturnValue(new Promise(() => {}));
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+
+      expect(screen.getByRole('button', { name: /Exporting…/ })).toBeInTheDocument();
+    });
+
+    it('should show the written path and a "Show in folder" action on success', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/hyveon-diagnostics\.zip/)).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: 'Show in folder' })).toBeInTheDocument();
+    });
+
+    it('should call diagnosticsShowInFolder with the written path when "Show in folder" is clicked', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'written', path: '/tmp/hyveon-diagnostics.zip' });
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+      await screen.findByRole('button', { name: 'Show in folder' });
+
+      await user.click(screen.getByRole('button', { name: 'Show in folder' }));
+
+      expect(apiMock.diagnosticsShowInFolder).toHaveBeenCalledWith('/tmp/hyveon-diagnostics.zip');
+    });
+
+    it('should show no toast and no error when the operator cancels the save dialog', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'cancelled' });
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Export diagnostics bundle/ })).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(screen.queryByText(/Failed to export/)).toBeNull();
+    });
+
+    it('should show an error indication when the write fails', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockResolvedValue({ status: 'error', message: 'disk full' });
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/disk full/)).toBeInTheDocument();
+      });
+    });
+
+    it('should show an error indication when the export IPC call itself rejects', async () => {
+      const user = userEvent.setup();
+      apiMock.diagnosticsExportBundle.mockRejectedValue(new Error('IPC bridge unavailable'));
+      render(<DiagnosticsPanel />);
+      await screen.findByText(/Server started/);
+
+      await user.click(screen.getByRole('button', { name: /Export diagnostics bundle/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/IPC bridge unavailable/)).toBeInTheDocument();
+      });
+    });
   });
 });

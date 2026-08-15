@@ -299,8 +299,8 @@ that directory yourself.
 
 The panel polls for new lines every five seconds regardless of anything
 below — pause, level filters, and search only change what's rendered from
-that poll, never whether it happens. There are still no copy, open-folder,
-or export buttons; the path itself is selectable text. Each line shows a
+that poll, never whether it happens. There is still no copy or open-folder
+button for the path itself; it remains selectable text. Each line shows a
 small level badge (`INFO`/`WARN`/`ERROR`/`DEBUG`) to its left when a level
 is detected, matching what the Levels filter below acts on.
 
@@ -361,3 +361,46 @@ currently hidden (if any), and whether the view is paused, e.g. `214 lines ·
 
 A brand-new install shows the empty state rather than an error, because the
 log file does not exist until the first write.
+
+### Export diagnostics bundle
+
+The **Export diagnostics bundle** button produces a single `.zip` file
+containing enough information to hand to support (the project maintainers)
+without you having to copy-paste anything yourself.
+
+Clicking it opens a native save dialog — you choose where the file goes, on
+your own disk. Nothing is uploaded anywhere; this app has no Hyveon-owned
+backend to upload to, by design. Cancelling the dialog does nothing further:
+no file is written, and no error is shown.
+
+The bundle contains four sections, gathered independently so a failure in
+one never blocks the others:
+
+- **Logs** — the same recent log content the live tail above reads, passed
+  through a secret-scrubbing pass before being written into the archive.
+- **Config summary** — an explicit allowlist of non-secret deployment
+  settings (project name, region, watchdog tuning, table names, and a
+  resource-sizing/feature-flag summary per declared game). Credential-shaped
+  fields are never included, and a field added to the configuration after
+  this feature shipped is excluded by default until it is deliberately
+  added to the allowlist.
+- **Metadata** — app version, Electron and Node runtime versions, OS
+  platform and version, and the current Automatic Updates setting.
+- **AWS snapshot** — a best-effort read of the same resource-status
+  information already surfaced elsewhere in the app (deployed stack
+  identity and per-game ECS status). This section may be missing or
+  incomplete if AWS credentials aren't configured or a call fails — that's
+  expected, not a bug.
+
+Any section that fails to gather is recorded — by section name and a
+short, human-readable message only, never a raw error or stack trace — in
+an `errors.json` file inside the bundle, and the export still completes
+with whatever other sections succeeded. Even a bundle where every section
+failed is still a valid export: it contains `errors.json` describing all
+four failures.
+
+On success, the panel shows the path the bundle was written to and a **Show
+in folder** action that reveals it in your OS's file manager. If writing the
+completed archive to disk fails (disk full, permission denied), the panel
+shows an error message instead — no partial, half-written `.zip` is left
+behind at that path.

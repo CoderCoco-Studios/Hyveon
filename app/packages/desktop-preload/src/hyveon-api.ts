@@ -1772,6 +1772,12 @@ export interface HyveonDriftApi {
   get: () => Promise<DriftReport>;
 }
 
+/** Result of `diagnostics.exportBundle` — the discriminant the renderer switches on. */
+export type ExportDiagnosticsBundleResult =
+  | { status: 'written'; path: string }
+  | { status: 'cancelled' }
+  | { status: 'error'; message: string };
+
 /** Local application log diagnostics: tail recent lines or retrieve the log file path. */
 export interface HyveonDiagnosticsApi {
   /** Returns the last 500 lines from today's local log file. */
@@ -1793,6 +1799,16 @@ export interface HyveonDiagnosticsApi {
    *   caller's own batch cap, if any.
    */
   reportLog: (entries: RendererLogEntry[], droppedCount?: number) => Promise<void>;
+  /**
+   * Prompts the operator for a save location via a native save dialog, then
+   * writes a `.zip` diagnostics bundle (recent logs, a redacted config
+   * summary, app/system metadata, and a best-effort AWS resource snapshot)
+   * there. Resolves `{ status: 'cancelled' }` — not an error — when the
+   * operator cancels the dialog.
+   */
+  exportBundle: () => Promise<ExportDiagnosticsBundleResult>;
+  /** Reveals `path` (a written bundle) in the OS's file manager via `shell.showItemInFolder`. Never rejects. */
+  showInFolder: (path: string) => Promise<void>;
 }
 
 /** Audit log: paginated history of `game_servers` mutations from DynamoDB. */

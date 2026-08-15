@@ -584,6 +584,17 @@ export interface CloudHealthFixResult {
 export type OpenConsoleResult = { opened: true } | { opened: false; url: string };
 
 /**
+ * Result of `diagnostics.exportBundle`.
+ *
+ * Mirrors `ExportDiagnosticsBundleResult` in `@hyveon/desktop-preload` — keep
+ * this copy in sync with it.
+ */
+export type ExportDiagnosticsBundleResult =
+  | { status: 'written'; path: string }
+  | { status: 'cancelled' }
+  | { status: 'error'; message: string };
+
+/**
  * Returns the `window.hyveon` IPC bridge, throwing a descriptive error if it is
  * absent. The bridge is injected by the Electron preload script, so a missing
  * one means the renderer is running outside Electron (e.g. a plain browser).
@@ -666,6 +677,8 @@ export const api = {
 
   diagnosticsTail: async (): Promise<{ lines: string[] }> => hyveon().diagnostics.tail(),
   diagnosticsLogPath: async (): Promise<{ path: string }> => hyveon().diagnostics.path(),
+  diagnosticsExportBundle: async (): Promise<ExportDiagnosticsBundleResult> => hyveon().diagnostics.exportBundle(),
+  diagnosticsShowInFolder: async (path: string): Promise<void> => hyveon().diagnostics.showInFolder(path),
 
   drift: async (): Promise<DriftReport> => hyveon().drift.get(),
 

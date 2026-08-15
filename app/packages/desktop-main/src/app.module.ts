@@ -26,6 +26,7 @@ import { IacSettingsController } from './controllers/iac-settings.controller.js'
 import { WizardController } from './controllers/wizard.controller.js';
 import { CloudHealthController } from './controllers/cloud-health.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
+import { DiagnosticsBundleService } from './services/DiagnosticsBundleService.js';
 import { DriftService } from './services/DriftService.js';
 import { GamesWriteService } from './services/GamesWriteService.js';
 import { GameWizardDraftService } from './services/GameWizardDraftService.js';
@@ -99,6 +100,7 @@ import { AuditService } from './services/AuditService.js';
       },
     },
     DiagnosticsService,
+    DiagnosticsBundleService,
     DriftService,
     GamesWriteService,
     GameWizardDraftService,
