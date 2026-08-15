@@ -34,8 +34,14 @@ export class WindowService {
     // service would keep holding a reference to the destroyed window until the
     // next attach() call overwrites it, silently no-oping every IPC call in the
     // meantime (see every method's `if (!this.win) return` guard above).
+    //
+    // The `this.win === win` identity check guards against a (currently
+    // unreachable, since Electron fires 'closed' before 'activate') ordering
+    // where attach(B) runs before window A's 'closed' listener fires — without
+    // it, A's stale listener would null out the reference to the already-live
+    // window B.
     win.once('closed', () => {
-      this.win = null;
+      if (this.win === win) this.win = null;
     });
   }
 

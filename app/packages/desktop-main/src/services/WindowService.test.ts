@@ -122,5 +122,21 @@ describe('WindowService', () => {
       expect(() => service.close()).not.toThrow();
       expect(win.minimize).not.toHaveBeenCalled();
     });
+
+    it("should not detach the newly attached window when an earlier window's stale closed listener fires late", () => {
+      const winA = makeWin();
+      const winB = makeWin();
+      vi.mocked(winB.isMaximized).mockReturnValue(true);
+
+      service.attach(winA as BrowserWindow);
+      service.attach(winB as BrowserWindow);
+      // Simulate window A's 'closed' event arriving after B has already been
+      // attached — its listener must not null out the now-live B reference.
+      winA.__fire('closed');
+
+      expect(service.isMaximized()).toBe(true);
+      service.minimize();
+      expect(winB.minimize).toHaveBeenCalledOnce();
+    });
   });
 });
