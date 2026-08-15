@@ -17,6 +17,7 @@ import { LogsService } from './LogsService.js';
 import { createAwsCloudProvider } from './EcsService.js';
 import type { ConfigService } from './ConfigService.js';
 import type { ElectronStoreService } from './ElectronStoreService.js';
+import type { DeploymentConfigService } from './DeploymentConfigService.js';
 import type { StackOutputs } from '@hyveon/shared';
 
 /** Typed stand-in for the AWS CloudWatch Logs SDK client. */
@@ -76,6 +77,19 @@ function makeStore(): ElectronStoreService {
 }
 
 /**
+ * Builds a stub {@link DeploymentConfigService} whose `getTopLevelSettings()`
+ * resolves with the given project name — mirrors
+ * `CloudHealthService.test.ts`'s helper of the same name. Passing no
+ * `projectName` override (an empty `settings` object) exercises
+ * `resolveLambdaLogGroup`'s fallback to `DEPLOYMENT_CONFIG_DEFAULTS`.
+ */
+function makeDeploymentConfig(projectName?: string): DeploymentConfigService {
+  return {
+    getTopLevelSettings: vi.fn().mockResolvedValue({ settings: projectName ? { projectName } : {} }),
+  } as Partial<DeploymentConfigService> as DeploymentConfigService;
+}
+
+/**
  * Constructs a `LogsService` for tests, standing in for the constructor
  * default that used to build an `AwsCloudProvider` internally — the service
  * now requires its `CloudProvider` to be passed explicitly (as Nest's DI
@@ -84,9 +98,9 @@ function makeStore(): ElectronStoreService {
  * calls (`FilterLogEventsCommand` for `streamLogs`) are still covered by the
  * globally-patched `cwMock` client, so behaviour is unchanged.
  */
-function makeService(config: ConfigService): LogsService {
+function makeService(config: ConfigService, deploymentConfig: DeploymentConfigService = makeDeploymentConfig()): LogsService {
   const store = makeStore();
-  return new LogsService(config, createAwsCloudProvider(config, store), store);
+  return new LogsService(config, createAwsCloudProvider(config, store), store, deploymentConfig);
 }
 
 describe('LogsService', () => {
@@ -337,5 +351,92 @@ describe('LogsService.streamLogs', () => {
     await gen.return(undefined);
 
     expect(line).toBe('');
+  });
+});
+
+describe('LogsService — Lambda log methods', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    loggerMock.error.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should resolve the default project name to /aws/lambda/hyveon-watchdog for functionKey "watchdog"', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
+    await service.getRecentLambdaLogs('watchdog');
+    const input = cwMock.commandCalls(DescribeLogStreamsCommand)[0]!.args[0].input;
+    expect(input.logGroupName).toBe('/aws/lambda/hyveon-watchdog');
+  });
+
+  it('should resolve a custom project name to /aws/lambda/acme-health-check for functionKey "health-check"', async () => {
+    const deploymentConfig = makeDeploymentConfig('acme');
+    service = makeService(makeConfig(), deploymentConfig);
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
+    await service.getRecentLambdaLogs('health-check');
+    const input = cwMock.commandCalls(DescribeLogStreamsCommand)[0]!.args[0].input;
+    expect(input.logGroupName).toBe('/aws/lambda/acme-health-check');
+  });
+
+  it('should return a "no log streams" message when the Lambda log group has no streams', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
+    const lines = await service.getRecentLambdaLogs('followup');
+    expect(lines).toEqual(['No log streams found for followup.']);
+  });
+
+  it('should return an error message and log via logger.error when the CloudWatch call throws', async () => {
+    cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
+    const lines = await service.getRecentLambdaLogs('interactions');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/error fetching logs for interactions/i);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'LogsService.getRecentLambdaLogs: failed to fetch logs',
+      expect.objectContaining({ functionKey: 'interactions', error: 'denied' }),
+    );
+  });
+});
+
+describe('LogsService.streamLambdaLogs', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should yield new log lines for the resolved Lambda log group without duplicating events', async () => {
+    cwMock
+      .on(FilterLogEventsCommand)
+      .resolvesOnce({ events: [{ eventId: 'e1', timestamp: 1000, message: 'first' }] })
+      .resolves({
+        events: [
+          { eventId: 'e1', timestamp: 1000, message: 'first' }, // already seen
+          { eventId: 'e2', timestamp: 2000, message: 'second' }, // new
+        ],
+      });
+    const ac = new AbortController();
+    const gen = service.streamLambdaLogs('dns-updater', ac.signal, 0);
+    const { value: l1 } = await gen.next();
+    const { value: l2 } = await gen.next();
+    ac.abort();
+    await gen.return(undefined);
+    expect(l1).toBe('first');
+    expect(l2).toBe('second');
+    expect(cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input.logGroupName).toBe('/aws/lambda/hyveon-dns-updater');
+  });
+
+  it('should exit cleanly with no further FilterLogEvents calls once the signal is aborted', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({ events: [] });
+    const ac = new AbortController();
+    ac.abort();
+    const lines: string[] = [];
+    for await (const line of service.streamLambdaLogs('watchdog', ac.signal, 0)) lines.push(line);
+    expect(lines).toEqual([]);
+    expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(0);
   });
 });
