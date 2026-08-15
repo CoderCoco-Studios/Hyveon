@@ -139,6 +139,14 @@ export function installHyveonHttpBridge(): void {
           code: 'error',
           message: 'iac.settings.autoUpdate.update has no HTTP route in the chromium e2e tier.',
         }),
+        // Click-triggered, not called on mount, so no spec needs this to
+        // resolve merely by visiting `/settings` — added for parity with
+        // the two stubs above and in case a future spec exercises the
+        // "Check for Updates" button under chromium.
+        autoUpdateCheck: async () => ({
+          ok: false,
+          message: 'iac.settings.autoUpdate.check has no HTTP route in the chromium e2e tier.',
+        }),
       },
     },
   };

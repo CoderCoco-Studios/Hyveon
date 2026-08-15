@@ -74,6 +74,7 @@ export function LogsPage() {
     ageLabel,
     boxRef,
     handlePauseToggle,
+    handleScroll,
   } = useLogTail(selectedGame, window.hyveon ? window.hyveon.logs : NO_HYVEON_LOG_TAIL_API);
 
   // Load the games list once (this page is reachable independently of the dashboard).
@@ -215,6 +216,8 @@ export function LogsPage() {
       {/* Log stream */}
       <div
         ref={boxRef}
+        onScroll={handleScroll}
+        data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
       >
         {visibleLines.length === 0 ? (

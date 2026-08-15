@@ -70,6 +70,7 @@ export function InfrastructureLogsPage() {
     ageLabel,
     boxRef,
     handlePauseToggle,
+    handleScroll,
   } = useLogTail(
     selectedFunction,
     window.hyveon ? toLogTailApi(window.hyveon.logs.lambda) : NO_HYVEON_LOG_TAIL_API,
@@ -152,6 +153,8 @@ export function InfrastructureLogsPage() {
       {/* Log stream */}
       <div
         ref={boxRef}
+        onScroll={handleScroll}
+        data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
       >
         {visibleLines.length === 0 ? (

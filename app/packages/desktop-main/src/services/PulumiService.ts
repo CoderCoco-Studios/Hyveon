@@ -13,6 +13,7 @@ import type {
   PreviewResult,
   PulumiFn,
   Stack,
+  UpdateKind,
   UpResult,
 } from '@pulumi/pulumi/automation/index.js';
 import { createInfraProgram } from '@hyveon/infra';
@@ -87,6 +88,15 @@ const ENV_REDACTION_PLACEHOLDER = '***REDACTED***';
  * would mangle far more of the log than it protects.
  */
 const MIN_REDACTABLE_ENV_VALUE_LENGTH = 4;
+
+/**
+ * Tolerance applied when {@link PulumiService.resolveChangeSummaryFallback}
+ * compares a `stack.history()` entry's `startTime` against the operation's
+ * own `operationStart` — the entry's engine-side clock can legitimately run
+ * a moment ahead of or behind the caller's `Date` capture, so a strict `>=`
+ * would misclassify a genuinely-current entry as stale.
+ */
+const CHANGE_SUMMARY_FALLBACK_CLOCK_SKEW_MS = 30 * 1000;
 
 /**
  * DI token for {@link RunRecordPersister} — the narrow slice of
@@ -1410,6 +1420,87 @@ export class PulumiService {
   }
 
   /**
+   * Best-effort structured fallback for {@link ChangeSummary} when the
+   * Automation API's `onEvent` stream never delivered a `summaryEvent`
+   * before this operation's promise resolved.
+   *
+   * @remarks
+   * Real race in the installed `@pulumi/pulumi` SDK: for Pulumi CLI versions
+   * newer than `3.205.0`, engine events stream over gRPC (`EventsServer`,
+   * `node_modules/@pulumi/pulumi/automation/stack.js:118-138`) rather than a
+   * tailed file, and `up()`/`preview()`/`destroy()`'s own `finally` block
+   * calls `server.forceShutdown()` unconditionally
+   * (`node_modules/@pulumi/pulumi/automation/stack.js:1440`) without
+   * awaiting any in-flight message drain — unlike the older file-tailing
+   * path, whose `logPromise` that same `finally` block does await. Since the
+   * final `summaryEvent` is the very last message the CLI sends before
+   * exiting, it can be torn down mid-flight and silently dropped: no error,
+   * no exception, just an operation that fully succeeded while
+   * `capturedChangeSummary` stays `{}`.
+   *
+   * Falls back to `stack.history()` — Pulumi's own persisted update record,
+   * a genuinely structured source, never scraped CLI text — preserving
+   * {@link ChangeSummary}'s "never derived by parsing streamed CLI output
+   * text" invariant. Returns `captured` unchanged whenever it already has
+   * data, or when the fallback can't confidently attribute the most recent
+   * history entry to this run: empty history, a `kind` mismatch, a `result`
+   * other than `'succeeded'`, or a `startTime` older than `operationStart`
+   * (beyond {@link CHANGE_SUMMARY_FALLBACK_CLOCK_SKEW_MS} tolerance) — the
+   * last two guard against a stale or failed prior run of the same `kind`
+   * being misattributed to the operation that just completed.
+   *
+   * @param stack - The Automation API `Stack` the operation just ran against.
+   * @param captured - The `capturedChangeSummary` the operation's `onEvent`
+   *   handler observed (possibly empty).
+   * @param expectedKind - The `UpdateKind` this operation performed —
+   *   `stack.history()`'s most recent entry must match this to be trusted.
+   * @param operationStart - The `Date` this operation began — the history
+   *   entry's `startTime` must be no earlier than this to be trusted.
+   * @returns `captured` if non-empty; otherwise the matching history entry's
+   *   `resourceChanges`, or `captured` again if none was found.
+   */
+  private async resolveChangeSummaryFallback(
+    stack: Stack,
+    captured: ChangeSummary,
+    expectedKind: UpdateKind,
+    operationStart: Date,
+  ): Promise<ChangeSummary> {
+    if (PulumiService.hasChangeSummaryData(captured)) {
+      return captured;
+    }
+    try {
+      const [mostRecent] = await stack.history(1);
+      if (
+        mostRecent?.kind === expectedKind &&
+        mostRecent.result === 'succeeded' &&
+        mostRecent.startTime.getTime() >= operationStart.getTime() - CHANGE_SUMMARY_FALLBACK_CLOCK_SKEW_MS &&
+        mostRecent.resourceChanges &&
+        PulumiService.hasChangeSummaryData(mostRecent.resourceChanges)
+      ) {
+        return mostRecent.resourceChanges;
+      }
+    } catch (err) {
+      logger.warn('pulumi: stack.history() fallback for changeSummary failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return captured;
+  }
+
+  /**
+   * Whether a `ChangeSummary`/`resourceChanges` object represents a genuine
+   * captured summary rather than a dropped event — distinguishes a
+   * confirmed zero-change result (e.g. `{ same: 0 }`) from an empty `{}`
+   * with no keys at all, which is what a missed `summaryEvent` produces.
+   *
+   * @param summary - The change summary to check.
+   * @returns `true` if `summary` has at least one key.
+   */
+  private static hasChangeSummaryData(summary: ChangeSummary): boolean {
+    return Object.keys(summary).length > 0;
+  }
+
+  /**
    * Classifies a failure thrown by `getOrCreateStack` inside
    * {@link initializeStack} as either the `'engine'` or `'operation'` phase
    * — see that method's own TSDoc, "Error attribution", for the two cases
@@ -1630,11 +1721,12 @@ export class PulumiService {
    * (`stack.js`'s `preview()`) — this method's own capture exists
    * specifically so the leaked-promise recovery path above still has it
    * (the SDK's internal capture is not exposed to a caller once the throw
-   * replaces its `return`). On every other path, this method's captured
-   * value and `PreviewResult.changeSummary` are identical (same
-   * `summaryEvent`), so `previewResult.changeSummary` is used directly for
-   * the returned result — see {@link ChangeSummary}'s doc comment for the
-   * `{}`-means-"summary missed" sharp edge every reader must respect.
+   * replaces its `return`). The returned result's `changeSummary` is this
+   * captured value after passing through {@link resolveChangeSummaryFallback},
+   * not `previewResult.changeSummary` directly — see that method's TSDoc for
+   * when it substitutes a `stack.history()`-derived value instead — see
+   * {@link ChangeSummary}'s doc comment for the `{}`-means-"summary missed"
+   * sharp edge every reader must respect.
    *
    * ## Chunk streaming (ported from `spawnAndStream`'s algorithm)
    *
@@ -2018,10 +2110,9 @@ export class PulumiService {
         });
       }
 
-      let previewResult: PreviewResult | undefined;
       let previewError: unknown;
       try {
-        previewResult = await operationPromise;
+        await operationPromise;
       } catch (err) {
         previewError = err;
       }
@@ -2030,6 +2121,15 @@ export class PulumiService {
         previewError instanceof PulumiOperationNotStartedError ||
         previewError instanceof PulumiOperationAbortedError ||
         previewError instanceof PulumiOperationEscalatedError;
+
+      if (!wasAborted && !previewError) {
+        capturedChangeSummary = await this.resolveChangeSummaryFallback(
+          stack,
+          capturedChangeSummary,
+          'preview',
+          new Date(startedAt),
+        );
+      }
 
       // Read the saved plan artifact back off disk once the operation has
       // genuinely succeeded — mirrors plan()'s `computePlanHash` call site
@@ -2058,7 +2158,7 @@ export class PulumiService {
                 result: {
                   runId,
                   artifactPath,
-                  changeSummary: previewResult!.changeSummary,
+                  changeSummary: capturedChangeSummary,
                   planHash: planHash!,
                   engineVersion: engineVersion!,
                 },
@@ -2665,6 +2765,11 @@ export class PulumiService {
     // be visible on every settlement path, not only a clean `outcome.kind
     // === 'failed'`.
     let capturedChangeSummary: ChangeSummary = {};
+    // Hoisted so the post-settlement `resolveChangeSummaryFallback` call
+    // (which needs the `Stack` to call `.history()` on) can run outside the
+    // try block below, once `wasAborted`/`upError` are known — mirrors why
+    // `capturedChangeSummary` itself is hoisted.
+    let capturedStack: Stack | undefined;
     const completedSteps: PulumiPartialApplyStep[] = [];
     // The id `ElectronStoreService.recordPulumiLockAttempt` returns, kept in
     // scope so both the normal-completion path and the outer `finally`'s
@@ -2960,6 +3065,7 @@ export class PulumiService {
           stateBucketRegion,
           backendReady: true,
         });
+        capturedStack = stack;
 
         // --- Chunk-streaming setup — identical algorithm to preview() (see that method's TSDoc) ---
         const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
@@ -3102,6 +3208,15 @@ export class PulumiService {
         upError instanceof PulumiOperationNotStartedError ||
         upError instanceof PulumiOperationAbortedError ||
         upError instanceof PulumiOperationEscalatedError;
+
+      if (!wasAborted && !upError && capturedStack) {
+        capturedChangeSummary = await this.resolveChangeSummaryFallback(
+          capturedStack,
+          capturedChangeSummary,
+          'update',
+          new Date(startedAt),
+        );
+      }
 
       const outcome: PulumiApplyOutcome = wasAborted
         ? { kind: 'aborted' }
@@ -3741,6 +3856,9 @@ export class PulumiService {
     // overwhelmingly common already-released-via-persistRunRecord path).
     let lockReleased = false;
     let capturedChangeSummary: ChangeSummary = {};
+    // Hoisted so the post-settlement `resolveChangeSummaryFallback` call can
+    // run outside the try block below — mirrors apply()'s identical hoist.
+    let capturedStack: Stack | undefined;
     // The id ElectronStoreService.recordPulumiLockAttempt returns — mirrors
     // apply()'s identically-named field and its exact clear/leave-behind
     // rules (see "Does stack.destroy() take the DIY backend lock?" above).
@@ -3880,6 +3998,7 @@ export class PulumiService {
           stateBucketRegion,
           backendReady: true,
         });
+        capturedStack = stack;
 
         // --- Chunk-streaming setup — identical algorithm to preview()/apply() ---
         const buffers: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' };
@@ -4015,6 +4134,15 @@ export class PulumiService {
         destroyError instanceof PulumiOperationNotStartedError ||
         destroyError instanceof PulumiOperationAbortedError ||
         destroyError instanceof PulumiOperationEscalatedError;
+
+      if (!wasAborted && !destroyError && capturedStack) {
+        capturedChangeSummary = await this.resolveChangeSummaryFallback(
+          capturedStack,
+          capturedChangeSummary,
+          'destroy',
+          new Date(startedAt),
+        );
+      }
 
       const outcome: PulumiDestroyOutcome = wasAborted
         ? { kind: 'aborted' }

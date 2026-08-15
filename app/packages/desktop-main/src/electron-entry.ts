@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, Menu, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +84,10 @@ function createWindow(): void {
     app.quit();
   });
 }
+
+// This is a single-purpose operator console, not a document editor — the
+// default File/Edit/View/Window menu bar exposes no actions the app uses.
+Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {
   bootstrap()

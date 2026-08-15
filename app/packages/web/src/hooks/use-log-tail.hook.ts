@@ -4,6 +4,8 @@ import { detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
 
 const MAX_LINES = 1000;
 const AGE_TICK_MS = 10_000;
+/** Scroll distance (px) from the bottom within which the viewer still counts as "pinned to bottom". */
+const BOTTOM_PIN_THRESHOLD_PX = 24;
 
 /** A single tailed log line, decorated with its detected {@link LogLevel} and receipt timestamp. */
 export interface LogLine {
@@ -34,6 +36,8 @@ export interface UseLogTailResult {
   ageLabel: string | null;
   boxRef: React.RefObject<HTMLDivElement | null>;
   handlePauseToggle: () => void;
+  /** Wire to the log viewer container's `onScroll` — pins/unpins autoscroll based on distance from the bottom. */
+  handleScroll: () => void;
 }
 
 /** Format a millisecond age as a compact "Xs ago" / "Xm ago" / "Xh ago" string. */
@@ -52,9 +56,11 @@ function formatAge(ms: number): string {
  * `/logs/infrastructure` (Lambda functions) — see design.md D6. Owns the
  * initial-snapshot fetch and live IPC stream subscription for a single
  * `target`, the pause/buffer/resume model, the level filter, the
- * in-buffer search string, autoscroll, and the "oldest line age" footer
- * clock. Fully resets and re-subscribes whenever `target` changes —
- * callers do not reset state themselves before switching targets.
+ * in-buffer search string, autoscroll (including turning it off when the
+ * caller scrolls away from the bottom and back on when they scroll back
+ * near it — see {@link UseLogTailResult.handleScroll}), and the "oldest
+ * line age" footer clock. Fully resets and re-subscribes whenever `target`
+ * changes — callers do not reset state themselves before switching targets.
  *
  * @param target - The game name or `LambdaFunctionKey` to tail. An empty
  *   string means "nothing selected yet" — no fetch/stream starts.
@@ -88,6 +94,10 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const streamRef = useRef<HyveonStreamHandle<LogChunk> | null>(null);
   const pausedRef = useRef(false);
   const bufferRef = useRef<LogLine[]>([]);
+  // Tracks whether the user has scrolled away from the bottom since autoscroll
+  // was last on, so handleScroll only re-enables it on a genuine return-to-bottom
+  // rather than re-flipping a manual off while already parked near the bottom.
+  const scrolledAwayRef = useRef(false);
 
   const appendLine = useCallback((text: string) => {
     const entry: LogLine = { text, level: detectLogLevel(text), receivedAt: Date.now() };
@@ -195,6 +205,27 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const oldest = visibleLines[0];
   const ageLabel = oldest ? formatAge(now - oldest.receivedAt) : null;
 
+  /**
+   * Scrolling away from the bottom turns autoscroll off so incoming lines
+   * don't yank the view back down while reading; scrolling back within
+   * {@link BOTTOM_PIN_THRESHOLD_PX} of the bottom afterward turns it back on.
+   * Merely staying near the bottom does not re-enable it, so unchecking the
+   * autoscroll toggle while already pinned to the bottom sticks.
+   */
+  const handleScroll = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isNearBottom = distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX;
+    if (isNearBottom) {
+      if (scrolledAwayRef.current) setAutoscroll(true);
+      scrolledAwayRef.current = false;
+    } else {
+      setAutoscroll(false);
+      scrolledAwayRef.current = true;
+    }
+  }, []);
+
   const handlePauseToggle = useCallback(() => {
     const nowPaused = !pausedRef.current;
     pausedRef.current = nowPaused;
@@ -234,5 +265,6 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     ageLabel,
     boxRef,
     handlePauseToggle,
+    handleScroll,
   };
 }
