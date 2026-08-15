@@ -106,7 +106,7 @@ async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promi
  *
  * @param auth - The health check's credential declaration.
  * @param secretValue - The raw string fetched from Secrets Manager for `auth.secretArn`.
- * @throws {Error} When `auth.type === 'basic'` and `secretValue` isn't valid `{ username, password }` JSON.
+ * @throws When `auth.type === 'basic'` and `secretValue` isn't valid JSON shaped as a username/password object.
  */
 function buildAuthorizationHeader(auth: GameServerHealthCheckAuth, secretValue: string): string {
   const type = auth.type ?? 'raw';
