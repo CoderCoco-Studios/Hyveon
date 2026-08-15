@@ -22,7 +22,7 @@ test.describe('polling indicator', () => {
     await dashboard.goto();
     await expect(dashboard.page.getByText(/updated\s+\S+\s+ago/i).first()).toBeVisible();
 
-    await layout.navigateTo('Logs', '/logs');
+    await layout.navigateTo('Games', '/logs');
     await expect(dashboard.page.getByText(/updated\s+\S+\s+ago/i).first()).toBeVisible();
   });
 

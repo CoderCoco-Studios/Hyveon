@@ -82,7 +82,26 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(skipLink).toHaveAttribute('href', '#main');
   });
 
-  it('should mark the active route link with aria-current="page"', () => {
+  it('should render a Logs group with Games and Infrastructure child links', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    // Scoped to the Monitoring list: the desktop/mobile drawers both render this
+    // heading (only the mobile copy is excluded via aria-hidden), and the
+    // Configuration section separately has its own "Infrastructure" link (`/iac`)
+    // with the same accessible name, so an unscoped query would match more than
+    // one element.
+    const monitoring = within(screen.getByRole('list', { name: 'Monitoring' }));
+    expect(monitoring.getByText('Logs')).toBeInTheDocument();
+    expect(monitoring.getByRole('link', { name: 'Games' })).toHaveAttribute('href', '/logs');
+    expect(monitoring.getByRole('link', { name: 'Infrastructure' })).toHaveAttribute('href', '/logs/infrastructure');
+  });
+
+  it('should mark only the Games child link active on /logs', () => {
     render(
       <PollingProvider>
         <MemoryRouter initialEntries={['/logs']}>
@@ -90,9 +109,22 @@ describe('AppLayout — skip link and nav landmarks', () => {
         </MemoryRouter>
       </PollingProvider>,
     );
+    const monitoring = within(screen.getByRole('list', { name: 'Monitoring' }));
+    expect(monitoring.getByRole('link', { name: 'Games' })).toHaveAttribute('aria-current', 'page');
+    expect(monitoring.getByRole('link', { name: 'Infrastructure' })).not.toHaveAttribute('aria-current');
+  });
 
-    expect(screen.getByRole('link', { name: 'Logs' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
+  it('should mark only the Infrastructure child link active on /logs/infrastructure', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter initialEntries={['/logs/infrastructure']}>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    const monitoring = within(screen.getByRole('list', { name: 'Monitoring' }));
+    expect(monitoring.getByRole('link', { name: 'Infrastructure' })).toHaveAttribute('aria-current', 'page');
+    expect(monitoring.getByRole('link', { name: 'Games' })).not.toHaveAttribute('aria-current');
   });
 
   it('should render an Audit nav link and highlight it on /audit', () => {
@@ -244,7 +276,11 @@ describe('AppLayout — mobile navigation', () => {
       </PollingProvider>,
     );
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    await user.click(within(document.getElementById('mobile-nav')!).getByRole('link', { name: 'Logs' }));
+    // Scoped to the mobile drawer's Monitoring list: the Configuration section
+    // separately has its own "Games" link (`/games`) with the same accessible
+    // name as the new Logs-group child, so an unscoped query would be ambiguous.
+    const mobileMonitoring = within(within(document.getElementById('mobile-nav')!).getByRole('list', { name: 'Monitoring' }));
+    await user.click(mobileMonitoring.getByRole('link', { name: 'Games' }));
     expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
   });
 });
