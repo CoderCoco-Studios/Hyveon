@@ -29,6 +29,14 @@ export class WindowService {
     this.win = win;
     win.on('maximize', () => this.pushMaximizedChange(true));
     win.on('unmaximize', () => this.pushMaximizedChange(false));
+    // macOS re-creates the window on 'activate' when the dock icon is clicked
+    // with zero windows open (electron-entry.ts); without this listener, this
+    // service would keep holding a reference to the destroyed window until the
+    // next attach() call overwrites it, silently no-oping every IPC call in the
+    // meantime (see every method's `if (!this.win) return` guard above).
+    win.once('closed', () => {
+      this.win = null;
+    });
   }
 
   /** Minimizes the attached window. No-op if no window is attached. */

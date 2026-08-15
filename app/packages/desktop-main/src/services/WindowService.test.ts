@@ -19,6 +19,9 @@ function makeWin(): Partial<BrowserWindow> & { __fire: (event: string) => void }
     on: vi.fn((event: string, cb: () => void) => {
       (listeners[event] ??= []).push(cb);
     }),
+    once: vi.fn((event: string, cb: () => void) => {
+      (listeners[event] ??= []).push(cb);
+    }),
     webContents: { send: vi.fn() },
     // Test-only escape hatch to fire a registered listener by event name.
     __fire: (event: string) => listeners[event]?.forEach((cb) => cb()),
@@ -96,6 +99,28 @@ describe('WindowService', () => {
       service.attach(win as BrowserWindow);
       win.__fire('unmaximize');
       expect(win.webContents.send).toHaveBeenCalledWith('window.maximizedChange', false);
+    });
+
+    it('should detach and report isMaximized as false once the window fires its native closed event', () => {
+      const win = makeWin();
+      vi.mocked(win.isMaximized).mockReturnValue(true);
+      service.attach(win as BrowserWindow);
+      expect(service.isMaximized()).toBe(true);
+
+      win.__fire('closed');
+
+      expect(service.isMaximized()).toBe(false);
+    });
+
+    it('should not throw and should no-op minimize/toggleMaximize/close after the window fires its native closed event', () => {
+      const win = makeWin();
+      service.attach(win as BrowserWindow);
+      win.__fire('closed');
+
+      expect(() => service.minimize()).not.toThrow();
+      expect(() => service.toggleMaximize()).not.toThrow();
+      expect(() => service.close()).not.toThrow();
+      expect(win.minimize).not.toHaveBeenCalled();
     });
   });
 });
