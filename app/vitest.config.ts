@@ -16,6 +16,7 @@ export default defineConfig({
       // otherwise shadow '@hyveon/shared/gameServerValidator' and resolve to
       // an invalid path.
       '@hyveon/shared/gameServerValidator': resolve(__dirname, 'packages/shared/src/gameServerValidator.ts'),
+      '@hyveon/shared/secrets/secretsStore': resolve(__dirname, 'packages/shared/src/secrets/secretsStore.ts'),
       '@hyveon/shared': resolve(__dirname, 'packages/shared/src/index.ts'),
       // Same rationale as @hyveon/shared above — desktop-main imports
       // @hyveon/cloud-aws directly, and CI runs `vitest run` without a prior

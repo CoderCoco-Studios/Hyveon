@@ -30,6 +30,9 @@ import type {
   UpdateGamePayload,
 } from '@hyveon/shared';
 import { OptimisticLockError, redactGameServer, validateGameServer } from '@hyveon/shared';
+import type { GameServerWriteConfig } from '@hyveon/shared';
+import { validateHealthCheckAuthInput } from '@hyveon/shared/gameServerValidator';
+import { deleteHealthCheckAuthSecret, upsertHealthCheckAuthSecret } from '@hyveon/shared/secrets/secretsStore';
 import { logger } from '../logger.js';
 import { AuditService } from './AuditService.js';
 import { ConfigService } from './ConfigService.js';
@@ -90,8 +93,13 @@ export class GamesWriteService {
    */
   async createGame(payload: CreateGamePayload): Promise<GameWriteResult> {
     logger.debug('GamesWriteService.createGame: creating game server entry', { game: payload.name });
+    const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
+    if (authIssues.length > 0) {
+      return { ok: false, code: 'validation', issues: authIssues };
+    }
+    const resolvedConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, null);
     const siblings = await this.deploymentConfig.getGameServers();
-    const validation = validateGameServer(payload.name, payload.config, siblings);
+    const validation = validateGameServer(payload.name, resolvedConfig, siblings);
     if (!validation.success) {
       return { ok: false, code: 'validation', issues: validation.issues };
     }
@@ -148,15 +156,14 @@ export class GamesWriteService {
     const siblings = await this.deploymentConfig.getGameServers();
     const before = siblings.find((sibling) => sibling.name === payload.name) ?? null;
 
-    // The wizard/edit form omits `healthCheck.auth` to mean "leave the
-    // existing credential unchanged" (see wizard-form.utils.ts's
-    // `healthCheckFromDraft` and docs/docs/app/games.md) — since this write
-    // path replaces the whole entry rather than patching it, that omitted
-    // auth has to be spliced back in from the prior config here.
-    const incomingConfig =
-      payload.config.healthCheck && !payload.config.healthCheck.auth && before?.healthCheck?.auth
-        ? { ...payload.config, healthCheck: { ...payload.config.healthCheck, auth: before.healthCheck.auth } }
-        : payload.config;
+    const authIssues = validateHealthCheckAuthInput(payload.config.healthCheck?.auth);
+    if (authIssues.length > 0) {
+      return { ok: false, code: 'validation', issues: authIssues };
+    }
+
+    // resolveHealthCheckAuthSecret now owns the "omitted auth means unchanged"
+    // splice that used to live inline here — see its own doc comment.
+    const incomingConfig = await this.resolveHealthCheckAuthSecret(payload.name, payload.config, before);
 
     const validation = validateGameServer(payload.name, incomingConfig, siblings);
     if (!validation.success) {
@@ -221,6 +228,10 @@ export class GamesWriteService {
         return this.setupIncompleteResult(err);
       }
       return this.errorResult(err);
+    }
+
+    if (before?.healthCheck?.auth && (before.healthCheck.auth.type === 'basic' || before.healthCheck.auth.type === 'bearer')) {
+      await this.deleteAppOwnedSecret(payload.name, before.healthCheck.auth.secretArn);
     }
 
     return this.successResult('delete', payload.name, undefined, { before, after: null, versionId: write.versionId });
@@ -316,5 +327,101 @@ export class GamesWriteService {
   private errorResult(err: unknown): GameWriteResult {
     logger.error('Game server write failed', { err });
     return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the game server configuration' };
+  }
+
+  /**
+   * Resolves `config.healthCheck.auth` into the persisted
+   * `GameServerHealthCheckAuth` shape (`{ type?, secretArn }`), performing
+   * whatever Secrets Manager write the declared change requires:
+   *  - `auth` omitted → leave `before`'s credential unchanged (existing
+   *    behavior, unchanged from before this feature).
+   *  - `auth === null` → explicit clear. Deletes `before`'s app-owned secret
+   *    (if `before.auth.type` was `'basic'`/`'bearer'`) and returns `config`
+   *    with `healthCheck.auth` unset.
+   *  - `auth.type` `'raw'`/absent → the operator-supplied `secretArn` is
+   *    used as-is (already required by {@link validateHealthCheckAuthInput}
+   *    before this method runs). If `before`'s credential was app-owned
+   *    (`'basic'`/`'bearer'`), its now-orphaned secret is deleted.
+   *  - `auth.type` `'basic'`/`'bearer'` → builds the secret value
+   *    (`JSON.stringify({ username, password })` or the raw `token`) and
+   *    calls {@link upsertHealthCheckAuthSecret}, which creates the secret on
+   *    first save and updates it in place on every subsequent edit (see
+   *    that function's own doc for why no separate "does it already exist"
+   *    check is needed).
+   *
+   * Never called for a `deleteGame` — that path calls
+   * {@link deleteHealthCheckAuthSecret} directly in {@link deleteGame} once
+   * the config removal itself has succeeded.
+   *
+   * @param gameId - The `game_servers` map key this entry is being saved under.
+   * @param config - The proposed write-side config (may be `undefined` when the entry has no `healthCheck` at all).
+   * @param before - The entry's prior persisted state, or `null` for a brand-new game.
+   * @returns `config` with `healthCheck.auth` resolved to the persisted shape (or `undefined`), ready for `validateGameServer`.
+   */
+  private async resolveHealthCheckAuthSecret(
+    gameId: string,
+    config: GameServerWriteConfig,
+    before: GameServer | null,
+  ): Promise<Omit<GameServer, 'name'>> {
+    if (!config.healthCheck) {
+      if (before?.healthCheck?.auth && (before.healthCheck.auth.type === 'basic' || before.healthCheck.auth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, before.healthCheck.auth.secretArn);
+      }
+      return { ...config, healthCheck: undefined };
+    }
+
+    const { auth, ...healthCheckRest } = config.healthCheck;
+    const beforeAuth = before?.healthCheck?.auth;
+
+    if (auth === undefined) {
+      return { ...config, healthCheck: { ...healthCheckRest, auth: beforeAuth } };
+    }
+
+    if (auth === null) {
+      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
+      }
+      return { ...config, healthCheck: { ...healthCheckRest, auth: undefined } };
+    }
+
+    const type = auth.type ?? 'raw';
+    if (type === 'raw') {
+      if (beforeAuth && (beforeAuth.type === 'basic' || beforeAuth.type === 'bearer')) {
+        await this.deleteAppOwnedSecret(gameId, beforeAuth.secretArn);
+      }
+      return { ...config, healthCheck: { ...healthCheckRest, auth: { type: 'raw', secretArn: auth.secretArn as string } } };
+    }
+
+    const secretValue = type === 'basic' ? JSON.stringify({ username: auth.username, password: auth.password }) : (auth.token as string);
+    const secretArn = await this.upsertAppOwnedSecret(gameId, secretValue);
+    return { ...config, healthCheck: { ...healthCheckRest, auth: { type, secretArn } } };
+  }
+
+  /** Wraps {@link upsertHealthCheckAuthSecret}, normalizing and logging any Secrets Manager failure per this repo's logging convention. */
+  private async upsertAppOwnedSecret(gameId: string, value: string): Promise<string> {
+    try {
+      return await upsertHealthCheckAuthSecret(gameId, value);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('GamesWriteService.resolveHealthCheckAuthSecret: failed to create/update the health-check credential secret', {
+        game: gameId,
+        error: message,
+      });
+      throw new Error(`Failed to save the health-check credential: ${message}`);
+    }
+  }
+
+  /** Wraps {@link deleteHealthCheckAuthSecret}, logging (not throwing on) a Secrets Manager failure — a delete-cleanup failure must not block the config write it's tidying up after. */
+  private async deleteAppOwnedSecret(gameId: string, secretArn: string): Promise<void> {
+    try {
+      await deleteHealthCheckAuthSecret(gameId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('GamesWriteService.resolveHealthCheckAuthSecret: failed to delete an orphaned health-check credential secret', {
+        game: gameId,
+        secretArn,
+        error: message,
+      });
+    }
   }
 }

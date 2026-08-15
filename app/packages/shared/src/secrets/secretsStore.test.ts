@@ -1,18 +1,24 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
   PutSecretValueCommand,
+  CreateSecretCommand,
+  DeleteSecretCommand,
+  ResourceNotFoundException,
 } from '@aws-sdk/client-secrets-manager';
 import {
   SECRET_PLACEHOLDER,
   __resetSecretsClient,
+  deleteHealthCheckAuthSecret,
   getBotToken,
   getPublicKey,
+  healthCheckAuthSecretName,
   invalidateSecretsCache,
   putBotToken,
   putPublicKey,
+  upsertHealthCheckAuthSecret,
 } from './secretsStore.js';
 
 const secrets = mockClient(SecretsManagerClient);
@@ -104,5 +110,88 @@ describe('putBotToken / putPublicKey', () => {
     const calls = secrets.commandCalls(PutSecretValueCommand);
     expect(calls[0]!.args[0]!.input.SecretId).toBe(KEY_ARN);
     expect(calls[0]!.args[0]!.input.SecretString).toBe('hex-public-key');
+  });
+});
+
+describe('healthCheckAuthSecretName', () => {
+  it('should build a deterministic per-game secret name', () => {
+    expect(healthCheckAuthSecretName('palworld')).toBe('hyveon-palworld-healthcheck-auth');
+  });
+});
+
+describe('upsertHealthCheckAuthSecret', () => {
+  beforeEach(() => {
+    secrets.reset();
+    __resetSecretsClient();
+  });
+
+  afterEach(() => {
+    secrets.reset();
+  });
+
+  it('should PutSecretValue and return the ARN when the secret already exists', async () => {
+    secrets
+      .on(PutSecretValueCommand, { SecretId: 'hyveon-palworld-healthcheck-auth' })
+      .resolves({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
+
+    const arn = await upsertHealthCheckAuthSecret('palworld', 'sk-abc123');
+
+    expect(arn).toBe('arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf');
+    expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
+  });
+
+  it('should CreateSecret and return the ARN when PutSecretValue reports the secret does not exist', async () => {
+    secrets
+      .on(PutSecretValueCommand)
+      .rejects(new ResourceNotFoundException({ message: 'not found', $metadata: {} }));
+    secrets
+      .on(CreateSecretCommand, { Name: 'hyveon-palworld-healthcheck-auth', SecretString: 'sk-abc123' })
+      .resolves({ ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf' });
+
+    const arn = await upsertHealthCheckAuthSecret('palworld', 'sk-abc123');
+
+    expect(arn).toBe('arn:aws:secretsmanager:us-east-1:123456789012:secret:hyveon-palworld-healthcheck-auth-AbCdEf');
+  });
+
+  it('should rethrow a PutSecretValue failure that is not ResourceNotFoundException', async () => {
+    secrets.on(PutSecretValueCommand).rejects(new Error('AccessDenied'));
+
+    await expect(upsertHealthCheckAuthSecret('palworld', 'sk-abc123')).rejects.toThrow('AccessDenied');
+    expect(secrets.commandCalls(CreateSecretCommand)).toHaveLength(0);
+  });
+});
+
+describe('deleteHealthCheckAuthSecret', () => {
+  beforeEach(() => {
+    secrets.reset();
+    __resetSecretsClient();
+  });
+
+  afterEach(() => {
+    secrets.reset();
+  });
+
+  it('should DeleteSecret without ForceDeleteWithoutRecovery (default recovery window)', async () => {
+    secrets.on(DeleteSecretCommand).resolves({});
+
+    await deleteHealthCheckAuthSecret('palworld');
+
+    const calls = secrets.commandCalls(DeleteSecretCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args[0].input).toEqual({ SecretId: 'hyveon-palworld-healthcheck-auth' });
+  });
+
+  it('should not throw when the secret does not exist', async () => {
+    secrets
+      .on(DeleteSecretCommand)
+      .rejects(new ResourceNotFoundException({ message: 'not found', $metadata: {} }));
+
+    await expect(deleteHealthCheckAuthSecret('palworld')).resolves.toBeUndefined();
+  });
+
+  it('should rethrow a DeleteSecret failure that is not ResourceNotFoundException', async () => {
+    secrets.on(DeleteSecretCommand).rejects(new Error('AccessDenied'));
+
+    await expect(deleteHealthCheckAuthSecret('palworld')).rejects.toThrow('AccessDenied');
   });
 });
