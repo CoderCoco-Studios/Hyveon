@@ -6,11 +6,13 @@ import type {
   AutoUpdateSettingWriteResult,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ManualUpdateCheckResult,
   PulumiEngineVersionResult,
   UpdateDeploymentSettingsPayload,
 } from '@hyveon/shared';
 import { OptimisticLockError, validateDeploymentSettingsPatch } from '@hyveon/shared';
 import { logger } from '../logger.js';
+import { checkForUpdatesNow } from '../updater.js';
 import { ConfigurationNotConfiguredError, RunsTableRenameError, DeploymentConfigService } from '../services/DeploymentConfigService.js';
 // Deliberately a value import, not `import type` — Nest's constructor-parameter
 // DI resolves `engine`'s token off `design:paramtypes` metadata, which
@@ -222,5 +224,19 @@ export class IacSettingsController {
       logger.error('Failed to write enableAutoUpdate setting', { err });
       return { ok: false, code: 'error', message: 'An unexpected error occurred while writing the auto-update setting.' };
     }
+  }
+
+  /**
+   * Runs an on-demand update check via `checkForUpdatesNow()`
+   * (`desktop-main/src/updater.ts`), independent of the `enableAutoUpdate`
+   * flag — the flag gates only the automatic boot-time check. Never
+   * downloads or installs; see that function's doc comment.
+   *
+   * Reachable via the Electron IPC transport (`iac.settings.autoUpdate.check`).
+   */
+  @MessagePattern('iac.settings.autoUpdate.check')
+  async checkAutoUpdate(): Promise<ManualUpdateCheckResult> {
+    logger.debug('IacSettingsController: iac.settings.autoUpdate.check invoked');
+    return checkForUpdatesNow();
   }
 }

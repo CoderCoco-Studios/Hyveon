@@ -17,6 +17,7 @@ import type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -70,6 +71,11 @@ import type {
  * reason — it backs {@link IacPlanAck.runLock} (the durable apply-lock
  * recovery flow) and is a pure data shape with nothing to isolate the
  * renderer from.
+ *
+ * `ManualUpdateCheckResult` (`@hyveon/shared/src/autoUpdateSetting.ts`) joins
+ * this group for the same reason — it backs the on-demand update-check
+ * button in Settings' Updates section and is a pure data shape with nothing
+ * to isolate the renderer from.
  */
 export type {
   AutoUpdateSettingGetResult,
@@ -79,6 +85,7 @@ export type {
   DeploymentConfigDiff,
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
+  ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
   RendererConsoleLevel,
@@ -2135,6 +2142,13 @@ export interface HyveonIacSettingsApi {
    * app start, not the current session — see {@link AutoUpdateSettingWriteResult}.
    */
   autoUpdateUpdate: (payload: AutoUpdateSettingUpdatePayload) => Promise<AutoUpdateSettingWriteResult>;
+  /**
+   * Runs an on-demand update check by invoking the
+   * `iac.settings.autoUpdate.check` IPC channel, independent of the
+   * `enableAutoUpdate` flag — backs Settings' "Check for Updates" button.
+   * Never downloads or installs — see {@link ManualUpdateCheckResult}.
+   */
+  autoUpdateCheck: () => Promise<ManualUpdateCheckResult>;
 }
 
 // ---------------------------------------------------------------------------

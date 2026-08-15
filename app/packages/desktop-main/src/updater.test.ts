@@ -6,17 +6,28 @@ import type { ElectronStoreService } from './services/ElectronStoreService.js';
  * `updater.ts` touches: `logger` (assignable), `on` (event registration),
  * and `checkForUpdates` (the one call that must stay gated behind the flag).
  */
-const { mockAutoUpdater, checkForUpdatesMock, onMock } = vi.hoisted(() => {
+const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock } = vi.hoisted(() => {
   const checkForUpdatesMock = vi.fn().mockResolvedValue(null);
   const onMock = vi.fn();
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  const onceMock = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+    listeners.set(event, handler);
+  });
+  const removeListenerMock = vi.fn((event: string) => {
+    listeners.delete(event);
+  });
   const mockAutoUpdater = {
     logger: null as unknown,
     on: onMock,
+    once: onceMock,
+    removeListener: removeListenerMock,
     checkForUpdates: checkForUpdatesMock,
     autoDownload: true,
     autoInstallOnAppQuit: true,
+    /** Test helper — invokes the handler registered via `once(event, ...)`, mirroring a real event emit. */
+    emit: (event: string, ...args: unknown[]) => listeners.get(event)?.(...args),
   };
-  return { mockAutoUpdater, checkForUpdatesMock, onMock };
+  return { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock };
 });
 
 vi.mock('electron-updater', () => ({ autoUpdater: mockAutoUpdater }));
@@ -25,7 +36,7 @@ vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { initUpdater } from './updater.js';
+import { initUpdater, checkForUpdatesNow } from './updater.js';
 
 /** Builds a minimal `ElectronStoreService`-shaped stub for `initUpdater`'s single `get` call. */
 function makeStore(enableAutoUpdate: boolean | undefined): ElectronStoreService {
@@ -92,5 +103,91 @@ describe('initUpdater', () => {
     checkForUpdatesMock.mockRejectedValueOnce(new Error('network unreachable'));
 
     await expect(initUpdater(makeStore(true))).resolves.toBeUndefined();
+  });
+});
+
+describe('checkForUpdatesNow', () => {
+  const realElectronVersion = process.versions.electron;
+  const setElectron = (value: string | undefined): void => {
+    if (value === undefined) {
+      delete (process.versions as { electron?: string }).electron;
+    } else {
+      Object.defineProperty(process.versions, 'electron', { value, configurable: true });
+    }
+  };
+
+  beforeEach(() => {
+    setElectron('36.0.0');
+    onceMock.mockClear();
+    removeListenerMock.mockClear();
+    checkForUpdatesMock.mockReset().mockResolvedValue(null);
+  });
+  afterEach(() => setElectron(realElectronVersion));
+
+  it('should report unavailable outside a real Electron main process without calling checkForUpdates', async () => {
+    setElectron(undefined);
+
+    const result = await checkForUpdatesNow();
+
+    expect(result).toEqual({ ok: false, message: 'Update checks are only available in the packaged app.' });
+    expect(checkForUpdatesMock).not.toHaveBeenCalled();
+  });
+
+  it('should resolve updateAvailable: true when the update-available event fires', async () => {
+    checkForUpdatesMock.mockImplementationOnce(() => {
+      mockAutoUpdater.emit('update-available', { version: '1.2.3' });
+      return Promise.resolve(null);
+    });
+
+    const result = await checkForUpdatesNow();
+
+    expect(result).toEqual({ ok: true, updateAvailable: true, version: '1.2.3' });
+  });
+
+  it('should resolve updateAvailable: false when the update-not-available event fires', async () => {
+    checkForUpdatesMock.mockImplementationOnce(() => {
+      mockAutoUpdater.emit('update-not-available');
+      return Promise.resolve(null);
+    });
+
+    const result = await checkForUpdatesNow();
+
+    expect(result).toEqual({ ok: true, updateAvailable: false });
+  });
+
+  it('should resolve ok: false when the error event fires', async () => {
+    checkForUpdatesMock.mockImplementationOnce(() => {
+      mockAutoUpdater.emit('error', new Error('feed unreachable'));
+      return Promise.reject(new Error('feed unreachable'));
+    });
+
+    const result = await checkForUpdatesNow();
+
+    expect(result).toEqual({ ok: false, message: 'feed unreachable' });
+  });
+
+  it('should disable autoDownload and autoInstallOnAppQuit, same restriction as initUpdater', async () => {
+    checkForUpdatesMock.mockImplementationOnce(() => {
+      mockAutoUpdater.emit('update-not-available');
+      return Promise.resolve(null);
+    });
+
+    await checkForUpdatesNow();
+
+    expect(mockAutoUpdater.autoDownload).toBe(false);
+    expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it('should remove all three listeners after resolving', async () => {
+    checkForUpdatesMock.mockImplementationOnce(() => {
+      mockAutoUpdater.emit('update-not-available');
+      return Promise.resolve(null);
+    });
+
+    await checkForUpdatesNow();
+
+    expect(removeListenerMock).toHaveBeenCalledWith('update-available', expect.any(Function));
+    expect(removeListenerMock).toHaveBeenCalledWith('update-not-available', expect.any(Function));
+    expect(removeListenerMock).toHaveBeenCalledWith('error', expect.any(Function));
   });
 });

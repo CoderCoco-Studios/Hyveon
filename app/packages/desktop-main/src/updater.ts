@@ -1,3 +1,4 @@
+import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { logger } from './logger.js';
 import type { ElectronStoreService } from './services/ElectronStoreService.js';
 
@@ -52,4 +53,63 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
     // (offline, 404, malformed feed) surfaces as a log line, not an
     // unhandled rejection in the main process.
   }
+}
+
+/**
+ * Runs a single update check on demand, independent of the `enableAutoUpdate`
+ * flag — the flag gates only {@link initUpdater}'s automatic boot-time check.
+ * Never downloads or installs (`autoDownload`/`autoInstallOnAppQuit` stay
+ * `false`, same restriction as {@link initUpdater}).
+ *
+ * `electron-updater`'s `checkForUpdates()` promise resolves with feed
+ * metadata regardless of whether a newer version exists — availability is
+ * signaled via the `update-available`/`update-not-available` events, not the
+ * return value — so this races one-shot listeners for those events (plus
+ * `error`) against the call and resolves from whichever fires first,
+ * removing all three afterward so they don't leak into a later call or
+ * cross-fire with {@link initUpdater}'s persistent listeners.
+ */
+export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
+  if (!process.versions['electron']) {
+    return { ok: false, message: 'Update checks are only available in the packaged app.' };
+  }
+
+  const { autoUpdater } = await import('electron-updater');
+  autoUpdater.logger = logger;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  return new Promise<ManualUpdateCheckResult>((resolve) => {
+    const cleanup = () => {
+      autoUpdater.removeListener('update-available', onAvailable);
+      autoUpdater.removeListener('update-not-available', onNotAvailable);
+      autoUpdater.removeListener('error', onError);
+    };
+    const onAvailable = (info: { version: string }) => {
+      cleanup();
+      logger.info('[updater] manual check: update available', { version: info.version });
+      resolve({ ok: true, updateAvailable: true, version: info.version });
+    };
+    const onNotAvailable = () => {
+      cleanup();
+      logger.info('[updater] manual check: no update available');
+      resolve({ ok: true, updateAvailable: false });
+    };
+    const onError = (err: unknown) => {
+      cleanup();
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('[updater] manual check failed', { error: message });
+      resolve({ ok: false, message });
+    };
+
+    autoUpdater.once('update-available', onAvailable);
+    autoUpdater.once('update-not-available', onNotAvailable);
+    autoUpdater.once('error', onError);
+
+    autoUpdater.checkForUpdates().catch(() => {
+      // electron-updater rethrows after emitting 'error' — the listener
+      // above already resolved the promise, so this is just avoiding an
+      // unhandled rejection.
+    });
+  });
 }
