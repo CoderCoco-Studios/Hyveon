@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderPage } from '../test-utils/render-page.utils.js';
 import { toStreamHandleMock } from '../test-utils/stream-handle.test-utils.js';
@@ -166,6 +166,94 @@ describe('LogsPage', () => {
 
     await waitFor(() => {
       expect(hyveonMock.logs.stream).toHaveBeenCalledWith('minecraft');
+    });
+  });
+
+  describe('scroll position', () => {
+    /**
+     * Stubs the scroll geometry (`scrollHeight`/`clientHeight`) jsdom never
+     * lays out, so tests can assert auto-scroll behavior without a real
+     * layout engine — matches `AnsiLogViewer`'s test helper.
+     */
+    function stubScrollGeometry(
+      el: HTMLElement,
+      { scrollHeight, clientHeight }: { scrollHeight: number; clientHeight: number },
+    ) {
+      Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
+      Object.defineProperty(el, 'clientHeight', { configurable: true, value: clientHeight });
+    }
+
+    /**
+     * Backs `window.hyveon.logs.stream` with an async generator whose chunks
+     * are pushed on demand, so a test can scroll the rendered viewer and then
+     * feed it a live chunk within the same component instance — mirroring
+     * how the real IPC stream trickles chunks in over time.
+     */
+    function createControllableStream() {
+      const buffer: string[] = [];
+      let notify: (() => void) | null = null;
+      async function* gen(): AsyncGenerator<string> {
+        while (true) {
+          if (buffer.length > 0) {
+            yield buffer.shift()!;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            notify = resolve;
+          });
+        }
+      }
+      return {
+        gen,
+        push(chunk: string) {
+          buffer.push(chunk);
+          notify?.();
+          notify = null;
+        },
+      };
+    }
+
+    it('should not jump to the bottom on new lines once the user has scrolled away from it', async () => {
+      const stream = createControllableStream();
+      hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(stream.gen));
+      renderPage(<LogsPage />);
+      await screen.findByText(/Server started on port 25565/);
+
+      const box = screen.getByTestId('logs-viewer');
+      stubScrollGeometry(box, { scrollHeight: 500, clientHeight: 100 });
+      Object.defineProperty(box, 'scrollTop', { configurable: true, writable: true, value: 50 });
+      fireEvent.scroll(box);
+
+      // Autoscroll checkbox reflects the automatic un-pin.
+      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).not.toBeChecked();
+
+      const scrollTopSpy = vi.spyOn(box, 'scrollTop', 'set');
+      stream.push('2026-05-03T12:00:05Z INFO Live chunk one');
+      await screen.findByText(/Live chunk one/);
+
+      expect(scrollTopSpy).not.toHaveBeenCalled();
+    });
+
+    it('should resume pinning to the bottom once the user scrolls back near it', async () => {
+      const stream = createControllableStream();
+      hyveonMock.logs.stream.mockImplementation(toStreamHandleMock(stream.gen));
+      renderPage(<LogsPage />);
+      await screen.findByText(/Server started on port 25565/);
+
+      const box = screen.getByTestId('logs-viewer');
+      stubScrollGeometry(box, { scrollHeight: 500, clientHeight: 100 });
+      Object.defineProperty(box, 'scrollTop', { configurable: true, writable: true, value: 50 });
+      fireEvent.scroll(box);
+      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).not.toBeChecked();
+
+      Object.defineProperty(box, 'scrollTop', { configurable: true, writable: true, value: 480 });
+      fireEvent.scroll(box);
+      expect(screen.getAllByRole('checkbox', { name: 'Autoscroll' })[0]).toBeChecked();
+
+      stream.push('2026-05-03T12:00:05Z INFO Live chunk one');
+      await screen.findByText(/Live chunk one/);
+
+      expect(box.scrollTop).toBe(500);
     });
   });
 });
