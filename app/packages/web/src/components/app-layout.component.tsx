@@ -136,13 +136,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-60 border-r border-border bg-card flex-col">
         {/*
-          Brand block. On macOS this corner of the window is where the native
-          traffic-light buttons render (see `platformWindowChromeOptions()` in
-          `electron-entry.ts` — `trafficLightPosition` is offset by the sidebar's
-          240px width to land inside the header, not here), so this block must
-          also be a drag region or macOS users couldn't drag the window from
-          that corner. Windows/Linux don't render anything there, so this is
-          scoped to darwin only.
+          Brand block. macOS's traffic lights render inside the header, not
+          here (see `platformWindowChromeOptions()` in `electron-entry.ts` —
+          `trafficLightPosition` is offset past the sidebar's 240px width so
+          the buttons land in the header). This block is still the window's
+          actual top-left corner, though, so it stays a drag region as a grab
+          handle near that corner even though nothing is drawn on top of it —
+          without this, macOS users couldn't drag the window from here.
+          Windows/Linux don't need it, so this is scoped to darwin only.
         */}
         <div
           className="px-4 py-5 border-b border-border"
@@ -211,6 +212,25 @@ export function AppLayout({ children }: { children: ReactNode }) {
           style={window.hyveon?.window ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
         >
           <div className="flex items-center gap-4">
+            {/*
+              Reserves leading space for the macOS traffic-light cluster,
+              which `platformWindowChromeOptions()` positions at
+              `x: 252, y: 20` — inside the header, not the sidebar (D2). The
+              cluster's three ~12px circles plus spacing span roughly 52px,
+              starting 12px past the sidebar's 240px width (240 + 12 = 252);
+              ~80px gives a small safety margin past that so the header's own
+              "Hyveon" heading/env pill don't render underneath it. Fixed at
+              build time like the win32 spacer below, but note the sidebar can
+              be hidden below the `md` breakpoint (768px) — see the
+              `electron-entry.ts` `resize` listener, which switches
+              `trafficLightPosition` itself between the sidebar-offset and a
+              no-sidebar position so the traffic lights stay aligned with
+              wherever this reserved space actually starts.
+            */}
+            {window.hyveon?.window?.platform === 'darwin' && (
+              <div data-traffic-light-spacer="" aria-hidden="true" className="w-20 shrink-0" />
+            )}
+
             {/* Hamburger button — only visible on mobile */}
             <button
               type="button"
@@ -248,16 +268,24 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {/*
               Windows' titleBarOverlay reserves a region (top-right, per Electron's
               docs) where the OS draws the overlay buttons — DOM elements there
-              cannot receive clicks. `env(titlebar-area-width)` is only meaningful
-              inside a WCO-enabled window (falls back to 100% elsewhere), so this
-              spacer only renders on win32; the trailing content above ends before
-              the reserved region begins.
+              cannot receive clicks. `env(titlebar-area-width)` is an absolute
+              length (the draggable region's width, measured from the window's
+              left edge), not a percentage — so it must be subtracted from the
+              *viewport* width (`100vw`), not from `100%` of this spacer's own
+              containing block (the trailing flex group, which is only a few
+              hundred px wide and would make the formula always resolve
+              negative → clamp to 0px, reserving nothing). `env(...)` only has a
+              real value inside a WCO-enabled window (falls back to 100vw
+              elsewhere, so the whole expression evaluates to 0 outside win32,
+              which is fine since this element is gated to win32 anyway).
+              `flexShrink: 0` keeps it from being squeezed to 0 under space
+              pressure from its sibling content.
             */}
             {window.hyveon?.window?.platform === 'win32' && (
               <div
                 data-titlebar-overlay-spacer=""
                 aria-hidden="true"
-                style={{ width: 'calc(100% - env(titlebar-area-width, 100%))' }}
+                style={{ width: 'calc(100vw - env(titlebar-area-width, 100vw))', flexShrink: 0 }}
               />
             )}
           </div>

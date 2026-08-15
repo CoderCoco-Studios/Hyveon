@@ -446,6 +446,13 @@ describe('AppLayout — window chrome (custom title bar)', () => {
     const style = trailingGroup?.getAttribute('style') ?? '';
     expect(style).toContain('titlebar-area-width');
     expect(style).toContain('calc(');
+    // Pins the formula's *base* to the viewport (100vw), not the spacer's own
+    // containing block (100%) — the bug this test guards against: env(...) is
+    // an absolute length, so subtracting it from 100% of a few-hundred-px-wide
+    // flex group always resolves negative and clamps to 0px, reserving nothing.
+    expect(style).toContain('100vw');
+    expect(style).not.toMatch(/calc\(\s*100%/);
+    expect(trailingGroup).toHaveStyle({ flexShrink: '0' });
   });
 
   it('should NOT reserve space for the Windows titleBarOverlay on linux or darwin', () => {
@@ -470,6 +477,86 @@ describe('AppLayout — window chrome (custom title bar)', () => {
 
     const header = screen.getByRole('banner');
     expect(header.querySelector('[data-titlebar-overlay-spacer]')).toBeNull();
+  });
+
+  it('should reserve leading space in the header for the macOS traffic lights on darwin', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'darwin',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const header = screen.getByRole('banner');
+    const spacer = header.querySelector('[data-traffic-light-spacer]');
+    expect(spacer).not.toBeNull();
+  });
+
+  it('should NOT reserve leading space for macOS traffic lights on win32, linux, or when window.hyveon is absent', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'win32',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    const { rerender } = render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    let header = screen.getByRole('banner');
+    expect(header.querySelector('[data-traffic-light-spacer]')).toBeNull();
+
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+    rerender(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    header = screen.getByRole('banner');
+    expect(header.querySelector('[data-traffic-light-spacer]')).toBeNull();
+
+    vi.unstubAllGlobals();
+    rerender(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    header = screen.getByRole('banner');
+    expect(header.querySelector('[data-traffic-light-spacer]')).toBeNull();
   });
 
   it('should mark the sidebar brand block as a drag region on darwin when window.hyveon.window is present', () => {
