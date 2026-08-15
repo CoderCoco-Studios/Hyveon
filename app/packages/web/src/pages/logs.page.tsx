@@ -89,6 +89,10 @@ export function LogsPage() {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
+  // Tracks whether the user has scrolled away from the bottom since autoscroll
+  // was last on, so handleScroll only re-enables it on a genuine return-to-bottom
+  // rather than re-flipping a manual off while already parked near the bottom.
+  const scrolledAwayRef = useRef(false);
   const [search, setSearch] = useState('');
   const [hiddenLevels, setHiddenLevels] = useState<Set<LogLevel>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -262,13 +266,22 @@ export function LogsPage() {
   /**
    * Scrolling away from the bottom turns autoscroll off so incoming lines
    * don't yank the view back down while reading; scrolling back within
-   * {@link BOTTOM_PIN_THRESHOLD_PX} of the bottom turns it back on.
+   * {@link BOTTOM_PIN_THRESHOLD_PX} of the bottom afterward turns it back on.
+   * Merely staying near the bottom does not re-enable it, so unchecking the
+   * autoscroll toggle while already pinned to the bottom sticks.
    */
   const handleScroll = useCallback(() => {
     const el = boxRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setAutoscroll(distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX);
+    const isNearBottom = distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX;
+    if (isNearBottom) {
+      if (scrolledAwayRef.current) setAutoscroll(true);
+      scrolledAwayRef.current = false;
+    } else {
+      setAutoscroll(false);
+      scrolledAwayRef.current = true;
+    }
   }, []);
 
   const visibleLines = useMemo(
