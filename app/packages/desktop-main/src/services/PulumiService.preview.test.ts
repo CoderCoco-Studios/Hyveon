@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ModuleRef } from '@nestjs/core';
-import type { EngineEvent, PreviewOptions, PreviewResult, Stack } from '@pulumi/pulumi/automation/index.js';
+import type { EngineEvent, PreviewOptions, PreviewResult, Stack, UpdateSummary } from '@pulumi/pulumi/automation/index.js';
 import type { RemoteFileStore } from '@hyveon/shared';
 
 const { mkdirSyncMock, existsSyncMock, writeFileSyncMock, readFileSyncMock, randomUUIDMock, loggerMock } = vi.hoisted(
@@ -142,12 +142,22 @@ function makeRunRecordPersister(): RunRecordPersister & {
 /** Shape `preview()`'s `stack.preview` mock is driven with — lets each test script onOutput/onError/onEvent calls and the eventual settlement. */
 type FakeStackPreview = (opts: PreviewOptions) => Promise<PreviewResult>;
 
-/** Builds a `PulumiWorkspaceService` stub whose `getOrCreateStack` resolves to a stack stub wrapping the given `preview` implementation. */
-function makeWorkspace(previewImpl: FakeStackPreview): PulumiWorkspaceService & {
-  getOrCreateStack: ReturnType<typeof vi.fn>;
-} {
+/**
+ * Builds a `PulumiWorkspaceService` stub whose `getOrCreateStack` resolves to
+ * a stack stub wrapping the given `preview` implementation. `history`
+ * defaults to resolving `[]` (mirrors a backend with no prior updates) —
+ * pass `historyEntries` to exercise `resolveChangeSummaryFallback`'s
+ * `stack.history()` fallback.
+ */
+function makeWorkspace(
+  previewImpl: FakeStackPreview,
+  historyEntries: UpdateSummary[] = [],
+): PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> } {
   const previewMock = vi.fn().mockImplementation(previewImpl);
-  const getOrCreateStack = vi.fn().mockResolvedValue({ preview: previewMock } as Partial<Stack> as Stack);
+  const historyMock = vi.fn().mockResolvedValue(historyEntries);
+  const getOrCreateStack = vi
+    .fn()
+    .mockResolvedValue({ preview: previewMock, history: historyMock } as Partial<Stack> as Stack);
   return { getOrCreateStack } as unknown as PulumiWorkspaceService & { getOrCreateStack: ReturnType<typeof vi.fn> };
 }
 
@@ -163,6 +173,21 @@ function makeHappyPathPreview(changeSummary: Record<string, number> = { create: 
     };
     opts.onEvent?.(event);
     return { stdout: 'Previewing update...\n', stderr: 'warning: something\n', changeSummary };
+  };
+}
+
+/** Minimal `UpdateSummary` fixture for `stack.history()` fallback tests — only the fields `resolveChangeSummaryFallback` reads matter. */
+function makeUpdateSummary(overrides: Partial<UpdateSummary> = {}): UpdateSummary {
+  return {
+    kind: 'preview',
+    startTime: new Date('2026-08-14T00:00:00Z'),
+    message: '',
+    environment: {},
+    config: {},
+    result: 'succeeded',
+    endTime: new Date('2026-08-14T00:00:26Z'),
+    version: 1,
+    ...overrides,
   };
 }
 
@@ -525,12 +550,46 @@ describe('PulumiService.preview structured changeSummary', () => {
     expect(result?.changeSummary).toEqual({ create: 3, update: 1, same: 5 });
   });
 
-  it('should return an empty changeSummary (not throw, not treated as no-changes) when the summary event is never observed', async () => {
+  it('should return an empty changeSummary (not throw, not treated as no-changes) when the summary event is never observed and stack.history() has no match', async () => {
     const workspace = makeWorkspace(async (opts) => {
       opts.onOutput?.('some output\n');
       // Deliberately never calls onEvent.
       return { stdout: 'some output\n', stderr: '', changeSummary: {} };
-    });
+    }, []);
+    const service = makeService({ workspace });
+
+    const { result } = await collectPreviewChunks(service.preview());
+
+    expect(result?.changeSummary).toEqual({});
+  });
+
+  it('should fall back to stack.history() for changeSummary when the summary event is never observed', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('some output\n');
+        // Deliberately never calls onEvent — simulates the EventsServer
+        // dropping the final summaryEvent (see PulumiService.ts's
+        // `resolveChangeSummaryFallback` TSDoc).
+        return { stdout: 'some output\n', stderr: '', changeSummary: {} };
+      },
+      [makeUpdateSummary({ kind: 'preview', resourceChanges: { update: 4, same: 58 } })],
+    );
+    const service = makeService({ workspace });
+
+    const { result } = await collectPreviewChunks(service.preview());
+
+    expect(result?.changeSummary).toEqual({ update: 4, same: 58 });
+  });
+
+  it('should ignore a stack.history() entry whose kind does not match the operation just run', async () => {
+    const workspace = makeWorkspace(
+      async (opts) => {
+        opts.onOutput?.('some output\n');
+        return { stdout: 'some output\n', stderr: '', changeSummary: {} };
+      },
+      // A prior `update`, not `preview` — must not be misattributed to this preview.
+      [makeUpdateSummary({ kind: 'update', resourceChanges: { update: 4 } })],
+    );
     const service = makeService({ workspace });
 
     const { result } = await collectPreviewChunks(service.preview());
