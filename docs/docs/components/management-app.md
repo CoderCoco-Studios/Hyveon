@@ -186,7 +186,7 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
 |---|---|---|
 | `GamesController` | `games.list`, `games.status`, `games.getStatus`, `games.start`, `games.stop`, `games.create`, `games.update`, `games.delete`, `games.draft.get`, `games.draft.save`, `games.draft.updateStepIndex`, `games.draft.clear` | List/read status, trigger RunTask/StopTask, manage `gameServers` entries in the JSON configuration object (`deployment-config.json`) via `DeploymentConfigService`. Invalidates `DeploymentConfigService`'s cache on list/status reads so a config edit made outside the app (e.g. by another operator) is picked up without restarting; `ConfigService`'s cached stack outputs are untouched by this and expire on their own 20s/`invalidateCache()` schedule. The four `games.draft.*` channels save/resume/discard a single in-progress add-game wizard draft via `GameWizardDraftService` — see [Credential storage at rest](#credential-storage-at-rest) for where it's persisted. `games.draft.updateStepIndex` exists so the renderer can persist step-only navigation on a *resumed* draft without re-sending its (secret-redacted) copy through `games.draft.save`, which would otherwise overwrite the real values still on disk. |
 | `CostsController` | `costs.estimate` | Per-game Fargate estimates, derived from each game's `{game}-server` task-definition CPU/memory. The app makes no AWS Cost Explorer API calls — see [Costs](/app/costs). |
-| `LogsController` | `logs.get`, `logs.stream` | Snapshot of last N log events; a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood). |
+| `LogsController` | `logs.get`, `logs.stream`, `logs.lambda.get`, `logs.lambda.stream` | Snapshot of last N log events and a streaming channel that pushes new events as they arrive (polls `FilterLogEvents` every 2 s under the hood) for a game's `/ecs/{game}-server` log group; the `logs.lambda.*` pair does the same against `/aws/lambda/{projectName}-{functionKey}` for one of the app's 5 Lambda functions (`LambdaFunctionKey`), resolving `projectName` from `DeploymentConfig` settings and falling back to the `hyveon` default on any read failure. |
 | `FilesController` | `files.list`, `files.start`, `files.stop` | Ad-hoc FileBrowser task against the game's EFS access point. `files.start` seeds a random per-launch password (bcrypt-hashed into the container's `--password` flag), returns the one-time plaintext credential in its response, and creates an EventBridge Scheduler one-time schedule that auto-stops the task after 2 hours; `files.stop` cancels that schedule. |
 | `DiscordController` | `discord.getConfig`, `discord.putConfig`, `discord.listGuilds`, `discord.addGuild`, `discord.removeGuild`, `discord.registerCommands`, `discord.getAdmins`, `discord.putAdmins`, `discord.getPermissions`, `discord.putPermission`, `discord.deletePermission` | Read-redacted config, save credentials, manage guild allowlist + commands, admins, per-game permissions. |
 | `EnvController`, `DiagnosticsController`, `DriftController`, `AuditController` | `env.get`; `diagnostics.tail`/`diagnostics.path`/`diagnostics.reportError`/`diagnostics.reportLog`; `drift.get`; `audit.list` | Environment info, log-tail diagnostics, config-drift detection, and the audit-log view. Two renderer-forwarding channels land in the same `main-*.log` file but stay distinguishable by line prefix: `diagnostics.reportError` forwards a renderer-side crash (from the top-level `ErrorBoundary` or a `window.onerror`/`unhandledrejection` listener) via `DiagnosticsService.logRendererError`, writing `renderer error (${source}): ${message}`; `diagnostics.reportLog` forwards batched `console.log`/`info`/`warn`/`error` calls (every call, not just crashes — see `installConsoleForwarding()` below) via `DiagnosticsService.logRendererConsoleBatch`, writing one `renderer console (${level}): ${message}` line per entry (level mapped `log`→`debug`, others 1:1) plus a combined `renderer console: ${n} entries dropped (queue capacity exceeded)` warning per flush when the renderer's own queue overflowed. |
@@ -242,6 +242,10 @@ which forwards to `ipcRenderer.invoke(channel, ...)`.
   guide](/guides/maintainer#when-you-touch-the-nest-server).
   `LogsService.streamLogs(game, signal)` is an `AsyncGenerator` that polls
   `FilterLogEvents` every 2 s; `getRecentLogs` remains the snapshot path.
+  `streamLambdaLogs(functionKey, signal)` / `getRecentLambdaLogs(functionKey)`
+  are the same two shapes against a resolved Lambda log group
+  (`/aws/lambda/{projectName}-{functionKey}`), with `projectName` read from
+  `DeploymentConfig` settings and falling back to the `hyveon` default.
 - **`DriftService`** — see [Drift detection](#drift-detection) below.
 - **`DeploymentConfigService`** — see [`DeploymentConfigModule` / `DeploymentConfigService`](#deploymentconfigmodule--deploymentconfigservice) below.
 - **`GameWizardDraftService`** — owns the single in-progress add-game wizard
@@ -493,7 +497,8 @@ not the bare path:
 | `/games`, `/games/:name` | Games list + game detail | [`/app/games`](/app/games) |
 | `/iac`, `/iac/history`, `/iac/history/:runId` | Plan/apply/destroy, run history, run detail | [`/app/iac`](/app/iac) |
 | `/discord` | Discord bot credentials, guilds, admins, per-game permissions | [`/app/discord`](/app/discord) |
-| `/logs` | Live log viewer | [`/app/logs`](/app/logs) |
+| `/logs` | Live log viewer for one game server | [`/app/logs`](/app/logs) |
+| `/logs/infrastructure` | Live log viewer for one of the app's 5 Lambda functions, reached via the sidebar's **Infra Logs** child link | [`/app/logs`](/app/logs) |
 | `/costs` | Per-game Fargate cost estimates, AWS Cost Explorer link-out | [`/app/costs`](/app/costs) |
 | `/audit` | Audit log entries | [`/app/audit`](/app/audit) |
 | `/settings` | Watchdog summary, cloud health, cloud setup, updates, deployment settings, diagnostics | [`/app/settings`](/app/settings) |

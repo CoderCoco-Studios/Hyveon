@@ -14,6 +14,11 @@ report something odd.
 
 ![The Logs screen with a game selected, a search box, a Levels filter, an Autoscroll checkbox, a Pause button, and a stream of colour-coded log lines](/img/app/logs.png)
 
+In the sidebar, **Logs** (under Monitoring) is a group with two always-visible
+children: **Game Logs**, this page, and **Infra Logs**, which tails the app's
+Lambda functions instead — see [Infrastructure logs](#infrastructure-logs)
+below.
+
 ## Where the logs come from
 
 Logs are read from CloudWatch Logs, from the log group **`/ecs/{game}-server`**
@@ -179,11 +184,23 @@ Errors appear in a red banner above the log box:
 Transient CloudWatch hiccups during the tail are surfaced *inline as a log
 line* rather than in the banner, prefixed `[stream error]`.
 
+## Infrastructure logs
+
+The **Infra Logs** page (route `/logs/infrastructure`) is this page's sibling: it tails one of the app's 5 Lambda functions instead of a game server.
+
+Both pages are thin wrappers around the same `useLogTail` hook, so tail/pause, the Levels filter, search highlighting, autoscroll and the 1000-line buffer all behave exactly as described above in [Log levels](#log-levels), [Search highlights](#search-highlights-it-does-not-filter), [Autoscroll](#autoscroll), [Pause and Resume](#pause-and-resume) and [The 1000-line buffer](#the-1000-line-buffer) — nothing about that behaviour differs between the two pages.
+
+What's different is where the logs come from and how you pick a target:
+
+- Instead of a game combobox, a row of 5 buttons picks the function: `watchdog`, `health-check`, `dns-updater`, `interactions`, `followup`. `watchdog` is selected by default. Like the game combobox on this page, this picker stays visible at every width — it is not one of the controls that collapses behind the narrow-window **Filters** button.
+- Each function's logs come from the CloudWatch log group `/aws/lambda/{projectName}-{functionKey}`, where `projectName` is the operator's configured project name (falling back to `hyveon` if it can't be read). For the default project name, that means log groups like `/aws/lambda/hyveon-watchdog`.
+- As on this page, opening it fetches a snapshot of the most recent lines and then opens a live tail; the Lambda tail polls every two seconds, same as the game-logs tail.
+
 ## What this page is not
 
 - It does not show the Hyveon app's own logs. Those are on
   [Settings → Diagnostics](/app/settings#diagnostics).
 - It does not show Infrastructure (Pulumi) output. That lives on the
   [Infrastructure](/app/iac) page and in run history.
-- It does not show Lambda logs. Those are in CloudWatch under the Lambdas'
-  own log groups — see [Lambdas](/components/lambdas).
+- It does not show Lambda logs. Those are on the sibling **Infra Logs** page
+  — see [Infrastructure logs](#infrastructure-logs) below.

@@ -368,3 +368,12 @@ Every Lambda has its own CloudWatch log group; when a step goes wrong, the
 group with the latest events is the one that last ran. The interactions
 Lambda logs the `async invoke of followup` line; if you see that but no
 followup logs, check IAM.
+
+The app's **Infra Logs** page (`/logs/infrastructure`, reached via the
+sidebar's nested **Logs** group) live-tails 5 of the 6 Lambda functions on
+this page — `watchdog`, `health-check`, `dns-updater`, `interactions`,
+`followup` — without leaving the app; see
+[Logs → Infrastructure logs](/app/logs#infrastructure-logs). `efs-seeder` is
+not one of the 5 picker options (it runs per-game, not as a single shared
+function), so debugging a seeder still means going to the CloudWatch console
+directly.
