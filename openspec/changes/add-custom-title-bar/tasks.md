@@ -7,9 +7,9 @@
 
 ## 2. Preload bridge
 
-- [ ] 2.1 Add `window.hyveon.window` namespace to `app/packages/desktop-preload/src/hyveon-api.ts` (typed interface: `platform`, `minimize()`, `toggleMaximize()`, `close()`, `isMaximized()`, `onMaximizedChange(cb)`).
-- [ ] 2.2 Implement the namespace in `app/packages/desktop-preload/src/preload.ts` / `index.ts` — `platform` read from `process.platform` directly (no IPC), the four methods as `ipcRenderer.invoke` wrappers, `onMaximizedChange` as an `ipcRenderer.on` subscription following the existing event-subscription pattern used elsewhere in this file.
-- [ ] 2.3 Update preload tests for the new namespace.
+- [x] 2.1 Add `window.hyveon.window` namespace to `app/packages/desktop-preload/src/hyveon-api.ts` (typed interface: `platform`, `minimize()`, `toggleMaximize()`, `close()`, `isMaximized()`, `onMaximizedChange(cb)`).
+- [x] 2.2 Implement the namespace in `app/packages/desktop-preload/src/preload.ts` / `index.ts` — `platform` read from `process.platform` directly (no IPC), the four methods as `ipcRenderer.invoke` wrappers, `onMaximizedChange` as an `ipcRenderer.on` subscription following the existing event-subscription pattern used elsewhere in this file.
+- [x] 2.3 Update preload tests for the new namespace.
 
 ## 3. BrowserWindow chrome (electron-entry.ts)
 
