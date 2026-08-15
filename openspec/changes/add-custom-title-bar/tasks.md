@@ -1,9 +1,9 @@
 ## 1. Window-control IPC surface (desktop-main)
 
-- [ ] 1.1 Add `WindowService` (`app/packages/desktop-main/src/services/WindowService.ts`) — holds an optional `BrowserWindow` reference, an `attach(win)` method, and methods `minimize()`, `toggleMaximize()`, `close()`, `isMaximized()`; forwards the window's native `maximize`/`unmaximize` events to a subscribable emitter for the controller to push. Errors are caught/normalized and logged per `logging.md`.
-- [ ] 1.2 Add `WindowController` (`app/packages/desktop-main/src/controllers/window.controller.ts`) with `@MessagePattern` handlers for `window.minimize`, `window.toggleMaximize`, `window.close`, `window.isMaximized`, each logging on entry per `logging.md`; wire the `window.maximizedChange` push event.
-- [ ] 1.3 Register `WindowService`/`WindowController` in the relevant Nest module (check `app.module.ts` / existing module structure for where sibling controllers live).
-- [ ] 1.4 Unit tests: `WindowService.test.ts` (mock `BrowserWindow`, cover minimize/toggleMaximize both directions/close/isMaximized/event forwarding) and `window.controller.test.ts` (mirrors existing controller test conventions, e.g. `files.controller.test.ts`).
+- [x] 1.1 Add `WindowService` (`app/packages/desktop-main/src/services/WindowService.ts`) — holds an optional `BrowserWindow` reference, an `attach(win)` method, and methods `minimize()`, `toggleMaximize()`, `close()`, `isMaximized()`; forwards the window's native `maximize`/`unmaximize` events to a subscribable emitter for the controller to push. Errors are caught/normalized and logged per `logging.md`.
+- [x] 1.2 Add `WindowController` (`app/packages/desktop-main/src/controllers/window.controller.ts`) with `@MessagePattern` handlers for `window.minimize`, `window.toggleMaximize`, `window.close`, `window.isMaximized`, each logging on entry per `logging.md`; wire the `window.maximizedChange` push event.
+- [x] 1.3 Register `WindowService`/`WindowController` in the relevant Nest module (check `app.module.ts` / existing module structure for where sibling controllers live).
+- [x] 1.4 Unit tests: `WindowService.test.ts` (mock `BrowserWindow`, cover minimize/toggleMaximize both directions/close/isMaximized/event forwarding) and `window.controller.test.ts` (mirrors existing controller test conventions, e.g. `files.controller.test.ts`).
 
 ## 2. Preload bridge
 
