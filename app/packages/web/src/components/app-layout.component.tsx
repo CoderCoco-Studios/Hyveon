@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState, type CSSProperties } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api, type EnvInfo } from '../api.service.js';
 import { cn } from '../lib/utils.utils.js';
@@ -17,6 +17,8 @@ import {
   X,
   History,
   Cloud,
+  Minus,
+  Square,
 } from 'lucide-react';
 
 interface NavItem {
@@ -187,7 +189,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6">
+        <header
+          className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6"
+          style={window.hyveon?.window ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
+        >
           <div className="flex items-center gap-4">
             {/* Hamburger button — only visible on mobile */}
             <button
@@ -196,6 +201,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               aria-label="Open navigation"
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-nav"
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
               className="shrink-0 md:hidden min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <Menu className="w-5 h-5" aria-hidden="true" />
@@ -215,9 +221,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div
               className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center"
               aria-hidden="true"
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
             >
               <span className="text-xs font-medium text-white">OP</span>
             </div>
+
+            <WindowControls />
           </div>
         </header>
 
@@ -247,6 +256,7 @@ export function RefreshAllButton() {
       aria-label="Refresh all"
       aria-busy={anyLoading}
       disabled={Object.keys(pollers).length === 0}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <RefreshCw className={cn('size-3.5', anyLoading && 'motion-safe:animate-spin')} aria-hidden="true" />
       <span className="hidden sm:inline">Refresh</span>
@@ -281,9 +291,75 @@ export function LiveIndicator() {
       className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded border border-border"
       role="status"
       aria-label={statusLabel}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <div className={cn('w-2 h-2 rounded-full', dotClass)} aria-hidden="true" />
       <span className={cn('hidden sm:inline text-xs font-medium', labelClass)} aria-hidden="true">LIVE</span>
+    </div>
+  );
+}
+
+/**
+ * App-drawn minimize/maximize-or-restore/close buttons for the custom title
+ * bar. Renders `null` unless `window.hyveon?.window` is present AND the
+ * platform is Linux — macOS keeps native traffic lights and Windows keeps
+ * the native `titleBarOverlay`, so this component draws nothing there (the
+ * `BrowserWindow` chrome itself, not this component, reserves layout space
+ * for those OS-drawn controls).
+ */
+function WindowControls() {
+  const windowApi = window.hyveon?.window;
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!windowApi) return;
+    // A live `onMaximizedChange` push always wins over the initial
+    // `isMaximized()` seed — if the seed's IPC round-trip resolves after a
+    // real change event (e.g. the window is maximized the instant this
+    // mounts), applying it unconditionally would clobber the newer state
+    // back to stale.
+    let receivedLiveUpdate = false;
+    windowApi
+      .isMaximized()
+      .then((maximized) => {
+        if (!receivedLiveUpdate) setIsMaximized(maximized);
+      })
+      .catch(() => undefined);
+    const unsubscribe = windowApi.onMaximizedChange((maximized) => {
+      receivedLiveUpdate = true;
+      setIsMaximized(maximized);
+    });
+    return unsubscribe;
+  }, [windowApi]);
+
+  if (!windowApi || windowApi.platform !== 'linux') return null;
+
+  return (
+    <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+      <button
+        type="button"
+        onClick={() => void windowApi.minimize()}
+        aria-label="Minimize"
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      >
+        <Minus className="w-4 h-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => void windowApi.toggleMaximize()}
+        aria-label={isMaximized ? 'Restore' : 'Maximize'}
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      >
+        <Square className="w-3.5 h-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => void windowApi.close()}
+        aria-label="Close"
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+      >
+        <X className="w-4 h-4" aria-hidden="true" />
+      </button>
     </div>
   );
 }

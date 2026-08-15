@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -246,5 +246,259 @@ describe('AppLayout — mobile navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     await user.click(within(document.getElementById('mobile-nav')!).getByRole('link', { name: 'Logs' }));
     expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
+  });
+});
+
+// jsdom has no IDL binding for `-webkit-app-region` — it's an Electron/Chromium-only
+// CSS property, not part of the standard set jsdom's CSSStyleDeclaration recognizes.
+// React sets non-custom style properties via plain assignment (`style.WebkitAppRegion
+// = value`); on real Chromium that reaches the underlying CSSOM store because Chromium
+// implements an IDL accessor for it, but under jsdom it just becomes an inert own
+// property that `getPropertyValue('-webkit-app-region')` never sees. Patch the two
+// together for this one property so the assertions below observe what Electron's
+// Chromium renderer would actually do.
+const webkitAppRegionStore = new WeakMap<CSSStyleDeclaration, string>();
+Object.defineProperty(CSSStyleDeclaration.prototype, 'WebkitAppRegion', {
+  configurable: true,
+  get(this: CSSStyleDeclaration) {
+    return webkitAppRegionStore.get(this) ?? '';
+  },
+  set(this: CSSStyleDeclaration, value: string) {
+    webkitAppRegionStore.set(this, value);
+  },
+});
+const originalGetPropertyValue = CSSStyleDeclaration.prototype.getPropertyValue;
+CSSStyleDeclaration.prototype.getPropertyValue = function (this: CSSStyleDeclaration, property: string) {
+  if (property === '-webkit-app-region') {
+    return webkitAppRegionStore.get(this) ?? '';
+  }
+  return originalGetPropertyValue.call(this, property);
+};
+
+describe('AppLayout — window chrome (custom title bar)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should not add drag-region styling or render window controls when window.hyveon is absent', () => {
+    vi.unstubAllGlobals();
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header.style.getPropertyValue('-webkit-app-region')).not.toBe('drag');
+    expect(screen.queryByRole('button', { name: 'Minimize' })).not.toBeInTheDocument();
+  });
+
+  it('should mark the header as a drag region when window.hyveon.window is present', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header.style.getPropertyValue('-webkit-app-region')).toBe('drag');
+  });
+
+  it('should mark every interactive header child as no-drag', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    const refreshButton = screen.getByRole('button', { name: 'Refresh all' });
+    expect(refreshButton.style.getPropertyValue('-webkit-app-region')).toBe('no-drag');
+  });
+
+  it('should render Linux minimize/maximize/close buttons when platform is linux', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('should not render any window-control buttons when platform is darwin', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'darwin',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Minimize' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+  });
+
+  it('should not render any window-control buttons when platform is win32', () => {
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'win32',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Minimize' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+  });
+
+  it('should call window.hyveon.window.minimize() when the Minimize button is clicked', async () => {
+    const minimize = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize,
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Minimize' }));
+    expect(minimize).toHaveBeenCalledOnce();
+  });
+
+  it('should call window.hyveon.window.close() when the Close button is clicked', async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close,
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn().mockReturnValue(vi.fn()),
+      },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('should swap the maximize button to a restore icon when onMaximizedChange reports true', async () => {
+    let fireMaximizedChange: (isMaximized: boolean) => void = () => undefined;
+    vi.stubGlobal('hyveon', {
+      window: {
+        platform: 'linux',
+        minimize: vi.fn().mockResolvedValue(undefined),
+        toggleMaximize: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onMaximizedChange: vi.fn((cb: (isMaximized: boolean) => void) => {
+          fireMaximizedChange = cb;
+          return vi.fn();
+        }),
+      },
+    });
+
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
+
+    await act(async () => {
+      fireMaximizedChange(true);
+    });
+
+    expect(screen.queryByRole('button', { name: 'Maximize' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
   });
 });
