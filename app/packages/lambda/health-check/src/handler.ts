@@ -16,7 +16,7 @@
  */
 import { ECSClient, DescribeTasksCommand, type Task } from '@aws-sdk/client-ecs';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import type { GameServerHealthCheck } from '@hyveon/shared';
+import type { GameServerHealthCheck, GameServerHealthCheckAuth } from '@hyveon/shared';
 import { evaluateHealthCheck, type HealthCheckVerdict } from './engine.js';
 
 /** Invocation payload the watchdog sends: the game whose task is being checked, the task's ARN, and its declared health check. */
@@ -84,8 +84,8 @@ async function resolveTaskHost(taskArn: string): Promise<string> {
   return host;
 }
 
-/** Resolves the declared credential's raw value, or `undefined` when the health check declares no `auth`. */
-async function resolveAuthValue(healthCheck: GameServerHealthCheck): Promise<string | undefined> {
+/** Resolves the declared credential's raw secret string, or `undefined` when the health check declares no `auth`. */
+async function resolveAuthSecretValue(healthCheck: GameServerHealthCheck): Promise<string | undefined> {
   if (!healthCheck.auth) {
     return undefined;
   }
@@ -97,20 +97,60 @@ async function resolveAuthValue(healthCheck: GameServerHealthCheck): Promise<str
 }
 
 /**
- * Merges the declared headers with the resolved credential. The injected
- * `Authorization` header always takes precedence over an operator-supplied
- * one of the same name, so a working credential can't be silently
- * overridden by a stray declared header.
+ * Builds the `Authorization` header value for a resolved secret, branching
+ * on `auth.type` (absent or `'raw'` injects `secretValue` verbatim, no
+ * prefix — unchanged from before `type` existed). Throws for a `basic`
+ * credential whose secret isn't valid `{ username, password }` JSON — the
+ * caller's existing top-level try/catch turns that into the same fail-active
+ * verdict as any other resolve failure.
+ *
+ * @param auth - The health check's credential declaration.
+ * @param secretValue - The raw string fetched from Secrets Manager for `auth.secretArn`.
+ * @throws {Error} When `auth.type === 'basic'` and `secretValue` isn't valid `{ username, password }` JSON.
  */
-function buildHeaders(healthCheck: GameServerHealthCheck, authValue: string | undefined): Record<string, string> {
+function buildAuthorizationHeader(auth: GameServerHealthCheckAuth, secretValue: string): string {
+  const type = auth.type ?? 'raw';
+  if (type === 'raw') {
+    return secretValue;
+  }
+  if (type === 'bearer') {
+    return `Bearer ${secretValue}`;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(secretValue);
+  } catch {
+    throw new Error('basic credential secret is not valid JSON');
+  }
+  const record = parsed as Record<string, unknown> | null;
+  if (
+    typeof record !== 'object' ||
+    record === null ||
+    typeof record['username'] !== 'string' ||
+    typeof record['password'] !== 'string'
+  ) {
+    throw new Error('basic credential secret is not a { username, password } object');
+  }
+  const encoded = Buffer.from(`${record['username']}:${record['password']}`, 'utf8').toString('base64');
+  return `Basic ${encoded}`;
+}
+
+/**
+ * Merges the declared headers with the resolved, type-branched credential.
+ * The injected `Authorization` header always takes precedence over an
+ * operator-supplied one of the same name, so a working credential can't be
+ * silently overridden by a stray declared header.
+ */
+function buildHeaders(healthCheck: GameServerHealthCheck, authorizationValue: string | undefined): Record<string, string> {
   const headers = { ...(healthCheck.headers ?? {}) };
-  if (authValue !== undefined) {
+  if (authorizationValue !== undefined) {
     for (const key of Object.keys(headers)) {
       if (key.toLowerCase() === 'authorization') {
         delete headers[key];
       }
     }
-    headers['Authorization'] = authValue;
+    headers['Authorization'] = authorizationValue;
   }
   return headers;
 }
@@ -132,8 +172,10 @@ export const handler = async (event: HealthCheckEvent): Promise<HealthCheckVerdi
   log('debug', 'health check invoked', { game, kind: healthCheck.kind, port: healthCheck.port });
 
   try {
-    const [host, authValue] = await Promise.all([resolveTaskHost(taskArn), resolveAuthValue(healthCheck)]);
-    const headers = buildHeaders(healthCheck, authValue);
+    const [host, secretValue] = await Promise.all([resolveTaskHost(taskArn), resolveAuthSecretValue(healthCheck)]);
+    const authorizationValue =
+      secretValue !== undefined && healthCheck.auth ? buildAuthorizationHeader(healthCheck.auth, secretValue) : undefined;
+    const headers = buildHeaders(healthCheck, authorizationValue);
     const url = `${healthCheck.scheme}://${host}:${healthCheck.port}${healthCheck.path}`;
 
     const response = await fetch(url, {
