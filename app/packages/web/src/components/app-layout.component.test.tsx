@@ -82,7 +82,25 @@ describe('AppLayout — skip link and nav landmarks', () => {
     expect(skipLink).toHaveAttribute('href', '#main');
   });
 
-  it('should mark the active route link with aria-current="page"', () => {
+  it('should render a Logs group with Game Logs and Infra Logs child links', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    // `getByText` (unlike `getByRole`) doesn't respect `aria-hidden`, so the
+    // "Logs" group heading — rendered by both the desktop sidebar and the
+    // (aria-hidden, closed) mobile drawer — must be scoped to the visible
+    // Monitoring list to avoid matching both copies.
+    const monitoring = within(screen.getByRole('list', { name: 'Monitoring' }));
+    expect(monitoring.getByText('Logs')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Game Logs' })).toHaveAttribute('href', '/logs');
+    expect(screen.getByRole('link', { name: 'Infra Logs' })).toHaveAttribute('href', '/logs/infrastructure');
+  });
+
+  it('should mark only the Game Logs child link active on /logs', () => {
     render(
       <PollingProvider>
         <MemoryRouter initialEntries={['/logs']}>
@@ -90,9 +108,20 @@ describe('AppLayout — skip link and nav landmarks', () => {
         </MemoryRouter>
       </PollingProvider>,
     );
+    expect(screen.getByRole('link', { name: 'Game Logs' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Infra Logs' })).not.toHaveAttribute('aria-current');
+  });
 
-    expect(screen.getByRole('link', { name: 'Logs' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
+  it('should mark only the Infra Logs child link active on /logs/infrastructure', () => {
+    render(
+      <PollingProvider>
+        <MemoryRouter initialEntries={['/logs/infrastructure']}>
+          <AppLayout>content</AppLayout>
+        </MemoryRouter>
+      </PollingProvider>,
+    );
+    expect(screen.getByRole('link', { name: 'Infra Logs' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Game Logs' })).not.toHaveAttribute('aria-current');
   });
 
   it('should render an Audit nav link and highlight it on /audit', () => {
@@ -244,7 +273,12 @@ describe('AppLayout — mobile navigation', () => {
       </PollingProvider>,
     );
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
-    await user.click(within(document.getElementById('mobile-nav')!).getByRole('link', { name: 'Logs' }));
+    // Scoped to the mobile drawer's Monitoring list: with the drawer open, both
+    // the desktop sidebar and the mobile drawer render a "Monitoring" list (and
+    // its "Game Logs" child) in the accessible tree at once, so an unscoped
+    // query would match more than one element.
+    const mobileMonitoring = within(within(document.getElementById('mobile-nav')!).getByRole('list', { name: 'Monitoring' }));
+    await user.click(mobileMonitoring.getByRole('link', { name: 'Game Logs' }));
     expect(screen.queryByRole('button', { name: 'Close navigation' })).not.toBeInTheDocument();
   });
 });

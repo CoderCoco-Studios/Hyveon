@@ -518,9 +518,15 @@ Commit the regenerated binaries alongside the SVG change.
 ## 6. (Optional) Wire up the Discord bot
 
 The serverless bot is two Lambdas, one DynamoDB table (Discord config/state),
-and two Secrets Manager secrets — all created by the apply in
-[step 4](#4-plan-and-apply-the-infrastructure). You now connect it to a
-Discord application.
+and two Secrets Manager secrets (bot token, public key) — all created by the
+apply in [step 4](#4-plan-and-apply-the-infrastructure). You now connect it
+to a Discord application.
+
+> **A game with a `basic`/`bearer` health-check credential adds one more
+> Secrets Manager secret per game**, created outside this apply by the
+> desktop app itself the first time you save that credential — see
+> [Games](/app/games#health-check-optional). It isn't part of the count
+> above and isn't provisioned or destroyed by the infra program.
 
 > **Two more DynamoDB tables are created unconditionally** in the same
 > apply — neither is part of the Discord bot and neither requires any of
@@ -608,9 +614,16 @@ use the **Destroy infrastructure** panel at the bottom of the page — type
 `destroy infrastructure` to confirm. See [Destroy](/app/iac#destroy) for the
 full confirmation flow.
 
-The two Secrets Manager secrets use a zero-day recovery window, so they are
-deleted immediately — you can apply again tomorrow without hitting "already
-scheduled for deletion".
+The two Discord-bot Secrets Manager secrets (bot token, public key) use a
+zero-day recovery window, so they are deleted immediately — you can apply
+again tomorrow without hitting "already scheduled for deletion". Any
+app-owned health-check credential secrets (`hyveon-{game}-healthcheck-auth`
+— see [Games](/app/games#health-check-optional)) are **not** part of this:
+they're created and deleted by the desktop app's write path, not by the
+Pulumi program, so Destroy leaves them untouched. They use Secrets Manager's
+default (non-zero) recovery window and are deleted only when their
+credential is cleared, its type changes away from `basic`/`bearer`, or the
+owning game is removed.
 
 ## Troubleshooting
 

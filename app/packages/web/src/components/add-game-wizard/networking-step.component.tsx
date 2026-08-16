@@ -47,6 +47,14 @@ const HEALTH_CHECK_METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'HEAD'] as c
 /** `healthCheck.activeWhen.operator` options. */
 const HEALTH_CHECK_OPERATOR_OPTIONS = ['equals', 'notEquals', 'greaterThan', 'lessThan', 'contains', 'exists'] as const;
 
+/** `healthCheck.authType` options. */
+const HEALTH_CHECK_AUTH_TYPE_OPTIONS: { value: WizardDraftHealthCheck['authType']; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'raw', label: 'Raw ARN' },
+  { value: 'basic', label: 'Basic' },
+  { value: 'bearer', label: 'Bearer' },
+];
+
 /** Props for {@link NetworkingStep}. */
 export interface NetworkingStepProps {
   /** Current draft port rows. */
@@ -404,19 +412,125 @@ export function NetworkingStep({
               </p>
             )}
 
-            <div>
-              <Label htmlFor="health-check-secret">
-                Credential (Secrets Manager ARN){healthCheck.secretSet ? ' — a credential is already set' : ''}
-              </Label>
-              <Input
-                id="health-check-secret"
-                value={healthCheck.secretArn}
-                aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.secretArn'))}
-                placeholder={
-                  healthCheck.secretSet ? 'Leave blank to keep the existing credential' : 'arn:aws:secretsmanager:...'
-                }
-                onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
-              />
+            <div className="space-y-3 border-t border-[var(--color-border)] pt-3">
+              <div className="w-40">
+                <Label htmlFor="health-check-auth-type">Credential type</Label>
+                <select
+                  id="health-check-auth-type"
+                  value={healthCheck.authType}
+                  onChange={(event) =>
+                    onHealthCheckChange({ authType: event.target.value as WizardDraftHealthCheck['authType'] })
+                  }
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
+                >
+                  {HEALTH_CHECK_AUTH_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {healthCheck.secretSet && (
+                <p className="text-xs text-[var(--color-muted-foreground)]">A credential is already set.</p>
+              )}
+
+              {healthCheck.authType === 'raw' && (
+                <div>
+                  <Label htmlFor="health-check-secret-arn">Secrets Manager ARN</Label>
+                  <Input
+                    id="health-check-secret-arn"
+                    value={healthCheck.secretArn}
+                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.secretArn'))}
+                    aria-describedby={
+                      messageFor(issues, 'healthCheck.auth.secretArn') ? 'health-check-secret-arn-error' : undefined
+                    }
+                    placeholder={
+                      healthCheck.secretSet ? 'Leave blank to keep the existing credential' : 'arn:aws:secretsmanager:...'
+                    }
+                    onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
+                  />
+                  {messageFor(issues, 'healthCheck.auth.secretArn') && (
+                    <p id="health-check-secret-arn-error" role="alert" className="text-xs text-[var(--color-red)]">
+                      {messageFor(issues, 'healthCheck.auth.secretArn')}
+                    </p>
+                  )}
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    You manage this secret&apos;s lifecycle yourself — the app only reads its value.
+                  </p>
+                </div>
+              )}
+
+              {healthCheck.authType === 'basic' && (
+                <div className="flex flex-wrap gap-3">
+                  <div className="flex-1">
+                    <Label htmlFor="health-check-username">Username</Label>
+                    <Input
+                      id="health-check-username"
+                      value={healthCheck.username}
+                      aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.username'))}
+                      aria-describedby={
+                        messageFor(issues, 'healthCheck.auth.username') ? 'health-check-username-error' : undefined
+                      }
+                      placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                      onChange={(event) => onHealthCheckChange({ username: event.target.value })}
+                    />
+                    {messageFor(issues, 'healthCheck.auth.username') && (
+                      <p id="health-check-username-error" role="alert" className="text-xs text-[var(--color-red)]">
+                        {messageFor(issues, 'healthCheck.auth.username')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <Label htmlFor="health-check-password">Password</Label>
+                    <Input
+                      id="health-check-password"
+                      type="password"
+                      value={healthCheck.password}
+                      aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.password'))}
+                      aria-describedby={
+                        messageFor(issues, 'healthCheck.auth.password') ? 'health-check-password-error' : undefined
+                      }
+                      placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                      onChange={(event) => onHealthCheckChange({ password: event.target.value })}
+                    />
+                    {messageFor(issues, 'healthCheck.auth.password') && (
+                      <p id="health-check-password-error" role="alert" className="text-xs text-[var(--color-red)]">
+                        {messageFor(issues, 'healthCheck.auth.password')}
+                      </p>
+                    )}
+                  </div>
+                  <p className="w-full text-xs text-[var(--color-muted-foreground)]">
+                    The app stores this as a Secrets Manager secret it creates and manages for you.
+                  </p>
+                </div>
+              )}
+
+              {healthCheck.authType === 'bearer' && (
+                <div>
+                  <Label htmlFor="health-check-token">Token</Label>
+                  <Input
+                    id="health-check-token"
+                    type="password"
+                    value={healthCheck.token}
+                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.token'))}
+                    aria-describedby={
+                      messageFor(issues, 'healthCheck.auth.token') ? 'health-check-token-error' : undefined
+                    }
+                    placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                    onChange={(event) => onHealthCheckChange({ token: event.target.value })}
+                  />
+                  {messageFor(issues, 'healthCheck.auth.token') && (
+                    <p id="health-check-token-error" role="alert" className="text-xs text-[var(--color-red)]">
+                      {messageFor(issues, 'healthCheck.auth.token')}
+                    </p>
+                  )}
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    The app stores this as a Secrets Manager secret it creates and manages for you.
+                  </p>
+                </div>
+              )}
+
               <p className="text-xs text-[var(--color-muted-foreground)]">
                 Injected as the request&apos;s <code>Authorization</code> header. The credential value itself never
                 appears here — only whether one is configured.

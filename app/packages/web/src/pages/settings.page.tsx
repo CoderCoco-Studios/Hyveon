@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
+import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
 import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
 import { WatchdogPanel } from '../components/watchdog-panel.component.js';
@@ -50,6 +51,22 @@ function engineVersionLabel(state: EngineVersionState): string {
 type AutoUpdateState = 'loading' | { status: 'ready'; enabled: boolean; writeError?: boolean } | 'error';
 
 /**
+ * Client-side state for the Updates section's on-demand "Check for Updates"
+ * button — independent of {@link AutoUpdateState}, since the manual check
+ * works regardless of the `enableAutoUpdate` flag's value.
+ */
+type ManualCheckState = 'idle' | 'checking' | { status: 'done'; result: ManualUpdateCheckResult };
+
+/** Renders {@link ManualCheckState} as the manual-check row's status text. */
+function manualCheckLabel(state: ManualCheckState): string | null {
+  if (state === 'idle') return null;
+  if (state === 'checking') return 'Checking for updates…';
+  const result = state.result;
+  if (!result.ok) return result.message;
+  return result.updateAvailable ? `Update available: v${result.version}` : "You're up to date.";
+}
+
+/**
  * Settings route (`/settings`) — watchdog config + the deployment-settings
  * form (`DeploymentSettingsForm`) for every top-level `DeploymentConfig`
  * field except `gameServers`.
@@ -65,6 +82,7 @@ export function SettingsPage() {
   const [reconfiguring, setReconfiguring] = useState(false);
   const [engineVersion, setEngineVersion] = useState<EngineVersionState>('loading');
   const [autoUpdate, setAutoUpdate] = useState<AutoUpdateState>('loading');
+  const [manualCheck, setManualCheck] = useState<ManualCheckState>('idle');
 
   useEffect(() => {
     // `settings` may be absent (`window.hyveon.iac.settings` unavailable) —
@@ -109,6 +127,22 @@ export function SettingsPage() {
         }
       })
       .catch(() => setAutoUpdate((prev) => (typeof prev === 'object' ? { ...prev, writeError: true } : 'error')));
+  }
+
+  /**
+   * Runs an on-demand update check via the `autoUpdateCheck` IPC bridge —
+   * independent of `enableAutoUpdate`/`autoUpdate` state above, so it works
+   * whether or not the toggle is on.
+   */
+  function handleManualCheck() {
+    setManualCheck('checking');
+    const settings = window.hyveon?.iac?.settings;
+    const check = settings ? settings.autoUpdateCheck() : Promise.reject(new Error('hyveon IPC bridge unavailable'));
+    check
+      .then((result) => setManualCheck({ status: 'done', result }))
+      .catch(() =>
+        setManualCheck({ status: 'done', result: { ok: false, message: 'Unable to reach the update service.' } }),
+      );
   }
 
   if (reconfiguring) {
@@ -185,11 +219,28 @@ export function SettingsPage() {
               type="checkbox"
               aria-label="Automatic updates"
               checked={autoUpdate !== 'loading' && autoUpdate !== 'error' && autoUpdate.enabled}
-              disabled={autoUpdate === 'loading'}
+              disabled={autoUpdate === 'loading' || autoUpdate === 'error'}
               onChange={(e) => handleAutoUpdateToggle(e.target.checked)}
               className="size-4 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
             />
           </label>
+        </div>
+
+        {/*
+          Manual check row: triggers `iac.settings.autoUpdate.check`
+          independent of the `enableAutoUpdate` toggle above — the flag only
+          gates the automatic boot-time check.
+        */}
+        <div className="mt-3 flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
+          <div>
+            <p className="text-sm font-medium">Check Now</p>
+            <p className="text-sm text-muted-foreground">
+              {manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={handleManualCheck} disabled={manualCheck === 'checking'}>
+            Check for Updates
+          </Button>
         </div>
       </div>
 

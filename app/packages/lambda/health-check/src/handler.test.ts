@@ -119,6 +119,111 @@ describe('handler', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('real-token');
   });
 
+  it('should base64-encode a well-formed basic credential as Authorization: Basic', async () => {
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ username: 'admin', password: 'hunter2' }) });
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+
+    await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'basic', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-auth-AbCdEf' },
+      }),
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const expected = `Basic ${Buffer.from('admin:hunter2', 'utf8').toString('base64')}`;
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(expected);
+  });
+
+  it('should prefix a bearer credential as Authorization: Bearer', async () => {
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'sk-abc123' });
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+
+    await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'bearer', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-auth-AbCdEf' },
+      }),
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-abc123');
+  });
+
+  it('should inject a raw credential verbatim when auth.type is explicitly "raw"', async () => {
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'super-secret-token' });
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+
+    await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'raw', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-token-AbCdEf' },
+      }),
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('super-secret-token');
+  });
+
+  it('should be fail-active when a basic credential secret is not valid JSON', async () => {
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: 'not-json' });
+
+    const verdict = await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'basic', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-auth-AbCdEf' },
+      }),
+    });
+
+    expect(verdict.active).toBe(true);
+    expect(verdict.failureDerived).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('should be fail-active when a basic credential secret is JSON but missing username/password', async () => {
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ username: 'admin' }) });
+
+    const verdict = await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'basic', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-auth-AbCdEf' },
+      }),
+    });
+
+    expect(verdict.active).toBe(true);
+    expect(verdict.failureDerived).toBe(true);
+  });
+
+  it('should never let a basic credential\'s username or password reach the logger', async () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    ecsMock.on(DescribeTasksCommand).resolves({ tasks: [runningTask('10.0.1.23')] });
+    secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ username: 'admin', password: 'hunter2' }) });
+    fetchMock.mockResolvedValue(new Response('{"players":{"online":1}}', { status: 200 }));
+
+    await handler({
+      game: 'palworld',
+      taskArn: 'task-arn',
+      healthCheck: makeHealthCheck({
+        auth: { type: 'basic', secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:palworld-auth-AbCdEf' },
+      }),
+    });
+
+    const allLoggedText = [...debugSpy.mock.calls, ...warnSpy.mock.calls].flat().join(' ');
+    expect(allLoggedText).not.toContain('hunter2');
+    expect(allLoggedText).not.toContain('admin');
+  });
+
   it('should never let a secret value reach the logger', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

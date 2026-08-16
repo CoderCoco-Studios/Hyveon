@@ -43,6 +43,7 @@ const hyveonMock = {
       engineVersion: vi.fn(),
       autoUpdateGet: vi.fn(),
       autoUpdateUpdate: vi.fn(),
+      autoUpdateCheck: vi.fn(),
     },
   },
 };
@@ -106,6 +107,7 @@ describe('SettingsPage', () => {
     hyveonMock.iac.settings.engineVersion.mockReset().mockResolvedValue({ resolvedVersion: '3.255.0' });
     hyveonMock.iac.settings.autoUpdateGet.mockReset().mockResolvedValue({ ok: true, enableAutoUpdate: false });
     hyveonMock.iac.settings.autoUpdateUpdate.mockReset();
+    hyveonMock.iac.settings.autoUpdateCheck.mockReset();
     apiMock.cloudHealthList.mockResolvedValue([{ id: 'ecs-service-linked-role', label: 'ECS service-linked role', status: 'ok' }]);
   });
 
@@ -194,6 +196,19 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('Unable to read the update setting.')).toBeInTheDocument();
     });
 
+    it('should disable the toggle and not blind-write on click when the initial read fails', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).toBeDisabled());
+
+      // A disabled checkbox ignores clicks — assert no write is attempted, since a click
+      // here would otherwise fire onChange(true) regardless of the real stored value.
+      await userEvent.click(toggle);
+      expect(hyveonMock.iac.settings.autoUpdateUpdate).not.toHaveBeenCalled();
+    });
+
     it('should call autoUpdateUpdate with true and reflect the new checked state on toggle', async () => {
       hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
       hyveonMock.iac.settings.autoUpdateUpdate.mockResolvedValue({ ok: true, enableAutoUpdate: true });
@@ -236,6 +251,68 @@ describe('SettingsPage', () => {
 
       await waitFor(() => expect(toggle).toBeChecked());
       expect(screen.queryByText('Failed to save — still showing the last saved value.')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Updates — Check for Updates button', () => {
+    it('should show a loading message while the check is in flight', async () => {
+      let resolveCheck!: (result: { ok: true; updateAvailable: false }) => void;
+      hyveonMock.iac.settings.autoUpdateCheck.mockReturnValue(new Promise((resolve) => (resolveCheck = resolve)));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText('Checking for updates…')).toBeInTheDocument();
+      resolveCheck({ ok: true, updateAvailable: false });
+    });
+
+    it('should report up to date when no update is available', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    });
+
+    it('should report the version when an update is available', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: true, version: '1.2.3' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText('Update available: v1.2.3')).toBeInTheDocument();
+    });
+
+    it('should render the error message when the check fails', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: false, message: 'feed unreachable' });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText('feed unreachable')).toBeInTheDocument();
+    });
+
+    it('should render a fallback message when the IPC call rejects', async () => {
+      hyveonMock.iac.settings.autoUpdateCheck.mockRejectedValue(new Error('IPC unavailable'));
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(await screen.findByText('Unable to reach the update service.')).toBeInTheDocument();
+    });
+
+    it('should work regardless of the enableAutoUpdate toggle value', async () => {
+      hyveonMock.iac.settings.autoUpdateGet.mockResolvedValue({ ok: true, enableAutoUpdate: false });
+      hyveonMock.iac.settings.autoUpdateCheck.mockResolvedValue({ ok: true, updateAvailable: false });
+      renderPage(<SettingsPage />, { initialEntries: ['/settings'] });
+
+      const toggle = await screen.findByLabelText('Automatic updates');
+      await waitFor(() => expect(toggle).not.toBeChecked());
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }));
+
+      expect(hyveonMock.iac.settings.autoUpdateCheck).toHaveBeenCalledOnce();
+      expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
     });
   });
 

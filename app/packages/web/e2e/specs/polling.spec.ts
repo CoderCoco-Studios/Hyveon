@@ -17,12 +17,12 @@ test.describe('polling indicator', () => {
 
   test('should keep the indicator visible after navigating to /logs', async ({ dashboard, layout }) => {
     // Use an empty statuses list so the GameCard's per-card Logs link doesn't
-    // collide with the sidebar's "Logs" nav link (Playwright strict mode).
+    // collide with the sidebar's "Game Logs" nav link (Playwright strict mode).
     await stubApis(dashboard.page, { statuses: [] });
     await dashboard.goto();
     await expect(dashboard.page.getByText(/updated\s+\S+\s+ago/i).first()).toBeVisible();
 
-    await layout.navigateTo('Logs', '/logs');
+    await layout.navigateTo('Game Logs', '/logs');
     await expect(dashboard.page.getByText(/updated\s+\S+\s+ago/i).first()).toBeVisible();
   });
 

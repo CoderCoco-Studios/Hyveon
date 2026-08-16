@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
 import { DiscordPage } from './pages/discord.page.js';
 import { LogsPage } from './pages/logs.page.js';
+import { InfrastructureLogsPage } from './pages/infrastructure-logs.page.js';
 import { IacPage } from './pages/iac.page.js';
 import { IacHistoryPage } from './pages/iac-history.page.js';
 import { IacRunDetailPage } from './pages/iac-run-detail.page.js';
@@ -78,6 +79,7 @@ function useWizardCompleted(): boolean | null {
  *   - `/costs` → Cost analysis placeholder
  *   - `/discord` → Discord settings placeholder
  *   - `/logs` → Logs placeholder
+ *   - `/logs/infrastructure` → Infrastructure logs (Lambda function tail)
  *   - `/iac` → Infrastructure plan/apply
  *   - `/iac/history` → Infrastructure run history
  *   - `/iac/history/:runId` → Read-only run detail
@@ -108,6 +110,7 @@ export default function App() {
               <Route path="/costs" element={<CostsPage />} />
               <Route path="/discord" element={<DiscordPage />} />
               <Route path="/logs" element={<LogsPage />} />
+              <Route path="/logs/infrastructure" element={<InfrastructureLogsPage />} />
               <Route path="/iac" element={<IacPage />} />
               <Route path="/iac/history" element={<IacHistoryPage />} />
               <Route path="/iac/history/:runId" element={<IacRunDetailPage />} />

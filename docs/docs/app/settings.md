@@ -143,7 +143,7 @@ inside the wizard.
 
 ## Updates
 
-A single row, **Automatic Updates**, with a checkbox:
+The first row, **Automatic Updates**, has a checkbox:
 
 > Check GitHub Releases for updates on app start. Applies on next app start.
 
@@ -157,11 +157,11 @@ are disabled and returns without touching the network. If it's on, it uses
 `electron-updater` to check GitHub Releases for a newer version and logs the
 result (`[updater] update available` / `no update available` / a
 failed-check error) to the same diagnostics log described below. There is no
-"check now" button and no download or install — `autoDownload` and
-`autoInstallOnAppQuit` are both explicitly pinned `false`, so an available
-update is only detected and logged, never fetched or installed
-automatically. This is v1 scaffolding for a future real auto-update flow,
-not one yet.
+download or install here — `autoDownload` and `autoInstallOnAppQuit` are both
+explicitly pinned `false`, so an available update is only detected and
+logged, never fetched or installed automatically. This is v1 scaffolding for
+a future real auto-update flow, not one yet. (See [Check Now](#check-now)
+below for the on-demand equivalent this toggle does *not* control.)
 
 Two consequences worth calling out explicitly:
 
@@ -173,13 +173,40 @@ Two consequences worth calling out explicitly:
   ships, updating still means downloading and running the new installer
   yourself.
 
-Toggling shows one of three states while in flight: `Checking update
-setting…` while the initial read is pending, `Unable to read the update
-setting.` if the IPC read/write itself failed, or the description above once
-a value is known. The checkbox only updates after a write resolves — there's
-no optimistic flip — but a *failed* write drops into the error state
-entirely, showing an unchecked box and the error text rather than reverting
-to whatever was checked before.
+Toggling shows one of three states: `Checking update setting…` while the
+initial read is pending, `Unable to read the update setting.` if that
+initial read failed, or the description above once a value is known. The
+checkbox only updates after a write resolves — there's no optimistic flip.
+A *failed* write does not drop into the no-value error state or revert the
+checkbox — it keeps showing the last confirmed value and displays `Failed
+to save — still showing the last saved value.` inline instead.
+
+### Check Now
+
+A second row, **Check Now**, sits directly below the toggle with its own
+**Check for Updates** button. It runs a one-off `electron-updater` check via
+`checkForUpdatesNow()`, completely independent of the **Automatic Updates**
+toggle above — the toggle only gates `initUpdater()`'s automatic check at
+boot; pressing this button works the same whether the toggle is on or off.
+
+Same restriction as the automatic check: it never downloads or installs
+anything (`autoDownload` and `autoInstallOnAppQuit` stay pinned `false`) — it
+only reports what it found, inline in place of the row's description text:
+
+| State | Copy |
+|---|---|
+| Check in flight | `Checking for updates…` |
+| Up to date | `You're up to date.` |
+| Newer version found | `Update available: v<version>` |
+| Check failed | The raw error message (e.g. offline, a malformed feed) |
+
+Outside a real Electron main process — no `process.versions.electron`, e.g.
+the plain-Node integration test harness — the button still works but always
+reports `Update checks are only available in the packaged app.` rather than
+attempting a network call. This is not the same check as "packaged vs.
+`npm run desktop:dev`": a dev-mode Electron session still has
+`process.versions.electron` set, so it does attempt a real check. The button
+disables itself only while a check is in flight.
 
 ## General
 
@@ -299,8 +326,8 @@ that directory yourself.
 
 The panel polls for new lines every five seconds regardless of anything
 below — pause, level filters, and search only change what's rendered from
-that poll, never whether it happens. There are still no copy, open-folder,
-or export buttons; the path itself is selectable text. Each line shows a
+that poll, never whether it happens. There is still no copy or open-folder
+button for the path itself; it remains selectable text. Each line shows a
 small level badge (`INFO`/`WARN`/`ERROR`/`DEBUG`) to its left when a level
 is detected, matching what the Levels filter below acts on.
 
@@ -361,3 +388,46 @@ currently hidden (if any), and whether the view is paused, e.g. `214 lines ·
 
 A brand-new install shows the empty state rather than an error, because the
 log file does not exist until the first write.
+
+### Export diagnostics bundle
+
+The **Export diagnostics bundle** button produces a single `.zip` file
+containing enough information to hand to support (the project maintainers)
+without you having to copy-paste anything yourself.
+
+Clicking it opens a native save dialog — you choose where the file goes, on
+your own disk. Nothing is uploaded anywhere; this app has no Hyveon-owned
+backend to upload to, by design. Cancelling the dialog does nothing further:
+no file is written, and no error is shown.
+
+The bundle contains four sections, gathered independently so a failure in
+one never blocks the others:
+
+- **Logs** — the same recent log content the live tail above reads, passed
+  through a secret-scrubbing pass before being written into the archive.
+- **Config summary** — an explicit allowlist of non-secret deployment
+  settings (project name, region, watchdog tuning, table names, and a
+  resource-sizing/feature-flag summary per declared game). Credential-shaped
+  fields are never included, and a field added to the configuration after
+  this feature shipped is excluded by default until it is deliberately
+  added to the allowlist.
+- **Metadata** — app version, Electron and Node runtime versions, OS
+  platform and version, and the current Automatic Updates setting.
+- **AWS snapshot** — a best-effort read of the same resource-status
+  information already surfaced elsewhere in the app (deployed stack
+  identity and per-game ECS status). This section may be missing or
+  incomplete if AWS credentials aren't configured or a call fails — that's
+  expected, not a bug.
+
+Any section that fails to gather is recorded — by section name and a
+short, human-readable message only, never a raw error or stack trace — in
+an `errors.json` file inside the bundle, and the export still completes
+with whatever other sections succeeded. Even a bundle where every section
+failed is still a valid export: it contains `errors.json` describing all
+four failures.
+
+On success, the panel shows the path the bundle was written to and a **Show
+in folder** action that reveals it in your OS's file manager. If writing the
+completed archive to disk fails (disk full, permission denied), the panel
+shows an error message instead — no partial, half-written `.zip` is left
+behind at that path.

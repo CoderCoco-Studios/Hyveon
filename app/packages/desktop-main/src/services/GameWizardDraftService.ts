@@ -163,7 +163,19 @@ function isWizardDraftHealthCheck(value: unknown): value is NonNullable<GameWiza
     typeof candidate.jsonPath === 'string' &&
     typeof candidate.operator === 'string' &&
     typeof candidate.value === 'string' &&
+    // `authType`/`username`/`password`/`token` were added after this draft
+    // slot shipped its first cut of healthCheck — a draft autosaved before
+    // then has `secretArn`/`secretSet` but none of these, and that must
+    // still be treated as valid rather than discarding the whole draft.
+    (candidate.authType === undefined ||
+      candidate.authType === 'none' ||
+      candidate.authType === 'raw' ||
+      candidate.authType === 'basic' ||
+      candidate.authType === 'bearer') &&
     typeof candidate.secretArn === 'string' &&
+    (candidate.username === undefined || typeof candidate.username === 'string') &&
+    (candidate.password === undefined || typeof candidate.password === 'string') &&
+    (candidate.token === undefined || typeof candidate.token === 'string') &&
     typeof candidate.secretSet === 'boolean'
   );
 }
@@ -237,14 +249,38 @@ const DEFAULT_HEALTH_CHECK_DRAFT: NonNullable<GameWizardDraft['healthCheck']> = 
   jsonPath: '',
   operator: 'equals',
   value: '',
+  authType: 'none',
   secretArn: '',
+  username: '',
+  password: '',
+  token: '',
   secretSet: false,
 };
 
-/** Fills in a missing `healthCheck` on a draft autosaved before that field existed, with {@link DEFAULT_HEALTH_CHECK_DRAFT}. */
+/**
+ * Fills in a missing `healthCheck` on a draft autosaved before that field
+ * existed, with {@link DEFAULT_HEALTH_CHECK_DRAFT}. Also backfills
+ * `authType`/`username`/`password`/`token` on a draft that has a
+ * `healthCheck` from before those fields existed (only `secretArn`/`secretSet`
+ * present): `authType` becomes `'raw'` when `secretSet` is true (an
+ * already-configured credential, necessarily `raw` — `basic`/`bearer` did
+ * not exist yet when such a draft was autosaved) or `'none'` otherwise.
+ */
 function backfillHealthCheck(stored: StoredGameWizardDraft): StoredGameWizardDraft {
-  if (stored.draft.healthCheck) return stored;
-  return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
+  if (!stored.draft.healthCheck) {
+    return { ...stored, draft: { ...stored.draft, healthCheck: DEFAULT_HEALTH_CHECK_DRAFT } };
+  }
+  const hc = stored.draft.healthCheck;
+  if (hc.authType !== undefined) {
+    return stored;
+  }
+  return {
+    ...stored,
+    draft: {
+      ...stored.draft,
+      healthCheck: { ...hc, authType: hc.secretSet ? 'raw' : 'none', username: '', password: '', token: '' },
+    },
+  };
 }
 
 /**
@@ -274,7 +310,13 @@ function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraf
       ...stored.draft,
       file_seeds: stored.draft.file_seeds.map((seed) => ({ ...seed, content: '', content_base64: '' })),
       environment: stored.draft.environment.map((variable) => ({ ...variable, value: '' })),
-      healthCheck: { ...(stored.draft.healthCheck ?? DEFAULT_HEALTH_CHECK_DRAFT), secretArn: '' },
+      healthCheck: {
+        ...(stored.draft.healthCheck ?? DEFAULT_HEALTH_CHECK_DRAFT),
+        secretArn: '',
+        username: '',
+        password: '',
+        token: '',
+      },
     },
   };
 }

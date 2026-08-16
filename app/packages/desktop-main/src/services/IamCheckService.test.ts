@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mockClient } from 'aws-sdk-client-mock';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
+import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 
 vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -456,6 +457,28 @@ describe('IamCheckService', () => {
       expect(result.status).toBe('missing');
       expect(result.origin).toBe('none');
       expect(result.blocking).toBe(false);
+    });
+  });
+
+  describe('health-check credential lifecycle IAM coverage', () => {
+    it('should already cover secretsmanager:CreateSecret/PutSecretValue/DeleteSecret via the secretsmanager:* wildcard', () => {
+      // The app-owned health-check credential lifecycle (GamesWriteService,
+      // via secretsStore.ts's upsertHealthCheckAuthSecret/deleteHealthCheckAuthSecret)
+      // calls CreateSecret, PutSecretValue, and DeleteSecret. This asserts the
+      // deploy policy's action set already grants coverage for all three, so a
+      // future narrowing of the `secretsmanager:*` wildcard in `iamPolicy.ts`
+      // fails this test instead of silently breaking the feature for
+      // already-deployed accounts (see design.md's D6).
+      expect(HYVEON_DEPLOY_ALL_ACTIONS).toContain('secretsmanager:*');
+
+      // Simulate the actual per-action grant the way IamCheckService itself
+      // would evaluate it: a `secretsmanager:*` entry in the granted action
+      // set covers any `secretsmanager:<Verb>` action.
+      const wildcardGranted = HYVEON_DEPLOY_ALL_ACTIONS.some((action) => action === 'secretsmanager:*');
+      for (const action of ['secretsmanager:CreateSecret', 'secretsmanager:PutSecretValue', 'secretsmanager:DeleteSecret']) {
+        const explicitlyGranted = HYVEON_DEPLOY_ALL_ACTIONS.includes(action);
+        expect(wildcardGranted || explicitlyGranted).toBe(true);
+      }
     });
   });
 });

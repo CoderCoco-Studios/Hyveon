@@ -178,7 +178,7 @@ test.describe('dashboard', () => {
     await applyHyveonMocks(win, { statuses: [] });
     await dashboard.gotoElectron();
 
-    await layout.navigateTo('Logs', '/logs');
+    await layout.navigateTo('Game Logs', '/logs');
     // The /logs route is no longer a placeholder — verify the redesigned
     // page actually renders so a regression to the placeholder breaks here.
     await expect(layout.logsPageHeading()).toBeVisible();

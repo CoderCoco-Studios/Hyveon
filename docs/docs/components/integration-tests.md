@@ -273,6 +273,17 @@ mock resets — and differ only in which files they collect and the environment
 those files run under: `web` collects `packages/web/**/*.test.{ts,tsx}` under
 jsdom, `node` collects everything else under `node`.
 
+### Hook specs
+
+- A stateful hook shared by more than one page or component (`src/hooks/*.hook.ts`)
+  gets its own co-located `*.hook.test.ts`, testing the hook in isolation via
+  `@testing-library/react`'s `renderHook`, rather than being exercised only
+  indirectly through each consumer's page/component spec. `useLogTail` (shared by
+  `LogsPage` and `InfrastructureLogsPage`) is tested this way at
+  `use-log-tail.hook.test.ts`; each page's own `*.test.tsx` then only needs to
+  cover how that page wires the hook's result into its markup, not the
+  tail/pause/level-filter/autoscroll state machine itself.
+
 ### Component specs
 
 - Live **next to the component** (`foo.component.tsx` → `foo.component.test.tsx`),
@@ -293,7 +304,7 @@ jsdom, `node` collects everything else under `node`.
 ### Routed-page specs
 
 Each routed page (`DashboardPage`, `CostsPage`, `DiscordPage`, `LogsPage`,
-`SettingsPage`, …) has a co-located `*.test.tsx` that mounts it through
+`InfrastructureLogsPage`, `SettingsPage`, …) has a co-located `*.test.tsx` that mounts it through
 `renderPage()` from `app/packages/web/src/test-utils/render-page.utils.tsx`. That
 helper wraps children in the production provider stack —
 `PollingProvider → GameStatusProvider → MemoryRouter` — so the page is exercised

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Controller, OnModuleInit } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
+import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
 import { logger } from '../logger.js';
 
@@ -51,6 +52,10 @@ export class LogsController implements OnModuleInit {
     ipcMain.removeHandler('logs.stream');
     ipcMain.handle('logs.stream', (evt, game: string) =>
       this.streamLogs(game, { evt: evt as IpcMainInvokeEvent }),
+    );
+    ipcMain.removeHandler('logs.lambda.stream');
+    ipcMain.handle('logs.lambda.stream', (evt, functionKey: LambdaFunctionKey) =>
+      this.streamLambdaLogs(functionKey, { evt: evt as IpcMainInvokeEvent }),
     );
   }
 
@@ -132,6 +137,71 @@ export class LogsController implements OnModuleInit {
       } finally {
         // Ensure the cancel listener is removed if the stream ended on its own
         // so it doesn't linger until the next cancel message arrives.
+        ipcMain.removeAllListeners(cancelChannel);
+      }
+    })();
+
+    return { streamId };
+  }
+
+  /**
+   * Returns the most recent `limit` (default 50) log lines for one of the
+   * app's 5 Lambda functions.
+   *
+   * Reachable via the Electron IPC transport (`logs.lambda.get`).
+   */
+  @MessagePattern('logs.lambda.get')
+  async getRecentLambdaLogs(
+    @Payload() payload: { functionKey: LambdaFunctionKey; limit?: number },
+  ): Promise<{ functionKey: LambdaFunctionKey; lines: string[] }> {
+    const { functionKey, limit = 50 } = payload;
+    logger.debug('LogsController: logs.lambda.get invoked', { functionKey });
+    const lines = await this.logs.getRecentLambdaLogs(functionKey, limit);
+    return { functionKey, lines };
+  }
+
+  /**
+   * Opens a live log stream for `functionKey` and returns an opaque
+   * `streamId` immediately, following {@link streamLogs}'s exact shape
+   * (its own `AbortController`, per-stream chunk/end/cancel side channels)
+   * but delegating to {@link LogsService.streamLambdaLogs} instead. Uses a
+   * distinct `logs.lambda.stream.<id>.*` channel namespace so it can never
+   * collide with `logs.stream.<id>.*`.
+   *
+   * Reachable via the Electron IPC transport (`logs.lambda.stream`).
+   */
+  @MessagePattern('logs.lambda.stream')
+  async streamLambdaLogs(
+    @Payload() functionKey: LambdaFunctionKey,
+    ctx: { evt: IpcMainInvokeEvent },
+  ): Promise<{ streamId: string }> {
+    logger.debug('LogsController: logs.lambda.stream invoked', { functionKey });
+    const streamId = randomUUID();
+    const ac = new AbortController();
+    const sender: WebContents = ctx.evt.sender;
+    const chunkChannel = `logs.lambda.stream.${streamId}.chunk`;
+    const endChannel = `logs.lambda.stream.${streamId}.end`;
+    const cancelChannel = `logs.lambda.stream.${streamId}.cancel`;
+
+    const { ipcMain } = await import('electron') as unknown as { ipcMain: IpcMain };
+    ipcMain.once(cancelChannel, () => { ac.abort(); });
+
+    void (async () => {
+      try {
+        for await (const line of this.logs.streamLambdaLogs(functionKey, ac.signal)) {
+          if (sender.isDestroyed()) { ac.abort(); break; }
+          sender.send(chunkChannel, line);
+        }
+        if (!sender.isDestroyed()) sender.send(endChannel, {});
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          if (!sender.isDestroyed()) sender.send(endChannel, {});
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error('Lambda log stream error', { message, functionKey, streamId });
+          if (!sender.isDestroyed()) sender.send(endChannel, { error: String(err) });
+        }
+      } finally {
         ipcMain.removeAllListeners(cancelChannel);
       }
     })();

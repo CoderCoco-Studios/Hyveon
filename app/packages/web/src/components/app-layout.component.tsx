@@ -30,9 +30,36 @@ interface NavItem {
 
 const monitoringItems: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/logs', icon: ScrollText, label: 'Logs' },
   { to: '/costs', icon: DollarSign, label: 'Costs' },
 ];
+
+/**
+ * A sidebar nav group — a non-interactive heading with a fixed, always-visible
+ * set of child links. Unlike top-level {@link NavItem}s, a group has no `to`
+ * of its own and never collapses; every child is rendered.
+ */
+interface NavGroup {
+  label: string;
+  icon: typeof ScrollText;
+  children: NavItem[];
+}
+
+/**
+ * The nested `Logs` sidebar entry — replaces the old flat `/logs` link with a
+ * `Game Logs` (`/logs`) and `Infra Logs` (`/logs/infrastructure`) child pair,
+ * both always visible under the `Monitoring` section. The child labels are
+ * `Game Logs`/`Infra Logs` rather than plain `Games`/`Infrastructure` so they
+ * don't collide in accessible name with the top-level Configuration links
+ * `Games` (`/games`) and `Infrastructure` (`/iac`).
+ */
+const logsGroup: NavGroup = {
+  label: 'Logs',
+  icon: ScrollText,
+  children: [
+    { to: '/logs', icon: ScrollText, label: 'Game Logs' },
+    { to: '/logs/infrastructure', icon: ScrollText, label: 'Infra Logs' },
+  ],
+};
 
 const configItems: NavItem[] = [
   { to: '/games', icon: Gamepad2, label: 'Games' },
@@ -68,11 +95,33 @@ function NavSections({
           Monitoring
         </p>
         <ul aria-labelledby={`${prefix}-nav-monitoring`} className="space-y-1 list-none">
-          {monitoringItems.map((item) => (
-            <li key={item.to + item.label}>
-              <NavLink item={item} active={currentPath === item.to || currentPath.startsWith(`${item.to}/`)} onNavigate={onNavigate} />
-            </li>
-          ))}
+          <li key="dashboard">
+            <NavLink
+              item={monitoringItems[0]}
+              active={currentPath === monitoringItems[0].to || currentPath.startsWith(`${monitoringItems[0].to}/`)}
+              onNavigate={onNavigate}
+            />
+          </li>
+          <li key="logs-group">
+            <p className="px-3 pt-1 pb-1 text-sm font-medium text-muted-foreground flex items-center gap-3">
+              <logsGroup.icon className="w-4 h-4" aria-hidden="true" />
+              {logsGroup.label}
+            </p>
+            <ul className="ml-4 space-y-1 list-none border-l border-border pl-2">
+              {logsGroup.children.map((item) => (
+                <li key={item.to}>
+                  <NavLink item={item} active={currentPath === item.to} onNavigate={onNavigate} />
+                </li>
+              ))}
+            </ul>
+          </li>
+          <li key="costs">
+            <NavLink
+              item={monitoringItems[1]}
+              active={currentPath === monitoringItems[1].to || currentPath.startsWith(`${monitoringItems[1].to}/`)}
+              onNavigate={onNavigate}
+            />
+          </li>
         </ul>
       </div>
 

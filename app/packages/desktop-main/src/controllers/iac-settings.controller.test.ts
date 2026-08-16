@@ -11,6 +11,9 @@ vi.mock('../logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const { checkForUpdatesNowMock } = vi.hoisted(() => ({ checkForUpdatesNowMock: vi.fn() }));
+vi.mock('../updater.js', () => ({ checkForUpdatesNow: checkForUpdatesNowMock }));
+
 /** Default top-level settings fixture used by most tests. */
 const SETTINGS: TopLevelDeploymentSettings = {
   projectName: 'hyveon',
@@ -71,6 +74,11 @@ describe('IacSettingsController', () => {
     it('should register updateAutoUpdate on the "iac.settings.autoUpdate.update" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.updateAutoUpdate);
       expect(pattern).toEqual(['iac.settings.autoUpdate.update']);
+    });
+
+    it('should register checkAutoUpdate on the "iac.settings.autoUpdate.check" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, IacSettingsController.prototype.checkAutoUpdate);
+      expect(pattern).toEqual(['iac.settings.autoUpdate.check']);
     });
   });
 
@@ -285,6 +293,16 @@ describe('IacSettingsController', () => {
       const result = new IacSettingsController(makeDeploymentConfig()).getAutoUpdate();
       expect(result).toEqual({ ok: true, enableAutoUpdate: false });
     });
+
+    it('should return an error result without throwing when store.get throws', () => {
+      const failingStore = {
+        get: vi.fn(() => {
+          throw new Error('corrupted store file');
+        }),
+      } as Partial<ElectronStoreService> as ElectronStoreService;
+      const result = new IacSettingsController(makeDeploymentConfig(), undefined, failingStore).getAutoUpdate();
+      expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
+    });
   });
 
   describe('updateAutoUpdate', () => {
@@ -326,6 +344,25 @@ describe('IacSettingsController', () => {
       const result = controller.updateAutoUpdate({ enableAutoUpdate: 'true' });
       expect(result).toEqual({ ok: false, code: 'error', message: expect.any(String) });
       expect(store.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkAutoUpdate', () => {
+    it('should return the result of checkForUpdatesNow verbatim', async () => {
+      checkForUpdatesNowMock.mockResolvedValueOnce({ ok: true, updateAvailable: true, version: '1.2.3' });
+
+      const result = await new IacSettingsController(makeDeploymentConfig()).checkAutoUpdate();
+
+      expect(result).toEqual({ ok: true, updateAvailable: true, version: '1.2.3' });
+      expect(checkForUpdatesNowMock).toHaveBeenCalledOnce();
+    });
+
+    it('should propagate an error result from checkForUpdatesNow verbatim', async () => {
+      checkForUpdatesNowMock.mockResolvedValueOnce({ ok: false, message: 'feed unreachable' });
+
+      const result = await new IacSettingsController(makeDeploymentConfig()).checkAutoUpdate();
+
+      expect(result).toEqual({ ok: false, message: 'feed unreachable' });
     });
   });
 });

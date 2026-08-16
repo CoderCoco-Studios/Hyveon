@@ -51,6 +51,8 @@ function makeLogs(): LogsService {
   return {
     getRecentLogs: vi.fn().mockResolvedValue(['line1', 'line2']),
     streamLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
+    getRecentLambdaLogs: vi.fn().mockResolvedValue(['lambda-line1']),
+    streamLambdaLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
   } as unknown as LogsService;
 }
 
@@ -105,6 +107,16 @@ describe('LogsController', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.streamLogs);
       expect(pattern).toEqual(['logs.stream']);
     });
+
+    it('should register getRecentLambdaLogs on the "logs.lambda.get" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getRecentLambdaLogs);
+      expect(pattern).toEqual(['logs.lambda.get']);
+    });
+
+    it('should register streamLambdaLogs on the "logs.lambda.stream" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.streamLambdaLogs);
+      expect(pattern).toEqual(['logs.lambda.stream']);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -155,6 +167,16 @@ describe('LogsController', () => {
       expect(mockIpcMainRemoveHandler.mock.invocationCallOrder[0]).toBeLessThan(
         mockIpcMainHandle.mock.invocationCallOrder[0],
       );
+    });
+
+    it('should register ipcMain.handle for "logs.lambda.stream" so ipcRenderer.invoke can resolve', async () => {
+      await new LogsController(makeLogs()).onModuleInit();
+      expect(mockIpcMainHandle).toHaveBeenCalledWith('logs.lambda.stream', expect.any(Function));
+    });
+
+    it('should remove any existing "logs.lambda.stream" handler before registering', async () => {
+      await new LogsController(makeLogs()).onModuleInit();
+      expect(mockIpcMainRemoveHandler).toHaveBeenCalledWith('logs.lambda.stream');
     });
   });
 
@@ -332,6 +354,175 @@ describe('LogsController', () => {
       const { ctx, sender } = makeCtx(true);
 
       await new LogsController(logs).streamLogs('minecraft', ctx);
+      await flushPromises();
+
+      expect(sender.send).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getRecentLambdaLogs
+  // -------------------------------------------------------------------------
+
+  describe('getRecentLambdaLogs', () => {
+    it('should return the functionKey and log lines from LogsService.getRecentLambdaLogs', async () => {
+      const result = await new LogsController(makeLogs()).getRecentLambdaLogs({ functionKey: 'watchdog' });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-line1'] });
+    });
+
+    it('should default to 50 log lines when no limit is provided in the payload', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getRecentLambdaLogs({ functionKey: 'followup' });
+      expect(logs.getRecentLambdaLogs).toHaveBeenCalledWith('followup', 50);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // streamLambdaLogs
+  // -------------------------------------------------------------------------
+
+  describe('streamLambdaLogs', () => {
+    it('should return a non-empty streamId string immediately', async () => {
+      const logs = makeLogs();
+      const { ctx } = makeCtx();
+
+      const result = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      expect(result).toHaveProperty('streamId');
+      expect(typeof result.streamId).toBe('string');
+      expect(result.streamId.length).toBeGreaterThan(0);
+    });
+
+    it('should register a cancel listener on the per-stream cancel channel', async () => {
+      const logs = makeLogs();
+      const { ctx } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      expect(mockIpcMainOnce).toHaveBeenCalledWith(
+        `logs.lambda.stream.${streamId}.cancel`,
+        expect.any(Function),
+      );
+    });
+
+    it('should send each log line as a chunk to the renderer via sender.send', async () => {
+      async function* twoLines() {
+        yield 'hello';
+        yield 'world';
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(twoLines);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'hello');
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.chunk`, 'world');
+    });
+
+    it('should send an end message with no error when the generator is exhausted', async () => {
+      async function* empty() { /* no lines */ }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(empty);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.end`, {});
+    });
+
+    it('should send an end message with no error when the stream is cancelled (AbortError)', async () => {
+      async function* throwsAbort(): AsyncGenerator<string> {
+        yield 'partial';
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(throwsAbort);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      expect(sender.send).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.end`, {});
+      // The error field must NOT be present on an AbortError end message.
+      const endCall = sender.send.mock.calls.find(([ch]) => ch === `logs.lambda.stream.${streamId}.end`);
+      expect(endCall?.[1]).not.toHaveProperty('error');
+    });
+
+    it('should send an end message with an error string when the generator throws a non-abort error', async () => {
+      async function* throwsNonAbort(): AsyncGenerator<string> {
+        yield 'partial';
+        throw new Error('CloudWatch throttled');
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(throwsNonAbort);
+      const { ctx, sender } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      const endCall = sender.send.mock.calls.find(([ch]) => ch === `logs.lambda.stream.${streamId}.end`);
+      expect(endCall?.[1]).toHaveProperty('error');
+      expect(String(endCall?.[1]?.error)).toContain('CloudWatch throttled');
+    });
+
+    it('should create its own AbortController and pass the signal to LogsService.streamLambdaLogs', async () => {
+      const logs = makeLogs();
+      const { ctx } = makeCtx();
+
+      await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      expect(logs.streamLambdaLogs).toHaveBeenCalledWith('watchdog', expect.any(AbortSignal));
+    });
+
+    it('should abort the stream when the cancel IPC listener is invoked', async () => {
+      let capturedSignal: AbortSignal | null = null;
+      async function* waitForAbort(
+        _functionKey: string,
+        signal: AbortSignal,
+      ): AsyncGenerator<string> {
+        capturedSignal = signal;
+        yield 'first';
+        await new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        });
+      }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(waitForAbort);
+      const { ctx } = makeCtx();
+
+      await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+
+      const [, cancelHandler] = mockIpcMainOnce.mock.calls[0] as [string, () => void];
+      cancelHandler();
+
+      await flushPromises();
+
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    it('should remove the cancel listener after the stream ends naturally', async () => {
+      async function* empty() { /* terminates immediately */ }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(empty);
+      const { ctx } = makeCtx();
+
+      const { streamId } = await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
+      await flushPromises();
+
+      expect(mockIpcMainRemoveAllListeners).toHaveBeenCalledWith(`logs.lambda.stream.${streamId}.cancel`);
+    });
+
+    it('should not send to a destroyed WebContents', async () => {
+      async function* oneLine() { yield 'line'; }
+      const logs = makeLogs();
+      vi.mocked(logs.streamLambdaLogs).mockImplementation(oneLine);
+      const { ctx, sender } = makeCtx(true);
+
+      await new LogsController(logs).streamLambdaLogs('watchdog', ctx);
       await flushPromises();
 
       expect(sender.send).not.toHaveBeenCalled();

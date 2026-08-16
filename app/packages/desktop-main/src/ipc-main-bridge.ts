@@ -12,6 +12,9 @@ import { logger } from './logger.js';
  *   the handler needs to push follow-up chunk/end messages over side channels
  *   derived from a `streamId` it mints itself — see
  *   `app/packages/desktop-main/src/controllers/logs.controller.ts`.
+ * - `logs.lambda.stream`: bridged manually by the same `LogsController` for
+ *   the same reason as `logs.stream` — it mints its own `streamId` and pushes
+ *   chunk/end messages over `logs.lambda.stream.<id>.*` side channels.
  * - `iac.plan`: bridged manually by its controller because it streams
  *   `pulumi preview` progress over a side channel for the duration of a
  *   long-running run, the same self-bridging pattern `logs.stream` uses.
@@ -45,6 +48,7 @@ import { logger } from './logger.js';
  */
 export const SELF_BRIDGED_PATTERNS: ReadonlySet<string> = new Set([
   'logs.stream',
+  'logs.lambda.stream',
   'iac.plan',
   'iac.apply',
   'iac.destroy',
