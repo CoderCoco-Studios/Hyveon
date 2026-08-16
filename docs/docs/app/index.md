@@ -108,7 +108,7 @@ happening; **Configuration** is where you change it.
 | Screen | Route | What it is for | Page |
 |---|---|---|---|
 | Dashboard | `/` | Start and stop servers, see status at a glance, open a server's save files | [Dashboard](/app/dashboard) |
-| Logs | `/logs` | Live CloudWatch tail for one game at a time | [Logs](/app/logs) |
+| Logs | `/logs`, `/logs/infrastructure` | Nested sidebar group: **Game Logs** tails one game server, **Infra Logs** tails one of the app's 5 Lambda functions | [Logs](/app/logs) |
 | Costs | `/costs` | Per-game Fargate cost estimates, AWS Cost Explorer link-out | [Costs](/app/costs) |
 | Games | `/games` | Declare, edit and remove game servers in the JSON configuration object | [Games](/app/games) |
 | Discord | `/discord` | Bot credentials, guild allowlist, admins, per-game permissions | [Discord](/app/discord) |

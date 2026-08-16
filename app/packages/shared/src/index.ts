@@ -18,6 +18,7 @@ export * from './audit.js';
 export * from './runs.js';
 export * from './changeSummary.js';
 export * from './cloud.js';
+export * from './lambdaFunctionKey.js';
 export * from './sanitize.js';
 export * from './canRun.js';
 export * from './formatStatus.js';

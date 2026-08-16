@@ -18,6 +18,7 @@ import type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   ExportDiagnosticsBundleResult,
+  LambdaFunctionKey,
   ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
@@ -91,6 +92,7 @@ export type {
   DeploymentSettingsGetResult,
   DeploymentSettingsWriteResult,
   ExportDiagnosticsBundleResult,
+  LambdaFunctionKey,
   ManualUpdateCheckResult,
   OpType,
   PulumiEngineVersionResult,
@@ -1361,6 +1363,26 @@ export interface HyveonLogsApi {
    * generator, exposed to the renderer via {@link HyveonStreamHandle}.
    */
   stream: (game: string) => HyveonStreamHandle<LogChunk>;
+  lambda: HyveonLambdaLogsApi;
+}
+
+/** Log lines for one of the app's 5 Lambda functions. */
+export interface LambdaLogs {
+  functionKey: LambdaFunctionKey;
+  lines: string[];
+}
+
+/** CloudWatch log endpoints for the app's 5 Lambda functions — see {@link HyveonLogsApi}. */
+export interface HyveonLambdaLogsApi {
+  /** Returns recent log lines for `functionKey`'s CloudWatch log group. */
+  get: (functionKey: LambdaFunctionKey, limit?: number) => Promise<LambdaLogs>;
+  /**
+   * Opens a live log stream for `functionKey`, returning a
+   * {@link HyveonStreamHandle} of log chunks — mirrors
+   * {@link HyveonLogsApi.stream}'s contract, but against
+   * `logs.lambda.stream.<id>.*` channels rather than `logs.stream.<id>.*`.
+   */
+  stream: (functionKey: LambdaFunctionKey) => HyveonStreamHandle<LogChunk>;
 }
 
 /** EFS file-manager task endpoints: list, start, and stop per game. */

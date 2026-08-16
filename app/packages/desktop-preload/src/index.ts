@@ -4,6 +4,8 @@ export type {
   HyveonMockNamespaces,
   HyveonStreamHandle,
   LogChunk,
+  HyveonLambdaLogsApi,
+  LambdaLogs,
   IacRunChunk,
   IacRunKind,
   IacRunRecord,

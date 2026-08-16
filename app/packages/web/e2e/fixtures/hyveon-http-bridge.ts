@@ -102,6 +102,10 @@ export function installHyveonHttpBridge(): void {
       get: (game: string, limit?: number) =>
         call(`/api/logs/${game}${limit ? `?limit=${limit}` : ''}`),
       stream: async function* () {},
+      lambda: {
+        get: async (functionKey: string) => ({ functionKey, lines: [] }),
+        stream: async function* () {},
+      },
     },
     // The deployment-settings editor is IPC-only in production with no HTTP
     // route — same situation as `logs` above. `get()` resolves
