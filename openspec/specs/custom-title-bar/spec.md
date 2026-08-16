@@ -36,19 +36,13 @@ platform's native convention rather than a single cross-platform design.
   aligned to the custom header, and the app SHALL NOT render its own
   minimize/maximize/close buttons — the OS-drawn traffic lights are used
 
-#### Scenario: Windows uses the native title bar overlay
-- **WHEN** the app runs on Windows
+#### Scenario: Windows and Linux use the native title bar overlay
+- **WHEN** the app runs on Windows or Linux
 - **THEN** the `BrowserWindow` SHALL be created with a `titleBarOverlay`
   configuration whose colors match the app header, and the app SHALL NOT
   render its own minimize/maximize/close buttons — the OS-drawn overlay
   buttons are used, including the native snap-layout flyout on
-  maximize-hover
-
-#### Scenario: Linux renders app-drawn window controls
-- **WHEN** the app runs on Linux
-- **THEN** the app SHALL render its own minimize, maximize/restore, and
-  close buttons in the header, styled to match the app's theme, since no
-  native overlay mechanism exists on Linux
+  maximize-hover on Windows
 
 ### Requirement: Renderer degrades safely outside Electron
 Window-chrome behavior (drag region, platform-specific controls) SHALL
@@ -63,63 +57,16 @@ context.
 - **THEN** the top header SHALL render exactly as it does today, with no
   drag-region styling and no window-control buttons
 
-### Requirement: Window-control IPC channels
-The desktop app SHALL expose IPC channels for minimizing, toggling
-maximize/restore, closing the main window, querying its maximized state,
-and observing maximized-state changes, following the existing
-`<namespace>.<action>` channel-naming convention.
-
-#### Scenario: Minimize channel minimizes the window
-- **WHEN** the renderer invokes the `window.minimize` channel
-- **THEN** the main `BrowserWindow` SHALL be minimized
-
-#### Scenario: Toggle-maximize channel maximizes an unmaximized window
-- **WHEN** the renderer invokes the `window.toggleMaximize` channel and
-  the main `BrowserWindow` is not currently maximized
-- **THEN** the window SHALL become maximized
-
-#### Scenario: Toggle-maximize channel restores a maximized window
-- **WHEN** the renderer invokes the `window.toggleMaximize` channel and
-  the main `BrowserWindow` is currently maximized
-- **THEN** the window SHALL be restored to its previous (unmaximized) size
-  and position
-
-#### Scenario: Close channel closes the window
-- **WHEN** the renderer invokes the `window.close` channel
-- **THEN** the main `BrowserWindow` SHALL be closed
-
-#### Scenario: Maximized-state query reflects current state
-- **WHEN** the renderer invokes the `window.isMaximized` channel
-- **THEN** the response SHALL reflect the main `BrowserWindow`'s actual
-  current maximized state
-
-#### Scenario: Maximized-state change is pushed to the renderer
-- **WHEN** the main `BrowserWindow`'s maximized state changes for any
-  reason (a `window.toggleMaximize` call, a double-click on the draggable
-  header, or an OS-level action such as snapping to a screen edge)
-- **THEN** the main process SHALL push a `window.maximizedChange` event to
-  the renderer carrying the new maximized state
-
-### Requirement: Preload exposes window platform and controls
+### Requirement: Preload exposes window platform
 The preload bridge SHALL expose a `window.hyveon.window` namespace giving
-the renderer the current OS platform and typed access to the
-window-control IPC channels.
+the renderer the current OS platform, with no IPC round-trip. Every
+platform's window-control buttons (macOS traffic lights, and the Windows/
+Linux native `titleBarOverlay`) are drawn by the OS/Electron directly, so
+there is no app-drawn control surface for the renderer to invoke or
+observe changes on.
 
 #### Scenario: Platform is available without an IPC round-trip
 - **WHEN** the renderer reads `window.hyveon.window.platform`
 - **THEN** it SHALL receive the current OS platform identifier without
   triggering an IPC call to the main process
-
-#### Scenario: Window-control methods are available to the renderer
-- **WHEN** the renderer calls `window.hyveon.window.minimize()`,
-  `window.hyveon.window.toggleMaximize()`,
-  `window.hyveon.window.close()`, or `window.hyveon.window.isMaximized()`
-- **THEN** each call SHALL invoke the corresponding IPC channel and
-  resolve with its result
-
-#### Scenario: Maximized-state changes can be observed by the renderer
-- **WHEN** the renderer subscribes via
-  `window.hyveon.window.onMaximizedChange(callback)`
-- **THEN** the callback SHALL be invoked whenever the main process pushes
-  a `window.maximizedChange` event
 

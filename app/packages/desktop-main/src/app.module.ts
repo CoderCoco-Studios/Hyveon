@@ -25,14 +25,12 @@ import { IacRunsController } from './controllers/iac-runs.controller.js';
 import { IacSettingsController } from './controllers/iac-settings.controller.js';
 import { WizardController } from './controllers/wizard.controller.js';
 import { CloudHealthController } from './controllers/cloud-health.controller.js';
-import { WindowController } from './controllers/window.controller.js';
 import { DiagnosticsService, DIAGNOSTICS_LOG_DIR } from './services/DiagnosticsService.js';
 import { DiagnosticsBundleService } from './services/DiagnosticsBundleService.js';
 import { DriftService } from './services/DriftService.js';
 import { GamesWriteService } from './services/GamesWriteService.js';
 import { GameWizardDraftService } from './services/GameWizardDraftService.js';
 import { AuditService } from './services/AuditService.js';
-import { WindowService } from './services/WindowService.js';
 
 /**
  * Root Nest module. Wires the feature modules (`AwsModule`, `DiscordModule`,
@@ -88,7 +86,6 @@ import { WindowService } from './services/WindowService.js';
     IacSettingsController,
     WizardController,
     CloudHealthController,
-    WindowController,
   ],
   providers: [
     {
@@ -108,7 +105,6 @@ import { WindowService } from './services/WindowService.js';
     GamesWriteService,
     GameWizardDraftService,
     AuditService,
-    WindowService,
   ],
 })
 export class AppModule {}
