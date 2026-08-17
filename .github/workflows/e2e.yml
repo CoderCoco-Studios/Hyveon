@@ -95,7 +95,7 @@ jobs:
             | sudo tee /etc/apt/apt.conf.d/99hyveon-ci >/dev/null
           install_deps() {
             DEBIAN_FRONTEND=noninteractive npx playwright install-deps chromium \
-              && sudo apt-get install -y xvfb
+              && sudo apt-get install -y xvfb fluxbox
           }
           for attempt in 1 2 3; do
             echo "::group::Playwright system deps — attempt ${attempt}"
@@ -116,7 +116,17 @@ jobs:
       # The Electron project (electron-smoke.spec.ts) needs a display server on
       # Linux; xvfb-run supplies a headless one. The Chromium project runs in
       # the same invocation against `vite preview`.
-      - run: xvfb-run -a npm run app:test:e2e
+      #
+      # A bare Xvfb has no window manager, so it never processes X11 window-
+      # management requests like "maximize this window" — Electron's
+      # `BrowserWindow.maximize()` resolves as a no-op, bounds and
+      # `isMaximized()` never change (confirmed by direct main-process
+      # inspection: the same behavior on the real display's compositor works
+      # correctly). electron-smoke.spec.ts's maximize/restore assertions need
+      # a real window-manager response, so fluxbox (a minimal, fast-starting
+      # WM) is started against xvfb-run's display before the tests run. `&
+      # sleep 1` gives fluxbox a moment to attach before Electron launches.
+      - run: xvfb-run -a bash -c "fluxbox >/dev/null 2>&1 & sleep 1 && npm run app:test:e2e"
 
       - uses: actions/upload-artifact@v4
         if: failure()
