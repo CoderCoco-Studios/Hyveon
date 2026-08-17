@@ -164,6 +164,59 @@ describe('DiagnosticsService.readTail', () => {
     expect(result).toContain('boundary-line');
     expect(result).toContain('next-line');
   });
+
+  it('should merge pretty-printed metadata lines into the preceding entry as one string', async () => {
+    const content =
+      '18:04:02 [debug] SafeStorageService.decrypt: decrypting value\n{\n  "available": true\n}\n' +
+      '18:04:06 [debug] DiagnosticsController: diagnostics.tail invoked\n';
+    const handle = makeMockHandle(content);
+    mockOpen.mockResolvedValueOnce(handle as unknown as fsPromises.FileHandle);
+
+    const result = await service.readTail(10);
+    expect(result).toEqual([
+      '18:04:02 [debug] SafeStorageService.decrypt: decrypting value\n{\n  "available": true\n}',
+      '18:04:06 [debug] DiagnosticsController: diagnostics.tail invoked',
+    ]);
+  });
+
+  it('should merge multiple metadata keys and nested indentation into one entry', async () => {
+    const content =
+      '18:04:02 [debug] resolveAwsClientCredentialsWithSignature: resolved\n{\n  "profile": "hyveon-pasted",\n  "nested": {\n    "region": "us-east-1"\n  }\n}\n';
+    const handle = makeMockHandle(content);
+    mockOpen.mockResolvedValueOnce(handle as unknown as fsPromises.FileHandle);
+
+    const result = await service.readTail(10);
+    expect(result).toEqual([
+      '18:04:02 [debug] resolveAwsClientCredentialsWithSignature: resolved\n{\n  "profile": "hyveon-pasted",\n  "nested": {\n    "region": "us-east-1"\n  }\n}',
+    ]);
+  });
+
+  it('should not merge production single-line JSON entries into each other', async () => {
+    const content =
+      '{"level":"debug","message":"first","timestamp":"2026-08-17T18:04:02.000Z"}\n' +
+      '{"level":"error","message":"second","timestamp":"2026-08-17T18:04:03.000Z"}\n';
+    const handle = makeMockHandle(content);
+    mockOpen.mockResolvedValueOnce(handle as unknown as fsPromises.FileHandle);
+
+    const result = await service.readTail(10);
+    expect(result).toEqual([
+      '{"level":"debug","message":"first","timestamp":"2026-08-17T18:04:02.000Z"}',
+      '{"level":"error","message":"second","timestamp":"2026-08-17T18:04:03.000Z"}',
+    ]);
+  });
+
+  it('should cap merged entries, not physical lines, at maxLines', async () => {
+    const entries = Array.from(
+      { length: 10 },
+      (_, i) => `18:04:0${i} [debug] entry ${i}\n{\n  "i": ${i}\n}`,
+    );
+    const handle = makeMockHandle(entries.join('\n') + '\n');
+    mockOpen.mockResolvedValueOnce(handle as unknown as fsPromises.FileHandle);
+
+    const result = await service.readTail(3);
+    expect(result).toHaveLength(3);
+    expect(result[2]).toBe('18:04:09 [debug] entry 9\n{\n  "i": 9\n}');
+  });
 });
 
 describe('DiagnosticsService.logRendererError', () => {
