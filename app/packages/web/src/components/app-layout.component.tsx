@@ -140,18 +140,6 @@ function NavSections({
 }
 
 /**
- * Current desktop-chrome platform, or `undefined` when running outside
- * Electron (browser dev/e2e). Centralizes the `window.hyveon?.window?.platform`
- * null-chain so every drag-region/spacer call site in this file derives from
- * one source instead of repeating the chain — a call site that instead wrote
- * its own `window.hyveon?.window` check could diverge from the others (e.g.
- * a future preload change renaming the field) with nothing to catch it.
- */
-function getDesktopPlatform(): NodeJS.Platform | undefined {
-  return window.hyveon?.window?.platform;
-}
-
-/**
  * Navigation shell — persistent sidebar + top bar that wraps all routed pages.
  * Sidebar shows "Monitoring" and "Configuration" sections with active-route
  * highlighting (purple gradient + 2px left accent). Top bar displays env pill
@@ -162,7 +150,6 @@ function getDesktopPlatform(): NodeJS.Platform | undefined {
  */
 export function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const platform = getDesktopPlatform();
   const [env, setEnv] = useState<EnvInfo | null>(null);
   // The mobile drawer stores *which route it was opened on* rather than a
   // bare boolean, so "close whenever the route changes (e.g. browser
@@ -214,7 +201,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <div
           className="px-4 py-5 border-b border-border"
           data-testid="sidebar-brand-block"
-          style={platform === 'darwin' ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
+          style={
+            window.hyveon?.window && window.hyveon.window.platform === 'darwin'
+              ? ({ WebkitAppRegion: 'drag' } as CSSProperties)
+              : undefined
+          }
         >
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
@@ -271,7 +262,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Top bar */}
         <header
           className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6"
-          style={platform ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
+          style={window.hyveon?.window ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
         >
           <div className="flex items-center gap-4">
             {/*
@@ -289,7 +280,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               no-sidebar position so the traffic lights stay aligned with
               wherever this reserved space actually starts.
             */}
-            {platform === 'darwin' && (
+            {window.hyveon?.window?.platform === 'darwin' && (
               <div data-traffic-light-spacer="" aria-hidden="true" className="w-20 shrink-0" />
             )}
 
@@ -300,7 +291,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               aria-label="Open navigation"
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-nav"
-              style={platform ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
               className="shrink-0 md:hidden min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <Menu className="w-5 h-5" aria-hidden="true" />
@@ -320,7 +311,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div
               className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center"
               aria-hidden="true"
-              style={platform ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
             >
               <span className="text-xs font-medium text-white">OP</span>
             </div>
@@ -341,7 +332,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               platforms anyway). `flexShrink: 0` keeps it from being squeezed to
               0 under space pressure from its sibling content.
             */}
-            {(platform === 'win32' || platform === 'linux') && (
+            {(window.hyveon?.window?.platform === 'win32' || window.hyveon?.window?.platform === 'linux') && (
               <div
                 data-titlebar-overlay-spacer=""
                 aria-hidden="true"
@@ -377,7 +368,7 @@ export function RefreshAllButton() {
       aria-label="Refresh all"
       aria-busy={anyLoading}
       disabled={Object.keys(pollers).length === 0}
-      style={getDesktopPlatform() ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <RefreshCw className={cn('size-3.5', anyLoading && 'motion-safe:animate-spin')} aria-hidden="true" />
       <span className="hidden sm:inline">Refresh</span>
@@ -412,7 +403,7 @@ export function LiveIndicator() {
       className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded border border-border"
       role="status"
       aria-label={statusLabel}
-      style={getDesktopPlatform() ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <div className={cn('w-2 h-2 rounded-full', dotClass)} aria-hidden="true" />
       <span className={cn('hidden sm:inline text-xs font-medium', labelClass)} aria-hidden="true">LIVE</span>
