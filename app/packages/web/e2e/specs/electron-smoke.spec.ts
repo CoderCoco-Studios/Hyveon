@@ -40,14 +40,19 @@ test.describe('electron smoke', () => {
   /**
    * Exercises the custom title bar (add-custom-title-bar) against the real
    * preload bridge — earlier coverage only asserted `window.hyveon` exists,
-   * not that the header is actually a drag region.
+   * not that the header is actually a drag region or that Linux's app-drawn
+   * window-control buttons render and are clickable.
    *
-   * Every platform (macOS traffic lights, Windows and Linux native
-   * `titleBarOverlay`) draws its window controls outside the DOM, so there
-   * is no app-drawn control surface left to click through here — see
-   * `platformWindowChromeOptions()` in `electron-entry.ts`.
+   * The drag-region assertion is platform-independent (a CSS property check),
+   * but the Minimize/Maximize/Close button assertions only hold where the app
+   * draws its own buttons — Linux only (macOS/Windows use native OS chrome
+   * instead, see `platformWindowChromeOptions()` in `electron-entry.ts`). CI
+   * runs this project on `ubuntu-latest` (`.github/workflows/e2e.yml`), so
+   * `process.platform` is reliably `linux` there; this test gates the button
+   * assertions on that so it still passes (skipping just the button checks)
+   * if ever run locally on macOS/Windows.
    */
-  test('should mark the header as a drag region', async () => {
+  test('should mark the header as a drag region and, on Linux, render clickable window controls', async () => {
     const app = await _electron.launch({ args: [electronMain], env: electronEnv });
 
     try {
@@ -56,6 +61,31 @@ test.describe('electron smoke', () => {
 
       const appRegion = await layout.header().evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-app-region'));
       expect(appRegion).toBe('drag');
+
+      // `window.hyveon` is globally typed as `HyveonApi | undefined` (see
+      // `@hyveon/desktop-preload`'s `declare global` in `index.ts`) and the
+      // previous test already established it's defined in this renderer —
+      // the `!` narrows that without an `as unknown as T` cast.
+      const platform = await win.evaluate(() => window.hyveon!.window.platform);
+
+      if (platform === 'linux') {
+        const minimizeButton = layout.windowControlButton('Minimize');
+        const maximizeButton = layout.windowControlButton('Maximize');
+        const closeButton = layout.windowControlButton('Close');
+        await expect(minimizeButton).toBeVisible();
+        await expect(closeButton).toBeVisible();
+        await expect(minimizeButton).toBeEnabled();
+        await expect(closeButton).toBeEnabled();
+
+        // Exercise the real IPC round trip (preload -> ipcMain -> WindowController
+        // -> WindowService), not just that the buttons render — a missing
+        // WindowController registration would leave these clicks hanging
+        // forever with no other test at any tier catching it.
+        await maximizeButton.click();
+        await expect(layout.windowControlButton('Restore')).toBeVisible();
+        await layout.windowControlButton('Restore').click();
+        await expect(maximizeButton).toBeVisible();
+      }
     } finally {
       await app.close();
     }

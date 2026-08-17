@@ -6,6 +6,7 @@ import { bootstrap } from './main.js';
 import { electronRendererUrl, isPulumiSpikeEnabled, isTestMode } from './env.js';
 import { initUpdater } from './updater.js';
 import { ElectronStoreService } from './services/ElectronStoreService.js';
+import { WindowService } from './services/WindowService.js';
 
 // electron-vite injects __dirname for main-process entries, but we also
 // compute it explicitly via import.meta.url so the file is valid plain ESM.
@@ -86,13 +87,13 @@ const NO_SIDEBAR_TRAFFIC_LIGHT_POSITION = { x: 12, y: 20 };
  *   Reuses `SIDEBAR_TRAFFIC_LIGHT_POSITION` rather than repeating the
  *   literal, so this constructor-time default and
  *   `wireTrafficLightResizeHandling`'s runtime updates can never drift apart.
- * - Windows and Linux both keep the native `titleBarOverlay` (including the
- *   Windows 11 snap-layout flyout on Windows), colored to match the header's
- *   background/text. Electron's `titleBarOverlay` gained Linux support after
- *   this feature's original implementation shipped with Linux scoped to
- *   app-drawn buttons instead (see `design.md`'s D3); this migrates Linux
- *   onto the same overlay path Windows already uses, sharing one set of
- *   colors since the app has no runtime theme switching to key off of.
+ * - Windows keeps the native `titleBarOverlay` (including the Windows 11
+ *   snap-layout flyout), colored to match the header's background/text.
+ * - Linux gets neither — the renderer draws its own buttons there (Task 4).
+ *   This is an implementation-simplicity choice for this change's scope, not
+ *   a platform limitation: Electron's `titleBarOverlay` has since gained
+ *   Linux support (see `design.md`'s D3), so a future change could migrate
+ *   Linux to the native overlay path instead.
  *
  * The overlay's `height: 56` matches the header's `h-14` Tailwind class; its
  * `color`/`symbolColor` match `--color-surface` (#1a1d2e) and
@@ -108,7 +109,7 @@ function platformWindowChromeOptions(): Partial<Electron.BrowserWindowConstructo
   if (process.platform === 'darwin') {
     return { ...base, trafficLightPosition: SIDEBAR_TRAFFIC_LIGHT_POSITION };
   }
-  if (process.platform === 'win32' || process.platform === 'linux') {
+  if (process.platform === 'win32') {
     return {
       ...base,
       titleBarOverlay: { color: '#1a1d2e', symbolColor: '#e1e4ed', height: 56 },
@@ -161,8 +162,11 @@ function wireTrafficLightResizeHandling(win: BrowserWindow): void {
 /**
  * Creates the main application window with the preload script wired in and
  * loads either the dev server URL or the production renderer bundle.
+ *
+ * @returns The created `BrowserWindow`, so callers (`app.whenReady()`'s chain)
+ *   can attach it to `WindowService` once the Nest app is available.
  */
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const icon = resolveWindowIcon();
 
   const win = new BrowserWindow({
@@ -197,6 +201,8 @@ function createWindow(): void {
     console.error('[desktop-main] Renderer failed to load — quitting:', err);
     app.quit();
   });
+
+  return win;
 }
 
 // This is a single-purpose operator console, not a document editor — the
@@ -218,7 +224,8 @@ app.whenReady().then(() => {
         console.error('[desktop-main] updater init failed:', err);
       });
 
-      createWindow();
+      const windowService = nestApp.get(WindowService);
+      windowService.attach(createWindow());
 
       // SPIKE SCAFFOLDING — a leftover early prototype for validating the
       // Pulumi Automation API, now superseded by `PulumiEngineService`. Gated
@@ -242,9 +249,15 @@ app.whenReady().then(() => {
       }
 
       // On macOS re-create the window when the dock icon is clicked and there
-      // are no other windows open (standard macOS behaviour).
+      // are no other windows open (standard macOS behaviour). Re-attaching
+      // WindowService here (not just on the initial launch path above) matters:
+      // without it, WindowService would keep holding a reference to the
+      // destroyed original BrowserWindow, silently no-oping every subsequent
+      // IPC call from the renderer.
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        if (BrowserWindow.getAllWindows().length === 0) {
+          windowService.attach(createWindow());
+        }
       });
     })
     .catch((err: unknown) => {

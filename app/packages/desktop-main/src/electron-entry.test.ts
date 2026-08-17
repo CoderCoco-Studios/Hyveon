@@ -67,7 +67,8 @@ const {
   /**
    * Builds one mock `BrowserWindow` instance's method surface. Captures `on`/
    * `once` listeners per-instance (keyed by event name) so tests can fire a
-   * specific window's `resize`/`closed` events via `__fireWin`.
+   * specific window's `resize`/`closed` events via `__fireWin`, mirroring the
+   * `__fire` escape hatch in `WindowService.test.ts`'s `makeWin()`.
    */
   function makeWinInstance() {
     const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
@@ -186,9 +187,10 @@ describe('electron-entry', () => {
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
     mockOpenExternal.mockResolvedValue(undefined);
-    // Default `nestApp.get(...)` return for tests that don't care which
-    // service token was requested. Tests that assert on a specific token
-    // (e.g. ElectronStoreService) override this via
+    // Default `nestApp.get(...)` return so `WindowService.attach(win)` (called
+    // unconditionally after createWindow()) doesn't throw in tests that don't
+    // care which service token was requested. Tests that assert on a specific
+    // token (e.g. ElectronStoreService, WindowService) override this via
     // fakeNestApp.get.mockReturnValue(...) / mockImplementation(...).
     fakeNestApp.get.mockReturnValue({ attach: vi.fn(), get: vi.fn() });
     mockSetApplicationMenu.mockImplementation(() => undefined);
@@ -530,14 +532,10 @@ describe('electron-entry', () => {
       expect(options.trafficLightPosition).toBeUndefined();
     });
 
-    it('should set the same titleBarOverlay on Linux as Windows and no trafficLightPosition', async () => {
+    it('should set neither trafficLightPosition nor titleBarOverlay on Linux', async () => {
       const options = await createWindowOptionsForPlatform('linux');
-      expect(options.titleBarOverlay).toEqual({
-        color: '#1a1d2e',
-        symbolColor: '#e1e4ed',
-        height: 56,
-      });
       expect(options.trafficLightPosition).toBeUndefined();
+      expect(options.titleBarOverlay).toBeUndefined();
     });
   });
 
@@ -611,17 +609,48 @@ describe('electron-entry', () => {
     });
   });
 
-  describe('window re-creation on activate', () => {
-    it('should create a new window when activate fires with zero open windows', async () => {
+  describe('WindowService wiring', () => {
+    it('should resolve WindowService from the bootstrapped Nest app and attach the created window', async () => {
       vi.resetModules();
       vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
 
       await import('./electron-entry.js');
       await flushPromises();
       whenReadyCallbacks[0]!();
       await flushPromises();
 
-      expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
+      expect(fakeNestApp.get).toHaveBeenCalledWith(WindowService);
+      expect(fakeWindowService.attach).toHaveBeenCalledOnce();
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(MockBrowserWindow.mock.results[0]?.value);
+    });
+
+    it('should re-attach WindowService to the newly created window when activate fires with zero open windows', async () => {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      // Initial attach from the whenReady().then() path.
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(1);
+      const firstWindow = MockBrowserWindow.mock.results[0]?.value;
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(firstWindow);
 
       // Simulate macOS re-opening the app from the dock after every window closed.
       mockGetAllWindows.mockReturnValue([]);
@@ -630,7 +659,9 @@ describe('electron-entry', () => {
       activateHandler!();
       await flushPromises();
 
-      expect(MockBrowserWindow).toHaveBeenCalledTimes(2);
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(2);
+      const secondWindow = MockBrowserWindow.mock.results[1]?.value;
+      expect(fakeWindowService.attach).toHaveBeenLastCalledWith(secondWindow);
     });
   });
 });
