@@ -258,7 +258,7 @@ intervals pass without a successful poll it turns into a red
 The **Refresh** button in the top bar forces every poller to run immediately.
 The `LIVE` pill next to it summarises the same health across all pollers.
 
-The top bar doubles as the app's window title bar — drag any empty area of it to move the window. On macOS the native traffic-light buttons are repositioned into it; on Windows and Linux the OS-drawn `titleBarOverlay` renders the minimize/maximize/close buttons directly on top of it since the OS title bar is hidden.
+The top bar doubles as the app's window title bar — drag any empty area of it to move the window. On macOS the native traffic-light buttons are repositioned into it; on Windows and Linux the OS-drawn `titleBarOverlay` renders the minimize/maximize/close buttons directly on top of it since the OS title bar is hidden. Which buttons the Linux overlay actually shows follows the desktop environment's own window-manager button layout — stock GNOME's default `button-layout` renders only the close button, with no in-app fallback for minimize/maximize.
 
 Note that the underlying per-game cost estimates (`costs.estimate`) are
 fetched once on mount, not part of that 20-second cycle — see

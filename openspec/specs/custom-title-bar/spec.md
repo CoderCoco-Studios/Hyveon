@@ -42,7 +42,10 @@ platform's native convention rather than a single cross-platform design.
   configuration whose colors match the app header, and the app SHALL NOT
   render its own minimize/maximize/close buttons — the OS-drawn overlay
   buttons are used, including the native snap-layout flyout on
-  maximize-hover on Windows
+  maximize-hover on Windows. On Linux, which of those buttons the overlay
+  actually renders follows the desktop environment's own window-manager
+  button layout (e.g. stock GNOME shows only close by default) — the app
+  has no fallback for a reduced native button set
 
 ### Requirement: Renderer degrades safely outside Electron
 Window-chrome behavior (drag region, platform-specific controls) SHALL
