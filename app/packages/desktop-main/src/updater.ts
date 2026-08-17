@@ -21,7 +21,13 @@ export async function initUpdater(store: ElectronStoreService): Promise<void> {
     return;
   }
 
-  const { autoUpdater } = await import('electron-updater');
+  // `electron-updater` exports `autoUpdater` via `Object.defineProperty(exports, ...,
+  // { get })` — cjs-module-lexer can't statically detect getter-defined exports, so
+  // Node's synthetic named export for a dynamic `import('electron-updater')` is
+  // missing and `const { autoUpdater } = await import(...)` resolves to `undefined`.
+  // Going through `.default` (always the real CJS `module.exports` object) sidesteps
+  // the static analysis and reaches the getter at runtime instead.
+  const { autoUpdater } = (await import('electron-updater')).default;
   autoUpdater.logger = logger;
 
   // v1 scaffold: a detected update must not download or install itself, even
@@ -74,7 +80,10 @@ export async function checkForUpdatesNow(): Promise<ManualUpdateCheckResult> {
     return { ok: false, message: 'Update checks are only available in the packaged app.' };
   }
 
-  const { autoUpdater } = await import('electron-updater');
+  // See the comment on the equivalent line in `initUpdater` above — `.default`
+  // sidesteps `cjs-module-lexer`'s inability to detect `electron-updater`'s
+  // getter-defined `autoUpdater` export.
+  const { autoUpdater } = (await import('electron-updater')).default;
   autoUpdater.logger = logger;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;

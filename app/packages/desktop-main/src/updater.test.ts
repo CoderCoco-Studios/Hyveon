@@ -30,7 +30,14 @@ const { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMo
   return { mockAutoUpdater, checkForUpdatesMock, onMock, onceMock, removeListenerMock };
 });
 
-vi.mock('electron-updater', () => ({ autoUpdater: mockAutoUpdater }));
+/**
+ * `electron-updater` exports `autoUpdater` via a getter-defined CJS property,
+ * which surfaces at runtime only through the module's `default` (the whole
+ * `module.exports` object) — see `updater.ts`'s comment on the same import.
+ * Mocking only a top-level named `autoUpdater` here would pass even if
+ * `updater.ts` regressed back to destructuring the named export directly.
+ */
+vi.mock('electron-updater', () => ({ default: { autoUpdater: mockAutoUpdater } }));
 
 vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
