@@ -8,6 +8,13 @@
   --color-surface:   #1a1d2e;
   --color-surface-2: #252a40;
   --color-border:    #2e3350;
+  /* Alias for `bg-card`/`text-card`, used by the sidebar, mobile drawer and
+     header — same value as --color-surface. Electron's `titleBarOverlay`
+     (electron-entry.ts) hard-codes #1a1d2e to match the header's rendered
+     background; without this token `bg-card` generated no Tailwind utility
+     at all, so the header rendered fully transparent over `--color-bg`
+     instead, visibly mismatching the Windows overlay strip. */
+  --color-card:      #1a1d2e;
 
   /* Foreground */
   --color-foreground:     #e1e4ed;

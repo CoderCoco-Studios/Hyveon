@@ -95,7 +95,7 @@ jobs:
             | sudo tee /etc/apt/apt.conf.d/99hyveon-ci >/dev/null
           install_deps() {
             DEBIAN_FRONTEND=noninteractive npx playwright install-deps chromium \
-              && sudo apt-get install -y xvfb
+              && sudo apt-get install -y xvfb fluxbox x11-utils
           }
           for attempt in 1 2 3; do
             echo "::group::Playwright system deps — attempt ${attempt}"
@@ -116,7 +116,44 @@ jobs:
       # The Electron project (electron-smoke.spec.ts) needs a display server on
       # Linux; xvfb-run supplies a headless one. The Chromium project runs in
       # the same invocation against `vite preview`.
-      - run: xvfb-run -a npm run app:test:e2e
+      #
+      # A bare Xvfb has no window manager, so it never processes X11 window-
+      # management requests like "maximize this window" — Electron's
+      # `BrowserWindow.maximize()` resolves as a no-op, bounds and
+      # `isMaximized()` never change (confirmed by direct main-process
+      # inspection: the same behavior on the real display's compositor works
+      # correctly). electron-smoke.spec.ts's maximize/restore assertions need
+      # a real window-manager response, so fluxbox (a minimal, fast-starting
+      # WM) is started against xvfb-run's display before the tests run.
+      #
+      # A fixed sleep before launching Electron would race fluxbox's actual
+      # startup time under CI load, so this polls the EWMH readiness signal
+      # instead: a compliant window manager (fluxbox included) sets
+      # `_NET_SUPPORTING_WM_CHECK` on the root window once it's ready to
+      # process requests, which `xprop -root` can query directly. The loop
+      # also fails fast if fluxbox's process dies during startup, and the
+      # `trap` guarantees it's killed when the tests finish (pass or fail)
+      # rather than leaking a background process on the runner.
+      - run: |
+          xvfb-run -a bash -c '
+            set -e
+            fluxbox >/dev/null 2>&1 &
+            fluxbox_pid=$!
+            trap "kill \$fluxbox_pid 2>/dev/null || true" EXIT
+
+            for _ in $(seq 1 50); do
+              if ! kill -0 "$fluxbox_pid" 2>/dev/null; then
+                echo "::error::fluxbox exited during startup" >&2
+                exit 1
+              fi
+              if xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.2
+            done
+
+            npm run app:test:e2e
+          '
 
       - uses: actions/upload-artifact@v4
         if: failure()

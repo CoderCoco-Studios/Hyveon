@@ -13,6 +13,21 @@ export class AppLayout {
     return this.page.getByRole('heading', { name: 'Hyveon' });
   }
 
+  /** The top bar itself — doubles as the app's draggable custom title bar. */
+  header(): Locator {
+    return this.page.getByRole('banner');
+  }
+
+  /**
+   * Linux-only app-drawn window-control button, by its accessible name
+   * (Minimize/Maximize/Restore/Close). `exact: true` is required — Playwright's
+   * default substring name matching would otherwise let `'Close'` also match
+   * the mobile drawer's `aria-label="Close navigation"` button.
+   */
+  windowControlButton(name: 'Minimize' | 'Maximize' | 'Restore' | 'Close'): Locator {
+    return this.page.getByRole('button', { name, exact: true });
+  }
+
   /** Sidebar nav link by visible label (e.g. "Game Logs", "Discord", "Settings"). */
   sidebarLink(label: string): Locator {
     return this.page.getByRole('link', { name: label });

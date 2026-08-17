@@ -13,9 +13,9 @@ const {
   mockOn,
   mockWhenReady,
   MockBrowserWindow,
+  makeWinInstance,
   mockGetAllWindows,
   mockExistsSync,
-  mockSetWindowOpenHandler,
   mockOpenExternal,
   mockSetApplicationMenu,
   bootstrapMock,
@@ -65,6 +65,40 @@ const {
   }));
 
   /**
+   * Builds one mock `BrowserWindow` instance's method surface. Captures `on`/
+   * `once` listeners per-instance (keyed by event name) so tests can fire a
+   * specific window's `resize`/`closed` events via `__fireWin`, mirroring the
+   * `__fire` escape hatch in `WindowService.test.ts`'s `makeWin()`.
+   */
+  function makeWinInstance() {
+    const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+    const capture = (event: string, cb: (...args: unknown[]) => void) => {
+      (listeners[event] ??= []).push(cb);
+    };
+    return {
+      loadURL: mockLoadURL,
+      loadFile: mockLoadFile,
+      webContents: {
+        setWindowOpenHandler: mockSetWindowOpenHandler,
+        send: vi.fn(),
+        getZoomFactor: vi.fn().mockReturnValue(1),
+        on: vi.fn(),
+      },
+      on: vi.fn(capture),
+      once: vi.fn(capture),
+      isMaximized: vi.fn().mockReturnValue(false),
+      minimize: vi.fn(),
+      maximize: vi.fn(),
+      unmaximize: vi.fn(),
+      close: vi.fn(),
+      getBounds: vi.fn().mockReturnValue({ x: 0, y: 0, width: 1200, height: 800 }),
+      setWindowButtonPosition: vi.fn(),
+      // Test-only escape hatch to fire a registered listener by event name.
+      __fireWin: (event: string, ...args: unknown[]) => listeners[event]?.forEach((cb) => cb(...args)),
+    };
+  }
+
+  /**
    * Spy BrowserWindow constructor whose instances expose controlled load fns.
    *
    * The implementation must be a `function` expression rather than an arrow:
@@ -74,11 +108,7 @@ const {
    */
   const MockBrowserWindow = Object.assign(
     vi.fn().mockImplementation(function () {
-      return {
-        loadURL: mockLoadURL,
-        loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
-      };
+      return makeWinInstance();
     }),
     {
       /** `BrowserWindow.getAllWindows()` static method used by the activate handler. */
@@ -100,6 +130,7 @@ const {
     mockOn,
     mockWhenReady,
     MockBrowserWindow,
+    makeWinInstance,
     mockGetAllWindows,
     mockExistsSync,
     mockSetWindowOpenHandler,
@@ -156,17 +187,19 @@ describe('electron-entry', () => {
     mockGetAllWindows.mockReturnValue([]);
     mockExistsSync.mockReturnValue(false);
     mockOpenExternal.mockResolvedValue(undefined);
+    // Default `nestApp.get(...)` return so `WindowService.attach(win)` (called
+    // unconditionally after createWindow()) doesn't throw in tests that don't
+    // care which service token was requested. Tests that assert on a specific
+    // token (e.g. ElectronStoreService, WindowService) override this via
+    // fakeNestApp.get.mockReturnValue(...) / mockImplementation(...).
+    fakeNestApp.get.mockReturnValue({ attach: vi.fn(), get: vi.fn() });
     mockSetApplicationMenu.mockImplementation(() => undefined);
 
     // Re-apply the BrowserWindow constructor implementation in case clearMocks
     // cleared it between tests (clearMocks resets call history and return value
     // queues; mockImplementation persists, but we re-set to be defensive).
     MockBrowserWindow.mockImplementation(function () {
-      return {
-        loadURL: mockLoadURL,
-        loadFile: mockLoadFile,
-        webContents: { setWindowOpenHandler: mockSetWindowOpenHandler },
-      };
+      return makeWinInstance();
     });
 
     // Re-apply mockOn and mockWhenReady implementations so callback capturing
@@ -452,6 +485,183 @@ describe('electron-entry', () => {
       const options = await createWindowOptions();
 
       expect(options).not.toHaveProperty('icon');
+    });
+  });
+
+  describe('platform-conditional BrowserWindow options', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
+
+    async function createWindowOptionsForPlatform(platform: string): Promise<Record<string, unknown>> {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      return MockBrowserWindow.mock.calls[0]?.[0] as Record<string, unknown>;
+    }
+
+    it('should always set titleBarStyle to hidden', async () => {
+      const options = await createWindowOptionsForPlatform('linux');
+      expect(options.titleBarStyle).toBe('hidden');
+    });
+
+    it('should set trafficLightPosition on macOS, offset into the header past the sidebar, and no titleBarOverlay', async () => {
+      const options = await createWindowOptionsForPlatform('darwin');
+      // The BrowserWindow's top-left corner is the sidebar (w-60 = 240px), not
+      // the header, so the traffic lights must be offset by the sidebar's width
+      // to land inside the header rather than on top of the sidebar brand block.
+      expect(options.trafficLightPosition).toEqual({ x: 252, y: 20 });
+      expect(options.titleBarOverlay).toBeUndefined();
+    });
+
+    it('should set titleBarOverlay on Windows and no trafficLightPosition', async () => {
+      const options = await createWindowOptionsForPlatform('win32');
+      expect(options.titleBarOverlay).toEqual({
+        color: '#1a1d2e',
+        symbolColor: '#e1e4ed',
+        height: 56,
+      });
+      expect(options.trafficLightPosition).toBeUndefined();
+    });
+
+    it('should set neither trafficLightPosition nor titleBarOverlay on Linux', async () => {
+      const options = await createWindowOptionsForPlatform('linux');
+      expect(options.trafficLightPosition).toBeUndefined();
+      expect(options.titleBarOverlay).toBeUndefined();
+    });
+  });
+
+  describe('macOS traffic-light resize handling', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
+
+    /**
+     * Imports the entry point on macOS, fires the ready callback, and returns
+     * the created mock window instance (with `getBounds`/`setWindowButtonPosition`
+     * spies and the `__fireWin` escape hatch for firing its `resize` event).
+     */
+    async function createDarwinWindow(): Promise<
+      ReturnType<typeof makeWinInstance> & { __fireWin: (event: string, ...args: unknown[]) => void }
+    > {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      return MockBrowserWindow.mock.results[0]?.value;
+    }
+
+    it('should set trafficLightPosition to the sidebar-offset position for the initial (>=768px) window width', async () => {
+      const win = await createDarwinWindow();
+      // Default mock width is 1200px (>= the 768px `md` breakpoint).
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 252, y: 20 });
+    });
+
+    it('should switch to the no-sidebar position when the window is resized narrower than 768px', async () => {
+      const win = await createDarwinWindow();
+      win.setWindowButtonPosition.mockClear();
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 600, height: 800 });
+
+      win.__fireWin('resize');
+
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 12, y: 20 });
+    });
+
+    it('should switch back to the sidebar-offset position when the window is resized back to >=768px', async () => {
+      const win = await createDarwinWindow();
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 600, height: 800 });
+      win.__fireWin('resize');
+      win.setWindowButtonPosition.mockClear();
+
+      win.getBounds.mockReturnValue({ x: 0, y: 0, width: 1000, height: 800 });
+      win.__fireWin('resize');
+
+      expect(win.setWindowButtonPosition).toHaveBeenCalledWith({ x: 252, y: 20 });
+    });
+
+    it('should not wire resize-based traffic-light handling on win32 or linux', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      const win = MockBrowserWindow.mock.results[0]?.value as ReturnType<typeof makeWinInstance>;
+      expect(win.setWindowButtonPosition).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('WindowService wiring', () => {
+    it('should resolve WindowService from the bootstrapped Nest app and attach the created window', async () => {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      expect(fakeNestApp.get).toHaveBeenCalledWith(WindowService);
+      expect(fakeWindowService.attach).toHaveBeenCalledOnce();
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(MockBrowserWindow.mock.results[0]?.value);
+    });
+
+    it('should re-attach WindowService to the newly created window when activate fires with zero open windows', async () => {
+      vi.resetModules();
+      vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
+
+      const { WindowService } = await import('./services/WindowService.js');
+      const fakeWindowService = { attach: vi.fn() };
+      fakeNestApp.get.mockImplementation((token: unknown) => {
+        if (token === WindowService) return fakeWindowService;
+        return { get: vi.fn() };
+      });
+
+      await import('./electron-entry.js');
+      await flushPromises();
+      whenReadyCallbacks[0]!();
+      await flushPromises();
+
+      // Initial attach from the whenReady().then() path.
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(1);
+      const firstWindow = MockBrowserWindow.mock.results[0]?.value;
+      expect(fakeWindowService.attach).toHaveBeenCalledWith(firstWindow);
+
+      // Simulate macOS re-opening the app from the dock after every window closed.
+      mockGetAllWindows.mockReturnValue([]);
+      const activateHandler = onCallbacks['activate'];
+      expect(activateHandler).toBeDefined();
+      activateHandler!();
+      await flushPromises();
+
+      expect(fakeWindowService.attach).toHaveBeenCalledTimes(2);
+      const secondWindow = MockBrowserWindow.mock.results[1]?.value;
+      expect(fakeWindowService.attach).toHaveBeenLastCalledWith(secondWindow);
     });
   });
 });

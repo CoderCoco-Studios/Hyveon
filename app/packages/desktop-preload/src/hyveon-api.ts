@@ -2193,6 +2193,31 @@ export interface HyveonIacSettingsApi {
   autoUpdateCheck: () => Promise<ManualUpdateCheckResult>;
 }
 
+/**
+ * Window-chrome API backing the custom title bar: the current OS platform
+ * (read once at preload load time, no IPC round-trip) and typed access to
+ * the main window's minimize/maximize/close IPC channels.
+ */
+export interface HyveonWindowApi {
+  /** Current OS platform, read from `process.platform` inside the preload script. Never changes during a session. */
+  platform: NodeJS.Platform;
+  /** Invokes the `window.minimize` IPC channel. */
+  minimize: () => Promise<void>;
+  /** Invokes the `window.toggleMaximize` IPC channel. */
+  toggleMaximize: () => Promise<void>;
+  /** Invokes the `window.close` IPC channel. */
+  close: () => Promise<void>;
+  /** Invokes the `window.isMaximized` IPC channel and resolves with the current maximized state. */
+  isMaximized: () => Promise<boolean>;
+  /**
+   * Subscribes to `window.maximizedChange` push events from the main process.
+   *
+   * @param cb - Called with the window's new maximized state whenever it changes.
+   * @returns An unsubscribe function that removes the underlying IPC listener.
+   */
+  onMaximizedChange: (cb: (isMaximized: boolean) => void) => () => void;
+}
+
 // ---------------------------------------------------------------------------
 // Test-only injection surface
 // ---------------------------------------------------------------------------
@@ -2304,6 +2329,8 @@ export interface HyveonApi {
    * main-process types of the same name.
    */
   iac: HyveonIacApi;
+  /** Window chrome API: minimize, maximize, close, and maximize-state queries. */
+  window: HyveonWindowApi;
   /**
    * Test-only injection surface; `undefined` in production.
    *

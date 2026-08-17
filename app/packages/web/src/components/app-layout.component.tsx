@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState, type CSSProperties } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api, type EnvInfo } from '../api.service.js';
 import { cn } from '../lib/utils.utils.js';
@@ -17,6 +17,9 @@ import {
   X,
   History,
   Cloud,
+  Minus,
+  Square,
+  Copy,
 } from 'lucide-react';
 
 interface NavItem {
@@ -171,18 +174,42 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Skip-to-content link — first focusable element, revealed on focus */}
+      {/* Skip-to-content link — first focusable element, revealed on focus.
+          Explicitly excluded from the macOS drag region: it renders `fixed`
+          at top-4/left-4, inside the sidebar brand block's drag area below,
+          and Electron's app-region hit-testing is purely rectangle-based
+          (not DOM nesting or z-index aware) — without `no-drag` here, a
+          sighted keyboard user who tabs to reveal this link and clicks it
+          drags the window instead of activating it. */}
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-card focus:text-foreground focus:rounded-[var(--radius-md)] focus:ring-2 focus:ring-[var(--color-primary)] focus:outline-none"
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
         Skip to main content
       </a>
 
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-60 border-r border-border bg-card flex-col">
-        {/* Brand */}
-        <div className="px-4 py-5 border-b border-border">
+        {/*
+          Brand block. macOS's traffic lights render inside the header, not
+          here (see `platformWindowChromeOptions()` in `electron-entry.ts` —
+          `trafficLightPosition` is offset past the sidebar's 240px width so
+          the buttons land in the header). This block is still the window's
+          actual top-left corner, though, so it stays a drag region as a grab
+          handle near that corner even though nothing is drawn on top of it —
+          without this, macOS users couldn't drag the window from here.
+          Windows/Linux don't need it, so this is scoped to darwin only.
+        */}
+        <div
+          className="px-4 py-5 border-b border-border"
+          data-testid="sidebar-brand-block"
+          style={
+            window.hyveon?.window && window.hyveon.window.platform === 'darwin'
+              ? ({ WebkitAppRegion: 'drag' } as CSSProperties)
+              : undefined
+          }
+        >
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center" aria-hidden="true">
               <Server className="w-5 h-5 text-white" />
@@ -236,8 +263,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6">
+        <header
+          className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6"
+          style={window.hyveon?.window ? ({ WebkitAppRegion: 'drag' } as CSSProperties) : undefined}
+        >
           <div className="flex items-center gap-4">
+            {/*
+              Reserves leading space for the macOS traffic-light cluster,
+              which `platformWindowChromeOptions()` positions at
+              `x: 252, y: 20` — inside the header, not the sidebar (D2). The
+              cluster's three ~12px circles plus spacing span roughly 52px,
+              starting 12px past the sidebar's 240px width (240 + 12 = 252);
+              ~80px gives a small safety margin past that so the header's own
+              "Hyveon" heading/env pill don't render underneath it. Fixed at
+              build time like the win32 spacer below, but note the sidebar can
+              be hidden below the `md` breakpoint (768px) — see the
+              `electron-entry.ts` `resize` listener, which switches
+              `trafficLightPosition` itself between the sidebar-offset and a
+              no-sidebar position so the traffic lights stay aligned with
+              wherever this reserved space actually starts.
+            */}
+            {window.hyveon?.window?.platform === 'darwin' && (
+              <div data-traffic-light-spacer="" aria-hidden="true" className="w-20 shrink-0" />
+            )}
+
             {/* Hamburger button — only visible on mobile */}
             <button
               type="button"
@@ -245,6 +294,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               aria-label="Open navigation"
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-nav"
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
               className="shrink-0 md:hidden min-h-11 min-w-11 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <Menu className="w-5 h-5" aria-hidden="true" />
@@ -264,9 +314,36 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div
               className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center"
               aria-hidden="true"
+              style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
             >
               <span className="text-xs font-medium text-white">OP</span>
             </div>
+
+            <WindowControls />
+
+            {/*
+              Windows' titleBarOverlay reserves a region (top-right, per Electron's
+              docs) where the OS draws the overlay buttons — DOM elements there
+              cannot receive clicks. `env(titlebar-area-width)` is an absolute
+              length (the draggable region's width, measured from the window's
+              left edge), not a percentage — so it must be subtracted from the
+              *viewport* width (`100vw`), not from `100%` of this spacer's own
+              containing block (the trailing flex group, which is only a few
+              hundred px wide and would make the formula always resolve
+              negative → clamp to 0px, reserving nothing). `env(...)` only has a
+              real value inside a WCO-enabled window (falls back to 100vw
+              elsewhere, so the whole expression evaluates to 0 outside win32,
+              which is fine since this element is gated to win32 anyway).
+              `flexShrink: 0` keeps it from being squeezed to 0 under space
+              pressure from its sibling content.
+            */}
+            {window.hyveon?.window?.platform === 'win32' && (
+              <div
+                data-titlebar-overlay-spacer=""
+                aria-hidden="true"
+                style={{ width: 'calc(100vw - env(titlebar-area-width, 100vw))', flexShrink: 0 }}
+              />
+            )}
           </div>
         </header>
 
@@ -296,6 +373,7 @@ export function RefreshAllButton() {
       aria-label="Refresh all"
       aria-busy={anyLoading}
       disabled={Object.keys(pollers).length === 0}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <RefreshCw className={cn('size-3.5', anyLoading && 'motion-safe:animate-spin')} aria-hidden="true" />
       <span className="hidden sm:inline">Refresh</span>
@@ -330,9 +408,83 @@ export function LiveIndicator() {
       className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded border border-border"
       role="status"
       aria-label={statusLabel}
+      style={window.hyveon?.window ? ({ WebkitAppRegion: 'no-drag' } as CSSProperties) : undefined}
     >
       <div className={cn('w-2 h-2 rounded-full', dotClass)} aria-hidden="true" />
       <span className={cn('hidden sm:inline text-xs font-medium', labelClass)} aria-hidden="true">LIVE</span>
+    </div>
+  );
+}
+
+/**
+ * App-drawn minimize/maximize-or-restore/close buttons for the custom title
+ * bar. Renders `null` unless `window.hyveon?.window` is present AND the
+ * platform is Linux — macOS keeps native traffic lights and Windows keeps
+ * the native `titleBarOverlay`, so this component draws nothing there (the
+ * `BrowserWindow` chrome itself, not this component, reserves layout space
+ * for those OS-drawn controls).
+ */
+function WindowControls() {
+  const windowApi = window.hyveon?.window;
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    // Only Linux ever renders this component's buttons (see the doc comment
+    // above) — skip the isMaximized() IPC round-trip and the onMaximizedChange
+    // subscription entirely on macOS/Windows, where they exist only to drive
+    // state a `null` render never uses.
+    if (!windowApi || windowApi.platform !== 'linux') return;
+    // A live `onMaximizedChange` push always wins over the initial
+    // `isMaximized()` seed — if the seed's IPC round-trip resolves after a
+    // real change event (e.g. the window is maximized the instant this
+    // mounts), applying it unconditionally would clobber the newer state
+    // back to stale.
+    let receivedLiveUpdate = false;
+    windowApi
+      .isMaximized()
+      .then((maximized) => {
+        if (!receivedLiveUpdate) setIsMaximized(maximized);
+      })
+      .catch(() => undefined);
+    const unsubscribe = windowApi.onMaximizedChange((maximized) => {
+      receivedLiveUpdate = true;
+      setIsMaximized(maximized);
+    });
+    return unsubscribe;
+  }, [windowApi]);
+
+  if (!windowApi || windowApi.platform !== 'linux') return null;
+
+  return (
+    <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+      <button
+        type="button"
+        onClick={() => void windowApi.minimize()}
+        aria-label="Minimize"
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      >
+        <Minus className="w-4 h-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => void windowApi.toggleMaximize()}
+        aria-label={isMaximized ? 'Restore' : 'Maximize'}
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      >
+        {isMaximized ? (
+          <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+        ) : (
+          <Square className="w-3.5 h-3.5" aria-hidden="true" />
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => void windowApi.close()}
+        aria-label="Close"
+        className="min-h-8 min-w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+      >
+        <X className="w-4 h-4" aria-hidden="true" />
+      </button>
     </div>
   );
 }

@@ -898,6 +898,19 @@ const api: HyveonApi = {
       autoUpdateCheck: () => invoke<ManualUpdateCheckResult>('iac.settings.autoUpdate.check'),
     },
   },
+
+  window: {
+    platform: process.platform,
+    minimize: () => invoke<void>('window.minimize'),
+    toggleMaximize: () => invoke<void>('window.toggleMaximize'),
+    close: () => invoke<void>('window.close'),
+    isMaximized: () => invoke<boolean>('window.isMaximized'),
+    onMaximizedChange: (cb: (isMaximized: boolean) => void) => {
+      const listener = (_event: IpcRendererEvent, isMaximized: boolean) => cb(isMaximized);
+      ipcRenderer.on('window.maximizedChange', listener);
+      return () => ipcRenderer.removeListener('window.maximizedChange', listener);
+    },
+  },
 };
 
 /**

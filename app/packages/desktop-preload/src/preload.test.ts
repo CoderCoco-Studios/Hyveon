@@ -226,6 +226,67 @@ describe('preload dispatcher', () => {
 
       expect(ipcInvoke).toHaveBeenCalledWith('games.draft.clear');
     });
+
+    describe('window namespace', () => {
+      it('should expose the current process platform without an IPC round-trip', () => {
+        const windowApi = bridge['window'] as { platform: NodeJS.Platform };
+        expect(windowApi.platform).toBe(process.platform);
+        expect(ipcInvoke).not.toHaveBeenCalled();
+      });
+
+      it('should forward minimize() to ipcRenderer.invoke("window.minimize")', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const windowApi = bridge['window'] as { minimize: () => Promise<void> };
+        await windowApi.minimize();
+        expect(ipcInvoke).toHaveBeenCalledWith('window.minimize');
+      });
+
+      it('should forward toggleMaximize() to ipcRenderer.invoke("window.toggleMaximize")', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const windowApi = bridge['window'] as { toggleMaximize: () => Promise<void> };
+        await windowApi.toggleMaximize();
+        expect(ipcInvoke).toHaveBeenCalledWith('window.toggleMaximize');
+      });
+
+      it('should forward close() to ipcRenderer.invoke("window.close")', async () => {
+        ipcInvoke.mockResolvedValue(undefined);
+        const windowApi = bridge['window'] as { close: () => Promise<void> };
+        await windowApi.close();
+        expect(ipcInvoke).toHaveBeenCalledWith('window.close');
+      });
+
+      it('should resolve isMaximized() with the value ipcRenderer.invoke("window.isMaximized") resolves', async () => {
+        ipcInvoke.mockResolvedValue(true);
+        const windowApi = bridge['window'] as { isMaximized: () => Promise<boolean> };
+        await expect(windowApi.isMaximized()).resolves.toBe(true);
+        expect(ipcInvoke).toHaveBeenCalledWith('window.isMaximized');
+      });
+
+      it('should invoke the onMaximizedChange callback when window.maximizedChange fires', () => {
+        const windowApi = bridge['window'] as {
+          onMaximizedChange: (cb: (isMaximized: boolean) => void) => () => void;
+        };
+        const cb = vi.fn();
+        windowApi.onMaximizedChange(cb);
+
+        expect(ipcOn).toHaveBeenCalledWith('window.maximizedChange', expect.any(Function));
+        const listener = ipcOn.mock.calls.find(([channel]) => channel === 'window.maximizedChange')?.[1] as (
+          event: unknown,
+          isMaximized: boolean,
+        ) => void;
+        listener({}, true);
+        expect(cb).toHaveBeenCalledWith(true);
+      });
+
+      it('should remove the listener when the onMaximizedChange unsubscribe function is called', () => {
+        const windowApi = bridge['window'] as {
+          onMaximizedChange: (cb: (isMaximized: boolean) => void) => () => void;
+        };
+        const unsubscribe = windowApi.onMaximizedChange(vi.fn());
+        unsubscribe();
+        expect(ipcRemoveListener).toHaveBeenCalledWith('window.maximizedChange', expect.any(Function));
+      });
+    });
   });
 
   // -------------------------------------------------------------------------
