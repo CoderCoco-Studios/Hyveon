@@ -283,14 +283,22 @@ describe('AppLayout — mobile navigation', () => {
   });
 });
 
-// jsdom has no IDL binding for `-webkit-app-region` — it's an Electron/Chromium-only
-// CSS property, not part of the standard set jsdom's CSSStyleDeclaration recognizes.
-// React sets non-custom style properties via plain assignment (`style.WebkitAppRegion
-// = value`); on real Chromium that reaches the underlying CSSOM store because Chromium
-// implements an IDL accessor for it, but under jsdom it just becomes an inert own
-// property that `getPropertyValue('-webkit-app-region')` never sees. Patch the two
-// together for this one property so the assertions below observe what Electron's
-// Chromium renderer would actually do.
+/**
+ * jsdom CSS shim for `-webkit-app-region`, installed once for every test in
+ * this file.
+ *
+ * @remarks
+ * jsdom has no IDL binding for `-webkit-app-region` — it's an
+ * Electron/Chromium-only CSS property, not part of the standard set jsdom's
+ * `CSSStyleDeclaration` recognizes. React sets non-custom style properties via
+ * plain assignment (`style.WebkitAppRegion = value`); on real Chromium that
+ * reaches the underlying CSSOM store because Chromium implements an IDL
+ * accessor for it, but under jsdom it just becomes an inert own property that
+ * `getPropertyValue('-webkit-app-region')` never sees. Patches the two
+ * together for this one property so the assertions below observe what
+ * Electron's Chromium renderer would actually do.
+ */
+/** Backing store for the `WebkitAppRegion` getter/setter patched onto `CSSStyleDeclaration.prototype` below. */
 const webkitAppRegionStore = new WeakMap<CSSStyleDeclaration, string>();
 Object.defineProperty(CSSStyleDeclaration.prototype, 'WebkitAppRegion', {
   configurable: true,
