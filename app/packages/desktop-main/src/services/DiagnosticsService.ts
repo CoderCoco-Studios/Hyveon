@@ -36,6 +36,38 @@ const CONSOLE_LEVEL_TO_WINSTON_LEVEL: Record<RendererConsoleLevel, 'debug' | 'in
 export const DIAGNOSTICS_LOG_DIR = 'DIAGNOSTICS_LOG_DIR';
 
 /**
+ * Matches a physical line that is a continuation of the previous winston
+ * entry's `JSON.stringify(meta, null, 2)`-pretty-printed metadata (dev-mode
+ * `devPrintf` in `logger.ts` appends `'\n' + JSON.stringify(meta, null, 2)`
+ * after the message) — a bare top-level brace/bracket, or an indented key
+ * line. A genuine new entry's first physical line never starts with
+ * whitespace or is a bare brace, in either the dev `HH:mm:ss [level] message`
+ * format or the production single-line `winston.format.json()` format.
+ */
+const META_CONTINUATION_PATTERN = /^\s|^[{}[\]]$/;
+
+/**
+ * Re-joins physical lines that are pretty-printed metadata continuations
+ * back onto the winston entry line that precedes them, so one `logger.*`
+ * call renders as one tail entry regardless of how many physical lines its
+ * metadata spans.
+ *
+ * @param rawLines - Physical lines split on `\n` from the raw log file tail.
+ * @returns One string per winston entry, with continuation lines rejoined via `\n`.
+ */
+function mergeMetaContinuationLines(rawLines: string[]): string[] {
+  const merged: string[] = [];
+  for (const line of rawLines) {
+    if (merged.length > 0 && META_CONTINUATION_PATTERN.test(line)) {
+      merged[merged.length - 1] += `\n${line}`;
+    } else {
+      merged.push(line);
+    }
+  }
+  return merged;
+}
+
+/**
  * Provides access to the local application log file written by
  * winston-daily-rotate-file. Used by the diagnostics API endpoint so
  * operators can read today's log without SSH access.
@@ -60,11 +92,18 @@ export class DiagnosticsService {
   }
 
   /**
-   * Reads the tail of today's log file, returning up to `maxLines` lines.
+   * Reads the tail of today's log file, returning up to `maxLines` entries.
    * Returns an empty array when the file does not yet exist (e.g. on the
    * very first boot before any log rotation has occurred).
    *
-   * @param maxLines - Maximum number of trailing lines to return. Defaults to 500.
+   * A single `logger.*` call can span multiple physical lines when winston's
+   * dev-mode format pretty-prints its metadata argument — see
+   * {@link mergeMetaContinuationLines}. Those physical lines are rejoined
+   * into one entry here so `maxLines` counts entries, not physical lines,
+   * and the UI can assign one log level per entry instead of leaving
+   * continuation lines unleveled.
+   *
+   * @param maxLines - Maximum number of trailing entries to return. Defaults to 500.
    */
   async readTail(maxLines = 500): Promise<string[]> {
     const filePath = this.getTodayLogPath();
@@ -83,9 +122,19 @@ export class DiagnosticsService {
       const { bytesRead } = await fh.read(buf, 0, buf.length, readFrom);
       const content = buf.subarray(0, bytesRead).toString('utf-8');
       const lines = content.split('\n');
-      const trimmed = readFrom > 0 ? lines.slice(1) : lines;
+      let trimmed = readFrom > 0 ? lines.slice(1) : lines;
       if (trimmed.at(-1) === '') trimmed.pop();
-      return trimmed.slice(-maxLines);
+      // The read window may start mid-metadata-block, in which case the leading
+      // physical lines are continuation lines with no preceding entry to attach to.
+      // Drop them so readTail never returns a partial, unbadged metadata entry.
+      if (readFrom > 0) {
+        let firstEntryIndex = 0;
+        while (firstEntryIndex < trimmed.length && META_CONTINUATION_PATTERN.test(trimmed[firstEntryIndex])) {
+          firstEntryIndex++;
+        }
+        trimmed = trimmed.slice(firstEntryIndex);
+      }
+      return mergeMetaContinuationLines(trimmed).slice(-maxLines);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return [];
