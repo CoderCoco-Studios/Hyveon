@@ -122,8 +122,18 @@ export class DiagnosticsService {
       const { bytesRead } = await fh.read(buf, 0, buf.length, readFrom);
       const content = buf.subarray(0, bytesRead).toString('utf-8');
       const lines = content.split('\n');
-      const trimmed = readFrom > 0 ? lines.slice(1) : lines;
+      let trimmed = readFrom > 0 ? lines.slice(1) : lines;
       if (trimmed.at(-1) === '') trimmed.pop();
+      // The read window may start mid-metadata-block, in which case the leading
+      // physical lines are continuation lines with no preceding entry to attach to.
+      // Drop them so readTail never returns a partial, unbadged metadata entry.
+      if (readFrom > 0) {
+        let firstEntryIndex = 0;
+        while (firstEntryIndex < trimmed.length && META_CONTINUATION_PATTERN.test(trimmed[firstEntryIndex])) {
+          firstEntryIndex++;
+        }
+        trimmed = trimmed.slice(firstEntryIndex);
+      }
       return mergeMetaContinuationLines(trimmed).slice(-maxLines);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
