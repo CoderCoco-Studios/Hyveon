@@ -96,7 +96,7 @@ await serverMocks.pushRunTask({
 | `start-stop.spec.ts` | `GamesController.listGames`/`listStatus` report STOPPED games on initial load; a game seeded as RUNNING via mocked ECS responses can be stopped. |
 | `status-polling.spec.ts` | Pushing RUNNING mock responses causes the next `GamesController.listStatus` dispatch to reflect the state change (the in-process analogue of the dashboard's poller). |
 | `error-propagation.spec.ts` | `AccessDeniedException` from `RunTaskCommand` surfaces as `{ success: false, message: '…' }` from `GamesController.start`. |
-| `can-run.spec.ts` | Placeholder — skipped until Discord permission enforcement (`canRun()`) is wired into the `ipc` test harness. |
+| `can-run.spec.ts` | `canRun()` (`@hyveon/shared`) enforces guild allowlisting, admin bypass, and per-game action grants, against config seeded through `DiscordController`'s real IPC channels. |
 | `stack-outputs.spec.ts` | `IacController.output` (the `iac.output` channel) returns the scripted `PulumiService.getStackOutputs()` value verbatim, and degrades to `null` — not a throw — for a never-deployed stack. |
 | `pulumi-di-seam.spec.ts` | Proves the DI substitution itself: a scripted, non-UUID-shaped `mintDestroyConfirmationToken()` value round-trips through `IacController.mintDestroyToken`, and `ipc.get(PulumiService)` is reference-equal to `ipc.mocks.pulumi`. |
 | `guided-iam.spec.ts` | Dispatches the five `wizard.guidedIam.*` channels through the real, DI-resolved `WizardController` → `GuidedIamService`, covering template rendering, console-URL fallback, bootstrap-key intake, the full mint→verify→revoke rotation, and the `delete-failed` manual-revoke retry. |
