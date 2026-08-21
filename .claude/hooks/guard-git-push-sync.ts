@@ -15,32 +15,28 @@ import { checkBranchSync, describeDrift } from './lib/git-sync.js';
 
 const GIT_PUSH = /(^|[;&|]\s*)git\s+push\b/m;
 
-async function main(): Promise<void> {
-  const raw = await readStdin();
-  if (!raw.trim()) allow();
+const raw = await readStdin();
+if (!raw.trim()) allow();
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    allow();
-  }
-  if (!isRecord(parsed)) allow();
-  const input = parsed as Record<string, unknown>;
-
-  if (input.tool_name !== 'Bash') allow();
-  const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
-  const command = typeof toolInput.command === 'string' ? toolInput.command : '';
-  if (!GIT_PUSH.test(command)) allow();
-
-  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
-  const status = checkBranchSync(cwd);
-  if (!status) allow();
-
-  const message = describeDrift(status);
-  if (!message) allow();
-
-  deny(`Push blocked: ${message}`);
+let parsed: unknown;
+try {
+  parsed = JSON.parse(raw);
+} catch {
+  allow();
 }
+if (!isRecord(parsed)) allow();
+const input = parsed as Record<string, unknown>;
 
-await main();
+if (input.tool_name !== 'Bash') allow();
+const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
+const command = typeof toolInput.command === 'string' ? toolInput.command : '';
+if (!GIT_PUSH.test(command)) allow();
+
+const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+const status = checkBranchSync(cwd);
+if (!status) allow();
+
+const message = describeDrift(status);
+if (!message) allow();
+
+deny(`Push blocked: ${message}`);
