@@ -94,6 +94,16 @@ if (!isDirectWorktreeAdd(command)) allow();
 deny(
   'Direct `git worktree add` is blocked — worktree creation must go through the ' +
     'EnterWorktree tool, not the raw git subcommand (per .claude/rules/worktree.md). ' +
-    'Use EnterWorktree with `name` to create a worktree, or `path` to switch into one ' +
-    'that already exists.',
+    'Do NOT ask the user to run this command themselves — call the EnterWorktree tool ' +
+    'now instead: `EnterWorktree({ name: "..." })` creates a new worktree+branch from ' +
+    'main (or HEAD, depending on worktree.baseRef) if none exists yet, or ' +
+    '`EnterWorktree({ path: "..." })` switches into one that already exists. ' +
+    'For these supported cases, retry with EnterWorktree — do not fall back to Bash. If it ' +
+    'reports an error, surface that error to the user instead of blindly retrying. ' +
+    'The ONLY time asking the user to run `git worktree add` manually is correct is the ' +
+    'documented pr-stacking hop-2+ exception in .claude/rules/pr-stacking.md, where the new ' +
+    'branch must base off a previous stacked branch (not main/HEAD) — EnterWorktree cannot ' +
+    'target an arbitrary base ref, so that specific case needs the user to run ' +
+    '`git fetch origin <base>` + `git worktree add -b <branch> .claude/worktrees/<name> ' +
+    'origin/<base>` and then EnterWorktree with `path` pointing at the result.',
 );
