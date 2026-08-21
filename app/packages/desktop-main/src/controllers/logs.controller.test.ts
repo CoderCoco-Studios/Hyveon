@@ -53,6 +53,10 @@ function makeLogs(): LogsService {
     streamLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
     getRecentLambdaLogs: vi.fn().mockResolvedValue(['lambda-line1']),
     streamLambdaLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
+    getOlderLogs: vi.fn().mockResolvedValue({ lines: ['older1'], oldestTimestamp: 500, atOldest: false }),
+    getLogsInRange: vi.fn().mockResolvedValue({ lines: ['range1'] }),
+    getOlderLambdaLogs: vi.fn().mockResolvedValue({ lines: ['lambda-older1'], oldestTimestamp: 500, atOldest: false }),
+    getLambdaLogsInRange: vi.fn().mockResolvedValue({ lines: ['lambda-range1'] }),
   } as unknown as LogsService;
 }
 
@@ -116,6 +120,26 @@ describe('LogsController', () => {
     it('should register streamLambdaLogs on the "logs.lambda.stream" IPC channel', () => {
       const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.streamLambdaLogs);
       expect(pattern).toEqual(['logs.lambda.stream']);
+    });
+
+    it('should register getOlderLogs on the "logs.getOlder" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getOlderLogs);
+      expect(pattern).toEqual(['logs.getOlder']);
+    });
+
+    it('should register getLogsInRange on the "logs.getRange" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getLogsInRange);
+      expect(pattern).toEqual(['logs.getRange']);
+    });
+
+    it('should register getOlderLambdaLogs on the "logs.lambda.getOlder" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getOlderLambdaLogs);
+      expect(pattern).toEqual(['logs.lambda.getOlder']);
+    });
+
+    it('should register getLambdaLogsInRange on the "logs.lambda.getRange" IPC channel', () => {
+      const pattern = Reflect.getMetadata(PATTERN_METADATA_KEY, LogsController.prototype.getLambdaLogsInRange);
+      expect(pattern).toEqual(['logs.lambda.getRange']);
     });
   });
 
@@ -200,6 +224,74 @@ describe('LogsController', () => {
       const logs = makeLogs();
       await new LogsController(logs).getRecentLogs({ game: 'minecraft', limit: 100 });
       expect(logs.getRecentLogs).toHaveBeenCalledWith('minecraft', 100);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getOlderLogs
+  // -------------------------------------------------------------------------
+
+  describe('getOlderLogs', () => {
+    it('should log an entry line naming the game before invoking', async () => {
+      const { logger } = await import('../logger.js');
+      await new LogsController(makeLogs()).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 });
+      expect(logger.debug).toHaveBeenCalledWith('LogsController: logs.getOlder invoked', { game: 'minecraft' });
+    });
+
+    it('should return the game name and the older page from LogsService', async () => {
+      const result = await new LogsController(makeLogs()).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 });
+      expect(result).toEqual({ game: 'minecraft', lines: ['older1'], oldestTimestamp: 500, atOldest: false });
+    });
+
+    it('should default the limit to 100 when omitted', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 });
+      expect(logs.getOlderLogs).toHaveBeenCalledWith('minecraft', 1000, 100);
+    });
+
+    it('should forward an explicit limit from the payload', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000, limit: 25 });
+      expect(logs.getOlderLogs).toHaveBeenCalledWith('minecraft', 1000, 25);
+    });
+
+    it('should normalize a thrown LogsService error to a plain Error', async () => {
+      const logs = makeLogs();
+      vi.mocked(logs.getOlderLogs).mockRejectedValue(new Error('denied'));
+      await expect(
+        new LogsController(logs).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 }),
+      ).rejects.toThrow('denied');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getLogsInRange
+  // -------------------------------------------------------------------------
+
+  describe('getLogsInRange', () => {
+    it('should log an entry line naming the game before invoking', async () => {
+      const { logger } = await import('../logger.js');
+      await new LogsController(makeLogs()).getLogsInRange({ game: 'minecraft', startTime: 0, endTime: 1000 });
+      expect(logger.debug).toHaveBeenCalledWith('LogsController: logs.getRange invoked', { game: 'minecraft' });
+    });
+
+    it('should return the game name and the range page from LogsService', async () => {
+      const result = await new LogsController(makeLogs()).getLogsInRange({ game: 'minecraft', startTime: 0, endTime: 1000 });
+      expect(result).toEqual({ game: 'minecraft', lines: ['range1'] });
+    });
+
+    it('should forward startTime and endTime to LogsService.getLogsInRange', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getLogsInRange({ game: 'minecraft', startTime: 50, endTime: 300 });
+      expect(logs.getLogsInRange).toHaveBeenCalledWith('minecraft', 50, 300);
+    });
+
+    it('should normalize a thrown LogsService error to a plain Error', async () => {
+      const logs = makeLogs();
+      vi.mocked(logs.getLogsInRange).mockRejectedValue(new Error('throttled'));
+      await expect(
+        new LogsController(logs).getLogsInRange({ game: 'minecraft', startTime: 0, endTime: 1000 }),
+      ).rejects.toThrow('throttled');
     });
   });
 
@@ -374,6 +466,60 @@ describe('LogsController', () => {
       const logs = makeLogs();
       await new LogsController(logs).getRecentLambdaLogs({ functionKey: 'followup' });
       expect(logs.getRecentLambdaLogs).toHaveBeenCalledWith('followup', 50);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getOlderLambdaLogs
+  // -------------------------------------------------------------------------
+
+  describe('getOlderLambdaLogs', () => {
+    it('should log an entry line naming the functionKey before invoking', async () => {
+      const { logger } = await import('../logger.js');
+      await new LogsController(makeLogs()).getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1000 });
+      expect(logger.debug).toHaveBeenCalledWith('LogsController: logs.lambda.getOlder invoked', { functionKey: 'watchdog' });
+    });
+
+    it('should return the functionKey and the older page from LogsService', async () => {
+      const result = await new LogsController(makeLogs()).getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1000 });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-older1'], oldestTimestamp: 500, atOldest: false });
+    });
+
+    it('should default the limit to 100 when omitted', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getOlderLambdaLogs({ functionKey: 'followup', beforeTimestamp: 1000 });
+      expect(logs.getOlderLambdaLogs).toHaveBeenCalledWith('followup', 1000, 100);
+    });
+
+    it('should normalize a thrown LogsService error to a plain Error', async () => {
+      const logs = makeLogs();
+      vi.mocked(logs.getOlderLambdaLogs).mockRejectedValue(new Error('no log group'));
+      await expect(
+        new LogsController(logs).getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1000 }),
+      ).rejects.toThrow('no log group');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getLambdaLogsInRange
+  // -------------------------------------------------------------------------
+
+  describe('getLambdaLogsInRange', () => {
+    it('should log an entry line naming the functionKey before invoking', async () => {
+      const { logger } = await import('../logger.js');
+      await new LogsController(makeLogs()).getLambdaLogsInRange({ functionKey: 'watchdog', startTime: 0, endTime: 1000 });
+      expect(logger.debug).toHaveBeenCalledWith('LogsController: logs.lambda.getRange invoked', { functionKey: 'watchdog' });
+    });
+
+    it('should return the functionKey and the range page from LogsService', async () => {
+      const result = await new LogsController(makeLogs()).getLambdaLogsInRange({ functionKey: 'watchdog', startTime: 0, endTime: 1000 });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-range1'] });
+    });
+
+    it('should forward startTime and endTime to LogsService.getLambdaLogsInRange', async () => {
+      const logs = makeLogs();
+      await new LogsController(logs).getLambdaLogsInRange({ functionKey: 'watchdog', startTime: 50, endTime: 300 });
+      expect(logs.getLambdaLogsInRange).toHaveBeenCalledWith('watchdog', 50, 300);
     });
   });
 

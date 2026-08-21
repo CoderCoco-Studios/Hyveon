@@ -1347,6 +1347,44 @@ export interface HyveonCostsApi {
   estimate: () => Promise<CostEstimates>;
 }
 
+/**
+ * One page of CloudWatch events strictly older than the caller-supplied
+ * `beforeTimestamp` boundary — the result of the `logs.getOlder` /
+ * `logs.lambda.getOlder` IPC channels, backing the "load older logs on
+ * scroll-up" backfill flow.
+ *
+ * Mirrors `OlderLogsPage` in `@hyveon/desktop-main/src/services/LogsService.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface OlderLogsPage {
+  /** The fetched page's messages, oldest first. */
+  lines: string[];
+  /**
+   * The CloudWatch event timestamp (epoch ms) of the oldest line in this
+   * page — pass this back as the next call's `beforeTimestamp` to keep
+   * paging further back. Absent when `lines` is empty.
+   */
+  oldestTimestamp?: number;
+  /**
+   * `true` when this page came back empty — nothing further back exists.
+   * Callers should stop issuing further backward calls once this is `true`.
+   */
+  atOldest: boolean;
+}
+
+/**
+ * Every CloudWatch event in a caller-supplied `[startTime, endTime)` window
+ * — the result of the `logs.getRange` / `logs.lambda.getRange` IPC channels,
+ * backing the forward gap-fill flow.
+ *
+ * Mirrors `LogsRangePage` in `@hyveon/desktop-main/src/services/LogsService.ts`
+ * — that file is the source of truth; keep this copy in sync with it.
+ */
+export interface LogsRangePage {
+  /** The fetched range's messages, oldest first. */
+  lines: string[];
+}
+
 /** CloudWatch log endpoints: poll recent lines or open a live IPC stream. */
 export interface HyveonLogsApi {
   /** Returns recent log lines for a game's ECS task. */
@@ -1363,6 +1401,17 @@ export interface HyveonLogsApi {
    * generator, exposed to the renderer via {@link HyveonStreamHandle}.
    */
   stream: (game: string) => HyveonStreamHandle<LogChunk>;
+  /**
+   * Returns up to `limit` CloudWatch events strictly older than
+   * `beforeTimestamp` for a game's ECS task log group — see
+   * {@link OlderLogsPage}.
+   */
+  getOlder: (game: string, beforeTimestamp: number, limit?: number) => Promise<OlderLogsPage>;
+  /**
+   * Returns every CloudWatch event in `[startTime, endTime)` for a game's
+   * ECS task log group — see {@link LogsRangePage}.
+   */
+  getRange: (game: string, startTime: number, endTime: number) => Promise<LogsRangePage>;
   lambda: HyveonLambdaLogsApi;
 }
 
@@ -1376,6 +1425,18 @@ export interface LambdaLogs {
 export interface HyveonLambdaLogsApi {
   /** Returns recent log lines for `functionKey`'s CloudWatch log group. */
   get: (functionKey: LambdaFunctionKey, limit?: number) => Promise<LambdaLogs>;
+  /**
+   * Returns up to `limit` CloudWatch events strictly older than
+   * `beforeTimestamp` for `functionKey`'s CloudWatch log group — mirrors
+   * {@link HyveonLogsApi.getOlder}.
+   */
+  getOlder: (functionKey: LambdaFunctionKey, beforeTimestamp: number, limit?: number) => Promise<OlderLogsPage>;
+  /**
+   * Returns every CloudWatch event in `[startTime, endTime)` for
+   * `functionKey`'s CloudWatch log group — mirrors
+   * {@link HyveonLogsApi.getRange}.
+   */
+  getRange: (functionKey: LambdaFunctionKey, startTime: number, endTime: number) => Promise<LogsRangePage>;
   /**
    * Opens a live log stream for `functionKey`, returning a
    * {@link HyveonStreamHandle} of log chunks — mirrors

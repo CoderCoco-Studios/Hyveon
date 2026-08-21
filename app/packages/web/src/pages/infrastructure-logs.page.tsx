@@ -21,6 +21,8 @@ const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
 const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
+  getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
+  getRange: () => Promise.resolve({ lines: [] }),
 };
 
 /**
@@ -43,6 +45,8 @@ function toLogTailApi(api: HyveonLambdaLogsApi): LogTailApi {
     get: (target, limit) =>
       limit === undefined ? api.get(target as LambdaFunctionKey) : api.get(target as LambdaFunctionKey, limit),
     stream: (target) => api.stream(target as LambdaFunctionKey),
+    getOlder: (target, beforeTimestamp, limit) => api.getOlder(target as LambdaFunctionKey, beforeTimestamp, limit),
+    getRange: (target, startTime, endTime) => api.getRange(target as LambdaFunctionKey, startTime, endTime),
   };
 }
 
@@ -71,6 +75,10 @@ export function InfrastructureLogsPage() {
     boxRef,
     handlePauseToggle,
     handleScroll,
+    atOldest,
+    loadingOlder,
+    hasNewer,
+    jumpToLatest,
   } = useLogTail(
     selectedFunction,
     window.hyveon ? toLogTailApi(window.hyveon.logs.lambda) : NO_HYVEON_LOG_TAIL_API,
@@ -151,32 +159,53 @@ export function InfrastructureLogsPage() {
       )}
 
       {/* Log stream */}
-      <div
-        ref={boxRef}
-        onScroll={handleScroll}
-        data-testid="logs-viewer"
-        className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-      >
-        {visibleLines.length === 0 ? (
-          <div className="text-[var(--color-muted-foreground)]">Waiting for log lines…</div>
-        ) : (
-          visibleLines.map((line, i) => (
-            <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              {line.level ? (
-                <Badge
-                  variant={LOG_LEVEL_BADGE[line.level].variant}
-                  className="h-4 shrink-0 px-1.5 py-0 text-[10px] leading-4"
-                >
-                  {LOG_LEVEL_BADGE[line.level].label}
-                </Badge>
-              ) : (
-                <span className="inline-block w-12 shrink-0" aria-hidden />
-              )}
-              <span className="flex-1">
-                <HighlightedLine text={line.text} query={search} />
-              </span>
+      <div className="relative min-h-[300px] flex-1">
+        <div
+          ref={boxRef}
+          onScroll={handleScroll}
+          data-testid="logs-viewer"
+          className="h-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
+        >
+          {loadingOlder && (
+            <div data-testid="loading-older" className="py-1 text-center text-[var(--color-muted-foreground)]">
+              Loading older logs…
             </div>
-          ))
+          )}
+          {atOldest && (
+            <div data-testid="at-oldest-marker" className="py-1 text-center text-[var(--color-muted-foreground)]">
+              — Beginning of log retention —
+            </div>
+          )}
+          {visibleLines.length === 0 ? (
+            <div className="text-[var(--color-muted-foreground)]">Waiting for log lines…</div>
+          ) : (
+            visibleLines.map((line, i) => (
+              <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
+                {line.level ? (
+                  <Badge
+                    variant={LOG_LEVEL_BADGE[line.level].variant}
+                    className="h-4 shrink-0 px-1.5 py-0 text-[10px] leading-4"
+                  >
+                    {LOG_LEVEL_BADGE[line.level].label}
+                  </Badge>
+                ) : (
+                  <span className="inline-block w-12 shrink-0" aria-hidden />
+                )}
+                <span className="flex-1">
+                  <HighlightedLine text={line.text} query={search} />
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        {hasNewer && (
+          <Button
+            size="sm"
+            onClick={jumpToLatest}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-[var(--shadow-md)]"
+          >
+            Jump to latest
+          </Button>
         )}
       </div>
 

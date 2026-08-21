@@ -206,6 +206,121 @@ describe('LogsService', () => {
   });
 });
 
+describe('LogsService.getOlderLogs', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    loggerMock.warn.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should fetch older events bounded by endTime from the newest log stream', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'ecs/stream1' }] });
+    cwMock.on(GetLogEventsCommand).resolves({
+      events: [{ message: 'older1', timestamp: 500 }, { message: 'older2', timestamp: 600 }],
+    });
+
+    const page = await service.getOlderLogs('minecraft', 1000, 25);
+
+    expect(page.lines).toEqual(['older1', 'older2']);
+    expect(page.oldestTimestamp).toBe(500);
+    expect(page.atOldest).toBe(false);
+
+    const getInput = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
+    expect(getInput.logGroupName).toBe('/ecs/minecraft-server');
+    expect(getInput.logStreamName).toBe('ecs/stream1');
+    expect(getInput.limit).toBe(25);
+    expect(getInput.startFromHead).toBe(false);
+    expect(getInput.endTime).toBe(1000);
+  });
+
+  it('should report atOldest true when no events come back before the boundary', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
+    cwMock.on(GetLogEventsCommand).resolves({ events: [] });
+
+    const page = await service.getOlderLogs('minecraft', 1000);
+
+    expect(page.lines).toEqual([]);
+    expect(page.atOldest).toBe(true);
+    expect(page.oldestTimestamp).toBeUndefined();
+  });
+
+  it('should throw when the log group has no streams', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
+
+    await expect(service.getOlderLogs('minecraft', 1000)).rejects.toThrow(/no log streams/i);
+  });
+
+  it('should throw a plain Error and log a warning when the CloudWatch call fails', async () => {
+    cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
+
+    await expect(service.getOlderLogs('minecraft', 1000)).rejects.toThrow('denied');
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'LogsService.getOlderLogs: failed to fetch older logs',
+      expect.objectContaining({ game: 'minecraft', error: 'denied' }),
+    );
+  });
+});
+
+describe('LogsService.getLogsInRange', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    loggerMock.warn.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should return events within the requested time range, oldest first', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({
+      events: [
+        { eventId: 'e1', timestamp: 100, message: 'a' },
+        { eventId: 'e2', timestamp: 200, message: 'b' },
+      ],
+    });
+
+    const page = await service.getLogsInRange('minecraft', 50, 300);
+
+    expect(page.lines).toEqual(['a', 'b']);
+    const input = cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input;
+    expect(input.logGroupName).toBe('/ecs/minecraft-server');
+    expect(input.startTime).toBe(50);
+    expect(input.endTime).toBe(300);
+  });
+
+  it('should de-duplicate events with the same eventId across paginated FilterLogEvents calls', async () => {
+    cwMock
+      .on(FilterLogEventsCommand)
+      .resolvesOnce({ events: [{ eventId: 'e1', timestamp: 100, message: 'a' }], nextToken: 'tok' })
+      .resolves({
+        events: [
+          { eventId: 'e1', timestamp: 100, message: 'a' },
+          { eventId: 'e2', timestamp: 200, message: 'b' },
+        ],
+      });
+
+    const page = await service.getLogsInRange('minecraft', 50, 300);
+
+    expect(page.lines).toEqual(['a', 'b']);
+    expect(cwMock.commandCalls(FilterLogEventsCommand)).toHaveLength(2);
+  });
+
+  it('should throw a plain Error and log a warning when the CloudWatch call fails', async () => {
+    cwMock.on(FilterLogEventsCommand).rejects(new Error('throttled'));
+
+    await expect(service.getLogsInRange('minecraft', 50, 300)).rejects.toThrow('throttled');
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'LogsService.getLogsInRange: failed to fetch log range',
+      expect.objectContaining({ game: 'minecraft', error: 'throttled' }),
+    );
+  });
+});
+
 describe('LogsService.streamLogs', () => {
   /** Service under test, freshly constructed per test. */
   let service: LogsService;
@@ -408,6 +523,84 @@ describe('LogsService — Lambda log methods', () => {
     expect(lines[0]).not.toMatch(/error fetching logs/i);
     expect(lines[0]).toMatch(/no log group/i);
     expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('LogsService.getOlderLambdaLogs', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    loggerMock.warn.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should fetch older events bounded by endTime from the newest Lambda log stream', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 'stream1' }] });
+    cwMock.on(GetLogEventsCommand).resolves({ events: [{ message: 'older', timestamp: 500 }] });
+
+    const page = await service.getOlderLambdaLogs('watchdog', 1000, 10);
+
+    expect(page.lines).toEqual(['older']);
+    expect(page.oldestTimestamp).toBe(500);
+    expect(page.atOldest).toBe(false);
+    const input = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
+    expect(input.logGroupName).toBe('/aws/lambda/hyveon-watchdog');
+    expect(input.endTime).toBe(1000);
+  });
+
+  it('should throw an informational error when the Lambda log group does not exist yet', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(DescribeLogStreamsCommand).rejects(notFound);
+
+    await expect(service.getOlderLambdaLogs('health-check', 1000)).rejects.toThrow(/no log group/i);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'LogsService.getOlderLambdaLogs: log group does not exist yet',
+      expect.objectContaining({ functionKey: 'health-check' }),
+    );
+  });
+
+  it('should throw when the log group has no streams', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
+
+    await expect(service.getOlderLambdaLogs('watchdog', 1000)).rejects.toThrow(/no log streams/i);
+  });
+});
+
+describe('LogsService.getLambdaLogsInRange', () => {
+  /** Service under test, freshly constructed per test. */
+  let service: LogsService;
+
+  beforeEach(() => {
+    cwMock.reset();
+    loggerMock.debug.mockReset();
+    loggerMock.warn.mockReset();
+    service = makeService(makeConfig());
+  });
+
+  it('should return events within the requested time range for the resolved Lambda log group', async () => {
+    cwMock.on(FilterLogEventsCommand).resolves({
+      events: [{ eventId: 'e1', timestamp: 100, message: 'a' }],
+    });
+
+    const page = await service.getLambdaLogsInRange('followup', 50, 300);
+
+    expect(page.lines).toEqual(['a']);
+    const input = cwMock.commandCalls(FilterLogEventsCommand)[0]!.args[0].input;
+    expect(input.logGroupName).toBe('/aws/lambda/hyveon-followup');
+  });
+
+  it('should throw an informational error when the Lambda log group does not exist yet', async () => {
+    const notFound = Object.assign(new Error('The specified log group does not exist.'), {
+      name: 'ResourceNotFoundException',
+    });
+    cwMock.on(FilterLogEventsCommand).rejects(notFound);
+
+    await expect(service.getLambdaLogsInRange('health-check', 50, 300)).rejects.toThrow(/no log group/i);
   });
 });
 
