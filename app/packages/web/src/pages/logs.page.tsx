@@ -59,7 +59,7 @@ export function LogsPage() {
   const [loadGamesError, setLoadGamesError] = useState<string | null>(null);
 
   const {
-    visibleLines,
+    lines,
     paused,
     autoscroll,
     setAutoscroll,
@@ -209,12 +209,12 @@ export function LogsPage() {
         data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
       >
-        {visibleLines.length === 0 ? (
+        {lines.length === 0 ? (
           <div className="text-[var(--color-muted-foreground)]">
             {selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
           </div>
         ) : (
-          visibleLines.map((line, i) => (
+          lines.map((line, i) => (
             <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
               <span className="flex-1">
                 <HighlightedLine text={line.text} query={search} />
@@ -227,7 +227,7 @@ export function LogsPage() {
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
         <span>
-          {visibleLines.length} line{visibleLines.length === 1 ? '' : 's'}
+          {lines.length} line{lines.length === 1 ? '' : 's'}
           {ageLabel ? ` · oldest ${ageLabel}` : ''}
         </span>
         <span className="font-[var(--font-mono)]">

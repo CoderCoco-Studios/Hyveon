@@ -21,7 +21,6 @@ export interface LogTailApi {
 /** The live-tail state and handlers a log-viewer page renders. */
 export interface UseLogTailResult {
   lines: LogLine[];
-  visibleLines: LogLine[];
   paused: boolean;
   autoscroll: boolean;
   setAutoscroll: (value: boolean) => void;
@@ -190,9 +189,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     }
   }, [lines, autoscroll, paused]);
 
-  const visibleLines = lines;
-
-  const oldest = visibleLines[0];
+  const oldest = lines[0];
   const ageLabel = oldest ? formatAge(now - oldest.receivedAt) : null;
 
   /**
@@ -233,7 +230,6 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
 
   return {
     lines,
-    visibleLines,
     paused,
     autoscroll,
     setAutoscroll,
