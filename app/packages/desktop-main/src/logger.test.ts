@@ -56,8 +56,12 @@ describe('devPrintf multi-line formatting', () => {
   /** Runs `devPrintf` against a winston `info`-shaped object the way a real transport would. */
   function format(message: string, meta: Record<string, unknown>): string {
     const info = { timestamp: '09:20:51', level: 'debug', message, ...meta };
-    const result = devPrintf.transform(info, {}) as unknown as Record<symbol, string>;
-    return result[Symbol.for('message')]!;
+    const result = devPrintf.transform(info, {}) as Partial<Record<symbol, string>>;
+    const output = result[Symbol.for('message')];
+    if (typeof output !== 'string') {
+      throw new Error('devPrintf did not produce a formatted message');
+    }
+    return output;
   }
 
   it('should prefix every physical line of a multi-line meta payload with timestamp and level', () => {
