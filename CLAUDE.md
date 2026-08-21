@@ -150,11 +150,10 @@ Then confirm documentation is current **in the same PR**:
 ## Git & PR workflow
 
 `main` is protected — direct pushes are blocked. Every change goes through a PR, including
-trivial chores. Work in a worktree:
-
-```bash
-git worktree add .worktrees/<branch> -b <branch>
-```
+trivial chores. Tracked-file changes require a worktree, entered via `EnterWorktree` — hooks
+enforce isolation, path, sync, and `npm ci` automatically; see `.claude/rules/worktree.md` for
+what the hooks cover and the one thing they can't decide for you (reuse an existing worktree
+before creating a new one).
 
 - **Always use `/pr`** to open pull requests — it validates the title before calling the API.
 - **PR titles MUST be Conventional Commits.** We squash-merge, so the title becomes the commit
