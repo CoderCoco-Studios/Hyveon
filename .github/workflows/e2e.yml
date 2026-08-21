@@ -1,38 +1,32 @@
 name: E2E Tests
 
+# Non-code paths (docs, OpenSpec artifacts, Claude Code hooks/config) never
+# affect the npm build, so `paths-ignore` skips this workflow entirely for
+# PRs that only touch them. GitHub still satisfies the required-check gate
+# for a workflow that never triggers, as long as the merge queue/ruleset
+# isn't set to wait indefinitely for a named check that never reports.
 on:
   merge_group:
     types: [checks_requested]
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '.claude/**'
+      - 'docs/**'
+      - 'openspec/**'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.claude/**'
+      - 'docs/**'
+      - 'openspec/**'
 
 permissions:
   contents: read
 
 jobs:
-  # Doc-only PRs (markdown files only) skip e2e entirely — a skipped
-  # required job still satisfies GitHub's required-status-check gate.
-  changes:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@v4.0.3
-        id: filter
-        with:
-          predicate-quantifier: some-with-excludes
-          filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-
   e2e:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
