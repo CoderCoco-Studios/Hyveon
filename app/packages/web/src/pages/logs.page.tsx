@@ -3,14 +3,12 @@ import { useLocation } from 'react-router-dom';
 import { Filter, Pause, Play, Search } from 'lucide-react';
 import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
 import { api } from '../api.service.js';
-import { Badge } from '../components/ui/badge.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
-import { HighlightedLine, LevelFilterMenu } from '../components/log-line-display.component.js';
+import { LogLineList } from '../components/log-line-display.component.js';
 import { GameCombobox } from '../components/game-combobox.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
-import { LOG_LEVEL_BADGE } from '../lib/log-level.utils.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
 
 /** Shape of the react-router navigation state `GameCard` passes via `<Link to="/logs" state={{ game }}>`. */
@@ -44,7 +42,7 @@ const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
  * game. Owns game selection (list load, `GameCombobox`, navigation-state
- * preselection); the fetch/stream/pause/filter/autoscroll engine itself is
+ * preselection); the fetch/stream/pause/autoscroll engine itself is
  * {@link useLogTail} (design.md D6), shared with `/logs/infrastructure`.
  */
 export function LogsPage() {
@@ -61,14 +59,12 @@ export function LogsPage() {
   const [loadGamesError, setLoadGamesError] = useState<string | null>(null);
 
   const {
-    visibleLines,
+    lines,
     paused,
     autoscroll,
     setAutoscroll,
     search,
     setSearch,
-    hiddenLevels,
-    toggleLevel,
     error: tailError,
     bufferedCount,
     ageLabel,
@@ -102,8 +98,6 @@ export function LogsPage() {
 
   const error = loadGamesError ?? tailError;
 
-  const toggleLevelHandler = (lvl: Parameters<typeof toggleLevel>[0]) => toggleLevel(lvl);
-
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
       {/* Header — title + LIVE/PAUSED badge */}
@@ -136,9 +130,6 @@ export function LogsPage() {
           >
             <Filter className="h-3.5 w-3.5" />
             Filters
-            {hiddenLevels.size > 0 && (
-              <span className="ml-1 text-[var(--color-primary-light)]">({hiddenLevels.size} hidden)</span>
-            )}
           </Button>
 
           {/* Desktop: inline filter controls — hidden on mobile (hidden md:contents) */}
@@ -153,7 +144,6 @@ export function LogsPage() {
                 className="pl-8"
               />
             </div>
-            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevelHandler} />
             <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
               <input
                 type="checkbox"
@@ -193,7 +183,6 @@ export function LogsPage() {
                 className="pl-8 w-full"
               />
             </div>
-            <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevelHandler} />
             <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
               <input
                 type="checkbox"
@@ -214,43 +203,21 @@ export function LogsPage() {
       )}
 
       {/* Log stream */}
-      <div
+      <LogLineList
         ref={boxRef}
         onScroll={handleScroll}
         data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-      >
-        {visibleLines.length === 0 ? (
-          <div className="text-[var(--color-muted-foreground)]">
-            {selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
-          </div>
-        ) : (
-          visibleLines.map((line, i) => (
-            <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              {line.level ? (
-                <Badge
-                  variant={LOG_LEVEL_BADGE[line.level].variant}
-                  className="h-4 shrink-0 px-1.5 py-0 text-[10px] leading-4"
-                >
-                  {LOG_LEVEL_BADGE[line.level].label}
-                </Badge>
-              ) : (
-                <span className="inline-block w-12 shrink-0" aria-hidden />
-              )}
-              <span className="flex-1">
-                <HighlightedLine text={line.text} query={search} />
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+        lines={lines.map((line) => line.text)}
+        search={search}
+        emptyMessage={selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
+      />
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
         <span>
-          {visibleLines.length} line{visibleLines.length === 1 ? '' : 's'}
+          {lines.length} line{lines.length === 1 ? '' : 's'}
           {ageLabel ? ` · oldest ${ageLabel}` : ''}
-          {hiddenLevels.size > 0 ? ` · ${hiddenLevels.size} level${hiddenLevels.size === 1 ? '' : 's'} hidden` : ''}
         </span>
         <span className="font-[var(--font-mono)]">
           {paused && bufferedCount > 0 ? `buffered ${bufferedCount}` : ''}

@@ -2,13 +2,11 @@ import { useState } from 'react';
 import { Pause, Play, Search } from 'lucide-react';
 import type { HyveonLambdaLogsApi, HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
 import { LAMBDA_FUNCTION_KEYS, type LambdaFunctionKey } from '@hyveon/shared';
-import { Badge } from '../components/ui/badge.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
-import { HighlightedLine, LevelFilterMenu } from '../components/log-line-display.component.js';
+import { LogLineList } from '../components/log-line-display.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
-import { LOG_LEVEL_BADGE } from '../lib/log-level.utils.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
 
 const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
@@ -57,14 +55,12 @@ export function InfrastructureLogsPage() {
   const [selectedFunction, setSelectedFunction] = useState<LambdaFunctionKey>('watchdog');
 
   const {
-    visibleLines,
+    lines,
     paused,
     autoscroll,
     setAutoscroll,
     search,
     setSearch,
-    hiddenLevels,
-    toggleLevel,
     error,
     bufferedCount,
     ageLabel,
@@ -75,8 +71,6 @@ export function InfrastructureLogsPage() {
     selectedFunction,
     window.hyveon ? toLogTailApi(window.hyveon.logs.lambda) : NO_HYVEON_LOG_TAIL_API,
   );
-
-  const toggleLevelHandler = (lvl: Parameters<typeof toggleLevel>[0]) => toggleLevel(lvl);
 
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
@@ -121,7 +115,6 @@ export function InfrastructureLogsPage() {
             className="pl-8"
           />
         </div>
-        <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevelHandler} />
         <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
           <input
             type="checkbox"
@@ -151,41 +144,21 @@ export function InfrastructureLogsPage() {
       )}
 
       {/* Log stream */}
-      <div
+      <LogLineList
         ref={boxRef}
         onScroll={handleScroll}
         data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-      >
-        {visibleLines.length === 0 ? (
-          <div className="text-[var(--color-muted-foreground)]">Waiting for log lines…</div>
-        ) : (
-          visibleLines.map((line, i) => (
-            <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              {line.level ? (
-                <Badge
-                  variant={LOG_LEVEL_BADGE[line.level].variant}
-                  className="h-4 shrink-0 px-1.5 py-0 text-[10px] leading-4"
-                >
-                  {LOG_LEVEL_BADGE[line.level].label}
-                </Badge>
-              ) : (
-                <span className="inline-block w-12 shrink-0" aria-hidden />
-              )}
-              <span className="flex-1">
-                <HighlightedLine text={line.text} query={search} />
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+        lines={lines.map((line) => line.text)}
+        search={search}
+        emptyMessage="Waiting for log lines…"
+      />
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
         <span>
-          {visibleLines.length} line{visibleLines.length === 1 ? '' : 's'}
+          {lines.length} line{lines.length === 1 ? '' : 's'}
           {ageLabel ? ` · oldest ${ageLabel}` : ''}
-          {hiddenLevels.size > 0 ? ` · ${hiddenLevels.size} level${hiddenLevels.size === 1 ? '' : 's'} hidden` : ''}
         </span>
         <span className="font-[var(--font-mono)]">
           {paused && bufferedCount > 0 ? `buffered ${bufferedCount}` : ''}
