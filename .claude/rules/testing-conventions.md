@@ -1,5 +1,8 @@
 ---
-globs: "**/*.spec.ts,**/*.spec.tsx,**/*.test.ts,**/*.test.tsx,**/e2e/**/*.ts"
+paths:
+  - "**/*.spec.{ts,tsx}"
+  - "**/*.test.{ts,tsx}"
+  - "**/e2e/**/*.ts"
 ---
 
 # Testing Conventions
