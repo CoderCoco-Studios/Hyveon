@@ -48,9 +48,19 @@ async function setupLogsPage(
         Promise.resolve({ games: g.map((name) => ({ name, declared: true, deployed: true })) }),
       );
 
-      // Seed the initial log snapshot for each game.
+      // Seed the initial log snapshot for each game. `logs.get` resolves
+      // `LogEventLine[]` (message + CloudWatch timestamp + eventId), not bare
+      // strings — each seeded message is stamped with a synthetic increasing
+      // timestamp so the resulting lines are oldest-first.
       hyveon.__test.mock('logs.get', ({ game }: { game: string }) =>
-        Promise.resolve({ game, lines: ll[game] ?? [] }),
+        Promise.resolve({
+          game,
+          lines: (ll[game] ?? []).map((message: string, i: number) => ({
+            message,
+            timestamp: i,
+            eventId: `${i}:${message}`,
+          })),
+        }),
       );
 
       // Stream mock: async generator that yields nothing so specs drive off the

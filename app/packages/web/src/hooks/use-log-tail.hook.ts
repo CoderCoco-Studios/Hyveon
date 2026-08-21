@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HyveonStreamHandle, LogChunk, NewerLogsPage, OlderLogsPage } from '@hyveon/desktop-preload';
+import type { HyveonStreamHandle, LogChunk, LogEventLine, NewerLogsPage, OlderLogsPage } from '@hyveon/desktop-preload';
 
 /**
  * Maximum number of lines kept loaded in the viewport at once, in either
@@ -17,10 +17,26 @@ const BOTTOM_PIN_THRESHOLD_PX = 24;
 /** Scroll distance (px) from the top within which a scroll-up is treated as "requesting older logs". */
 const NEAR_TOP_THRESHOLD_PX = 50;
 
-/** A single tailed log line, with its receipt timestamp. */
+/**
+ * A single tailed log line, with its receipt timestamp.
+ *
+ * `timestamp`/`eventId` are present when this line came from a backend page
+ * (the initial snapshot, {@link UseLogTailResult.handleScroll}'s
+ * `getOlder`/`getNewer` backfill, or {@link UseLogTailResult.jumpToLatest}'s
+ * fresh snapshot) — carried straight through from that page's
+ * `LogEventLine`. They are absent for a line appended via the live IPC
+ * stream (`appendLine`), which only ever receives a raw string with no
+ * CloudWatch metadata. `loadOlder`/`loadNewer` read these fields off the
+ * current window's actual boundary lines to derive their next paging
+ * boundary — see {@link deriveForwardCursor}.
+ */
 export interface LogLine {
   text: string;
   receivedAt: number;
+  /** CloudWatch event timestamp, epoch ms — absent for a live-streamed line. */
+  timestamp?: number;
+  /** CloudWatch event identity — absent for a live-streamed line. */
+  eventId?: string;
 }
 
 /**
@@ -28,8 +44,8 @@ export interface LogLine {
  * `window.hyveon.logs` (game logs) or `window.hyveon.logs.lambda` (Lambda logs).
  */
 export interface LogTailApi {
-  /** Recent snapshot fetch — see `GameLogs`/`LambdaLogs`'s `oldestTimestamp` field, used to seed {@link UseLogTailResult.handleScroll}'s first backward call without duplicating lines already in the snapshot. */
-  get: (target: string, limit?: number) => Promise<{ lines: string[]; oldestTimestamp?: number }>;
+  /** Recent snapshot fetch — each returned line carries its own CloudWatch timestamp, used to seed {@link UseLogTailResult.handleScroll}'s first backward call without duplicating lines already in the snapshot. */
+  get: (target: string, limit?: number) => Promise<{ lines: LogEventLine[] }>;
   stream: (target: string) => HyveonStreamHandle<LogChunk>;
   /** Backward page of CloudWatch events strictly older than `beforeTimestamp` — backs {@link UseLogTailResult.handleScroll}'s scroll-up backfill. */
   getOlder: (target: string, beforeTimestamp: number, limit?: number) => Promise<OlderLogsPage>;
@@ -81,6 +97,19 @@ export interface UseLogTailResult {
   jumpToLatest: () => void;
 }
 
+/**
+ * Maps a backend-returned {@link LogEventLine} to a {@link LogLine},
+ * carrying its `timestamp`/`eventId` through and stamping `receivedAt` with
+ * the current time (the client receipt time, not a CloudWatch timestamp —
+ * see {@link LogLine}'s doc comment for why the two are kept distinct).
+ *
+ * @param line - The backend-returned log event line.
+ * @returns The equivalent {@link LogLine}.
+ */
+function toLogLine(line: LogEventLine): LogLine {
+  return { text: line.message, receivedAt: Date.now(), timestamp: line.timestamp, eventId: line.eventId };
+}
+
 /** Format a millisecond age as a compact "Xs ago" / "Xm ago" / "Xh ago" string. */
 function formatAge(ms: number): string {
   if (ms < 1000) return 'just now';
@@ -130,6 +159,17 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   });
 
   const [lines, setLines] = useState<LogLine[]>([]);
+  /**
+   * Synchronous mirror of `lines`, kept up to date the same way `apiRef`
+   * mirrors `api` — an effect that runs after every render, so it always
+   * reflects the latest committed `lines` by the time `loadOlder`/`loadNewer`
+   * read it (they run outside React's render cycle and need the current
+   * value immediately, not after the next render commits).
+   */
+  const linesRef = useRef<LogLine[]>([]);
+  useEffect(() => {
+    linesRef.current = lines;
+  });
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
   const [search, setSearch] = useState('');
@@ -156,12 +196,33 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const atOldestRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
-  /** Epoch-ms boundary for the next backward `getOlder` call — the oldest event timestamp seen so far in the historical window. */
+  /**
+   * Epoch-ms fallback boundary for the next backward `getOlder` call, updated
+   * after each successful call as a simple bookkeeping ref (kept — not
+   * switched to a `linesRef`-derived value — because it is already correct:
+   * a fetched-and-later-evicted older page's boundary remains a valid resume
+   * point regardless of client-side eviction, since CloudWatch still has
+   * everything at-and-before it; unlike the forward cursor, there is no
+   * client-eviction bug to fix here). `loadOlder` still prefers deriving
+   * `before` from `linesRef.current[0]?.timestamp` when available, for
+   * consistency/robustness with the forward direction, falling back to this
+   * ref only when the current oldest line has no `timestamp` (a still-live
+   * line — no backward fetch has happened yet).
+   */
   const oldestTimestampRef = useRef<number | null>(null);
-  /** Epoch-ms boundary for the next forward `getNewer` call — the newest event timestamp seen so far in the historical window. */
-  const newestTimestampRef = useRef<number | null>(null);
-  /** `eventId`s already delivered at {@link newestTimestampRef}'s exact timestamp — passed as `getNewer`'s `excludeEventIds` so its inclusive `afterTimestamp` bound doesn't re-deliver them. */
-  const newestEventIdsRef = useRef<string[]>([]);
+  /**
+   * Epoch-ms fallback boundary for the *first* forward `getNewer` call —
+   * seeded at the exact moment {@link loadOlder} first transitions
+   * `'live'`→`'historical'`, replacing the old (buggy) `newestTimestampRef`
+   * seeding site. Used only by {@link deriveForwardCursor} when the current
+   * newest-visible line has no `timestamp` (i.e. still an original
+   * live-tailed line — no eviction into backfilled content has happened
+   * yet). Once any backfilled line reaches the newest position, the cursor
+   * is derived from `linesRef.current` instead and this ref is no longer
+   * consulted — see {@link deriveForwardCursor}'s doc comment for the bug
+   * this replaces (a pinned scalar going stale after window eviction).
+   */
+  const liveInterruptedAtRef = useRef<number | null>(null);
   /**
    * Monotonically-increasing counter bumped on every target switch and on
    * {@link jumpToLatest} — `loadOlder`/`loadNewer` capture it at the start
@@ -228,8 +289,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     setLoadingOlder(false);
     loadingNewerRef.current = false;
     oldestTimestampRef.current = null;
-    newestTimestampRef.current = null;
-    newestEventIdsRef.current = [];
+    liveInterruptedAtRef.current = null;
   }, []);
 
   // Reset everything that described the previous target, then fetch the
@@ -257,8 +317,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       try {
         const data = await apiRef.current.get(target);
         if (cancelled) return;
-        setLines(data.lines.slice(-WINDOW_SIZE).map((text) => ({ text, receivedAt: Date.now() })));
-        oldestTimestampRef.current = data.oldestTimestamp ?? null;
+        setLines(data.lines.slice(-WINDOW_SIZE).map(toLogLine));
+        oldestTimestampRef.current = data.lines[0]?.timestamp ?? null;
         startStream(target);
       } catch {
         if (!cancelled) {
@@ -291,14 +351,17 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   /**
    * Fetches one older page via `api.getOlder`, entering `'historical'` mode
    * first if this is the first backward fetch for the current target. The
-   * boundary passed to `getOlder` is {@link oldestTimestampRef} — seeded
-   * from the initial snapshot's oldest line on mount/target-switch (falling
-   * back to `Date.now()` only when the snapshot carried no timestamp, e.g.
-   * an empty log) — each returned page's `oldestTimestamp` becomes the
-   * boundary for the next call. An empty page (`atOldest: true`) stops
-   * further backward calls until the target changes or
-   * {@link jumpToLatest} resets the window. Discards its result if
-   * {@link windowGenerationRef} moved on while the call was in flight (a
+   * boundary passed to `getOlder` prefers `linesRef.current[0]?.timestamp`
+   * — the current window's actual oldest-visible line — falling back to
+   * {@link oldestTimestampRef} (updated after each successful call) only
+   * when the current oldest line has no `timestamp` yet (a still-live line).
+   * `oldestTimestampRef` itself needs no `linesRef`-derived fix the way the
+   * forward cursor does: a fetched-and-later-evicted older page's boundary
+   * remains a valid resume point regardless of client-side eviction, since
+   * CloudWatch still has everything at-and-before it. An empty page
+   * (`atOldest: true`) stops further backward calls until the target
+   * changes or {@link jumpToLatest} resets the window. Discards its result
+   * if {@link windowGenerationRef} moved on while the call was in flight (a
    * target switch or `jumpToLatest` happened mid-fetch).
    */
   const loadOlder = useCallback(async () => {
@@ -309,15 +372,16 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     if (modeRef.current === 'live') {
       modeRef.current = 'historical';
       setMode('historical');
-      // Seed the forward boundary *now*, at the moment live tailing is
-      // interrupted — not lazily inside loadNewer at whatever later moment
-      // the operator happens to scroll back down. Seeding lazily would use
-      // Date.now() at call time, which has already moved past this point,
-      // silently skipping everything that arrived while browsing history.
-      newestTimestampRef.current = Date.now();
-      newestEventIdsRef.current = [];
+      // Seed the forward fallback boundary *now*, at the moment live
+      // tailing is interrupted — not lazily inside loadNewer at whatever
+      // later moment the operator happens to scroll back down. Seeding
+      // lazily would use Date.now() at call time, which has already moved
+      // past this point, silently skipping everything that arrived while
+      // browsing history. Only consulted by deriveForwardCursor while the
+      // newest-visible line is still a live-tailed one with no timestamp.
+      liveInterruptedAtRef.current = Date.now();
     }
-    const before = oldestTimestampRef.current ?? Date.now();
+    const before = linesRef.current[0]?.timestamp ?? oldestTimestampRef.current ?? Date.now();
     try {
       const page = await apiRef.current.getOlder(target, before, WINDOW_SIZE);
       if (windowGenerationRef.current !== generation) return;
@@ -325,11 +389,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         atOldestRef.current = true;
         setAtOldest(true);
       } else {
-        oldestTimestampRef.current = page.oldestTimestamp ?? before;
-        const older: LogLine[] = page.lines.map((text) => ({
-          text,
-          receivedAt: Date.now(),
-        }));
+        oldestTimestampRef.current = page.lines[0]?.timestamp ?? before;
+        const older: LogLine[] = page.lines.map(toLogLine);
         setLines((prev) => {
           const merged = [...older, ...prev];
           return merged.length > WINDOW_SIZE ? merged.slice(0, WINDOW_SIZE) : merged;
@@ -348,15 +409,62 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   }, [target]);
 
   /**
+   * Derives the boundary/exclusion pair for the next `getNewer` call from
+   * the *current* actual newest-visible line in `linesRef.current`, instead
+   * of trusting a scalar pinned once at historical-mode entry.
+   *
+   * @remarks
+   * This replaces the old model where `newestTimestampRef`/`newestEventIdsRef`
+   * were seeded once at the moment `'live'`→`'historical'` was entered and
+   * never revised afterward. That pinned scalar goes stale the moment
+   * {@link loadOlder}'s prepend-then-evict-from-bottom evicts the window's
+   * original tail: the operator can scroll up far enough that backward
+   * paging evicts past the original live-tail content into purely
+   * backfilled history, then scroll back down toward the bottom of *that*
+   * historical window — not toward "now" — and a pinned-at-entry boundary
+   * would jump straight to fetching events near "now" again, opening an
+   * unbridged temporal gap in the displayed log stream. Deriving fresh from
+   * `linesRef.current` on every call instead self-corrects after any
+   * eviction, because the boundary is always read off whatever the window
+   * actually shows right now.
+   *
+   * When the newest-visible line has a `timestamp` (i.e. it came from a
+   * backend page — the window has been backfilled at least once), the
+   * cursor is that timestamp, and `excludeEventIds` is every line in
+   * `linesRef.current` sharing that exact timestamp's `eventId` (mirroring
+   * what {@link LogsService.fetchAcrossStreams}'s multiset exclusion
+   * expects — see that method's TSDoc). When the newest-visible line has no
+   * `timestamp` (still an original live-tailed line — no eviction into
+   * backfilled content has happened yet), this falls back to
+   * {@link liveInterruptedAtRef} (seeded once, at the moment `loadOlder`
+   * first interrupted live tailing) with an empty exclude list, matching the
+   * old seeding behavior for that one specific case where it was already
+   * correct.
+   *
+   * @returns The `afterTimestamp`/`excludeEventIds` pair for the next `getNewer` call.
+   */
+  const deriveForwardCursor = useCallback((): { after: number; excludeEventIds: string[] } => {
+    const current = linesRef.current;
+    const boundary = current[current.length - 1];
+    if (boundary?.timestamp !== undefined) {
+      const boundaryTimestamp = boundary.timestamp;
+      const excludeEventIds = current
+        .filter((line) => line.timestamp === boundaryTimestamp)
+        .map((line) => line.eventId)
+        .filter((id): id is string => id !== undefined);
+      return { after: boundaryTimestamp, excludeEventIds };
+    }
+    return { after: liveInterruptedAtRef.current ?? Date.now(), excludeEventIds: [] };
+  }, []);
+
+  /**
    * Fetches one forward page via `api.getNewer`, appending it to the end of
    * `lines` and evicting from the front to stay within {@link WINDOW_SIZE} —
-   * the paged mirror of {@link loadOlder}. The boundary passed to `getNewer`
-   * is {@link newestTimestampRef}, seeded by {@link loadOlder} at the moment
-   * historical mode is entered (not lazily here — see that seeding site's
-   * comment for why). `getNewer`'s `afterTimestamp` bound is inclusive, so
-   * {@link newestEventIdsRef} (the previous page's boundary-event ids) is
-   * passed back as `excludeEventIds` to keep the boundary event(s) from
-   * being re-delivered. Runs when the operator scrolls back down past the
+   * the paged mirror of {@link loadOlder}. The boundary/exclusion pair is
+   * derived fresh from `linesRef.current` on every call via
+   * {@link deriveForwardCursor} (not read from a ref updated by the previous
+   * call's result) — see that function's doc comment for the gap-on-eviction
+   * bug this fixes. Runs when the operator scrolls back down past the
    * bottom of a historical window — deliberately does not switch back to
    * `'live'` mode itself; only {@link jumpToLatest} does that. Discards its
    * result if {@link windowGenerationRef} moved on while the call was in
@@ -365,19 +473,13 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const loadNewer = useCallback(async () => {
     if (!target || loadingNewerRef.current) return;
     const generation = windowGenerationRef.current;
-    const after = newestTimestampRef.current ?? Date.now();
-    const excludeEventIds = newestEventIdsRef.current;
+    const { after, excludeEventIds } = deriveForwardCursor();
     loadingNewerRef.current = true;
     try {
       const page = await apiRef.current.getNewer(target, after, WINDOW_SIZE, excludeEventIds);
       if (windowGenerationRef.current !== generation) return;
-      newestTimestampRef.current = page.newestTimestamp ?? after;
-      newestEventIdsRef.current = page.newestTimestamp !== undefined ? page.newestEventIds : excludeEventIds;
       if (page.lines.length > 0) {
-        const newer: LogLine[] = page.lines.map((text) => ({
-          text,
-          receivedAt: Date.now(),
-        }));
+        const newer: LogLine[] = page.lines.map(toLogLine);
         setLines((prev) => {
           const merged = [...prev, ...newer];
           return merged.length > WINDOW_SIZE ? merged.slice(-WINDOW_SIZE) : merged;
@@ -392,7 +494,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         loadingNewerRef.current = false;
       }
     }
-  }, [target]);
+  }, [target, deriveForwardCursor]);
 
   /**
    * Scrolling away from the bottom turns autoscroll off so incoming lines
@@ -459,10 +561,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       try {
         const data = await apiRef.current.get(target);
         if (windowGenerationRef.current !== generation) return;
-        setLines(
-          data.lines.slice(-WINDOW_SIZE).map((text) => ({ text, receivedAt: Date.now() })),
-        );
-        oldestTimestampRef.current = data.oldestTimestamp ?? null;
+        setLines(data.lines.slice(-WINDOW_SIZE).map(toLogLine));
+        oldestTimestampRef.current = data.lines[0]?.timestamp ?? null;
       } catch (err) {
         if (windowGenerationRef.current !== generation) return;
         const message = err instanceof Error ? err.message : String(err);

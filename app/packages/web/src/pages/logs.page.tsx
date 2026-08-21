@@ -39,7 +39,7 @@ const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
   getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
-  getNewer: () => Promise.resolve({ lines: [], newestEventIds: [], hasMore: false }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
 };
 
 /**

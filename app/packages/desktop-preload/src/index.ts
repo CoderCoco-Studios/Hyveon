@@ -6,6 +6,7 @@ export type {
   LogChunk,
   HyveonLambdaLogsApi,
   LambdaLogs,
+  LogEventLine,
   OlderLogsPage,
   NewerLogsPage,
   IacRunChunk,

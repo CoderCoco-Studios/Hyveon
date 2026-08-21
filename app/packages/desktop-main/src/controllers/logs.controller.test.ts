@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LogsController } from './logs.controller.js';
-import type { LogsService } from '../services/LogsService.js';
+import type { LogsService, LogEventLine } from '../services/LogsService.js';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
@@ -46,17 +46,22 @@ vi.mock('../logger.js', () => ({
 // Test helpers
 // ---------------------------------------------------------------------------
 
+/** Build a {@link LogEventLine} test fixture with a given message and timestamp. */
+function line(message: string, timestamp: number): LogEventLine {
+  return { message, timestamp, eventId: `${timestamp}:${message}` };
+}
+
 /** Build a LogsService stub with default no-op implementations. */
 function makeLogs(): LogsService {
   return {
-    getRecentLogs: vi.fn().mockResolvedValue({ lines: ['line1', 'line2'], oldestTimestamp: 100 }),
+    getRecentLogs: vi.fn().mockResolvedValue({ lines: [line('line1', 100), line('line2', 200)] }),
     streamLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
-    getRecentLambdaLogs: vi.fn().mockResolvedValue({ lines: ['lambda-line1'], oldestTimestamp: 100 }),
+    getRecentLambdaLogs: vi.fn().mockResolvedValue({ lines: [line('lambda-line1', 100)] }),
     streamLambdaLogs: vi.fn().mockImplementation(async function* () { /* empty */ }),
-    getOlderLogs: vi.fn().mockResolvedValue({ lines: ['older1'], oldestTimestamp: 500, atOldest: false }),
-    getNewerLogs: vi.fn().mockResolvedValue({ lines: ['newer1'], newestTimestamp: 1500, hasMore: false }),
-    getOlderLambdaLogs: vi.fn().mockResolvedValue({ lines: ['lambda-older1'], oldestTimestamp: 500, atOldest: false }),
-    getNewerLambdaLogs: vi.fn().mockResolvedValue({ lines: ['lambda-newer1'], newestTimestamp: 1500, hasMore: false }),
+    getOlderLogs: vi.fn().mockResolvedValue({ lines: [line('older1', 500)], atOldest: false }),
+    getNewerLogs: vi.fn().mockResolvedValue({ lines: [line('newer1', 1500)], hasMore: false }),
+    getOlderLambdaLogs: vi.fn().mockResolvedValue({ lines: [line('lambda-older1', 500)], atOldest: false }),
+    getNewerLambdaLogs: vi.fn().mockResolvedValue({ lines: [line('lambda-newer1', 1500)], hasMore: false }),
   } as unknown as LogsService;
 }
 
@@ -209,9 +214,9 @@ describe('LogsController', () => {
   // -------------------------------------------------------------------------
 
   describe('getRecentLogs', () => {
-    it('should return the game name, log lines, and oldestTimestamp from LogsService', async () => {
+    it('should return the game name and log lines from LogsService', async () => {
       const result = await new LogsController(makeLogs()).getRecentLogs({ game: 'minecraft' });
-      expect(result).toEqual({ game: 'minecraft', lines: ['line1', 'line2'], oldestTimestamp: 100 });
+      expect(result).toEqual({ game: 'minecraft', lines: [line('line1', 100), line('line2', 200)] });
     });
 
     it('should default to 50 log lines when no limit is provided in the payload', async () => {
@@ -240,7 +245,7 @@ describe('LogsController', () => {
 
     it('should return the game name and the older page from LogsService', async () => {
       const result = await new LogsController(makeLogs()).getOlderLogs({ game: 'minecraft', beforeTimestamp: 1000 });
-      expect(result).toEqual({ game: 'minecraft', lines: ['older1'], oldestTimestamp: 500, atOldest: false });
+      expect(result).toEqual({ game: 'minecraft', lines: [line('older1', 500)], atOldest: false });
     });
 
     it('should default the limit to 100 when omitted', async () => {
@@ -277,7 +282,7 @@ describe('LogsController', () => {
 
     it('should return the game name and the newer page from LogsService', async () => {
       const result = await new LogsController(makeLogs()).getNewerLogs({ game: 'minecraft', afterTimestamp: 1000 });
-      expect(result).toEqual({ game: 'minecraft', lines: ['newer1'], newestTimestamp: 1500, hasMore: false });
+      expect(result).toEqual({ game: 'minecraft', lines: [line('newer1', 1500)], hasMore: false });
     });
 
     it('should default the limit to 100 when omitted', async () => {
@@ -463,9 +468,9 @@ describe('LogsController', () => {
   // -------------------------------------------------------------------------
 
   describe('getRecentLambdaLogs', () => {
-    it('should return the functionKey, log lines, and oldestTimestamp from LogsService.getRecentLambdaLogs', async () => {
+    it('should return the functionKey and log lines from LogsService.getRecentLambdaLogs', async () => {
       const result = await new LogsController(makeLogs()).getRecentLambdaLogs({ functionKey: 'watchdog' });
-      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-line1'], oldestTimestamp: 100 });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: [line('lambda-line1', 100)] });
     });
 
     it('should default to 50 log lines when no limit is provided in the payload', async () => {
@@ -488,7 +493,7 @@ describe('LogsController', () => {
 
     it('should return the functionKey and the older page from LogsService', async () => {
       const result = await new LogsController(makeLogs()).getOlderLambdaLogs({ functionKey: 'watchdog', beforeTimestamp: 1000 });
-      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-older1'], oldestTimestamp: 500, atOldest: false });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: [line('lambda-older1', 500)], atOldest: false });
     });
 
     it('should default the limit to 100 when omitted', async () => {
@@ -519,7 +524,7 @@ describe('LogsController', () => {
 
     it('should return the functionKey and the newer page from LogsService', async () => {
       const result = await new LogsController(makeLogs()).getNewerLambdaLogs({ functionKey: 'watchdog', afterTimestamp: 1000 });
-      expect(result).toEqual({ functionKey: 'watchdog', lines: ['lambda-newer1'], newestTimestamp: 1500, hasMore: false });
+      expect(result).toEqual({ functionKey: 'watchdog', lines: [line('lambda-newer1', 1500)], hasMore: false });
     });
 
     it('should forward afterTimestamp and limit to LogsService.getNewerLambdaLogs', async () => {

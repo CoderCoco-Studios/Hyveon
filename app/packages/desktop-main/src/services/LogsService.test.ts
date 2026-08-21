@@ -123,8 +123,7 @@ describe('LogsService', () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
     const page = await service.getRecentLogs('minecraft');
     expect(page.lines).toHaveLength(1);
-    expect(page.lines[0]).toMatch(/no log streams/i);
-    expect(page.oldestTimestamp).toBeUndefined();
+    expect(page.lines[0]!.message).toMatch(/no log streams/i);
   });
 
   it('should query the /ecs/{game}-server log group and fetch the newest stream', async () => {
@@ -136,8 +135,8 @@ describe('LogsService', () => {
     });
 
     const page = await service.getRecentLogs('minecraft', 25);
-    expect(page.lines).toEqual(['line1', 'line2']);
-    expect(page.oldestTimestamp).toBe(100);
+    expect(page.lines.map((l) => l.message)).toEqual(['line1', 'line2']);
+    expect(page.lines[0]!.timestamp).toBe(100);
 
     const descInput = cwMock.commandCalls(DescribeLogStreamsCommand)[0]!.args[0].input;
     expect(descInput.logGroupName).toBe('/ecs/minecraft-server');
@@ -169,7 +168,6 @@ describe('LogsService', () => {
     cwMock.on(GetLogEventsCommand).resolves({});
     const page = await service.getRecentLogs('minecraft');
     expect(page.lines).toEqual([]);
-    expect(page.oldestTimestamp).toBeUndefined();
   });
 
   it('should map a missing event.message to an empty string', async () => {
@@ -180,15 +178,15 @@ describe('LogsService', () => {
       events: [{ message: 'a', timestamp: 100 }, { timestamp: 200 }],
     });
     const page = await service.getRecentLogs('minecraft');
-    expect(page.lines).toEqual(['a', '']);
+    expect(page.lines.map((l) => l.message)).toEqual(['a', '']);
   });
 
   it('should return an error line when the API throws', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
     const page = await service.getRecentLogs('minecraft');
     expect(page.lines).toHaveLength(1);
-    expect(page.lines[0]).toMatch(/error fetching logs for minecraft/i);
-    expect(page.lines[0]).toContain('denied');
+    expect(page.lines[0]!.message).toMatch(/error fetching logs for minecraft/i);
+    expect(page.lines[0]!.message).toContain('denied');
   });
 
   it('should log a warning-level failure via logger.error when the API throws, without letting the raw error escape', async () => {
@@ -233,8 +231,8 @@ describe('LogsService.getOlderLogs', () => {
 
     const page = await service.getOlderLogs('minecraft', 1000, 25);
 
-    expect(page.lines).toEqual(['older1', 'older2']);
-    expect(page.oldestTimestamp).toBe(500);
+    expect(page.lines.map((l) => l.message)).toEqual(['older1', 'older2']);
+    expect(page.lines[0]!.timestamp).toBe(500);
     expect(page.atOldest).toBe(false);
 
     const getInput = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
@@ -253,7 +251,6 @@ describe('LogsService.getOlderLogs', () => {
 
     expect(page.lines).toEqual([]);
     expect(page.atOldest).toBe(true);
-    expect(page.oldestTimestamp).toBeUndefined();
   });
 
   it('should throw when the log group has no streams', async () => {
@@ -287,8 +284,8 @@ describe('LogsService.getOlderLogs', () => {
     // DescribeLogStreams' single-newest-stream query never looked at — the
     // accumulated result must include events from every scanned stream,
     // oldest first.
-    expect(page.lines).toEqual(['from-old-1', 'from-old-2', 'from-new']);
-    expect(page.oldestTimestamp).toBe(500);
+    expect(page.lines.map((l) => l.message)).toEqual(['from-old-1', 'from-old-2', 'from-new']);
+    expect(page.lines[0]!.timestamp).toBe(500);
     expect(page.atOldest).toBe(false);
   });
 
@@ -303,8 +300,8 @@ describe('LogsService.getOlderLogs', () => {
 
     const page = await service.getOlderLogs('minecraft', 1000, 2);
 
-    expect(page.lines).toEqual(['a1', 'a2']);
-    expect(page.oldestTimestamp).toBe(700);
+    expect(page.lines.map((l) => l.message)).toEqual(['a1', 'a2']);
+    expect(page.lines[0]!.timestamp).toBe(700);
   });
 
   it('should stop scanning further streams once the accumulated count reaches the requested limit', async () => {
@@ -366,8 +363,8 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 1000, 25);
 
-    expect(page.lines).toEqual(['newer1', 'newer2']);
-    expect(page.newestTimestamp).toBe(1200);
+    expect(page.lines.map((l) => l.message)).toEqual(['newer1', 'newer2']);
+    expect(page.lines[page.lines.length - 1]!.timestamp).toBe(1200);
     expect(page.hasMore).toBe(false);
 
     const getInput = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
@@ -387,7 +384,7 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 1000, 10);
 
-    expect(page.lines).toEqual(['a1', 'b1']);
+    expect(page.lines.map((l) => l.message)).toEqual(['a1', 'b1']);
   });
 
   it('should report hasMore true when the accumulated page came back full', async () => {
@@ -399,7 +396,7 @@ describe('LogsService.getNewerLogs', () => {
     const page = await service.getNewerLogs('minecraft', 1000, 2);
 
     expect(page.hasMore).toBe(true);
-    expect(page.lines).toEqual(['a', 'b']);
+    expect(page.lines.map((l) => l.message)).toEqual(['a', 'b']);
   });
 
   it('should report every eventId at the newest timestamp so a caller can exclude them on the next call', async () => {
@@ -415,8 +412,12 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 900, 10);
 
-    expect(page.newestTimestamp).toBe(1100);
-    expect(page.newestEventIds).toEqual(['1100:b1', '1100:b2']);
+    const newestTimestamp = page.lines[page.lines.length - 1]!.timestamp;
+    expect(newestTimestamp).toBe(1100);
+    expect(page.lines.filter((l) => l.timestamp === newestTimestamp).map((l) => l.eventId)).toEqual([
+      '1100:b1',
+      '1100:b2',
+    ]);
   });
 
   it('should exclude previously-delivered boundary events when excludeEventIds is passed, since startTime is inclusive', async () => {
@@ -433,7 +434,35 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 1100, 10, ['1100:b']);
 
-    expect(page.lines).toEqual(['c']);
+    expect(page.lines.map((l) => l.message)).toEqual(['c']);
+  });
+
+  it('should deliver both events when two different streams each have an event sharing the same synthesized eventId, instead of dropping the second as a false-positive duplicate', async () => {
+    // Bug 1 regression: the synthesized `${timestamp}:${message}` eventId is
+    // a global identity, not a per-stream one. Two different streams can
+    // each have an event with the exact same timestamp and message (e.g. a
+    // repeated static heartbeat line). A Set-based exclusion would treat the
+    // second stream's event as "already delivered" (because it shares the
+    // same key as the first stream's event, delivered on a previous call)
+    // and drop it, permanently losing a genuinely-undelivered event.
+    cwMock.on(DescribeLogStreamsCommand).resolves(streamsResponse(['stream-a', 'stream-b']));
+    cwMock
+      .on(GetLogEventsCommand, { logStreamName: 'stream-a' })
+      .resolves({ events: [{ message: 'same', timestamp: 1000 }] });
+    cwMock
+      .on(GetLogEventsCommand, { logStreamName: 'stream-b' })
+      .resolves({ events: [{ message: 'same', timestamp: 1000 }] });
+
+    const page1 = await service.getNewerLogs('minecraft', 900, 1);
+    expect(page1.lines).toHaveLength(1);
+    expect(page1.lines[0]!.eventId).toBe('1000:same');
+
+    const page2 = await service.getNewerLogs('minecraft', 1000, 10, [page1.lines[0]!.eventId]);
+
+    // The second stream's byte-identical event must still be delivered —
+    // it is a genuinely different CloudWatch event, not the one excluded.
+    expect(page2.lines).toHaveLength(1);
+    expect(page2.lines[0]!.eventId).toBe('1000:same');
   });
 
   it('should trim to the oldest `limit` events when accumulation exceeds the requested limit', async () => {
@@ -450,8 +479,8 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 900, 2);
 
-    expect(page.lines).toEqual(['a1', 'a2']);
-    expect(page.newestTimestamp).toBe(1100);
+    expect(page.lines.map((l) => l.message)).toEqual(['a1', 'a2']);
+    expect(page.lines[page.lines.length - 1]!.timestamp).toBe(1100);
   });
 
   it('should prefer an older stream\'s boundary-adjacent events over a newer stream\'s much-later events', async () => {
@@ -472,8 +501,8 @@ describe('LogsService.getNewerLogs', () => {
 
     const page = await service.getNewerLogs('minecraft', 900, 2);
 
-    expect(page.lines).toEqual(['boundary-1', 'boundary-2']);
-    expect(page.newestTimestamp).toBe(902);
+    expect(page.lines.map((l) => l.message)).toEqual(['boundary-1', 'boundary-2']);
+    expect(page.lines[page.lines.length - 1]!.timestamp).toBe(902);
   });
 
   it('should throw when the log group has no streams', async () => {
@@ -671,14 +700,14 @@ describe('LogsService — Lambda log methods', () => {
   it('should return a "no log streams" line when the Lambda log group has no streams', async () => {
     cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [] });
     const page = await service.getRecentLambdaLogs('followup');
-    expect(page.lines).toEqual(['No log streams found for followup.']);
+    expect(page.lines.map((l) => l.message)).toEqual(['No log streams found for followup.']);
   });
 
   it('should return an error line and log via logger.error when the CloudWatch call throws', async () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(new Error('denied'));
     const page = await service.getRecentLambdaLogs('interactions');
     expect(page.lines).toHaveLength(1);
-    expect(page.lines[0]).toMatch(/error fetching logs for interactions/i);
+    expect(page.lines[0]!.message).toMatch(/error fetching logs for interactions/i);
     expect(loggerMock.error).toHaveBeenCalledWith(
       'LogsService.getRecentLambdaLogs: failed to fetch logs',
       expect.objectContaining({ functionKey: 'interactions', error: 'denied' }),
@@ -692,8 +721,8 @@ describe('LogsService — Lambda log methods', () => {
     cwMock.on(DescribeLogStreamsCommand).rejects(notFound);
     const page = await service.getRecentLambdaLogs('health-check');
     expect(page.lines).toHaveLength(1);
-    expect(page.lines[0]).not.toMatch(/error fetching logs/i);
-    expect(page.lines[0]).toMatch(/no log group/i);
+    expect(page.lines[0]!.message).not.toMatch(/error fetching logs/i);
+    expect(page.lines[0]!.message).toMatch(/no log group/i);
     expect(loggerMock.error).not.toHaveBeenCalled();
   });
 });
@@ -715,8 +744,8 @@ describe('LogsService.getOlderLambdaLogs', () => {
 
     const page = await service.getOlderLambdaLogs('watchdog', 1000, 10);
 
-    expect(page.lines).toEqual(['older']);
-    expect(page.oldestTimestamp).toBe(500);
+    expect(page.lines.map((l) => l.message)).toEqual(['older']);
+    expect(page.lines[0]!.timestamp).toBe(500);
     expect(page.atOldest).toBe(false);
     const input = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
     expect(input.logGroupName).toBe('/aws/lambda/hyveon-watchdog');
@@ -734,7 +763,7 @@ describe('LogsService.getOlderLambdaLogs', () => {
 
     const page = await service.getOlderLambdaLogs('watchdog', 1000, 10);
 
-    expect(page.lines).toEqual(['from-old', 'from-new']);
+    expect(page.lines.map((l) => l.message)).toEqual(['from-old', 'from-new']);
   });
 
   it('should throw an informational error when the Lambda log group does not exist yet', async () => {
@@ -774,8 +803,8 @@ describe('LogsService.getNewerLambdaLogs', () => {
 
     const page = await service.getNewerLambdaLogs('watchdog', 1000, 10);
 
-    expect(page.lines).toEqual(['newer']);
-    expect(page.newestTimestamp).toBe(1200);
+    expect(page.lines.map((l) => l.message)).toEqual(['newer']);
+    expect(page.lines[page.lines.length - 1]!.timestamp).toBe(1200);
     const input = cwMock.commandCalls(GetLogEventsCommand)[0]!.args[0].input;
     expect(input.logGroupName).toBe('/aws/lambda/hyveon-watchdog');
     expect(input.startTime).toBe(1000);

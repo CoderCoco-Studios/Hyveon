@@ -4,7 +4,7 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
-import type { OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
+import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
 import { logger } from '../logger.js';
 
 /** IPC-only logs controller. Handles Electron main-process messages via
@@ -62,21 +62,21 @@ export class LogsController implements OnModuleInit {
 
   /**
    * Returns the most recent `limit` (default 50) log lines for a game's ECS
-   * task, plus the oldest returned line's timestamp (`oldestTimestamp`) so
-   * the renderer can seed its first `logs.getOlder` backfill call from the
-   * snapshot's real boundary instead of `Date.now()` — the latter can
-   * re-fetch (and duplicate) lines already present in this snapshot.
+   * task. Each line carries its own CloudWatch timestamp so the renderer can
+   * seed its first `logs.getOlder` backfill call from the snapshot's real
+   * boundary (`lines[0]?.timestamp`) instead of `Date.now()` — the latter
+   * can re-fetch (and duplicate) lines already present in this snapshot.
    *
    * Reachable via the Electron IPC transport (`logs.get`).
    */
   @MessagePattern('logs.get')
   async getRecentLogs(
     @Payload() payload: { game: string; limit?: number },
-  ): Promise<{ game: string; lines: string[]; oldestTimestamp?: number }> {
+  ): Promise<{ game: string } & RecentLogsPage> {
     const { game, limit = 50 } = payload;
     logger.debug('LogsController: logs.get invoked', { game });
-    const { lines, oldestTimestamp } = await this.logs.getRecentLogs(game, limit);
-    return { game, lines, oldestTimestamp };
+    const page = await this.logs.getRecentLogs(game, limit);
+    return { game, ...page };
   }
 
   /**
@@ -204,7 +204,7 @@ export class LogsController implements OnModuleInit {
 
   /**
    * Returns the most recent `limit` (default 50) log lines for one of the
-   * app's 5 Lambda functions, plus the oldest returned line's timestamp —
+   * app's 5 Lambda functions, each carrying its own CloudWatch timestamp —
    * mirrors {@link getRecentLogs} exactly, but delegating to
    * {@link LogsService.getRecentLambdaLogs}.
    *
@@ -213,11 +213,11 @@ export class LogsController implements OnModuleInit {
   @MessagePattern('logs.lambda.get')
   async getRecentLambdaLogs(
     @Payload() payload: { functionKey: LambdaFunctionKey; limit?: number },
-  ): Promise<{ functionKey: LambdaFunctionKey; lines: string[]; oldestTimestamp?: number }> {
+  ): Promise<{ functionKey: LambdaFunctionKey } & RecentLogsPage> {
     const { functionKey, limit = 50 } = payload;
     logger.debug('LogsController: logs.lambda.get invoked', { functionKey });
-    const { lines, oldestTimestamp } = await this.logs.getRecentLambdaLogs(functionKey, limit);
-    return { functionKey, lines, oldestTimestamp };
+    const page = await this.logs.getRecentLambdaLogs(functionKey, limit);
+    return { functionKey, ...page };
   }
 
   /**

@@ -31,38 +31,50 @@ type CloudProviderWithPollInterval = CloudProvider & {
 };
 
 /**
+ * One CloudWatch log event line as returned by any of {@link LogsService}'s
+ * paging methods — carries its own timestamp and identity so a caller (the
+ * `useLogTail` renderer hook) can always derive its next backward/forward
+ * paging boundary from the actual current boundary element of whatever
+ * window it has loaded, instead of trusting a separately-tracked scalar that
+ * can go stale once client-side eviction happens (see design.md's
+ * scroll-backfill forward-cursor fix for the bug this replaced).
+ */
+export interface LogEventLine {
+  /** The log line's text. */
+  message: string;
+  /** CloudWatch event timestamp, epoch ms. */
+  timestamp: number;
+  /**
+   * `${timestamp}:${message}` identity, synthesized because
+   * `GetLogEventsCommand`'s `OutputLogEvent` carries no real `eventId`
+   * (unlike `FilterLogEventsCommand`'s `FilteredLogEvent`) — needed by
+   * forward-paging callers doing boundary-event exclusion (see
+   * {@link fetchAcrossStreams}'s `excludeEventIds` handling).
+   */
+  eventId: string;
+}
+
+/**
  * Result of {@link LogsService.getRecentLogs} / {@link LogsService.getRecentLambdaLogs}
- * — a snapshot of the newest lines in a log group, plus the oldest event's
- * timestamp so a caller can seed a subsequent {@link LogsService.getOlderLogs}
- * call without re-fetching (and duplicating) lines already in this snapshot.
+ * — a snapshot of the newest lines in a log group. The oldest line's
+ * timestamp (`lines[0]?.timestamp`) seeds a subsequent
+ * {@link LogsService.getOlderLogs} call without re-fetching (and
+ * duplicating) lines already in this snapshot.
  */
 export interface RecentLogsPage {
-  /** The fetched snapshot's messages, oldest first. */
-  lines: string[];
-  /**
-   * The CloudWatch event timestamp (epoch ms) of the oldest line in this
-   * snapshot. Absent when `lines` is empty. `GetLogEventsCommand` always
-   * returns events in chronological ascending order regardless of
-   * `startFromHead`, so this is simply the first returned event's timestamp.
-   */
-  oldestTimestamp?: number;
+  /** The fetched snapshot's lines, oldest first. */
+  lines: LogEventLine[];
 }
 
 /**
  * Result of a backward-paging fetch ({@link LogsService.getOlderLogs} /
  * {@link LogsService.getOlderLambdaLogs}) — one page of CloudWatch events
- * strictly older than the caller-supplied boundary, plus enough state to
- * seed the *next* backward call.
+ * strictly older than the caller-supplied boundary. The oldest line's
+ * timestamp (`lines[0]?.timestamp`) seeds the *next* backward call.
  */
 export interface OlderLogsPage {
-  /** The fetched page's messages, oldest first. */
-  lines: string[];
-  /**
-   * The CloudWatch event timestamp (epoch ms) of the oldest line in this
-   * page — pass this back as the next call's `beforeTimestamp` to keep
-   * paging further back. Absent when `lines` is empty.
-   */
-  oldestTimestamp?: number;
+  /** The fetched page's lines, oldest first. */
+  lines: LogEventLine[];
   /**
    * `true` only once every stream in the log group has been scanned (i.e.
    * {@link fetchAcrossStreams}'s stream-enumeration cap, {@link MAX_STREAMS_SCANNED},
@@ -77,29 +89,16 @@ export interface OlderLogsPage {
 /**
  * Result of a forward-paging fetch ({@link LogsService.getNewerLogs} /
  * {@link LogsService.getNewerLambdaLogs}) — one page of CloudWatch events
- * strictly newer than the caller-supplied boundary, plus enough state to
- * seed the *next* forward call. The forward-flavored mirror of
- * {@link OlderLogsPage}.
+ * strictly newer than the caller-supplied boundary. The forward-flavored
+ * mirror of {@link OlderLogsPage}. The newest line's timestamp
+ * (`lines[lines.length - 1]?.timestamp`) seeds the *next* forward call, and
+ * every line sharing that exact timestamp's `eventId` seeds that call's
+ * `excludeEventIds` — both now derivable by the caller straight off `lines`
+ * rather than carried as separate scalar fields.
  */
 export interface NewerLogsPage {
-  /** The fetched page's messages, oldest first. */
-  lines: string[];
-  /**
-   * The CloudWatch event timestamp (epoch ms) of the newest line in this
-   * page — pass this back as the next call's `afterTimestamp` to keep
-   * paging further forward. Absent when `lines` is empty.
-   */
-  newestTimestamp?: number;
-  /**
-   * The CloudWatch `eventId`s of every event at `newestTimestamp` (usually
-   * one, but `GetLogEventsCommand`'s `startTime` bound is inclusive, so more
-   * than one distinct event can share that exact millisecond). Pass these
-   * back as the next call's `excludeEventIds` so the boundary event(s)
-   * already delivered in this page aren't duplicated in the next one —
-   * `startTime` alone can't distinguish "already delivered" from "arrived
-   * at the same timestamp but not yet delivered."
-   */
-  newestEventIds: string[];
+  /** The fetched page's lines, oldest first. */
+  lines: LogEventLine[];
   /**
    * `true` when this page came back full (accumulated at least `limit`
    * events before trimming) — there could be more events between the last
@@ -116,6 +115,23 @@ interface AccumulatedEvent {
   timestamp: number;
   /** CloudWatch's own event identity — synthesized from timestamp+message when CloudWatch omits it, matching {@link streamLambdaLogs}'s existing dedup fallback. */
   eventId: string;
+}
+
+/**
+ * Wraps a synthesized informational/error message (no real CloudWatch event
+ * behind it — e.g. "no log streams found") in {@link LogEventLine} shape so
+ * every `*LogsPage`/`RecentLogsPage` return value can stay uniformly
+ * `LogEventLine[]`. Stamped with the current time as its `timestamp` since
+ * there is no real CloudWatch timestamp to use; `eventId` is synthesized the
+ * same way {@link fetchAcrossStreams} synthesizes one for a real event, for
+ * consistency.
+ *
+ * @param message - The informational or error text to wrap.
+ * @returns A {@link LogEventLine} carrying `message` with a synthesized timestamp/eventId.
+ */
+function syntheticLine(message: string): LogEventLine {
+  const timestamp = Date.now();
+  return { message, timestamp, eventId: `${timestamp}:${message}` };
 }
 
 /**
@@ -194,10 +210,10 @@ export class LogsService {
   }
 
   /**
-   * Return up to `limit` recent messages plus the oldest one's timestamp,
-   * from the most recently written log stream in `/ecs/{game}-server`.
-   * Errors are folded into a single-element `lines` array (with no
-   * `oldestTimestamp`) so the caller always renders *something* — failures
+   * Return up to `limit` recent lines (each carrying its own CloudWatch
+   * timestamp) from the most recently written log stream in
+   * `/ecs/{game}-server`. Errors are folded into a single synthesized
+   * {@link LogEventLine} so the caller always renders *something* — failures
    * in the logs tab shouldn't take the rest of the dashboard down.
    *
    * @param game - Game name; resolves to log group `/ecs/{game}-server`.
@@ -211,11 +227,11 @@ export class LogsService {
       return await this.getRecentFromLogGroup(logGroup, limit, game);
     } catch (err) {
       if (err instanceof Error && err.message === `No log streams found for ${game}.`) {
-        return { lines: [err.message] };
+        return { lines: [syntheticLine(err.message)] };
       }
       const message = err instanceof Error ? err.message : String(err);
       logger.error('LogsService.getRecentLogs: failed to fetch logs', { game, logGroup, error: message });
-      return { lines: [`Error fetching logs for ${game}: ${String(err)}`] };
+      return { lines: [syntheticLine(`Error fetching logs for ${game}: ${String(err)}`)] };
     }
   }
 
@@ -254,9 +270,10 @@ export class LogsService {
         startFromHead: false,
       }),
     );
-    const lines = events.events?.map((e) => e.message ?? '') ?? [];
-    const oldestTimestamp = events.events?.[0]?.timestamp;
-    return { lines, oldestTimestamp };
+    const lines: LogEventLine[] = (events.events ?? [])
+      .filter((e): e is typeof e & { timestamp: number } => e.timestamp !== undefined)
+      .map((e) => ({ message: e.message ?? '', timestamp: e.timestamp, eventId: `${e.timestamp}:${e.message ?? ''}` }));
+    return { lines };
   }
 
   /**
@@ -306,9 +323,11 @@ export class LogsService {
    *   only events strictly newer than the caller's actual position.
    * @param limit - Maximum number of events to fetch.
    * @param excludeEventIds - `eventId`s already delivered at `afterTimestamp`
-   *   by a previous call (see {@link NewerLogsPage.newestEventIds}) — filtered
-   *   out of this page so the inclusive `startTime` bound doesn't duplicate
-   *   them.
+   *   by a previous call (the caller derives these from that call's
+   *   `lines` — every line whose `timestamp` equals the newest one, mapped
+   *   to its `eventId`) — filtered out of this page (as a multiset; see
+   *   {@link fetchAcrossStreams}'s `@remarks`) so the inclusive `startTime`
+   *   bound doesn't duplicate them.
    * @returns The newer page — see {@link NewerLogsPage}.
    * @throws Error — When the log group has no streams, or the CloudWatch call fails.
    */
@@ -374,12 +393,25 @@ export class LogsService {
    * {@link MAX_STREAMS_SCANNED}'s doc comment.
    *
    * `'newer'`'s inclusive `startTime` bound would otherwise re-deliver
-   * whatever event(s) sit exactly at `boundaryTimestamp` on every
-   * subsequent call — `excludeEventIds` filters those already-delivered
-   * events back out (see {@link NewerLogsPage.newestEventIds}); a bare
-   * `boundaryTimestamp + 1` can't do this safely, since a distinct event
-   * that happens to share that exact millisecond but wasn't yet delivered
-   * would be skipped along with the duplicate.
+   * whatever event(s) sit exactly at `boundaryTimestamp` on every subsequent
+   * call — `excludeEventIds` filters those already-delivered events back
+   * out; a bare `boundaryTimestamp + 1` can't do this safely, since a
+   * distinct event that happens to share that exact millisecond but wasn't
+   * yet delivered would be skipped along with the duplicate.
+   *
+   * `excludeEventIds` is filtered as a **multiset** (occurrence-counted),
+   * not a `Set`. The synthesized `eventId` (`${timestamp}:${message}`) is a
+   * *global* identity, not a per-stream one — two different streams can each
+   * have an event with the exact same timestamp and message (e.g. a
+   * repeated static heartbeat line occurring across a rotated-stream
+   * boundary). A `Set`-based exclusion would treat both occurrences as "the
+   * same already-delivered event" and drop the second, genuinely-undelivered
+   * one, permanently losing it. Counting occurrences instead — one count
+   * consumed per matching accumulated event, in whatever order streams are
+   * scanned — preserves the *count* of real events sharing a key, even
+   * though which specific duplicate-content event is "the one already seen"
+   * is unknowable (and irrelevant, since same-key events are byte-identical
+   * by construction).
    *
    * @param logGroup - Resolved CloudWatch log group name.
    * @param direction - `'older'` pages backward from `boundaryTimestamp`;
@@ -417,7 +449,12 @@ export class LogsService {
     if (!streams.length) {
       throw new Error(`No log streams found in ${logGroup}.`);
     }
-    const excluded = new Set(excludeEventIds);
+    // Multiset (occurrence-counted) exclusion — see this method's `@remarks`
+    // for why a `Set` is wrong here (Bug 1: cross-stream eventId collisions).
+    const excludedCounts = new Map<string, number>();
+    for (const id of excludeEventIds) {
+      excludedCounts.set(id, (excludedCounts.get(id) ?? 0) + 1);
+    }
 
     const accumulated: AccumulatedEvent[] = [];
     // See this method's `@remarks` for why 'newer' must walk the reverse
@@ -439,9 +476,10 @@ export class LogsService {
             : {
                 logGroupName: logGroup,
                 logStreamName: stream,
-                // Over-fetch by the excluded count so filtering duplicates
-                // back out below still leaves up to `remaining` real events.
-                limit: remaining + excluded.size,
+                // Over-fetch by the total excluded count (not just the
+                // number of distinct keys) so filtering duplicates back out
+                // below still leaves up to `remaining` real events.
+                limit: remaining + excludeEventIds.length,
                 startFromHead: true,
                 startTime: boundaryTimestamp,
               },
@@ -454,7 +492,13 @@ export class LogsService {
         // timestamp+message, matching this file's existing dedup fallback
         // (see streamLambdaLogs/fetchRange's `event.eventId ?? ...` pattern).
         const eventId = `${e.timestamp}:${e.message}`;
-        if (direction === 'newer' && excluded.has(eventId)) continue;
+        if (direction === 'newer') {
+          const remainingExcluded = excludedCounts.get(eventId) ?? 0;
+          if (remainingExcluded > 0) {
+            excludedCounts.set(eventId, remainingExcluded - 1);
+            continue;
+          }
+        }
         accumulated.push({ message: e.message ?? '', timestamp: e.timestamp, eventId });
       }
     }
@@ -462,20 +506,16 @@ export class LogsService {
     accumulated.sort((a, b) => a.timestamp - b.timestamp);
     const full = accumulated.length >= limit;
     const trimmed = direction === 'older' ? accumulated.slice(-limit) : accumulated.slice(0, limit);
-    const lines = trimmed.map((e) => e.message);
+    const lines: LogEventLine[] = trimmed.map((e) => ({ message: e.message, timestamp: e.timestamp, eventId: e.eventId }));
 
     if (direction === 'older') {
       return {
         lines,
-        oldestTimestamp: trimmed[0]?.timestamp,
         atOldest: lines.length === 0 && exhausted,
       };
     }
-    const newestTimestamp = trimmed[trimmed.length - 1]?.timestamp;
     return {
       lines,
-      newestTimestamp,
-      newestEventIds: trimmed.filter((e) => e.timestamp === newestTimestamp).map((e) => e.eventId),
       hasMore: full,
     };
   }
@@ -540,11 +580,11 @@ export class LogsService {
   }
 
   /**
-   * Return up to `limit` recent messages plus the oldest one's timestamp,
-   * from the most recently written log stream in the resolved Lambda log
-   * group. Errors and a missing log group/stream are folded into a
-   * single-element `lines` array, mirroring {@link getRecentLogs}'s
-   * no-throw contract.
+   * Return up to `limit` recent lines (each carrying its own CloudWatch
+   * timestamp), from the most recently written log stream in the resolved
+   * Lambda log group. Errors and a missing log group/stream are folded into
+   * a single synthesized {@link LogEventLine}, mirroring
+   * {@link getRecentLogs}'s no-throw contract.
    *
    * A `ResourceNotFoundException` (the log group itself doesn't exist yet)
    * is an expected configuration state rather than a failure — it's how a
@@ -565,14 +605,14 @@ export class LogsService {
     } catch (err) {
       if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         logger.warn('LogsService.getRecentLambdaLogs: log group does not exist yet', { functionKey, logGroup });
-        return { lines: [`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`] };
+        return { lines: [syntheticLine(`No log group for ${functionKey} yet — it hasn't been provisioned or hasn't logged anything.`)] };
       }
       if (err instanceof Error && err.message === `No log streams found for ${functionKey}.`) {
-        return { lines: [err.message] };
+        return { lines: [syntheticLine(err.message)] };
       }
       const message = err instanceof Error ? err.message : String(err);
       logger.error('LogsService.getRecentLambdaLogs: failed to fetch logs', { functionKey, logGroup, error: message });
-      return { lines: [`Error fetching logs for ${functionKey}: ${String(err)}`] };
+      return { lines: [syntheticLine(`Error fetching logs for ${functionKey}: ${String(err)}`)] };
     }
   }
 

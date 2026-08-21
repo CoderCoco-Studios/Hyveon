@@ -33,13 +33,16 @@ vi.stubGlobal('hyveon', hyveonMock);
 
 import { LogsPage } from './logs.page.js';
 
-const SAMPLE_LINES = [
+const SAMPLE_MESSAGES = [
   '2026-05-03T12:00:00Z INFO Server started on port 25565',
   '2026-05-03T12:00:01Z DEBUG Loaded world "world" in 1.2s',
   '2026-05-03T12:00:02Z WARN Deprecated config option',
   '2026-05-03T12:00:03Z ERROR Connection refused from 10.0.0.5',
   '2026-05-03T12:00:04Z Player joined the game',
 ];
+
+/** `LogsService.getRecentLogs`-shaped `lines` — each message paired with a synthetic increasing CloudWatch timestamp. */
+const SAMPLE_LINES = SAMPLE_MESSAGES.map((message, i) => ({ message, timestamp: 1000 + i, eventId: `${1000 + i}:${message}` }));
 
 describe('LogsPage', () => {
   beforeEach(() => {
