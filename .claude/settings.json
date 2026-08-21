@@ -81,6 +81,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run .claude/hooks/hook-npm-ci-on-worktree-enter.ts",
+            "statusMessage": "Running npm ci in the new worktree..."
+          }
+        ]
+      }
     ]
   }
 }

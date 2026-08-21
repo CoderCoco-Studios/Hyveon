@@ -1,16 +1,12 @@
 # Worktrees
 
-## Every change starts in a worktree, branched from an up-to-date base
+Hooks enforce isolation, `.claude/worktrees/` paths, and `main` sync (`.claude/hooks/guard-require-worktree.ts`, `guard-enter-worktree-path.ts`, `guard-git-worktree-add-path.ts`, `guard-enter-worktree-sync.ts`). Don't restate or re-check those.
 
-1. New feature/fix → worktree branched from `main`.
-2. PR-stack group → worktree branched from the *previous group's branch*, not `main` (see `pr-stacking.md`).
-3. Before branching, make sure the base is current:
-   - Branching from `main` via `EnterWorktree` with `name` → fresh only when the session's `worktree.baseRef` setting is `fresh` (the default; `head` branches from local HEAD instead) and the local `origin/main` tracking ref is up to date. `git fetch origin main` first if in doubt.
-   - Any other base (a manual `git worktree add`, or a prior stack branch) — must already exist on `origin` (push it first if it doesn't) → `git fetch origin <base-branch>` first, then branch from `origin/<base-branch>`.
-4. Immediately after entering: `npm install` from the worktree root, before any lint/typecheck/test/build command.
+`hook-npm-ci-on-worktree-enter.ts` runs `npm ci` after `EnterWorktree` too, but it's a `PostToolUse` hook — it can only report via `additionalContext`, it cannot block. If it reports a failure (or you don't see its success message), run `npm ci` yourself before lint/typecheck/test/build.
 
-**Why step 4:** `node_modules` isn't copied into a new worktree. Node's resolution then walks up to the *parent checkout's* `node_modules`, silently typechecking your edited source against a **different worktree's stale compiled output** for any `@hyveon/*` cross-package import. Symptom: `tsc`/`app:test:integration` errors referencing types/fields that visibly exist in the file you're reading. `app:lint`/`app:test` (source-transpiling Vitest) can look green while this is broken.
+Not enforceable by hooks — judge these yourself:
 
-**If you hit that symptom:** `node -e "console.log(require('fs').realpathSync('node_modules/@hyveon/<pkg>'))"` from the worktree root — if it resolves outside the worktree, `npm install` and recheck.
+1. **Reuse before creating.** `git worktree list` / `git branch --list` first; match → `EnterWorktree path`, no match → `EnterWorktree name`.
+2. **PR-stack branch base.** First group from `main` (hook-synced); later groups from the *previous group's branch* — `EnterWorktree` can't target it, so hop 2+ is a manual `git worktree add` (fetch that base first) + `EnterWorktree path`. See `pr-stacking.md`.
 
-Applies everywhere in this repo: ad hoc worktrees, PR-stack groups, anything opened via `EnterWorktree`.
+If `npm ci` didn't run (hook failed, or a worktree was added outside `EnterWorktree`): run it yourself before lint/typecheck/test/build. To check for the stale-symlink symptom first: `node -e "console.log(require('fs').realpathSync('node_modules/@hyveon/<pkg>'))"` from the worktree root — if it resolves outside the worktree, `npm install` and recheck.
