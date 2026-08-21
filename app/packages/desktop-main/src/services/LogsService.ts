@@ -91,6 +91,16 @@ export interface NewerLogsPage {
    */
   newestTimestamp?: number;
   /**
+   * The CloudWatch `eventId`s of every event at `newestTimestamp` (usually
+   * one, but `GetLogEventsCommand`'s `startTime` bound is inclusive, so more
+   * than one distinct event can share that exact millisecond). Pass these
+   * back as the next call's `excludeEventIds` so the boundary event(s)
+   * already delivered in this page aren't duplicated in the next one —
+   * `startTime` alone can't distinguish "already delivered" from "arrived
+   * at the same timestamp but not yet delivered."
+   */
+  newestEventIds: string[];
+  /**
    * `true` when this page came back full (accumulated at least `limit`
    * events before trimming) — there could be more events between the last
    * returned event and now, so the caller should keep paging forward.
@@ -104,6 +114,8 @@ export interface NewerLogsPage {
 interface AccumulatedEvent {
   message: string;
   timestamp: number;
+  /** CloudWatch's own event identity — synthesized from timestamp+message when CloudWatch omits it, matching {@link streamLambdaLogs}'s existing dedup fallback. */
+  eventId: string;
 }
 
 /**
@@ -289,17 +301,27 @@ export class LogsService {
    * scrolls back down through a historical window.
    *
    * @param game - Game name; resolves to log group `/ecs/{game}-server`.
-   * @param afterTimestamp - Epoch-ms exclusive lower bound — only events
-   *   strictly newer than this are returned.
+   * @param afterTimestamp - Epoch-ms inclusive lower bound (`GetLogEventsCommand`'s
+   *   `startTime` is inclusive) — combined with `excludeEventIds` to return
+   *   only events strictly newer than the caller's actual position.
    * @param limit - Maximum number of events to fetch.
+   * @param excludeEventIds - `eventId`s already delivered at `afterTimestamp`
+   *   by a previous call (see {@link NewerLogsPage.newestEventIds}) — filtered
+   *   out of this page so the inclusive `startTime` bound doesn't duplicate
+   *   them.
    * @returns The newer page — see {@link NewerLogsPage}.
    * @throws Error — When the log group has no streams, or the CloudWatch call fails.
    */
-  async getNewerLogs(game: string, afterTimestamp: number, limit = 100): Promise<NewerLogsPage> {
+  async getNewerLogs(
+    game: string,
+    afterTimestamp: number,
+    limit = 100,
+    excludeEventIds: string[] = [],
+  ): Promise<NewerLogsPage> {
     const logGroup = `/ecs/${game}-server`;
     logger.debug('LogsService.getNewerLogs: fetching newer logs', { game, afterTimestamp, limit, logGroup });
     try {
-      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit);
+      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn('LogsService.getNewerLogs: failed to fetch newer logs', { game, afterTimestamp, logGroup, error: message });
@@ -351,12 +373,23 @@ export class LogsService {
    * is a deliberate simplification for a group this large — see
    * {@link MAX_STREAMS_SCANNED}'s doc comment.
    *
+   * `'newer'`'s inclusive `startTime` bound would otherwise re-deliver
+   * whatever event(s) sit exactly at `boundaryTimestamp` on every
+   * subsequent call — `excludeEventIds` filters those already-delivered
+   * events back out (see {@link NewerLogsPage.newestEventIds}); a bare
+   * `boundaryTimestamp + 1` can't do this safely, since a distinct event
+   * that happens to share that exact millisecond but wasn't yet delivered
+   * would be skipped along with the duplicate.
+   *
    * @param logGroup - Resolved CloudWatch log group name.
    * @param direction - `'older'` pages backward from `boundaryTimestamp`;
    *   `'newer'` pages forward from it.
-   * @param boundaryTimestamp - Epoch-ms exclusive bound (`beforeTimestamp`
-   *   for `'older'`, `afterTimestamp` for `'newer'`).
+   * @param boundaryTimestamp - Epoch-ms bound (`beforeTimestamp`, exclusive,
+   *   for `'older'`; `afterTimestamp`, inclusive, for `'newer'`).
    * @param limit - Maximum number of events to return.
+   * @param excludeEventIds - `'newer'` only — `eventId`s to filter out of
+   *   the accumulated result (already delivered by a previous call at this
+   *   exact `boundaryTimestamp`). Ignored for `'older'`.
    * @returns An {@link OlderLogsPage}-shaped result for `'older'`, or a
    *   {@link NewerLogsPage}-shaped result for `'newer'`.
    */
@@ -371,17 +404,20 @@ export class LogsService {
     direction: 'newer',
     boundaryTimestamp: number,
     limit: number,
+    excludeEventIds: string[],
   ): Promise<NewerLogsPage>;
   private async fetchAcrossStreams(
     logGroup: string,
     direction: 'older' | 'newer',
     boundaryTimestamp: number,
     limit: number,
+    excludeEventIds: string[] = [],
   ): Promise<OlderLogsPage | NewerLogsPage> {
     const { streams, exhausted } = await this.listStreams(logGroup);
     if (!streams.length) {
       throw new Error(`No log streams found in ${logGroup}.`);
     }
+    const excluded = new Set(excludeEventIds);
 
     const accumulated: AccumulatedEvent[] = [];
     // See this method's `@remarks` for why 'newer' must walk the reverse
@@ -403,7 +439,9 @@ export class LogsService {
             : {
                 logGroupName: logGroup,
                 logStreamName: stream,
-                limit: remaining,
+                // Over-fetch by the excluded count so filtering duplicates
+                // back out below still leaves up to `remaining` real events.
+                limit: remaining + excluded.size,
                 startFromHead: true,
                 startTime: boundaryTimestamp,
               },
@@ -411,7 +449,13 @@ export class LogsService {
       );
       for (const e of events.events ?? []) {
         if (e.timestamp === undefined) continue;
-        accumulated.push({ message: e.message ?? '', timestamp: e.timestamp });
+        // GetLogEventsCommand's OutputLogEvent carries no eventId (unlike
+        // FilterLogEventsCommand's FilteredLogEvent) — synthesize one from
+        // timestamp+message, matching this file's existing dedup fallback
+        // (see streamLambdaLogs/fetchRange's `event.eventId ?? ...` pattern).
+        const eventId = `${e.timestamp}:${e.message}`;
+        if (direction === 'newer' && excluded.has(eventId)) continue;
+        accumulated.push({ message: e.message ?? '', timestamp: e.timestamp, eventId });
       }
     }
 
@@ -427,9 +471,11 @@ export class LogsService {
         atOldest: lines.length === 0 && exhausted,
       };
     }
+    const newestTimestamp = trimmed[trimmed.length - 1]?.timestamp;
     return {
       lines,
-      newestTimestamp: trimmed[trimmed.length - 1]?.timestamp,
+      newestTimestamp,
+      newestEventIds: trimmed.filter((e) => e.timestamp === newestTimestamp).map((e) => e.eventId),
       hasMore: full,
     };
   }
@@ -565,16 +611,24 @@ export class LogsService {
    * against a Lambda function's log group.
    *
    * @param functionKey - Which Lambda function's log group to read from.
-   * @param afterTimestamp - Epoch-ms exclusive lower bound.
+   * @param afterTimestamp - Epoch-ms inclusive lower bound — see
+   *   {@link getNewerLogs}'s matching parameter doc for why.
    * @param limit - Maximum number of events to fetch.
+   * @param excludeEventIds - `eventId`s already delivered at `afterTimestamp`
+   *   by a previous call — see {@link getNewerLogs}'s matching parameter doc.
    * @returns The newer page — see {@link NewerLogsPage}.
    * @throws Error — When the log group/streams don't exist, or the CloudWatch call fails.
    */
-  async getNewerLambdaLogs(functionKey: LambdaFunctionKey, afterTimestamp: number, limit = 100): Promise<NewerLogsPage> {
+  async getNewerLambdaLogs(
+    functionKey: LambdaFunctionKey,
+    afterTimestamp: number,
+    limit = 100,
+    excludeEventIds: string[] = [],
+  ): Promise<NewerLogsPage> {
     const logGroup = await this.resolveLambdaLogGroup(functionKey);
     logger.debug('LogsService.getNewerLambdaLogs: fetching newer logs', { functionKey, afterTimestamp, limit, logGroup });
     try {
-      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit);
+      return await this.fetchAcrossStreams(logGroup, 'newer', afterTimestamp, limit, excludeEventIds);
     } catch (err) {
       if (err instanceof Error && err.name === 'ResourceNotFoundException') {
         logger.warn('LogsService.getNewerLambdaLogs: log group does not exist yet', { functionKey, logGroup });

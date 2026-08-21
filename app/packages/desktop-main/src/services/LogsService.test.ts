@@ -402,6 +402,40 @@ describe('LogsService.getNewerLogs', () => {
     expect(page.lines).toEqual(['a', 'b']);
   });
 
+  it('should report every eventId at the newest timestamp so a caller can exclude them on the next call', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
+    // Two distinct events share the exact same millisecond timestamp.
+    cwMock.on(GetLogEventsCommand).resolves({
+      events: [
+        { message: 'a', timestamp: 1000 },
+        { message: 'b1', timestamp: 1100 },
+        { message: 'b2', timestamp: 1100 },
+      ],
+    });
+
+    const page = await service.getNewerLogs('minecraft', 900, 10);
+
+    expect(page.newestTimestamp).toBe(1100);
+    expect(page.newestEventIds).toEqual(['1100:b1', '1100:b2']);
+  });
+
+  it('should exclude previously-delivered boundary events when excludeEventIds is passed, since startTime is inclusive', async () => {
+    cwMock.on(DescribeLogStreamsCommand).resolves({ logStreams: [{ logStreamName: 's' }] });
+    cwMock.on(GetLogEventsCommand).resolves({
+      // startTime is inclusive, so a naive re-query at afterTimestamp=1100
+      // would return 'b' (already delivered by the previous page) again,
+      // alongside the genuinely new 'c'.
+      events: [
+        { message: 'b', timestamp: 1100 },
+        { message: 'c', timestamp: 1200 },
+      ],
+    });
+
+    const page = await service.getNewerLogs('minecraft', 1100, 10, ['1100:b']);
+
+    expect(page.lines).toEqual(['c']);
+  });
+
   it('should trim to the oldest `limit` events when accumulation exceeds the requested limit', async () => {
     // Realistic recency ordering: the newest-listed stream has the later
     // timestamps, matching DescribeLogStreams' descending-by-LastEventTime

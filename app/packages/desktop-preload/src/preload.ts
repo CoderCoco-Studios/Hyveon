@@ -776,16 +776,20 @@ const api: HyveonApi = {
     stream: openLogsStream,
     getOlder: (game: string, beforeTimestamp: number, limit?: number) =>
       invoke<OlderLogsPage>('logs.getOlder', { game, beforeTimestamp, limit }),
-    getNewer: (game: string, afterTimestamp: number, limit?: number) =>
-      invoke<NewerLogsPage>('logs.getNewer', { game, afterTimestamp, limit }),
+    getNewer: (game: string, afterTimestamp: number, limit?: number, excludeEventIds?: string[]) =>
+      invoke<NewerLogsPage>('logs.getNewer', { game, afterTimestamp, limit, excludeEventIds }),
     lambda: {
       get: (functionKey: LambdaFunctionKey, limit?: number) =>
         invoke<LambdaLogs>('logs.lambda.get', { functionKey, limit }),
       stream: openLambdaLogsStream,
       getOlder: (functionKey: LambdaFunctionKey, beforeTimestamp: number, limit?: number) =>
         invoke<OlderLogsPage>('logs.lambda.getOlder', { functionKey, beforeTimestamp, limit }),
-      getNewer: (functionKey: LambdaFunctionKey, afterTimestamp: number, limit?: number) =>
-        invoke<NewerLogsPage>('logs.lambda.getNewer', { functionKey, afterTimestamp, limit }),
+      getNewer: (
+        functionKey: LambdaFunctionKey,
+        afterTimestamp: number,
+        limit?: number,
+        excludeEventIds?: string[],
+      ) => invoke<NewerLogsPage>('logs.lambda.getNewer', { functionKey, afterTimestamp, limit, excludeEventIds }),
     },
   },
 

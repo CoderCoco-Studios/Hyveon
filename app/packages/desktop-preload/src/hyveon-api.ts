@@ -1397,6 +1397,13 @@ export interface NewerLogsPage {
    */
   newestTimestamp?: number;
   /**
+   * The `eventId`s of every event at `newestTimestamp` — pass these back as
+   * the next call's `excludeEventIds` so the boundary event(s) already
+   * delivered in this page aren't duplicated by `afterTimestamp`'s inclusive
+   * bound in the next one.
+   */
+  newestEventIds: string[];
+  /**
    * `true` when this page came back full — there could be more events
    * between the last returned event and now, so the caller should keep
    * paging forward.
@@ -1429,9 +1436,15 @@ export interface HyveonLogsApi {
   /**
    * Returns up to `limit` CloudWatch events strictly newer than
    * `afterTimestamp` for a game's ECS task log group — see
-   * {@link NewerLogsPage}.
+   * {@link NewerLogsPage}. Pass a previous page's `newestEventIds` as
+   * `excludeEventIds` to avoid re-delivering the boundary event(s).
    */
-  getNewer: (game: string, afterTimestamp: number, limit?: number) => Promise<NewerLogsPage>;
+  getNewer: (
+    game: string,
+    afterTimestamp: number,
+    limit?: number,
+    excludeEventIds?: string[],
+  ) => Promise<NewerLogsPage>;
   lambda: HyveonLambdaLogsApi;
 }
 
@@ -1458,7 +1471,12 @@ export interface HyveonLambdaLogsApi {
    * `afterTimestamp` for `functionKey`'s CloudWatch log group — mirrors
    * {@link HyveonLogsApi.getNewer}.
    */
-  getNewer: (functionKey: LambdaFunctionKey, afterTimestamp: number, limit?: number) => Promise<NewerLogsPage>;
+  getNewer: (
+    functionKey: LambdaFunctionKey,
+    afterTimestamp: number,
+    limit?: number,
+    excludeEventIds?: string[],
+  ) => Promise<NewerLogsPage>;
   /**
    * Opens a live log stream for `functionKey`, returning a
    * {@link HyveonStreamHandle} of log chunks — mirrors

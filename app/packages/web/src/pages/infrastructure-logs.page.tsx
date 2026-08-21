@@ -23,7 +23,7 @@ const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
   getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
-  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
+  getNewer: () => Promise.resolve({ lines: [], newestEventIds: [], hasMore: false }),
 };
 
 /**
@@ -47,7 +47,8 @@ function toLogTailApi(api: HyveonLambdaLogsApi): LogTailApi {
       limit === undefined ? api.get(target as LambdaFunctionKey) : api.get(target as LambdaFunctionKey, limit),
     stream: (target) => api.stream(target as LambdaFunctionKey),
     getOlder: (target, beforeTimestamp, limit) => api.getOlder(target as LambdaFunctionKey, beforeTimestamp, limit),
-    getNewer: (target, afterTimestamp, limit) => api.getNewer(target as LambdaFunctionKey, afterTimestamp, limit),
+    getNewer: (target, afterTimestamp, limit, excludeEventIds) =>
+      api.getNewer(target as LambdaFunctionKey, afterTimestamp, limit, excludeEventIds),
   };
 }
 

@@ -118,12 +118,12 @@ export class LogsController implements OnModuleInit {
    */
   @MessagePattern('logs.getNewer')
   async getNewerLogs(
-    @Payload() payload: { game: string; afterTimestamp: number; limit?: number },
+    @Payload() payload: { game: string; afterTimestamp: number; limit?: number; excludeEventIds?: string[] },
   ): Promise<{ game: string } & NewerLogsPage> {
-    const { game, afterTimestamp, limit = 100 } = payload;
+    const { game, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
     logger.debug('LogsController: logs.getNewer invoked', { game });
     try {
-      const page = await this.logs.getNewerLogs(game, afterTimestamp, limit);
+      const page = await this.logs.getNewerLogs(game, afterTimestamp, limit, excludeEventIds);
       return { game, ...page };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -254,12 +254,13 @@ export class LogsController implements OnModuleInit {
    */
   @MessagePattern('logs.lambda.getNewer')
   async getNewerLambdaLogs(
-    @Payload() payload: { functionKey: LambdaFunctionKey; afterTimestamp: number; limit?: number },
+    @Payload()
+    payload: { functionKey: LambdaFunctionKey; afterTimestamp: number; limit?: number; excludeEventIds?: string[] },
   ): Promise<{ functionKey: LambdaFunctionKey } & NewerLogsPage> {
-    const { functionKey, afterTimestamp, limit = 100 } = payload;
+    const { functionKey, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
     logger.debug('LogsController: logs.lambda.getNewer invoked', { functionKey });
     try {
-      const page = await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit);
+      const page = await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit, excludeEventIds);
       return { functionKey, ...page };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

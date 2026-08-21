@@ -154,8 +154,14 @@ describe('useLogTail', () => {
       setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
       act(() => result.current.handleScroll());
 
-      await waitFor(() => expect(result.current.mode).toBe('historical'));
-      expect(result.current.lines.map((l) => l.text)).toEqual(['older1', 'older2', 'newer1', 'newer2']);
+      // mode flips to 'historical' synchronously, before the getOlder
+      // promise resolves and setLines runs — wait for both under the same
+      // waitFor rather than asserting lines immediately after the mode
+      // check settles, which raced the still-pending setLines update.
+      await waitFor(() => {
+        expect(result.current.mode).toBe('historical');
+        expect(result.current.lines.map((l) => l.text)).toEqual(['older1', 'older2', 'newer1', 'newer2']);
+      });
       expect(result.current.hasNewer).toBe(true);
       expect(api.getOlder).toHaveBeenCalledWith('watchdog', expect.any(Number), 300);
     });
@@ -243,7 +249,9 @@ describe('useLogTail', () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: ['a'] }),
         getOlder: vi.fn().mockResolvedValue({ lines: ['older'], oldestTimestamp: 100, atOldest: false }),
-        getNewer: vi.fn().mockResolvedValue({ lines: ['gap-filled'], newestTimestamp: 2000, hasMore: false }),
+        getNewer: vi
+          .fn()
+          .mockResolvedValue({ lines: ['gap-filled'], newestTimestamp: 2000, newestEventIds: ['evt-2000'], hasMore: false }),
       });
       const { result } = renderHook(() => useLogTail('watchdog', api));
       await waitFor(() => expect(result.current.lines).toHaveLength(1));
@@ -256,7 +264,11 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
 
       await waitFor(() => expect(result.current.lines.map((l) => l.text)).toContain('gap-filled'));
-      expect(api.getNewer).toHaveBeenCalledWith('watchdog', expect.any(Number), 300);
+      // The forward boundary is seeded when historical mode is entered (see
+      // loadOlder), not lazily inside loadNewer — so the first getNewer call
+      // already carries a real timestamp, not a fallback Date.now() read at
+      // call time. No prior page exists yet, so excludeEventIds is empty.
+      expect(api.getNewer).toHaveBeenCalledWith('watchdog', expect.any(Number), 300, []);
       // Forward paging alone does not switch the mode back to 'live' — only jumpToLatest does.
       expect(result.current.mode).toBe('historical');
     });
@@ -267,8 +279,8 @@ describe('useLogTail', () => {
         getOlder: vi.fn().mockResolvedValue({ lines: ['older'], oldestTimestamp: 100, atOldest: false }),
         getNewer: vi
           .fn()
-          .mockResolvedValueOnce({ lines: ['page1'], newestTimestamp: 2000, hasMore: true })
-          .mockResolvedValueOnce({ lines: ['page2'], newestTimestamp: 3000, hasMore: false }),
+          .mockResolvedValueOnce({ lines: ['page1'], newestTimestamp: 2000, newestEventIds: ['evt-2000'], hasMore: true })
+          .mockResolvedValueOnce({ lines: ['page2'], newestTimestamp: 3000, newestEventIds: ['evt-3000'], hasMore: false }),
       });
       const { result } = renderHook(() => useLogTail('watchdog', api));
       await waitFor(() => expect(result.current.lines).toHaveLength(1));
@@ -285,7 +297,9 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
       await waitFor(() => expect(result.current.lines.map((l) => l.text)).toContain('page2'));
 
-      expect(api.getNewer).toHaveBeenNthCalledWith(2, 'watchdog', 2000, 300);
+      // Second call excludes page1's boundary event id, since page1's
+      // newestTimestamp (2000) is passed as this call's inclusive `after`.
+      expect(api.getNewer).toHaveBeenNthCalledWith(2, 'watchdog', 2000, 300, ['evt-2000']);
     });
 
     it('should re-fetch a fresh snapshot via api.get and discard the buffer on jumpToLatest', async () => {

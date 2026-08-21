@@ -283,13 +283,13 @@ describe('LogsController', () => {
     it('should default the limit to 100 when omitted', async () => {
       const logs = makeLogs();
       await new LogsController(logs).getNewerLogs({ game: 'minecraft', afterTimestamp: 1000 });
-      expect(logs.getNewerLogs).toHaveBeenCalledWith('minecraft', 1000, 100);
+      expect(logs.getNewerLogs).toHaveBeenCalledWith('minecraft', 1000, 100, []);
     });
 
     it('should forward an explicit limit and afterTimestamp to LogsService.getNewerLogs', async () => {
       const logs = makeLogs();
       await new LogsController(logs).getNewerLogs({ game: 'minecraft', afterTimestamp: 50, limit: 25 });
-      expect(logs.getNewerLogs).toHaveBeenCalledWith('minecraft', 50, 25);
+      expect(logs.getNewerLogs).toHaveBeenCalledWith('minecraft', 50, 25, []);
     });
 
     it('should normalize a thrown LogsService error to a plain Error', async () => {
@@ -525,7 +525,7 @@ describe('LogsController', () => {
     it('should forward afterTimestamp and limit to LogsService.getNewerLambdaLogs', async () => {
       const logs = makeLogs();
       await new LogsController(logs).getNewerLambdaLogs({ functionKey: 'watchdog', afterTimestamp: 50, limit: 25 });
-      expect(logs.getNewerLambdaLogs).toHaveBeenCalledWith('watchdog', 50, 25);
+      expect(logs.getNewerLambdaLogs).toHaveBeenCalledWith('watchdog', 50, 25, []);
     });
 
     it('should normalize a thrown LogsService error to a plain Error', async () => {

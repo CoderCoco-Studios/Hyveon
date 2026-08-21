@@ -36,7 +36,12 @@ export interface LogTailApi {
   /** Backward page of CloudWatch events strictly older than `beforeTimestamp` — backs {@link UseLogTailResult.handleScroll}'s scroll-up backfill. */
   getOlder: (target: string, beforeTimestamp: number, limit?: number) => Promise<OlderLogsPage>;
   /** Forward page of CloudWatch events strictly newer than `afterTimestamp` — backs the paged scroll-down-while-historical backfill. */
-  getNewer: (target: string, afterTimestamp: number, limit?: number) => Promise<NewerLogsPage>;
+  getNewer: (
+    target: string,
+    afterTimestamp: number,
+    limit?: number,
+    excludeEventIds?: string[],
+  ) => Promise<NewerLogsPage>;
 }
 
 /** The live-tail state and handlers a log-viewer page renders. */
@@ -161,6 +166,8 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const oldestTimestampRef = useRef<number | null>(null);
   /** Epoch-ms boundary for the next forward `getNewer` call — the newest event timestamp seen so far in the historical window. */
   const newestTimestampRef = useRef<number | null>(null);
+  /** `eventId`s already delivered at {@link newestTimestampRef}'s exact timestamp — passed as `getNewer`'s `excludeEventIds` so its inclusive `afterTimestamp` bound doesn't re-deliver them. */
+  const newestEventIdsRef = useRef<string[]>([]);
   /**
    * Monotonically-increasing counter bumped on every target switch and on
    * {@link jumpToLatest} — `loadOlder`/`loadNewer` capture it at the start
@@ -228,6 +235,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     loadingNewerRef.current = false;
     oldestTimestampRef.current = null;
     newestTimestampRef.current = null;
+    newestEventIdsRef.current = [];
   }, []);
 
   // Reset everything that described the previous target, then fetch the
@@ -314,6 +322,13 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     if (modeRef.current === 'live') {
       modeRef.current = 'historical';
       setMode('historical');
+      // Seed the forward boundary *now*, at the moment live tailing is
+      // interrupted — not lazily inside loadNewer at whatever later moment
+      // the operator happens to scroll back down. Seeding lazily would use
+      // Date.now() at call time, which has already moved past this point,
+      // silently skipping everything that arrived while browsing history.
+      newestTimestampRef.current = Date.now();
+      newestEventIdsRef.current = [];
     }
     const before = oldestTimestampRef.current ?? Date.now();
     try {
@@ -350,23 +365,28 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
    * Fetches one forward page via `api.getNewer`, appending it to the end of
    * `lines` and evicting from the front to stay within {@link WINDOW_SIZE} —
    * the paged mirror of {@link loadOlder}. The boundary passed to `getNewer`
-   * is {@link newestTimestampRef}, seeded the first time this runs from
-   * `Date.now()` (the historical window's "already loaded" newer edge at
-   * the moment scroll-down paging starts). Runs when the operator scrolls
-   * back down past the bottom of a historical window — deliberately does
-   * not switch back to `'live'` mode itself; only {@link jumpToLatest} does
-   * that. Discards its result if {@link windowGenerationRef} moved on while
-   * the call was in flight.
+   * is {@link newestTimestampRef}, seeded by {@link loadOlder} at the moment
+   * historical mode is entered (not lazily here — see that seeding site's
+   * comment for why). `getNewer`'s `afterTimestamp` bound is inclusive, so
+   * {@link newestEventIdsRef} (the previous page's boundary-event ids) is
+   * passed back as `excludeEventIds` to keep the boundary event(s) from
+   * being re-delivered. Runs when the operator scrolls back down past the
+   * bottom of a historical window — deliberately does not switch back to
+   * `'live'` mode itself; only {@link jumpToLatest} does that. Discards its
+   * result if {@link windowGenerationRef} moved on while the call was in
+   * flight.
    */
   const loadNewer = useCallback(async () => {
     if (!target || loadingNewerRef.current) return;
     const generation = windowGenerationRef.current;
     const after = newestTimestampRef.current ?? Date.now();
+    const excludeEventIds = newestEventIdsRef.current;
     loadingNewerRef.current = true;
     try {
-      const page = await apiRef.current.getNewer(target, after, WINDOW_SIZE);
+      const page = await apiRef.current.getNewer(target, after, WINDOW_SIZE, excludeEventIds);
       if (windowGenerationRef.current !== generation) return;
       newestTimestampRef.current = page.newestTimestamp ?? after;
+      newestEventIdsRef.current = page.newestTimestamp !== undefined ? page.newestEventIds : excludeEventIds;
       if (page.lines.length > 0) {
         const newer: LogLine[] = page.lines.map((text) => ({
           text,
