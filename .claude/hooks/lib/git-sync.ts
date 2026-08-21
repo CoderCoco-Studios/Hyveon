@@ -8,37 +8,38 @@ import { execFileSync } from 'node:child_process';
 
 const GIT_TIMEOUT_MS = 5000;
 
-/** Runs `bin` with `args` in `cwd`, returning trimmed stdout; throws on a non-zero exit or timeout. */
-function exec(bin: string, args: string[], cwd: string): string {
+type CmdOptions = {
+  cwd: string;
+  timeoutMs?: number;
+};
+
+/** Runs `bin args` under `options.cwd`, returning trimmed stdout; throws on a non-zero exit or timeout. */
+function cmd(bin: string, args: string[], options: CmdOptions): string {
   return execFileSync(bin, args, {
-    cwd,
+    cwd: options.cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: GIT_TIMEOUT_MS,
+    timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
   }).trim();
 }
 
-/** Runs a git command in `cwd`; throws on a non-zero exit or timeout. */
-function git(args: string[], cwd: string): string {
-  return exec('git', args, cwd);
+/** Same as {@link cmd}, but returns null instead of throwing on failure (non-zero exit, timeout, missing binary). */
+function tryCmd(bin: string, args: string[], options: CmdOptions): string | null {
+  try {
+    return cmd(bin, args, options);
+  } catch {
+    return null;
+  }
 }
 
 /** Runs a git command in `cwd`, returning null instead of throwing on failure. */
 function tryGit(args: string[], cwd: string): string | null {
-  try {
-    return git(args, cwd);
-  } catch {
-    return null;
-  }
+  return tryCmd('git', args, { cwd });
 }
 
 /** Runs a `gh` command in `cwd`, returning null instead of throwing on failure (missing binary, unauthenticated, rate-limited, no matching PR). */
 function tryGh(args: string[], cwd: string): string | null {
-  try {
-    return exec('gh', args, cwd);
-  } catch {
-    return null;
-  }
+  return tryCmd('gh', args, { cwd });
 }
 
 /** Returns the current branch name, or null if detached/not a git repo. */
@@ -117,7 +118,10 @@ export function checkBranchSync(cwd: string): BranchSyncStatus | null {
   if (!tryGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`], cwd)) return null;
 
   const upstream = getUpstream(cwd);
-  if (upstream && tryGit(['fetch', '--quiet', 'origin'], cwd) === null) return null;
+  if (upstream) {
+    const upstreamRemote = upstream.split('/')[0];
+    if (tryGit(['fetch', '--quiet', upstreamRemote], cwd) === null) return null;
+  }
 
   return {
     branch,
