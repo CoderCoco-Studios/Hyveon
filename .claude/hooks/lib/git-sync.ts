@@ -8,65 +8,74 @@ import { execFileSync } from 'node:child_process';
 
 const GIT_TIMEOUT_MS = 5000;
 
-function git(args: string[]): string {
-  return execFileSync('git', args, {
+/** Runs `bin` with `args` in `cwd`, returning trimmed stdout; throws on a non-zero exit or timeout. */
+function exec(bin: string, args: string[], cwd: string): string {
+  return execFileSync(bin, args, {
+    cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: GIT_TIMEOUT_MS,
   }).trim();
 }
 
-function tryGit(args: string[]): string | null {
+/** Runs a git command in `cwd`; throws on a non-zero exit or timeout. */
+function git(args: string[], cwd: string): string {
+  return exec('git', args, cwd);
+}
+
+/** Runs a git command in `cwd`, returning null instead of throwing on failure. */
+function tryGit(args: string[], cwd: string): string | null {
   try {
-    return git(args);
+    return git(args, cwd);
   } catch {
     return null;
   }
 }
 
-function tryGh(args: string[]): string | null {
+/** Runs a `gh` command in `cwd`, returning null instead of throwing on failure (missing binary, unauthenticated, rate-limited, no matching PR). */
+function tryGh(args: string[], cwd: string): string | null {
   try {
-    return execFileSync('gh', args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: GIT_TIMEOUT_MS,
-    }).trim();
+    return exec('gh', args, cwd);
   } catch {
     return null;
   }
 }
 
 /** Returns the current branch name, or null if detached/not a git repo. */
-export function getCurrentBranch(): string | null {
-  const branch = tryGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+export function getCurrentBranch(cwd: string): string | null {
+  const branch = tryGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   if (!branch || branch === 'HEAD') return null;
   return branch;
 }
 
 /** Returns the repo's default branch (origin/HEAD), falling back to `main`. */
-export function getDefaultBranch(): string {
-  const ref = tryGit(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+export function getDefaultBranch(cwd: string): string {
+  const ref = tryGit(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], cwd);
   if (ref) return ref.replace(/^refs\/remotes\/origin\//, '');
   return 'main';
 }
 
 /**
- * Best-effort base branch for `branch`: the open PR's base ref if `gh`
- * resolves one, otherwise the repo default branch. Never throws.
+ * The open PR's base ref for `branch`, resolved via `gh`.
+ *
+ * Returns null — rather than guessing the repo default branch — whenever `gh` can't
+ * resolve a PR: no PR opened yet (e.g. a not-yet-pushed hop in a PR stack, whose real
+ * base is a prior stack branch, not `main`), `gh` missing/unauthenticated, or rate-limited.
+ * Guessing wrong here is worse than skipping the check: it would misreport a stacked
+ * branch as drifted against `main`. Never throws.
  */
-export function getBaseBranch(branch: string): string {
-  const prBase = tryGh(['pr', 'view', branch, '--json', 'baseRefName', '-q', '.baseRefName']);
-  if (prBase) return prBase;
-  return getDefaultBranch();
+export function getBaseBranch(branch: string, cwd: string): string | null {
+  return tryGh(['pr', 'view', branch, '--json', 'baseRefName', '-q', '.baseRefName'], cwd);
 }
 
 /** Returns the branch's push/pull upstream (e.g. `origin/foo`), or null if unset. */
-export function getUpstream(): string | null {
-  return tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+export function getUpstream(cwd: string): string | null {
+  return tryGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], cwd);
 }
 
-function countCommits(range: string): number {
-  const out = tryGit(['rev-list', '--count', range]);
+/** Counts commits in `range` (a git revision range, e.g. `HEAD..origin/main`); 0 on failure. */
+function countCommits(range: string, cwd: string): number {
+  const out = tryGit(['rev-list', '--count', range], cwd);
   return out ? Number.parseInt(out, 10) || 0 : 0;
 }
 
@@ -76,10 +85,13 @@ export type BranchSyncStatus = {
   base: string;
   /** Commits on origin/<base> not yet in HEAD. */
   behindBase: number;
-  /** Commits in HEAD not yet on origin/<base>. */
-  aheadBase: number;
   upstream: string | null;
-  /** Commits on upstream not yet in HEAD (someone/something else pushed). */
+  /**
+   * Commits on upstream not yet in HEAD, meaningful only when `aheadRemote` is 0.
+   * A non-zero `aheadRemote` alongside this means the branch has diverged (e.g. a
+   * rebase rewrote its commits) rather than fallen behind — that's a `--force-with-lease`
+   * push, not drift, and git's own lease check already guards it safely.
+   */
   behindRemote: number;
   /** Commits in HEAD not yet pushed to upstream. */
   aheadRemote: number;
@@ -89,31 +101,31 @@ export type BranchSyncStatus = {
  * Fetches `origin/<base>` (and the current upstream, if set) and reports how
  * far HEAD has drifted from each. Returns null when there's nothing
  * meaningful to compare — not a git repo, detached HEAD, no origin remote,
- * or HEAD already on the base branch itself.
+ * HEAD already on the base branch, no confidently-resolved base (see
+ * {@link getBaseBranch}), or a fetch failed (stale data is worse than no data).
  */
-export function checkBranchSync(): BranchSyncStatus | null {
-  const branch = getCurrentBranch();
+export function checkBranchSync(cwd: string): BranchSyncStatus | null {
+  const branch = getCurrentBranch(cwd);
   if (!branch) return null;
 
-  if (!tryGit(['remote', 'get-url', 'origin'])) return null;
+  if (!tryGit(['remote', 'get-url', 'origin'], cwd)) return null;
 
-  const base = getBaseBranch(branch);
-  if (branch === base) return null;
+  const base = getBaseBranch(branch, cwd);
+  if (!base || branch === base) return null;
 
-  if (tryGit(['fetch', '--quiet', 'origin', base]) === null) return null;
-  if (!tryGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`])) return null;
+  if (tryGit(['fetch', '--quiet', 'origin', base], cwd) === null) return null;
+  if (!tryGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`], cwd)) return null;
 
-  const upstream = getUpstream();
-  if (upstream) tryGit(['fetch', '--quiet', 'origin']);
+  const upstream = getUpstream(cwd);
+  if (upstream && tryGit(['fetch', '--quiet', 'origin'], cwd) === null) return null;
 
   return {
     branch,
     base,
-    behindBase: countCommits(`HEAD..origin/${base}`),
-    aheadBase: countCommits(`origin/${base}..HEAD`),
+    behindBase: countCommits(`HEAD..origin/${base}`, cwd),
     upstream,
-    behindRemote: upstream ? countCommits(`HEAD..${upstream}`) : 0,
-    aheadRemote: upstream ? countCommits(`${upstream}..HEAD`) : 0,
+    behindRemote: upstream ? countCommits(`HEAD..${upstream}`, cwd) : 0,
+    aheadRemote: upstream ? countCommits(`${upstream}..HEAD`, cwd) : 0,
   };
 }
 
@@ -125,7 +137,7 @@ export function describeDrift(status: BranchSyncStatus): string | null {
       `${status.behindBase} commit(s) behind origin/${status.base} (base branch has moved on)`,
     );
   }
-  if (status.behindRemote > 0) {
+  if (status.behindRemote > 0 && status.aheadRemote === 0) {
     parts.push(`${status.behindRemote} commit(s) behind ${status.upstream} (its own remote)`);
   }
   if (parts.length === 0) return null;

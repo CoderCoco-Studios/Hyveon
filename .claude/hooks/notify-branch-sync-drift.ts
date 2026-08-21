@@ -19,16 +19,25 @@ import { readStdin, isRecord } from './lib/hook-io.js';
 async function main(): Promise<void> {
   const raw = await readStdin();
   let hookEventName: 'SessionStart' | 'Stop' = 'SessionStart';
+  let cwd = process.cwd();
   if (raw.trim()) {
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (isRecord(parsed) && parsed.hook_event_name === 'Stop') hookEventName = 'Stop';
+      if (isRecord(parsed)) {
+        if (parsed.hook_event_name === 'Stop') {
+          hookEventName = 'Stop';
+          // Already fired once for this Stop cycle — re-running would just repeat the
+          // same network-heavy check every subsequent Stop until the drift is resolved.
+          if (parsed.stop_hook_active === true) return;
+        }
+        if (typeof parsed.cwd === 'string') cwd = parsed.cwd;
+      }
     } catch {
       // Malformed/absent input — default to SessionStart framing.
     }
   }
 
-  const status = checkBranchSync();
+  const status = checkBranchSync(cwd);
   if (!status) return;
 
   const message = describeDrift(status);

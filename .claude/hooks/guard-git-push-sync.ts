@@ -13,7 +13,7 @@
 import { deny, allow, readStdin, isRecord } from './lib/hook-io.js';
 import { checkBranchSync, describeDrift } from './lib/git-sync.js';
 
-const GIT_PUSH = /(^|[;&|]\s*)git\s+push\b/;
+const GIT_PUSH = /(^|[;&|]\s*)git\s+push\b/m;
 
 async function main(): Promise<void> {
   const raw = await readStdin();
@@ -33,7 +33,8 @@ async function main(): Promise<void> {
   const command = typeof toolInput.command === 'string' ? toolInput.command : '';
   if (!GIT_PUSH.test(command)) allow();
 
-  const status = checkBranchSync();
+  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+  const status = checkBranchSync(cwd);
   if (!status) allow();
 
   const message = describeDrift(status);
