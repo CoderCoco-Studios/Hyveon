@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/badge.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { HighlightedLine, LevelFilterMenu } from '../components/log-line-display.component.js';
+import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { LOG_LEVEL_BADGE } from '../lib/log-level.utils.js';
@@ -22,7 +23,7 @@ const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
   getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
-  getRange: () => Promise.resolve({ lines: [] }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
 };
 
 /**
@@ -46,7 +47,7 @@ function toLogTailApi(api: HyveonLambdaLogsApi): LogTailApi {
       limit === undefined ? api.get(target as LambdaFunctionKey) : api.get(target as LambdaFunctionKey, limit),
     stream: (target) => api.stream(target as LambdaFunctionKey),
     getOlder: (target, beforeTimestamp, limit) => api.getOlder(target as LambdaFunctionKey, beforeTimestamp, limit),
-    getRange: (target, startTime, endTime) => api.getRange(target as LambdaFunctionKey, startTime, endTime),
+    getNewer: (target, afterTimestamp, limit) => api.getNewer(target as LambdaFunctionKey, afterTimestamp, limit),
   };
 }
 
@@ -164,7 +165,10 @@ export function InfrastructureLogsPage() {
           ref={boxRef}
           onScroll={handleScroll}
           data-testid="logs-viewer"
-          className="h-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
+          className={cn(
+            'h-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
+            hasNewer && 'pb-12',
+          )}
         >
           {loadingOlder && (
             <div data-testid="loading-older" className="py-1 text-center text-[var(--color-muted-foreground)]">
@@ -198,15 +202,7 @@ export function InfrastructureLogsPage() {
             ))
           )}
         </div>
-        {hasNewer && (
-          <Button
-            size="sm"
-            onClick={jumpToLatest}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-[var(--shadow-md)]"
-          >
-            Jump to latest
-          </Button>
-        )}
+        <JumpToLatestButton hasNewer={hasNewer} onClick={jumpToLatest} />
       </div>
 
       {/* Footer */}

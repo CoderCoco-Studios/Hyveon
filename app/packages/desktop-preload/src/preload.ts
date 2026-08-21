@@ -125,7 +125,7 @@ import type {
   IacRunsLockMintPayload,
   LambdaFunctionKey,
   LambdaLogs,
-  LogsRangePage,
+  NewerLogsPage,
   OlderLogsPage,
   RunHistoryPageResult,
   StackInitPhaseEvent,
@@ -776,16 +776,16 @@ const api: HyveonApi = {
     stream: openLogsStream,
     getOlder: (game: string, beforeTimestamp: number, limit?: number) =>
       invoke<OlderLogsPage>('logs.getOlder', { game, beforeTimestamp, limit }),
-    getRange: (game: string, startTime: number, endTime: number) =>
-      invoke<LogsRangePage>('logs.getRange', { game, startTime, endTime }),
+    getNewer: (game: string, afterTimestamp: number, limit?: number) =>
+      invoke<NewerLogsPage>('logs.getNewer', { game, afterTimestamp, limit }),
     lambda: {
       get: (functionKey: LambdaFunctionKey, limit?: number) =>
         invoke<LambdaLogs>('logs.lambda.get', { functionKey, limit }),
       stream: openLambdaLogsStream,
       getOlder: (functionKey: LambdaFunctionKey, beforeTimestamp: number, limit?: number) =>
         invoke<OlderLogsPage>('logs.lambda.getOlder', { functionKey, beforeTimestamp, limit }),
-      getRange: (functionKey: LambdaFunctionKey, startTime: number, endTime: number) =>
-        invoke<LogsRangePage>('logs.lambda.getRange', { functionKey, startTime, endTime }),
+      getNewer: (functionKey: LambdaFunctionKey, afterTimestamp: number, limit?: number) =>
+        invoke<NewerLogsPage>('logs.lambda.getNewer', { functionKey, afterTimestamp, limit }),
     },
   },
 

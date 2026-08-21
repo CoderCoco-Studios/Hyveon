@@ -157,7 +157,10 @@ What changed is that this is no longer a hard ceiling on how far back you can
 see. Scroll near the top of the log box and the viewer switches into
 **historical mode** and fetches an older page of CloudWatch log events
 automatically, prepending it above what is already loaded. Keep scrolling up
-and it keeps paging backward, one `WINDOW_SIZE` page at a time.
+and it keeps paging back through history, one `WINDOW_SIZE` page at a time —
+including across however many separate CloudWatch log streams a restarted
+game server or Lambda instance produced, so a restart never hides older lines
+behind a "beginning of retention" marker that isn't real.
 
 While a backward fetch is in flight, a small `Loading older logs…` line shows
 at the top of the box. When a backward fetch comes back empty — you have
@@ -171,15 +174,20 @@ the historical window you are reading, exactly like the pause buffer
 described above. A **Jump to latest** button appears, floating at the bottom
 of the log box, for as long as you are in historical mode.
 
-Scrolling back down toward the bottom of a loaded historical window fetches
-the gap between the newest line you have loaded and now, so continuing to
-scroll down eventually catches you back up to the present without losing
-anything in between — but it does not by itself return you to live-tail mode.
+Scrolling back down toward the bottom of a loaded historical window pages
+forward the same way scrolling up pages backward — one `WINDOW_SIZE` page at
+a time, not one big jump — so continuing to scroll down eventually catches
+you back up to the present without losing anything in between. This does not
+by itself return you to live-tail mode.
 
-Clicking **Jump to latest** (or pressing Resume while paused, see below) is
-what actually leaves historical mode: it discards the historical window,
-flushes any buffered live lines into the view, and returns to live tailing
-with autoscroll re-enabled.
+Clicking **Jump to latest** is the only way to leave historical mode.
+Pressing **Resume** while paused does not — see [Pause and
+Resume](#pause-and-resume) above. **Jump to latest** discards everything
+currently loaded or buffered — the historical window and any live lines held
+back while you were reading it — and loads a fresh recent snapshot, exactly
+as if you had just opened the page, then returns to live tailing with
+autoscroll re-enabled. Buffered live lines are not spliced into the view; they
+are simply discarded in favor of that fresh snapshot.
 
 This is a view window, not a log retention setting — nothing is deleted from
 CloudWatch either way, and how far back you can page is bounded by CloudWatch's
@@ -223,7 +231,8 @@ Errors appear in a red banner above the log box:
 | `Could not load initial logs; trying live stream.` | The snapshot failed; the live tail is still being attempted |
 | `Stream ended with error: …` | The live tail died |
 | `Could not load older logs: …` | A scroll-up backfill fetch (`getOlder`) failed |
-| `Could not load newer logs: …` | A scroll-down gap-fill fetch (`getRange`) failed |
+| `Could not load newer logs: …` | A scroll-down forward-paging fetch (`getNewer`) failed |
+| `Could not load latest logs: …` | **Jump to latest**'s fresh snapshot fetch (`get`) failed |
 | `IPC bridge (window.hyveon) is not available in this context.` | The renderer lost its connection to the app's backend |
 
 Transient CloudWatch hiccups during the tail are surfaced *inline as a log

@@ -9,7 +9,7 @@ function makeApi(overrides: Partial<LogTailApi> = {}): LogTailApi {
     get: vi.fn().mockResolvedValue({ lines: [] }),
     stream: vi.fn().mockImplementation(toStreamHandleMock(async function* () {})),
     getOlder: vi.fn().mockResolvedValue({ lines: [], atOldest: true }),
-    getRange: vi.fn().mockResolvedValue({ lines: [] }),
+    getNewer: vi.fn().mockResolvedValue({ lines: [], hasMore: false }),
     ...overrides,
   };
 }
@@ -20,6 +20,15 @@ function setScrollPosition(
   { scrollTop, scrollHeight, clientHeight }: { scrollTop: number; scrollHeight: number; clientHeight: number },
 ): void {
   boxRef.current = { scrollTop, scrollHeight, clientHeight } as HTMLDivElement;
+}
+
+/** Resolves a promise on the next microtask/macrotask tick — used to interleave a slow async call with a subsequent state change in generation-guard tests. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -151,6 +160,23 @@ describe('useLogTail', () => {
       expect(api.getOlder).toHaveBeenCalledWith('watchdog', expect.any(Number), 300);
     });
 
+    it('should seed the first getOlder boundary from the initial snapshot oldestTimestamp instead of Date.now()', async () => {
+      const api = makeApi({
+        get: vi.fn().mockResolvedValue({ lines: ['newer1'], oldestTimestamp: 12345 }),
+        getOlder: vi.fn().mockResolvedValue({ lines: ['older1'], oldestTimestamp: 100, atOldest: false }),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines).toHaveLength(1));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+
+      await waitFor(() => expect(api.getOlder).toHaveBeenCalled());
+      // Seeded from the snapshot's real oldestTimestamp, not a Date.now() fallback that would
+      // re-fetch (and duplicate) lines already present in the initial snapshot.
+      expect(api.getOlder).toHaveBeenCalledWith('watchdog', 12345, 300);
+    });
+
     it('should evict lines from the bottom of the window once prepending older lines exceeds the cap', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: Array.from({ length: 250 }, (_, i) => `live-${i}`) }),
@@ -213,11 +239,11 @@ describe('useLogTail', () => {
       expect(result.current.lines.map((l) => l.text)).not.toContain('live line while historical');
     });
 
-    it('should fetch a forward gap-fill when scrolling back to the bottom while in historical mode', async () => {
+    it('should page forward via getNewer, appending results, when scrolling back to the bottom while in historical mode', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: ['a'] }),
         getOlder: vi.fn().mockResolvedValue({ lines: ['older'], oldestTimestamp: 100, atOldest: false }),
-        getRange: vi.fn().mockResolvedValue({ lines: ['gap-filled'] }),
+        getNewer: vi.fn().mockResolvedValue({ lines: ['gap-filled'], newestTimestamp: 2000, hasMore: false }),
       });
       const { result } = renderHook(() => useLogTail('watchdog', api));
       await waitFor(() => expect(result.current.lines).toHaveLength(1));
@@ -230,15 +256,45 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
 
       await waitFor(() => expect(result.current.lines.map((l) => l.text)).toContain('gap-filled'));
-      expect(api.getRange).toHaveBeenCalledWith('watchdog', expect.any(Number), expect.any(Number));
-      // Forward gap-fill alone does not switch the mode back to 'live' — only jumpToLatest does.
+      expect(api.getNewer).toHaveBeenCalledWith('watchdog', expect.any(Number), 300);
+      // Forward paging alone does not switch the mode back to 'live' — only jumpToLatest does.
       expect(result.current.mode).toBe('historical');
     });
 
-    it('should discard the historical window and flush the buffer into lines on jumpToLatest', async () => {
-      let push: ((line: string) => void) | undefined;
+    it('should page forward again from the previous page newestTimestamp on a subsequent scroll-to-bottom', async () => {
       const api = makeApi({
         get: vi.fn().mockResolvedValue({ lines: ['a'] }),
+        getOlder: vi.fn().mockResolvedValue({ lines: ['older'], oldestTimestamp: 100, atOldest: false }),
+        getNewer: vi
+          .fn()
+          .mockResolvedValueOnce({ lines: ['page1'], newestTimestamp: 2000, hasMore: true })
+          .mockResolvedValueOnce({ lines: ['page2'], newestTimestamp: 3000, hasMore: false }),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines).toHaveLength(1));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+      await waitFor(() => expect(result.current.mode).toBe('historical'));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toContain('page1'));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toContain('page2'));
+
+      expect(api.getNewer).toHaveBeenNthCalledWith(2, 'watchdog', 2000, 300);
+    });
+
+    it('should re-fetch a fresh snapshot via api.get and discard the buffer on jumpToLatest', async () => {
+      let push: ((line: string) => void) | undefined;
+      const api = makeApi({
+        get: vi
+          .fn()
+          .mockResolvedValueOnce({ lines: ['a'] })
+          .mockResolvedValueOnce({ lines: ['fresh1', 'fresh2'], oldestTimestamp: 9000 }),
         getOlder: vi.fn().mockResolvedValue({ lines: ['older'], oldestTimestamp: 100, atOldest: false }),
         stream: vi.fn().mockImplementation(
           toStreamHandleMock(async function* () {
@@ -255,16 +311,19 @@ describe('useLogTail', () => {
       act(() => result.current.handleScroll());
       await waitFor(() => expect(result.current.mode).toBe('historical'));
 
-      act(() => push?.('flushed line'));
+      act(() => push?.('buffered while historical'));
       await waitFor(() => expect(result.current.bufferedCount).toBe(1));
 
       act(() => result.current.jumpToLatest());
 
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toEqual(['fresh1', 'fresh2']));
       expect(result.current.mode).toBe('live');
       expect(result.current.hasNewer).toBe(false);
       expect(result.current.bufferedCount).toBe(0);
-      expect(result.current.lines.map((l) => l.text)).toEqual(['flushed line']);
+      // The buffered live line is discarded, not spliced into the fresh snapshot.
+      expect(result.current.lines.map((l) => l.text)).not.toContain('buffered while historical');
       expect(result.current.autoscroll).toBe(true);
+      expect(api.get).toHaveBeenCalledTimes(2);
     });
 
     it('should reset mode/atOldest back to live/false when the target changes', async () => {
@@ -285,6 +344,65 @@ describe('useLogTail', () => {
 
       await waitFor(() => expect(result.current.mode).toBe('live'));
       expect(result.current.atOldest).toBe(false);
+    });
+
+    it('should discard a stale getOlder result that resolves after the target has already changed', async () => {
+      const older = deferred<{ lines: string[]; oldestTimestamp?: number; atOldest: boolean }>();
+      const api = makeApi({
+        get: vi
+          .fn()
+          .mockResolvedValueOnce({ lines: ['a'] })
+          .mockResolvedValueOnce({ lines: ['b'] }),
+        getOlder: vi.fn().mockReturnValue(older.promise),
+      });
+      const { result, rerender } = renderHook(({ target }) => useLogTail(target, api), {
+        initialProps: { target: 'watchdog' },
+      });
+      await waitFor(() => expect(result.current.lines).toHaveLength(1));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+      await waitFor(() => expect(result.current.loadingOlder).toBe(true));
+
+      rerender({ target: 'health-check' });
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toEqual(['b']));
+
+      act(() => older.resolve({ lines: ['stale-older'], oldestTimestamp: 1, atOldest: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The stale page must not land in `lines` (which now belongs to the new target) nor
+      // resurrect `loadingOlder`/`mode` for a fetch the current target never requested.
+      expect(result.current.lines.map((l) => l.text)).toEqual(['b']);
+      expect(result.current.loadingOlder).toBe(false);
+      expect(result.current.mode).toBe('live');
+    });
+
+    it('should discard a stale getOlder result that resolves after jumpToLatest already ran', async () => {
+      const older = deferred<{ lines: string[]; oldestTimestamp?: number; atOldest: boolean }>();
+      const api = makeApi({
+        get: vi
+          .fn()
+          .mockResolvedValueOnce({ lines: ['a'] })
+          .mockResolvedValueOnce({ lines: ['fresh'] }),
+        getOlder: vi.fn().mockReturnValue(older.promise),
+      });
+      const { result } = renderHook(() => useLogTail('watchdog', api));
+      await waitFor(() => expect(result.current.lines).toHaveLength(1));
+
+      setScrollPosition(result.current.boxRef, { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
+      act(() => result.current.handleScroll());
+      await waitFor(() => expect(result.current.loadingOlder).toBe(true));
+
+      act(() => result.current.jumpToLatest());
+      await waitFor(() => expect(result.current.lines.map((l) => l.text)).toEqual(['fresh']));
+
+      act(() => older.resolve({ lines: ['stale-older'], oldestTimestamp: 1, atOldest: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(result.current.lines.map((l) => l.text)).toEqual(['fresh']);
+      expect(result.current.mode).toBe('live');
     });
   });
 });

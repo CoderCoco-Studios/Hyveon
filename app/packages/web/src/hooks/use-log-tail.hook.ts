@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { HyveonStreamHandle, LogChunk, LogsRangePage, OlderLogsPage } from '@hyveon/desktop-preload';
+import type { HyveonStreamHandle, LogChunk, NewerLogsPage, OlderLogsPage } from '@hyveon/desktop-preload';
 import { detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
 
 /**
@@ -7,7 +7,9 @@ import { detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
  * `'live'` or `'historical'` mode. In `'live'` mode the oldest line is
  * evicted off the top as new lines arrive; in `'historical'` mode the
  * newest-loaded line is evicted off the bottom as older lines are
- * prepended by {@link UseLogTailResult.handleScroll}'s backfill.
+ * prepended by {@link UseLogTailResult.handleScroll}'s backfill (and the
+ * oldest-loaded line is evicted off the top as newer lines are appended by
+ * the forward paging that runs on scroll-down).
  */
 const WINDOW_SIZE = 300;
 const AGE_TICK_MS = 10_000;
@@ -24,16 +26,17 @@ export interface LogLine {
 }
 
 /**
- * The `get`/`stream`/`getOlder`/`getRange` set a caller wires to either
+ * The `get`/`stream`/`getOlder`/`getNewer` set a caller wires to either
  * `window.hyveon.logs` (game logs) or `window.hyveon.logs.lambda` (Lambda logs).
  */
 export interface LogTailApi {
-  get: (target: string, limit?: number) => Promise<{ lines: string[] }>;
+  /** Recent snapshot fetch — see `GameLogs`/`LambdaLogs`'s `oldestTimestamp` field, used to seed {@link UseLogTailResult.handleScroll}'s first backward call without duplicating lines already in the snapshot. */
+  get: (target: string, limit?: number) => Promise<{ lines: string[]; oldestTimestamp?: number }>;
   stream: (target: string) => HyveonStreamHandle<LogChunk>;
   /** Backward page of CloudWatch events strictly older than `beforeTimestamp` — backs {@link UseLogTailResult.handleScroll}'s scroll-up backfill. */
   getOlder: (target: string, beforeTimestamp: number, limit?: number) => Promise<OlderLogsPage>;
-  /** Forward range `[startTime, endTime)` — backs the gap-fill that runs when the operator scrolls back down through a historical window. */
-  getRange: (target: string, startTime: number, endTime: number) => Promise<LogsRangePage>;
+  /** Forward page of CloudWatch events strictly newer than `afterTimestamp` — backs the paged scroll-down-while-historical backfill. */
+  getNewer: (target: string, afterTimestamp: number, limit?: number) => Promise<NewerLogsPage>;
 }
 
 /** The live-tail state and handlers a log-viewer page renders. */
@@ -52,7 +55,7 @@ export interface UseLogTailResult {
   ageLabel: string | null;
   boxRef: React.RefObject<HTMLDivElement | null>;
   handlePauseToggle: () => void;
-  /** Wire to the log viewer container's `onScroll` — pins/unpins autoscroll based on distance from the bottom, and drives the historical-mode backfill/gap-fill flow. */
+  /** Wire to the log viewer container's `onScroll` — pins/unpins autoscroll based on distance from the bottom, and drives the historical-mode backfill/forward-paging flow. */
   handleScroll: () => void;
   /**
    * `'live'` (default) tails new lines straight into {@link lines};
@@ -66,7 +69,15 @@ export interface UseLogTailResult {
   loadingOlder: boolean;
   /** Equivalent to `mode === 'historical'` — whether a "Jump to latest" control should be shown. */
   hasNewer: boolean;
-  /** Discards the historical window, flushes buffered live lines into `lines` (trimmed to {@link WINDOW_SIZE} from the end), and switches back to `'live'` mode with autoscroll re-enabled. */
+  /** `true` while {@link jumpToLatest}'s fresh re-fetch is in flight. */
+  jumpingToLatest: boolean;
+  /**
+   * Discards everything currently loaded/buffered and re-fetches a fresh
+   * recent snapshot via `api.get`, the same call the initial-mount effect
+   * makes — then switches back to `'live'` mode with autoscroll re-enabled.
+   * Deliberately does NOT flush buffered live lines into view; they are
+   * discarded along with the rest of the historical window.
+   */
   jumpToLatest: () => void;
 }
 
@@ -100,7 +111,7 @@ function formatAge(ms: number): string {
  *
  * @param target - The game name or `LambdaFunctionKey` to tail. An empty
  *   string means "nothing selected yet" — no fetch/stream starts.
- * @param api - The `get`/`stream`/`getOlder`/`getRange` set to call. Pass a
+ * @param api - The `get`/`stream`/`getOlder`/`getNewer` set to call. Pass a
  *   stable reference (e.g. `window.hyveon.logs` or
  *   `window.hyveon.logs.lambda`) — an internal ref means a new object
  *   identity each render is tolerated, but a stable reference keeps the
@@ -129,6 +140,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const [mode, setMode] = useState<'live' | 'historical'>('live');
   const [atOldest, setAtOldest] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [jumpingToLatest, setJumpingToLatest] = useState(false);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<HyveonStreamHandle<LogChunk> | null>(null);
@@ -147,8 +159,17 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const loadingNewerRef = useRef(false);
   /** Epoch-ms boundary for the next backward `getOlder` call — the oldest event timestamp seen so far in the historical window. */
   const oldestTimestampRef = useRef<number | null>(null);
-  /** Epoch-ms boundary marking where the historical window's "already loaded" newer edge sits — seeds forward gap-fill via `getRange`. */
-  const historicalEntryTimestampRef = useRef<number | null>(null);
+  /** Epoch-ms boundary for the next forward `getNewer` call — the newest event timestamp seen so far in the historical window. */
+  const newestTimestampRef = useRef<number | null>(null);
+  /**
+   * Monotonically-increasing counter bumped on every target switch and on
+   * {@link jumpToLatest} — `loadOlder`/`loadNewer` capture it at the start
+   * of their async call and discard the result (no `setLines`/`setError`/ref
+   * update) if it has moved on by the time the call resolves, closing the
+   * race where a slow historical fetch resolves after the viewer already
+   * switched targets or jumped back to live.
+   */
+  const windowGenerationRef = useRef(0);
 
   const appendLine = useCallback((text: string) => {
     const entry: LogLine = { text, level: detectLogLevel(text), receivedAt: Date.now() };
@@ -206,7 +227,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     setLoadingOlder(false);
     loadingNewerRef.current = false;
     oldestTimestampRef.current = null;
-    historicalEntryTimestampRef.current = null;
+    newestTimestampRef.current = null;
   }, []);
 
   // Reset everything that described the previous target, then fetch the
@@ -215,6 +236,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   // state first (that responsibility moved here from `LogsPage.selectGame`).
   useEffect(() => {
     let cancelled = false;
+    windowGenerationRef.current += 1;
     void (async () => {
       setLines([]);
       bufferRef.current = [];
@@ -236,6 +258,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         setLines(
           data.lines.slice(-WINDOW_SIZE).map((text) => ({ text, level: detectLogLevel(text), receivedAt: Date.now() })),
         );
+        oldestTimestampRef.current = data.oldestTimestamp ?? null;
         startStream(target);
       } catch {
         if (!cancelled) {
@@ -273,24 +296,29 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   /**
    * Fetches one older page via `api.getOlder`, entering `'historical'` mode
    * first if this is the first backward fetch for the current target. The
-   * boundary passed to `getOlder` is {@link oldestTimestampRef} (seeded from
-   * `Date.now()` on the very first call) — each returned page's
-   * `oldestTimestamp` becomes the boundary for the next call. An empty page
-   * (`atOldest: true`) stops further backward calls until the target changes
-   * or {@link jumpToLatest} resets the window.
+   * boundary passed to `getOlder` is {@link oldestTimestampRef} — seeded
+   * from the initial snapshot's oldest line on mount/target-switch (falling
+   * back to `Date.now()` only when the snapshot carried no timestamp, e.g.
+   * an empty log) — each returned page's `oldestTimestamp` becomes the
+   * boundary for the next call. An empty page (`atOldest: true`) stops
+   * further backward calls until the target changes or
+   * {@link jumpToLatest} resets the window. Discards its result if
+   * {@link windowGenerationRef} moved on while the call was in flight (a
+   * target switch or `jumpToLatest` happened mid-fetch).
    */
   const loadOlder = useCallback(async () => {
     if (!target || loadingOlderRef.current || atOldestRef.current) return;
+    const generation = windowGenerationRef.current;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     if (modeRef.current === 'live') {
       modeRef.current = 'historical';
       setMode('historical');
-      historicalEntryTimestampRef.current = Date.now();
     }
     const before = oldestTimestampRef.current ?? Date.now();
     try {
       const page = await apiRef.current.getOlder(target, before, WINDOW_SIZE);
+      if (windowGenerationRef.current !== generation) return;
       if (page.atOldest || page.lines.length === 0) {
         atOldestRef.current = true;
         setAtOldest(true);
@@ -307,31 +335,38 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         });
       }
     } catch (err) {
+      if (windowGenerationRef.current !== generation) return;
       const message = err instanceof Error ? err.message : String(err);
       setError(`Could not load older logs: ${message}`);
     } finally {
-      loadingOlderRef.current = false;
-      setLoadingOlder(false);
+      if (windowGenerationRef.current === generation) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [target]);
 
   /**
-   * Fills the gap between the historical window's already-loaded newer edge
-   * ({@link historicalEntryTimestampRef}) and now, via `api.getRange`,
-   * appending the result and evicting from the front to stay within
-   * {@link WINDOW_SIZE}. Runs when the operator scrolls back down past the
-   * bottom of a historical window — deliberately does not switch back to
-   * `'live'` mode itself; only {@link jumpToLatest} does that.
+   * Fetches one forward page via `api.getNewer`, appending it to the end of
+   * `lines` and evicting from the front to stay within {@link WINDOW_SIZE} —
+   * the paged mirror of {@link loadOlder}. The boundary passed to `getNewer`
+   * is {@link newestTimestampRef}, seeded the first time this runs from
+   * `Date.now()` (the historical window's "already loaded" newer edge at
+   * the moment scroll-down paging starts). Runs when the operator scrolls
+   * back down past the bottom of a historical window — deliberately does
+   * not switch back to `'live'` mode itself; only {@link jumpToLatest} does
+   * that. Discards its result if {@link windowGenerationRef} moved on while
+   * the call was in flight.
    */
-  const loadNewerGap = useCallback(async () => {
+  const loadNewer = useCallback(async () => {
     if (!target || loadingNewerRef.current) return;
-    const start = historicalEntryTimestampRef.current;
-    if (start === null) return;
+    const generation = windowGenerationRef.current;
+    const after = newestTimestampRef.current ?? Date.now();
     loadingNewerRef.current = true;
-    const end = Date.now();
     try {
-      const page = await apiRef.current.getRange(target, start, end);
-      historicalEntryTimestampRef.current = end;
+      const page = await apiRef.current.getNewer(target, after, WINDOW_SIZE);
+      if (windowGenerationRef.current !== generation) return;
+      newestTimestampRef.current = page.newestTimestamp ?? after;
       if (page.lines.length > 0) {
         const newer: LogLine[] = page.lines.map((text) => ({
           text,
@@ -344,10 +379,13 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
         });
       }
     } catch (err) {
+      if (windowGenerationRef.current !== generation) return;
       const message = err instanceof Error ? err.message : String(err);
       setError(`Could not load newer logs: ${message}`);
     } finally {
-      loadingNewerRef.current = false;
+      if (windowGenerationRef.current === generation) {
+        loadingNewerRef.current = false;
+      }
     }
   }, [target]);
 
@@ -362,7 +400,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
    * {@link NEAR_TOP_THRESHOLD_PX} of the top triggers {@link loadOlder}
    * (entering `'historical'` mode on the first call), and scrolling back
    * within {@link BOTTOM_PIN_THRESHOLD_PX} of the bottom while already in
-   * `'historical'` mode triggers {@link loadNewerGap}.
+   * `'historical'` mode triggers {@link loadNewer}.
    */
   const handleScroll = useCallback(() => {
     const el = boxRef.current;
@@ -382,25 +420,53 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     if (isNearTop) {
       void loadOlder();
     } else if (isNearBottom && modeRef.current === 'historical') {
-      void loadNewerGap();
+      void loadNewer();
     }
-  }, [loadOlder, loadNewerGap]);
+  }, [loadOlder, loadNewer]);
 
   /**
-   * Discards the historical window, flushes {@link bufferRef}'s buffered
-   * live lines into `lines` (trimmed to {@link WINDOW_SIZE} from the end),
-   * and resets the window back to `'live'` mode with autoscroll re-enabled —
-   * the "Jump to latest" control's handler.
+   * Discards everything currently loaded/buffered — `lines`, the live
+   * buffer, and every window-tracking ref — and re-fetches a fresh recent
+   * snapshot via `api.get(target)` (the same call the initial-mount effect
+   * makes), then resets back to `'live'` mode with autoscroll re-enabled.
+   * Bumps {@link windowGenerationRef} first so any backward/forward fetch
+   * already in flight is discarded when it resolves rather than clobbering
+   * this fresh snapshot. Buffered live lines are deliberately discarded, not
+   * flushed — "Jump to latest" means a fresh look at the present, not a
+   * splice of whatever accumulated while historical.
    */
   const jumpToLatest = useCallback(() => {
-    const buffered = bufferRef.current;
+    windowGenerationRef.current += 1;
+    const generation = windowGenerationRef.current;
     bufferRef.current = [];
     setBufferedCount(0);
-    setLines(buffered.length > WINDOW_SIZE ? buffered.slice(-WINDOW_SIZE) : buffered);
     resetWindowState();
     setAutoscroll(true);
     scrolledAwayRef.current = false;
-  }, [resetWindowState]);
+
+    if (!target || !window.hyveon) {
+      setLines([]);
+      return;
+    }
+
+    setJumpingToLatest(true);
+    void (async () => {
+      try {
+        const data = await apiRef.current.get(target);
+        if (windowGenerationRef.current !== generation) return;
+        setLines(
+          data.lines.slice(-WINDOW_SIZE).map((text) => ({ text, level: detectLogLevel(text), receivedAt: Date.now() })),
+        );
+        oldestTimestampRef.current = data.oldestTimestamp ?? null;
+      } catch (err) {
+        if (windowGenerationRef.current !== generation) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setError(`Could not load latest logs: ${message}`);
+      } finally {
+        if (windowGenerationRef.current === generation) setJumpingToLatest(false);
+      }
+    })();
+  }, [target, resetWindowState]);
 
   const handlePauseToggle = useCallback(() => {
     const nowPaused = !pausedRef.current;
@@ -450,6 +516,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     atOldest,
     loadingOlder,
     hasNewer: mode === 'historical',
+    jumpingToLatest,
     jumpToLatest,
   };
 }

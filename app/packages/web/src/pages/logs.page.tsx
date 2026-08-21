@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { HighlightedLine, LevelFilterMenu } from '../components/log-line-display.component.js';
 import { GameCombobox } from '../components/game-combobox.component.js';
+import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { LOG_LEVEL_BADGE } from '../lib/log-level.utils.js';
@@ -40,7 +41,7 @@ const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
   getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
-  getRange: () => Promise.resolve({ lines: [] }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
 };
 
 /**
@@ -225,7 +226,10 @@ export function LogsPage() {
           ref={boxRef}
           onScroll={handleScroll}
           data-testid="logs-viewer"
-          className="h-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
+          className={cn(
+            'h-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
+            hasNewer && 'pb-12',
+          )}
         >
           {loadingOlder && (
             <div data-testid="loading-older" className="py-1 text-center text-[var(--color-muted-foreground)]">
@@ -261,15 +265,7 @@ export function LogsPage() {
             ))
           )}
         </div>
-        {hasNewer && (
-          <Button
-            size="sm"
-            onClick={jumpToLatest}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-[var(--shadow-md)]"
-          >
-            Jump to latest
-          </Button>
-        )}
+        <JumpToLatestButton hasNewer={hasNewer} onClick={jumpToLatest} />
       </div>
 
       {/* Footer */}
