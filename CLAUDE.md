@@ -23,6 +23,9 @@ working in an area rather than relying on a summary here.
 | Setup walkthrough / operator guides | `docs/docs/setup.md`, `docs/docs/guides/` |
 | Copilot review tuning | `.github/copilot-instructions.md` |
 | PR creation command | `.claude/commands/pr.md` |
+| TypeScript coding conventions | `.claude/rules/typescript-conventions.md` |
+| Test-writing conventions (naming, tiers, Playwright, jsdom) | `.claude/rules/testing-conventions.md` |
+| Comment brevity/placement rules | `.claude/rules/comment-conciseness.md` |
 
 OpenSpec workflow skills: `/opsx:propose` (new change), `/opsx:apply`
 (implement), `/opsx:sync` (fold delta specs into main specs), `/opsx:archive`
@@ -98,17 +101,6 @@ these are easy to violate while making an otherwise reasonable change.
 - **The desktop app has no HTTP transport.** `desktop-main` is an Electron IPC microservice;
   there is no bearer token and no API server (`openspec/specs/desktop-only-operator-surface`).
 
-## Code & test conventions
-
-- **Test names** read as sentences starting with "should" — `it('should return null when
-  state file is missing')`, not `it('returns null…')`.
-- **TSDoc** on non-trivial functions, helpers, and notable constants — including test-file
-  helpers (stub factories, fixtures).
-- **No `as unknown as T` casts in tests.** Prefer `vi.mocked(fn)` for mocked modules and
-  `Partial<T>` + a single `as T` for service-shaped stubs.
-- **No raw `process.env` in business logic.** Wrap env access behind a service method so
-  tests stub it with `vi.spyOn` instead of mutating `process.env`.
-
 ## Markdown formatting
 
 - **No hard line wrap.** Write one sentence or paragraph per line and let the renderer
@@ -119,29 +111,10 @@ these are easy to violate while making an otherwise reasonable change.
 - Applies to prose only — code blocks, tables, and existing wrapped text don't need
   reflowing on unrelated edits.
 
-Three complementary test tiers:
-
-| Tier | Command | What runs |
-|------|---------|-----------|
-| Unit / component | `npm run app:test` | Vitest, split into a `node` project and a jsdom `web` project. Server logic runs under `node`; `@hyveon/web` component and routed-page specs run under `jsdom`, co-located with the component and mounted through `renderPage()`. AWS SDK mocked via `aws-sdk-client-mock`. |
-| E2E (tier 1) | `npm run app:test:e2e` | Playwright, two projects: `electron` launches the packaged app via `_electron.launch()` with `HYVEON_TEST_MODE=1`; `chromium` runs the remaining stub-based specs against `vite build` + `vite preview`. Migration to `electron` is in progress. |
-| Integration (tier 2) | `npm run app:test:integration` | Playwright dispatching into the real `AppModule` DI container built in-process — no HTTP server, no Vite, no `BrowserWindow`. |
-
-Playwright conventions:
-
-- Specs in `app/packages/web/e2e/specs/`, fixtures in `e2e/fixtures/`, page objects in
-  `e2e/pages/`. Import `test`, `expect`, and page-object fixtures from `../fixtures/index.js`.
-- **Specs must reach elements through a page object** (`logs.pauseButton()`,
-  `dashboard.gameCardHeading('minecraft')`), never `page.getByX(...)` directly. Add a page
-  object whenever a spec needs a locator that isn't wrapped yet.
-- Tier-2 specs live in `e2e/integration-specs/` and import `{ test, expect }` from
-  `./index.js` (not `@playwright/test`) so they get the `ipc` and `serverMocks` fixtures.
-- The `window.hyveon.__test.mock()` seam and the two mock surfaces are documented in
-  `docs/docs/components/integration-tests.md`.
-
-jsdom component and routed-page conventions — the two Vitest projects, `renderPage()`,
-`toStreamHandleMock()`, and which API methods a page spec must stub or it hangs — are on
-the same page. Read it before adding a `@hyveon/web` spec.
+TypeScript coding conventions live in `.claude/rules/typescript-conventions.md`;
+test-writing conventions (naming, tiers, Playwright, jsdom) live in
+`.claude/rules/testing-conventions.md` — both auto-load by file-glob scope, no need to
+open them by hand when editing matching files.
 
 ## Before opening a PR
 
@@ -189,11 +162,6 @@ git worktree add .worktrees/<branch> -b <branch>
   one of `feat|fix|refactor|docs|test|chore|perf|build|ci|style`; keep it under ~70 chars.
   Pre-flight regex: `^(feat|fix|refactor|docs|test|chore|perf|build|ci|style)(\([^)]+\))?: .+$`.
 - **Put `Closes #N` as the first line of the PR body** when the PR resolves an issue.
-
-The **`issue-flow`** plugin (`CoderCoco/claude-plugin-marketplace`) drives the issue → PR loop:
-`work-on` starts an issue (branch + worktree + checklist), `open-pr` finishes it (verifies the
-checklist, applies these conventions, moves the project card). If the plugin isn't loaded,
-fetch the skill body from the marketplace repo and follow it manually.
 
 ## PR review workflow
 
