@@ -1,11 +1,32 @@
-## RENAMED Requirements
+## REMOVED Requirements
 
-- FROM: `### Requirement: Diagnostics panel pause, level filter, search, and autoscroll`
-- TO: `### Requirement: Diagnostics panel pause, search, and autoscroll`
+### Requirement: Diagnostics panel pause, level filter, search, and autoscroll
+
+**Reason**: the client-side INFO/WARN/ERROR/DEBUG classification the level
+filter depends on is unreliable — Hyveon doesn't control the log line format
+emitted by game servers or its own Lambdas, so the detection regex
+frequently misclassifies or fails to match real lines. Replaced by
+"Diagnostics panel pause, search, and autoscroll" below, which keeps every
+other behavior of this requirement and drops only the level-filter scenario.
+
+**Migration**: no operator action required. The **Levels** control and
+per-line level badge are removed from the Settings → Diagnostics panel;
+pause/resume, search-highlight, and autoscroll behave exactly as before.
+
+### Requirement: ANSI-colored log line rendering
+
+**Reason**: this requirement's "Level detection ignores embedded ANSI
+codes" scenario depends on the level-detection logic being removed
+(see above). Replaced by "ANSI escape sequence rendering for log lines"
+below, which keeps every other scenario verbatim and drops only that one.
+
+**Migration**: no operator action required. ANSI SGR color/bold rendering,
+non-SGR escape stripping, search-highlighting inside colored text, and
+graceful handling of malformed escape sequences are all unchanged.
 
 ---
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Diagnostics panel pause, search, and autoscroll
 
@@ -62,7 +83,7 @@ under an operator reading it.
 - **THEN** the view does not scroll, even though polling continues in the
   background
 
-### Requirement: ANSI-colored log line rendering
+### Requirement: ANSI escape sequence rendering for log lines
 
 The shared log-line rendering used by the `/logs` page and the Settings →
 Diagnostics panel SHALL interpret SGR ("Select Graphic Rendition") ANSI

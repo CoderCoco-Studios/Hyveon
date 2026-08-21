@@ -26,12 +26,14 @@ three near-duplicate UI implementations.
 ## Capabilities
 
 ### Modified Capabilities
-- `app-diagnostics-logging`: removes the level-filter behavior from the
-  "Diagnostics panel pause, level filter, search, and autoscroll"
-  requirement (renamed to drop "level filter"), and removes the "Level
-  detection ignores embedded ANSI codes" scenario from the "ANSI-colored log
-  line rendering" requirement. Pause, search, autoscroll, and ANSI rendering
-  requirements are otherwise unchanged.
+- `app-diagnostics-logging`: replaces "Diagnostics panel pause, level
+  filter, search, and autoscroll" with "Diagnostics panel pause, search,
+  and autoscroll" (drops the level-filter scenario, keeps pause/search/
+  autoscroll verbatim), and replaces "ANSI-colored log line rendering" with
+  "ANSI escape sequence rendering for log lines" (drops the "Level
+  detection ignores embedded ANSI codes" scenario, keeps every other
+  scenario verbatim). Both are REMOVED+ADDED pairs rather than in-place
+  edits, since dropping a scenario isn't expressible as a MODIFIED delta.
 
 ## Impact
 
