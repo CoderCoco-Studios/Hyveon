@@ -7,7 +7,9 @@ import DailyRotateFile from 'winston-daily-rotate-file';
  * state.  We use a plain import at the top for the factory tests; the
  * singleton re-assignment tests use the same module reference.
  */
-import { createLogger, devPrintf, logger as initialLogger } from './logger.js';
+import { createLogger, __testing, logger as initialLogger } from './logger.js';
+
+const { devPrintf } = __testing;
 
 describe('createLogger', () => {
   it('should return a winston.Logger instance', () => {
