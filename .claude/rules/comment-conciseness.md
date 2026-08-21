@@ -20,6 +20,19 @@ globs: "**/*.ts,**/*.tsx"
    itself needs simplifying rather than annotating.
 4. Wrap comment and TSDoc prose at ~120 characters, not ~80. Don't hand-wrap
    short lines just to hit an old 80-column habit.
+5. This rule governs brevity and placement, not whether a public function gets
+   documented — `tsdoc-tags.md` still requires TSDoc on every non-trivial
+   function, class, interface, and notable constant, and that requirement
+   isn't satisfied by a one-line summary if the function actually needs more.
+   Scale the TSDoc block to what the function does:
+   - A one-line setter/getter/trivial wrapper gets a one-line summary. Don't
+     pad it with `@remarks`, `@example`, or restated `@param` prose it doesn't
+     need.
+   - A function with real logic — multiple failure modes, non-obvious
+     preconditions, a non-trivial contract — gets whatever `@remarks`,
+     `@example`, `@param`, `@returns`, `@throws` detail a caller actually
+     needs to use it correctly without reading the body. Terseness never
+     excuses cutting real documentation down to a stub.
 
 **Why:** inline comments accumulate faster than they're pruned and drift from
 the code they describe; a TSDoc block at the method signature is the one place
