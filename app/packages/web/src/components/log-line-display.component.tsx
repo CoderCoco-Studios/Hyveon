@@ -1,16 +1,4 @@
 import { Fragment, useMemo } from 'react';
-import { Filter } from 'lucide-react';
-import { Badge } from './ui/badge.component.js';
-import { Button } from './ui/button.component.js';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuCheckboxItem,
-} from './ui/dropdown-menu.component.js';
-import { ALL_LOG_LEVELS, LOG_LEVEL_BADGE, type LogLevel } from '../lib/log-level.utils.js';
 import { parseAnsiLine } from '../lib/ansi.utils.js';
 import { cn } from '../lib/utils.utils.js';
 
@@ -98,34 +86,5 @@ export function HighlightedLine({ text, query }: { text: string; query: string }
         );
       })}
     </>
-  );
-}
-
-/** Multi-select dropdown for hiding log levels. Default: nothing hidden. Shared by `/logs` and the Diagnostics panel. */
-export function LevelFilterMenu({ hidden, onToggle }: { hidden: Set<LogLevel>; onToggle: (lvl: LogLevel) => void }) {
-  const visibleCount = ALL_LOG_LEVELS.length - hidden.size;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="secondary" size="sm" className="gap-1.5">
-          <Filter className="h-3.5 w-3.5" />
-          Levels
-          <span className="text-[var(--color-muted-foreground)]">
-            ({visibleCount}/{ALL_LOG_LEVELS.length})
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        <DropdownMenuLabel>Show levels</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {ALL_LOG_LEVELS.map((lvl) => (
-          <DropdownMenuCheckboxItem key={lvl} checked={!hidden.has(lvl)} onCheckedChange={() => onToggle(lvl)} onSelect={(e) => e.preventDefault()}>
-            <Badge variant={LOG_LEVEL_BADGE[lvl].variant} className="h-4 px-1.5 py-0 text-[10px] leading-4">
-              {LOG_LEVEL_BADGE[lvl].label}
-            </Badge>
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

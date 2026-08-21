@@ -1,15 +1,12 @@
 import type { Page, Locator } from '@playwright/test';
 import { gotoHashRoute } from './hashRoute.js';
 
-/** Detected log level — drives the per-line badge color and the Levels filter. */
-export type LogLevelLabel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
-
 /**
  * Page object for the `/logs` route added in CoderCoco/Hyveon#63.
  * Wraps the LIVE/PAUSED pill, the searchable game combobox, the in-stream
- * search input, the Levels multi-select, the autoscroll toggle, the
- * Pause/Resume button, the log box, and the footer line-count summary so
- * spec files read as test logic rather than locator soup.
+ * search input, the autoscroll toggle, the Pause/Resume button, the log
+ * box, and the footer line-count summary so spec files read as test logic
+ * rather than locator soup.
  */
 export class LogsPage {
   constructor(public readonly page: Page) {}
@@ -93,40 +90,6 @@ export class LogsPage {
     await this.searchInput().fill(query);
   }
 
-  /**
-   * Levels multi-select trigger. The button label reads `Levels (N/4)`,
-   * so a `/Levels/` regex matches no matter how many levels are currently
-   * shown — narrow with `levelsTriggerWithCount` for an exact count.
-   */
-  levelsTrigger(): Locator {
-    return this.page.getByRole('button', { name: /Levels/ });
-  }
-
-  /** Levels trigger asserted to display a specific visible-count (e.g. `3/4`). */
-  levelsTriggerWithCount(visible: number, total = 4): Locator {
-    // The button's accessible name is the visible text "Levels (V/T)". Exact
-    // match on a literal string avoids constructing a dynamic regex (and the
-    // CodeQL "incomplete string escaping" alert that comes with it).
-    return this.page.getByRole('button', { name: `Levels (${visible}/${total})`, exact: true });
-  }
-
-  /** Checkbox item inside the open Levels menu, by level label. */
-  levelMenuItem(level: LogLevelLabel): Locator {
-    return this.page.getByRole('menuitemcheckbox', { name: level });
-  }
-
-  /**
-   * Open the Levels menu, toggle a level off (or on), and dismiss the menu
-   * with Escape so subsequent assertions aren't obscured by the popover.
-   * The menu stays open by design (`onSelect` preventDefault) so we close
-   * it explicitly here.
-   */
-  async toggleLevel(level: LogLevelLabel): Promise<void> {
-    await this.levelsTrigger().click();
-    await this.levelMenuItem(level).click();
-    await this.page.keyboard.press('Escape');
-  }
-
   /** Autoscroll checkbox — wrapped in a `<label>` with text "Autoscroll". */
   autoscrollCheckbox(): Locator {
     return this.page.getByLabel('Autoscroll');
@@ -158,22 +121,12 @@ export class LogsPage {
     return this.page.locator('mark', { hasText: text });
   }
 
-  /**
-   * The first level badge of a given level inside the log box. Each
-   * matching line renders one badge; this picks the first occurrence
-   * which is enough to assert "this level was detected at all".
-   */
-  levelBadge(level: LogLevelLabel): Locator {
-    return this.page.getByText(level, { exact: true }).first();
-  }
-
   // ── Footer ───────────────────────────────────────────────────────────
 
   /**
-   * Footer summary line — `<N> lines · oldest <age>` plus optional
-   * "<K> levels hidden" / "buffered N" suffixes. `count` anchors the
-   * regex to the start so unrelated `5` substrings elsewhere don't
-   * match.
+   * Footer summary line — `<N> lines · oldest <age>` plus an optional
+   * "buffered N" suffix. `count` anchors the regex to the start so
+   * unrelated `5` substrings elsewhere don't match.
    */
   footerLineCount(count: number): Locator {
     return this.page.getByText(new RegExp(`^${count} lines? · oldest `));

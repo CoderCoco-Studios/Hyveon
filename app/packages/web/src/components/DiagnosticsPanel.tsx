@@ -1,19 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Pause, Play, Search } from 'lucide-react';
 import { api } from '../api.service.js';
-import { Badge } from './ui/badge.component.js';
 import { Button } from './ui/button.component.js';
 import { Input } from './ui/input.component.js';
-import { HighlightedLine, LevelFilterMenu } from './log-line-display.component.js';
-import { LOG_LEVEL_BADGE, detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
+import { HighlightedLine } from './log-line-display.component.js';
 
 const POLL_INTERVAL_MS = 5_000;
-
-/** A single displayed diagnostics line, with its detected level (if any). */
-interface DiagnosticsLine {
-  text: string;
-  level: LogLevel | null;
-}
 
 /** A `diagnostics.tail`/`diagnostics.path` snapshot fetched while paused, awaiting the operator's resume. */
 interface PendingSnapshot {
@@ -39,8 +31,7 @@ type ExportBundleState = 'idle' | 'loading' | { status: 'success'; path: string 
  * DiagnosticsPanel — shows the last 500 lines of the app's own local log
  * file (`main-*.log`), polling `diagnostics.tail`/`diagnostics.path` every 5
  * seconds. Brings the same interaction affordances the `/logs` page already
- * has for CloudWatch output: pause/resume, level filter, search-highlight,
- * and autoscroll.
+ * has for CloudWatch output: pause/resume, search-highlight, and autoscroll.
  *
  * `diagnostics.tail` returns the current cumulative tail on every call, not
  * an incremental delta — unlike `/logs`'s streamed chunks, there is no line
@@ -58,7 +49,6 @@ export function DiagnosticsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [search, setSearch] = useState('');
-  const [hiddenLevels, setHiddenLevels] = useState<Set<LogLevel>>(new Set());
   const [exportState, setExportState] = useState<ExportBundleState>('idle');
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -151,15 +141,6 @@ export function DiagnosticsPanel() {
     }
   }, [exportState]);
 
-  const toggleLevel = useCallback((lvl: LogLevel) => {
-    setHiddenLevels((prev) => {
-      const next = new Set(prev);
-      if (next.has(lvl)) next.delete(lvl);
-      else next.add(lvl);
-      return next;
-    });
-  }, []);
-
   // Autoscroll to the bottom whenever lines change — but only while not paused, so a paused view
   // never gets scrolled out from under an operator reading it (lines don't change while paused
   // anyway, but the `paused` guard keeps the intent explicit rather than relying on that side effect).
@@ -168,12 +149,6 @@ export function DiagnosticsPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [lines, paused]);
-
-  const classifiedLines = useMemo<DiagnosticsLine[]>(() => lines.map((text) => ({ text, level: detectLogLevel(text) })), [lines]);
-  const visibleLines = useMemo(
-    () => classifiedLines.filter((l) => !(l.level && hiddenLevels.has(l.level))),
-    [classifiedLines, hiddenLevels],
-  );
 
   if (loading) {
     return (
@@ -216,7 +191,6 @@ export function DiagnosticsPanel() {
             className="pl-8"
           />
         </div>
-        <LevelFilterMenu hidden={hiddenLevels} onToggle={toggleLevel} />
         <Button
           variant="outline"
           size="sm"
@@ -263,20 +237,11 @@ export function DiagnosticsPanel() {
       >
         {lines.length === 0 ? (
           <span className="text-[var(--color-muted-foreground)]">No log lines available.</span>
-        ) : visibleLines.length === 0 ? (
-          <span className="text-[var(--color-muted-foreground)]">All lines hidden by the level filter.</span>
         ) : (
-          visibleLines.map((line, i) => (
+          lines.map((line, i) => (
             <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              {line.level ? (
-                <Badge variant={LOG_LEVEL_BADGE[line.level].variant} className="h-4 shrink-0 px-1.5 py-0 text-[10px] leading-4">
-                  {LOG_LEVEL_BADGE[line.level].label}
-                </Badge>
-              ) : (
-                <span className="inline-block w-12 shrink-0" aria-hidden />
-              )}
               <span className="flex-1">
-                <HighlightedLine text={line.text} query={search} />
+                <HighlightedLine text={line} query={search} />
               </span>
             </div>
           ))
@@ -284,8 +249,7 @@ export function DiagnosticsPanel() {
       </div>
 
       <div className="text-xs text-[var(--color-muted-foreground)]">
-        {visibleLines.length} line{visibleLines.length === 1 ? '' : 's'}
-        {hiddenLevels.size > 0 ? ` · ${hiddenLevels.size} level${hiddenLevels.size === 1 ? '' : 's'} hidden` : ''}
+        {lines.length} line{lines.length === 1 ? '' : 's'}
         {paused ? ' · paused' : ''}
       </div>
     </div>

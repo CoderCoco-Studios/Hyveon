@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
-import { detectLogLevel, type LogLevel } from '../lib/log-level.utils.js';
 
 const MAX_LINES = 1000;
 const AGE_TICK_MS = 10_000;
 /** Scroll distance (px) from the bottom within which the viewer still counts as "pinned to bottom". */
 const BOTTOM_PIN_THRESHOLD_PX = 24;
 
-/** A single tailed log line, decorated with its detected {@link LogLevel} and receipt timestamp. */
+/** A single tailed log line, with its receipt timestamp. */
 export interface LogLine {
   text: string;
-  level: LogLevel | null;
   receivedAt: number;
 }
 
@@ -29,8 +27,6 @@ export interface UseLogTailResult {
   setAutoscroll: (value: boolean) => void;
   search: string;
   setSearch: (value: string) => void;
-  hiddenLevels: Set<LogLevel>;
-  toggleLevel: (level: LogLevel) => void;
   error: string | null;
   bufferedCount: number;
   ageLabel: string | null;
@@ -55,8 +51,8 @@ function formatAge(ms: number): string {
  * Shared live-tail engine behind both `/logs` (game servers) and
  * `/logs/infrastructure` (Lambda functions) — see design.md D6. Owns the
  * initial-snapshot fetch and live IPC stream subscription for a single
- * `target`, the pause/buffer/resume model, the level filter, the
- * in-buffer search string, autoscroll (including turning it off when the
+ * `target`, the pause/buffer/resume model, the in-buffer search string,
+ * autoscroll (including turning it off when the
  * caller scrolls away from the bottom and back on when they scroll back
  * near it — see {@link UseLogTailResult.handleScroll}), and the "oldest
  * line age" footer clock. Fully resets and re-subscribes whenever `target`
@@ -85,7 +81,6 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
   const [search, setSearch] = useState('');
-  const [hiddenLevels, setHiddenLevels] = useState<Set<LogLevel>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [bufferedCount, setBufferedCount] = useState(0);
@@ -100,7 +95,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
   const scrolledAwayRef = useRef(false);
 
   const appendLine = useCallback((text: string) => {
-    const entry: LogLine = { text, level: detectLogLevel(text), receivedAt: Date.now() };
+    const entry: LogLine = { text, receivedAt: Date.now() };
     if (pausedRef.current) {
       bufferRef.current.push(entry);
       if (bufferRef.current.length > MAX_LINES) {
@@ -168,9 +163,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
       try {
         const data = await apiRef.current.get(target);
         if (cancelled) return;
-        setLines(
-          data.lines.slice(-MAX_LINES).map((text) => ({ text, level: detectLogLevel(text), receivedAt: Date.now() })),
-        );
+        setLines(data.lines.slice(-MAX_LINES).map((text) => ({ text, receivedAt: Date.now() })));
         startStream(target);
       } catch {
         if (!cancelled) {
@@ -197,10 +190,7 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     }
   }, [lines, autoscroll, paused]);
 
-  const visibleLines = useMemo(
-    () => lines.filter((l) => !(l.level && hiddenLevels.has(l.level))),
-    [lines, hiddenLevels],
-  );
+  const visibleLines = lines;
 
   const oldest = visibleLines[0];
   const ageLabel = oldest ? formatAge(now - oldest.receivedAt) : null;
@@ -241,15 +231,6 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     }
   }, []);
 
-  const toggleLevel = useCallback((lvl: LogLevel) => {
-    setHiddenLevels((prev) => {
-      const next = new Set(prev);
-      if (next.has(lvl)) next.delete(lvl);
-      else next.add(lvl);
-      return next;
-    });
-  }, []);
-
   return {
     lines,
     visibleLines,
@@ -258,8 +239,6 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
     setAutoscroll,
     search,
     setSearch,
-    hiddenLevels,
-    toggleLevel,
     error,
     bufferedCount,
     ageLabel,
