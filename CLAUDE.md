@@ -163,11 +163,6 @@ git worktree add .worktrees/<branch> -b <branch>
   Pre-flight regex: `^(feat|fix|refactor|docs|test|chore|perf|build|ci|style)(\([^)]+\))?: .+$`.
 - **Put `Closes #N` as the first line of the PR body** when the PR resolves an issue.
 
-The **`issue-flow`** plugin (`CoderCoco/claude-plugin-marketplace`) drives the issue → PR loop:
-`work-on` starts an issue (branch + worktree + checklist), `open-pr` finishes it (verifies the
-checklist, applies these conventions, moves the project card). If the plugin isn't loaded,
-fetch the skill body from the marketplace repo and follow it manually.
-
 ## PR review workflow
 
 Judge each suggestion on its merits.
