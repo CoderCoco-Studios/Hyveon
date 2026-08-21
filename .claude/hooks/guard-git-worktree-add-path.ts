@@ -98,7 +98,8 @@ deny(
     'now instead: `EnterWorktree({ name: "..." })` creates a new worktree+branch from ' +
     'main (or HEAD, depending on worktree.baseRef) if none exists yet, or ' +
     '`EnterWorktree({ path: "..." })` switches into one that already exists. ' +
-    'EnterWorktree always succeeds for these cases; retry with it, do not fall back to Bash. ' +
+    'For these supported cases, retry with EnterWorktree — do not fall back to Bash. If it ' +
+    'reports an error, surface that error to the user instead of blindly retrying. ' +
     'The ONLY time asking the user to run `git worktree add` manually is correct is the ' +
     'documented pr-stacking hop-2+ exception in .claude/rules/pr-stacking.md, where the new ' +
     'branch must base off a previous stacked branch (not main/HEAD) — EnterWorktree cannot ' +
