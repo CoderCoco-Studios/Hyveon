@@ -3,11 +3,29 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 
 const isDev = process.env['NODE_ENV'] !== 'production';
 
+/**
+ * Dev-mode printf format: prefixes every physical line (including lines from
+ * a pretty-printed multi-line `meta` payload) with `timestamp [level]`, so
+ * each line reads as a standalone entry in line-oriented log viewers.
+ * Continuation lines are tab-indented after the repeated prefix.
+ */
 const devPrintf = winston.format.printf((info) => {
   const { timestamp, level, message, ...meta } = info as Record<string, unknown>;
   const metaStr = Object.keys(meta).length ? '\n' + JSON.stringify(meta, null, 2) : '';
-  return `${timestamp} [${level}] ${message}${metaStr}`;
+  const prefix = `${timestamp} [${level}]`;
+  const lines = `${message}${metaStr}`.split('\n');
+  return lines.map((line, i) => (i === 0 ? `${prefix} ${line}` : `${prefix} \t${line}`)).join('\n');
 });
+
+/**
+ * Test-only escape hatch onto module internals that have no other reason to
+ * be part of the public API. Going through a live transport to assert on
+ * formatted output is unreliable because transports write asynchronously, so
+ * {@link devPrintf} is exposed here for `logger.test.ts` to call directly.
+ *
+ * @internal
+ */
+export const __testing = { devPrintf };
 
 /** Format for the Console transport — colorized in dev for readability. */
 const consoleFormat = isDev

@@ -7,7 +7,9 @@ import DailyRotateFile from 'winston-daily-rotate-file';
  * state.  We use a plain import at the top for the factory tests; the
  * singleton re-assignment tests use the same module reference.
  */
-import { createLogger, logger as initialLogger } from './logger.js';
+import { createLogger, __testing, logger as initialLogger } from './logger.js';
+
+const { devPrintf } = __testing;
 
 describe('createLogger', () => {
   it('should return a winston.Logger instance', () => {
@@ -47,6 +49,44 @@ describe('createLogger', () => {
     const opts = (rotateTransport as unknown as { options: { dirname: string } })
       .options;
     expect(opts.dirname).toBe(logDir);
+  });
+});
+
+describe('devPrintf multi-line formatting', () => {
+  /** Runs `devPrintf` against a winston `info`-shaped object the way a real transport would. */
+  function format(message: string, meta: Record<string, unknown>): string {
+    const info = { timestamp: '09:20:51', level: 'debug', message, ...meta };
+    const result = devPrintf.transform(info, {}) as Partial<Record<symbol, string>>;
+    const output = result[Symbol.for('message')];
+    if (typeof output !== 'string') {
+      throw new Error('devPrintf did not produce a formatted message');
+    }
+    return output;
+  }
+
+  it('should prefix every physical line of a multi-line meta payload with timestamp and level', () => {
+    const output = format('reading log file tail', { maxLines: 500, nested: { deep: true } });
+
+    const lines = output.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(line).toMatch(/^09:20:51 \[debug\]/);
+    }
+  });
+
+  it('should indent continuation lines relative to the first line', () => {
+    const output = format('reading log file tail', { maxLines: 500 });
+
+    const lines = output.split('\n');
+    expect(lines[0]).toBe('09:20:51 [debug] reading log file tail');
+    expect(lines[1]).toBe('09:20:51 [debug] \t{');
+    expect(lines[2]).toBe('09:20:51 [debug] \t  "maxLines": 500');
+    expect(lines[3]).toBe('09:20:51 [debug] \t}');
+  });
+
+  it('should not append a meta block when there is no meta payload', () => {
+    const output = format('simple message', {});
+    expect(output).toBe('09:20:51 [debug] simple message');
   });
 });
 
