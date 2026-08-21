@@ -4,7 +4,7 @@ import type { HyveonLambdaLogsApi, HyveonStreamHandle, LogChunk } from '@hyveon/
 import { LAMBDA_FUNCTION_KEYS, type LambdaFunctionKey } from '@hyveon/shared';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
-import { HighlightedLine } from '../components/log-line-display.component.js';
+import { LogLineList } from '../components/log-line-display.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
@@ -144,24 +144,15 @@ export function InfrastructureLogsPage() {
       )}
 
       {/* Log stream */}
-      <div
+      <LogLineList
         ref={boxRef}
         onScroll={handleScroll}
         data-testid="logs-viewer"
         className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-      >
-        {lines.length === 0 ? (
-          <div className="text-[var(--color-muted-foreground)]">Waiting for log lines…</div>
-        ) : (
-          lines.map((line, i) => (
-            <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              <span className="flex-1">
-                <HighlightedLine text={line.text} query={search} />
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+        lines={lines.map((line) => line.text)}
+        search={search}
+        emptyMessage="Waiting for log lines…"
+      />
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">

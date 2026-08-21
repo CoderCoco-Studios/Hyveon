@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, forwardRef, useMemo } from 'react';
 import { parseAnsiLine } from '../lib/ansi.utils.js';
 import { cn } from '../lib/utils.utils.js';
 
@@ -88,3 +88,38 @@ export function HighlightedLine({ text, query }: { text: string; query: string }
     </>
   );
 }
+
+/**
+ * Scrollable log box: renders one {@link HighlightedLine} per entry in
+ * `lines`, or `emptyMessage` when there are none. Shared by `/logs`,
+ * `/logs/infrastructure`, and the Settings Diagnostics panel, whose log
+ * boxes are otherwise identical aside from their empty-state copy and
+ * whether they track scroll position (`onScroll`).
+ */
+export const LogLineList = forwardRef<
+  HTMLDivElement,
+  {
+    lines: string[];
+    search: string;
+    emptyMessage: string;
+    className?: string;
+    onScroll?: () => void;
+    'data-testid'?: string;
+  }
+>(function LogLineList({ lines, search, emptyMessage, className, onScroll, ...rest }, ref) {
+  return (
+    <div ref={ref} onScroll={onScroll} className={className} {...rest}>
+      {lines.length === 0 ? (
+        <div className="text-[var(--color-muted-foreground)]">{emptyMessage}</div>
+      ) : (
+        lines.map((text, i) => (
+          <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
+            <span className="flex-1">
+              <HighlightedLine text={text} query={search} />
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+});

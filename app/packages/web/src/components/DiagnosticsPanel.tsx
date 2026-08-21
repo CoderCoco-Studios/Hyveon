@@ -3,7 +3,7 @@ import { Download, Pause, Play, Search } from 'lucide-react';
 import { api } from '../api.service.js';
 import { Button } from './ui/button.component.js';
 import { Input } from './ui/input.component.js';
-import { HighlightedLine } from './log-line-display.component.js';
+import { LogLineList } from './log-line-display.component.js';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -230,23 +230,14 @@ export function DiagnosticsPanel() {
         </div>
       )}
 
-      <div
+      <LogLineList
         ref={scrollRef}
         data-testid="diagnostics-log-box"
         className="h-96 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-      >
-        {lines.length === 0 ? (
-          <span className="text-[var(--color-muted-foreground)]">No log lines available.</span>
-        ) : (
-          lines.map((line, i) => (
-            <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
-              <span className="flex-1">
-                <HighlightedLine text={line} query={search} />
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+        lines={lines}
+        search={search}
+        emptyMessage="No log lines available."
+      />
 
       <div className="text-xs text-[var(--color-muted-foreground)]">
         {lines.length} line{lines.length === 1 ? '' : 's'}
