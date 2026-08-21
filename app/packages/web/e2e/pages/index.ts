@@ -4,7 +4,7 @@ export { DashboardPage, type ServerStateLabel } from './DashboardPage.js';
 export { CostsPage } from './CostsPage.js';
 export { DiscordPage } from './DiscordPage.js';
 export { GuidedIamWizardPage } from './GuidedIamWizardPage.js';
-export { LogsPage, type LogLevelLabel } from './LogsPage.js';
+export { LogsPage } from './LogsPage.js';
 export { InfrastructureLogsPage } from './InfrastructureLogsPage.js';
 export { IacPage } from './IacPage.js';
 export { IacHistoryPage } from './IacHistoryPage.js';

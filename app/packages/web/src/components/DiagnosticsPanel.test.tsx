@@ -113,15 +113,6 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
   });
 
-  it('should color-code lines containing INFO/WARN/ERROR/DEBUG with badges', async () => {
-    render(<DiagnosticsPanel />);
-    await screen.findByText(/Server started/);
-
-    for (const lvl of ['INFO', 'DEBUG', 'WARN', 'ERROR']) {
-      expect(screen.getAllByText(lvl, { exact: true }).length).toBeGreaterThanOrEqual(1);
-    }
-  });
-
   it('should highlight matches inside <mark> when typing in the search input, without filtering non-matching lines', async () => {
     const user = userEvent.setup();
     const { container } = render(<DiagnosticsPanel />);
@@ -135,20 +126,6 @@ describe('DiagnosticsPanel', () => {
     expect(marks.length).toBeGreaterThan(0);
     expect(Array.from(marks).some((m) => m.textContent === 'Memory')).toBe(true);
     expect(screen.getByText(/Server started/)).toBeInTheDocument();
-  });
-
-  it('should hide WARN-level lines after unchecking WARN in the Levels filter', async () => {
-    const user = userEvent.setup();
-    render(<DiagnosticsPanel />);
-    await screen.findByText(/Server started/);
-    expect(screen.getByText(/Memory usage high/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Levels/ }));
-    await user.click(await screen.findByRole('menuitemcheckbox', { name: 'WARN' }));
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Memory usage high/)).toBeNull();
-    });
   });
 
   it('should freeze the displayed lines while paused even as polling continues', async () => {

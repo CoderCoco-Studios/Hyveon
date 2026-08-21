@@ -16,7 +16,7 @@ The screenshot above predates the **General** section described below (it
 still shows the old placeholder text rather than the deployment-settings
 form), the read-only Watchdog Configuration panel described next (it still
 shows the old three-field editor with a Save button), and the **Diagnostics**
-panel's Pause/Resume, Levels filter, and search controls described below
+panel's Pause/Resume and search controls described below
 (it shows only the bare scrolling log view).
 :::
 
@@ -325,11 +325,9 @@ file — there is no date picker. To read an earlier day, open the file from
 that directory yourself.
 
 The panel polls for new lines every five seconds regardless of anything
-below — pause, level filters, and search only change what's rendered from
-that poll, never whether it happens. There is still no copy or open-folder
-button for the path itself; it remains selectable text. Each line shows a
-small level badge (`INFO`/`WARN`/`ERROR`/`DEBUG`) to its left when a level
-is detected, matching what the Levels filter below acts on.
+below — pause and search only change what's rendered from that poll, never
+whether it happens. There is still no copy or open-folder button for the
+path itself; it remains selectable text.
 
 Because this is the same log file the renderer's own console output is
 forwarded into (see [Management app](/components/management-app#logging)),
@@ -355,30 +353,20 @@ on/off setting) is suppressed while paused, for the same reason `/logs`
 suppresses its own autoscroll during a pause — so the view doesn't get
 pulled out from under you while reading.
 
-### The Levels filter
-
-The **Levels** button shows how many are visible, e.g. `Levels (3/4)`.
-Opening it reveals a checkbox for each of `INFO`, `WARN`, `ERROR`, `DEBUG` —
-all checked (visible) by default. Unchecking a level hides matching lines
-from view; lines with no detected level are never hidden by this filter.
-This is the same level-detection logic the `/logs` page's own Levels filter
-uses, so what counts as `WARN` here is what counts as `WARN` there.
+### ANSI colour rendering
 
 The Diagnostics panel shares the same line-rendering component as `/logs`,
 so ANSI colour escape codes in a line render as coloured text here too,
-rather than as raw escape characters, and level detection strips them first
-the same way.
+rather than as raw escape characters.
 
 ### Search highlights, it does not filter
 
 The search box (`Search visible lines…`) highlights matching substrings in
 place, wrapped in `<mark>` — it does not remove non-matching lines or change
-the line count. As on `/logs`, use **Levels** to narrow what's shown and
-**Search** to find something within it; the two are independent.
+the line count.
 
-The status line at the bottom reports the line count, how many levels are
-currently hidden (if any), and whether the view is paused, e.g. `214 lines ·
-1 level hidden · paused`.
+The status line at the bottom reports the line count and whether the view is
+paused, e.g. `214 lines · paused`.
 
 | State | Copy |
 |---|---|

@@ -99,17 +99,6 @@ test.describe('logs page', () => {
     await expect(logs.liveBadge()).toBeVisible();
   });
 
-  test('should color-code lines containing INFO/WARN/ERROR/DEBUG with badges', async () => {
-    await setupLogsPage(win, ['minecraft'], { minecraft: SAMPLE_LOG_LINES });
-    await logs.gotoViaSidebar();
-
-    // Each level token should appear at least once as a small badge alongside
-    // the matching line.
-    for (const lvl of ['INFO', 'WARN', 'ERROR', 'DEBUG'] as const) {
-      await expect(logs.levelBadge(lvl)).toBeVisible();
-    }
-  });
-
   test('should highlight matches via <mark> when typing into the search box without filtering lines out', async () => {
     await setupLogsPage(win, ['minecraft'], { minecraft: SAMPLE_LOG_LINES });
     await logs.gotoViaSidebar();
@@ -120,19 +109,6 @@ test.describe('logs page', () => {
     await expect(logs.highlightMark('Connection').first()).toBeVisible();
     // The matched line must remain in the buffer — search highlights, never filters.
     await expect(win.getByText('refused from 10.0.0.5')).toBeVisible();
-  });
-
-  test('should hide ERROR-level lines when ERROR is unchecked in the Levels filter', async () => {
-    await setupLogsPage(win, ['minecraft'], { minecraft: SAMPLE_LOG_LINES });
-    await logs.gotoViaSidebar();
-
-    await expect(win.getByText('Connection refused from 10.0.0.5')).toBeVisible();
-    await expect(logs.levelsTriggerWithCount(4)).toBeVisible();
-
-    await logs.toggleLevel('ERROR');
-
-    await expect(win.getByText('Connection refused from 10.0.0.5')).not.toBeVisible();
-    await expect(logs.levelsTriggerWithCount(3)).toBeVisible();
   });
 
   test('should switch streams via the searchable game combobox', async () => {
