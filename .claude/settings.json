@@ -60,6 +60,11 @@
             "type": "command",
             "command": "bun run .claude/hooks/guard-git-worktree-add-path.ts",
             "statusMessage": "Checking git worktree add path is under .claude/worktrees/..."
+          },
+          {
+            "type": "command",
+            "command": "bun run .claude/hooks/guard-git-push-sync.ts",
+            "statusMessage": "Checking branch is up to date before push..."
           }
         ]
       },
@@ -90,6 +95,28 @@
             "type": "command",
             "command": "bun run .claude/hooks/hook-npm-ci-on-worktree-enter.ts",
             "statusMessage": "Running npm ci in the new worktree..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run .claude/hooks/notify-branch-sync-drift.ts",
+            "statusMessage": "Checking branch sync status against base branch..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run .claude/hooks/notify-branch-sync-drift.ts",
+            "statusMessage": "Checking branch sync status against base branch..."
           }
         ]
       }
