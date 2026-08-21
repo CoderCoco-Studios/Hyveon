@@ -4,6 +4,7 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import type { LambdaFunctionKey } from '@hyveon/shared';
 import { LogsService } from '../services/LogsService.js';
+import type { RecentLogsPage, OlderLogsPage, NewerLogsPage } from '../services/LogsService.js';
 import { logger } from '../logger.js';
 
 /** IPC-only logs controller. Handles Electron main-process messages via
@@ -60,18 +61,75 @@ export class LogsController implements OnModuleInit {
   }
 
   /**
-   * Returns the most recent `limit` (default 50) log lines for a game's ECS task.
+   * Returns the most recent `limit` (default 50) log lines for a game's ECS
+   * task. Each line carries its own CloudWatch timestamp so the renderer can
+   * seed its first `logs.getOlder` backfill call from the snapshot's real
+   * boundary (`lines[0]?.timestamp`) instead of `Date.now()` — the latter
+   * can re-fetch (and duplicate) lines already present in this snapshot.
    *
    * Reachable via the Electron IPC transport (`logs.get`).
    */
   @MessagePattern('logs.get')
   async getRecentLogs(
     @Payload() payload: { game: string; limit?: number },
-  ): Promise<{ game: string; lines: string[] }> {
+  ): Promise<{ game: string } & RecentLogsPage> {
     const { game, limit = 50 } = payload;
     logger.debug('LogsController: logs.get invoked', { game });
-    const lines = await this.logs.getRecentLogs(game, limit);
-    return { game, lines };
+    const page = await this.logs.getRecentLogs(game, limit);
+    return { game, ...page };
+  }
+
+  /**
+   * Returns up to `limit` CloudWatch events strictly older than
+   * `beforeTimestamp` for a game's ECS task log group — the "load older logs
+   * on scroll-up" backfill flow. Delegates to
+   * {@link LogsService.getOlderLogs}; a service-thrown error is normalized
+   * to a plain `Error` before being allowed to propagate to the IPC caller
+   * (there is no modeled failure result for this handler — an unhandled
+   * rejection here surfaces to the renderer's `catch` around the `invoke`
+   * call).
+   *
+   * Reachable via the Electron IPC transport (`logs.getOlder`).
+   */
+  @MessagePattern('logs.getOlder')
+  async getOlderLogs(
+    @Payload() payload: { game: string; beforeTimestamp: number; limit?: number },
+  ): Promise<{ game: string } & OlderLogsPage> {
+    const { game, beforeTimestamp, limit = 100 } = payload;
+    logger.debug('LogsController: logs.getOlder invoked', { game });
+    try {
+      const page = await this.logs.getOlderLogs(game, beforeTimestamp, limit);
+      return { game, ...page };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('LogsController: logs.getOlder failed', { game, error: message });
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * Returns up to `limit` CloudWatch events strictly newer than
+   * `afterTimestamp` for a game's ECS task log group — the paged forward
+   * backfill flow that runs when the operator scrolls back down through a
+   * historical window. Delegates to {@link LogsService.getNewerLogs}, with
+   * the same error-normalization contract as {@link getOlderLogs}.
+   *
+   * Reachable via the Electron IPC transport (`logs.getNewer`).
+   */
+  @MessagePattern('logs.getNewer')
+  async getNewerLogs(
+    @Payload() payload: { game: string; afterTimestamp: number; limit?: number; excludeEventIds?: string[] },
+  ): Promise<{ game: string } & NewerLogsPage> {
+    const { game, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
+    logger.debug('LogsController: logs.getNewer invoked', { game });
+    try {
+      const page = await this.logs.getNewerLogs(game, afterTimestamp, limit, excludeEventIds);
+      return { game, ...page };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('LogsController: logs.getNewer failed', { game, error: message });
+      throw new Error(message);
+    }
   }
 
   /**
@@ -146,18 +204,69 @@ export class LogsController implements OnModuleInit {
 
   /**
    * Returns the most recent `limit` (default 50) log lines for one of the
-   * app's 5 Lambda functions.
+   * app's 5 Lambda functions, each carrying its own CloudWatch timestamp —
+   * mirrors {@link getRecentLogs} exactly, but delegating to
+   * {@link LogsService.getRecentLambdaLogs}.
    *
    * Reachable via the Electron IPC transport (`logs.lambda.get`).
    */
   @MessagePattern('logs.lambda.get')
   async getRecentLambdaLogs(
     @Payload() payload: { functionKey: LambdaFunctionKey; limit?: number },
-  ): Promise<{ functionKey: LambdaFunctionKey; lines: string[] }> {
+  ): Promise<{ functionKey: LambdaFunctionKey } & RecentLogsPage> {
     const { functionKey, limit = 50 } = payload;
     logger.debug('LogsController: logs.lambda.get invoked', { functionKey });
-    const lines = await this.logs.getRecentLambdaLogs(functionKey, limit);
-    return { functionKey, lines };
+    const page = await this.logs.getRecentLambdaLogs(functionKey, limit);
+    return { functionKey, ...page };
+  }
+
+  /**
+   * Returns up to `limit` CloudWatch events strictly older than
+   * `beforeTimestamp` for one of the app's 5 Lambda functions — mirrors
+   * {@link getOlderLogs} exactly, but delegating to
+   * {@link LogsService.getOlderLambdaLogs}.
+   *
+   * Reachable via the Electron IPC transport (`logs.lambda.getOlder`).
+   */
+  @MessagePattern('logs.lambda.getOlder')
+  async getOlderLambdaLogs(
+    @Payload() payload: { functionKey: LambdaFunctionKey; beforeTimestamp: number; limit?: number },
+  ): Promise<{ functionKey: LambdaFunctionKey } & OlderLogsPage> {
+    const { functionKey, beforeTimestamp, limit = 100 } = payload;
+    logger.debug('LogsController: logs.lambda.getOlder invoked', { functionKey });
+    try {
+      const page = await this.logs.getOlderLambdaLogs(functionKey, beforeTimestamp, limit);
+      return { functionKey, ...page };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('LogsController: logs.lambda.getOlder failed', { functionKey, error: message });
+      throw new Error(message);
+    }
+  }
+
+  /**
+   * Returns up to `limit` CloudWatch events strictly newer than
+   * `afterTimestamp` for one of the app's 5 Lambda functions — mirrors
+   * {@link getNewerLogs} exactly, but delegating to
+   * {@link LogsService.getNewerLambdaLogs}.
+   *
+   * Reachable via the Electron IPC transport (`logs.lambda.getNewer`).
+   */
+  @MessagePattern('logs.lambda.getNewer')
+  async getNewerLambdaLogs(
+    @Payload()
+    payload: { functionKey: LambdaFunctionKey; afterTimestamp: number; limit?: number; excludeEventIds?: string[] },
+  ): Promise<{ functionKey: LambdaFunctionKey } & NewerLogsPage> {
+    const { functionKey, afterTimestamp, limit = 100, excludeEventIds = [] } = payload;
+    logger.debug('LogsController: logs.lambda.getNewer invoked', { functionKey });
+    try {
+      const page = await this.logs.getNewerLambdaLogs(functionKey, afterTimestamp, limit, excludeEventIds);
+      return { functionKey, ...page };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('LogsController: logs.lambda.getNewer failed', { functionKey, error: message });
+      throw new Error(message);
+    }
   }
 
   /**

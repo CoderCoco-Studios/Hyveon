@@ -106,16 +106,67 @@ Pressing **Resume** flushes that buffer into the view in one go and returns to
 live tailing. Switching games while paused discards the buffer and returns to
 Live.
 
-## The 1000-line buffer
+If you pause while already scrolled up into historical mode, resuming does
+*not* splice the buffered live lines into the middle of the historical window
+you are looking at — they stay held until you explicitly click **Jump to
+latest** (see [The 300-line window, and scrolling up for
+history](#the-300-line-window-and-scrolling-up-for-history)). Pause/Resume
+and historical mode buffer independently but never fight over the same
+buffer.
 
-The view holds at most **1000 lines**. Once full, the oldest lines are dropped
-as new ones arrive. This is a view buffer, not a log retention setting —
-nothing is deleted from CloudWatch, and older lines are still there if you
-query the log group directly.
+## The 300-line window, and scrolling up for history
+
+The viewport holds at most **300 lines** at a time (`WINDOW_SIZE` in
+`useLogTail`). In normal tailing this works the same as before: once the
+window is full, the oldest visible line is dropped as a new one arrives.
+
+What changed is that this is no longer a hard ceiling on how far back you can
+see. Scroll near the top of the log box and the viewer switches into
+**historical mode** and fetches an older page of CloudWatch log events
+automatically, prepending it above what is already loaded. Keep scrolling up
+and it keeps paging back through history, one `WINDOW_SIZE` page at a time —
+including across however many separate CloudWatch log streams a restarted
+game server or Lambda instance produced, so a restart never hides older lines
+behind a "beginning of retention" marker that isn't real.
+
+While a backward fetch is in flight, a small `Loading older logs…` line shows
+at the top of the box. When a backward fetch comes back empty — you have
+reached the real start of what CloudWatch has retained for that log group —
+the viewer shows `— Beginning of log retention —` at the top and stops
+issuing further backward fetches for the current target.
+
+**While you are in historical mode, the live tail does not stop** — new lines
+keep arriving, but they are held in a buffer instead of being spliced into
+the historical window you are reading, exactly like the pause buffer
+described above. A **Jump to latest** button appears, floating at the bottom
+of the log box, for as long as you are in historical mode.
+
+Scrolling back down toward the bottom of a loaded historical window pages
+forward the same way scrolling up pages backward — one `WINDOW_SIZE` page at
+a time, not one big jump — so continuing to scroll down eventually catches
+you back up to the present without losing anything in between. This does not
+by itself return you to live-tail mode.
+
+Clicking **Jump to latest** is the only way to leave historical mode.
+Pressing **Resume** while paused does not — see [Pause and
+Resume](#pause-and-resume) above. **Jump to latest** discards everything
+currently loaded or buffered — the historical window and any live lines held
+back while you were reading it — and loads a fresh recent snapshot, exactly
+as if you had just opened the page, then returns to live tailing with
+autoscroll re-enabled. Buffered live lines are not spliced into the view; they
+are simply discarded in favor of that fresh snapshot.
+
+This is a view window, not a log retention setting — nothing is deleted from
+CloudWatch either way, and how far back you can page is bounded by CloudWatch's
+own retention for that log group, not by anything the app enforces.
 
 The pause buffer itself is *not* capped, so a long pause can accumulate more
-than 1000 lines; the cap is applied when you press Resume, keeping the newest
-1000.
+than 300 lines; the cap is applied when you press Resume, keeping the newest
+300. Note that the footer's `buffered N` count (see [Pause and
+Resume](#pause-and-resume)) only appears while paused — lines buffered purely
+because you are in historical mode (not paused) are not surfaced there; the
+presence of the **Jump to latest** button is the signal that live lines are
+being held back.
 
 ## On a narrow window
 
@@ -141,6 +192,9 @@ Errors appear in a red banner above the log box:
 | `Could not load games.` | The games list failed to load, so there is nothing to select |
 | `Could not load initial logs; trying live stream.` | The snapshot failed; the live tail is still being attempted |
 | `Stream ended with error: …` | The live tail died |
+| `Could not load older logs: …` | A scroll-up backfill fetch (`getOlder`) failed |
+| `Could not load newer logs: …` | A scroll-down forward-paging fetch (`getNewer`) failed |
+| `Could not load latest logs: …` | **Jump to latest**'s fresh snapshot fetch (`get`) failed |
 | `IPC bridge (window.hyveon) is not available in this context.` | The renderer lost its connection to the app's backend |
 
 Transient CloudWatch hiccups during the tail are surfaced *inline as a log
@@ -150,7 +204,7 @@ line* rather than in the banner, prefixed `[stream error]`.
 
 The **Infra Logs** page (route `/logs/infrastructure`) is this page's sibling: it tails one of the app's 5 Lambda functions instead of a game server.
 
-Both pages are thin wrappers around the same `useLogTail` hook, so tail/pause, search highlighting, autoscroll and the 1000-line buffer all behave exactly as described above in [Search highlights](#search-highlights-it-does-not-filter), [Autoscroll](#autoscroll), [Pause and Resume](#pause-and-resume) and [The 1000-line buffer](#the-1000-line-buffer) — nothing about that behaviour differs between the two pages.
+Both pages are thin wrappers around the same `useLogTail` hook, so tail/pause, ANSI colour rendering, search highlighting, autoscroll, and the 300-line window with scroll-up history backfill all behave exactly as described above in [ANSI colour rendering](#ansi-colour-rendering), [Search highlights, it does not filter](#search-highlights-it-does-not-filter), [Autoscroll](#autoscroll), [Pause and Resume](#pause-and-resume) and [The 300-line window, and scrolling up for history](#the-300-line-window-and-scrolling-up-for-history) — nothing about that behaviour differs between the two pages.
 
 What's different is where the logs come from and how you pick a target:
 

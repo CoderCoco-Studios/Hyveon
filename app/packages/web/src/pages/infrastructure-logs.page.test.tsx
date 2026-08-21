@@ -34,7 +34,10 @@ describe('InfrastructureLogsPage', () => {
     apiMock.games.mockResolvedValue({ games: [] });
     apiMock.status.mockResolvedValue([]);
     apiMock.costsEstimate.mockResolvedValue({ games: {}, totalPerHourIfAllOn: 0 });
-    hyveonMock.logs.lambda.get.mockResolvedValue({ functionKey: 'watchdog', lines: ['seeded'] });
+    hyveonMock.logs.lambda.get.mockResolvedValue({
+      functionKey: 'watchdog',
+      lines: [{ message: 'seeded', timestamp: 1000, eventId: '1000:seeded' }],
+    });
     hyveonMock.logs.lambda.stream.mockImplementation(toStreamHandleMock(async function* () {}));
   });
 

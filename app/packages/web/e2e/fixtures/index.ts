@@ -245,15 +245,21 @@ export async function stubApis(page: Page, opts: StubOptions = {}): Promise<void
         };
         return handle;
       };
+      // `logs.get`/`logs.lambda.get` resolve `LogEventLine[]` (message +
+      // CloudWatch timestamp + eventId), not bare strings — stamp each
+      // seeded message with a synthetic increasing timestamp so the
+      // resulting lines are oldest-first.
+      const toLogEventLines = (messages: string[]) =>
+        messages.map((message, i) => ({ message, timestamp: i, eventId: `${i}:${message}` }));
       (window as unknown as Record<string, unknown>)['hyveon'] = {
         ...(existing ?? {}),
         logs: {
           get: (game: string) =>
-            Promise.resolve({ game, lines: lines[game] ?? [] }),
+            Promise.resolve({ game, lines: toLogEventLines(lines[game] ?? []) }),
           stream: (_game: string, _signal?: AbortSignal) => noopStreamHandle(),
           lambda: {
             get: (functionKey: string) =>
-              Promise.resolve({ functionKey, lines: lambdaLines[functionKey] ?? [] }),
+              Promise.resolve({ functionKey, lines: toLogEventLines(lambdaLines[functionKey] ?? []) }),
             stream: (_functionKey: string, _signal?: AbortSignal) => noopStreamHandle(),
           },
         },

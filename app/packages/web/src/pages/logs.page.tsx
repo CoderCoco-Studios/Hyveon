@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { LogLineList } from '../components/log-line-display.component.js';
 import { GameCombobox } from '../components/game-combobox.component.js';
+import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
@@ -37,6 +38,8 @@ const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
 const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
+  getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
 };
 
 /**
@@ -71,6 +74,10 @@ export function LogsPage() {
     boxRef,
     handlePauseToggle,
     handleScroll,
+    atOldest,
+    loadingOlder,
+    hasNewer,
+    jumpToLatest,
   } = useLogTail(selectedGame, window.hyveon ? window.hyveon.logs : NO_HYVEON_LOG_TAIL_API);
 
   // Load the games list once (this page is reachable independently of the dashboard).
@@ -203,15 +210,31 @@ export function LogsPage() {
       )}
 
       {/* Log stream */}
-      <LogLineList
-        ref={boxRef}
-        onScroll={handleScroll}
-        data-testid="logs-viewer"
-        className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-        lines={lines.map((line) => line.text)}
-        search={search}
-        emptyMessage={selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
-      />
+      <div className="relative flex min-h-[300px] flex-1 flex-col gap-1">
+        {loadingOlder && (
+          <div data-testid="loading-older" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
+            Loading older logs…
+          </div>
+        )}
+        {atOldest && (
+          <div data-testid="at-oldest-marker" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
+            — Beginning of log retention —
+          </div>
+        )}
+        <LogLineList
+          ref={boxRef}
+          onScroll={handleScroll}
+          data-testid="logs-viewer"
+          className={cn(
+            'flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
+            hasNewer && 'pb-12',
+          )}
+          lines={lines.map((line) => line.text)}
+          search={search}
+          emptyMessage={selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
+        />
+        <JumpToLatestButton hasNewer={hasNewer} onClick={jumpToLatest} />
+      </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">

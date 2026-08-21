@@ -5,6 +5,7 @@ import { LAMBDA_FUNCTION_KEYS, type LambdaFunctionKey } from '@hyveon/shared';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { LogLineList } from '../components/log-line-display.component.js';
+import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
@@ -19,6 +20,8 @@ const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
 const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
   get: () => Promise.resolve({ lines: [] }),
   stream: () => NO_HYVEON_STREAM_HANDLE,
+  getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
 };
 
 /**
@@ -41,6 +44,9 @@ function toLogTailApi(api: HyveonLambdaLogsApi): LogTailApi {
     get: (target, limit) =>
       limit === undefined ? api.get(target as LambdaFunctionKey) : api.get(target as LambdaFunctionKey, limit),
     stream: (target) => api.stream(target as LambdaFunctionKey),
+    getOlder: (target, beforeTimestamp, limit) => api.getOlder(target as LambdaFunctionKey, beforeTimestamp, limit),
+    getNewer: (target, afterTimestamp, limit, excludeEventIds) =>
+      api.getNewer(target as LambdaFunctionKey, afterTimestamp, limit, excludeEventIds),
   };
 }
 
@@ -67,6 +73,10 @@ export function InfrastructureLogsPage() {
     boxRef,
     handlePauseToggle,
     handleScroll,
+    atOldest,
+    loadingOlder,
+    hasNewer,
+    jumpToLatest,
   } = useLogTail(
     selectedFunction,
     window.hyveon ? toLogTailApi(window.hyveon.logs.lambda) : NO_HYVEON_LOG_TAIL_API,
@@ -144,15 +154,31 @@ export function InfrastructureLogsPage() {
       )}
 
       {/* Log stream */}
-      <LogLineList
-        ref={boxRef}
-        onScroll={handleScroll}
-        data-testid="logs-viewer"
-        className="min-h-[300px] flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]"
-        lines={lines.map((line) => line.text)}
-        search={search}
-        emptyMessage="Waiting for log lines…"
-      />
+      <div className="relative flex min-h-[300px] flex-1 flex-col gap-1">
+        {loadingOlder && (
+          <div data-testid="loading-older" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
+            Loading older logs…
+          </div>
+        )}
+        {atOldest && (
+          <div data-testid="at-oldest-marker" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
+            — Beginning of log retention —
+          </div>
+        )}
+        <LogLineList
+          ref={boxRef}
+          onScroll={handleScroll}
+          data-testid="logs-viewer"
+          className={cn(
+            'flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
+            hasNewer && 'pb-12',
+          )}
+          lines={lines.map((line) => line.text)}
+          search={search}
+          emptyMessage="Waiting for log lines…"
+        />
+        <JumpToLatestButton hasNewer={hasNewer} onClick={jumpToLatest} />
+      </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
