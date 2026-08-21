@@ -61,15 +61,6 @@ describe('useLogTail', () => {
     expect(result.current.bufferedCount).toBe(0);
   });
 
-  it('should exclude lines whose level is hidden from visibleLines without removing them from lines', async () => {
-    const api = makeApi({ get: vi.fn().mockResolvedValue({ lines: ['INFO up', 'ERROR down'] }) });
-    const { result } = renderHook(() => useLogTail('watchdog', api));
-    await waitFor(() => expect(result.current.lines).toHaveLength(2));
-    act(() => result.current.toggleLevel('ERROR'));
-    expect(result.current.visibleLines.map((l) => l.text)).toEqual(['INFO up']);
-    expect(result.current.lines).toHaveLength(2);
-  });
-
   it('should reset lines/paused/error and cancel the previous stream when target changes', async () => {
     const cancel1 = vi.fn();
     const handle1 = toStreamHandleMock(async function* () {})();

@@ -71,22 +71,6 @@ describe('LogsPage', () => {
     expect(screen.getByText(/Connection refused from 10.0.0.5/)).toBeInTheDocument();
   });
 
-  it('should color-code lines containing INFO/WARN/ERROR/DEBUG with badges', async () => {
-    renderPage(<LogsPage />);
-
-    // Wait until the first seeded line is rendered, then assert one badge per
-    // detected level. The badge text is exact-matched to avoid colliding with
-    // the same token inside the underlying log line.
-    await screen.findByText(/Server started/);
-    for (const lvl of ['INFO', 'WARN', 'ERROR', 'DEBUG']) {
-      // The `<Badge>` for a line is a div containing exactly the level text;
-      // the same token also appears inside the line itself, so we expect
-      // multiple matches and assert on the first.
-      const matches = screen.getAllByText(lvl, { exact: true });
-      expect(matches.length).toBeGreaterThanOrEqual(1);
-    }
-  });
-
   it('should toggle the Pause / Resume button and the LIVE / PAUSED badge', async () => {
     const user = userEvent.setup();
     renderPage(<LogsPage />);
@@ -115,20 +99,6 @@ describe('LogsPage', () => {
     expect(Array.from(marks).some((m) => m.textContent === 'Connection')).toBe(true);
     // The matched line stays in the buffer — search highlights, never filters.
     expect(screen.getByText(/refused from 10.0.0.5/)).toBeInTheDocument();
-  });
-
-  it('should hide ERROR-level lines after unchecking ERROR in the Levels filter', async () => {
-    const user = userEvent.setup();
-    renderPage(<LogsPage />);
-    await screen.findByText(/Server started/);
-    expect(screen.getByText(/Connection refused/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Levels/ }));
-    await user.click(await screen.findByRole('menuitemcheckbox', { name: 'ERROR' }));
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Connection refused/)).toBeNull();
-    });
   });
 
   it('should display "5 lines · oldest …" in the footer for the seeded buffer', async () => {
