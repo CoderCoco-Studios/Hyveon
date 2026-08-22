@@ -464,6 +464,29 @@ describe('EcsService', () => {
       ).toBeNull();
     });
 
+    it('should never log containerOverrides environment on a RunTask failure', async () => {
+      ecsMock.on(RunTaskCommand).resolves({
+        tasks: [],
+        failures: [{ reason: 'CAPACITY' }],
+      });
+      const service = makeService(makeConfig(), makeEc2());
+      await service.runTask({
+        cluster: 'c',
+        taskDefinition: 'td',
+        overrides: {
+          containerOverrides: [{ name: 'main', environment: [{ name: 'API_KEY', value: 'super-secret' }] }],
+        },
+      });
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'RunTask failed',
+        expect.objectContaining({ taskDefinition: 'td', cluster: 'c' }),
+      );
+      const [, meta] = vi.mocked(logger.error).mock.calls[0]!;
+      expect(JSON.stringify(meta)).not.toContain('super-secret');
+      expect(meta).not.toHaveProperty('params');
+    });
+
     it('should return null on API error', async () => {
       ecsMock.on(RunTaskCommand).rejects(new Error('boom'));
       const service = makeService(makeConfig(), makeEc2());
