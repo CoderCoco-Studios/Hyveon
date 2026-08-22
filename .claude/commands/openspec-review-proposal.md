@@ -1,7 +1,7 @@
 ---
 name: "OpenSpec: Review Proposal"
 description: "Multi-agent review of an OpenSpec proposal PR — scenario well-formedness, cross-document coherence, delta-spec correctness, conflicts, and conventions"
-allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr comment:*), Bash(gh pr list:*), Bash(git diff:*), Bash(git log:*)
+allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr comment:*), Bash(gh pr list:*), Bash(git diff:*), Bash(git log:*), Workflow, Edit
 category: "Review"
 tags: ["review", "openspec", "workflow"]
 ---

@@ -1,7 +1,7 @@
 ---
 name: "OpenSpec: Review Implementation"
 description: "Multi-agent review of an OpenSpec implementation PR — code correctness/cleanup plus tasks.md fidelity and delta-spec conformance"
-allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr comment:*), Bash(gh pr list:*), Bash(git diff:*), Bash(git log:*)
+allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr comment:*), Bash(gh pr list:*), Bash(git diff:*), Bash(git log:*), Workflow, Edit
 category: "Review"
 tags: ["review", "openspec", "workflow"]
 ---

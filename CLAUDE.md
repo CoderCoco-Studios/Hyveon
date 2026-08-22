@@ -173,7 +173,8 @@ Judge each suggestion on its merits.
 - **Stop pushing** once a round is all nitpicks — reply, resolve, and move on.
 
 Every thread ends in an explicit Fix or Decline with a reply (fix + SHA, or the reason) and is
-resolved via `mcp__github__resolve_review_thread`. Never leave a noncommittal "tracking this".
+resolved via `mcp__plugin_github_github__pull_request_review_write` (`method: "resolve_thread"`).
+Never leave a noncommittal "tracking this".
 
 ## graphify
 

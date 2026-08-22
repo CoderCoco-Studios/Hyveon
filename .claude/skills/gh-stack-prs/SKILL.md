@@ -8,8 +8,8 @@ description: Use the `gh stack` CLI extension (github/gh-stack, already installe
 `.claude/rules/pr-stacking.md` requires large changes to ship as a stack of small,
 individually-reviewable PRs rather than one giant diff. That rule was written before
 this repo had `gh stack` (`github/gh-stack`) installed, so it describes the mechanics
-by hand: one `git worktree add -b <branch> .worktrees/<name> <base-branch>` per group,
-each hop based on the previous branch. `gh stack` automates exactly that chaining —
+by hand: one `EnterWorktree` call per group, each hop based on the previous branch.
+`gh stack` automates exactly that chaining —
 use its subcommands instead of hand-rolling the worktree-per-group dance. The
 decomposition judgment calls in pr-stacking.md (how to split the work, when a PR is
 small enough to stay solo, docs-in-a-later-PR) are unchanged; only the git/GitHub
@@ -34,21 +34,12 @@ calls out about `EnterWorktree` ("can't express 'branch from a specific prior fe
 branch'") — you only need that tool once, for the first hop off `main`; every
 subsequent branch is `gh stack`'s job, not a new worktree.
 
-```bash
-# One worktree, based on main, holding the whole stack:
-git worktree add --detach .worktrees/<stack-name> main
-cd .worktrees/<stack-name>
-```
-
-`--detach` instead of `-b <some-throwaway-branch>`: `gh stack init` (next step) creates
-the real group-1 branch and checks it out for you, so a named starting branch would
-just be an orphaned ref to remember to clean up later. Detached HEAD needs no cleanup —
-confirmed by running `gh stack init` from one, which works identically to running it
-from a named branch.
-
-(`EnterWorktree` with a `name` also works here since the base is just `main` — use
-whichever is available. If it doesn't support `--detach`, a throwaway branch works too,
-just remember to `git branch -D` it after `gh stack init` below.)
+Use `EnterWorktree` with a `name` (the base is just `main`) to create the one worktree
+for the whole stack — a direct `git worktree add` is denied unconditionally by
+`guard-git-worktree-add-path.ts` regardless of target path, so `EnterWorktree` is the
+only path that actually runs. `EnterWorktree` checks out a real branch, not a detached
+HEAD; `gh stack init` (next step) then creates the real group-1 branch on top of it,
+so just leave the `EnterWorktree`-created branch alone once you're past `init`.
 
 ## Lifecycle
 

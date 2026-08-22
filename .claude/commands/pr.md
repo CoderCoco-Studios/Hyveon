@@ -27,9 +27,13 @@ Create a pull request for the current branch, enforcing the repo's Conventional 
 
 5. **Show the proposed title** to the user and ask for confirmation before creating the PR.
 
-6. **Create the PR** using `mcp__github__create_pull_request` with:
+6. **Determine the base branch.**
+   - Default: `main`.
+   - If this branch is part of a stack (see `.claude/rules/pr-stacking.md` / the `gh-stack-prs` skill — check `gh stack view` or whether the branch name matches a `<theme>-<n>-<slug>` stack pattern), base on the *previous* group's branch instead of `main`.
+
+7. **Create the PR** using `mcp__plugin_github_github__create_pull_request` with:
    - The validated title
    - A body with: `Closes #N` as the first line (if a linked issue exists), then a summary of what changed, why, and a test plan (bullet points)
-   - Base branch: `main`
+   - Base branch: the one determined in step 6
 
-7. **Return the PR URL** when done.
+8. **Return the PR URL** when done.
