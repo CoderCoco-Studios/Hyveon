@@ -707,6 +707,8 @@ export function IacPage() {
       if (result.found) {
         setApplyStatus(result.status);
         setApplyRecord(result.record ?? null);
+      } else {
+        setApplySubmitError(`Apply run "${applyRunId}" could not be found after it finished.`);
       }
     })();
     return () => {
@@ -723,6 +725,8 @@ export function IacPage() {
       if (result.found) {
         setDestroyStatus(result.status);
         setDestroyRecord(result.record ?? null);
+      } else {
+        setDestroySubmitError(`Destroy run "${destroyRunId}" could not be found after it finished.`);
       }
     })();
     return () => {
@@ -1074,6 +1078,7 @@ export function IacPage() {
               <AnsiLogViewer chunks={applyLog.chunks} emptyMessage="Waiting for apply output…" />
 
               {applyLog.error && <ErrorBanner message={`Log stream error: ${applyLog.error}`} />}
+              {!applyFinished && applySubmitError && <ErrorBanner message={applySubmitError} />}
 
               {applyPartial ? (
                 <PartialApplyBanner onStartOver={startOver} />
@@ -1191,6 +1196,7 @@ export function IacPage() {
             <AnsiLogViewer chunks={destroyLog.chunks} emptyMessage="Waiting for destroy output…" />
 
             {destroyLog.error && <ErrorBanner message={`Log stream error: ${destroyLog.error}`} />}
+            {!destroyFinished && destroySubmitError && <ErrorBanner message={destroySubmitError} />}
 
             {destroyStatus === 'failed' || destroyStatus === 'aborted' ? (
               <ErrorBanner

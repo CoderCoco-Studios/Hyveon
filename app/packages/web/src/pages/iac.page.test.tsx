@@ -461,6 +461,35 @@ describe('IacPage', () => {
     expect(screen.getByRole('link', { name: 'View dashboard' })).toHaveAttribute('href', '/');
   });
 
+  it('should surface an explicit error, mirroring the plan path, when the apply run record is not found after it finished', async () => {
+    seedSuccessfulPlan();
+    hyveonMock.iac.approve.mockResolvedValue({
+      approved: true,
+      approvedBy: 'alice',
+      approvedAt: new Date().toISOString(),
+    });
+    hyveonMock.iac.apply.mockResolvedValue({ started: true, runId: APPLY_RUN_ID });
+    hyveonMock.iac.runs.get.mockImplementation(async (runId: string) => {
+      if (runId === PLAN_RUN_ID) {
+        return {
+          found: true,
+          status: 'awaiting_approval',
+          record: { runId: PLAN_RUN_ID, kind: 'plan', startedAt: 't0', completedAt: 't1', exitCode: 0, planHash: 'hash-1' },
+        };
+      }
+      return { found: false };
+    });
+    renderPage(<IacPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Run plan/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Approve plan/ })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: /Approve plan/ }));
+    const applyBtn = await screen.findByRole('button', { name: /^Apply$/ });
+    await userEvent.click(applyBtn);
+
+    expect(await screen.findByText(`Apply run "${APPLY_RUN_ID}" could not be found after it finished.`)).toBeInTheDocument();
+  });
+
   it('should show an expired-approval message and disable Apply until re-approved', async () => {
     seedSuccessfulPlan();
     const staleApprovedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 minutes ago > 15-minute window
@@ -552,6 +581,22 @@ describe('IacPage', () => {
       const alerts = await screen.findAllByRole('alert');
       expect(alerts.some((el) => el.textContent?.includes('an apply run is already in progress'))).toBe(true);
       expect(screen.queryByRole('heading', { name: 'Destroy run' })).not.toBeInTheDocument();
+    });
+
+    it('should surface an explicit error, mirroring the plan path, when the destroy run record is not found after it finished', async () => {
+      hyveonMock.iac.mintDestroyToken.mockResolvedValue({ token: 'destroy-token-1' });
+      hyveonMock.iac.destroy.mockResolvedValue({ started: true, runId: DESTROY_RUN_ID });
+      hyveonMock.iac.runs.streamLogs.mockImplementation(toStreamHandleMock(async function* () {}));
+      hyveonMock.iac.runs.get.mockResolvedValue({ found: false });
+      renderPage(<IacPage />);
+
+      await userEvent.click(screen.getByRole('button', { name: /Destroy infrastructure/ }));
+      await userEvent.type(screen.getByLabelText('Type to confirm'), DESTROY_CONFIRM_PHRASE);
+      await userEvent.click(screen.getByRole('button', { name: 'Destroy' }));
+
+      expect(
+        await screen.findByText(`Destroy run "${DESTROY_RUN_ID}" could not be found after it finished.`),
+      ).toBeInTheDocument();
     });
 
     it('should mint a fresh token on every attempt', async () => {
