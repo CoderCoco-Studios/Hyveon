@@ -187,16 +187,14 @@ export function DeploymentSettingsForm() {
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [serverIssues, setServerIssues] = useState<DeploymentSettingsValidationIssue[] | null>(null);
 
-  // Guards against setting state from a stale `iac.settings.get`/`.update()`
-  // response after this form has unmounted (e.g. the operator navigated
-  // away mid-request) — mirrors `EditGameForm`'s own `mountedRef`.
+  // Guards stale post-await setState; re-armed at mount so StrictMode's discarded first mount doesn't leave this false forever.
   const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   /**
    * Applies a fetched `iac.settings.get()` result to state. Called only from
