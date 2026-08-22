@@ -25,4 +25,18 @@ describe('parseJsonEnv', () => {
 
     expect(warn).toHaveBeenCalledWith('Malformed FOO env var — falling back to default', expect.any(Object));
   });
+
+  it('should return the fallback when the parsed value is valid JSON but not an object, given an object fallback', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(parseJsonEnv('FOO', 'null', { default: true })).toEqual({ default: true });
+    expect(parseJsonEnv('FOO', '42', { default: true })).toEqual({ default: true });
+    expect(parseJsonEnv('FOO', '"a string"', { default: true })).toEqual({ default: true });
+
+    expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('should accept a parsed array when the fallback is an object', () => {
+    expect(parseJsonEnv('FOO', '[1,2,3]', {})).toEqual([1, 2, 3]);
+  });
 });
