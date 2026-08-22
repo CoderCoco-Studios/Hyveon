@@ -386,10 +386,13 @@ export class EcsService {
         taskDefinition: params.taskDefinition,
         cluster: params.cluster,
         startedBy: params.startedBy,
+        networkConfiguration: params.networkConfiguration,
+        launchType: params.launchType,
       });
       return null;
     } catch (err) {
-      logger.error('Exception running task', { err });
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Exception running task', { error: message });
       return null;
     }
   }
