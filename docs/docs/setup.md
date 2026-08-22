@@ -102,6 +102,12 @@ the IAM user by hand instead:
       ]
     },
     {
+      "Sid": "HyveonIAMSimulate",
+      "Effect": "Allow",
+      "Action": "iam:SimulatePrincipalPolicy",
+      "Resource": "arn:aws:iam::*:user/${aws:username}"
+    },
+    {
       "Sid": "HyveonConfigurationBucket",
       "Effect": "Allow",
       "Action": [
@@ -168,6 +174,13 @@ the IAM user by hand instead:
 > granting `iam:PassRole` on every role in the account. The `hyveon-*`
 > prefix matches the default project name. If you change the project name
 > in the wizard, update the two ARN patterns in `HyveonIAM` to match.
+
+> **`HyveonIAMSimulate` grants the setup wizard's own permission check.** The
+> wizard's `iam:SimulatePrincipalPolicy` self-check (`IamCheckService`) always
+> targets the calling principal's own ARN, so the `${aws:username}` policy
+> variable scopes this to exactly that principal rather than every IAM user
+> in the account. Without it, the check gets `AccessDenied` and silently
+> degrades to a warning.
 
 > **`HyveonConfigurationBucket` scopes access to the JSON configuration
 > bucket** the setup wizard's bootstrap step creates (default name

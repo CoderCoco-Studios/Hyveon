@@ -22,6 +22,7 @@ export const HYVEON_DEPLOY_ALL_ACTIONS: readonly string[] = [
   'cloudfront:*',
   'acm:*',
   'iam:*',
+  'iam:SimulatePrincipalPolicy',
   's3:GetObject',
   's3:PutObject',
   's3:DeleteObject',
@@ -102,6 +103,13 @@ export const HYVEON_DEPLOY_ALL_STATEMENTS: readonly HyveonDeployAllStatement[] =
     Effect: 'Allow',
     Action: 'iam:*',
     Resource: ['arn:aws:iam::*:role/hyveon-*', 'arn:aws:iam::*:policy/hyveon-*'],
+  },
+  {
+    // `${aws:username}` scopes this to the caller's own ARN — IamCheckService's self-check, not every IAM user.
+    Sid: 'HyveonIAMSimulate',
+    Effect: 'Allow',
+    Action: 'iam:SimulatePrincipalPolicy',
+    Resource: 'arn:aws:iam::*:user/${aws:username}',
   },
   {
     Sid: 'HyveonConfigurationBucket',
