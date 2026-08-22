@@ -379,7 +379,14 @@ export class EcsService {
         return { taskArn };
       }
       const reason = resp.failures?.[0]?.reason ?? 'unknown';
-      logger.error('RunTask failed', { reason, failures: resp.failures, params });
+      // Never log the full params — containerOverrides[].environment can carry operator-supplied secrets.
+      logger.error('RunTask failed', {
+        reason,
+        failures: resp.failures,
+        taskDefinition: params.taskDefinition,
+        cluster: params.cluster,
+        startedBy: params.startedBy,
+      });
       return null;
     } catch (err) {
       logger.error('Exception running task', { err });
