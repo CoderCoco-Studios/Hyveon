@@ -24,7 +24,7 @@ import {
   EC2Client,
   DescribeNetworkInterfacesCommand,
 } from '@aws-sdk/client-ec2';
-import { canRun, formatGameStatus, getEffectiveDiscordConfig, putPending } from '@hyveon/shared';
+import { canRun, formatGameStatus, getEffectiveDiscordConfig, parseJsonEnv, putPending } from '@hyveon/shared';
 import type { DiscordAction, DiscordConfig, GameStatus } from '@hyveon/shared';
 
 interface FollowupEvent {
@@ -69,11 +69,11 @@ function gameListFromEnv(): string[] {
   return (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). */
-const CONNECT_MESSAGES: Record<string, string> = JSON.parse(process.env['CONNECT_MESSAGES'] ?? '{}');
+/** Per-game connect message templates, keyed by game name — sourced from `DeploymentConfig.gameServers` and wired into this env var by the infra program (`app/packages/infra/src/lambdas.ts`). Parsed defensively — see {@link parseJsonEnv}. */
+const CONNECT_MESSAGES: Record<string, string> = parseJsonEnv('CONNECT_MESSAGES', process.env['CONNECT_MESSAGES'], {});
 
-/** First container port per game, used to resolve the `{port}` placeholder. */
-const GAME_PORTS: Record<string, number> = JSON.parse(process.env['GAME_PORTS'] ?? '{}');
+/** First container port per game, used to resolve the `{port}` placeholder. Parsed defensively — see {@link parseJsonEnv}. */
+const GAME_PORTS: Record<string, number> = parseJsonEnv('GAME_PORTS', process.env['GAME_PORTS'], {});
 
 function extractEniId(task: Task): string | null {
   for (const att of task.attachments ?? []) {
