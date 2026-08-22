@@ -22,7 +22,7 @@ This is **not** the CodeRabbit path. Pick the right tool:
 
 | Want | Use |
 |------|-----|
-| An AI service to review the PR and post its own findings | `/code-review` (CodeRabbit) |
+| An AI service to review the PR and post its own findings | `/code-review` (the `code-review@claude-plugins-official` plugin) |
 | To act on feedback CodeRabbit already left | `autofix` skill |
 | CodeRabbit stuck behind a rate limit | `coderabbit-rate-limit-retry` skill |
 | **You** to read the code and leave your own reviewed opinion | **this skill** |
