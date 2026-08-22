@@ -203,7 +203,10 @@ describe('DiagnosticsPanel', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<DiagnosticsPanel />);
-    await waitFor(() => expect(apiMock.diagnosticsTail).toHaveBeenCalledTimes(1));
+    // Wait for the initial fetch to actually commit (not just be called) — otherwise its
+    // pending state update can flush later, during the Pause click below, and its legitimate
+    // paused=false autoscroll would fire after we've reset scrollTop but before pause applies.
+    await waitFor(() => expect(screen.getByText(SAMPLE_LINES[0]!)).toBeInTheDocument());
 
     const box = screen.getByTestId('diagnostics-log-box');
     Object.defineProperty(box, 'scrollHeight', { value: 999, configurable: true });
