@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { StrictMode, type ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, type RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -60,6 +60,27 @@ describe('EditGameForm', () => {
   beforeEach(() => {
     apiMock.games.mockResolvedValue({ games: [] });
     apiMock.updateGame.mockReset();
+  });
+
+  it('should still apply the cross-game port-collision check after StrictMode double-invokes the mount effect', async () => {
+    apiMock.games.mockResolvedValue({
+      games: [
+        {
+          name: 'othergame',
+          declared: true,
+          deployed: false,
+          config: sampleGame({ name: 'othergame', ports: [{ container: 25565, protocol: 'tcp' }] }),
+        },
+      ],
+    });
+
+    renderForm(
+      <StrictMode>
+        <EditGameForm game={sampleGame()} />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByText(/collides with existing game "othergame"/i)).toBeInTheDocument();
   });
 
   it('should prefill every field from the supplied GameServer config', async () => {
