@@ -67,16 +67,14 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [serverIssues, setServerIssues] = useState<GameServerValidationIssue[] | null>(null);
 
-  // Guards against setting state from a stale `api.games()`/`api.updateGame()`
-  // response after this form has unmounted (e.g. the operator navigated away
-  // mid-request).
+  // Guards stale post-await setState; re-armed at mount so StrictMode's discarded first mount doesn't leave this false forever.
   const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Refreshes the list of every other declared game (used for the
   // cross-game port-collision check) on mount, mirroring the add wizard's

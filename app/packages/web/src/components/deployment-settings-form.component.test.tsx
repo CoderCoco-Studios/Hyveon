@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -58,6 +59,16 @@ describe('DeploymentSettingsForm', () => {
     expect(screen.getByLabelText('DNS TTL (seconds)')).toHaveValue(30);
     expect(screen.getByLabelText('Check interval (minutes)')).toHaveValue(15);
     expect(screen.getByText('123456789012345678')).toBeInTheDocument();
+  });
+
+  it('should still populate settings after StrictMode double-invokes the mount effect', async () => {
+    render(
+      <StrictMode>
+        <DeploymentSettingsForm />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByLabelText('Hosted zone name')).toHaveValue('example.com');
   });
 
   it('should render a "finish the wizard" message when the read reports setup_incomplete', async () => {
