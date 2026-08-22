@@ -455,7 +455,7 @@ function CredentialsSection({
     }
     setClientIdError(null);
     onSave({
-      clientId: trimmed,
+      ...(trimmed ? { clientId: trimmed } : {}),
       ...(token ? { botToken: token } : {}),
       ...(publicKey ? { publicKey } : {}),
     });

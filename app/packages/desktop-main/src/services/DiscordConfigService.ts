@@ -291,7 +291,7 @@ export class DiscordConfigService {
     if (params.clientId !== undefined && typeof params.clientId !== 'string') return false;
     if (params.publicKey !== undefined && typeof params.publicKey !== 'string') return false;
     const cfg = await this.load();
-    if (typeof params.clientId === 'string') {
+    if (typeof params.clientId === 'string' && params.clientId.length > 0) {
       cfg.clientId = params.clientId;
       await this.save(cfg);
     }

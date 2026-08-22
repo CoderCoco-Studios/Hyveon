@@ -316,6 +316,19 @@ describe('DiscordPage', () => {
         expect.objectContaining({ description: 'An unknown error occurred' }),
       );
     });
+
+    it('should omit clientId from the save payload when the field is cleared, instead of wiping it', async () => {
+      renderPage(<DiscordPage />, { initialEntries: ['/discord'] });
+
+      await screen.findByRole('tab', { name: 'Credentials' });
+      const clientIdInput = screen.getByLabelText('Application (Client) ID');
+      await userEvent.clear(clientIdInput);
+      await userEvent.click(screen.getByRole('button', { name: 'Save credentials' }));
+
+      expect(apiMock.discordSaveCredentials).toHaveBeenCalledWith(
+        expect.not.objectContaining({ clientId: expect.anything() }),
+      );
+    });
   });
 
   describe('Admins tab — Remove admin', () => {
