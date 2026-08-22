@@ -291,8 +291,9 @@ export class DiscordConfigService {
     if (params.clientId !== undefined && typeof params.clientId !== 'string') return false;
     if (params.publicKey !== undefined && typeof params.publicKey !== 'string') return false;
     const cfg = await this.load();
-    if (typeof params.clientId === 'string' && params.clientId.length > 0) {
-      cfg.clientId = params.clientId;
+    const clientId = typeof params.clientId === 'string' ? params.clientId.trim() : '';
+    if (clientId) {
+      cfg.clientId = clientId;
       await this.save(cfg);
     }
     const writes: Promise<void>[] = [];

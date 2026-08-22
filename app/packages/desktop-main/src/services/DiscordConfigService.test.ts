@@ -252,6 +252,18 @@ describe('DiscordConfigService.setCredentials', () => {
     expect(putConfigMock).not.toHaveBeenCalled();
   });
 
+  it('should not wipe the stored clientId when clientId is whitespace-only', async () => {
+    const svc = makeService();
+    await svc.setCredentials({ clientId: '   ' });
+    expect(putConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('should trim clientId before persisting it', async () => {
+    const svc = makeService();
+    await svc.setCredentials({ clientId: '  abc  ' });
+    expect(putConfigMock).toHaveBeenCalledWith(expect.objectContaining({ clientId: 'abc' }));
+  });
+
   it('should log an error and rethrow with just the message when a Secrets Manager write fails', async () => {
     secretsPutMock.mockRejectedValueOnce(new Error('AccessDeniedException'));
     const svc = makeService();
