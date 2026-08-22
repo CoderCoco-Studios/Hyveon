@@ -5,8 +5,9 @@
  */
 
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { readStdin, deny, ask, allow, isRecord } from './lib/hook-io.js';
+import { tryCmd } from './lib/cmd.js';
 
 /** Fields this guard reads from the PreToolUse payload — not the full hook contract. */
 interface EnterWorktreeHookInput {
@@ -24,9 +25,24 @@ function resolveReal(path: string): string {
   }
 }
 
+/**
+ * Resolves the project's main worktree root, i.e. the directory holding the
+ * shared `.claude/worktrees/` all worktree paths are checked against — not
+ * `cwd` itself, which is already inside a linked worktree when this guard
+ * fires from a session that previously called `EnterWorktree`. Falls back to
+ * `cwd` when git can't answer (not a repo, `git` missing) so the check still
+ * runs, just against a best-effort root instead of failing closed.
+ */
+function resolveProjectRoot(cwd: string): string {
+  const commonDir = tryCmd('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd });
+  if (!commonDir) return cwd;
+  return dirname(commonDir);
+}
+
 /** True containment check against the resolved `.claude/worktrees` directory — not a substring match, which `.claude/worktrees/../outside` or a `.claude/worktrees-old` sibling would defeat. */
 function isUnderClaudeWorktrees(candidate: string, cwd: string): boolean {
-  const root = resolveReal(resolve(cwd, '.claude/worktrees'));
+  const projectRoot = resolveProjectRoot(cwd);
+  const root = resolveReal(resolve(projectRoot, '.claude/worktrees'));
   const target = resolveReal(resolve(cwd, candidate));
   return target === root || target.startsWith(root + sep);
 }
