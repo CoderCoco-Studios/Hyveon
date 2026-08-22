@@ -812,6 +812,7 @@ export function IacPage() {
         if (ack.started && ack.runId) {
           setApplyRunId(ack.runId);
           setApplyStatus(null);
+          setApplyRecord(null);
         } else {
           if (ack.conflict) setApplyConflict(ack.conflict);
           if (ack.staleLock) setApplyStaleLock(ack.staleLock);
@@ -844,6 +845,7 @@ export function IacPage() {
           setDestroyConfirmOpen(false);
           setDestroyRunId(ack.runId);
           setDestroyStatus(null);
+          setDestroyRecord(null);
         } else {
           if (ack.conflict) setDestroyConflict(ack.conflict);
           if (ack.staleLock) setDestroyStaleLock(ack.staleLock);
