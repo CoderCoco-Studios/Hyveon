@@ -222,7 +222,7 @@ extraResources:
   - from: build/icon.png
     to: icon.png
   # PulumiService.getLambdaBundlesDir() resolves these to <resourcesPath>/lambda
-  # in a packaged app — must stay in sync with the five @hyveon/lambda-* packages.
+  # in a packaged app — must stay in sync with the six @hyveon/lambda-* packages.
   - from: app/packages/lambda/interactions/dist
     to: lambda/interactions/dist
   - from: app/packages/lambda/followup/dist
@@ -233,6 +233,8 @@ extraResources:
     to: lambda/watchdog/dist
   - from: app/packages/lambda/efs-seeder/dist
     to: lambda/efs-seeder/dist
+  - from: app/packages/lambda/health-check/dist
+    to: lambda/health-check/dist
   # cloudformationTemplate.ts's resolveCloudFormationTemplatePath() resolves
   # this to <resourcesPath>/cloudformation/iam-bootstrap.yaml in a packaged
   # app. A later group's GuidedIamService calls it to locate this template.
