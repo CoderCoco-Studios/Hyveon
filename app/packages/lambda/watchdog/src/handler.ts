@@ -30,7 +30,7 @@ import {
   GetMetricStatisticsCommand,
 } from '@aws-sdk/client-cloudwatch';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import type { GameServerHealthCheck } from '@hyveon/shared';
+import { parseJsonEnv, type GameServerHealthCheck } from '@hyveon/shared';
 
 const ECS_CLUSTER = requireEnv('ECS_CLUSTER');
 const GAME_NAMES = (process.env['GAME_NAMES'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -38,19 +38,7 @@ const IDLE_CHECKS = parseInt(process.env['IDLE_CHECKS'] ?? '4', 10);
 const MIN_PACKETS = parseInt(process.env['MIN_PACKETS'] ?? '100', 10);
 const CHECK_WINDOW_MINUTES = parseInt(process.env['CHECK_WINDOW_MINUTES'] ?? '15', 10);
 /** Game name → declared health check, for the games opted into that verdict source instead of the CloudWatch heuristic. Populated by the infra program from `DeploymentConfig.gameServers`; empty when no game opts in. Parsed defensively — a malformed/empty value must not crash module init and take down the watchdog for every game. */
-const HEALTH_CHECKS: Record<string, GameServerHealthCheck> = parseHealthChecks(process.env['HEALTH_CHECKS']);
-
-function parseHealthChecks(raw: string | undefined): Record<string, GameServerHealthCheck> {
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, GameServerHealthCheck>;
-  } catch (err) {
-    console.warn('Malformed HEALTH_CHECKS env var — treating as no declared health checks', {
-      err: err instanceof Error ? err.message : String(err),
-    });
-    return {};
-  }
-}
+const HEALTH_CHECKS: Record<string, GameServerHealthCheck> = parseJsonEnv('HEALTH_CHECKS', process.env['HEALTH_CHECKS'], {});
 /** Name of the health-check Lambda to invoke for a game with a declared health check. Unset when no game opts in — {@link HEALTH_CHECKS} is then always empty, so it's never read. */
 const HEALTH_CHECK_FUNCTION_NAME = process.env['HEALTH_CHECK_FUNCTION_NAME'];
 
