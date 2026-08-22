@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -61,6 +62,21 @@ describe('StackInitializationStep', () => {
     render(<StackInitializationStep onFinished={vi.fn()} />);
 
     await waitFor(() => expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledWith());
+  });
+
+  it('should call initialize exactly once even when StrictMode double-invokes the mount effect', async () => {
+    hyveonMock.iac.stack.initialize.mockImplementation(toStreamHandleMock(successfulRun));
+
+    render(
+      <StrictMode>
+        <StackInitializationStep onFinished={vi.fn()} />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledTimes(1));
+    // Give a wrongly-surviving second debounced call a chance to fire too before asserting it never did.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(hyveonMock.iac.stack.initialize).toHaveBeenCalledTimes(1);
   });
 
   it('should show each phase as in progress and then done as start/end events stream in', async () => {

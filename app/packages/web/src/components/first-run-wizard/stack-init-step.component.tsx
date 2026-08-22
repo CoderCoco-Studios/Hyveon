@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Loader2, RotateCcw, XCircle } from 'lucide-react';
-import type { StackInitPhase, StackInitPhaseEvent } from '@hyveon/desktop-preload';
+import type { HyveonStreamHandle, StackInitPhase, StackInitPhaseEvent } from '@hyveon/desktop-preload';
 import { Button } from '@/components/ui/button.component';
 
 /** Per-phase status this step tracks, derived from the {@link StackInitPhaseEvent} stream. */
@@ -95,8 +95,8 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
 
   useEffect(() => {
     if (!window.hyveon) return;
-    const handle = window.hyveon.iac.stack.initialize();
     let cancelled = false;
+    let handle: HyveonStreamHandle<StackInitPhaseEvent> | null = null;
 
     /** Fold an update into this attempt's run state, ignoring any superseded attempt. */
     const update = (
@@ -118,42 +118,49 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
         return { attempt, ...apply(base) };
       });
 
-    void (async () => {
-      /** The phase whose `'start'` most recently fired without a matching `'end'` yet — the phase to blame if the stream throws. */
-      let lastStartedPhase: StackInitPhase | null = null;
-      try {
-        for await (const event of handle) {
-          if (cancelled) break;
-          applyEvent(event);
+    // `setTimeout(0)` debounces the real `initialize()` call past StrictMode's synchronous
+    // mount→cleanup→remount: the discarded first mount's cleanup clears this timer before it
+    // ever fires, so exactly one real call happens — `cancel()` only stops this caller's
+    // consumption, not `PulumiService.initializeStack` itself, so a naive unguarded effect
+    // would otherwise leave two live, uncancellable stack-init operations running.
+    const timer = setTimeout(() => {
+      if (cancelled || !window.hyveon) return;
+      handle = window.hyveon.iac.stack.initialize();
+
+      void (async () => {
+        /** The phase whose `'start'` most recently fired without a matching `'end'` yet — the phase to blame if the stream throws. */
+        let lastStartedPhase: StackInitPhase | null = null;
+        try {
+          for await (const event of handle!) {
+            if (cancelled) break;
+            applyEvent(event);
+          }
+          if (!cancelled) update((prev) => ({ ...prev, status: 'success' }));
+        } catch (err) {
+          if (!cancelled) {
+            update((prev) => ({
+              ...prev,
+              phases: lastStartedPhase ? { ...prev.phases, [lastStartedPhase]: 'failed' } : prev.phases,
+              status: 'failed',
+              errorMessage: err instanceof Error ? err.message : 'Stack initialization failed.',
+            }));
+          }
         }
-        if (!cancelled) update((prev) => ({ ...prev, status: 'success' }));
-      } catch (err) {
-        if (!cancelled) {
+
+        /** Applies one streamed phase event to this attempt's phase map, tracking {@link lastStartedPhase} for the catch block above. */
+        function applyEvent(event: StackInitPhaseEvent) {
+          if (event.status === 'start') lastStartedPhase = event.phase;
           update((prev) => ({
             ...prev,
-            phases: lastStartedPhase ? { ...prev.phases, [lastStartedPhase]: 'failed' } : prev.phases,
-            status: 'failed',
-            errorMessage: err instanceof Error ? err.message : 'Stack initialization failed.',
+            phases: { ...prev.phases, [event.phase]: event.status === 'start' ? 'in-progress' : 'done' },
           }));
         }
-      }
-
-      /** Applies one streamed phase event to this attempt's phase map, tracking {@link lastStartedPhase} for the catch block above. */
-      function applyEvent(event: StackInitPhaseEvent) {
-        if (event.status === 'start') lastStartedPhase = event.phase;
-        update((prev) => ({
-          ...prev,
-          phases: { ...prev.phases, [event.phase]: event.status === 'start' ? 'in-progress' : 'done' },
-        }));
-      }
-    })();
+      })();
+    }, 0);
 
     return () => {
       cancelled = true;
-      // Optional chaining guards against a test double that stubbed
-      // `iac.stack.initialize` without configuring a return value
-      // (`undefined`) — the real bridge's `initialize()` always returns a
-      // handle.
+      clearTimeout(timer);
       handle?.cancel();
     };
   }, [attempt]);
