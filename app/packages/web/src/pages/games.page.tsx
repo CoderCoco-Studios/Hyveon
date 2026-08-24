@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type GameListEntry, type StoredGameWizardDraft } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
+import { ErrorBanner } from '../components/error-banner.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.component';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
@@ -132,16 +134,17 @@ export function GamesPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Games</h2>
-        <div className="flex items-center gap-4">
-          <PollingIndicator />
-          {/* Hidden while a resumed draft is open (`resuming`) so only one
-              AddGameWizard instance can ever be mid-edit at a time — two
-              open instances would both autosave into the single
-              `addGameWizardDraft` slot and race each other. */}
-          {!resuming && <AddGameWizard />}
-        </div>
+      <div className="mb-6">
+        <PageHeader title="Games">
+          <div className="flex items-center gap-4">
+            <PollingIndicator />
+            {/* Hidden while a resumed draft is open (`resuming`) so only one
+                AddGameWizard instance can ever be mid-edit at a time — two
+                open instances would both autosave into the single
+                `addGameWizardDraft` slot and race each other. */}
+            {!resuming && <AddGameWizard />}
+          </div>
+        </PageHeader>
       </div>
 
       {draft && !resuming && (
@@ -181,9 +184,7 @@ export function GamesPage() {
           {loading ? (
             <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">Loading games…</div>
           ) : error ? (
-            <div className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]">
-              Failed to load games: {error}
-            </div>
+            <ErrorBanner>Failed to load games: {error}</ErrorBanner>
           ) : games.length === 0 ? (
             <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
               <p>No games declared or deployed yet.</p>

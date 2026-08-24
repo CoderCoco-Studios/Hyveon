@@ -1,6 +1,7 @@
 import { CheckCircle2, XCircle, AlertTriangle, Loader2, Copy, ShieldCheck } from 'lucide-react';
 import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
 import type { IamCheckResult } from '@hyveon/desktop-preload';
+import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { Badge } from '@/components/ui/badge.component';
 import { Input } from '@/components/ui/input.component';
@@ -127,11 +128,7 @@ export function BootstrapStep({
           </Button>
         </div>
 
-        {iamError && (
-          <p role="alert" className="text-sm text-[var(--color-red)]">
-            {iamError}
-          </p>
-        )}
+        <InlineAlert message={iamError} />
 
         {iamCheck?.status === 'passed' && (
           <div className="flex items-center gap-2 text-sm text-[var(--color-green)]">

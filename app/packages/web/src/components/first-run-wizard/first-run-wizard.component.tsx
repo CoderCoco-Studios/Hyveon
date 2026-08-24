@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { GUIDED_PROFILE_NAME, type AwsProfileSummary, type IamCheckResult, type WizardProgress } from '@hyveon/desktop-preload';
+import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { ConfirmDialog } from '../confirm-dialog.component.js';
 import { PickCloudStep, type CloudOption } from './pick-cloud-step.component.js';
@@ -846,11 +847,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           ) : (
             <>
               <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
-              {saveError && (
-                <p role="alert" className="text-sm text-[var(--color-red)]">
-                  {saveError}
-                </p>
-              )}
+              <InlineAlert message={saveError} />
             </>
           ))}
         {step === 'guided-iam' &&
@@ -894,11 +891,7 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
                 }
                 onSwitchSource={handleSwitchCredentialSource}
               />
-              {saveError && (
-                <p role="alert" className="text-sm text-[var(--color-red)]">
-                  {saveError}
-                </p>
-              )}
+              <InlineAlert message={saveError} />
             </>
           ))}
         {step === 'bootstrap' &&

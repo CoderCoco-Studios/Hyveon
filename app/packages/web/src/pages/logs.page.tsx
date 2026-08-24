@@ -3,11 +3,13 @@ import { useLocation } from 'react-router-dom';
 import { Filter, Pause, Play, Search } from 'lucide-react';
 import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
 import { api } from '../api.service.js';
+import { ErrorBanner } from '../components/error-banner.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { LogLineList } from '../components/log-line-display.component.js';
 import { GameCombobox } from '../components/game-combobox.component.js';
 import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
@@ -107,19 +109,15 @@ export function LogsPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
-      {/* Header — title + LIVE/PAUSED badge */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Server Logs</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            CloudWatch tail for the selected game. Pause to inspect; resume to flush the buffer.
-          </p>
-        </div>
+      <PageHeader
+        title="Server Logs"
+        subtitle="CloudWatch tail for the selected game. Pause to inspect; resume to flush the buffer."
+      >
         <div className="flex items-center gap-3">
           <PollingIndicator />
           <LiveBadge paused={paused} />
         </div>
-      </div>
+      </PageHeader>
 
       {/* Controls row */}
       <div className="space-y-2">
@@ -203,11 +201,7 @@ export function LogsPage() {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {/* Log stream */}
       <div className="relative flex min-h-[300px] flex-1 flex-col gap-1">

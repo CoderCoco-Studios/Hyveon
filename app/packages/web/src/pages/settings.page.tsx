@@ -3,6 +3,7 @@ import { PULUMI_ENGINE_VERSION } from '@hyveon/shared';
 import type { ManualUpdateCheckResult } from '@hyveon/shared';
 import { DiagnosticsPanel } from '../components/DiagnosticsPanel.js';
 import { DeploymentSettingsForm } from '../components/deployment-settings-form.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { WatchdogPanel } from '../components/watchdog-panel.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.component.js';
@@ -157,9 +158,10 @@ export function SettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Settings</h2>
-        <PollingIndicator />
+      <div className="mb-6">
+        <PageHeader title="Settings">
+          <PollingIndicator />
+        </PageHeader>
       </div>
 
       {/* Watchdog section */}

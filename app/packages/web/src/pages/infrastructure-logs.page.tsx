@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Pause, Play, Search } from 'lucide-react';
 import type { HyveonLambdaLogsApi, HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
 import { LAMBDA_FUNCTION_KEYS, type LambdaFunctionKey } from '@hyveon/shared';
+import { ErrorBanner } from '../components/error-banner.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Input } from '../components/ui/input.component.js';
 import { LogLineList } from '../components/log-line-display.component.js';
 import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { cn } from '../lib/utils.utils.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
@@ -84,19 +86,12 @@ export function InfrastructureLogsPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
-      {/* Header — title + LIVE/PAUSED badge */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Infrastructure Logs</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            CloudWatch tail for the selected Lambda function.
-          </p>
-        </div>
+      <PageHeader title="Infrastructure Logs" subtitle="CloudWatch tail for the selected Lambda function.">
         <div className="flex items-center gap-3">
           <PollingIndicator />
           <LiveBadge paused={paused} />
         </div>
-      </div>
+      </PageHeader>
 
       {/* Function picker — fixed 5-option set, never needs to collapse for space */}
       <div className="flex flex-wrap gap-2">
@@ -147,11 +142,7 @@ export function InfrastructureLogsPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {/* Log stream */}
       <div className="relative flex min-h-[300px] flex-1 flex-col gap-1">

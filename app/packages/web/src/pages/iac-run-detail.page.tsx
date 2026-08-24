@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
 import type { RunHistoryRecord } from '@hyveon/desktop-preload';
 import type { AnsiLogChunk } from '../components/ansi-log-viewer.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
 import { Badge } from '../components/ui/badge.component.js';
-import { ChangeSummaryStatus, ErrorBanner } from './iac.page.js';
+import { ErrorBanner } from '../components/error-banner.component.js';
+import { LoadingState } from '../components/loading-state.component.js';
+import { PageHeader } from '../components/page-header.component.js';
+import { formatTimestamp } from '../lib/utils.utils.js';
+import { ChangeSummaryStatus } from './iac.page.js';
 
 /**
  * Number of the most recent run records searched for a `runId` match on
@@ -157,12 +160,6 @@ function useRunLogLadder(runId: string | undefined, record: RunHistoryRecord | n
   return { chunks, source, loading };
 }
 
-/** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
-
 /**
  * Read-only run-detail route (`/iac/history/:runId`) — shows a single
  * persisted iac run's status and captured log, reusing the live
@@ -181,23 +178,16 @@ export function IacRunDetailPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Run detail</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)]">{runId}</p>
-        </div>
+      <PageHeader title="Run detail" subtitle={runId}>
         <Link to="/iac/history" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
           Back to history
         </Link>
-      </div>
+      </PageHeader>
 
       {recordLoading ? (
-        <div className="flex h-32 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          Loading…
-        </div>
+        <LoadingState />
       ) : !record ? (
-        <ErrorBanner message={`No run history record was found for "${runId}".`} />
+        <ErrorBanner>{`No run history record was found for "${runId}".`}</ErrorBanner>
       ) : (
         <section className="flex flex-col gap-3" aria-label="Run detail">
           <div className="flex flex-wrap items-center gap-3">
@@ -241,10 +231,7 @@ export function IacRunDetailPage() {
           )}
 
           {logLoading ? (
-            <div className="flex h-32 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Loading log…
-            </div>
+            <LoadingState label="Loading log…" />
           ) : (
             <>
               <AnsiLogViewer chunks={chunks} emptyMessage="No log is available for this run." />

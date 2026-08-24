@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Pencil } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Pencil } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
 import { EditGameForm } from '../components/edit-game-form/edit-game-form.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { RemoveGameButton } from '../components/remove-game-button.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Button } from '@/components/ui/button.component';
@@ -79,18 +80,10 @@ export function GameDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <Link
-            to="/games"
-            className="mb-1 inline-flex items-center gap-1 text-sm text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-          >
-            <ArrowLeft className="size-3.5" />
-            Back to games
-          </Link>
-          <h2 className="text-2xl font-semibold capitalize text-[var(--color-foreground)]">{name}</h2>
-        </div>
-        <PollingIndicator />
+      <div className="mb-6">
+        <PageHeader title={name} titleClassName="capitalize" backTo="/games" backLabel="Back to games">
+          <PollingIndicator />
+        </PageHeader>
       </div>
 
       {games === null ? (
