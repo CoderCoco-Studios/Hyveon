@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type AuditEntry } from '../api.service.js';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
 import {
   Table,
@@ -10,9 +9,11 @@ import {
   TableRow,
 } from '@/components/ui/table.component';
 import { AuditEntryRow } from '../components/audit-entry-row.component.js';
-import { LoadingState, InlineSpinner } from '../components/loading-state.component.js';
+import { InlineSpinner } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
+import { SectionCard } from '../components/section-card.component.js';
+import { AsyncContent } from '../components/async-content.component.js';
 
 /** Number of audit entries fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
@@ -79,65 +80,51 @@ export function AuditPage() {
         <PollingIndicator />
       </PageHeader>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Recent changes
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <LoadingState />
-          ) : error && entries.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-[var(--color-red)]">
-              {error}
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-              No audit entries yet.
-            </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8" />
-                    <TableHead>Timestamp</TableHead>
-                    <TableHead>Actor</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Game</TableHead>
-                    <TableHead>Version</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entries.map((entry) => (
-                    <AuditEntryRow key={entry.sk} entry={entry} />
-                  ))}
-                </TableBody>
-              </Table>
+      <SectionCard title="Recent changes">
+        <AsyncContent
+          loading={loading}
+          error={error}
+          isEmpty={entries.length === 0}
+          emptyMessage="No audit entries yet."
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8" />
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Game</TableHead>
+                <TableHead>Version</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((entry) => (
+                <AuditEntryRow key={entry.sk} entry={entry} />
+              ))}
+            </TableBody>
+          </Table>
 
-              {error && (
-                <p className="mt-3 text-xs text-[var(--color-red)]">{error}</p>
-              )}
-
-              {nextBefore && (
-                <div className="mt-4 flex justify-center">
-                  <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
-                    {loadingMore ? (
-                      <>
-                        <InlineSpinner />
-                        Loading…
-                      </>
-                    ) : (
-                      'Load more'
-                    )}
-                  </Button>
-                </div>
-              )}
-            </>
+          {error && (
+            <p className="mt-3 text-xs text-[var(--color-red)]">{error}</p>
           )}
-        </CardContent>
-      </Card>
+
+          {nextBefore && (
+            <div className="mt-4 flex justify-center">
+              <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? (
+                  <>
+                    <InlineSpinner />
+                    Loading…
+                  </>
+                ) : (
+                  'Load more'
+                )}
+              </Button>
+            </div>
+          )}
+        </AsyncContent>
+      </SectionCard>
     </div>
   );
 }
