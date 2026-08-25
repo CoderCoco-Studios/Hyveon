@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
+import { PartialApplyBadge } from '../components/partial-apply-badge.component.js';
 import { RollbackAction, type RollbackResult } from '../components/rollback-action.component.js';
 import { InlineSpinner } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
@@ -228,14 +229,7 @@ export function IacHistoryPage() {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <RunStatusBadge status={record.status} />
-                      {record.partialApply === true && (
-                        <Badge
-                          variant="warning"
-                          title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
-                        >
-                          partial
-                        </Badge>
-                      )}
+                      {record.partialApply === true && <PartialApplyBadge />}
                     </div>
                   </TableCell>
                   <TableCell>
