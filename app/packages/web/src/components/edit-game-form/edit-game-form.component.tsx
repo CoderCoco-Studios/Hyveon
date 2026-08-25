@@ -37,7 +37,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
+import { SectionCard } from '@/components/section-card.component';
 import { api, type GameWriteSuccess, type RedactedGameServer, type UpdateGamePayload } from '../../api.service.js';
 import { IdentityStep } from '../add-game-wizard/identity-step.component.js';
 import { ResourcesStep } from '../add-game-wizard/resources-step.component.js';
@@ -176,58 +176,33 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Identity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <IdentityStep draft={draft} issues={issues} onChange={patchDraft} nameDisabled />
-        </CardContent>
-      </Card>
+      <SectionCard title="Identity">
+        <IdentityStep draft={draft} issues={issues} onChange={patchDraft} nameDisabled />
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Resources</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={issues} onChange={patchDraft} />
-        </CardContent>
-      </Card>
+      <SectionCard title="Resources">
+        <ResourcesStep cpu={draft.cpu} memory={draft.memory} issues={issues} onChange={patchDraft} />
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Networking</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <NetworkingStep
-            ports={draft.ports}
-            issues={issues}
-            onChange={(ports) => patchDraft({ ports })}
-            https={draft.https}
-            onHttpsChange={(https) => patchDraft({ https })}
-            healthCheck={draft.healthCheck}
-            onHealthCheckChange={patchHealthCheck}
-          />
-        </CardContent>
-      </Card>
+      <SectionCard title="Networking">
+        <NetworkingStep
+          ports={draft.ports}
+          issues={issues}
+          onChange={(ports) => patchDraft({ ports })}
+          https={draft.https}
+          onHttpsChange={(https) => patchDraft({ https })}
+          healthCheck={draft.healthCheck}
+          onHealthCheckChange={patchHealthCheck}
+        />
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Storage</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <StorageStep draft={draft} issues={issues} onChange={patchDraft} />
-        </CardContent>
-      </Card>
+      <SectionCard title="Storage">
+        <StorageStep draft={draft} issues={issues} onChange={patchDraft} />
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Environment</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EnvironmentStep draft={draft} issues={issues} onChange={patchDraft} />
-        </CardContent>
-      </Card>
+      <SectionCard title="Environment">
+        <EnvironmentStep draft={draft} issues={issues} onChange={patchDraft} />
+      </SectionCard>
 
       {submitError && (
         <div
