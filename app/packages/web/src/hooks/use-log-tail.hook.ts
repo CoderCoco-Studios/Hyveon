@@ -58,6 +58,26 @@ export interface LogTailApi {
   ) => Promise<NewerLogsPage>;
 }
 
+const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
+  next: () => Promise.resolve({ done: true }),
+  cancel: () => {},
+  [Symbol.asyncIterator]: () => NO_HYVEON_STREAM_HANDLE,
+};
+
+/**
+ * Fallback {@link LogTailApi} used by callers (`LogsPage`,
+ * `InfrastructureLogsPage`) when `window.hyveon` is absent (non-Electron
+ * context). `useLogTail`'s own `window.hyveon` guard means neither method
+ * here actually runs — it exists only so a caller always has a stable
+ * `LogTailApi` reference to pass in.
+ */
+export const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
+  get: () => Promise.resolve({ lines: [] }),
+  stream: () => NO_HYVEON_STREAM_HANDLE,
+  getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
+  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
+};
+
 /** The live-tail state and handlers a log-viewer page renders. */
 export interface UseLogTailResult {
   lines: LogLine[];

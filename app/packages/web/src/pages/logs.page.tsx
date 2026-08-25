@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Filter, Pause, Play, Search } from 'lucide-react';
-import type { HyveonStreamHandle, LogChunk } from '@hyveon/desktop-preload';
+import { Filter } from 'lucide-react';
 import { api } from '../api.service.js';
-import { ErrorBanner } from '../components/error-banner.component.js';
 import { Button } from '../components/ui/button.component.js';
-import { Input } from '../components/ui/input.component.js';
-import { LogLineList } from '../components/log-line-display.component.js';
 import { GameCombobox } from '../components/game-combobox.component.js';
-import { JumpToLatestButton } from '../components/jump-to-latest-button.component.js';
-import { PageHeader } from '../components/page-header.component.js';
-import { cn } from '../lib/utils.utils.js';
-import { PollingIndicator } from '../polling/polling-indicator.component.js';
-import { useLogTail, type LogTailApi } from '../hooks/use-log-tail.hook.js';
+import { LogTailView } from '../components/log-tail-view.component.js';
+import { useLogTail, NO_HYVEON_LOG_TAIL_API } from '../hooks/use-log-tail.hook.js';
 
 /** Shape of the react-router navigation state `GameCard` passes via `<Link to="/logs" state={{ game }}>`. */
 interface LogsNavState {
@@ -30,25 +23,13 @@ function gameFromLocationState(state: unknown): string | null {
   return typeof game === 'string' ? game : null;
 }
 
-const NO_HYVEON_STREAM_HANDLE: HyveonStreamHandle<LogChunk> = {
-  next: () => Promise.resolve({ done: true }),
-  cancel: () => {},
-  [Symbol.asyncIterator]: () => NO_HYVEON_STREAM_HANDLE,
-};
-
-/** Used only when `window.hyveon` is absent (non-Electron context); `useLogTail`'s own guard means neither method here actually runs. */
-const NO_HYVEON_LOG_TAIL_API: LogTailApi = {
-  get: () => Promise.resolve({ lines: [] }),
-  stream: () => NO_HYVEON_STREAM_HANDLE,
-  getOlder: () => Promise.resolve({ lines: [], atOldest: true }),
-  getNewer: () => Promise.resolve({ lines: [], hasMore: false }),
-};
-
 /**
  * Logs route (`/logs`) — full-page tailing of CloudWatch logs for a single
  * game. Owns game selection (list load, `GameCombobox`, navigation-state
- * preselection); the fetch/stream/pause/autoscroll engine itself is
- * {@link useLogTail} (design.md D6), shared with `/logs/infrastructure`.
+ * preselection) and the mobile filter drawer; the fetch/stream/pause/autoscroll
+ * engine itself is {@link useLogTail} (design.md D6), and the shared header/
+ * controls/log-stream/footer shell is {@link LogTailView}, both shared with
+ * `/logs/infrastructure`.
  */
 export function LogsPage() {
   const location = useLocation();
@@ -63,24 +44,7 @@ export function LogsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [loadGamesError, setLoadGamesError] = useState<string | null>(null);
 
-  const {
-    lines,
-    paused,
-    autoscroll,
-    setAutoscroll,
-    search,
-    setSearch,
-    error: tailError,
-    bufferedCount,
-    ageLabel,
-    boxRef,
-    handlePauseToggle,
-    handleScroll,
-    atOldest,
-    loadingOlder,
-    hasNewer,
-    jumpToLatest,
-  } = useLogTail(selectedGame, window.hyveon ? window.hyveon.logs : NO_HYVEON_LOG_TAIL_API);
+  const tail = useLogTail(selectedGame, window.hyveon ? window.hyveon.logs : NO_HYVEON_LOG_TAIL_API);
 
   // Load the games list once (this page is reachable independently of the dashboard).
   useEffect(() => {
@@ -105,23 +69,19 @@ export function LogsPage() {
     };
   }, []);
 
-  const error = loadGamesError ?? tailError;
+  const error = loadGamesError ?? tail.error;
 
   return (
-    <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
-      <PageHeader
-        title="Server Logs"
-        subtitle="CloudWatch tail for the selected game. Pause to inspect; resume to flush the buffer."
-      >
-        <div className="flex items-center gap-3">
-          <PollingIndicator />
-          <LiveBadge paused={paused} />
-        </div>
-      </PageHeader>
-
-      {/* Controls row */}
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+    <LogTailView
+      title="Server Logs"
+      subtitle="CloudWatch tail for the selected game. Pause to inspect; resume to flush the buffer."
+      emptyMessage={selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
+      tail={tail}
+      error={error}
+      mobileFilters
+      filtersOpen={filtersOpen}
+      beforeSearch={
+        <>
           {/* Game selector — always visible */}
           <GameCombobox games={games} value={selectedGame} onChange={setSelectedGame} />
 
@@ -136,132 +96,8 @@ export function LogsPage() {
             <Filter className="h-3.5 w-3.5" />
             Filters
           </Button>
-
-          {/* Desktop: inline filter controls — hidden on mobile (hidden md:contents) */}
-          <div className="hidden md:contents">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50" />
-              <Input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search visible buffer…"
-                className="pl-8"
-              />
-            </div>
-            <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
-              <input
-                type="checkbox"
-                checked={autoscroll}
-                onChange={(e) => setAutoscroll(e.target.checked)}
-                className="h-3.5 w-3.5 accent-[var(--color-primary)]"
-              />
-              Autoscroll
-            </label>
-          </div>
-
-          {/* Pause/Resume — always visible, pushed to the right */}
-          <Button
-            variant={paused ? 'default' : 'secondary'}
-            size="sm"
-            onClick={handlePauseToggle}
-            className="ml-auto"
-          >
-            {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-            {paused ? 'Resume' : 'Pause'}
-          </Button>
-        </div>
-
-        {/* Mobile collapsible filter drawer */}
-        {filtersOpen && (
-          <div
-            id="logs-filters"
-            className="md:hidden flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
-          >
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50" />
-              <Input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search visible buffer…"
-                className="pl-8 w-full"
-              />
-            </div>
-            <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)]">
-              <input
-                type="checkbox"
-                checked={autoscroll}
-                onChange={(e) => setAutoscroll(e.target.checked)}
-                className="h-3.5 w-3.5 accent-[var(--color-primary)]"
-              />
-              Autoscroll
-            </label>
-          </div>
-        )}
-      </div>
-
-      {error && <ErrorBanner>{error}</ErrorBanner>}
-
-      {/* Log stream */}
-      <div className="relative flex min-h-[300px] flex-1 flex-col gap-1">
-        {loadingOlder && (
-          <div data-testid="loading-older" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
-            Loading older logs…
-          </div>
-        )}
-        {atOldest && (
-          <div data-testid="at-oldest-marker" className="py-1 text-center text-xs text-[var(--color-muted-foreground)]">
-            — Beginning of log retention —
-          </div>
-        )}
-        <LogLineList
-          ref={boxRef}
-          onScroll={handleScroll}
-          data-testid="logs-viewer"
-          className={cn(
-            'flex-1 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-xs leading-6 text-[var(--color-muted-foreground)]',
-            hasNewer && 'pb-12',
-          )}
-          lines={lines.map((line) => line.text)}
-          search={search}
-          emptyMessage={selectedGame ? 'Waiting for log lines…' : 'Select a game to start tailing.'}
-        />
-        <JumpToLatestButton hasNewer={hasNewer} onClick={jumpToLatest} />
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
-        <span>
-          {lines.length} line{lines.length === 1 ? '' : 's'}
-          {ageLabel ? ` · oldest ${ageLabel}` : ''}
-        </span>
-        <span className="font-[var(--font-mono)]">
-          {paused && bufferedCount > 0 ? `buffered ${bufferedCount}` : ''}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** Pill that flips between pulsing-cyan LIVE and muted-slate PAUSED. */
-function LiveBadge({ paused }: { paused: boolean }) {
-  return (
-    <div
-      className={cn(
-        'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider',
-        paused
-          ? 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-muted-foreground)]'
-          : 'border-[var(--color-cyan)]/40 bg-[var(--color-cyan)]/10 text-[var(--color-cyan)]',
-      )}
-    >
-      <span
-        className={cn(
-          'h-2 w-2 rounded-full',
-          paused ? 'bg-[var(--color-muted-foreground)]' : 'bg-[var(--color-cyan)] animate-pulse',
-        )}
-      />
-      {paused ? 'Paused' : 'Live'}
-    </div>
+        </>
+      }
+    />
   );
 }
