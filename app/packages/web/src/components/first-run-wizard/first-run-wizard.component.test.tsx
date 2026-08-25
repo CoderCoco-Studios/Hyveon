@@ -821,6 +821,65 @@ describe('FirstRunWizard', () => {
     });
   });
 
+  describe('reconfigure mode — commit payload', () => {
+    it('should omit collapsed steps from the reconfigure commit payload, sending only the step that was edited', async () => {
+      // Regression test (finding D8): `commitReconfigureAnswers` is this
+      // file's central Reconfigure invariant — a collapsed (never-Edited)
+      // step must never appear in the `wizard.state.save` payload, so
+      // Cancel truly has nothing to undo for it and editing one field
+      // preserves every other already-stored answer. This was previously
+      // unpinned by any test.
+      hyveonMock.wizard.getState.mockResolvedValue({
+        wizardCompleted: true,
+        activeCloud: 'aws',
+        aws: { profile: 'default', region: 'us-east-1' },
+        bootstrap: { stateBucket: 'existing-tfstate', configurationBucket: 'existing-config' },
+      });
+      hyveonMock.wizard.bootstrapStateBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.wizard.bootstrapConfigurationBucket.mockResolvedValue({ status: 'created' });
+      hyveonMock.iac.stack.initialize.mockImplementation(
+        toStreamHandleMock(async function* () {
+          // No phase events needed — this test only cares about the commit payload.
+        }),
+      );
+      hyveonMock.wizard.complete.mockResolvedValue({ wizardCompleted: true });
+
+      render(<FirstRunWizard mode="reconfigure" onCancel={vi.fn()} />);
+      await screen.findByText(/choose your cloud is already configured/i);
+      await waitFor(() => expect(hyveonMock.wizard.getState).toHaveBeenCalled());
+
+      // pick-cloud: left collapsed, just advance.
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+      // guided-iam: not pre-completed for a non-guided profile — advance via the stub's skip.
+      await screen.findByText('guided-iam-step-stub');
+      await userEvent.click(screen.getByRole('button', { name: /stub-skip/i }));
+      // credentials: left collapsed, just advance.
+      await screen.findByText(/aws credentials is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      // bootstrap: the one step actually opened via Edit.
+      await screen.findByText(/bootstrap aws resources is already configured/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const stateBucketInput = await screen.findByLabelText('State bucket name');
+      expect(stateBucketInput).toHaveValue('existing-tfstate');
+      await userEvent.clear(stateBucketInput);
+      await userEvent.type(stateBucketInput, 'new-tfstate-name');
+      await userEvent.click(screen.getByRole('button', { name: /bootstrap aws resources/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled());
+      await userEvent.click(screen.getByRole('button', { name: /^next$/i }));
+
+      await screen.findByRole('button', { name: /finish setup/i });
+      hyveonMock.wizard.saveState.mockClear();
+
+      await userEvent.click(screen.getByRole('button', { name: /finish setup/i }));
+
+      await waitFor(() => expect(hyveonMock.wizard.saveState).toHaveBeenCalledTimes(1));
+      expect(hyveonMock.wizard.saveState).toHaveBeenCalledWith({
+        bootstrap: { stateBucket: 'new-tfstate-name', configurationBucket: 'existing-config' },
+      });
+    });
+  });
+
   describe('reconfigure mode — layout', () => {
     it('should not render the step-progress sidebar in reconfigure mode', async () => {
       hyveonMock.wizard.getState.mockResolvedValue({
