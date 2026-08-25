@@ -45,6 +45,7 @@ import {
 } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { Badge } from './ui/badge.component.js';
+import { FormField } from './ui/form-field.component.js';
 import { Input } from './ui/input.component.js';
 import { Label } from './ui/label.component.js';
 
@@ -387,52 +388,60 @@ export function DeploymentSettingsForm() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <TextField
-          id="settings-project-name"
-          label="Project name"
-          value={draft.projectName}
-          onChange={(v) => patchDraft({ projectName: v })}
-          issues={messagesForField(issues, 'projectName')}
-        />
-        <TextField
-          id="settings-aws-region"
-          label="AWS region"
-          value={draft.awsRegion}
-          onChange={(v) => patchDraft({ awsRegion: v })}
-          issues={messagesForField(issues, 'awsRegion')}
-        />
-        <TextField
-          id="settings-vpc-cidr"
-          label="VPC CIDR"
-          value={draft.vpcCidr}
-          onChange={(v) => patchDraft({ vpcCidr: v })}
-          issues={messagesForField(issues, 'vpcCidr')}
-          placeholder="10.0.0.0/16"
-        />
-        <TextField
-          id="settings-hosted-zone-name"
-          label="Hosted zone name"
-          value={draft.hostedZoneName}
-          onChange={(v) => patchDraft({ hostedZoneName: v })}
-          issues={messagesForField(issues, 'hostedZoneName')}
-          placeholder="example.com"
-        />
-        <TextField
-          id="settings-dns-ttl"
-          label="DNS TTL (seconds)"
-          value={draft.dnsTtl}
-          onChange={(v) => patchDraft({ dnsTtl: v })}
-          issues={messagesForField(issues, 'dnsTtl')}
-          type="number"
-        />
-        <TextField
+        <FormField id="settings-project-name" label="Project name" errors={messagesForField(issues, 'projectName')}>
+          {(fieldProps) => (
+            <Input {...fieldProps} value={draft.projectName} onChange={(e) => patchDraft({ projectName: e.target.value })} />
+          )}
+        </FormField>
+        <FormField id="settings-aws-region" label="AWS region" errors={messagesForField(issues, 'awsRegion')}>
+          {(fieldProps) => (
+            <Input {...fieldProps} value={draft.awsRegion} onChange={(e) => patchDraft({ awsRegion: e.target.value })} />
+          )}
+        </FormField>
+        <FormField id="settings-vpc-cidr" label="VPC CIDR" errors={messagesForField(issues, 'vpcCidr')}>
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={draft.vpcCidr}
+              placeholder="10.0.0.0/16"
+              onChange={(e) => patchDraft({ vpcCidr: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField id="settings-hosted-zone-name" label="Hosted zone name" errors={messagesForField(issues, 'hostedZoneName')}>
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={draft.hostedZoneName}
+              placeholder="example.com"
+              onChange={(e) => patchDraft({ hostedZoneName: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField id="settings-dns-ttl" label="DNS TTL (seconds)" errors={messagesForField(issues, 'dnsTtl')}>
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              type="number"
+              value={draft.dnsTtl}
+              onChange={(e) => patchDraft({ dnsTtl: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField
           id="settings-discord-application-id"
           label="Discord application ID"
-          value={draft.discordApplicationId}
-          onChange={(v) => patchDraft({ discordApplicationId: v })}
-          issues={messagesForField(issues, 'discordApplicationId')}
-          placeholder="Optional — set here or via the Discord Credentials tab"
-        />
+          errors={messagesForField(issues, 'discordApplicationId')}
+        >
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={draft.discordApplicationId}
+              placeholder="Optional — set here or via the Discord Credentials tab"
+              onChange={(e) => patchDraft({ discordApplicationId: e.target.value })}
+            />
+          )}
+        </FormField>
       </div>
 
       <div className="space-y-1">
@@ -443,30 +452,48 @@ export function DeploymentSettingsForm() {
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <TextField
+        <FormField
           id="settings-watchdog-interval"
           label="Check interval (minutes)"
-          value={draft.watchdogIntervalMinutes}
-          onChange={(v) => patchDraft({ watchdogIntervalMinutes: v })}
-          issues={messagesForField(issues, 'watchdogIntervalMinutes')}
-          type="number"
-        />
-        <TextField
+          errors={messagesForField(issues, 'watchdogIntervalMinutes')}
+        >
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              type="number"
+              value={draft.watchdogIntervalMinutes}
+              onChange={(e) => patchDraft({ watchdogIntervalMinutes: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField
           id="settings-watchdog-idle-checks"
           label="Idle checks before shutdown"
-          value={draft.watchdogIdleChecks}
-          onChange={(v) => patchDraft({ watchdogIdleChecks: v })}
-          issues={messagesForField(issues, 'watchdogIdleChecks')}
-          type="number"
-        />
-        <TextField
+          errors={messagesForField(issues, 'watchdogIdleChecks')}
+        >
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              type="number"
+              value={draft.watchdogIdleChecks}
+              onChange={(e) => patchDraft({ watchdogIdleChecks: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField
           id="settings-watchdog-min-packets"
           label="Min packets (activity threshold)"
-          value={draft.watchdogMinPackets}
-          onChange={(v) => patchDraft({ watchdogMinPackets: v })}
-          issues={messagesForField(issues, 'watchdogMinPackets')}
-          type="number"
-        />
+          errors={messagesForField(issues, 'watchdogMinPackets')}
+        >
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              type="number"
+              value={draft.watchdogMinPackets}
+              onChange={(e) => patchDraft({ watchdogMinPackets: e.target.value })}
+            />
+          )}
+        </FormField>
       </div>
 
       <div className="space-y-1">
@@ -508,22 +535,26 @@ export function DeploymentSettingsForm() {
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <TextField
-          id="settings-audit-table-name"
-          label="Audit table name"
-          value={draft.auditTableName}
-          onChange={(v) => patchDraft({ auditTableName: v })}
-          issues={messagesForField(issues, 'auditTableName')}
-          placeholder={`auto (${draft.projectName || 'hyveon'}-audit)`}
-        />
-        <TextField
-          id="settings-runs-table-name"
-          label="Runs table name"
-          value={draft.runsTableName}
-          onChange={(v) => patchDraft({ runsTableName: v })}
-          issues={messagesForField(issues, 'runsTableName')}
-          placeholder={`auto (${draft.projectName || 'hyveon'}-runs)`}
-        />
+        <FormField id="settings-audit-table-name" label="Audit table name" errors={messagesForField(issues, 'auditTableName')}>
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={draft.auditTableName}
+              placeholder={`auto (${draft.projectName || 'hyveon'}-audit)`}
+              onChange={(e) => patchDraft({ auditTableName: e.target.value })}
+            />
+          )}
+        </FormField>
+        <FormField id="settings-runs-table-name" label="Runs table name" errors={messagesForField(issues, 'runsTableName')}>
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={draft.runsTableName}
+              placeholder={`auto (${draft.projectName || 'hyveon'}-runs)`}
+              onChange={(e) => patchDraft({ runsTableName: e.target.value })}
+            />
+          )}
+        </FormField>
       </div>
 
       {submitError && (
@@ -542,45 +573,6 @@ export function DeploymentSettingsForm() {
           Save settings
         </Button>
       </div>
-    </div>
-  );
-}
-
-/** Labeled text/number input with per-field validation-issue messages beneath it. */
-function TextField({
-  id,
-  label,
-  value,
-  onChange,
-  issues,
-  placeholder,
-  type = 'text',
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  issues: string[];
-  placeholder?: string;
-  type?: 'text' | 'number';
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        aria-invalid={issues.length > 0}
-      />
-      {issues.map((message, index) => (
-        <p key={index} role="alert" className="text-xs text-[var(--color-red)] flex items-center gap-1">
-          <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
-          {message}
-        </p>
-      ))}
     </div>
   );
 }
