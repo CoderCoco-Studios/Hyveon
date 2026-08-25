@@ -13,7 +13,7 @@
  * replacement for the pre-migration `init` step, which ran the old IaC
  * CLI's `init` command and has been fully removed).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { GUIDED_PROFILE_NAME, type AwsProfileSummary, type IamCheckResult, type WizardProgress } from '@hyveon/desktop-preload';
 import { InlineAlert } from '@/components/inline-alert.component';
@@ -841,80 +841,88 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
           </p>
         </div>
 
-        {step === 'pick-cloud' &&
-          (stepCollapsed ? (
-            <CompletedStepSummary label={STEP_LABELS['pick-cloud']} onEdit={() => startEdit('pick-cloud')} />
-          ) : (
-            <>
-              <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
-              <InlineAlert message={saveError} />
-            </>
-          ))}
-        {step === 'guided-iam' &&
-          (stepCollapsed ? (
-            <CompletedStepSummary label={STEP_LABELS['guided-iam']} onEdit={() => startEdit('guided-iam')} />
-          ) : (
-            <GuidedIamStep
-              onComplete={handleGuidedIamComplete}
-              onSkipToManual={handleGuidedIamSkipToManual}
-              initialProgress={guidedIamInitialProgress}
-              onBusyChange={setGuidedIamBusy}
-            />
-          ))}
-        {step === 'credentials' &&
-          (stepCollapsed ? (
-            <CompletedStepSummary label={STEP_LABELS['credentials']} onEdit={() => startEdit('credentials')} />
-          ) : (
-            <>
-              <CredentialsStep
-                mode={credentialMode}
-                onModeChange={setCredentialMode}
-                profiles={profiles}
-                profilesLoading={profilesLoading}
-                profilesError={profilesError}
-                selectedProfileName={selectedProfileName}
-                onSelectProfile={selectProfile}
-                region={region}
-                onRegionChange={setRegion}
-                pasteAccessKeyId={pasteAccessKeyId}
-                pasteSecretAccessKey={pasteSecretAccessKey}
-                pasteRegion={pasteRegion}
-                onPasteFieldChange={pasteFieldChange}
-                onSubmitPaste={submitPaste}
-                pasteSaving={pasteSaving}
-                pasteError={pasteError}
-                pastedProfileName={pastedProfileName}
-                satisfiedByGuidedProvisioning={
-                  guidedCredentials
-                    ? { principal: 'AWS account (guided setup)', region: guidedCredentials.region }
-                    : undefined
-                }
-                onSwitchSource={handleSwitchCredentialSource}
-              />
-              <InlineAlert message={saveError} />
-            </>
-          ))}
-        {step === 'bootstrap' &&
-          (stepCollapsed ? (
-            <CompletedStepSummary label={STEP_LABELS['bootstrap']} onEdit={() => startEdit('bootstrap')} />
-          ) : (
-            <BootstrapStep
-              names={resourceNames}
-              statuses={resourceStatuses}
-              messages={resourceMessages}
-              onNameChange={resourceNameChange}
-              onRunBootstrap={runBootstrap}
-              bootstrapping={bootstrapping}
-              runsTableStatus={runsTableStatus}
-              runsTableMessage={runsTableMessage}
-              deploymentConfigStatus={deploymentConfigStatus}
-              deploymentConfigMessage={deploymentConfigMessage}
-              iamCheck={iamCheck}
-              iamChecking={iamChecking}
-              iamError={iamError}
-              onRunIamCheck={runIamCheck}
-            />
-          ))}
+        <WizardStepPanel
+          step="pick-cloud"
+          activeStep={step}
+          collapsed={stepCollapsed}
+          label={STEP_LABELS['pick-cloud']}
+          onEdit={() => startEdit('pick-cloud')}
+          error={saveError}
+        >
+          <PickCloudStep selectedCloud={selectedCloud} onSelect={setSelectedCloud} />
+        </WizardStepPanel>
+        <WizardStepPanel
+          step="guided-iam"
+          activeStep={step}
+          collapsed={stepCollapsed}
+          label={STEP_LABELS['guided-iam']}
+          onEdit={() => startEdit('guided-iam')}
+        >
+          <GuidedIamStep
+            onComplete={handleGuidedIamComplete}
+            onSkipToManual={handleGuidedIamSkipToManual}
+            initialProgress={guidedIamInitialProgress}
+            onBusyChange={setGuidedIamBusy}
+          />
+        </WizardStepPanel>
+        <WizardStepPanel
+          step="credentials"
+          activeStep={step}
+          collapsed={stepCollapsed}
+          label={STEP_LABELS['credentials']}
+          onEdit={() => startEdit('credentials')}
+          error={saveError}
+        >
+          <CredentialsStep
+            mode={credentialMode}
+            onModeChange={setCredentialMode}
+            profiles={profiles}
+            profilesLoading={profilesLoading}
+            profilesError={profilesError}
+            selectedProfileName={selectedProfileName}
+            onSelectProfile={selectProfile}
+            region={region}
+            onRegionChange={setRegion}
+            pasteAccessKeyId={pasteAccessKeyId}
+            pasteSecretAccessKey={pasteSecretAccessKey}
+            pasteRegion={pasteRegion}
+            onPasteFieldChange={pasteFieldChange}
+            onSubmitPaste={submitPaste}
+            pasteSaving={pasteSaving}
+            pasteError={pasteError}
+            pastedProfileName={pastedProfileName}
+            satisfiedByGuidedProvisioning={
+              guidedCredentials
+                ? { principal: 'AWS account (guided setup)', region: guidedCredentials.region }
+                : undefined
+            }
+            onSwitchSource={handleSwitchCredentialSource}
+          />
+        </WizardStepPanel>
+        <WizardStepPanel
+          step="bootstrap"
+          activeStep={step}
+          collapsed={stepCollapsed}
+          label={STEP_LABELS['bootstrap']}
+          onEdit={() => startEdit('bootstrap')}
+        >
+          <BootstrapStep
+            names={resourceNames}
+            statuses={resourceStatuses}
+            messages={resourceMessages}
+            onNameChange={resourceNameChange}
+            onRunBootstrap={runBootstrap}
+            bootstrapping={bootstrapping}
+            runsTableStatus={runsTableStatus}
+            runsTableMessage={runsTableMessage}
+            deploymentConfigStatus={deploymentConfigStatus}
+            deploymentConfigMessage={deploymentConfigMessage}
+            iamCheck={iamCheck}
+            iamChecking={iamChecking}
+            iamError={iamError}
+            onRunIamCheck={runIamCheck}
+          />
+        </WizardStepPanel>
         {step === 'stack-init' && (
           <StackInitializationStep
             onFinished={handleFinished}
@@ -960,6 +968,44 @@ export function FirstRunWizard({ onComplete, mode = 'first-run', onCancel }: Fir
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Renders one wizard step's slot in {@link FirstRunWizard}'s body: nothing when `step` isn't the currently active
+ * one, the Reconfigure {@link CompletedStepSummary} when `collapsed`, otherwise `children` followed by an
+ * {@link InlineAlert} for `error` (omitted entirely when the step has no save-error alert of its own, e.g.
+ * `guided-iam` and `bootstrap`, which already render their own error UI internally).
+ *
+ * @remarks
+ * Replaces four near-identical `{step === 'X' && (collapsed ? <CompletedStepSummary /> : <XStep />)}` blocks that
+ * previously lived inline in {@link FirstRunWizard}, two of which also repeated the same `saveError` alert
+ * fragment — collapsing them here keeps that logic in one place instead of four.
+ */
+function WizardStepPanel({
+  step,
+  activeStep,
+  collapsed,
+  label,
+  onEdit,
+  error,
+  children,
+}: {
+  step: WizardStep;
+  activeStep: WizardStep;
+  collapsed: boolean;
+  label: string;
+  onEdit: () => void;
+  error?: string | null;
+  children: ReactNode;
+}) {
+  if (step !== activeStep) return null;
+  if (collapsed) return <CompletedStepSummary label={label} onEdit={onEdit} />;
+  return (
+    <>
+      {children}
+      {error !== undefined && <InlineAlert message={error} />}
+    </>
   );
 }
 
