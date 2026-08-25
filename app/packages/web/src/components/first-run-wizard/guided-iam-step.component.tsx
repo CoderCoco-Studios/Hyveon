@@ -635,7 +635,12 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
                 <p className="text-sm text-muted-foreground">
                   Could not open a browser automatically — open this URL manually:
                 </p>
-                <Input value={consoleUrl} readOnly onFocus={(e) => e.currentTarget.select()} />
+                <Input
+                  value={consoleUrl}
+                  readOnly
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="AWS console URL"
+                />
               </div>
             )}
           </div>

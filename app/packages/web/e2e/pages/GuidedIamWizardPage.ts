@@ -148,14 +148,11 @@ export class GuidedIamWizardPage {
 
   /**
    * The read-only fallback input displaying the console URL as selectable
-   * text when `guidedIamOpenConsole()` could not open a browser. Has no
-   * accessible label of its own (unlike the template path input above), so
-   * this is scoped by its known ordering: it is the second `readonly`
-   * input on the template screen, always rendered after the template path
-   * input once `consoleUrl` is set.
+   * text when `guidedIamOpenConsole()` could not open a browser, identified
+   * by its `aria-label="AWS console URL"`.
    */
   consoleUrlFallbackInput(): Locator {
-    return this.page.locator('input[readonly]').nth(1);
+    return this.page.getByLabel('AWS console URL');
   }
 
   /** "Continue to key entry" button — moves from the template screen to the key-intake screen. */
