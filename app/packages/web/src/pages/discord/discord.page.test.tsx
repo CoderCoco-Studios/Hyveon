@@ -13,7 +13,7 @@ const apiMock = vi.hoisted(() => ({
   discordSaveCredentials: vi.fn().mockResolvedValue(undefined),
   discordRegisterCommands: vi.fn(),
 }));
-vi.mock('../api.service.js', () => ({ api: apiMock }));
+vi.mock('../../api.service.js', () => ({ api: apiMock }));
 
 const toastMock = vi.hoisted(() =>
   Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
@@ -21,7 +21,7 @@ const toastMock = vi.hoisted(() =>
 vi.mock('sonner', () => ({ toast: toastMock }));
 
 import { DiscordPage } from './discord.page.js';
-import { renderPage } from '../test-utils/render-page.utils.js';
+import { renderPage } from '../../test-utils/render-page.utils.js';
 
 const REDACTED_CONFIG = {
   clientId: '123456789012345678',

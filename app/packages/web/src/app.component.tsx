@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from './components/app-layout.component.js';
 import { DashboardPage } from './pages/dashboard.page.js';
 import { CostsPage } from './pages/costs.page.js';
-import { DiscordPage } from './pages/discord.page.js';
+import { DiscordPage } from './pages/discord/discord.page.js';
 import { LogsPage } from './pages/logs.page.js';
 import { InfrastructureLogsPage } from './pages/infrastructure-logs.page.js';
 import { IacPage } from './pages/iac.page.js';
