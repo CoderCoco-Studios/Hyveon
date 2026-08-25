@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type AuditEntry } from '../api.service.js';
 import { Button } from '@/components/ui/button.component';
 import {
@@ -31,28 +31,31 @@ export function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Shared unmount guard: set on unmount and checked by both the mount effect
+  // below and `loadMore`, so a "Load more" request that resolves after the
+  // operator has navigated away doesn't set state on an unmounted page.
+  const cancelledRef = useRef(false);
 
   // Mount-only effect: `loading` already initialises to `true` and `error` to
   // `null`, so the old `setLoading(true)` / `setError(null)` preamble only
   // ever re-set the values they already held. Dropping it removes the
   // `react-hooks/set-state-in-effect` violation with no behaviour change.
   useEffect(() => {
-    let cancelled = false;
     api
       .audit({ limit: PAGE_SIZE })
       .then((page) => {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setEntries(page.entries);
         setNextBefore(page.nextBefore);
       })
       .catch(() => {
-        if (!cancelled) setError('Could not load the audit log.');
+        if (!cancelledRef.current) setError('Could not load the audit log.');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
   }, []);
 
@@ -63,14 +66,15 @@ export function AuditPage() {
     api
       .audit({ limit: PAGE_SIZE, before: nextBefore })
       .then((page) => {
+        if (cancelledRef.current) return;
         setEntries((prev) => [...prev, ...page.entries]);
         setNextBefore(page.nextBefore);
       })
       .catch(() => {
-        setError('Could not load more audit entries.');
+        if (!cancelledRef.current) setError('Could not load more audit entries.');
       })
       .finally(() => {
-        setLoadingMore(false);
+        if (!cancelledRef.current) setLoadingMore(false);
       });
   }, [nextBefore]);
 

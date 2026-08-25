@@ -83,4 +83,9 @@ export class CostsPage {
   async filter(query: string): Promise<void> {
     await this.filterInput().fill(query);
   }
+
+  /** "No estimates match…" message shown when a filter query matches zero rows. */
+  noMatchesMessage(): Locator {
+    return this.page.getByText(/No estimates match/);
+  }
 }

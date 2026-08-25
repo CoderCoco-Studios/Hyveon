@@ -113,4 +113,23 @@ test.describe('costs page', () => {
       await app.close();
     }
   });
+
+  test('should show a no-matches message when the filter matches no games', async () => {
+    const { app, win } = await launchElectron();
+
+    try {
+      const costs = new CostsPage(win);
+      await applyHyveonMocks(win, { costs: MULTI_GAME_COST_DATA, statuses: [STOPPED_GAME] });
+
+      await costs.gotoElectron();
+      await costs.filter('nonexistentgame');
+
+      await expect(costs.noMatchesMessage()).toBeVisible();
+      await expect(costs.tableCell(/valheim/)).toHaveCount(0);
+      await expect(costs.tableCell(/minecraft/)).toHaveCount(0);
+      await expect(costs.tableCell(/palworld/)).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
 });
