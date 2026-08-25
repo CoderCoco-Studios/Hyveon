@@ -93,7 +93,16 @@ export function GuildsSection({
         confirmLabel="Remove guild"
         typeToConfirm={pendingRemoveId ?? ''}
         onConfirm={() => {
-          if (pendingRemoveId) void onRemove(pendingRemoveId);
+          if (pendingRemoveId) {
+            void onRemove(pendingRemoveId);
+            // Drop the id so a later re-add doesn't render a stale "registered" badge.
+            setRegistered((prev) => {
+              if (!prev.has(pendingRemoveId)) return prev;
+              const next = new Set(prev);
+              next.delete(pendingRemoveId);
+              return next;
+            });
+          }
           setPendingRemoveId(null);
         }}
       />

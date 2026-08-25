@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff, Check, AlertCircle, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button.component';
@@ -28,6 +28,11 @@ export function CredentialsSection({
   const [token, setToken] = useState('');
   const [publicKey, setPublicKey] = useState('');
   const [copied, setCopied] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the "Copied" reset timer on unmount so switching tabs within 1.5s of
+  // a copy doesn't call setCopied on an unmounted component.
+  useEffect(() => () => { if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current); }, []);
 
   /**
    * Validate Client ID as a Discord snowflake before submit. Empty is allowed
@@ -56,7 +61,8 @@ export function CredentialsSection({
     if (!cfg.interactionsEndpointUrl) return;
     void navigator.clipboard.writeText(cfg.interactionsEndpointUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    copiedTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
   }
 
   return (

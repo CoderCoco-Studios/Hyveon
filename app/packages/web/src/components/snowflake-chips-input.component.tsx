@@ -66,6 +66,10 @@ export function SnowflakeChipsInput({
             {chipId}
             <button
               type="button"
+              // Blur on the draft input commits it before a click fires; prevent the
+              // mousedown-triggered blur so removing a chip doesn't also commit a
+              // half-typed draft first.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => (onRemoveChip ? onRemoveChip(chipId) : removeAt(chipId))}
               aria-label={`Remove ${chipId}`}
               className="hover:text-[var(--color-red)]"
