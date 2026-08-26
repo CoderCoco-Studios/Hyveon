@@ -338,13 +338,17 @@ export function NetworkingStep({
                 )}
               </FormField>
 
-              <FormField id="health-check-timeout" label="Timeout (ms)" className="w-32">
+              <FormField
+                id="health-check-timeout"
+                label="Timeout (ms)"
+                className="w-32"
+                errors={messageFor(issues, 'healthCheck.timeoutMs')}
+              >
                 {(fieldProps) => (
                   <Input
                     {...fieldProps}
                     type="number"
                     value={healthCheck.timeoutMs ?? ''}
-                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.timeoutMs'))}
                     onChange={(event) => {
                       const raw = event.target.value;
                       onHealthCheckChange({ timeoutMs: raw === '' ? null : Number(raw) });
