@@ -37,6 +37,7 @@ export function GuidedIamIntakeScreen({
   submitting,
   onSubmit,
 }: GuidedIamIntakeScreenProps) {
+  const inputsDisabled = isRotating || submitting;
   return (
     <div className="space-y-6">
       {resumedRotationPending && (
@@ -57,7 +58,7 @@ export function GuidedIamIntakeScreen({
           value={region}
           placeholder="us-east-1"
           onChange={(e) => setRegion(e.target.value)}
-          disabled={isRotating}
+          disabled={inputsDisabled}
         />
       </div>
       <div className="space-y-2">
@@ -66,7 +67,7 @@ export function GuidedIamIntakeScreen({
           id="wizard-guided-iam-access-key-id"
           value={accessKeyId}
           onChange={(e) => setAccessKeyId(e.target.value)}
-          disabled={isRotating}
+          disabled={inputsDisabled}
         />
       </div>
       <div className="space-y-2">
@@ -76,7 +77,7 @@ export function GuidedIamIntakeScreen({
           type="password"
           value={secretAccessKey}
           onChange={(e) => setSecretAccessKey(e.target.value)}
-          disabled={isRotating}
+          disabled={inputsDisabled}
         />
       </div>
 
