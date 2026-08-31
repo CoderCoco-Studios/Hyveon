@@ -214,6 +214,15 @@ export interface GameServer {
   /** Environment variables injected into the container. Default when omitted: `[]`. */
   environment?: GameServerEnvironmentVariable[];
   /**
+   * Container start command (Docker `CMD`), passed to the container
+   * definition verbatim. Required when any {@link environment} value uses
+   * `${hyveon.network.public-ipv4}`: the boot-time IP resolver replaces the
+   * image's built-in `ENTRYPOINT`/`CMD`, so the original start invocation
+   * must be stated here. The image must provide `/bin/sh` in that case.
+   * Default when omitted: the image's built-in start command.
+   */
+  command?: string[];
+  /**
    * EFS-backed volume mounts. Must contain at least one entry with a
    * non-empty `name` and `container_path` — enforced by
    * `gameServerValidator.ts`, mirroring the app's original

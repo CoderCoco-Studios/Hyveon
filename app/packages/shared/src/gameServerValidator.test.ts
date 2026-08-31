@@ -871,3 +871,20 @@ describe('validateHealthCheckAuthInput', () => {
     expect(issues.some((i) => i.path === 'healthCheck.auth.token')).toBe(true);
   });
 });
+
+describe('command', () => {
+  it('should accept a command array of non-empty strings', () => {
+    const result = validateGameServer('game', makeProposed({ command: ['/start.sh', '--port', '8211'] }), []);
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject a command containing an empty string argument', () => {
+    const result = validateGameServer('game', makeProposed({ command: ['/start.sh', ''] }), []);
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept an entry with no command', () => {
+    const result = validateGameServer('game', makeProposed(), []);
+    expect(result.success).toBe(true);
+  });
+});

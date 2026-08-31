@@ -284,6 +284,7 @@ export const gameServerSchema = z.object({
   memory: z.number(),
   ports: z.array(gameServerPortSchema),
   environment: z.array(gameServerEnvironmentVariableSchema).optional(),
+  command: z.array(z.string().min(1, 'command arguments must not be empty.')).optional(),
   volumes: z
     .array(gameServerVolumeSchema)
     .min(1, 'Each game server must have at least one volume entry with non-empty name and container_path.'),
