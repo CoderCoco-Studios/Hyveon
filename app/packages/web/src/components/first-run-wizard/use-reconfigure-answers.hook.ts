@@ -169,9 +169,14 @@ export function useReconfigureAnswers({
         // (now-defaulted) values, so a failed prefill can't clobber what's
         // actually stored.
       });
-    // `credentials`/`setResourceNames`/`setSelectedCloud` are stable across
-    // renders (raw `useState` setters, or another hook's stable-identity
-    // return value) — only `profiles`/`profilesError` actually gate re-runs.
+    // `setResourceNames`/`setSelectedCloud` are stable across renders (raw
+    // `useState` setters). `credentials` itself is a fresh object every
+    // render (from `useAwsCredentialsForm`), but every `credentials.*` call
+    // in this effect is one of its raw setters, which are individually
+    // stable — so omitting `credentials` is safe only as long as that stays
+    // true. If a future edit routes a call through a non-setter member of
+    // `credentials` here, add it to the deps explicitly instead of relying
+    // on this blanket suppression.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, profiles, profilesError]);
 
