@@ -94,54 +94,17 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
         )}
 
         <div className="space-y-3">
-          {volumes.map((volume, index) => {
-            const nameError = messageFor(issues, `volumes[${index}].name`);
-            const pathError = messageFor(issues, `volumes[${index}].container_path`);
-            const canRemove = volumes.length > 1;
-
-            return (
-              <div
-                key={index}
-                data-testid={`volume-row-${index}`}
-                className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
-              >
-                <div className="flex items-end gap-3">
-                  <FormField id={`volume-name-${index}`} label="Volume name" errors={nameError} className="flex-1">
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        value={volume.name}
-                        placeholder="data"
-                        onChange={(event) => updateVolume(index, { name: event.target.value })}
-                      />
-                    )}
-                  </FormField>
-
-                  <FormField id={`volume-path-${index}`} label="Container path" errors={pathError} className="flex-1">
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        value={volume.container_path}
-                        placeholder="/data"
-                        onChange={(event) => updateVolume(index, { container_path: event.target.value })}
-                      />
-                    )}
-                  </FormField>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!canRemove}
-                    aria-label={canRemove ? `Remove volume ${index + 1}` : `Remove volume ${index + 1} (at least one volume is required)`}
-                    onClick={() => removeVolume(index)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+          {volumes.map((volume, index) => (
+            <VolumeRow
+              key={index}
+              index={index}
+              volume={volume}
+              issues={issues}
+              canRemove={volumes.length > 1}
+              onUpdate={updateVolume}
+              onRemove={removeVolume}
+            />
+          ))}
         </div>
 
         <Button type="button" variant="secondary" size="sm" onClick={addVolume}>
@@ -162,93 +125,177 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
         )}
 
         <div className="space-y-3">
-          {fileSeeds.map((seed, index) => {
-            const pathError = messageFor(issues, `file_seeds[${index}].path`);
-            const contentError = messageFor(issues, `file_seeds[${index}].content`);
-            const base64Error = messageFor(issues, `file_seeds[${index}].content_base64`);
-            const modeError = messageFor(issues, `file_seeds[${index}].mode`);
-
-            return (
-              <div
-                key={index}
-                data-testid={`file-seed-row-${index}`}
-                className={cn(
-                  'space-y-3 rounded-[var(--radius-sm)] border p-3',
-                  pathError ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
-                )}
-              >
-                <div className="flex items-end gap-3">
-                  <FormField id={`file-seed-path-${index}`} label="Path" errors={pathError} className="flex-1">
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        value={seed.path}
-                        placeholder="/data/config.yml"
-                        onChange={(event) => updateFileSeed(index, { path: event.target.value })}
-                      />
-                    )}
-                  </FormField>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Remove file seed ${index + 1}`}
-                    onClick={() => removeFileSeed(index)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-
-                <FormField id={`file-seed-content-${index}`} label="Content" errors={contentError}>
-                  {(fieldProps) => (
-                    <Textarea
-                      {...fieldProps}
-                      value={seed.content}
-                      placeholder="Plain-text file contents"
-                      rows={3}
-                      onChange={(event) => updateFileSeed(index, { content: event.target.value })}
-                    />
-                  )}
-                </FormField>
-
-                <div className="flex gap-3">
-                  <FormField
-                    id={`file-seed-base64-${index}`}
-                    label="Content (base64)"
-                    errors={base64Error}
-                    className="flex-1"
-                  >
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        value={seed.content_base64}
-                        placeholder="Base64-encoded binary contents"
-                        onChange={(event) => updateFileSeed(index, { content_base64: event.target.value })}
-                      />
-                    )}
-                  </FormField>
-
-                  <FormField id={`file-seed-mode-${index}`} label="Mode" errors={modeError} className="w-28">
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        value={seed.mode}
-                        placeholder="0644"
-                        onChange={(event) => updateFileSeed(index, { mode: event.target.value })}
-                      />
-                    )}
-                  </FormField>
-                </div>
-              </div>
-            );
-          })}
+          {fileSeeds.map((seed, index) => (
+            <FileSeedRow
+              key={index}
+              index={index}
+              seed={seed}
+              issues={issues}
+              onUpdate={updateFileSeed}
+              onRemove={removeFileSeed}
+            />
+          ))}
         </div>
 
         <Button type="button" variant="secondary" size="sm" onClick={addFileSeed}>
           Add file seed
         </Button>
       </section>
+    </div>
+  );
+}
+
+/** Props for {@link VolumeRow}. */
+interface VolumeRowProps {
+  /** Position in the `volumes` array; used for `data-testid`, field ids, and error-path matching. */
+  index: number;
+  /** This row's current draft value. */
+  volume: WizardDraftVolume;
+  /** Validation issues for the whole Storage step; filtered here to this row's `volumes[index].*` paths. */
+  issues: GameServerValidationIssue[];
+  /** Whether the "Remove" button is enabled — `false` when this is the only remaining volume row. */
+  canRemove: boolean;
+  /** Called with this row's index and a patch whenever a field changes. */
+  onUpdate: (index: number, patch: Partial<WizardDraftVolume>) => void;
+  /** Called with this row's index when "Remove" is clicked. */
+  onRemove: (index: number) => void;
+}
+
+/** One `volumes` row: name + container path, with a "Remove" button disabled when it's the only row. */
+function VolumeRow({ index, volume, issues, canRemove, onUpdate, onRemove }: VolumeRowProps) {
+  const nameError = messageFor(issues, `volumes[${index}].name`);
+  const pathError = messageFor(issues, `volumes[${index}].container_path`);
+
+  return (
+    <div
+      data-testid={`volume-row-${index}`}
+      className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
+    >
+      <div className="flex items-end gap-3">
+        <FormField id={`volume-name-${index}`} label="Volume name" errors={nameError} className="flex-1">
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={volume.name}
+              placeholder="data"
+              onChange={(event) => onUpdate(index, { name: event.target.value })}
+            />
+          )}
+        </FormField>
+
+        <FormField id={`volume-path-${index}`} label="Container path" errors={pathError} className="flex-1">
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={volume.container_path}
+              placeholder="/data"
+              onChange={(event) => onUpdate(index, { container_path: event.target.value })}
+            />
+          )}
+        </FormField>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!canRemove}
+          aria-label={canRemove ? `Remove volume ${index + 1}` : `Remove volume ${index + 1} (at least one volume is required)`}
+          onClick={() => onRemove(index)}
+        >
+          Remove
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Props for {@link FileSeedRow}. */
+interface FileSeedRowProps {
+  /** Position in the `file_seeds` array; used for `data-testid`, field ids, and error-path matching. */
+  index: number;
+  /** This row's current draft value. */
+  seed: WizardDraftFileSeed;
+  /** Validation issues for the whole Storage step; filtered here to this row's `file_seeds[index].*` paths. */
+  issues: GameServerValidationIssue[];
+  /** Called with this row's index and a patch whenever a field changes. */
+  onUpdate: (index: number, patch: Partial<WizardDraftFileSeed>) => void;
+  /** Called with this row's index when "Remove" is clicked. */
+  onRemove: (index: number) => void;
+}
+
+/** One `file_seeds` row: path, plain-text content, base64 content, and file mode. */
+function FileSeedRow({ index, seed, issues, onUpdate, onRemove }: FileSeedRowProps) {
+  const pathError = messageFor(issues, `file_seeds[${index}].path`);
+  const contentError = messageFor(issues, `file_seeds[${index}].content`);
+  const base64Error = messageFor(issues, `file_seeds[${index}].content_base64`);
+  const modeError = messageFor(issues, `file_seeds[${index}].mode`);
+
+  return (
+    <div
+      data-testid={`file-seed-row-${index}`}
+      className={cn(
+        'space-y-3 rounded-[var(--radius-sm)] border p-3',
+        pathError ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
+      )}
+    >
+      <div className="flex items-end gap-3">
+        <FormField id={`file-seed-path-${index}`} label="Path" errors={pathError} className="flex-1">
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={seed.path}
+              placeholder="/data/config.yml"
+              onChange={(event) => onUpdate(index, { path: event.target.value })}
+            />
+          )}
+        </FormField>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`Remove file seed ${index + 1}`}
+          onClick={() => onRemove(index)}
+        >
+          Remove
+        </Button>
+      </div>
+
+      <FormField id={`file-seed-content-${index}`} label="Content" errors={contentError}>
+        {(fieldProps) => (
+          <Textarea
+            {...fieldProps}
+            value={seed.content}
+            placeholder="Plain-text file contents"
+            rows={3}
+            onChange={(event) => onUpdate(index, { content: event.target.value })}
+          />
+        )}
+      </FormField>
+
+      <div className="flex gap-3">
+        <FormField id={`file-seed-base64-${index}`} label="Content (base64)" errors={base64Error} className="flex-1">
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={seed.content_base64}
+              placeholder="Base64-encoded binary contents"
+              onChange={(event) => onUpdate(index, { content_base64: event.target.value })}
+            />
+          )}
+        </FormField>
+
+        <FormField id={`file-seed-mode-${index}`} label="Mode" errors={modeError} className="w-28">
+          {(fieldProps) => (
+            <Input
+              {...fieldProps}
+              value={seed.mode}
+              placeholder="0644"
+              onChange={(event) => onUpdate(index, { mode: event.target.value })}
+            />
+          )}
+        </FormField>
+      </div>
     </div>
   );
 }
