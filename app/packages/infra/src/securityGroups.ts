@@ -239,6 +239,31 @@ export function hasHttpsGame(gameServers: Record<string, GameServerConfig>): boo
 }
 
 /**
+ * Builds one inline `ingress` entry for a {@link GamePort}, shared by both the
+ * public (`0.0.0.0/0`) and internal (VPC CIDR) loops in
+ * {@link defineSecurityGroups}. An `icmp` entry has no meaningful "host port"
+ * — `port.port` is the ICMP type, not a transport port — so it maps to
+ * `toPort: -1` (ICMP wildcard code) instead of repeating `fromPort`, per the
+ * spec's "ICMP port declarations" requirement.
+ *
+ * @param port - The port/protocol pair to build a rule for.
+ * @param cidrBlocks - The source CIDR block(s) — `['0.0.0.0/0']` for a public
+ *   entry, the VPC's CIDR for an internal one.
+ * @param suffix - Appended to the description (`' (internal)'` for internal
+ *   entries, `''` for public ones), matching the existing description text exactly.
+ * @returns The ingress rule, ready to push onto `gamePortIngress`.
+ */
+function ingressRule(
+  port: GamePort,
+  cidrBlocks: pulumi.Input<string>[],
+  suffix = '',
+): pulumi.Input<aws.types.input.ec2.SecurityGroupIngress> {
+  return port.protocol === 'icmp'
+    ? { description: `ICMP type ${port.port}${suffix}`, fromPort: port.port, toPort: -1, protocol: 'icmp', cidrBlocks }
+    : { description: `Game port ${port.port}/${port.protocol}${suffix}`, fromPort: port.port, toPort: port.port, protocol: port.protocol, cidrBlocks };
+}
+
+/**
  * Declares the `game_servers`, `file_manager`, `efs`, and conditional
  * `efs_seeder` security groups. Must be called from inside the Pulumi inline-program closure (see
  * `program.ts`'s {@link createInfraProgram}/`defineAll`), never at module
@@ -263,13 +288,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
   // Non-HTTPS game ports — open directly to the internet.
   const gamePortIngress: pulumi.Input<aws.types.input.ec2.SecurityGroupIngress>[] = dedupedDirectGamePorts(
     gameServers,
-  ).map((port) => ({
-    description: `Game port ${port.port}/${port.protocol}`,
-    fromPort: port.port,
-    toPort: port.port,
-    protocol: port.protocol,
-    cidrBlocks: ['0.0.0.0/0'],
-  }));
+  ).map((port) => ingressRule(port, ['0.0.0.0/0']));
 
   // Internal-visibility game ports — VPC CIDR only, resolved via a plain
   // data lookup (no resource declared) only when at least one such port
@@ -280,13 +299,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
   if (internalPorts.length > 0) {
     const vpcCidrBlock = aws.ec2.getVpcOutput({ id: vpcId }, opts).cidrBlock;
     for (const port of internalPorts) {
-      gamePortIngress.push({
-        description: `Game port ${port.port}/${port.protocol} (internal)`,
-        fromPort: port.port,
-        toPort: port.port,
-        protocol: port.protocol,
-        cidrBlocks: [vpcCidrBlock],
-      });
+      gamePortIngress.push(ingressRule(port, [vpcCidrBlock], ' (internal)'));
     }
   }
 

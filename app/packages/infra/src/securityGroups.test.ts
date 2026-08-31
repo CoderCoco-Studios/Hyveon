@@ -442,6 +442,44 @@ describe('defineSecurityGroups', () => {
     expect(ingress.filter((rule) => rule.fromPort === 25565)).toHaveLength(1);
   });
 
+  it('should declare an icmp ingress rule with toPort -1 and no separate host port, sourced from the open internet for a public entry', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8, protocol: 'icmp' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const sg = findByName(mocks.resources, 'hyveon-sg');
+    expect(sg.inputs.ingress).toEqual([
+      { description: 'ICMP type 8', fromPort: 8, toPort: -1, protocol: 'icmp', cidrBlocks: ['0.0.0.0/0'] },
+    ]);
+  });
+
+  it('should source an internal-visibility icmp ingress rule from the VPC CIDR block, matching tcp/udp internal rules', async () => {
+    const provider = new aws.Provider('aws', { region: 'us-east-1' });
+    const gameServers: Record<string, GameServerConfig> = {
+      echo: {
+        image: 'example/echo:latest',
+        cpu: 1024,
+        memory: 2048,
+        ports: [{ container: 8, protocol: 'icmp', visibility: 'internal' }],
+        volumes: [{ name: 'saves', container_path: '/data' }],
+      },
+    };
+    await runDefineSecurityGroups({ projectName: 'hyveon', gameServers, vpcId: 'vpc-mock', provider });
+
+    const sg = findByName(mocks.resources, 'hyveon-sg');
+    expect(sg.inputs.ingress).toEqual([
+      { description: 'ICMP type 8 (internal)', fromPort: 8, toPort: -1, protocol: 'icmp', cidrBlocks: ['10.0.0.0/16'] },
+    ]);
+  });
+
   it('should declare no health-check security group or egress rules when no game declares healthCheck', async () => {
     const provider = new aws.Provider('aws', { region: 'us-east-1' });
     const result = await runDefineSecurityGroups({
