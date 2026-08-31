@@ -41,6 +41,7 @@ export function AuditPage() {
   // ever re-set the values they already held. Dropping it removes the
   // `react-hooks/set-state-in-effect` violation with no behaviour change.
   useEffect(() => {
+    cancelledRef.current = false;
     api
       .audit({ limit: PAGE_SIZE })
       .then((page) => {
