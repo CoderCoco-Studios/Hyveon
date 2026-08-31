@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import type { DeploymentConfigDiff } from '@hyveon/shared';
 import { Button } from './ui/button.component.js';
 import { ConfirmDialog } from './confirm-dialog.component.js';
+import { formatTimestamp } from '@/lib/utils.utils';
 
 /** Result of a confirmed rollback, handed to {@link RollbackActionProps.onRolledBack}. */
 export interface RollbackResult {
@@ -17,12 +18,6 @@ interface RollbackActionProps {
   applyRunId: string;
   /** Called once the rollback is confirmed and the historic configuration version has been restored as the new head. */
   onRolledBack: (result: RollbackResult) => void;
-}
-
-/** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Loader2, RotateCcw, XCircle } from 'lucide-react';
 import type { HyveonStreamHandle, StackInitPhase, StackInitPhaseEvent } from '@hyveon/desktop-preload';
+import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 
 /** Per-phase status this step tracks, derived from the {@link StackInitPhaseEvent} stream. */
@@ -200,9 +201,7 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
 
       {status === 'failed' && (
         <div className="space-y-2">
-          <p role="alert" className="text-sm text-[var(--color-red)]">
-            {errorMessage ?? 'Stack initialization failed — see above for which step failed.'}
-          </p>
+          <InlineAlert message={errorMessage ?? 'Stack initialization failed — see above for which step failed.'} />
           <Button type="button" variant="outline" onClick={retry}>
             <RotateCcw className="size-4" />
             Retry
@@ -217,11 +216,7 @@ export function StackInitializationStep({ onFinished, onBeforeFinish }: StackIni
         </div>
       )}
 
-      {finishError && (
-        <p role="alert" className="text-sm text-[var(--color-red)]">
-          {finishError}
-        </p>
-      )}
+      <InlineAlert message={finishError} />
 
       <Button type="button" onClick={() => void finish()} disabled={status !== 'success' || finishing}>
         {finishing && <Loader2 className="animate-spin" />}

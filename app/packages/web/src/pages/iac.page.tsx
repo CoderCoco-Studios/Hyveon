@@ -17,6 +17,8 @@ import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ConfirmDialog } from '../components/confirm-dialog.component.js';
+import { ErrorBanner } from '../components/error-banner.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 
 /**
  * `location.state` shape the rollback flow (#112) navigates to `/iac`
@@ -327,7 +329,7 @@ function BusyBanner({
             {clearing ? <Loader2 className="animate-spin" /> : null}
             Clear lock and retry
           </Button>
-          {clearError && <ErrorBanner message={clearError} />}
+          {clearError && <ErrorBanner>{clearError}</ErrorBanner>}
           <ConfirmDialog
             open={confirmOpen}
             onOpenChange={setConfirmOpen}
@@ -345,18 +347,6 @@ function BusyBanner({
           />
         </>
       )}
-    </div>
-  );
-}
-
-/** Inline, non-conflict submission/approval error banner. Reused by the read-only history detail view. */
-export function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div
-      role="alert"
-      className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
-    >
-      {message}
     </div>
   );
 }
@@ -467,7 +457,7 @@ function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) 
         {clearing ? <Loader2 className="animate-spin" /> : null}
         Clear lock and retry
       </Button>
-      {clearError && <ErrorBanner message={clearError} />}
+      {clearError && <ErrorBanner>{clearError}</ErrorBanner>}
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -600,10 +590,7 @@ export function ChangeSummaryStatus({ summary }: { summary: ChangeSummary | unde
  */
 function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
   return (
-    <div
-      role="alert"
-      className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
-    >
+    <ErrorBanner className="flex flex-col gap-2">
       <p>
         <strong>Apply stopped partway through.</strong> Some resources were already changed before this run
         failed or was aborted, so the deployed infrastructure no longer matches the plan you approved.
@@ -614,7 +601,7 @@ function PartialApplyBanner({ onStartOver }: { onStartOver: () => void }) {
         <RotateCcw />
         Start over
       </Button>
-    </div>
+    </ErrorBanner>
   );
 }
 
@@ -903,20 +890,11 @@ export function IacPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Infrastructure</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            Plan, review, and apply infrastructure changes directly from the app.
-          </p>
-        </div>
-        <Link
-          to="/iac/history"
-          className="text-sm text-[var(--color-primary)] underline underline-offset-2"
-        >
+      <PageHeader title="Infrastructure" subtitle="Plan, review, and apply infrastructure changes directly from the app.">
+        <Link to="/iac/history" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
           View history
         </Link>
-      </div>
+      </PageHeader>
 
       {!planRunId && (
         <div className="flex flex-col gap-3">
@@ -956,7 +934,7 @@ export function IacPage() {
                   }}
                 />
               )}
-              {planSubmitError && <ErrorBanner message={planSubmitError} />}
+              {planSubmitError && <ErrorBanner>{planSubmitError}</ErrorBanner>}
             </>
           )}
         </div>
@@ -983,12 +961,12 @@ export function IacPage() {
 
           <AnsiLogViewer chunks={planLog.chunks} emptyMessage="Waiting for plan output…" />
 
-          {planLog.error && <ErrorBanner message={`Log stream error: ${planLog.error}`} />}
+          {planLog.error && <ErrorBanner>{`Log stream error: ${planLog.error}`}</ErrorBanner>}
 
           {planFailed && (
-            <ErrorBanner
-              message={`Plan ${planStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
-            />
+            <ErrorBanner>
+              {`Plan ${planStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+            </ErrorBanner>
           )}
 
           {planFinished && !planFailed && !approval && (
@@ -997,7 +975,7 @@ export function IacPage() {
                 {approving ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
                 Approve plan
               </Button>
-              {approveError && <ErrorBanner message={approveError} />}
+              {approveError && <ErrorBanner>{approveError}</ErrorBanner>}
             </div>
           )}
 
@@ -1053,7 +1031,7 @@ export function IacPage() {
                           }}
                         />
                       )}
-                      {applySubmitError && <ErrorBanner message={applySubmitError} />}
+                      {applySubmitError && <ErrorBanner>{applySubmitError}</ErrorBanner>}
                     </>
                   )}
                 </div>
@@ -1077,15 +1055,15 @@ export function IacPage() {
 
               <AnsiLogViewer chunks={applyLog.chunks} emptyMessage="Waiting for apply output…" />
 
-              {applyLog.error && <ErrorBanner message={`Log stream error: ${applyLog.error}`} />}
-              {!applyFinished && applySubmitError && <ErrorBanner message={applySubmitError} />}
+              {applyLog.error && <ErrorBanner>{`Log stream error: ${applyLog.error}`}</ErrorBanner>}
+              {!applyFinished && applySubmitError && <ErrorBanner>{applySubmitError}</ErrorBanner>}
 
               {applyPartial ? (
                 <PartialApplyBanner onStartOver={startOver} />
               ) : (applyStatus === 'failed' || applyStatus === 'aborted') ? (
-                <ErrorBanner
-                  message={`Apply ${applyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
-                />
+                <ErrorBanner>
+                  {`Apply ${applyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+                </ErrorBanner>
               ) : null}
 
               {applyStatus === 'success' && (
@@ -1167,7 +1145,7 @@ export function IacPage() {
                     }}
                   />
                 )}
-                {destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+                {destroySubmitError && <ErrorBanner>{destroySubmitError}</ErrorBanner>}
               </>
             )}
           </div>
@@ -1195,13 +1173,13 @@ export function IacPage() {
 
             <AnsiLogViewer chunks={destroyLog.chunks} emptyMessage="Waiting for destroy output…" />
 
-            {destroyLog.error && <ErrorBanner message={`Log stream error: ${destroyLog.error}`} />}
-            {!destroyFinished && destroySubmitError && <ErrorBanner message={destroySubmitError} />}
+            {destroyLog.error && <ErrorBanner>{`Log stream error: ${destroyLog.error}`}</ErrorBanner>}
+            {!destroyFinished && destroySubmitError && <ErrorBanner>{destroySubmitError}</ErrorBanner>}
 
             {destroyStatus === 'failed' || destroyStatus === 'aborted' ? (
-              <ErrorBanner
-                message={`Destroy ${destroyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
-              />
+              <ErrorBanner>
+                {`Destroy ${destroyStatus === 'aborted' ? 'was aborted' : 'failed'} — see the log above for details.`}
+              </ErrorBanner>
             ) : null}
 
             {destroyStatus === 'success' && (

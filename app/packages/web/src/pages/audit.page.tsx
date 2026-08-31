@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { api, type AuditEntry } from '../api.service.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
@@ -11,6 +10,8 @@ import {
   TableRow,
 } from '@/components/ui/table.component';
 import { AuditEntryRow } from '../components/audit-entry-row.component.js';
+import { LoadingState, InlineSpinner } from '../components/loading-state.component.js';
+import { PageHeader } from '../components/page-header.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 
 /** Number of audit entries fetched per page (initial load and each "Load more"). */
@@ -74,15 +75,9 @@ export function AuditPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Audit Log</h2>
-          <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-            Who changed which game&apos;s configuration, and what changed.
-          </p>
-        </div>
+      <PageHeader title="Audit Log" subtitle="Who changed which game's configuration, and what changed.">
         <PollingIndicator />
-      </header>
+      </PageHeader>
 
       <Card>
         <CardHeader className="pb-3">
@@ -92,10 +87,7 @@ export function AuditPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex h-32 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Loading…
-            </div>
+            <LoadingState />
           ) : error && entries.length === 0 ? (
             <div className="flex h-32 items-center justify-center text-sm text-[var(--color-red)]">
               {error}
@@ -133,7 +125,7 @@ export function AuditPage() {
                   <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
                     {loadingMore ? (
                       <>
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                        <InlineSpinner />
                         Loading…
                       </>
                     ) : (

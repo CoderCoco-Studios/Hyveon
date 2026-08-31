@@ -10,7 +10,7 @@ import { PendingChangesBanner } from '../components/pending-changes-banner.compo
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Input } from '@/components/ui/input.component';
 import { Button } from '@/components/ui/button.component';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.component';
+import { EmptyStateCard } from '@/components/empty-state-card.component';
 
 /**
  * Dashboard route (`/`) — top KPI strip, then a search-filterable grid of
@@ -113,37 +113,27 @@ export function DashboardPage() {
  */
 function StatusErrorCard({ error, onRetry }: { error: Error; onRetry: () => Promise<void> }) {
   return (
-    <Card className="max-w-lg w-full border-[var(--color-red)]/40">
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="p-2 rounded-lg bg-[var(--color-red)]/10">
-            <AlertTriangle className="size-5 text-[var(--color-red)]" />
-          </div>
-          <CardTitle>Couldn&apos;t load game status</CardTitle>
-        </div>
-        <CardDescription>{error.message || 'The status request failed.'}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button variant="outline" size="sm" onClick={() => void onRetry()}>
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
+    <EmptyStateCard
+      icon={AlertTriangle}
+      tone="error"
+      title="Couldn't load game status"
+      description={error.message || 'The status request failed.'}
+    >
+      <Button variant="outline" size="sm" onClick={() => void onRetry()}>
+        Retry
+      </Button>
+    </EmptyStateCard>
   );
 }
 
 /** Shown when the API returns no game statuses — guides first-time operators. */
 function NoGamesCard() {
   return (
-    <Card className="max-w-lg w-full border-[var(--color-border)]">
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="p-2 rounded-lg bg-[var(--color-primary)]/10">
-            <Server className="size-5 text-[var(--color-primary-light)]" />
-          </div>
-          <CardTitle>No games deployed</CardTitle>
-        </div>
-        <CardDescription>
+    <EmptyStateCard
+      icon={Server}
+      title="No games deployed"
+      description={
+        <>
           Declare a game on the{' '}
           <Link to="/games" className="underline underline-offset-2">
             Games
@@ -153,25 +143,24 @@ function NoGamesCard() {
             Infrastructure
           </Link>{' '}
           to create its ECS task definition, EFS volume, and CloudWatch log group.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-4">
-        <a
-          href="https://codercoco.github.io/Hyveon/setup"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
-        >
-          Open setup guide
-          <ExternalLink className="size-3.5" />
-        </a>
-        <Link
-          to="/games"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
-        >
-          Add a game
-        </Link>
-      </CardContent>
-    </Card>
+        </>
+      }
+    >
+      <a
+        href="https://codercoco.github.io/Hyveon/setup"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
+      >
+        Open setup guide
+        <ExternalLink className="size-3.5" />
+      </a>
+      <Link
+        to="/games"
+        className="inline-flex items-center gap-1.5 text-sm text-[var(--color-primary-light)] underline-offset-4 hover:underline"
+      >
+        Add a game
+      </Link>
+    </EmptyStateCard>
   );
 }

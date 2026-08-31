@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table.component';
 import { cn } from '@/lib/utils.utils';
+import { PageHeader } from '../components/page-header.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 
 /**
@@ -92,15 +93,12 @@ export function CostsPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Cost Analysis</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
-            Per-game Fargate cost estimates. For real billed spend, see AWS Cost Explorer.
-          </p>
-        </div>
+      <PageHeader
+        title="Cost Analysis"
+        subtitle="Per-game Fargate cost estimates. For real billed spend, see AWS Cost Explorer."
+      >
         <PollingIndicator />
-      </header>
+      </PageHeader>
 
       <CostExplorerCallout />
 

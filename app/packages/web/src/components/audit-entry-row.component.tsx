@@ -4,7 +4,7 @@ import type { AuditAction, AuditEntry } from '../api.service.js';
 import { Badge } from '@/components/ui/badge.component';
 import { Button } from '@/components/ui/button.component';
 import { TableCell, TableRow } from '@/components/ui/table.component';
-import { cn } from '@/lib/utils.utils';
+import { cn, formatTimestamp } from '@/lib/utils.utils';
 
 /**
  * Maps an {@link AuditAction} to the badge color variant used in the audit log.
@@ -26,12 +26,6 @@ const ACTION_BADGE_VARIANT: Record<AuditAction, 'success' | 'warning' | 'destruc
   destroy: 'destructive',
   rollback: 'secondary',
 };
-
-/** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
 
 /** Pretty-print a `before`/`after` config for the expanded diff view, or `'null'` when absent. */
 function formatDiffValue(value: unknown): string {

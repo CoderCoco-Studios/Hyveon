@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
 import type { RunHistoryRecord, RunHistoryStatus, IacRunKind } from '@hyveon/desktop-preload';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.component.js';
 import { Button } from '../components/ui/button.component.js';
@@ -8,6 +7,9 @@ import { Badge } from '../components/ui/badge.component.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
 import { RollbackAction, type RollbackResult } from '../components/rollback-action.component.js';
+import { LoadingState, InlineSpinner } from '../components/loading-state.component.js';
+import { PageHeader } from '../components/page-header.component.js';
+import { formatTimestamp } from '../lib/utils.utils.js';
 import { ChangeSummaryStatus } from './iac.page.js';
 
 /** Number of run records fetched per page (initial load and each "Load more"). */
@@ -21,12 +23,6 @@ type KindFilter = IacRunKind | 'all';
 
 /** `status` filter options, `'all'` meaning no filter is applied (i.e. the unfiltered `hyveon.iac.runs.list` path). */
 type StatusFilter = RunHistoryStatus | 'all';
-
-/** Format an ISO-8601 timestamp as a locale-aware date+time string, falling back to the raw value if unparseable. */
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
 
 /**
  * Iac run-history route (`/iac/history`) — a newest-first table
@@ -156,17 +152,11 @@ export function IacHistoryPage() {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-[var(--color-foreground)]">Run History</h2>
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            Past plan, apply, and destroy runs.
-          </p>
-        </div>
+      <PageHeader title="Run History" subtitle="Past plan, apply, and destroy runs.">
         <Link to="/iac" className="text-sm text-[var(--color-primary)] underline underline-offset-2">
           Back to Plan/Apply
         </Link>
-      </div>
+      </PageHeader>
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
@@ -205,10 +195,7 @@ export function IacHistoryPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex h-32 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Loading…
-            </div>
+            <LoadingState />
           ) : error && records.length === 0 ? (
             <div className="flex h-32 items-center justify-center text-sm text-[var(--color-red)]">{error}</div>
           ) : visibleRecords.length === 0 ? (
@@ -283,7 +270,7 @@ export function IacHistoryPage() {
                   <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
                     {loadingMore ? (
                       <>
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                        <InlineSpinner />
                         Loading…
                       </>
                     ) : (

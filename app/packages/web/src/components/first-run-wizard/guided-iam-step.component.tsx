@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 import type { WizardProgress } from '@hyveon/desktop-preload';
 import { AWS_REGIONS, type AwsRegionInfo } from '@hyveon/shared';
+import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
@@ -554,11 +555,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
               </SelectContent>
             </Select>
           )}
-          {regionError && (
-            <p role="alert" className="text-sm text-[var(--color-red)]">
-              {regionError}
-            </p>
-          )}
+          <InlineAlert message={regionError} />
         </div>
 
         <div className="flex gap-2">
@@ -590,9 +587,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
 
         {templateError && (
           <div className="space-y-2">
-            <p role="alert" className="text-sm text-[var(--color-red)]">
-              {templateError}
-            </p>
+            <InlineAlert message={templateError} />
             <Button type="button" variant="outline" onClick={() => setTemplateError(null)}>
               <RotateCcw className="size-4" />
               Retry
@@ -626,11 +621,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
               Open AWS Console
             </Button>
 
-            {consoleError && (
-              <p role="alert" className="text-sm text-[var(--color-red)]">
-                {consoleError}
-              </p>
-            )}
+            <InlineAlert message={consoleError} />
 
             {consoleOpened && (
               <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
@@ -703,11 +694,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
           />
         </div>
 
-        {intakeError && (
-          <p role="alert" className="text-sm text-[var(--color-red)]">
-            {intakeError}
-          </p>
-        )}
+        <InlineAlert message={intakeError} />
 
         {phase === 'rotating' ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -727,9 +714,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
   if (phase === 'verification-failed') {
     return (
       <div className="space-y-4">
-        <p role="alert" className="text-sm text-[var(--color-red)]">
-          {rotationError ?? 'Key rotation failed verification.'}
-        </p>
+        <InlineAlert message={rotationError ?? 'Key rotation failed verification.'} />
         <p className="text-sm text-muted-foreground">
           The newly minted key could not be verified. This can happen if AWS hasn&apos;t finished propagating the key
           yet — retrying with the same bootstrap key is safe.
@@ -764,11 +749,7 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
         </div>
       )}
 
-      {revokeError && (
-        <p role="alert" className="text-sm text-[var(--color-red)]">
-          {revokeError}
-        </p>
-      )}
+      <InlineAlert message={revokeError} />
 
       <Button type="button" variant="outline" onClick={() => void handleRevoke()} disabled={revoking}>
         {revoking && <Loader2 className="animate-spin" />}

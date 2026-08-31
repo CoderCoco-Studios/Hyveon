@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Pause, Play, Search } from 'lucide-react';
 import { api } from '../api.service.js';
+import { ErrorBanner } from './error-banner.component.js';
 import { Button } from './ui/button.component.js';
 import { Input } from './ui/input.component.js';
 import { LogLineList } from './log-line-display.component.js';
@@ -163,12 +164,7 @@ export function DiagnosticsPanel() {
 
   if (error) {
     return (
-      <div
-        role="alert"
-        className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
-      >
-        {error}
-      </div>
+      <ErrorBanner>{error}</ErrorBanner>
     );
   }
 
@@ -222,12 +218,7 @@ export function DiagnosticsPanel() {
       )}
 
       {typeof exportState === 'object' && exportState.status === 'error' && (
-        <div
-          role="alert"
-          className="rounded-[var(--radius-sm)] border border-[var(--color-red)]/40 bg-[var(--color-red)]/10 px-3 py-2 text-sm text-[var(--color-red)]"
-        >
-          Failed to export diagnostics bundle: {exportState.message}
-        </div>
+        <ErrorBanner>Failed to export diagnostics bundle: {exportState.message}</ErrorBanner>
       )}
 
       <LogLineList

@@ -1,5 +1,6 @@
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import type { AwsProfileSummary } from '@hyveon/desktop-preload';
+import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
@@ -141,11 +142,7 @@ export function CredentialsStep({
 
       {mode === 'profile' && (
         <div className="space-y-4">
-          {profilesError && (
-            <p role="alert" className="text-sm text-[var(--color-red)]">
-              {profilesError}
-            </p>
-          )}
+          <InlineAlert message={profilesError} />
 
           {!profiles && profilesLoading && !profilesError && (
             <p className="text-sm text-muted-foreground">Loading AWS profiles…</p>
@@ -217,11 +214,7 @@ export function CredentialsStep({
             />
           </div>
 
-          {pasteError && (
-            <p role="alert" className="text-sm text-[var(--color-red)]">
-              {pasteError}
-            </p>
-          )}
+          <InlineAlert message={pasteError} />
 
           {pastedProfileName && (
             <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
