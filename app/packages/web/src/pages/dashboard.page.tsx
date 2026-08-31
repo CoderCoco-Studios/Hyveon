@@ -11,6 +11,7 @@ import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { Input } from '@/components/ui/input.component';
 import { Button } from '@/components/ui/button.component';
 import { EmptyStateCard } from '@/components/empty-state-card.component';
+import { AsyncContent } from '@/components/async-content.component';
 
 /**
  * Dashboard route (`/`) — top KPI strip, then a search-filterable grid of
@@ -59,33 +60,30 @@ export function DashboardPage() {
 
         {/* Game cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
-          {loading ? (
-            <div className="col-span-full text-sm text-[var(--color-muted-foreground)] py-8 text-center">
-              Loading servers…
-            </div>
-          ) : error && statuses.length === 0 ? (
-            <div className="col-span-full py-8 flex justify-center">
-              <StatusErrorCard error={error} onRetry={refresh} />
-            </div>
-          ) : statuses.length === 0 ? (
-            <div className="col-span-full py-8 flex justify-center">
-              <NoGamesCard />
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="col-span-full text-sm text-[var(--color-muted-foreground)] py-8 text-center">
-              No games match <span className="font-[var(--font-mono)]">&quot;{query}&quot;</span>.
-            </div>
-          ) : (
-            visible.map((s) => (
-              <GameCard
-                key={s.game}
-                status={s}
-                estimate={estimates?.games[s.game]}
-                onRefresh={refreshGame}
-                onOpenFiles={fileMgr.open}
-              />
-            ))
-          )}
+          <AsyncContent
+            className="col-span-full"
+            loading={loading}
+            error={error?.message}
+            errorMessage={error ? <StatusErrorCard error={error} onRetry={refresh} /> : undefined}
+            isEmpty={statuses.length === 0}
+            emptyMessage={<NoGamesCard />}
+          >
+            {visible.length === 0 ? (
+              <div className="col-span-full text-sm text-[var(--color-muted-foreground)] py-8 text-center">
+                No games match <span className="font-[var(--font-mono)]">&quot;{query}&quot;</span>.
+              </div>
+            ) : (
+              visible.map((s) => (
+                <GameCard
+                  key={s.game}
+                  status={s}
+                  estimate={estimates?.games[s.game]}
+                  onRefresh={refreshGame}
+                  onOpenFiles={fileMgr.open}
+                />
+              ))
+            )}
+          </AsyncContent>
         </div>
       </div>
 

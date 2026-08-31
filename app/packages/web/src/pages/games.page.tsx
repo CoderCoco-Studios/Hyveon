@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type GameListEntry, type StoredGameWizardDraft } from '../api.service.js';
 import { GameStatusBadges } from '../components/game-status-badges.component.js';
-import { ErrorBanner } from '../components/error-banner.component.js';
 import { PageHeader } from '../components/page-header.component.js';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.component';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { AddGameWizard } from '@/components/add-game-wizard/add-game-wizard.component';
 import { PendingChangesBanner } from '../components/pending-changes-banner.component.js';
 import { Button } from '@/components/ui/button.component';
+import { SectionCard } from '../components/section-card.component.js';
+import { AsyncContent } from '../components/async-content.component.js';
 
 /** Renders a game's declared ports as a comma-separated `container/protocol` list, or an em dash when undeclared. */
 function formatPorts(entry: GameListEntry): string {
@@ -174,69 +174,64 @@ export function GamesPage() {
 
       <PendingChangesBanner />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Declared game servers
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">Loading games…</div>
-          ) : error ? (
-            <ErrorBanner>Failed to load games: {error}</ErrorBanner>
-          ) : games.length === 0 ? (
-            <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
+      <SectionCard title="Declared game servers">
+        <AsyncContent
+          loading={loading}
+          error={error}
+          isEmpty={games.length === 0}
+          errorMessage={`Failed to load games: ${error}`}
+          emptyMessage={
+            <>
               <p>No games declared or deployed yet.</p>
               {!resuming && (
                 <div className="mt-4 flex justify-center">
                   <AddGameWizard />
                 </div>
               )}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Ports</TableHead>
-                  <TableHead className="text-right">CPU</TableHead>
-                  <TableHead className="text-right">Memory</TableHead>
+            </>
+          }
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Image</TableHead>
+                <TableHead>Ports</TableHead>
+                <TableHead className="text-right">CPU</TableHead>
+                <TableHead className="text-right">Memory</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {games.map((entry) => (
+                <TableRow key={entry.name}>
+                  <TableCell className="capitalize font-medium">
+                    <Link
+                      to={`/games/${entry.name}`}
+                      className="text-[var(--color-primary-light)] underline-offset-4 hover:underline"
+                    >
+                      {entry.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <GameStatusBadges declared={entry.declared} deployed={entry.deployed} drift={entry.drift} />
+                  </TableCell>
+                  <TableCell className="font-[var(--font-mono)] text-xs">
+                    {entry.config?.image ?? '—'}
+                  </TableCell>
+                  <TableCell className="font-[var(--font-mono)] text-xs">{formatPorts(entry)}</TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">
+                    {entry.config?.cpu ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">
+                    {entry.config?.memory ?? '—'}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {games.map((entry) => (
-                  <TableRow key={entry.name}>
-                    <TableCell className="capitalize font-medium">
-                      <Link
-                        to={`/games/${entry.name}`}
-                        className="text-[var(--color-primary-light)] underline-offset-4 hover:underline"
-                      >
-                        {entry.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <GameStatusBadges declared={entry.declared} deployed={entry.deployed} drift={entry.drift} />
-                    </TableCell>
-                    <TableCell className="font-[var(--font-mono)] text-xs">
-                      {entry.config?.image ?? '—'}
-                    </TableCell>
-                    <TableCell className="font-[var(--font-mono)] text-xs">{formatPorts(entry)}</TableCell>
-                    <TableCell className="text-right font-[var(--font-mono)]">
-                      {entry.config?.cpu ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-right font-[var(--font-mono)]">
-                      {entry.config?.memory ?? '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              ))}
+            </TableBody>
+          </Table>
+        </AsyncContent>
+      </SectionCard>
     </div>
   );
 }

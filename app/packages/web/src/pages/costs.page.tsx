@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from 'lucide-react';
 import { api, type CostEstimates, type GameEstimate } from '../api.service.js';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.component';
+import { Card, CardContent } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
 import { Input } from '@/components/ui/input.component';
 import {
@@ -15,6 +15,8 @@ import {
 import { cn } from '@/lib/utils.utils';
 import { PageHeader } from '../components/page-header.component.js';
 import { PollingIndicator } from '../polling/polling-indicator.component.js';
+import { SectionCard } from '../components/section-card.component.js';
+import { AsyncContent } from '../components/async-content.component.js';
 
 /**
  * Per-game color tokens used by the estimates table's game swatches. Order is
@@ -181,11 +183,9 @@ function EstimatesTable({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3 flex flex-row items-center justify-between gap-4">
-        <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-          Per-game estimates
-        </CardTitle>
+    <SectionCard
+      title="Per-game estimates"
+      action={
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-[var(--color-muted-foreground)]" aria-hidden="true" />
           <Input
@@ -195,91 +195,84 @@ function EstimatesTable({
             className="pl-7 h-8 text-xs"
           />
         </div>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <div className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
-            No estimates available.
-          </div>
-        ) : (
-          <>
-            {/* Mobile card stack — visible below md */}
-            <div className="md:hidden space-y-3">
-              {sorted.map((r) => (
-                <div key={r.game} className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span
-                      className="size-2.5 rounded-sm shrink-0"
-                      style={{ background: colorByGame[r.game] ?? 'var(--color-muted-foreground)' }}
-                      aria-hidden
-                    />
-                    <span className="capitalize font-medium text-sm text-[var(--color-foreground)]">{r.game}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                    <span className="text-[var(--color-muted-foreground)]">vCPU</span>
-                    <span className="font-[var(--font-mono)] text-right">{r.vcpu}</span>
-                    <span className="text-[var(--color-muted-foreground)]">Memory</span>
-                    <span className="font-[var(--font-mono)] text-right">{r.memoryGb} GB</span>
-                    <span className="text-[var(--color-muted-foreground)]">$/hour</span>
-                    <span className="font-[var(--font-mono)] text-right text-[var(--color-primary-light)]">{formatUsd(r.costPerHour, { precise: true })}</span>
-                    <span className="text-[var(--color-muted-foreground)]">$/day</span>
-                    <span className="font-[var(--font-mono)] text-right">{formatUsd(r.costPerDay24h)}</span>
-                    <span className="text-[var(--color-muted-foreground)]">$/month</span>
-                    <span className="font-[var(--font-mono)] text-right">{formatUsd(r.costPerMonth4hpd)}</span>
-                  </div>
-                </div>
-              ))}
+      }
+    >
+      <AsyncContent loading={false} isEmpty={rows.length === 0} emptyMessage="No estimates available.">
+        {/* Mobile card stack — visible below md */}
+        <div className="md:hidden space-y-3">
+          {sorted.map((r) => (
+            <div key={r.game} className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span
+                  className="size-2.5 rounded-sm shrink-0"
+                  style={{ background: colorByGame[r.game] ?? 'var(--color-muted-foreground)' }}
+                  aria-hidden
+                />
+                <span className="capitalize font-medium text-sm text-[var(--color-foreground)]">{r.game}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <span className="text-[var(--color-muted-foreground)]">vCPU</span>
+                <span className="font-[var(--font-mono)] text-right">{r.vcpu}</span>
+                <span className="text-[var(--color-muted-foreground)]">Memory</span>
+                <span className="font-[var(--font-mono)] text-right">{r.memoryGb} GB</span>
+                <span className="text-[var(--color-muted-foreground)]">$/hour</span>
+                <span className="font-[var(--font-mono)] text-right text-[var(--color-primary-light)]">{formatUsd(r.costPerHour, { precise: true })}</span>
+                <span className="text-[var(--color-muted-foreground)]">$/day</span>
+                <span className="font-[var(--font-mono)] text-right">{formatUsd(r.costPerDay24h)}</span>
+                <span className="text-[var(--color-muted-foreground)]">$/month</span>
+                <span className="font-[var(--font-mono)] text-right">{formatUsd(r.costPerMonth4hpd)}</span>
+              </div>
             </div>
+          ))}
+        </div>
 
-            {/* Desktop table — visible at md+ */}
-            <div className="hidden md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableHeader label="Game"     sortKey="game"            currentKey={sortKey} dir={sortDir} onClick={toggleSort} />
-                    <SortableHeader label="vCPU"     sortKey="vcpu"            currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
-                    <SortableHeader label="Memory"   sortKey="memoryGb"        currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
-                    <SortableHeader label="$/hour"   sortKey="costPerHour"     currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
-                    <SortableHeader label="$/day"    sortKey="costPerDay24h"   currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
-                    <SortableHeader label="$/month"  sortKey="costPerMonth4hpd" currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sorted.map((r) => (
-                    <TableRow key={r.game}>
-                      <TableCell className="capitalize">
-                        <span className="inline-flex items-center gap-2">
-                          <span
-                            className="size-2.5 rounded-sm shrink-0"
-                            style={{ background: colorByGame[r.game] ?? 'var(--color-muted-foreground)' }}
-                            aria-hidden
-                          />
-                          {r.game}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-[var(--font-mono)]">{r.vcpu}</TableCell>
-                      <TableCell className="text-right font-[var(--font-mono)]">{r.memoryGb} GB</TableCell>
-                      <TableCell className="text-right font-[var(--font-mono)] text-[var(--color-primary-light)]">
-                        {formatUsd(r.costPerHour, { precise: true })}
-                      </TableCell>
-                      <TableCell className="text-right font-[var(--font-mono)]">
-                        {formatUsd(r.costPerDay24h)}
-                      </TableCell>
-                      <TableCell className="text-right font-[var(--font-mono)]">
-                        {formatUsd(r.costPerMonth4hpd)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
-        <p className="mt-3 text-[0.7rem] text-[var(--color-muted-foreground)]">
-          $/day assumes 24 hr/day. $/month assumes 4 hr/day × 30 days.
-        </p>
-      </CardContent>
-    </Card>
+        {/* Desktop table — visible at md+ */}
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableHeader label="Game"     sortKey="game"            currentKey={sortKey} dir={sortDir} onClick={toggleSort} />
+                <SortableHeader label="vCPU"     sortKey="vcpu"            currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+                <SortableHeader label="Memory"   sortKey="memoryGb"        currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+                <SortableHeader label="$/hour"   sortKey="costPerHour"     currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+                <SortableHeader label="$/day"    sortKey="costPerDay24h"   currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+                <SortableHeader label="$/month"  sortKey="costPerMonth4hpd" currentKey={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((r) => (
+                <TableRow key={r.game}>
+                  <TableCell className="capitalize">
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className="size-2.5 rounded-sm shrink-0"
+                        style={{ background: colorByGame[r.game] ?? 'var(--color-muted-foreground)' }}
+                        aria-hidden
+                      />
+                      {r.game}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">{r.vcpu}</TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">{r.memoryGb} GB</TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)] text-[var(--color-primary-light)]">
+                    {formatUsd(r.costPerHour, { precise: true })}
+                  </TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">
+                    {formatUsd(r.costPerDay24h)}
+                  </TableCell>
+                  <TableCell className="text-right font-[var(--font-mono)]">
+                    {formatUsd(r.costPerMonth4hpd)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </AsyncContent>
+      <p className="mt-3 text-[0.7rem] text-[var(--color-muted-foreground)]">
+        $/day assumes 24 hr/day. $/month assumes 4 hr/day × 30 days.
+      </p>
+    </SectionCard>
   );
 }
 

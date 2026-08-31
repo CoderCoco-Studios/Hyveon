@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { RunHistoryRecord, RunHistoryStatus, IacRunKind } from '@hyveon/desktop-preload';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { Badge } from '../components/ui/badge.component.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
 import { RollbackAction, type RollbackResult } from '../components/rollback-action.component.js';
-import { LoadingState, InlineSpinner } from '../components/loading-state.component.js';
+import { InlineSpinner } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { formatTimestamp } from '../lib/utils.utils.js';
 import { ChangeSummaryStatus } from './iac.page.js';
+import { SectionCard } from '../components/section-card.component.js';
+import { AsyncContent } from '../components/async-content.component.js';
 
 /** Number of run records fetched per page (initial load and each "Load more"). */
 const PAGE_SIZE = 25;
@@ -187,102 +188,90 @@ export function IacHistoryPage() {
         </label>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-xs uppercase tracking-wider text-[var(--color-muted-foreground)]">
-            Recent runs
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <LoadingState />
-          ) : error && records.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-[var(--color-red)]">{error}</div>
-          ) : visibleRecords.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-              No runs match the current filters.
-            </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Kind</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Changes</TableHead>
-                    <TableHead>Started</TableHead>
-                    <TableHead>Completed</TableHead>
-                    <TableHead>Approver</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleRecords.map((record) => (
-                    <TableRow key={record.sk}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            to={`/iac/history/${record.runId}`}
-                            className="capitalize text-[var(--color-primary)] underline underline-offset-2"
-                          >
-                            {record.kind}
-                          </Link>
-                          {record.rolledBackFrom && (
-                            <Badge variant="cyan" title={`Rollback of apply run ${record.rolledBackFrom}`}>
-                              rollback
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <RunStatusBadge status={record.status} />
-                          {record.partialApply === true && (
-                            <Badge
-                              variant="warning"
-                              title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
-                            >
-                              partial
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <ChangeSummaryStatus summary={record.changeSummary} />
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.startedAt)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.completedAt)}</TableCell>
-                      <TableCell className="text-xs">{record.approvedBy ?? '—'}</TableCell>
-                      <TableCell>
-                        {record.kind === 'apply' && record.configVersionId !== undefined && (
-                          <RollbackAction applyRunId={record.runId} onRolledBack={handleRolledBack} />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {error && <p className="mt-3 text-xs text-[var(--color-red)]">{error}</p>}
-
-              {nextBefore && (
-                <div className="mt-4 flex justify-center">
-                  <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
-                    {loadingMore ? (
-                      <>
-                        <InlineSpinner />
-                        Loading…
-                      </>
-                    ) : (
-                      'Load more'
+      <SectionCard title="Recent runs">
+        <AsyncContent
+          loading={loading}
+          error={records.length === 0 ? error : null}
+          isEmpty={visibleRecords.length === 0}
+          emptyMessage="No runs match the current filters."
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Kind</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Changes</TableHead>
+                <TableHead>Started</TableHead>
+                <TableHead>Completed</TableHead>
+                <TableHead>Approver</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleRecords.map((record) => (
+                <TableRow key={record.sk}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/iac/history/${record.runId}`}
+                        className="capitalize text-[var(--color-primary)] underline underline-offset-2"
+                      >
+                        {record.kind}
+                      </Link>
+                      {record.rolledBackFrom && (
+                        <Badge variant="cyan" title={`Rollback of apply run ${record.rolledBackFrom}`}>
+                          rollback
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <RunStatusBadge status={record.status} />
+                      {record.partialApply === true && (
+                        <Badge
+                          variant="warning"
+                          title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
+                        >
+                          partial
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <ChangeSummaryStatus summary={record.changeSummary} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.startedAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">{formatTimestamp(record.completedAt)}</TableCell>
+                  <TableCell className="text-xs">{record.approvedBy ?? '—'}</TableCell>
+                  <TableCell>
+                    {record.kind === 'apply' && record.configVersionId !== undefined && (
+                      <RollbackAction applyRunId={record.runId} onRolledBack={handleRolledBack} />
                     )}
-                  </Button>
-                </div>
-              )}
-            </>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          {error && <p className="mt-3 text-xs text-[var(--color-red)]">{error}</p>}
+
+          {nextBefore && (
+            <div className="mt-4 flex justify-center">
+              <Button variant="secondary" size="sm" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? (
+                  <>
+                    <InlineSpinner />
+                    Loading…
+                  </>
+                ) : (
+                  'Load more'
+                )}
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </AsyncContent>
+      </SectionCard>
     </div>
   );
 }
