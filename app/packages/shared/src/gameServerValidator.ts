@@ -556,11 +556,25 @@ function portKey(port: GameServerPort): string {
   return `${port.container}/${port.protocol.toLowerCase()}`;
 }
 
+/** `visibility` with the `undefined ≡ 'public'` contract applied (see {@link GameServerPort.visibility}). */
+function effectivePortVisibility(visibility: GameServerPort['visibility']): 'public' | 'internal' {
+  return visibility ?? 'public';
+}
+
 /**
  * Detects container-port collisions both within the proposed entry's own
  * `ports` list and against every other declared `game_servers` entry (the
  * entry being re-validated, identified by `name`, is skipped so editing an
  * already-declared game doesn't collide with itself).
+ *
+ * `icmp` pairs are exempt from the cross-game branch of this rule: the same
+ * `(container, protocol)` icmp pair is allowed on multiple games as long as
+ * every declaration shares the same effective visibility, since the shared
+ * security group dedupes identical icmp rules into one (see
+ * `defineSecurityGroups`, `@hyveon/infra`). A visibility mismatch is still
+ * rejected, naming both games. The same-game duplicate rule above (within
+ * `ports` of a single entry) is unaffected and still rejects a repeated
+ * icmp pair.
  */
 function checkPortCollisions(
   name: string,
@@ -572,6 +586,7 @@ function checkPortCollisions(
 
   ports.forEach((port, index) => {
     const key = portKey(port);
+    const isIcmp = port.protocol.toLowerCase() === 'icmp';
 
     const firstIndex = seenWithinEntry.get(key);
     if (firstIndex !== undefined) {
@@ -587,12 +602,27 @@ function checkPortCollisions(
       if (existing.name === name) {
         continue;
       }
-      if (existing.ports.some((existingPort) => portKey(existingPort) === key)) {
-        issues.push({
-          path: `ports[${index}]`,
-          message: `Port ${port.container}/${port.protocol} collides with existing game "${existing.name}".`,
-        });
+      const existingPort = existing.ports.find((candidate) => portKey(candidate) === key);
+      if (existingPort === undefined) {
+        continue;
       }
+
+      if (isIcmp) {
+        const existingVisibility = effectivePortVisibility(existingPort.visibility);
+        const proposedVisibility = effectivePortVisibility(port.visibility);
+        if (existingVisibility !== proposedVisibility) {
+          issues.push({
+            path: `ports[${index}]`,
+            message: `Port ${port.container}/icmp on game "${name}" conflicts with existing game "${existing.name}": effective visibility must match across games for icmp entries (one is "${existingVisibility}", the other "${proposedVisibility}").`,
+          });
+        }
+        continue;
+      }
+
+      issues.push({
+        path: `ports[${index}]`,
+        message: `Port ${port.container}/${port.protocol} collides with existing game "${existing.name}".`,
+      });
     }
   });
 
