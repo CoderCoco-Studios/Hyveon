@@ -1,10 +1,30 @@
 import { StrictMode, type ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, type RenderResult } from '@testing-library/react';
+import { render, screen, waitFor, act, type RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { EditGameForm } from './edit-game-form.component.js';
 import type { RedactedGameServer } from '../../api.service.js';
+import type { WizardDraftHealthCheck } from '../add-game-wizard/wizard-form.utils.js';
+
+/**
+ * Captures `NetworkingStep`'s `onHealthCheckChange` prop as it's passed on
+ * each render, so the health-check-patch-batching test below can invoke it
+ * directly (bypassing simulated DOM events, which each flush their own
+ * render and can't reproduce two state updates landing in the same React
+ * batch — see that test's own comment for why).
+ */
+let capturedOnHealthCheckChange: ((patch: Partial<WizardDraftHealthCheck>) => void) | null = null;
+vi.mock('../add-game-wizard/networking-step.component.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../add-game-wizard/networking-step.component.js')>();
+  return {
+    ...actual,
+    NetworkingStep: (props: Parameters<typeof actual.NetworkingStep>[0]) => {
+      capturedOnHealthCheckChange = props.onHealthCheckChange;
+      return <actual.NetworkingStep {...props} />;
+    },
+  };
+});
 
 /** Renders `<EditGameForm>` wrapped in a `MemoryRouter` — the "apply this change" hint links to `/iac`. */
 function renderForm(ui: ReactElement): RenderResult {
@@ -166,6 +186,30 @@ describe('EditGameForm', () => {
     await waitFor(() =>
       expect(apiMock.updateGame).toHaveBeenCalledWith({ name: 'mygame', config: samplePayloadConfig() }),
     );
+  });
+
+  it('should apply two health-check patches dispatched in the same React batch without dropping either', async () => {
+    capturedOnHealthCheckChange = null;
+    renderForm(<EditGameForm game={sampleGame()} />);
+
+    await userEvent.click(await screen.findByLabelText('Enable authoritative health check'));
+    const schemeSelect = await screen.findByLabelText('Scheme');
+    const pathInput = screen.getByLabelText('Request path');
+    expect(capturedOnHealthCheckChange).not.toBeNull();
+
+    // Calling the captured `onHealthCheckChange` prop directly (rather than
+    // two separate `fireEvent` dispatches, which each flush their own render)
+    // puts both patches in the same React batch — regression test for a
+    // stale-closure bug where the second patch was built from the
+    // render-scoped `draft.healthCheck` instead of the latest state,
+    // silently discarding the first patch.
+    act(() => {
+      capturedOnHealthCheckChange!({ scheme: 'https' });
+      capturedOnHealthCheckChange!({ path: '/healthz' });
+    });
+
+    expect(schemeSelect).toHaveValue('https');
+    expect(pathInput).toHaveValue('/healthz');
   });
 
   it('should call api.updateGame with an added environment variable after editing and Save', async () => {

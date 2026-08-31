@@ -1,9 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddGameWizard } from './add-game-wizard.component.js';
 import { getFargateCpuOptions, getFargateMemoryOptions } from '@hyveon/shared/gameServerValidator';
-import { createEmptyWizardDraft } from './wizard-form.utils.js';
+import { createEmptyWizardDraft, type WizardDraftHealthCheck } from './wizard-form.utils.js';
+
+/**
+ * Captures `NetworkingStep`'s `onHealthCheckChange` prop as it's passed on
+ * each render, so the health-check-patch-batching test below can invoke it
+ * directly (bypassing simulated DOM events, which each flush their own
+ * render and can't reproduce two state updates landing in the same React
+ * batch — see that test's own comment for why).
+ */
+let capturedOnHealthCheckChange: ((patch: Partial<WizardDraftHealthCheck>) => void) | null = null;
+vi.mock('./networking-step.component.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./networking-step.component.js')>();
+  return {
+    ...actual,
+    NetworkingStep: (props: Parameters<typeof actual.NetworkingStep>[0]) => {
+      capturedOnHealthCheckChange = props.onHealthCheckChange;
+      return <actual.NetworkingStep {...props} />;
+    },
+  };
+});
 
 /**
  * Stub for the `@/api.service.js` module: `games()` backs the existing-games
@@ -300,6 +319,40 @@ describe('AddGameWizard — draft autosave', () => {
 
     await screen.findByRole('alert');
     expect(apiMock.clearGameDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddGameWizard — health-check patch batching', () => {
+  beforeEach(() => {
+    resetApiMocks();
+    capturedOnHealthCheckChange = null;
+  });
+
+  it('should apply two health-check patches dispatched in the same React batch without dropping either', async () => {
+    await openWizard();
+    await fillIdentityStep();
+    await goNext(); // -> resources
+    fillResourcesStep();
+    await goNext(); // -> networking
+
+    await userEvent.click(screen.getByLabelText('Enable authoritative health check'));
+    const schemeSelect = await screen.findByLabelText('Scheme');
+    const pathInput = screen.getByLabelText('Request path');
+    expect(capturedOnHealthCheckChange).not.toBeNull();
+
+    // Calling the captured `onHealthCheckChange` prop directly (rather than
+    // two separate `fireEvent` dispatches, which each flush their own render)
+    // puts both patches in the same React batch — regression test for a
+    // stale-closure bug where the second patch was built from the
+    // render-scoped `draft.healthCheck` instead of the latest state,
+    // silently discarding the first patch.
+    act(() => {
+      capturedOnHealthCheckChange!({ scheme: 'https' });
+      capturedOnHealthCheckChange!({ path: '/healthz' });
+    });
+
+    expect(schemeSelect).toHaveValue('https');
+    expect(pathInput).toHaveValue('/healthz');
   });
 });
 
