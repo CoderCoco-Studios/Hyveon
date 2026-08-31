@@ -19,6 +19,9 @@ import type {
  */
 export type Conflict = 'preview' | 'up' | 'destroy' | 'rollback';
 
+/** Mirrors `WINDOW_SIZE` in `use-log-tail.hook.ts` — caps the in-memory chunk buffer so a long-running apply/destroy doesn't grow it unbounded. */
+const CHUNK_WINDOW_SIZE = 300;
+
 /** Live state of a single streamed iac run, backed by `hyveon.iac.runs.streamLogs`. */
 export interface RunLogState {
   chunks: IacRunChunk[];
@@ -91,7 +94,7 @@ function useIacRunLog(runId: string | null): RunLogState {
       try {
         for await (const chunk of handle) {
           if (cancelled) break;
-          update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk] }));
+          update((prev) => ({ ...prev, chunks: [...prev.chunks, chunk].slice(-CHUNK_WINDOW_SIZE) }));
         }
       } catch (err) {
         // The run's own failure is already visible in the accumulated log
@@ -194,13 +197,19 @@ export function useIacRun(kind: IacRunKind): UseIacRunResult {
     if (!runId || !log.ended || !window.hyveon) return;
     let cancelled = false;
     void (async () => {
-      const result = await window.hyveon!.iac.runs.get(runId);
-      if (cancelled) return;
-      if (result.found) {
-        setStatus(result.status);
-        setRecord(result.record ?? null);
-      } else {
-        setSubmitError(`${label} run "${runId}" could not be found after it finished.`);
+      try {
+        const result = await window.hyveon!.iac.runs.get(runId);
+        if (cancelled) return;
+        if (result.found) {
+          setStatus(result.status);
+          setRecord(result.record ?? null);
+        } else {
+          setSubmitError(`${label} run "${runId}" could not be found after it finished.`);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setSubmitError(`${label} run "${runId}" status could not be fetched: ${message}`);
       }
     })();
     return () => {

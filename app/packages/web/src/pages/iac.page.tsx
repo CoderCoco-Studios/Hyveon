@@ -124,7 +124,7 @@ export function IacPage() {
         return ack;
       });
     },
-    [planRun, applyRun],
+    [planRun.submit, applyRun.reset],
   );
 
   // Auto-submits the tagged rollback plan once, when arriving from a
@@ -164,14 +164,14 @@ export function IacPage() {
     const planRunId = planRun.runId;
     const planHash = planRun.record.planHash;
     applyRun.submit(() => window.hyveon!.iac.apply({ planRunId, planHash }));
-  }, [planRun, applyRun]);
+  }, [planRun.runId, planRun.record, applyRun.submit]);
 
   const startOver = useCallback(() => {
     setApproval(null);
     setApproveError(null);
     planRun.reset();
     applyRun.reset();
-  }, [planRun, applyRun]);
+  }, [planRun.reset, applyRun.reset]);
 
   useEffect(() => {
     if (applyRun.status === 'success') toast.success('Apply complete');
