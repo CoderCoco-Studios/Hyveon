@@ -1,5 +1,4 @@
-import { AlertCircle } from 'lucide-react';
-import { Label } from '@/components/ui/label.component';
+import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import type { WizardDraft } from './wizard-form.utils.js';
@@ -37,71 +36,37 @@ export function IdentityStep({ draft, issues, onChange, nameDisabled = false }: 
 
   return (
     <div className="space-y-5">
-      <Field
-        id="wizard-identity-name"
-        label="Name"
-        value={draft.name}
-        placeholder="minecraft"
-        error={errorFor('name')}
-        disabled={nameDisabled}
-        onChange={(value) => onChange({ name: value })}
-      />
-      <Field
-        id="wizard-identity-image"
-        label="Image"
-        value={draft.image}
-        placeholder="itzg/minecraft-server"
-        error={errorFor('image')}
-        onChange={(value) => onChange({ image: value })}
-      />
-      <Field
-        id="wizard-identity-connect-message"
-        label="Connect message"
-        value={draft.connect_message}
-        placeholder="Connect at {ip}:25565"
-        error={errorFor('connect_message')}
-        onChange={(value) => onChange({ connect_message: value })}
-      />
-    </div>
-  );
-}
-
-/** A single labeled text input with an optional path-matched validation error rendered underneath. */
-function Field({
-  id,
-  label,
-  value,
-  placeholder,
-  error,
-  disabled,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  placeholder: string;
-  error?: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        value={value}
-        placeholder={placeholder}
-        aria-invalid={error ? 'true' : 'false'}
-        aria-describedby={error ? `${id}-error` : undefined}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {error && (
-        <p id={`${id}-error`} role="alert" className="text-xs text-[var(--color-red)] flex items-center gap-1">
-          <AlertCircle className="size-3.5" />
-          {error}
-        </p>
-      )}
+      <FormField id="wizard-identity-name" label="Name" errors={errorFor('name')}>
+        {(fieldProps) => (
+          <Input
+            {...fieldProps}
+            value={draft.name}
+            placeholder="minecraft"
+            disabled={nameDisabled}
+            onChange={(e) => onChange({ name: e.target.value })}
+          />
+        )}
+      </FormField>
+      <FormField id="wizard-identity-image" label="Image" errors={errorFor('image')}>
+        {(fieldProps) => (
+          <Input
+            {...fieldProps}
+            value={draft.image}
+            placeholder="itzg/minecraft-server"
+            onChange={(e) => onChange({ image: e.target.value })}
+          />
+        )}
+      </FormField>
+      <FormField id="wizard-identity-connect-message" label="Connect message" errors={errorFor('connect_message')}>
+        {(fieldProps) => (
+          <Input
+            {...fieldProps}
+            value={draft.connect_message}
+            placeholder="Connect at {ip}:25565"
+            onChange={(e) => onChange({ connect_message: e.target.value })}
+          />
+        )}
+      </FormField>
     </div>
   );
 }
