@@ -888,3 +888,85 @@ describe('command', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('environment value tokens', () => {
+  it('should accept an allow-listed token embedded in a longer value', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({
+        environment: [{ name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' }],
+        command: ['/start.sh'],
+      }),
+      [],
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject an unknown ${hyveon.*} token at the value path', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({ environment: [{ name: 'HOST', value: '${hyveon.network.public-adress}' }] }),
+      [],
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.issues.find((i) => i.path === 'environment[0].value');
+      expect(issue?.message).toContain('${hyveon.network.public-adress}');
+      expect(issue?.message).toContain('${hyveon.network.public-address}');
+    }
+  });
+
+  it('should accept non-hyveon placeholder syntax untouched', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({ environment: [{ name: 'JVM', value: '${JAVA_OPTS} -Dmotd={"name":"srv"}' }] }),
+      [],
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject the ipv4 token when command is absent', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({ environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }] }),
+      [],
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.issues.some((i) => i.path === 'command')).toBe(true);
+    }
+  });
+
+  it('should reject the ipv4 token when command is an empty array', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({ environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }], command: [] }),
+      [],
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject an ipv4-token row whose name is not a valid shell identifier', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({
+        environment: [{ name: 'BAD NAME;', value: '${hyveon.network.public-ipv4}' }],
+        command: ['/start.sh'],
+      }),
+      [],
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.issues.some((i) => i.path === 'environment[0].name' && i.message.includes('shell identifier'))).toBe(true);
+    }
+  });
+
+  it('should not require command for the public-address token', () => {
+    const result = validateGameServer(
+      'game',
+      makeProposed({ environment: [{ name: 'HOST', value: '${hyveon.network.public-address}' }] }),
+      [],
+    );
+    expect(result.success).toBe(true);
+  });
+});
