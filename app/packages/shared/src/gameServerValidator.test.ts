@@ -450,6 +450,38 @@ describe('validateGameServer', () => {
     });
   });
 
+  describe('icmp port rules', () => {
+    it('should accept a non-https game server declaring an icmp entry with a valid type', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 8, protocol: 'icmp' }] }), []);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a non-https game server declaring an icmp entry with an out-of-range type', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 8211, protocol: 'icmp' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.issues.some((i) => i.message.includes('ICMP type') && i.message.includes('0 and 255')),
+        ).toBe(true);
+      }
+    });
+
+    it('should still reject an icmp entry on an https game server via the existing tcp/udp-only rule', () => {
+      const result = validateGameServer(
+        'game',
+        makeProposed({
+          https: true,
+          ports: [
+            { container: 443, protocol: 'tcp' },
+            { container: 8, protocol: 'icmp' },
+          ],
+        }),
+        [],
+      );
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe('reserved https ports across the deployment', () => {
     it.each([
       { container: 443 as const, protocol: 'tcp' },

@@ -656,6 +656,30 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
   return issues;
 }
 
+/**
+ * Validates `icmp` port entries for a non-HTTPS game server: `container` is
+ * the ICMP type (not a port number) and must be an integer between 0 and 255
+ * inclusive. HTTPS games never reach this check — {@link checkHttpsPortRules}
+ * already rejects any `icmp` entry there via its tcp/udp-only rule.
+ */
+function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+
+  ports.forEach((port, index) => {
+    if (
+      port.protocol === 'icmp' &&
+      (!Number.isInteger(port.container) || port.container < 0 || port.container > 255)
+    ) {
+      issues.push({
+        path: `ports[${index}].container`,
+        message: `ports[${index}].container is the ICMP type when protocol is "icmp" and must be an integer between 0 and 255, got ${port.container}.`,
+      });
+    }
+  });
+
+  return issues;
+}
+
 /** `true` for container port 443 or 80 on protocol `tcp` (case-insensitively, like {@link portKey}) — the Caddy sidecar's fixed, unconditional ingress. `443/udp`/`80/udp` never collide with it, since Caddy only ever binds `tcp`. */
 function isCaddyReservedPort(port: GameServerPort): boolean {
   return (port.container === 443 || port.container === 80) && port.protocol.toLowerCase() === 'tcp';
@@ -803,10 +827,11 @@ function checkHealthCheckRules(entry: GameServerEntryInput): GameServerValidatio
  * pairing, absolute paths for volumes/file_seeds, connect-message placeholder
  * allowlisting, HTTPS port constraints (only when `https === true`),
  * container-port collisions (within the entry itself and against every
- * other entry in `existingGameServers`), and the deployment-wide 443/80/tcp
- * reservation ({@link checkReservedHttpsPortsAcrossDeployment}) that applies
- * to every game, https or not, whenever any game in the deployment has
- * `https: true`.
+ * other entry in `existingGameServers`), the ICMP-type range for `icmp`
+ * ports on non-HTTPS games ({@link checkIcmpPortRules}), and the
+ * deployment-wide 443/80/tcp reservation
+ * ({@link checkReservedHttpsPortsAcrossDeployment}) that applies to every
+ * game, https or not, whenever any game in the deployment has `https: true`.
  *
  * @param name - The `game_servers` map key this entry would be saved under.
  *   Used to build the returned {@link GameServer} on success, and to skip
@@ -849,6 +874,8 @@ export function validateGameServer(
     const isHttps = isRecord(proposed) && proposed['https'] === true;
     if (isHttps) {
       issues.push(...checkHttpsPortRules(portsResult.data));
+    } else {
+      issues.push(...checkIcmpPortRules(portsResult.data));
     }
     issues.push(...checkReservedHttpsPortsAcrossDeployment(name, portsResult.data, isHttps, existingGameServers));
   }
