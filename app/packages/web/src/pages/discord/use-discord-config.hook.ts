@@ -125,7 +125,6 @@ export function useDiscordConfig() {
     setBusy(true);
     try {
       const result = await fn();
-      await refresh();
       if (result.success) {
         toast.success('Commands registered');
       } else {
