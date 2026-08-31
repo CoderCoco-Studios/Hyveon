@@ -11,6 +11,10 @@
       "types": "./dist/gameServerValidator.d.ts",
       "default": "./dist/gameServerValidator.js"
     },
+    "./envTokens": {
+      "types": "./dist/envTokens.d.ts",
+      "default": "./dist/envTokens.js"
+    },
     "./secrets/secretsStore": {
       "types": "./dist/secrets/secretsStore.d.ts",
       "default": "./dist/secrets/secretsStore.js"
