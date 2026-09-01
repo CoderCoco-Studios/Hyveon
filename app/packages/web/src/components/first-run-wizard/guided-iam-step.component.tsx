@@ -1,26 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import type { WizardProgress } from '@hyveon/desktop-preload';
 import { AWS_REGIONS, type AwsRegionInfo } from '@hyveon/shared';
-import { InlineAlert } from '@/components/inline-alert.component';
-import { Button } from '@/components/ui/button.component';
-import { Input } from '@/components/ui/input.component';
-import { Label } from '@/components/ui/label.component';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select.component';
+import { GuidedIamRegionScreen } from '@/components/first-run-wizard/guided-iam-region-screen.component';
+import { GuidedIamTemplateScreen } from '@/components/first-run-wizard/guided-iam-template-screen.component';
+import { GuidedIamIntakeScreen } from '@/components/first-run-wizard/guided-iam-intake-screen.component';
+import { GuidedIamVerificationFailedScreen } from '@/components/first-run-wizard/guided-iam-verification-failed-screen.component';
+import { GuidedIamDeleteFailedScreen } from '@/components/first-run-wizard/guided-iam-delete-failed-screen.component';
 
 /** Reported whenever an action in this step is attempted outside Electron, where there is no IPC bridge to drive the guided flow through. */
 const BRIDGE_UNAVAILABLE = 'IPC bridge (window.hyveon) is not available in this context.';
-
-/** Sentinel `SelectItem` value for "enter a region manually" — Radix Select forbids an empty-string item value. */
-const OTHER_REGION_VALUE = '__other__';
 
 /** {@link AWS_REGIONS} grouped by continent, preserving the generated file's continent-then-name sort order. Computed once at module load since the source data is static. */
 const REGIONS_BY_CONTINENT: Array<[string, AwsRegionInfo[]]> = (() => {
@@ -502,259 +491,68 @@ export function GuidedIamStep({ onComplete, onSkipToManual, initialProgress, onB
     );
   }
 
-  if (phase === 'region') {
-    return (
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Hyveon can provision the AWS access it needs for you, or you can supply your own credentials.
-        </p>
-
-        {resumedWithoutRegion && (
-          <p className="text-sm text-muted-foreground">
-            Resuming a previous session — re-enter your AWS region to continue.
-          </p>
-        )}
-
-        <div className="space-y-2">
-          <Label htmlFor="wizard-guided-iam-region">AWS region</Label>
-          {manualRegionEntry ? (
-            <Input
-              id="wizard-guided-iam-region"
-              value={region}
-              placeholder="us-east-1"
-              onChange={(e) => setRegion(e.target.value)}
-              autoFocus
-            />
-          ) : (
-            <Select
-              value={region}
-              onValueChange={(value) => {
-                if (value === OTHER_REGION_VALUE) {
-                  setManualRegionEntry(true);
-                  setRegion('');
-                  return;
-                }
-                setRegion(value);
-              }}
-            >
-              <SelectTrigger id="wizard-guided-iam-region">
-                <SelectValue placeholder="Select a region…" />
-              </SelectTrigger>
-              <SelectContent>
-                {REGIONS_BY_CONTINENT.map(([continent, regions]) => (
-                  <SelectGroup key={continent}>
-                    <SelectLabel>{continent}</SelectLabel>
-                    {regions.map((r) => (
-                      <SelectItem key={r.code} value={r.code}>
-                        {r.name} — {r.code}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
-                <SelectItem value={OTHER_REGION_VALUE}>Other (enter manually)</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          <InlineAlert message={regionError} />
-        </div>
-
-        <div className="flex gap-2">
-          <Button type="button" onClick={() => void handleChooseGuided()}>
-            Continue with guided setup
-          </Button>
-          <Button type="button" variant="outline" onClick={onSkipToManual}>
-            I already have credentials
-          </Button>
-        </div>
-      </div>
-    );
+  // A single switch returning exactly one screen component keeps the
+  // mutual-exclusion invariant `guided-iam-wizard.spec.ts` relies on: only
+  // one phase's markup can ever be in the DOM at a time.
+  switch (phase) {
+    case 'region':
+      return (
+        <GuidedIamRegionScreen
+          resumedWithoutRegion={resumedWithoutRegion}
+          regionsByContinent={REGIONS_BY_CONTINENT}
+          region={region}
+          setRegion={setRegion}
+          regionError={regionError}
+          manualRegionEntry={manualRegionEntry}
+          setManualRegionEntry={setManualRegionEntry}
+          onContinueGuided={() => void handleChooseGuided()}
+          onSkipToManual={onSkipToManual}
+        />
+      );
+    case 'template':
+      return (
+        <GuidedIamTemplateScreen
+          preparingTemplate={preparingTemplate}
+          templateError={templateError}
+          onRetryTemplate={() => setTemplateError(null)}
+          templatePath={templatePath}
+          onCopyPath={handleCopyPath}
+          pathCopied={pathCopied}
+          openingConsole={openingConsole}
+          onOpenConsole={() => void handleOpenConsole()}
+          consoleError={consoleError}
+          consoleOpened={consoleOpened}
+          consoleUrl={consoleUrl}
+          onContinueToIntake={() => void handleContinueToIntake()}
+        />
+      );
+    case 'intake':
+    case 'rotating':
+      return (
+        <GuidedIamIntakeScreen
+          isRotating={phase === 'rotating'}
+          resumedRotationPending={resumedRotationPending}
+          region={region}
+          setRegion={setRegion}
+          accessKeyId={accessKeyId}
+          setAccessKeyId={setAccessKeyId}
+          secretAccessKey={secretAccessKey}
+          setSecretAccessKey={setSecretAccessKey}
+          intakeError={intakeError}
+          submitting={submitting}
+          onSubmit={() => void handleSubmitKey()}
+        />
+      );
+    case 'verification-failed':
+      return <GuidedIamVerificationFailedScreen rotationError={rotationError} onRetryRotation={handleRetryRotation} />;
+    case 'delete-failed':
+      return (
+        <GuidedIamDeleteFailedScreen
+          deleteFailedConsoleUrl={deleteFailedConsoleUrl}
+          revokeError={revokeError}
+          revoking={revoking}
+          onRevoke={() => void handleRevoke()}
+        />
+      );
   }
-
-  if (phase === 'template') {
-    return (
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Upload the rendered CloudFormation template in the AWS console to create a bootstrap IAM user, then come
-          back here with the access key it outputs.
-        </p>
-
-        {preparingTemplate && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            Rendering the CloudFormation template…
-          </div>
-        )}
-
-        {templateError && (
-          <div className="space-y-2">
-            <InlineAlert message={templateError} />
-            <Button type="button" variant="outline" onClick={() => setTemplateError(null)}>
-              <RotateCcw className="size-4" />
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {templatePath && (
-          <div className="space-y-2">
-            <Label htmlFor="wizard-guided-iam-template-path">Template path</Label>
-            <div className="flex items-center gap-2">
-              <Input id="wizard-guided-iam-template-path" value={templatePath} readOnly />
-              <Button type="button" variant="outline" size="sm" onClick={handleCopyPath} aria-label="Copy template path">
-                <Copy className="size-3" />
-              </Button>
-            </div>
-            {pathCopied && (
-              <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
-                <CheckCircle2 className="size-4" />
-                Path copied.
-              </p>
-            )}
-          </div>
-        )}
-
-        {templatePath && (
-          <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
-            <Button type="button" variant="outline" onClick={() => void handleOpenConsole()} disabled={openingConsole}>
-              {openingConsole && <Loader2 className="animate-spin" />}
-              <ExternalLink className="size-4" />
-              Open AWS Console
-            </Button>
-
-            <InlineAlert message={consoleError} />
-
-            {consoleOpened && (
-              <p className="flex items-center gap-1 text-sm text-[var(--color-green)]">
-                <CheckCircle2 className="size-4" />
-                Opened in your default browser.
-              </p>
-            )}
-
-            {consoleUrl && (
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">
-                  Could not open a browser automatically — open this URL manually:
-                </p>
-                <Input value={consoleUrl} readOnly onFocus={(e) => e.currentTarget.select()} />
-              </div>
-            )}
-          </div>
-        )}
-
-        {templatePath && (
-          <Button type="button" onClick={() => void handleContinueToIntake()}>
-            Continue to key entry
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  if (phase === 'intake' || phase === 'rotating') {
-    return (
-      <div className="space-y-6">
-        {resumedRotationPending && (
-          <p className="text-sm text-muted-foreground">
-            A bootstrap key was previously submitted, but rotation didn&apos;t finish before Hyveon closed. Re-enter
-            the access key ID and secret access key from your CloudFormation stack&apos;s outputs to retry.
-          </p>
-        )}
-
-        <p className="text-sm text-muted-foreground">
-          Paste the bootstrap access key pair from your CloudFormation stack&apos;s outputs.
-        </p>
-
-        <div className="space-y-2">
-          <Label htmlFor="wizard-guided-iam-intake-region">AWS region</Label>
-          <Input
-            id="wizard-guided-iam-intake-region"
-            value={region}
-            placeholder="us-east-1"
-            onChange={(e) => setRegion(e.target.value)}
-            disabled={phase === 'rotating'}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="wizard-guided-iam-access-key-id">Access key ID</Label>
-          <Input
-            id="wizard-guided-iam-access-key-id"
-            value={accessKeyId}
-            onChange={(e) => setAccessKeyId(e.target.value)}
-            disabled={phase === 'rotating'}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="wizard-guided-iam-secret-access-key">Secret access key</Label>
-          <Input
-            id="wizard-guided-iam-secret-access-key"
-            type="password"
-            value={secretAccessKey}
-            onChange={(e) => setSecretAccessKey(e.target.value)}
-            disabled={phase === 'rotating'}
-          />
-        </div>
-
-        <InlineAlert message={intakeError} />
-
-        {phase === 'rotating' ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            Rotating your AWS credentials…
-          </div>
-        ) : (
-          <Button type="button" onClick={() => void handleSubmitKey()} disabled={submitting}>
-            {submitting && <Loader2 className="animate-spin" />}
-            Validate and rotate key
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  if (phase === 'verification-failed') {
-    return (
-      <div className="space-y-4">
-        <InlineAlert message={rotationError ?? 'Key rotation failed verification.'} />
-        <p className="text-sm text-muted-foreground">
-          The newly minted key could not be verified. This can happen if AWS hasn&apos;t finished propagating the key
-          yet — retrying with the same bootstrap key is safe.
-        </p>
-        <Button type="button" variant="outline" onClick={handleRetryRotation}>
-          <RotateCcw className="size-4" />
-          Retry rotation
-        </Button>
-      </div>
-    );
-  }
-
-  // phase === 'delete-failed'
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 text-sm text-[var(--color-amber)]">
-        <AlertTriangle className="size-4" />
-        The new key is active, but the bootstrap key is still active too — revoke it manually.
-      </div>
-
-      {deleteFailedConsoleUrl && (
-        <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">Revoke it from the IAM console:</p>
-          <a
-            href={deleteFailedConsoleUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block text-sm text-[var(--color-primary-light)] underline break-all"
-          >
-            {deleteFailedConsoleUrl}
-          </a>
-        </div>
-      )}
-
-      <InlineAlert message={revokeError} />
-
-      <Button type="button" variant="outline" onClick={() => void handleRevoke()} disabled={revoking}>
-        {revoking && <Loader2 className="animate-spin" />}
-        Revoke now
-      </Button>
-    </div>
-  );
 }
