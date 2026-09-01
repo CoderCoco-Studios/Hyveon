@@ -41,7 +41,7 @@ export class GameWizardDraftService {
         }
         return null;
       }
-      return redactSecretFields(backfillHealthCheck(backfillPortVisibility(stored)));
+      return redactSecretFields(backfillCommand(backfillHealthCheck(backfillPortVisibility(stored))));
     } catch (err) {
       logger.warn(`GameWizardDraftService: failed to read draft, treating as absent (${errorMessage(err)})`);
       return null;
@@ -142,6 +142,10 @@ function isGameWizardDraft(value: unknown): value is GameWizardDraft {
     Array.isArray(candidate.environment) &&
     candidate.environment.every(isWizardDraftEnvironmentVariable) &&
     typeof candidate.https === 'boolean' &&
+    // `command` was added after this draft slot shipped — a draft autosaved
+    // before then has no such field, and that must still be treated as valid
+    // rather than discarding the whole draft as malformed.
+    (candidate.command === undefined || (Array.isArray(candidate.command) && candidate.command.every((entry) => typeof entry === 'string'))) &&
     // `healthCheck` was added after this draft slot shipped — a draft
     // autosaved before then has no such field, and that must still be
     // treated as valid rather than discarding the whole draft as malformed.
@@ -301,6 +305,19 @@ function backfillPortVisibility(stored: StoredGameWizardDraft): StoredGameWizard
       ports: stored.draft.ports.map((port) => ({ ...port, visibility: port.visibility ?? 'public' })),
     },
   };
+}
+
+/**
+ * Fills in a missing `command` on a draft autosaved before that field
+ * existed, defaulting to `[]`. Without this, a pre-existing draft reaches the
+ * renderer's `GameWizardDraft` mirror (which declares `command` as
+ * always-concrete, never `undefined`) with a missing field, crashing
+ * `EnvironmentStep`/`toProposedEntry`/`draftToPayload` on `command.length`/
+ * `command.map`.
+ */
+function backfillCommand(stored: StoredGameWizardDraft): StoredGameWizardDraft {
+  if (stored.draft.command !== undefined) return stored;
+  return { ...stored, draft: { ...stored.draft, command: [] } };
 }
 
 function redactSecretFields(stored: StoredGameWizardDraft): StoredGameWizardDraft {

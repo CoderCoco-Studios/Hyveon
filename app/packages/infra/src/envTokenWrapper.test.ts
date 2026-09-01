@@ -90,3 +90,38 @@ describe('buildIpv4WrapperScript executed under sh', () => {
     expect(stdout).toBe("'; echo INJECTED #203.0.113.7");
   });
 });
+
+describe('buildIpv4WrapperScript rejects a non-IP echoed response', () => {
+  let server: Server;
+  let url: string;
+  let requestCount: number;
+
+  beforeAll(async () => {
+    requestCount = 0;
+    server = createServer((_req, res) => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        res.end('<html><body>garbage, not an IP</body></html>');
+        return;
+      }
+      res.end('203.0.113.9\n');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('expected an AddressInfo');
+    url = `http://127.0.0.1:${address.port}/`;
+  });
+
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  it('should reject a garbage first response and export the valid IP from the retry', async () => {
+    const script = buildIpv4WrapperScript({
+      environment: [{ name: 'SERVER_IP', value: 'host=${hyveon.network.public-ipv4}:8211' }],
+      command: ['/bin/sh', '-c', 'printf %s "$SERVER_IP"'],
+      ipEchoUrl: url,
+    });
+    const { stdout } = await execFileAsync('/bin/sh', ['-c', script]);
+    expect(stdout).toBe('host=203.0.113.9:8211');
+    expect(requestCount).toBe(2);
+  });
+});

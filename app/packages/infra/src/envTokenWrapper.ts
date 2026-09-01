@@ -34,8 +34,9 @@ function quotedWithIpSplices(value: string): string {
 
 /**
  * Builds the wrapper script: retry loop against the IP-echo endpoint (wget
- * then curl, 30 × 2s), targeted `export` lines, then `exec` of the command.
- * Exits non-zero without starting the game if discovery fails.
+ * then curl, 30 × 2s), a shape check rejecting any non-IPv4 response before
+ * it's accepted, targeted `export` lines, then `exec` of the command. Exits
+ * non-zero without starting the game if discovery fails.
  *
  * @param args - The environment, command, and optional IP-echo URL to build the script from.
  * @returns The full POSIX `sh` script as a string.
@@ -62,11 +63,14 @@ export function buildIpv4WrapperScript(args: Ipv4WrapperArgs): string {
 
   const quotedUrl = shellSingleQuote(ipEchoUrl);
   return [
-    `fetch_ip() { wget -T 5 -qO- ${quotedUrl} 2>/dev/null || curl -fsS -m 5 ${quotedUrl} 2>/dev/null; }`,
+    `fetch_ip() { wget -t 1 -T 5 -qO- ${quotedUrl} 2>/dev/null || curl -fsS -m 5 ${quotedUrl} 2>/dev/null; }`,
     'attempt=0',
     'HYVEON_PUBLIC_IPV4=""',
     'while [ "$attempt" -lt 30 ]; do',
     `  HYVEON_PUBLIC_IPV4="$(fetch_ip | tr -d '[:space:]')"`,
+    '  case "$HYVEON_PUBLIC_IPV4" in',
+    '    ""|*[!0-9.]*) HYVEON_PUBLIC_IPV4="" ;;',
+    '  esac',
     '  [ -n "$HYVEON_PUBLIC_IPV4" ] && break',
     '  attempt=$((attempt + 1))',
     '  sleep 2',

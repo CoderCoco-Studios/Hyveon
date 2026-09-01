@@ -318,7 +318,8 @@ because one is known at apply time and the other genuinely isn't:
   so `GameServerConfig.command` (Docker `CMD`, passed straight into
   `containerDefinitions[].command`) becomes **required** whenever the ipv4
   token is used — there is nothing else left to `exec`. The image must
-  provide `/bin/sh` plus `wget` or `curl` for the wrapper to run at all.
+  provide a POSIX shell environment (BusyBox is sufficient) with `wget` or
+  `curl` for the wrapper to run at all.
   Games that don't use the token get `command` passed through as-is (when
   set) with no `entryPoint` override — see `gameServerConfig.ts`'s doc on
   `command`.

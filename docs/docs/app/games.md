@@ -310,7 +310,8 @@ Hyveon replaces the image's built-in start command with a small resolver
 script that retries an IP-echo lookup (`wget`, falling back to `curl`, up to
 30 times), `export`s the token-bearing variables with the discovered address
 spliced in, then `exec`s the start command you entered here — so the image
-needs `/bin/sh` and either `wget` or `curl` for this to work. If the address
+needs a POSIX shell environment (BusyBox is sufficient) with `wget` or `curl`
+for this to work. If the address
 can't be discovered after all retries, the resolver exits non-zero instead
 of launching the game, so the server never comes up with a broken address
 silently baked in.

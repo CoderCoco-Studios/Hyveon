@@ -14,7 +14,7 @@
 
 - [x] 3.1 Add an `environment[N].value` error slot to `environment-step.component.tsx` (matching the existing name error slot) and a hint listing the two tokens with what each resolves to
 - [x] 3.2 Add the optional `command` input to the add-game wizard and edit-game form (array-of-strings entry consistent with existing list controls), threading it through `wizard-form.utils.ts` projection and the issue-path→step mapping
-- [x] 3.3 jsdom component tests: value-error rendering, token hint presence, command field round-trip; extend the wizard integration coverage for a save blocked by an unknown token
+- [x] 3.3 jsdom component tests: value-error rendering, token hint presence, command field round-trip; `validateEnvironmentStep` unit coverage in `wizard-form.utils.test.ts` for a save blocked by an unknown token
 
 ## 4. Docs and spec sync
 
