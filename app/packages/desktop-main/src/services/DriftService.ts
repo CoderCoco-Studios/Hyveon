@@ -167,7 +167,7 @@ export function computeDriftFromOutputs(declared: GameServer[], outputs: StackOu
  * (`deployment-config.json`, via {@link DeploymentConfigService.getGameServers}) and the
  * applied configuration last written to the deployed Pulumi stack (via
  * {@link ConfigService.getStackOutputs}'s `appliedGameServers` and
- * `gameNames` outputs). See issue #94.
+ * `gameNames` outputs).
  *
  * All comparison logic lives in the pure, exported {@link computeDrift}
  * function — this service is a thin I/O wrapper that fetches the inputs and

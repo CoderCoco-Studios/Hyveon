@@ -150,10 +150,9 @@ interface IacPlanChunkMessage {
 /**
  * Message payload sent once on {@link PLAN_END_CHANNEL} when a
  * `iac.plan` run finishes. `exitCode` is `0` on success, or `null` on
- * failure — the Pulumi Automation API has no real process exit code to
- * report (unlike the spawned CLI process this channel originally
- * bridged), so `null` uniformly represents "this run did not succeed" here,
- * rather than trying to recover a synthetic non-zero number. `result` is
+ * failure — the Automation API has no process exit code, so `null`
+ * uniformly means "did not succeed" here, rather than trying to recover a
+ * synthetic non-zero number. `result` is
  * present only on a successful run — the structured `changeSummary` and
  * artifact/hash/engine-version fields `PulumiService.preview` resolved.
  */

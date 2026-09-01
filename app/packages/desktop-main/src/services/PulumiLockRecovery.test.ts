@@ -13,7 +13,7 @@
  * pruned after a bounded age, and evidence used to justify a reclaim must
  * be consumed (cleared) rather than reusable.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, test } from 'vitest';
 import { createRequire } from 'node:module';
 
 const { loggerMock } = vi.hoisted(() => ({
@@ -441,19 +441,12 @@ describe('classifyStackLockConflict — absence of in-flight activity is not evi
   });
 });
 
-describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern (argued in prose, not directly testable)', () => {
-  // This is a documentation placeholder, not a real assertion: an
-  // in-app-concurrent request never reaches a `ConcurrentUpdateError` at all,
-  // since `iac.controller.ts`'s pre-flight guard (using
-  // `PulumiService.getOperationInFlight()` as its state accessor) refuses
-  // the second call before any SDK invocation happens. There is no error
-  // shape this test file could construct that would exercise that path
-  // through this module, because this module only ever runs once the SDK
-  // has already thrown — so this scenario is covered by the file's TSDoc and
-  // this note, not by a test that could actually fail.
-  it('should never reach classifyStackLockConflict for an in-app-busy request, because the workspace guard refuses it first', () => {
-    expect(true).toBe(true);
-  });
+describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern', () => {
+  // An in-app-concurrent request never reaches this module: `iac.controller.ts`'s
+  // pre-flight guard (`PulumiService.getOperationInFlight()`) refuses the
+  // second call before any SDK invocation happens, so there is no error shape
+  // to construct here.
+  test.todo('in-app-busy requests never reach classifyStackLockConflict — refused by the workspace guard first');
 });
 
 describe('formatLockAge', () => {
