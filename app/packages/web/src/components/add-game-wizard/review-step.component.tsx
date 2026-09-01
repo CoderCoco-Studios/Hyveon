@@ -42,7 +42,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
  * button always has a visible reason — some business rules only become
  * violated once every step is filled in, so their first (and, on some
  * paths, only) visible surface is here. A `submitError` from a failed submit
- * attempt (surfaced by the wizard container after `POST /api/games` fails)
+ * attempt (surfaced by the wizard container after the `games.create` IPC call fails)
  * is rendered as a second alert below it so the draft isn't lost. This
  * component is purely presentational — Submit/navigation controls are owned
  * exclusively by the wizard shell's footer, not by this step.

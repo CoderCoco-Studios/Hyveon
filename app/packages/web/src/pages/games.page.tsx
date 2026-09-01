@@ -29,8 +29,7 @@ function formatPorts(entry: GameListEntry): string {
  *   - deployed only ("ghost" row) → no `config`, "Undeclared" chip; config
  *     columns render as em dashes since there's no declared entry to read.
  *
- * Each row links to `/games/:name` for the deeper read-only detail view
- * (issue #93's follow-up), still to be implemented.
+ * Each row links to `/games/:name` for the deeper read-only detail view.
  *
  * The self-contained {@link AddGameWizard} (#99) is mounted twice: as a
  * persistent header action next to the heading, and as an empty-state CTA
@@ -40,7 +39,7 @@ function formatPorts(entry: GameListEntry): string {
  *
  * {@link PendingChangesBanner} (#101) is mounted above the games table and
  * self-manages its own visibility — it renders nothing until
- * `GET /api/drift` reports at least one pending change.
+ * the `drift.get` IPC channel reports at least one pending change.
  *
  * On mount, `api.getGameDraft()` checks for an autosaved, unfinished
  * `AddGameWizard` draft (see that component's own doc comment). If one

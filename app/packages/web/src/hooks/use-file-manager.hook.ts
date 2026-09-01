@@ -11,7 +11,7 @@ export const FILE_MANAGER_INTERVAL_MS = 5000;
  * Manages the FileBrowser helper-task lifecycle for the file-manager modal.
  * Owns the currently-active game, the latest `FileMgrStatus`, a user-facing
  * message, and the one-time login credential a successful `start()` returns,
- * plus start/stop/close actions that drive `/api/files/:game/*`.
+ * plus start/stop/close actions that drive the `files.list`/`files.start`/`files.stop` IPC channels.
  *
  * Polling is reactive rather than interval-based: we register a 5-second
  * poller with the shared {@link PollingProvider} only while the helper task
