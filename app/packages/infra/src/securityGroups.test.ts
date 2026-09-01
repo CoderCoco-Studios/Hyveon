@@ -356,7 +356,7 @@ describe('defineSecurityGroups', () => {
     expect(seederSg.inputs.vpcId).toBe('vpc-mock');
     expect(seederSg.inputs.description).toBe('EFS seeder Lambdas — outbound NFS to EFS only');
     // No inline egress on the seeder group itself — its one egress need is a
-    // standalone `SecurityGroupRule`, asserted in its own test below (issue #349).
+    // standalone `SecurityGroupRule`, asserted in its own test below.
     expect(seederSg.inputs.egress).toBeUndefined();
 
     // The seeder's INGRESS-side rule (into `efs`) must still be a second
