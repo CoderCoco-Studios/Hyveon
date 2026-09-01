@@ -10,7 +10,7 @@ import { ErrorBanner } from '../components/error-banner.component.js';
 import { LoadingState } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { formatTimestamp } from '../lib/utils.utils.js';
-import { ChangeSummaryStatus } from './iac.page.js';
+import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 
 /**
  * Number of the most recent run records searched for a `runId` match on

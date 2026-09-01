@@ -10,7 +10,7 @@ import { RollbackAction, type RollbackResult } from '../components/rollback-acti
 import { InlineSpinner } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
 import { formatTimestamp } from '../lib/utils.utils.js';
-import { ChangeSummaryStatus } from './iac.page.js';
+import { ChangeSummaryStatus } from '../components/change-summary-status.component.js';
 import { SectionCard } from '../components/section-card.component.js';
 import { AsyncContent } from '../components/async-content.component.js';
 
