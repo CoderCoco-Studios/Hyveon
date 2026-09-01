@@ -18,5 +18,5 @@
 
 ## 4. Docs and spec sync
 
-- [ ] 4.1 Update docs via the `write-docs` skill: `docs/docs/components/infra.md` (field/resource table: `command`, entryPoint wrapper), the game-configuration/env var operator pages (token catalog, ipv4 constraints: `command` required, `/bin/sh` + wget/curl in image, fail-fast on discovery timeout, per-restart IP churn vs the stable hostname token)
-- [ ] 4.2 Run the full pre-PR gate (`app:lint`, `app:typecheck`, `app:test`, plus integration/e2e per changed surfaces) and verify the deployment-config field checklist for `command` (shared type, infra consumption, wizard UI, infra.md)
+- [x] 4.1 Update docs via the `write-docs` skill: `docs/docs/components/infra.md` (field/resource table: `command`, entryPoint wrapper), the game-configuration/env var operator pages (token catalog, ipv4 constraints: `command` required, `/bin/sh` + wget/curl in image, fail-fast on discovery timeout, per-restart IP churn vs the stable hostname token)
+- [x] 4.2 Run the full pre-PR gate (`app:lint`, `app:typecheck`, `app:test`, plus integration/e2e per changed surfaces) and verify the deployment-config field checklist for `command` (shared type, infra consumption, wizard UI, infra.md)
