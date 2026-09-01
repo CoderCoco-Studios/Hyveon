@@ -24,8 +24,10 @@
 import { AlertTriangle } from 'lucide-react';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
+import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
 import { Label } from '@/components/ui/label.component';
+import { NativeSelect } from '@/components/ui/native-select.component';
 import { cn } from '@/lib/utils.utils';
 import { messageFor, type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
 
@@ -181,52 +183,53 @@ export function NetworkingStep({
                 issue ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
               )}
             >
-              <div className="flex-1">
-                <Label htmlFor={`port-container-${index}`}>Container port</Label>
-                <Input
-                  id={`port-container-${index}`}
-                  type="number"
-                  value={port.container ?? ''}
-                  aria-invalid={Boolean(issue)}
-                  aria-describedby={issue ? `port-error-${index}` : undefined}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    updateRow(index, { container: raw === '' ? null : Number(raw) });
-                  }}
-                />
-              </div>
+              <FormField id={`port-container-${index}`} label="Container port" className="flex-1">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    value={port.container ?? ''}
+                    aria-invalid={Boolean(issue)}
+                    aria-describedby={issue ? `port-error-${index}` : undefined}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      updateRow(index, { container: raw === '' ? null : Number(raw) });
+                    }}
+                  />
+                )}
+              </FormField>
 
-              <div className="flex-1">
-                <Label htmlFor={`port-protocol-${index}`}>Protocol</Label>
-                <select
-                  id={`port-protocol-${index}`}
-                  value={port.protocol}
-                  onChange={(event) => updateRow(index, { protocol: event.target.value })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {PROTOCOL_OPTIONS.map((protocol) => (
-                    <option key={protocol} value={protocol}>
-                      {protocol.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormField id={`port-protocol-${index}`} label="Protocol" className="flex-1">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={port.protocol}
+                    onChange={(event) => updateRow(index, { protocol: event.target.value })}
+                  >
+                    {PROTOCOL_OPTIONS.map((protocol) => (
+                      <option key={protocol} value={protocol}>
+                        {protocol.toUpperCase()}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </FormField>
 
-              <div className="flex-1">
-                <Label htmlFor={`port-visibility-${index}`}>Visibility</Label>
-                <select
-                  id={`port-visibility-${index}`}
-                  value={port.visibility}
-                  onChange={(event) => updateRow(index, { visibility: event.target.value as WizardDraftPort['visibility'] })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {VISIBILITY_OPTIONS.map((visibility) => (
-                    <option key={visibility} value={visibility}>
-                      {visibility === 'public' ? 'Public' : 'VPC-only'}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormField id={`port-visibility-${index}`} label="Visibility" className="flex-1">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={port.visibility}
+                    onChange={(event) => updateRow(index, { visibility: event.target.value as WizardDraftPort['visibility'] })}
+                  >
+                    {VISIBILITY_OPTIONS.map((visibility) => (
+                      <option key={visibility} value={visibility}>
+                        {visibility === 'public' ? 'Public' : 'VPC-only'}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </FormField>
 
               <Button
                 type="button"
@@ -277,133 +280,134 @@ export function NetworkingStep({
         {healthCheck.enabled && (
           <div className="space-y-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
             <div className="flex flex-wrap gap-3">
-              <div className="w-24">
-                <Label htmlFor="health-check-scheme">Scheme</Label>
-                <select
-                  id="health-check-scheme"
-                  value={healthCheck.scheme}
-                  onChange={(event) => onHealthCheckChange({ scheme: event.target.value })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {HEALTH_CHECK_SCHEME_OPTIONS.map((scheme) => (
-                    <option key={scheme} value={scheme}>
-                      {scheme}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex-1">
-                <Label htmlFor="health-check-port">Port</Label>
-                <select
-                  id="health-check-port"
-                  value={healthCheck.port ?? ''}
-                  aria-invalid={Boolean(messageFor(issues, 'healthCheck.port'))}
-                  aria-describedby={messageFor(issues, 'healthCheck.port') ? 'health-check-port-error' : undefined}
-                  onChange={(event) => onHealthCheckChange({ port: event.target.value === '' ? null : Number(event.target.value) })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  <option value="">Select a declared port…</option>
-                  {ports
-                    .filter((port) => port.container !== null)
-                    .map((port) => (
-                      <option key={`${port.container}-${port.protocol}`} value={port.container ?? ''}>
-                        {port.container}/{port.protocol}
+              <FormField id="health-check-scheme" label="Scheme" className="w-24">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={healthCheck.scheme}
+                    onChange={(event) => onHealthCheckChange({ scheme: event.target.value })}
+                  >
+                    {HEALTH_CHECK_SCHEME_OPTIONS.map((scheme) => (
+                      <option key={scheme} value={scheme}>
+                        {scheme}
                       </option>
                     ))}
-                </select>
-                {messageFor(issues, 'healthCheck.port') && (
-                  <p id="health-check-port-error" role="alert" className="text-xs text-[var(--color-red)]">
-                    {messageFor(issues, 'healthCheck.port')}
-                  </p>
+                  </NativeSelect>
                 )}
-              </div>
+              </FormField>
 
-              <div className="w-28">
-                <Label htmlFor="health-check-method">Method</Label>
-                <select
-                  id="health-check-method"
-                  value={healthCheck.method}
-                  onChange={(event) => onHealthCheckChange({ method: event.target.value })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {HEALTH_CHECK_METHOD_OPTIONS.map((method) => (
-                    <option key={method} value={method}>
-                      {method}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormField
+                id="health-check-port"
+                label="Port"
+                errors={messageFor(issues, 'healthCheck.port')}
+                className="flex-1"
+              >
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={healthCheck.port ?? ''}
+                    onChange={(event) =>
+                      onHealthCheckChange({ port: event.target.value === '' ? null : Number(event.target.value) })
+                    }
+                  >
+                    <option value="">Select a declared port…</option>
+                    {ports
+                      .filter((port) => port.container !== null)
+                      .map((port) => (
+                        <option key={`${port.container}-${port.protocol}`} value={port.container ?? ''}>
+                          {port.container}/{port.protocol}
+                        </option>
+                      ))}
+                  </NativeSelect>
+                )}
+              </FormField>
 
-              <div className="w-32">
-                <Label htmlFor="health-check-timeout">Timeout (ms)</Label>
+              <FormField id="health-check-method" label="Method" className="w-28">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={healthCheck.method}
+                    onChange={(event) => onHealthCheckChange({ method: event.target.value })}
+                  >
+                    {HEALTH_CHECK_METHOD_OPTIONS.map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </FormField>
+
+              <FormField
+                id="health-check-timeout"
+                label="Timeout (ms)"
+                className="w-32"
+                errors={messageFor(issues, 'healthCheck.timeoutMs')}
+              >
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    value={healthCheck.timeoutMs ?? ''}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      onHealthCheckChange({ timeoutMs: raw === '' ? null : Number(raw) });
+                    }}
+                  />
+                )}
+              </FormField>
+            </div>
+
+            <FormField id="health-check-path" label="Request path" errors={messageFor(issues, 'healthCheck.path')}>
+              {(fieldProps) => (
                 <Input
-                  id="health-check-timeout"
-                  type="number"
-                  value={healthCheck.timeoutMs ?? ''}
-                  aria-invalid={Boolean(messageFor(issues, 'healthCheck.timeoutMs'))}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    onHealthCheckChange({ timeoutMs: raw === '' ? null : Number(raw) });
-                  }}
+                  {...fieldProps}
+                  value={healthCheck.path}
+                  placeholder="/status"
+                  onChange={(event) => onHealthCheckChange({ path: event.target.value })}
                 />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="health-check-path">Request path</Label>
-              <Input
-                id="health-check-path"
-                value={healthCheck.path}
-                aria-invalid={Boolean(messageFor(issues, 'healthCheck.path'))}
-                aria-describedby={messageFor(issues, 'healthCheck.path') ? 'health-check-path-error' : undefined}
-                placeholder="/status"
-                onChange={(event) => onHealthCheckChange({ path: event.target.value })}
-              />
-              {messageFor(issues, 'healthCheck.path') && (
-                <p id="health-check-path-error" role="alert" className="text-xs text-[var(--color-red)]">
-                  {messageFor(issues, 'healthCheck.path')}
-                </p>
               )}
-            </div>
+            </FormField>
 
             <div className="flex flex-wrap items-end gap-3">
-              <div className="flex-1">
-                <Label htmlFor="health-check-json-path">Response JSON path</Label>
-                <Input
-                  id="health-check-json-path"
-                  value={healthCheck.jsonPath}
-                  placeholder="players.online"
-                  onChange={(event) => onHealthCheckChange({ jsonPath: event.target.value })}
-                />
-              </div>
+              <FormField id="health-check-json-path" label="Response JSON path" className="flex-1">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    value={healthCheck.jsonPath}
+                    placeholder="players.online"
+                    onChange={(event) => onHealthCheckChange({ jsonPath: event.target.value })}
+                  />
+                )}
+              </FormField>
 
-              <div className="w-40">
-                <Label htmlFor="health-check-operator">Operator</Label>
-                <select
-                  id="health-check-operator"
-                  value={healthCheck.operator}
-                  onChange={(event) => onHealthCheckChange({ operator: event.target.value })}
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {HEALTH_CHECK_OPERATOR_OPTIONS.map((operator) => (
-                    <option key={operator} value={operator}>
-                      {operator}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormField id="health-check-operator" label="Operator" className="w-40">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={healthCheck.operator}
+                    onChange={(event) => onHealthCheckChange({ operator: event.target.value })}
+                  >
+                    {HEALTH_CHECK_OPERATOR_OPTIONS.map((operator) => (
+                      <option key={operator} value={operator}>
+                        {operator}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </FormField>
 
               {healthCheck.operator !== 'exists' && (
-                <div className="flex-1">
-                  <Label htmlFor="health-check-value">Comparison value</Label>
-                  <Input
-                    id="health-check-value"
-                    value={healthCheck.value}
-                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.activeWhen.value'))}
-                    onChange={(event) => onHealthCheckChange({ value: event.target.value })}
-                  />
-                </div>
+                <FormField id="health-check-value" label="Comparison value" className="flex-1">
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      value={healthCheck.value}
+                      aria-invalid={Boolean(messageFor(issues, 'healthCheck.activeWhen.value'))}
+                      onChange={(event) => onHealthCheckChange({ value: event.target.value })}
+                    />
+                  )}
+                </FormField>
               )}
             </div>
             {messageFor(issues, 'healthCheck.activeWhen.value') && (
@@ -413,23 +417,23 @@ export function NetworkingStep({
             )}
 
             <div className="space-y-3 border-t border-[var(--color-border)] pt-3">
-              <div className="w-40">
-                <Label htmlFor="health-check-auth-type">Credential type</Label>
-                <select
-                  id="health-check-auth-type"
-                  value={healthCheck.authType}
-                  onChange={(event) =>
-                    onHealthCheckChange({ authType: event.target.value as WizardDraftHealthCheck['authType'] })
-                  }
-                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1 text-sm text-[var(--color-foreground)]"
-                >
-                  {HEALTH_CHECK_AUTH_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <FormField id="health-check-auth-type" label="Credential type" className="w-40">
+                {(fieldProps) => (
+                  <NativeSelect
+                    {...fieldProps}
+                    value={healthCheck.authType}
+                    onChange={(event) =>
+                      onHealthCheckChange({ authType: event.target.value as WizardDraftHealthCheck['authType'] })
+                    }
+                  >
+                    {HEALTH_CHECK_AUTH_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </FormField>
 
               {healthCheck.secretSet && (
                 <p className="text-xs text-[var(--color-muted-foreground)]">A credential is already set.</p>
@@ -437,24 +441,24 @@ export function NetworkingStep({
 
               {healthCheck.authType === 'raw' && (
                 <div>
-                  <Label htmlFor="health-check-secret-arn">Secrets Manager ARN</Label>
-                  <Input
+                  <FormField
                     id="health-check-secret-arn"
-                    value={healthCheck.secretArn}
-                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.secretArn'))}
-                    aria-describedby={
-                      messageFor(issues, 'healthCheck.auth.secretArn') ? 'health-check-secret-arn-error' : undefined
-                    }
-                    placeholder={
-                      healthCheck.secretSet ? 'Leave blank to keep the existing credential' : 'arn:aws:secretsmanager:...'
-                    }
-                    onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
-                  />
-                  {messageFor(issues, 'healthCheck.auth.secretArn') && (
-                    <p id="health-check-secret-arn-error" role="alert" className="text-xs text-[var(--color-red)]">
-                      {messageFor(issues, 'healthCheck.auth.secretArn')}
-                    </p>
-                  )}
+                    label="Secrets Manager ARN"
+                    errors={messageFor(issues, 'healthCheck.auth.secretArn')}
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={healthCheck.secretArn}
+                        placeholder={
+                          healthCheck.secretSet
+                            ? 'Leave blank to keep the existing credential'
+                            : 'arn:aws:secretsmanager:...'
+                        }
+                        onChange={(event) => onHealthCheckChange({ secretArn: event.target.value })}
+                      />
+                    )}
+                  </FormField>
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     You manage this secret&apos;s lifecycle yourself — the app only reads its value.
                   </p>
@@ -463,43 +467,37 @@ export function NetworkingStep({
 
               {healthCheck.authType === 'basic' && (
                 <div className="flex flex-wrap gap-3">
-                  <div className="flex-1">
-                    <Label htmlFor="health-check-username">Username</Label>
-                    <Input
-                      id="health-check-username"
-                      value={healthCheck.username}
-                      aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.username'))}
-                      aria-describedby={
-                        messageFor(issues, 'healthCheck.auth.username') ? 'health-check-username-error' : undefined
-                      }
-                      placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
-                      onChange={(event) => onHealthCheckChange({ username: event.target.value })}
-                    />
-                    {messageFor(issues, 'healthCheck.auth.username') && (
-                      <p id="health-check-username-error" role="alert" className="text-xs text-[var(--color-red)]">
-                        {messageFor(issues, 'healthCheck.auth.username')}
-                      </p>
+                  <FormField
+                    id="health-check-username"
+                    label="Username"
+                    errors={messageFor(issues, 'healthCheck.auth.username')}
+                    className="flex-1"
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={healthCheck.username}
+                        placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                        onChange={(event) => onHealthCheckChange({ username: event.target.value })}
+                      />
                     )}
-                  </div>
-                  <div className="flex-1">
-                    <Label htmlFor="health-check-password">Password</Label>
-                    <Input
-                      id="health-check-password"
-                      type="password"
-                      value={healthCheck.password}
-                      aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.password'))}
-                      aria-describedby={
-                        messageFor(issues, 'healthCheck.auth.password') ? 'health-check-password-error' : undefined
-                      }
-                      placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
-                      onChange={(event) => onHealthCheckChange({ password: event.target.value })}
-                    />
-                    {messageFor(issues, 'healthCheck.auth.password') && (
-                      <p id="health-check-password-error" role="alert" className="text-xs text-[var(--color-red)]">
-                        {messageFor(issues, 'healthCheck.auth.password')}
-                      </p>
+                  </FormField>
+                  <FormField
+                    id="health-check-password"
+                    label="Password"
+                    errors={messageFor(issues, 'healthCheck.auth.password')}
+                    className="flex-1"
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        type="password"
+                        value={healthCheck.password}
+                        placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                        onChange={(event) => onHealthCheckChange({ password: event.target.value })}
+                      />
                     )}
-                  </div>
+                  </FormField>
                   <p className="w-full text-xs text-[var(--color-muted-foreground)]">
                     The app stores this as a Secrets Manager secret it creates and manages for you.
                   </p>
@@ -508,23 +506,21 @@ export function NetworkingStep({
 
               {healthCheck.authType === 'bearer' && (
                 <div>
-                  <Label htmlFor="health-check-token">Token</Label>
-                  <Input
+                  <FormField
                     id="health-check-token"
-                    type="password"
-                    value={healthCheck.token}
-                    aria-invalid={Boolean(messageFor(issues, 'healthCheck.auth.token'))}
-                    aria-describedby={
-                      messageFor(issues, 'healthCheck.auth.token') ? 'health-check-token-error' : undefined
-                    }
-                    placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
-                    onChange={(event) => onHealthCheckChange({ token: event.target.value })}
-                  />
-                  {messageFor(issues, 'healthCheck.auth.token') && (
-                    <p id="health-check-token-error" role="alert" className="text-xs text-[var(--color-red)]">
-                      {messageFor(issues, 'healthCheck.auth.token')}
-                    </p>
-                  )}
+                    label="Token"
+                    errors={messageFor(issues, 'healthCheck.auth.token')}
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        type="password"
+                        value={healthCheck.token}
+                        placeholder={healthCheck.secretSet ? 'Re-enter to change' : ''}
+                        onChange={(event) => onHealthCheckChange({ token: event.target.value })}
+                      />
+                    )}
+                  </FormField>
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     The app stores this as a Secrets Manager secret it creates and manages for you.
                   </p>

@@ -20,8 +20,9 @@
 
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
+import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
-import { Label } from '@/components/ui/label.component';
+import { Textarea } from '@/components/ui/textarea.component';
 import { cn } from '@/lib/utils.utils';
 import { messageFor, type WizardDraft, type WizardDraftFileSeed, type WizardDraftVolume } from './wizard-form.utils.js';
 
@@ -105,29 +106,27 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
               >
                 <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={`volume-name-${index}`}>Volume name</Label>
-                    <Input
-                      id={`volume-name-${index}`}
-                      value={volume.name}
-                      placeholder="data"
-                      aria-invalid={Boolean(nameError)}
-                      aria-describedby={nameError ? `volume-name-error-${index}` : undefined}
-                      onChange={(event) => updateVolume(index, { name: event.target.value })}
-                    />
-                  </div>
+                  <FormField id={`volume-name-${index}`} label="Volume name" errors={nameError} className="flex-1">
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={volume.name}
+                        placeholder="data"
+                        onChange={(event) => updateVolume(index, { name: event.target.value })}
+                      />
+                    )}
+                  </FormField>
 
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={`volume-path-${index}`}>Container path</Label>
-                    <Input
-                      id={`volume-path-${index}`}
-                      value={volume.container_path}
-                      placeholder="/data"
-                      aria-invalid={Boolean(pathError)}
-                      aria-describedby={pathError ? `volume-path-error-${index}` : undefined}
-                      onChange={(event) => updateVolume(index, { container_path: event.target.value })}
-                    />
-                  </div>
+                  <FormField id={`volume-path-${index}`} label="Container path" errors={pathError} className="flex-1">
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={volume.container_path}
+                        placeholder="/data"
+                        onChange={(event) => updateVolume(index, { container_path: event.target.value })}
+                      />
+                    )}
+                  </FormField>
 
                   <Button
                     type="button"
@@ -140,17 +139,6 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                     Remove
                   </Button>
                 </div>
-
-                {nameError && (
-                  <p id={`volume-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
-                    {nameError}
-                  </p>
-                )}
-                {pathError && (
-                  <p id={`volume-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
-                    {pathError}
-                  </p>
-                )}
               </div>
             );
           })}
@@ -190,17 +178,16 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                 )}
               >
                 <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={`file-seed-path-${index}`}>Path</Label>
-                    <Input
-                      id={`file-seed-path-${index}`}
-                      value={seed.path}
-                      placeholder="/data/config.yml"
-                      aria-invalid={Boolean(pathError)}
-                      aria-describedby={pathError ? `file-seed-path-error-${index}` : undefined}
-                      onChange={(event) => updateFileSeed(index, { path: event.target.value })}
-                    />
-                  </div>
+                  <FormField id={`file-seed-path-${index}`} label="Path" errors={pathError} className="flex-1">
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={seed.path}
+                        placeholder="/data/config.yml"
+                        onChange={(event) => updateFileSeed(index, { path: event.target.value })}
+                      />
+                    )}
+                  </FormField>
 
                   <Button
                     type="button"
@@ -213,59 +200,45 @@ export function StorageStep({ draft, issues, onChange }: StorageStepProps) {
                   </Button>
                 </div>
 
-                {pathError && (
-                  <p id={`file-seed-path-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
-                    {pathError}
-                  </p>
-                )}
-
-                <div className="space-y-1">
-                  <Label htmlFor={`file-seed-content-${index}`}>Content</Label>
-                  <textarea
-                    id={`file-seed-content-${index}`}
-                    value={seed.content}
-                    placeholder="Plain-text file contents"
-                    rows={3}
-                    onChange={(event) => updateFileSeed(index, { content: event.target.value })}
-                    className="flex w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-sm text-[var(--color-foreground)] font-[var(--font-mono)] placeholder:text-[var(--color-muted-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary)]"
-                  />
-                  {contentError && (
-                    <p role="alert" className="text-xs text-[var(--color-red)]">
-                      {contentError}
-                    </p>
+                <FormField id={`file-seed-content-${index}`} label="Content" errors={contentError}>
+                  {(fieldProps) => (
+                    <Textarea
+                      {...fieldProps}
+                      value={seed.content}
+                      placeholder="Plain-text file contents"
+                      rows={3}
+                      onChange={(event) => updateFileSeed(index, { content: event.target.value })}
+                    />
                   )}
-                </div>
+                </FormField>
 
                 <div className="flex gap-3">
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={`file-seed-base64-${index}`}>Content (base64)</Label>
-                    <Input
-                      id={`file-seed-base64-${index}`}
-                      value={seed.content_base64}
-                      placeholder="Base64-encoded binary contents"
-                      onChange={(event) => updateFileSeed(index, { content_base64: event.target.value })}
-                    />
-                    {base64Error && (
-                      <p role="alert" className="text-xs text-[var(--color-red)]">
-                        {base64Error}
-                      </p>
+                  <FormField
+                    id={`file-seed-base64-${index}`}
+                    label="Content (base64)"
+                    errors={base64Error}
+                    className="flex-1"
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={seed.content_base64}
+                        placeholder="Base64-encoded binary contents"
+                        onChange={(event) => updateFileSeed(index, { content_base64: event.target.value })}
+                      />
                     )}
-                  </div>
+                  </FormField>
 
-                  <div className="w-28 space-y-1">
-                    <Label htmlFor={`file-seed-mode-${index}`}>Mode</Label>
-                    <Input
-                      id={`file-seed-mode-${index}`}
-                      value={seed.mode}
-                      placeholder="0644"
-                      onChange={(event) => updateFileSeed(index, { mode: event.target.value })}
-                    />
-                    {modeError && (
-                      <p role="alert" className="text-xs text-[var(--color-red)]">
-                        {modeError}
-                      </p>
+                  <FormField id={`file-seed-mode-${index}`} label="Mode" errors={modeError} className="w-28">
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        value={seed.mode}
+                        placeholder="0644"
+                        onChange={(event) => updateFileSeed(index, { mode: event.target.value })}
+                      />
                     )}
-                  </div>
+                  </FormField>
                 </div>
               </div>
             );

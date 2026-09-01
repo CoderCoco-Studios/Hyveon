@@ -14,8 +14,8 @@
 
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import { Button } from '@/components/ui/button.component';
+import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
-import { Label } from '@/components/ui/label.component';
 import { messageFor, type WizardDraft, type WizardDraftEnvironmentVariable } from './wizard-form.utils.js';
 
 /** Blank row appended by the "Add variable" button. */
@@ -76,27 +76,27 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
               className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3"
             >
               <div className="flex items-end gap-3">
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor={`env-name-${index}`}>Variable name</Label>
-                  <Input
-                    id={`env-name-${index}`}
-                    value={variable.name}
-                    placeholder="EULA"
-                    aria-invalid={Boolean(nameError)}
-                    aria-describedby={nameError ? `env-name-error-${index}` : undefined}
-                    onChange={(event) => updateVariable(index, { name: event.target.value })}
-                  />
-                </div>
+                <FormField id={`env-name-${index}`} label="Variable name" errors={nameError} className="flex-1">
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      value={variable.name}
+                      placeholder="EULA"
+                      onChange={(event) => updateVariable(index, { name: event.target.value })}
+                    />
+                  )}
+                </FormField>
 
-                <div className="flex-1 space-y-1">
-                  <Label htmlFor={`env-value-${index}`}>Value</Label>
-                  <Input
-                    id={`env-value-${index}`}
-                    value={variable.value}
-                    placeholder="TRUE"
-                    onChange={(event) => updateVariable(index, { value: event.target.value })}
-                  />
-                </div>
+                <FormField id={`env-value-${index}`} label="Value" className="flex-1">
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      value={variable.value}
+                      placeholder="TRUE"
+                      onChange={(event) => updateVariable(index, { value: event.target.value })}
+                    />
+                  )}
+                </FormField>
 
                 <Button
                   type="button"
@@ -108,12 +108,6 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
                   Remove
                 </Button>
               </div>
-
-              {nameError && (
-                <p id={`env-name-error-${index}`} role="alert" className="text-xs text-[var(--color-red)]">
-                  {nameError}
-                </p>
-              )}
             </div>
           );
         })}
