@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card.component';
+import { SectionCard } from '@/components/section-card.component';
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
 import type { WizardDraft } from './wizard-form.utils.js';
 
@@ -54,32 +54,23 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Identity</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
+      <SectionCard title="Identity">
+        <div className="space-y-1">
           <SummaryRow label="Name" value={draft.name || '—'} />
           <SummaryRow label="Image" value={draft.image || '—'} />
           {hasConnectMessage && <SummaryRow label="Connect message" value={draft.connect_message} />}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Resources</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
+      <SectionCard title="Resources">
+        <div className="space-y-1">
           <SummaryRow label="CPU" value={draft.cpu ?? '—'} />
           <SummaryRow label="Memory" value={draft.memory ?? '—'} />
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Networking</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <SectionCard title="Networking">
+        <div className="space-y-3">
           <SummaryRow label="HTTPS" value={draft.https ? 'Enabled' : 'Disabled'} />
           {draft.ports.length === 0 ? (
             <p className="text-sm text-[var(--color-muted-foreground)]">No ports configured.</p>
@@ -122,14 +113,11 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               No health check — idle detection uses network traffic.
             </p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Storage</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <SectionCard title="Storage">
+        <div className="space-y-3">
           {draft.volumes.length === 0 ? (
             <p className="text-sm text-[var(--color-muted-foreground)]">No volumes configured.</p>
           ) : (
@@ -177,8 +165,8 @@ export function ReviewStep({ draft, issues = [], submitError = null }: ReviewSte
               </ul>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
       {issues.length > 0 && (
         <div
