@@ -13,7 +13,7 @@ working in an area rather than relying on a summary here.
 | Work already proposed or in flight | `openspec/changes/<change>/` (`proposal.md`, `design.md`, `tasks.md`) |
 | Big picture + invariants | `docs/docs/architecture.md` |
 | The Pulumi infra program's files, resources, and state backend | `docs/docs/components/infra.md` |
-| The five Lambda packages (four always-on, one conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
+| The six Lambda packages (five always-on, one conditional) and the `/server-start` critical path | `docs/docs/components/lambdas.md` |
 | Nest modules, IPC channels, services, renderer layout | `docs/docs/components/management-app.md` |
 | The operator UI, page by page (dashboard, games, infrastructure, discord, logs, settings, costs, audit, first-run wizard) | `docs/docs/app/` |
 | Installing / distributing the packaged app | `docs/docs/install.md` |
@@ -36,7 +36,7 @@ through a change, not straight into `openspec/specs/`.
 
 Single **npm-workspaces** tree rooted at the repo root. Workspaces: `app`,
 `@hyveon/shared`, `@hyveon/cloud-aws`, `@hyveon/desktop-main`,
-`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, and five Lambda
+`@hyveon/desktop-preload`, `@hyveon/infra`, `@hyveon/web`, and six Lambda
 packages under `app/packages/lambda/*`.
 
 ```bash
@@ -49,7 +49,7 @@ npm run app:start                # launch the built app (requires desktop:build 
 npm run desktop:run              # one-shot: app:build → desktop:build → app:start
 npm run desktop:package         # electron-builder installers → release/ (Win NSIS, macOS DMG, Linux AppImage)
 
-npm run app:build:lambdas        # bundle all five Lambda packages (REQUIRED before the first infra apply)
+npm run app:build:lambdas        # bundle all six Lambda packages (REQUIRED before the first infra apply)
 npm run icons:generate           # regenerate app icons + favicons from build/icon*.svg (outputs are committed)
 
 npm run app:lint                 # eslint (flat config at app/eslint.config.js)
