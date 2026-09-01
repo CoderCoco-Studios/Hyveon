@@ -109,6 +109,21 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
     setDraft((prev) => ({ ...prev, ...patch }));
   }
 
+  /**
+   * Applies a partial patch to just the `healthCheck` sub-object, merging
+   * against the latest state via `setDraft`'s functional updater rather than
+   * the render-scoped `draft.healthCheck` — two patches dispatched in the
+   * same React batch (e.g. from a caller that fires more than one in one
+   * handler) would otherwise merge both against the same pre-update
+   * snapshot, and the second `setDraft` call would silently discard the
+   * first's change.
+   */
+  function patchHealthCheck(patch: Partial<WizardDraft['healthCheck']>) {
+    setServerIssues(null);
+    setSubmitError(null);
+    setDraft((prev) => ({ ...prev, healthCheck: { ...prev.healthCheck, ...patch } }));
+  }
+
   // 'edit' mode: this form's `name` field is read-only (`IdentityStep`'s
   // `nameDisabled` prop below), so re-running create-time name validation
   // against the unchanged, already-declared name would incorrectly reject a
@@ -191,7 +206,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
             https={draft.https}
             onHttpsChange={(https) => patchDraft({ https })}
             healthCheck={draft.healthCheck}
-            onHealthCheckChange={(patch) => patchDraft({ healthCheck: { ...draft.healthCheck, ...patch } })}
+            onHealthCheckChange={patchHealthCheck}
           />
         </CardContent>
       </Card>
@@ -232,7 +247,7 @@ export function EditGameForm({ game, onSaved }: EditGameFormProps) {
         to apply this change to the live server.
       </p>
 
-      <Button type="button" onClick={handleSave} disabled={saveDisabled}>
+      <Button type="button" onClick={() => void handleSave()} disabled={saveDisabled}>
         {submitting && <Loader2 className="animate-spin" />}
         Save changes
       </Button>
