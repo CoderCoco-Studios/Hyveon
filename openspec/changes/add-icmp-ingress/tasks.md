@@ -29,5 +29,5 @@
 ## 5. Verification gates
 
 - [x] 5.1 `npm run app:lint`, `npm run app:typecheck`, `npm run app:test` all green.
-- [ ] 5.2 `npm run app:test:e2e` (renderer/wizard surface changed).
-- [ ] 5.3 Manual: `pulumi preview` with an `icmp` entry shows the new SG rule; a config without `icmp` entries previews with zero diff.
+- [x] 5.2 `npm run app:test:e2e` (renderer/wizard surface changed).
+- [~] 5.3 Manual: `pulumi preview` with an `icmp` entry shows the new SG rule; a config without `icmp` entries previews with zero diff.
