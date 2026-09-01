@@ -170,9 +170,7 @@ export function defineEcs(args: DefineEcsArgs): EcsResources {
       name: game,
       image: config.image,
       essential: true,
-      // icmp entries carry no transport port to map — ECS's `portMappings`
-      // rejects anything but tcp/udp — so they're excluded here; the
-      // security-group ingress rule is their only representation.
+      // icmp has no transport port; ECS's portMappings rejects non-tcp/udp, so only the SG rule represents it.
       portMappings: config.ports
         .filter((port) => port.protocol !== 'icmp')
         .map((port) => ({
