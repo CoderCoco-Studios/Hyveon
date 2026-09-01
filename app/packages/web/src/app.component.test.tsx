@@ -27,7 +27,7 @@ vi.mock('./polling/game-status-provider.component.js', () => ({
 vi.mock('./components/ui/sonner.component.js', () => ({ Toaster: () => null }));
 vi.mock('./pages/dashboard.page.js', () => ({ DashboardPage: () => <div>dashboard</div> }));
 vi.mock('./pages/costs.page.js', () => ({ CostsPage: () => null }));
-vi.mock('./pages/discord.page.js', () => ({ DiscordPage: () => null }));
+vi.mock('./pages/discord/discord.page.js', () => ({ DiscordPage: () => null }));
 vi.mock('./pages/logs.page.js', () => ({ LogsPage: () => null }));
 vi.mock('./pages/iac.page.js', () => ({ IacPage: () => null }));
 vi.mock('./pages/iac-history.page.js', () => ({ IacHistoryPage: () => null }));
