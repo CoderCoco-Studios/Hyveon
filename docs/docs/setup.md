@@ -369,10 +369,12 @@ container:
 ```text
 Image:  thijsvanloef/palworld-server-docker:latest
 CPU / Memory: 2048 / 8192
-Ports: 8211/udp, 27015/udp
+Ports: 8211/udp, 27015/udp, icmp type 8 (echo request)
 Environment: PLAYERS=8, SERVER_NAME=My Palworld Server
 EFS volume: name "saves", container path /palworld
 ```
+
+The `icmp` entry (`container: 8`, `protocol: "icmp"`) isn't a listening port — Palworld's community server browser pings the server before joining, and without an ICMP-echo ingress rule the browser join times out even though a direct connect (which skips the ping) still works. `container` carries the ICMP type rather than a port number, and the entry only shapes the security group; it's excluded from ECS `portMappings`.
 
 Submitting the wizard writes one entry into the versioned JSON configuration
 object (`deployment-config.json`, in the configuration bucket from

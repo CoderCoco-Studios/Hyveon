@@ -36,7 +36,7 @@ deployed but no longer declared.
 | **Name** | The game name, linked to its detail page |
 | **Status** | One chip — see below |
 | **Image** | The container image, or `—` |
-| **Ports** | `25565/tcp, 25575/tcp`, or `—` |
+| **Ports** | `25565/tcp, 25575/tcp`, or `—` (an ICMP entry shows the same way, e.g. `8/icmp`) |
 | **CPU** | Fargate CPU units, or `—` |
 | **Memory** | MiB, or `—` |
 
@@ -126,9 +126,9 @@ before submitting.
 > Declare every container port the server listens on.
 
 Starts empty. **Add port** appends a row with a **Container port** number
-field, a **Protocol** dropdown (`TCP` / `UDP`, defaulting to TCP), and a
-**Visibility** dropdown (`Public` / `VPC-only`, defaulting to Public). Each
-row has its own **Remove** button.
+field, a **Protocol** dropdown (`TCP` / `UDP` / `ICMP`, defaulting to TCP),
+and a **Visibility** dropdown (`Public` / `VPC-only`, defaulting to Public).
+Each row has its own **Remove** button.
 
 Public ports are open to the whole internet, same as before this control
 existed. A port set to VPC-only is reachable only from inside the VPC —
@@ -138,6 +138,25 @@ authoritative health check) still can. Note that this is VPC-wide
 reachability, not scoped to any one caller — see
 [Infra program reference](/components/infra) for the security-group detail.
 
+#### ICMP entries (ping reachability)
+
+Selecting `ICMP` for a row relabels the numeric field **ICMP type** instead
+of **Container port**, prefills it with `8` if it's still blank, and shows a
+hint underneath: *"8 = echo request (ping)"*. An ICMP row never becomes an
+ECS port mapping — it only opens an ICMP ingress rule on the security group,
+for the type you declared (`0`–`255`; `8` is a standard ping). This is for a
+game whose community or server-browser tooling pings the server to check
+it's alive (Palworld's server browser is the reference case): declaring
+`{ "container": 8, "protocol": "icmp" }` opens ICMP echo without exposing or
+mapping any container port for it. The numeric field enforces the same
+`0`–`255` range as any other ICMP type — entering an out-of-range value
+blocks the step with `ICMP type must be an integer between 0 and 255`.
+
+An `icmp` entry cannot be combined with `https: true` on the same game — the
+existing rule that a port on an HTTPS game must be `tcp` or `udp` still
+applies (see below), so switching a game to HTTPS with an ICMP row declared
+blocks the step.
+
 Two collision checks run continuously:
 
 - Against the other ports in this same game:
@@ -145,7 +164,15 @@ Two collision checks run continuously:
 - Against every other declared game:
   `Port 25565/tcp collides with existing game "minecraft".`
 
-Both are hard blocks. Note that zero ports is technically allowed by the
+Both are hard blocks. The cross-game check exempts `icmp`: the same pair
+(e.g. `8/icmp`) is allowed on more than one game as long as every
+declaration shares the same effective visibility — the security group
+dedupes identical `icmp` rules into one, so there's nothing to collide over.
+A visibility mismatch is still rejected, naming both games:
+`Port 8/icmp on game "minecraft" conflicts with existing game "palworld":
+effective visibility must match across games for icmp entries (one is
+"public", the other "internal").` A repeated `icmp` pair within the *same*
+game still hits the first (same-game) check above. Note that zero ports is technically allowed by the
 wizard — you can advance without adding any — but a server with no declared
 ports will not be reachable.
 
@@ -369,7 +396,7 @@ The header carries the game name, its status chip, and — for declared games �
 | Card | Contents | Shown |
 |---|---|---|
 | **Container** | Image, CPU, Memory, HTTPS (`Enabled` / `Disabled`) | Always |
-| **Ports** | Container port and protocol per row | Always |
+| **Ports** | Container port (or ICMP type, for an `icmp` row) and protocol per row | Always |
 | **Volumes** | Name and container path per row | Always |
 | **Environment variables** | Name/value pairs | Only if any are declared |
 | **File seeds** | A collapsed `3 files seeded at task start` summary; expand for the paths (and modes). Contents are never shown | Only if any are declared |
