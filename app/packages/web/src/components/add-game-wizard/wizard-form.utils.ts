@@ -497,11 +497,13 @@ function checkImage(image: string): GameServerValidationIssue[] {
  * Mirrors `@hyveon/shared/gameServerValidator`'s `checkIcmpPortRules`
  * ICMP-type range check (0-255 inclusive) client-side, with a message sized
  * for the port row rather than the API-oriented wording of the shared issue.
- * Pushed ahead of `validateGameServer`'s own issues in
- * {@link validateWizardDraft}, so `rowError`'s `.find()`
- * (`networking-step.component.tsx`) surfaces this message first when both
- * fire for the same `ports[N].container` path. A blank `container` is left
- * to the structural "required" issue instead of this range message.
+ * {@link validateWizardDraft} drops `checkIcmpPortRules`'s own issue at any
+ * path this returns an issue for (they fire under the identical condition,
+ * so this is always a strict replacement, never a partial one) — both
+ * `rowError` (`networking-step.component.tsx`) and the Review step's
+ * unfiltered issue list would otherwise show two near-identical bullets for
+ * one error. A blank `container` is left to the structural "required" issue
+ * instead of this range message.
  */
 function checkIcmpPortType(ports: WizardDraftPort[]): GameServerValidationIssue[] {
   const issues: GameServerValidationIssue[] = [];
@@ -546,11 +548,8 @@ export function validateWizardDraft(
   existingGames: GameServer[],
   mode: WizardMode = 'create',
 ): GameServerValidationIssue[] {
-  const issues = [
-    ...checkName(draft.name, existingGames, mode),
-    ...checkImage(draft.image),
-    ...checkIcmpPortType(draft.ports),
-  ];
+  const icmpPortTypeIssues = checkIcmpPortType(draft.ports);
+  const issues = [...checkName(draft.name, existingGames, mode), ...checkImage(draft.image), ...icmpPortTypeIssues];
 
   if (draft.healthCheck.enabled) {
     issues.push(...validateHealthCheckAuthInput(healthCheckAuthInputFromDraft(draft.healthCheck) ?? undefined));
@@ -559,7 +558,9 @@ export function validateWizardDraft(
   const name = draft.name.trim().length > 0 ? draft.name.trim() : DRAFT_NAME_PLACEHOLDER;
   const result = validateGameServer(name, toProposedEntry(draft), existingGames);
   if (!result.success) {
-    issues.push(...result.issues);
+    // Drop the shared checkIcmpPortRules issue at any path checkIcmpPortType already covered above (see that function's doc).
+    const icmpPortTypePaths = new Set(icmpPortTypeIssues.map((issue) => issue.path));
+    issues.push(...result.issues.filter((issue) => !icmpPortTypePaths.has(issue.path)));
     // validateGameServer only runs its own connect_message placeholder check
     // once the full entry parses structurally, so a structural failure here
     // (e.g. cpu/memory still null) means that check may never have run. Run
