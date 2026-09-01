@@ -32,8 +32,11 @@ import { cn } from '@/lib/utils.utils';
 import { HealthCheckFields } from './health-check-fields.component.js';
 import { type WizardDraftHealthCheck, type WizardDraftPort } from './wizard-form.utils.js';
 
-/** Protocol options offered in each row's dropdown; `game_servers[].ports[].protocol` is a plain string server-side, but only these two are meaningful for an ECS/Fargate task definition. */
-const PROTOCOL_OPTIONS = ['tcp', 'udp'] as const;
+/** Protocol options offered in each row's dropdown; `game_servers[].ports[].protocol` is a plain string server-side, but only these three are meaningful for an ECS/Fargate task definition (`icmp` opens an ICMP ingress rule rather than a TCP/UDP port). */
+const PROTOCOL_OPTIONS = ['tcp', 'udp', 'icmp'] as const;
+
+/** Default ICMP type prefilled when a blank row is switched to `icmp` — echo request (ping), the type an operator almost always wants. */
+const DEFAULT_ICMP_TYPE = 8;
 
 /** Blank row appended by the "Add port" button. */
 const EMPTY_PORT: WizardDraftPort = { container: null, protocol: 'tcp', visibility: 'public' };
@@ -167,7 +170,16 @@ export function NetworkingStep({
                 issue ? 'border-[var(--color-red)]' : 'border-[var(--color-border)]',
               )}
             >
-              <FormField id={`port-container-${index}`} label="Container port" className="flex-1">
+              <FormField
+                id={`port-container-${index}`}
+                label={port.protocol === 'icmp' ? 'ICMP type' : 'Container port'}
+                hint={
+                  port.protocol === 'icmp' ? (
+                    <p className="text-xs text-[var(--color-muted-foreground)]">8 = echo request (ping)</p>
+                  ) : undefined
+                }
+                className="flex-1"
+              >
                 {(fieldProps) => (
                   <Input
                     {...fieldProps}
@@ -188,7 +200,16 @@ export function NetworkingStep({
                   <NativeSelect
                     {...fieldProps}
                     value={port.protocol}
-                    onChange={(event) => updateRow(index, { protocol: event.target.value })}
+                    onChange={(event) => {
+                      const protocol = event.target.value;
+                      // Prefill the ICMP type only for a still-blank row; an already-filled container (e.g. switching back and forth) is left as the operator set it.
+                      updateRow(
+                        index,
+                        protocol === 'icmp' && port.container === null
+                          ? { protocol, container: DEFAULT_ICMP_TYPE }
+                          : { protocol },
+                      );
+                    }}
                   >
                     {PROTOCOL_OPTIONS.map((protocol) => (
                       <option key={protocol} value={protocol}>

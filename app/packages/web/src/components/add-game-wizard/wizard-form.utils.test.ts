@@ -238,6 +238,25 @@ describe('validateNetworkingStep', () => {
     expect(validateNetworkingStep(makeValidDraft(), [])).toEqual([]);
   });
 
+  it('should flag an icmp row with container 300 as outside the 0-255 ICMP type range', () => {
+    const issues = validateNetworkingStep(
+      makeValidDraft({ ports: [{ container: 300, protocol: 'icmp', visibility: 'public' }] }),
+      [],
+    );
+    expect(issues).toContainEqual({
+      path: 'ports[0].container',
+      message: 'ICMP type must be an integer between 0 and 255',
+    });
+  });
+
+  it('should pass a clean icmp row with container 8', () => {
+    const issues = validateNetworkingStep(
+      makeValidDraft({ ports: [{ container: 8, protocol: 'icmp', visibility: 'public' }] }),
+      [],
+    );
+    expect(issues).toEqual([]);
+  });
+
   it('should not report identity/resources/storage issues even when those fields are invalid', () => {
     const issues = validateNetworkingStep(makeValidDraft({ name: '', cpu: null, volumes: [] }), []);
     expect(issues).toEqual([]);

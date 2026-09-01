@@ -494,8 +494,36 @@ function checkImage(image: string): GameServerValidationIssue[] {
 }
 
 /**
+ * Mirrors `@hyveon/shared/gameServerValidator`'s `checkIcmpPortRules`
+ * ICMP-type range check (0-255 inclusive) client-side, with a message sized
+ * for the port row rather than the API-oriented wording of the shared issue.
+ * Pushed ahead of `validateGameServer`'s own issues in
+ * {@link validateWizardDraft}, so `rowError`'s `.find()`
+ * (`networking-step.component.tsx`) surfaces this message first when both
+ * fire for the same `ports[N].container` path. A blank `container` is left
+ * to the structural "required" issue instead of this range message.
+ */
+function checkIcmpPortType(ports: WizardDraftPort[]): GameServerValidationIssue[] {
+  const issues: GameServerValidationIssue[] = [];
+  ports.forEach((port, index) => {
+    if (
+      port.protocol === 'icmp' &&
+      port.container !== null &&
+      (!Number.isInteger(port.container) || port.container < 0 || port.container > 255)
+    ) {
+      issues.push({
+        path: `ports[${index}].container`,
+        message: 'ICMP type must be an integer between 0 and 255',
+      });
+    }
+  });
+  return issues;
+}
+
+/**
  * Validates the entire draft: `name` (via {@link checkName}), `image` (via
- * {@link checkImage}), `connect_message` placeholders (via the shared
+ * {@link checkImage}), the ICMP-type range on `ports` (via
+ * {@link checkIcmpPortType}), `connect_message` placeholders (via the shared
  * {@link checkConnectMessagePlaceholders}, imported from
  * `@hyveon/shared/gameServerValidator` and run unconditionally here) plus
  * every structural/business rule {@link validateGameServer} enforces
@@ -518,7 +546,11 @@ export function validateWizardDraft(
   existingGames: GameServer[],
   mode: WizardMode = 'create',
 ): GameServerValidationIssue[] {
-  const issues = [...checkName(draft.name, existingGames, mode), ...checkImage(draft.image)];
+  const issues = [
+    ...checkName(draft.name, existingGames, mode),
+    ...checkImage(draft.image),
+    ...checkIcmpPortType(draft.ports),
+  ];
 
   if (draft.healthCheck.enabled) {
     issues.push(...validateHealthCheckAuthInput(healthCheckAuthInputFromDraft(draft.healthCheck) ?? undefined));
