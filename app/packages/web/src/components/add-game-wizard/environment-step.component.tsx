@@ -13,6 +13,7 @@
  */
 
 import type { GameServerValidationIssue } from '@hyveon/shared/gameServerValidator';
+import { HYVEON_ENV_TOKENS } from '@hyveon/shared/envTokens';
 import { Button } from '@/components/ui/button.component';
 import { FormField } from '@/components/ui/form-field.component';
 import { Input } from '@/components/ui/input.component';
@@ -23,20 +24,21 @@ const EMPTY_ENVIRONMENT_VARIABLE: WizardDraftEnvironmentVariable = { name: '', v
 
 /** Props for {@link EnvironmentStep}. */
 export interface EnvironmentStepProps {
-  /** The wizard's in-progress draft; only `environment` is read here. */
+  /** The wizard's in-progress draft; only `environment` and `command` are read here. */
   draft: WizardDraft;
-  /** Validation issues for this step (e.g. from `validateEnvironmentStep()`), positioned via `environment[N].name` paths. */
+  /** Validation issues for this step (e.g. from `validateEnvironmentStep()`), positioned via `environment[N].name`/`environment[N].value`/`command` paths. */
   issues: GameServerValidationIssue[];
   /** Called with a partial patch of the changed field whenever the operator adds, removes, or edits a row. */
-  onChange: (patch: Partial<Pick<WizardDraft, 'environment'>>) => void;
+  onChange: (patch: Partial<Pick<WizardDraft, 'environment' | 'command'>>) => void;
 }
 
 /**
  * Row editor for the wizard's "Environment" step: an optional `environment`
- * list, no minimum row count.
+ * list plus an optional `command` (container start command) list, both with
+ * no minimum row count.
  */
 export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProps) {
-  const { environment } = draft;
+  const { environment, command } = draft;
 
   function addVariable() {
     onChange({ environment: [...environment, { ...EMPTY_ENVIRONMENT_VARIABLE }] });
@@ -52,12 +54,31 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
     });
   }
 
+  function addCommandArgument() {
+    onChange({ command: [...command, ''] });
+  }
+
+  function removeCommandArgument(index: number) {
+    onChange({ command: command.filter((_, i) => i !== index) });
+  }
+
+  function updateCommandArgument(index: number, value: string) {
+    onChange({ command: command.map((arg, i) => (i === index ? value : arg)) });
+  }
+
+  const commandError = messageFor(issues, 'command');
+
   return (
     <div className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-[var(--color-foreground)]">Environment variables</h3>
         <p className="text-xs text-[var(--color-muted-foreground)]">
           Optional — environment variables injected into the container (e.g. <code>EULA=TRUE</code>).
+        </p>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          Values may embed {HYVEON_ENV_TOKENS.publicAddress} (the game&apos;s public hostname) and{' '}
+          {HYVEON_ENV_TOKENS.publicIpv4} (the task&apos;s public IPv4, resolved at start; requires a start command
+          below and an image with /bin/sh).
         </p>
       </div>
 
@@ -68,6 +89,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
       <div className="space-y-3">
         {environment.map((variable, index) => {
           const nameError = messageFor(issues, `environment[${index}].name`);
+          const valueError = messageFor(issues, `environment[${index}].value`);
 
           return (
             <div
@@ -87,7 +109,7 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
                   )}
                 </FormField>
 
-                <FormField id={`env-value-${index}`} label="Value" className="flex-1">
+                <FormField id={`env-value-${index}`} label="Value" errors={valueError} className="flex-1">
                   {(fieldProps) => (
                     <Input
                       {...fieldProps}
@@ -116,6 +138,57 @@ export function EnvironmentStep({ draft, issues, onChange }: EnvironmentStepProp
       <Button type="button" variant="secondary" size="sm" onClick={addVariable}>
         Add variable
       </Button>
+
+      <div className="space-y-3 border-t border-[var(--color-border)] pt-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--color-foreground)]">Start command</h3>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Optional — overrides the image&apos;s built-in start command. Required when an environment value uses the
+            public IPv4 token above.
+          </p>
+        </div>
+
+        {command.length === 0 && (
+          <p className="text-xs text-[var(--color-muted-foreground)]">No start command configured.</p>
+        )}
+
+        <div className="space-y-2">
+          {command.map((arg, index) => (
+            <div key={index} data-testid={`command-arg-${index}`} className="flex items-end gap-3">
+              <FormField id={`command-arg-input-${index}`} label={`Argument ${index + 1}`} className="flex-1">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    value={arg}
+                    aria-label={`Command argument ${index + 1}`}
+                    onChange={(event) => updateCommandArgument(index, event.target.value)}
+                  />
+                )}
+              </FormField>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={`Remove command argument ${index + 1}`}
+                onClick={() => removeCommandArgument(index)}
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        {commandError && (
+          <p role="alert" className="text-xs text-[var(--color-red)]">
+            {commandError}
+          </p>
+        )}
+
+        <Button type="button" variant="secondary" size="sm" onClick={addCommandArgument}>
+          Add argument
+        </Button>
+      </div>
     </div>
   );
 }

@@ -159,6 +159,8 @@ export interface WizardDraft {
   volumes: WizardDraftVolume[];
   file_seeds: WizardDraftFileSeed[];
   environment: WizardDraftEnvironmentVariable[];
+  /** Container start command (Docker `CMD`) argument list. Required when any `environment` value uses `${hyveon.network.public-ipv4}`. */
+  command: string[];
   https: boolean;
   healthCheck: WizardDraftHealthCheck;
 }
@@ -175,6 +177,7 @@ export function createEmptyWizardDraft(): WizardDraft {
     volumes: [],
     file_seeds: [],
     environment: [],
+    command: [],
     https: false,
     healthCheck: emptyHealthCheckDraft(),
   };
@@ -215,6 +218,7 @@ export function draftFromGameServer(game: RedactedGameServer): WizardDraft {
       mode: seed.mode ?? '',
     })),
     environment: (game.environment ?? []).map((variable) => ({ name: variable.name, value: variable.value })),
+    command: [...(game.command ?? [])],
     https: game.https === true,
     healthCheck: game.healthCheck
       ? {
@@ -346,6 +350,7 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
             }))
           : undefined,
       environment: draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
+      command: draft.command.length > 0 ? [...draft.command] : undefined,
       https: draft.https,
       healthCheck: healthCheckFromDraft(draft.healthCheck),
     },
@@ -358,9 +363,9 @@ export function draftToPayload(draft: WizardDraft): CreateGamePayload {
  * looking at the first path segment (the field family). Every top-level
  * field on {@link WizardDraft} is covered: `name`/`image`/`connect_message`
  * → identity, `cpu`/`memory` → resources, `ports` → networking,
- * `volumes`/`file_seeds` → storage, `environment` → environment. Anything
- * unrecognized falls back to `review` so it's still surfaced somewhere
- * rather than silently dropped.
+ * `volumes`/`file_seeds` → storage, `environment`/`command` → environment.
+ * Anything unrecognized falls back to `review` so it's still surfaced
+ * somewhere rather than silently dropped.
  */
 export function stepForIssuePath(path: string): WizardStep {
   const family = path.split(/[.[]/)[0];
@@ -379,6 +384,7 @@ export function stepForIssuePath(path: string): WizardStep {
     case 'file_seeds':
       return 'storage';
     case 'environment':
+    case 'command':
       return 'environment';
     default:
       return 'review';
@@ -450,6 +456,7 @@ function toProposedEntry(draft: WizardDraft): Record<string, unknown> {
         : undefined,
     environment:
       draft.environment.length > 0 ? draft.environment.map((v) => ({ name: v.name, value: v.value })) : undefined,
+    command: draft.command.length > 0 ? draft.command : undefined,
     https: draft.https,
     healthCheck: toStructuralHealthCheckPreview(draft.healthCheck),
   };

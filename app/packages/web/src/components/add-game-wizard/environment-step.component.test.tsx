@@ -81,4 +81,46 @@ describe('EnvironmentStep', () => {
 
     expect(screen.getByText('environment[0].name must not be empty.')).toBeInTheDocument();
   });
+
+  it('should render a value error next to the offending row', () => {
+    render(
+      <EnvironmentStep
+        draft={makeDraft({ environment: [{ name: 'HOST', value: '${hyveon.network.public-adress}' }] })}
+        issues={[{ path: 'environment[0].value', message: 'Unknown token "${hyveon.network.public-adress}" in environment[0].value; allowed tokens are ${hyveon.network.public-address} and ${hyveon.network.public-ipv4}.' }]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Unknown token');
+    expect(screen.getByLabelText('Value')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('should show the interpolation token hint', () => {
+    render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={vi.fn()} />);
+
+    expect(screen.getByText(/\$\{hyveon\.network\.public-address\}/)).toBeInTheDocument();
+    expect(screen.getByText(/\$\{hyveon\.network\.public-ipv4\}/)).toBeInTheDocument();
+  });
+
+  it('should call onChange with an appended command argument', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<EnvironmentStep draft={makeDraft()} issues={[]} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add argument' }));
+
+    expect(onChange).toHaveBeenCalledWith({ command: [''] });
+  });
+
+  it('should render a command-level error when the ipv4 token requires a command', () => {
+    render(
+      <EnvironmentStep
+        draft={makeDraft({ environment: [{ name: 'SERVER_IP', value: '${hyveon.network.public-ipv4}' }] })}
+        issues={[{ path: 'command', message: 'command is required when ${hyveon.network.public-ipv4} is used: the boot-time IP resolver replaces the image\'s built-in start command.' }]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('command is required');
+  });
 });
