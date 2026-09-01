@@ -54,9 +54,7 @@ import type {
   GameEstimate,
 } from '../../src/api.service.js';
 
-// ---------------------------------------------------------------------------
 // Locally-declared types — not exported by either package's public barrel.
-// ---------------------------------------------------------------------------
 
 /**
  * Mirrors `AwsProfileSummary` in
@@ -104,19 +102,15 @@ export interface GameLogs {
   lines: string[];
 }
 
-// ---------------------------------------------------------------------------
 // Fixed clock — every timestamp-bearing fixture below is anchored to this
 // instant so screenshots are byte-for-byte reproducible between runs (task
 // 2.11). `capture.spec.ts` freezes `Date`/`Intl` to the same instant via
 // `page.clock.install()` before any screenshot is taken.
-// ---------------------------------------------------------------------------
 
 /** The instant every demo fixture treats as "now". Keep in sync with `FROZEN_TIME` in `capture.spec.ts`. */
 export const DEMO_NOW = '2026-07-26T12:00:00.000Z';
 
-// ---------------------------------------------------------------------------
 // Games
-// ---------------------------------------------------------------------------
 
 const MINECRAFT_CONFIG: RedactedGameServer = {
   name: 'minecraft',
@@ -204,9 +198,7 @@ export const DEMO_STATUSES: GameStatus[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
 // Env / costs / watchdog
-// ---------------------------------------------------------------------------
 
 export const DEMO_ENV: EnvInfo = {
   region: 'us-east-1',
@@ -223,9 +215,7 @@ export const DEMO_COST_ESTIMATES: CostEstimates = {
   totalPerHourIfAllOn: MINECRAFT_ESTIMATE.costPerHour + VALHEIM_ESTIMATE.costPerHour + PALWORLD_ESTIMATE.costPerHour,
 };
 
-// ---------------------------------------------------------------------------
 // Discord
-// ---------------------------------------------------------------------------
 
 const DEMO_ADMIN_USER_ID = '111122223333444455';
 const DEMO_MOD_ROLE_ID = '556677889900112233';
@@ -246,10 +236,8 @@ export const DEMO_DISCORD_CONFIG: DiscordConfigRedacted = {
   interactionsEndpointUrl: 'https://abcd1234efgh5678.lambda-url.us-east-1.on.aws/',
 };
 
-// ---------------------------------------------------------------------------
 // Drift — one small, non-empty finding so the PendingChangesBanner has
 // something to show without implying the fleet is badly out of sync.
-// ---------------------------------------------------------------------------
 
 const DEMO_DRIFT_ENTRY: DriftEntry = {
   game: 'palworld',
@@ -259,9 +247,7 @@ const DEMO_DRIFT_ENTRY: DriftEntry = {
 
 export const DEMO_DRIFT_REPORT: DriftReport = { entries: [DEMO_DRIFT_ENTRY] };
 
-// ---------------------------------------------------------------------------
 // Audit log
-// ---------------------------------------------------------------------------
 
 function auditEntry(
   offsetHours: number,
@@ -286,10 +272,8 @@ export const DEMO_AUDIT: AuditPageResult = {
   ],
 };
 
-// ---------------------------------------------------------------------------
 // Logs — ~30 lines spanning INFO/WARN/ERROR/DEBUG, minecraft-flavoured since
 // LogsPage auto-selects the first game in the list.
-// ---------------------------------------------------------------------------
 
 export const DEMO_LOG_LINES: string[] = [
   '2026-07-26T11:58:02Z INFO Starting minecraft server version 1.21.1',
@@ -337,9 +321,7 @@ export const DEMO_LOG_STREAM_LINES: string[] = [
   '2026-07-26T12:15:12Z INFO Autosave finished in 2984 ms',
 ];
 
-// ---------------------------------------------------------------------------
 // Diagnostics tail (Settings page)
-// ---------------------------------------------------------------------------
 
 export const DEMO_DIAGNOSTICS_TAIL: string[] = [
   '2026-07-26T11:55:01Z info  desktop-main started (pid 41823)',
@@ -350,10 +332,8 @@ export const DEMO_DIAGNOSTICS_TAIL: string[] = [
   '2026-07-26T12:05:22Z error CloudWatch tail: connection reset, retrying',
 ];
 
-// ---------------------------------------------------------------------------
 // Iac run history — five records covering every kind/status combination the
 // history table renders differently.
-// ---------------------------------------------------------------------------
 
 const RUN_9: RunHistoryRecord = {
   sk: '2026-07-26T09:32:10.000Z#run-9', runId: 'run-9', kind: 'apply', status: 'success',
@@ -385,7 +365,6 @@ export const DEMO_IAC_HISTORY: RunHistoryPageResult = {
   // history page's "Load more" button should stay hidden.
 };
 
-// ---------------------------------------------------------------------------
 // Pulumi streamed output — realistic ANSI-colored chunks for the
 // `iac.runs.logs` streaming channel (a plan/apply run), keyed to line up
 // with the rest of the demo fixture set (the plan below mirrors
@@ -397,7 +376,6 @@ export const DEMO_IAC_HISTORY: RunHistoryPageResult = {
 // `pulumi preview`/`pulumi up` themselves emit. The wizard's stack-init step
 // has no log output of its own to model this way — see
 // {@link DEMO_STACK_INIT_EVENTS} below.
-// ---------------------------------------------------------------------------
 
 /**
  * Streamed `pulumi preview` output for the `run-plan-demo` run. Purely
@@ -458,14 +436,12 @@ export const DEMO_STACK_INIT_EVENTS: StackInitPhaseEvent[] = [
   { phase: 'operation', status: 'end' },
 ];
 
-// ---------------------------------------------------------------------------
 // seedDemo — installs every IPC mock the routed app (dashboard, games,
 // discord, logs, costs, audit, settings, iac) needs to render fully
 // populated. Values are passed as a single serialisable argument to
 // `win.evaluate` rather than captured in the closure, since mock handlers
 // registered via `window.hyveon.__test.mock` are re-evaluated inside the
 // page's own JS context.
-// ---------------------------------------------------------------------------
 
 /** Per-call overrides for {@link seedDemo} — every field defaults to the module's `DEMO_*` constant. */
 export interface DemoOverrides {
@@ -669,12 +645,10 @@ export async function seedDemo(win: Page, overrides: DemoOverrides = {}): Promis
   }, data);
 }
 
-// ---------------------------------------------------------------------------
 // seedWizard — installs every IPC mock the first-run wizard needs. The
 // caller is responsible for driving step-specific UI interactions
 // (`capture.spec.ts` does this) — this only seeds data, it does not click
 // through the flow.
-// ---------------------------------------------------------------------------
 
 /**
  * Seeds every `wizard.*` (and `iac.stack.initialize`) IPC channel used

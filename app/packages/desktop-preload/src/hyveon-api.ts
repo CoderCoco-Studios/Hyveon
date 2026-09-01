@@ -103,9 +103,7 @@ export type {
   UpdateDeploymentSettingsPayload,
 };
 
-// ---------------------------------------------------------------------------
 // Shared payload shapes (mirrors types from @hyveon/shared and desktop-main)
-// ---------------------------------------------------------------------------
 
 /** Current ECS state of a game server. */
 export interface GameStatus {
@@ -1271,9 +1269,7 @@ export interface IacApproveAck {
   error?: string;
 }
 
-// ---------------------------------------------------------------------------
 // Per-namespace sub-interfaces
-// ---------------------------------------------------------------------------
 
 /** Status of a single Cloud Health check, as surfaced by `cloudHealth.list`. */
 export type CloudHealthCheckStatus = 'ok' | 'missing' | 'error';
@@ -2323,9 +2319,7 @@ export interface HyveonWindowApi {
   onMaximizedChange: (cb: (isMaximized: boolean) => void) => () => void;
 }
 
-// ---------------------------------------------------------------------------
 // Test-only injection surface
-// ---------------------------------------------------------------------------
 
 /**
  * Mock namespace bag: a partial copy of every `HyveonApi` namespace so test
@@ -2387,9 +2381,7 @@ export interface HyveonTestApi {
   reset: () => void;
 }
 
-// ---------------------------------------------------------------------------
 // Top-level interface
-// ---------------------------------------------------------------------------
 
 /**
  * Typed shape of `window.hyveon` as exposed by the Electron preload script.

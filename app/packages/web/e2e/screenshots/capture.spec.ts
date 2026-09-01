@@ -102,9 +102,7 @@ async function shot(win: Page, filename: string): Promise<void> {
   await win.screenshot({ path: join(SCREENSHOT_DIR, filename), animations: 'disabled' });
 }
 
-// ---------------------------------------------------------------------------
 // Dashboard / Games / Discord / Logs / Costs / Audit / Settings
-// ---------------------------------------------------------------------------
 
 test('dashboard.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
@@ -242,9 +240,7 @@ test('settings.png', async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // Infrastructure (IaC)
-// ---------------------------------------------------------------------------
 
 test('iac.png', async () => {
   const { app, win } = await launchSeeded((w) => seedDemo(w));
@@ -339,9 +335,7 @@ test('iac-history.png', async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // First-run wizard
-// ---------------------------------------------------------------------------
 
 test('wizard-pick-cloud.png', async () => {
   const { app, win } = await launchSeeded((w) => seedWizard(w, 'pick-cloud'));
