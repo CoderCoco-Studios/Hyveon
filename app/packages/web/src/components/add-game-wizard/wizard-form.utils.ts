@@ -16,6 +16,7 @@ import {
   validateGameServer,
   validateHealthCheckAuthInput,
   checkConnectMessagePlaceholders,
+  isValidIcmpType,
   GAME_NAME_PATTERN,
   GAME_NAME_PATTERN_DESCRIPTION,
   type GameServerValidationIssue,
@@ -495,12 +496,12 @@ function checkImage(image: string): GameServerValidationIssue[] {
 
 /**
  * Mirrors `@hyveon/shared/gameServerValidator`'s `checkIcmpPortRules`
- * ICMP-type range check (0-255 inclusive) client-side, with a message sized
- * for the port row rather than the API-oriented wording of the shared issue.
- * {@link validateWizardDraft} drops `checkIcmpPortRules`'s own issue at any
- * path this returns an issue for (they fire under the identical condition,
- * so this is always a strict replacement, never a partial one) — both
- * `rowError` (`networking-step.component.tsx`) and the Review step's
+ * ICMP-type range check ({@link isValidIcmpType}) client-side, with a message
+ * sized for the port row rather than the API-oriented wording of the shared
+ * issue. {@link validateWizardDraft} drops `checkIcmpPortRules`'s own issue
+ * at any path this returns an issue for (they fire under the identical
+ * condition, so this is always a strict replacement, never a partial one) —
+ * both `rowError` (`networking-step.component.tsx`) and the Review step's
  * unfiltered issue list would otherwise show two near-identical bullets for
  * one error. A blank `container` is left to the structural "required" issue
  * instead of this range message.
@@ -508,11 +509,7 @@ function checkImage(image: string): GameServerValidationIssue[] {
 function checkIcmpPortType(ports: WizardDraftPort[]): GameServerValidationIssue[] {
   const issues: GameServerValidationIssue[] = [];
   ports.forEach((port, index) => {
-    if (
-      port.protocol === 'icmp' &&
-      port.container !== null &&
-      (!Number.isInteger(port.container) || port.container < 0 || port.container > 255)
-    ) {
+    if (port.protocol === 'icmp' && port.container !== null && !isValidIcmpType(port.container)) {
       issues.push({
         path: `ports[${index}].container`,
         message: 'ICMP type must be an integer between 0 and 255',

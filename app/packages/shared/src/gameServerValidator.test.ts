@@ -525,6 +525,30 @@ describe('validateGameServer', () => {
       );
       expect(result.success).toBe(false);
     });
+
+    it('should apply the type-range check to an uppercase "ICMP" protocol entry', () => {
+      const result = validateGameServer('game', makeProposed({ ports: [{ container: 300, protocol: 'ICMP' }] }), []);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.issues.some((i) => i.message.includes('ICMP type') && i.message.includes('0 and 255'))).toBe(
+          true,
+        );
+      }
+    });
+
+    it('should accept the ICMP type range boundaries (0 and 255)', () => {
+      for (const container of [0, 255]) {
+        const result = validateGameServer('game', makeProposed({ ports: [{ container, protocol: 'icmp' }] }), []);
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('should reject values outside the ICMP type range boundaries', () => {
+      for (const container of [256, -1, 8.5]) {
+        const result = validateGameServer('game', makeProposed({ ports: [{ container, protocol: 'icmp' }] }), []);
+        expect(result.success).toBe(false);
+      }
+    });
   });
 
   describe('reserved https ports across the deployment', () => {

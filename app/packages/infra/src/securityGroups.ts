@@ -142,9 +142,9 @@ export interface DefineSecurityGroupsArgs {
 
 /** A single deduplicated container port/protocol pair, ready to become one ingress rule. */
 export interface GamePort {
-  /** Container port number. */
+  /** Container port number, or the ICMP type when `protocol` is `"icmp"`. */
   port: number;
-  /** Transport protocol (`"tcp"` or `"udp"`). */
+  /** Transport protocol (`"tcp"` or `"udp"`), or `"icmp"`. */
   protocol: string;
 }
 

@@ -202,7 +202,7 @@ export function NetworkingStep({
                     value={port.protocol}
                     onChange={(event) => {
                       const protocol = event.target.value;
-                      // Prefill the ICMP type only for a still-blank row; an already-filled container (e.g. switching back and forth) is left as the operator set it.
+                      // Prefill the ICMP type only for a still-blank row; leave a filled container untouched.
                       updateRow(
                         index,
                         protocol === 'icmp' && port.container === null

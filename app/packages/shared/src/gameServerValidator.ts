@@ -687,19 +687,35 @@ function checkHttpsPortRules(ports: GameServerPort[]): GameServerValidationIssue
 }
 
 /**
+ * `true` when `value` is a valid ICMP type: an integer between 0 and 255
+ * inclusive.
+ *
+ * Exported (rather than left private to {@link checkIcmpPortRules}) so the
+ * add-game wizard's client-side per-row range check (`checkIcmpPortType`,
+ * `@hyveon/web`'s `wizard-form.utils.ts`) can reuse this exact rule instead
+ * of hand-duplicating it — mirrors the same single-source-of-truth pattern
+ * {@link GAME_NAME_PATTERN} already establishes for name validation.
+ */
+export function isValidIcmpType(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= 255;
+}
+
+/**
  * Validates `icmp` port entries for a non-HTTPS game server: `container` is
  * the ICMP type (not a port number) and must be an integer between 0 and 255
- * inclusive. HTTPS games never reach this check — {@link checkHttpsPortRules}
- * already rejects any `icmp` entry there via its tcp/udp-only rule.
+ * inclusive ({@link isValidIcmpType}). HTTPS games never reach this check —
+ * {@link checkHttpsPortRules} already rejects any `icmp` entry there via its
+ * tcp/udp-only rule.
+ *
+ * Matches `protocol` case-insensitively, like {@link portKey}, so a
+ * hand-edited `deployment-config.json` entry with `protocol: 'ICMP'` still
+ * gets the type-range check rather than silently skipping it.
  */
 function checkIcmpPortRules(ports: GameServerPort[]): GameServerValidationIssue[] {
   const issues: GameServerValidationIssue[] = [];
 
   ports.forEach((port, index) => {
-    if (
-      port.protocol === 'icmp' &&
-      (!Number.isInteger(port.container) || port.container < 0 || port.container > 255)
-    ) {
+    if (port.protocol.toLowerCase() === 'icmp' && !isValidIcmpType(port.container)) {
       issues.push({
         path: `ports[${index}].container`,
         message: `ports[${index}].container is the ICMP type when protocol is "icmp" and must be an integer between 0 and 255, got ${port.container}.`,
