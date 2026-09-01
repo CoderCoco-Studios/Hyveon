@@ -9,6 +9,7 @@ import { PollingIndicator } from '../polling/polling-indicator.component.js';
 import { FirstRunWizard } from '../components/first-run-wizard/first-run-wizard.component.js';
 import { Button } from '../components/ui/button.component.js';
 import { CloudHealthSection } from '../components/cloud-health-section.component.js';
+import { SettingsRow } from '../components/settings-row.component.js';
 
 /**
  * Client-side state for the Cloud Setup section's Pulumi engine version row —
@@ -184,15 +185,11 @@ export function SettingsPage() {
       */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Cloud Setup</h3>
-        <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
-          <div>
-            <p className="text-sm font-medium">Pulumi Engine</p>
-            <p className="text-sm text-muted-foreground">{engineVersionLabel(engineVersion)}</p>
-          </div>
+        <SettingsRow label="Pulumi Engine" description={engineVersionLabel(engineVersion)}>
           <Button type="button" variant="outline" onClick={() => setReconfiguring(true)}>
             Reconfigure
           </Button>
-        </div>
+        </SettingsRow>
       </div>
 
       {/*
@@ -203,19 +200,18 @@ export function SettingsPage() {
       */}
       <div className="mb-8">
         <h3 className="text-lg font-medium mb-4">Updates</h3>
-        <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
-          <div>
-            <p className="text-sm font-medium">Automatic Updates</p>
-            <p className="text-sm text-muted-foreground">
-              {autoUpdate === 'loading'
-                ? 'Checking update setting…'
-                : autoUpdate === 'error'
-                  ? 'Unable to read the update setting.'
-                  : autoUpdate.writeError
-                    ? 'Failed to save — still showing the last saved value.'
-                    : 'Check GitHub Releases for updates on app start. Applies on next app start.'}
-            </p>
-          </div>
+        <SettingsRow
+          label="Automatic Updates"
+          description={
+            autoUpdate === 'loading'
+              ? 'Checking update setting…'
+              : autoUpdate === 'error'
+                ? 'Unable to read the update setting.'
+                : autoUpdate.writeError
+                  ? 'Failed to save — still showing the last saved value.'
+                  : 'Check GitHub Releases for updates on app start. Applies on next app start.'
+          }
+        >
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input
               type="checkbox"
@@ -226,23 +222,22 @@ export function SettingsPage() {
               className="size-4 rounded border-[var(--color-border)] bg-[var(--color-surface-2)] accent-[var(--color-primary)]"
             />
           </label>
-        </div>
+        </SettingsRow>
 
         {/*
           Manual check row: triggers `iac.settings.autoUpdate.check`
           independent of the `enableAutoUpdate` toggle above — the flag only
           gates the automatic boot-time check.
         */}
-        <div className="mt-3 flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4">
-          <div>
-            <p className="text-sm font-medium">Check Now</p>
-            <p className="text-sm text-muted-foreground">
-              {manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
-            </p>
-          </div>
-          <Button type="button" variant="outline" onClick={handleManualCheck} disabled={manualCheck === 'checking'}>
-            Check for Updates
-          </Button>
+        <div className="mt-3">
+          <SettingsRow
+            label="Check Now"
+            description={manualCheckLabel(manualCheck) ?? 'Check GitHub Releases for a newer version right now.'}
+          >
+            <Button type="button" variant="outline" onClick={handleManualCheck} disabled={manualCheck === 'checking'}>
+              Check for Updates
+            </Button>
+          </SettingsRow>
         </div>
       </div>
 

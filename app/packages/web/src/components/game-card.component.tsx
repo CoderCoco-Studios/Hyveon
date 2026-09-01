@@ -9,15 +9,16 @@ import {
   Loader2,
   AlertTriangle,
   PowerOff,
+  type LucideIcon,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { api, type GameStatus, type GameEstimate } from '../api.service.js';
+import { type GameStatus, type GameEstimate } from '../api.service.js';
 import { Card } from '@/components/ui/card.component';
 import { Button } from '@/components/ui/button.component';
 import { Badge } from '@/components/ui/badge.component';
 import { cn } from '@/lib/utils.utils';
 import { ConfirmDialog } from './confirm-dialog.component.js';
 import { isSuppressed } from '../lib/confirm-skip.utils.js';
+import { useGameActions } from '../hooks/use-game-actions.hook.js';
 
 interface Props {
   status: GameStatus;
@@ -28,76 +29,69 @@ interface Props {
 
 type ServerState = GameStatus['state'];
 
-const STATE_LABELS: Record<ServerState, string> = {
-  running:      'RUNNING',
-  starting:     'STARTING',
-  stopped:      'STOPPED',
-  not_deployed: 'NOT DEPLOYED',
-  error:        'ERROR',
+interface StatePresentation {
+  label: string;
+  badgeVariant: 'success' | 'warning' | 'destructive' | 'secondary';
+  Icon: LucideIcon;
+  accentClass: string;
+  dotClass: string;
+  lastRunLabel: string;
+}
+
+/**
+ * Per-state presentation lookup keyed by {@link ServerState}, grouped so each state pulls its
+ * badge/icon/accent/dot classes and labels from one place — `STATE_PRESENTATION[state].label`,
+ * `STATE_PRESENTATION[state].Icon`, etc. Icons are always rendered `aria-hidden` — the text
+ * label already conveys the state.
+ */
+const STATE_PRESENTATION: Record<ServerState, StatePresentation> = {
+  running: {
+    label: 'RUNNING',
+    badgeVariant: 'success',
+    Icon: CircleCheck,
+    accentClass: 'bg-gradient-to-r from-[var(--color-cyan)] to-[var(--color-green)]',
+    dotClass: 'size-1.5 rounded-full bg-[var(--color-green)] shadow-[0_0_6px_var(--color-green)] animate-pulse',
+    lastRunLabel: 'Live',
+  },
+  starting: {
+    label: 'STARTING',
+    badgeVariant: 'warning',
+    Icon: Loader2,
+    accentClass: 'bg-gradient-to-r from-[var(--color-orange)] to-[var(--color-amber)]',
+    dotClass: 'size-1.5 rounded-full bg-[var(--color-amber)] animate-pulse',
+    lastRunLabel: 'Booting',
+  },
+  stopped: {
+    label: 'STOPPED',
+    badgeVariant: 'secondary',
+    Icon: PowerOff,
+    accentClass: 'bg-[var(--color-border)]',
+    dotClass: 'size-1.5 rounded-full bg-[var(--color-muted-foreground)]',
+    lastRunLabel: '—',
+  },
+  not_deployed: {
+    label: 'NOT DEPLOYED',
+    badgeVariant: 'secondary',
+    Icon: CircleX,
+    accentClass: 'bg-[var(--color-border)]',
+    dotClass: 'size-1.5 rounded-full bg-[var(--color-muted-foreground)]',
+    lastRunLabel: '—',
+  },
+  error: {
+    label: 'ERROR',
+    badgeVariant: 'destructive',
+    Icon: AlertTriangle,
+    accentClass: 'bg-[var(--color-red)]',
+    dotClass: 'size-1.5 rounded-full bg-[var(--color-red)]',
+    lastRunLabel: '—',
+  },
 };
-
-/** Map a server state to the badge color variant. */
-function badgeVariant(state: ServerState): 'success' | 'warning' | 'destructive' | 'secondary' {
-  switch (state) {
-    case 'running':      return 'success';
-    case 'starting':     return 'warning';
-    case 'not_deployed': return 'secondary';
-    case 'stopped':      return 'secondary';
-    case 'error':        return 'destructive';
-  }
-}
-
-/** Map a server state to the icon shown next to the badge text. Always aria-hidden — the text label already conveys the state. */
-function StateIcon({ state, className }: { state: ServerState; className?: string }) {
-  const cls = cn('size-3', className);
-  switch (state) {
-    case 'running':      return <CircleCheck     className={cls} aria-hidden="true" />;
-    case 'starting':     return <Loader2         className={cn(cls, 'motion-safe:animate-spin')} aria-hidden="true" />;
-    case 'stopped':      return <PowerOff        className={cls} aria-hidden="true" />;
-    case 'not_deployed': return <CircleX         className={cls} aria-hidden="true" />;
-    case 'error':        return <AlertTriangle   className={cls} aria-hidden="true" />;
-  }
-}
-
-/** Tailwind classes for the gradient accent rule that runs along the top of the card. */
-function accentRuleClass(state: ServerState): string {
-  switch (state) {
-    case 'running':
-      return 'bg-gradient-to-r from-[var(--color-cyan)] to-[var(--color-green)]';
-    case 'starting':
-      return 'bg-gradient-to-r from-[var(--color-orange)] to-[var(--color-amber)]';
-    case 'error':
-      return 'bg-[var(--color-red)]';
-    case 'stopped':
-    case 'not_deployed':
-      return 'bg-[var(--color-border)]';
-  }
-}
-
-/** Class for the small status dot in the badge — pulses when running, animates when starting. */
-function dotClass(state: ServerState): string {
-  switch (state) {
-    case 'running':      return 'size-1.5 rounded-full bg-[var(--color-green)] shadow-[0_0_6px_var(--color-green)] animate-pulse';
-    case 'starting':     return 'size-1.5 rounded-full bg-[var(--color-amber)] animate-pulse';
-    case 'error':        return 'size-1.5 rounded-full bg-[var(--color-red)]';
-    default:             return 'size-1.5 rounded-full bg-[var(--color-muted-foreground)]';
-  }
-}
 
 /** Trim an ECS task ARN down to its 8-char short id (last segment of the ARN). */
 function taskShortId(taskArn: string | undefined): string {
   if (!taskArn) return '—';
   const tail = taskArn.split('/').pop() ?? taskArn;
   return tail.slice(0, 8);
-}
-
-/** Human-readable label for the "Last run" stat: "Live" while running, "Booting" while starting, em-dash otherwise. */
-function lastRunLabel(state: ServerState): string {
-  switch (state) {
-    case 'running':  return 'Live';
-    case 'starting': return 'Booting';
-    default:         return '—';
-  }
 }
 
 interface StatRowProps {
@@ -140,14 +134,14 @@ function Stat({ label, value, mono }: StatRowProps) {
  */
 export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   const { game, state, message } = status;
-  const [busy, setBusy] = useState(false);
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [stateAnnouncement, setStateAnnouncement] = useState('');
   const prevStateRef = useRef(state);
+  const { busy, start, stop } = useGameActions(game, onRefresh);
 
   useEffect(() => {
     if (prevStateRef.current !== state) {
-      setStateAnnouncement(`${game} server is now ${STATE_LABELS[state].toLowerCase()}`);
+      setStateAnnouncement(`${game} server is now ${STATE_PRESENTATION[state].label.toLowerCase()}`);
       prevStateRef.current = state;
     }
   }, [state, game]);
@@ -155,66 +149,9 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
   const canStart = state === 'stopped' || state === 'not_deployed' || state === 'error';
   const canStop  = state === 'running'  || state === 'starting';
 
-  async function handleStart() {
-    setBusy(true);
-    try {
-      const res = await api.start(game);
-      if (res.success) {
-        toast.success(res.message);
-      } else {
-        toast.error(`Failed to start ${game}`, { description: res.message });
-      }
-    } catch (err) {
-      toast.error(`Failed to start ${game}`, {
-        description: err instanceof Error ? err.message : 'An unknown error occurred',
-      });
-    } finally {
-      // Always schedule a refresh even on error — transient failures shouldn't
-      // leave the card disabled until reload.
-      setTimeout(() => { void onRefresh(game); setBusy(false); }, 3000);
-    }
-  }
-
-  async function handleStop() {
-    setBusy(true);
-    try {
-      const res = await api.stop(game);
-      if (!res.success) {
-        toast.error(`Failed to stop ${game}`, { description: res.message });
-        return;
-      }
-      toast(res.message, {
-        duration: 5000,
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            void api.start(game)
-              .then((undoRes) => {
-                if (!undoRes.success) {
-                  toast.error(`Failed to undo stop of ${game}`, { description: undoRes.message });
-                  return;
-                }
-                setTimeout(() => onRefresh(game), 3000);
-              })
-              .catch((err: unknown) => {
-                toast.error(`Failed to undo stop of ${game}`, {
-                  description: err instanceof Error ? err.message : 'An unknown error occurred',
-                });
-              });
-          },
-        },
-      });
-    } catch (err) {
-      toast.error(`Failed to stop ${game}`, {
-        description: err instanceof Error ? err.message : 'An unknown error occurred',
-      });
-    } finally {
-      setTimeout(() => { void onRefresh(game); setBusy(false); }, 3000);
-    }
-  }
-
   const connectStr = status.hostname ?? status.publicIp ?? null;
   const costPerHourLabel = estimate ? `$${estimate.costPerHour.toFixed(3)}` : '—';
+  const { label, badgeVariant, Icon, accentClass, dotClass, lastRunLabel } = STATE_PRESENTATION[state];
 
   return (
     <>
@@ -225,14 +162,14 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
         description="Active sessions will end."
         confirmLabel="Stop server"
         confirmKey="stop-server"
-        onConfirm={() => { void handleStop(); }}
+        onConfirm={stop}
       />
       <Card className="relative overflow-hidden p-0 flex flex-col">
         {/* Screen-reader announcement for state transitions */}
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{stateAnnouncement}</span>
 
         {/* Top gradient accent rule */}
-        <div className={cn('h-0.5 w-full', accentRuleClass(state))} aria-hidden="true" />
+        <div className={cn('h-0.5 w-full', accentClass)} aria-hidden="true" />
 
         {/* Header */}
         <div className="px-5 pt-4 pb-4 flex items-start justify-between gap-3">
@@ -267,10 +204,10 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
               )}
             </div>
           </div>
-          <Badge variant={badgeVariant(state)} className="shrink-0 gap-1.5 text-[0.65rem]">
-            <span className={dotClass(state)} aria-hidden="true" />
-            <StateIcon state={state} />
-            {STATE_LABELS[state]}
+          <Badge variant={badgeVariant} className="shrink-0 gap-1.5 text-[0.65rem]">
+            <span className={dotClass} aria-hidden="true" />
+            <Icon className={cn('size-3', state === 'starting' && 'motion-safe:animate-spin')} aria-hidden="true" />
+            {label}
           </Badge>
         </div>
 
@@ -287,7 +224,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
 
         {/* 3-column stats grid */}
         <div className="px-5 pb-4 grid grid-cols-3 gap-x-4 gap-y-3 border-t border-[var(--color-border)] pt-4">
-          <Stat label="Last run" value={lastRunLabel(state)} />
+          <Stat label="Last run" value={lastRunLabel} />
           <Stat label="$ per hour" value={costPerHourLabel} />
           <Stat label="Task" value={taskShortId(status.taskArn)} mono />
         </div>
@@ -298,7 +235,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
             <Button
               variant="start"
               size="sm"
-              onClick={() => void handleStart()}
+              onClick={start}
               disabled={!canStart || busy}
               aria-busy={busy}
               aria-label={`Start ${game} server`}
@@ -312,7 +249,7 @@ export function GameCard({ status, estimate, onRefresh, onOpenFiles }: Props) {
               size="sm"
               onClick={() => {
                 if (isSuppressed('stop-server')) {
-                  void handleStop();
+                  stop();
                 } else {
                   setStopDialogOpen(true);
                 }

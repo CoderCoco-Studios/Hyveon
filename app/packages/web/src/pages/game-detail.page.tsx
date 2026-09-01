@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pencil } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { api, type GameListEntry, type GameWriteSuccess } from '../api.service.js';
@@ -20,6 +20,60 @@ function Field({ label, value }: { label: string; value: string }) {
       </div>
       <div className="text-sm text-[var(--color-foreground)]">{value}</div>
     </div>
+  );
+}
+
+/** One column of a {@link ConfigTableCard}: its header label and how to render a row's cell. */
+interface ConfigTableColumn<T> {
+  header: string;
+  className?: string;
+  cell: (row: T) => ReactNode;
+}
+
+/** Props for {@link ConfigTableCard}. */
+interface ConfigTableCardProps<T> {
+  /** Card title, rendered as a plain (unstyled) `<h3>` — matched by e2e/vitest specs via `getByRole('heading', ...)`. */
+  title: string;
+  columns: ConfigTableColumn<T>[];
+  rows: T[];
+  /** Returns a stable React key for a row. */
+  rowKey: (row: T) => string;
+}
+
+/**
+ * `Card` shell for a declared-config table section (Ports, Volumes,
+ * Environment variables) — same title/table shape, different columns and
+ * row data per section.
+ */
+function ConfigTableCard<T>({ title, columns, rows, rowKey }: ConfigTableCardProps<T>) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((column) => (
+                <TableHead key={column.header}>{column.header}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={rowKey(row)}>
+                {columns.map((column) => (
+                  <TableCell key={column.header} className={column.className}>
+                    {column.cell(row)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -144,82 +198,42 @@ export function GameDetailPage() {
               </Card>
 
               {/* Ports */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Ports</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Container port</TableHead>
-                        <TableHead>Protocol</TableHead>
-                        <TableHead>Visibility</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {config.ports.map((port) => (
-                        <TableRow key={`${port.container}-${port.protocol}`}>
-                          <TableCell className="font-[var(--font-mono)]">{port.container}</TableCell>
-                          <TableCell className="uppercase">{port.protocol}</TableCell>
-                          <TableCell>{port.visibility === 'internal' ? 'VPC-only' : 'Public'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              <ConfigTableCard
+                title="Ports"
+                rows={config.ports}
+                rowKey={(port) => `${port.container}-${port.protocol}`}
+                columns={[
+                  { header: 'Container port', className: 'font-[var(--font-mono)]', cell: (port) => port.container },
+                  { header: 'Protocol', className: 'uppercase', cell: (port) => port.protocol },
+                  {
+                    header: 'Visibility',
+                    cell: (port) => (port.visibility === 'internal' ? 'VPC-only' : 'Public'),
+                  },
+                ]}
+              />
 
               {/* Volumes */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Volumes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Container path</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {config.volumes.map((volume) => (
-                        <TableRow key={volume.name}>
-                          <TableCell>{volume.name}</TableCell>
-                          <TableCell className="font-[var(--font-mono)]">{volume.container_path}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              <ConfigTableCard
+                title="Volumes"
+                rows={config.volumes}
+                rowKey={(volume) => volume.name}
+                columns={[
+                  { header: 'Name', cell: (volume) => volume.name },
+                  { header: 'Container path', className: 'font-[var(--font-mono)]', cell: (volume) => volume.container_path },
+                ]}
+              />
 
               {/* Environment variables (optional) */}
               {config.environment && config.environment.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Environment variables</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Value</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {config.environment.map((env) => (
-                          <TableRow key={env.name}>
-                            <TableCell className="font-[var(--font-mono)]">{env.name}</TableCell>
-                            <TableCell className="font-[var(--font-mono)]">{env.value}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
+                <ConfigTableCard
+                  title="Environment variables"
+                  rows={config.environment}
+                  rowKey={(env) => env.name}
+                  columns={[
+                    { header: 'Name', className: 'font-[var(--font-mono)]', cell: (env) => env.name },
+                    { header: 'Value', className: 'font-[var(--font-mono)]', cell: (env) => env.value },
+                  ]}
+                />
               )}
 
               {/* File seeds (optional, collapsed) */}
