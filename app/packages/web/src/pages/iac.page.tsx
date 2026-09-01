@@ -19,6 +19,7 @@ import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { ConfirmDialog } from '../components/confirm-dialog.component.js';
 import { ErrorBanner } from '../components/error-banner.component.js';
 import { PageHeader } from '../components/page-header.component.js';
+import { RolledBackFromLink } from '../components/rolled-back-from-link.component.js';
 
 /**
  * `location.state` shape the rollback flow (#112) navigates to `/iac`
@@ -477,6 +478,49 @@ function StaleLockBanner({ staleLock, nowMs, onCleared }: StaleLockBannerProps) 
 }
 
 /**
+ * Stale-lock/busy/submission-error banner shown under a plan/apply/destroy submission button —
+ * collapses the identical `staleLock ? StaleLockBanner : (conflict && BusyBanner) + submitError`
+ * ternary that used to be written out once per operation (plan/apply/destroy).
+ *
+ * Precedence matches the original per-operation logic: a stale backend lock ({@link StaleLockBanner})
+ * is shown alone when present; otherwise a workspace-busy conflict ({@link BusyBanner}) and a plain
+ * submission error render together, since the submit handlers always set `submitError` alongside
+ * `conflict`.
+ *
+ * `onCleared` is expected to reset every one of the caller's `staleLock`/`conflict`/`runLock`/
+ * `submitError` state slices for this operation — otherwise a stale error banner would reappear the
+ * instant a successful clear falls through to the conflict/error branch.
+ */
+function SubmissionBanners({
+  staleLock,
+  conflict,
+  runLock,
+  submitError,
+  nowMs,
+  onCleared,
+}: {
+  staleLock: IacStaleLockInfo | null;
+  conflict: Conflict | null;
+  /** Present only when the refusal was a durable {@link RunLockHeldError} — passed through to {@link BusyBanner}. */
+  runLock?: RunLock | null;
+  submitError: string | null;
+  nowMs: number;
+  onCleared: () => void;
+}) {
+  if (staleLock) {
+    return <StaleLockBanner staleLock={staleLock} nowMs={nowMs} onCleared={onCleared} />;
+  }
+  return (
+    <>
+      {conflict && (
+        <BusyBanner conflict={conflict} runLock={runLock ?? undefined} nowMs={nowMs} onCleared={onCleared} />
+      )}
+      {submitError && <ErrorBanner>{submitError}</ErrorBanner>}
+    </>
+  );
+}
+
+/**
  * {@link OpType} keys bucketed for display. Each bucket sums to a
  * single badge rather than rendering one badge per raw `OpType` — most runs
  * only ever populate a handful of the 15 possible keys, and the replacement
@@ -902,41 +946,17 @@ export function IacPage() {
             {planning ? <Loader2 className="animate-spin" /> : <Play />}
             Run plan
           </Button>
-          {planStaleLock ? (
-            <StaleLockBanner
-              staleLock={planStaleLock}
-              nowMs={now}
-              onCleared={() => {
-                setPlanStaleLock(null);
-                // Otherwise the stale rejection's error text (still sitting
-                // in planSubmitError, never touched by a successful clear)
-                // would reappear the instant the ternary above falls through
-                // to the BusyBanner/ErrorBanner branch — a red "error" banner
-                // for an action that just succeeded.
-                setPlanSubmitError(null);
-              }}
-            />
-          ) : (
-            <>
-              {planConflict && (
-                <BusyBanner
-                  conflict={planConflict}
-                  // plan never acquires the durable RunLock (see the
-                  // "ack.runLock is never set for `plan`" comment in
-                  // submitPlan above), so there is never a runLock to pass
-                  // here — this instance's "Clear lock and retry" action
-                  // never renders.
-                  nowMs={now}
-                  onCleared={() => {
-                    setPlanConflict(null);
-                    // See the identical comment on the stale-lock banner's onCleared above.
-                    setPlanSubmitError(null);
-                  }}
-                />
-              )}
-              {planSubmitError && <ErrorBanner>{planSubmitError}</ErrorBanner>}
-            </>
-          )}
+          <SubmissionBanners
+            staleLock={planStaleLock}
+            conflict={planConflict}
+            submitError={planSubmitError}
+            nowMs={now}
+            onCleared={() => {
+              setPlanStaleLock(null);
+              setPlanConflict(null);
+              setPlanSubmitError(null);
+            }}
+          />
         </div>
       )}
 
@@ -947,17 +967,7 @@ export function IacPage() {
             {planFinished && <ChangeSummaryStatus summary={planRecord?.changeSummary} />}
           </div>
 
-          {planRecord?.rolledBackFrom && (
-            <p className="text-sm text-[var(--color-muted-foreground)]">
-              Rollback of{' '}
-              <Link
-                to={`/iac/history/${planRecord.rolledBackFrom}`}
-                className="text-[var(--color-primary)] underline underline-offset-2"
-              >
-                apply run {planRecord.rolledBackFrom}
-              </Link>
-            </p>
-          )}
+          {planRecord?.rolledBackFrom && <RolledBackFromLink applyRunId={planRecord.rolledBackFrom} />}
 
           <AnsiLogViewer chunks={planLog.chunks} emptyMessage="Waiting for plan output…" />
 
@@ -1006,34 +1016,19 @@ export function IacPage() {
                     {applying ? <Loader2 className="animate-spin" /> : <Play />}
                     Apply
                   </Button>
-                  {applyStaleLock ? (
-                    <StaleLockBanner
-                      staleLock={applyStaleLock}
-                      nowMs={now}
-                      onCleared={() => {
-                        setApplyStaleLock(null);
-                        // See the identical comment on the plan banner above.
-                        setApplySubmitError(null);
-                      }}
-                    />
-                  ) : (
-                    <>
-                      {applyConflict && (
-                        <BusyBanner
-                          conflict={applyConflict}
-                          runLock={applyRunLock ?? undefined}
-                          nowMs={now}
-                          onCleared={() => {
-                            setApplyConflict(null);
-                            setApplyRunLock(null);
-                            // See the identical comment on the stale-lock banner's onCleared above.
-                            setApplySubmitError(null);
-                          }}
-                        />
-                      )}
-                      {applySubmitError && <ErrorBanner>{applySubmitError}</ErrorBanner>}
-                    </>
-                  )}
+                  <SubmissionBanners
+                    staleLock={applyStaleLock}
+                    conflict={applyConflict}
+                    runLock={applyRunLock}
+                    submitError={applySubmitError}
+                    nowMs={now}
+                    onCleared={() => {
+                      setApplyStaleLock(null);
+                      setApplyConflict(null);
+                      setApplyRunLock(null);
+                      setApplySubmitError(null);
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -1120,34 +1115,19 @@ export function IacPage() {
               {destroying ? <Loader2 className="animate-spin" /> : <Trash2 />}
               Destroy infrastructure
             </Button>
-            {destroyStaleLock ? (
-              <StaleLockBanner
-                staleLock={destroyStaleLock}
-                nowMs={now}
-                onCleared={() => {
-                  setDestroyStaleLock(null);
-                  // See the identical comment on the plan banner above.
-                  setDestroySubmitError(null);
-                }}
-              />
-            ) : (
-              <>
-                {destroyConflict && (
-                  <BusyBanner
-                    conflict={destroyConflict}
-                    runLock={destroyRunLock ?? undefined}
-                    nowMs={now}
-                    onCleared={() => {
-                      setDestroyConflict(null);
-                      setDestroyRunLock(null);
-                      // See the identical comment on the stale-lock banner's onCleared above.
-                      setDestroySubmitError(null);
-                    }}
-                  />
-                )}
-                {destroySubmitError && <ErrorBanner>{destroySubmitError}</ErrorBanner>}
-              </>
-            )}
+            <SubmissionBanners
+              staleLock={destroyStaleLock}
+              conflict={destroyConflict}
+              runLock={destroyRunLock}
+              submitError={destroySubmitError}
+              nowMs={now}
+              onCleared={() => {
+                setDestroyStaleLock(null);
+                setDestroyConflict(null);
+                setDestroyRunLock(null);
+                setDestroySubmitError(null);
+              }}
+            />
           </div>
         )}
 

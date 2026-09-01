@@ -4,7 +4,8 @@ import type { RunHistoryRecord } from '@hyveon/desktop-preload';
 import type { AnsiLogChunk } from '../components/ansi-log-viewer.component.js';
 import { AnsiLogViewer } from '../components/ansi-log-viewer.component.js';
 import { RunStatusBadge } from '../components/run-status-badge.component.js';
-import { Badge } from '../components/ui/badge.component.js';
+import { PartialApplyBadge } from '../components/partial-apply-badge.component.js';
+import { RolledBackFromLink } from '../components/rolled-back-from-link.component.js';
 import { ErrorBanner } from '../components/error-banner.component.js';
 import { LoadingState } from '../components/loading-state.component.js';
 import { PageHeader } from '../components/page-header.component.js';
@@ -193,14 +194,7 @@ export function IacRunDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             <span className="capitalize text-sm font-medium text-[var(--color-foreground)]">{record.kind}</span>
             <RunStatusBadge status={record.status} />
-            {record.partialApply === true && (
-              <Badge
-                variant="warning"
-                title="Apply stopped partway through — some resources were already changed before this run failed or was aborted."
-              >
-                partial
-              </Badge>
-            )}
+            {record.partialApply === true && <PartialApplyBadge />}
             <span className="text-xs text-[var(--color-muted-foreground)]">
               Started {formatTimestamp(record.startedAt)} — completed {formatTimestamp(record.completedAt)}
             </span>
@@ -211,17 +205,7 @@ export function IacRunDetailPage() {
             <ChangeSummaryStatus summary={record.changeSummary} />
           </div>
 
-          {record.rolledBackFrom && (
-            <p className="text-sm text-[var(--color-muted-foreground)]">
-              Rollback of{' '}
-              <Link
-                to={`/iac/history/${record.rolledBackFrom}`}
-                className="text-[var(--color-primary)] underline underline-offset-2"
-              >
-                apply run {record.rolledBackFrom}
-              </Link>
-            </p>
-          )}
+          {record.rolledBackFrom && <RolledBackFromLink applyRunId={record.rolledBackFrom} />}
 
           {record.approvedBy && (
             <p className="text-sm text-[var(--color-foreground)]">
