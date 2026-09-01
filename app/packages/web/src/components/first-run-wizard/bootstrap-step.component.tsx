@@ -1,10 +1,10 @@
-import { CheckCircle2, XCircle, AlertTriangle, Loader2, Copy, ShieldCheck } from 'lucide-react';
-import { HYVEON_DEPLOY_ALL_ACTIONS } from '@hyveon/shared';
+import type { ReactNode } from 'react';
+import { CheckCircle2, XCircle, Loader2, ShieldCheck } from 'lucide-react';
 import type { IamCheckResult } from '@hyveon/desktop-preload';
-import { InlineAlert } from '@/components/inline-alert.component';
 import { Button } from '@/components/ui/button.component';
 import { Badge } from '@/components/ui/badge.component';
 import { Input } from '@/components/ui/input.component';
+import { IamCheckPanel } from './iam-check-panel.component.js';
 import type { BootstrapResourceKey, BootstrapResourceState } from './wizard.utils.js';
 
 /**
@@ -106,8 +106,8 @@ export function BootstrapStep({
             disabled={bootstrapping}
           />
         ))}
-        <RunsTableRow status={runsTableStatus} message={runsTableMessage} />
-        <DeploymentConfigRow status={deploymentConfigStatus} message={deploymentConfigMessage} />
+        <StatusRow label="Run-history table" status={runsTableStatus} message={runsTableMessage} />
+        <StatusRow label="Initial configuration" status={deploymentConfigStatus} message={deploymentConfigMessage} />
       </div>
 
       <Button type="button" onClick={onRunBootstrap} disabled={bootstrapping}>
@@ -119,70 +119,7 @@ export function BootstrapStep({
           : 'Bootstrap AWS resources'}
       </Button>
 
-      <div className="border-t border-[var(--color-border)] pt-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium">IAM permission check</h3>
-          <Button type="button" variant="outline" size="sm" onClick={onRunIamCheck} disabled={iamChecking}>
-            {iamChecking && <Loader2 className="animate-spin" />}
-            {iamCheck ? 'Re-check permissions' : 'Check permissions'}
-          </Button>
-        </div>
-
-        <InlineAlert message={iamError} />
-
-        {iamCheck?.status === 'passed' && (
-          <div className="flex items-center gap-2 text-sm text-[var(--color-green)]">
-            <CheckCircle2 className="size-4" />
-            All required permissions are present.
-          </div>
-        )}
-
-        {iamCheck?.status === 'missing' && iamCheck.policyJson && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-[var(--color-amber)]">
-              <AlertTriangle className="size-4" />
-              Some permissions are missing. Paste the policy below into your IAM user&apos;s inline policy.
-            </div>
-            <div className="relative">
-              <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] bg-[var(--color-surface-2)] p-3 text-xs">
-                {iamCheck.policyJson}
-              </pre>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute top-2 right-2"
-                onClick={() =>
-                  void navigator.clipboard.writeText(iamCheck.policyJson!).catch(() => {
-                    /* clipboard denial is non-critical; the policy JSON is still visible above */
-                  })
-                }
-                aria-label="Copy required IAM JSON"
-              >
-                <Copy className="size-3" />
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {iamCheck?.status === 'warning' && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-[var(--color-amber)]">
-              <AlertTriangle className="size-4" />
-              {iamCheck.message ?? 'Could not run the permission simulation.'}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Ensure your IAM user/role has the following actions (see <code>docs/docs/setup.md</code>&apos;s{' '}
-              <code>HyveonDeployAll</code> policy):
-            </p>
-            <ul className="max-h-48 overflow-auto text-xs font-[var(--font-mono)] text-muted-foreground space-y-0.5">
-              {HYVEON_DEPLOY_ALL_ACTIONS.map((action) => (
-                <li key={action}>{action}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+      <IamCheckPanel iamCheck={iamCheck} checking={iamChecking} error={iamError} onRun={onRunIamCheck} />
     </div>
   );
 }
@@ -217,44 +154,49 @@ function ResourceRow({
   disabled: boolean;
 }) {
   const succeeded = status === 'created' || status === 'exists';
+  const label = RESOURCE_LABELS[resource];
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 space-y-2">
-      <div className="flex items-center gap-2">
-        {succeeded && <CheckCircle2 className="size-4 text-[var(--color-green)]" />}
-        {status === 'creating' && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-        {status === 'failed' && <XCircle className="size-4 text-[var(--color-red)]" />}
-        <span className="font-medium">{RESOURCE_LABELS[resource]}</span>
-        <StatusBadge status={status} />
-      </div>
+    <StatusRow label={label} status={status} message={message}>
       <Input
         value={name}
         onChange={(e) => onNameChange(resource, e.target.value)}
         disabled={disabled || succeeded}
-        aria-label={`${RESOURCE_LABELS[resource]} name`}
+        aria-label={`${label} name`}
       />
-      {status === 'failed' && message && <p className="text-xs text-[var(--color-red)]">{message}</p>}
       {succeeded && (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <ShieldCheck className="size-3 text-[var(--color-green)]" />
           Public access blocked
         </p>
       )}
-    </div>
+    </StatusRow>
   );
 }
 
 /**
- * Renders the run-history table's status row — deliberately NOT a
- * {@link ResourceRow}: unlike the two S3 buckets, this resource has no
- * editable name field at this point in the wizard (no `DeploymentConfig`
- * exists yet to hold a `runsTableName` override — see
- * `WizardController.bootstrapRunsTable`'s own doc comment for why it always
- * uses the project-name default). This is the fix for the bootstrap
- * deadlock: the run-history table used to only ever be created by the first
- * Pulumi apply, which itself needed the table to already exist to record its
- * own run.
+ * Renders one row's icon/label/{@link StatusBadge} header plus its `'failed'` message — shared by every bootstrap
+ * status row in this step.
+ *
+ * @remarks
+ * {@link ResourceRow} is the only row with anything beyond that: an editable name field and, once the resource
+ * reaches `created`/`exists`, a public-access-block confirmation — passed here as `children`, rendered after the
+ * header and before the (mutually exclusive) failure message. The run-history table and initial-configuration rows
+ * have no such extra content — unlike the two S3 buckets, neither has an editable name field at this point in the
+ * wizard (no `DeploymentConfig` exists yet to hold a `runsTableName` override, and the config seed has no name of
+ * its own — it's seeded into whichever configuration bucket {@link ResourceRow} names) — so they call this directly
+ * with no `children`.
  */
-function RunsTableRow({ status, message }: { status: BootstrapResourceState; message?: string }) {
+function StatusRow({
+  label,
+  status,
+  message,
+  children,
+}: {
+  label: string;
+  status: BootstrapResourceState;
+  message?: string;
+  children?: ReactNode;
+}) {
   const succeeded = status === 'created' || status === 'exists';
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 space-y-2">
@@ -262,36 +204,10 @@ function RunsTableRow({ status, message }: { status: BootstrapResourceState; mes
         {succeeded && <CheckCircle2 className="size-4 text-[var(--color-green)]" />}
         {status === 'creating' && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
         {status === 'failed' && <XCircle className="size-4 text-[var(--color-red)]" />}
-        <span className="font-medium">Run-history table</span>
+        <span className="font-medium">{label}</span>
         <StatusBadge status={status} />
       </div>
-      {status === 'failed' && message && <p className="text-xs text-[var(--color-red)]">{message}</p>}
-    </div>
-  );
-}
-
-/**
- * Renders the initial `deployment-config.json` seed's status row — the fix
- * for a Critical bootstrap gap: nothing else ever created that document, so
- * before this row's underlying `wizard.bootstrap.deploymentConfig` call
- * existed, a fresh install landed on the dashboard with no way to save
- * Settings, add a game, or run a Pulumi preview (every one of those reads
- * the document before writing, and the read threw when it didn't exist).
- * Deliberately NOT a {@link ResourceRow}, mirroring {@link RunsTableRow}: no
- * editable name field of its own — it's seeded into whichever configuration
- * bucket the {@link ResourceRow} above it names.
- */
-function DeploymentConfigRow({ status, message }: { status: BootstrapResourceState; message?: string }) {
-  const succeeded = status === 'created' || status === 'exists';
-  return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 space-y-2">
-      <div className="flex items-center gap-2">
-        {succeeded && <CheckCircle2 className="size-4 text-[var(--color-green)]" />}
-        {status === 'creating' && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-        {status === 'failed' && <XCircle className="size-4 text-[var(--color-red)]" />}
-        <span className="font-medium">Initial configuration</span>
-        <StatusBadge status={status} />
-      </div>
+      {children}
       {status === 'failed' && message && <p className="text-xs text-[var(--color-red)]">{message}</p>}
     </div>
   );
