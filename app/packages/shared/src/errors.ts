@@ -44,7 +44,7 @@ export class OptimisticLockError extends Error {
 }
 
 /**
- * Thrown by `RunService.createRun()` (desktop-main, #106) when a caller
+ * Thrown by `RunService.createRun()` (desktop-main) when a caller
  * tries to start a new plan/apply/destroy run (see `RunKind`'s doc in
  * `runs.ts` for the retained subcommand vocabulary) while another
  * non-terminal run is already holding the apply lock. Carries the current

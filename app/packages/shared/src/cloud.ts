@@ -108,7 +108,7 @@ export interface RemoteFileStore {
   /**
    * Retrieves a specific historical version of a file by path, for stores
    * that support object versioning (e.g. a versioned S3 bucket). Used by the
-   * rollback flow (#112) to read a prior configuration version's bytes
+   * rollback flow to read a prior configuration version's bytes
    * before restoring them as a new head version.
    *
    * @param path - The store-relative path of the file to retrieve.
@@ -254,7 +254,7 @@ export interface DiscordConfigStore {
  * `@aws-sdk/*` shapes appear in this interface or its parameter/return
  * types.
  *
- * Also owns the apply lock (see {@link RunLock} in `runs.ts`, issue #106):
+ * Also owns the apply lock (see {@link RunLock} in `runs.ts`):
  * only one non-terminal run may be in flight at a time, and the lock's
  * source of truth is this store (e.g. a single well-known DynamoDB item)
  * rather than an in-memory flag, so it survives an app restart and is
@@ -324,7 +324,7 @@ export interface RunRecordStore {
   /**
    * Attempts to atomically acquire the apply lock on behalf of a new run,
    * guarding against two simultaneous plan/apply/destroy submissions
-   * (`RunService.createRun`, desktop-main, #106). Implementations
+   * (`RunService.createRun`, desktop-main). Implementations
    * must perform the check-and-set atomically (e.g. a DynamoDB conditional
    * `PutItem` against a single well-known lock item) rather than as a
    * separate `getRunLock` read followed by a write, which would leave a race

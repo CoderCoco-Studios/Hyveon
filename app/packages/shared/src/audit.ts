@@ -6,14 +6,14 @@ import type { RedactedGameServer } from './gameServerConfig.js';
  * exposed by the `game_servers` write endpoints in `@hyveon/desktop-main`,
  * plus `plan` for a dry-run plan invocation that touched no
  * infrastructure, `approve` for marking a successful `plan` run approved
- * for a later `apply` (see `IacController.approve`, issue #109),
+ * for a later `apply` (see `IacController.approve`),
  * `apply` for an apply invocation that actually mutated
- * infrastructure (see `IacController.apply`, issue #109), and
+ * infrastructure (see `IacController.apply`), and
  * `destroy` for a confirmed destroy invocation that was
  * initiated to tear down every managed resource — recorded once the run
- * starts, not once it's confirmed successful (see `IacController.destroy`, issue #307), and
+ * starts, not once it's confirmed successful (see `IacController.destroy`), and
  * `rollback` for restoring a historic deployment-config version as a new head (see
- * `IacController.confirmRollback`, issue #112).
+ * `IacController.confirmRollback`).
  */
 export type AuditAction =
   | 'add'

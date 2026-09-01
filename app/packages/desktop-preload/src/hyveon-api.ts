@@ -900,7 +900,7 @@ export interface RunHistoryRecord {
   logInline?: string;
   /** Key identifying where the run's captured log was offloaded to, once too large to embed. Mutually exclusive with `logInline`. */
   logS3Key?: string;
-  /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow (#112). */
+  /** The `runId` of the `apply` run this plan rolled back, if started via the rollback flow. */
   rolledBackFrom?: string;
   /**
    * Structured resource-change summary the Pulumi engine reported for this
@@ -956,7 +956,7 @@ export interface IacRunsListOpts {
  */
 export interface IacPlanPayload {
   configVersionId?: string;
-  /** The `runId` of the `apply` run being rolled back, if this plan was started via the rollback flow (#112). */
+  /** The `runId` of the `apply` run being rolled back, if this plan was started via the rollback flow. */
   rolledBackFrom?: string;
 }
 
@@ -1879,7 +1879,7 @@ export const GUIDED_PROFILE_NAME = 'hyveon-guided';
 /**
  * The bootstrap step's last-submitted resource names, as persisted to
  * `ElectronStoreService.bootstrap`. Needed so Settings' Reconfigure flow
- * (#211) can rehydrate a non-default name — resource names are
+ * can rehydrate a non-default name — resource names are
  * operator-editable.
  *
  * @remarks
@@ -1897,7 +1897,7 @@ export interface WizardState {
   wizardCompleted: boolean;
   /** The cloud chosen in the pick-cloud step. Locked to `'aws'` for v1; `undefined` before that step runs. */
   activeCloud?: 'aws';
-  /** The credential source chosen in the credentials step (#192), if any. */
+  /** The credential source chosen in the credentials step, if any. */
   aws?: WizardAwsChoice;
   /** The bootstrap step's last-submitted resource names, if any. */
   bootstrap?: WizardBootstrapNames;
@@ -1962,7 +1962,7 @@ export interface HyveonAuditApi {
 
 /**
  * Iac run history: look up a single plan/apply/destroy run's current
- * status and stream its live/replayed log output (issue #108).
+ * status and stream its live/replayed log output.
  */
 export interface HyveonIacRunsApi {
   /**
@@ -2114,8 +2114,8 @@ export interface HyveonIacApi {
    * `runId`) so `apply` may proceed against it, by invoking the
    * `iac.approve` IPC channel with `opts`.
    *
-   * Delegates to `RunRecordService.approveRun` (issue #109, which moved
-   * plan/apply/approve to Electron IPC handlers — this app has no HTTP
+   * Delegates to `RunRecordService.approveRun` (plan/apply/approve go
+   * through Electron IPC handlers — this app has no HTTP
    * transport) — admin-only; records the approver and approved-at timestamp
    * on the plan run and resolves the {@link IacApproveAck}.
    */
@@ -2123,7 +2123,7 @@ export interface HyveonIacApi {
   /**
    * Submits an apply (`pulumi up`) run gated on plan-hash + approval by
    * invoking the `iac.apply` IPC channel, resolving an ack shaped like
-   * {@link IacPlanAck}. `IacController.apply` (issue #109, the IPC handler
+   * {@link IacPlanAck}. `IacController.apply` (the IPC handler
    * this app uses in place of an HTTP route) rejects when the plan run
    * isn't approved, the current configuration has
    * drifted since the plan, the supplied `planHash` doesn't match the plan
@@ -2163,7 +2163,7 @@ export interface HyveonIacApi {
   output: (force?: boolean) => Promise<StackOutputs | null>;
   /** Iac run history: look up a single run's status and stream its log output. */
   runs: HyveonIacRunsApi;
-  /** Rollback flow (#112): preview and restore a prior configuration version from an apply run in history. */
+  /** Rollback flow: preview and restore a prior configuration version from an apply run in history. */
   rollback: HyveonIacRollbackApi;
   /** Stale backend-lock recovery: explicitly clear an unrecognized Pulumi backend lock. */
   lock: HyveonIacLockApi;
@@ -2207,7 +2207,7 @@ export interface HyveonIacLockApi {
 }
 
 /**
- * Rollback flow (#112) IPC surface. A rollback is two calls: {@link resolve}
+ * Rollback flow IPC surface. A rollback is two calls: {@link resolve}
  * previews the target version for the confirmation dialog without writing
  * anything, then {@link confirm} restores it as a new configuration head
  * version (and, internally, re-plans against it — see
@@ -2306,11 +2306,8 @@ export interface HyveonIacSettingsApi {
 export interface HyveonWindowApi {
   /** Current OS platform, read from `process.platform` inside the preload script. Never changes during a session. */
   platform: NodeJS.Platform;
-  /** Invokes the `window.minimize` IPC channel. */
   minimize: () => Promise<void>;
-  /** Invokes the `window.toggleMaximize` IPC channel. */
   toggleMaximize: () => Promise<void>;
-  /** Invokes the `window.close` IPC channel. */
   close: () => Promise<void>;
   /** Invokes the `window.isMaximized` IPC channel and resolves with the current maximized state. */
   isMaximized: () => Promise<boolean>;
