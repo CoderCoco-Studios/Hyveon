@@ -20,8 +20,7 @@ export default defineConfig({
       '@hyveon/shared': resolve(__dirname, 'packages/shared/src/index.ts'),
       '@hyveon/cloud-aws': resolve(__dirname, 'packages/cloud-aws/src/index.ts'),
       '@hyveon/infra': resolve(__dirname, 'packages/infra/src/index.ts'),
-      // @hyveon/web imports value exports (not just types, e.g. GUIDED_PROFILE_NAME)
-      // from @hyveon/desktop-preload, so this needs the same source alias.
+      // @hyveon/web imports value exports (e.g. GUIDED_PROFILE_NAME) from desktop-preload, so alias the source here too.
       '@hyveon/desktop-preload': resolve(__dirname, 'packages/desktop-preload/src/index.ts'),
       // The @hyveon/web package uses `@/foo` as a shortcut for `./src/foo`
       // (matches its tsconfig + Vite config). Re-declare it here so the
