@@ -2306,8 +2306,11 @@ export interface HyveonIacSettingsApi {
 export interface HyveonWindowApi {
   /** Current OS platform, read from `process.platform` inside the preload script. Never changes during a session. */
   platform: NodeJS.Platform;
+  /** Invokes the `window.minimize` IPC channel. */
   minimize: () => Promise<void>;
+  /** Invokes the `window.toggleMaximize` IPC channel. */
   toggleMaximize: () => Promise<void>;
+  /** Invokes the `window.close` IPC channel. */
   close: () => Promise<void>;
   /** Invokes the `window.isMaximized` IPC channel and resolves with the current maximized state. */
   isMaximized: () => Promise<boolean>;

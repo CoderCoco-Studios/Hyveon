@@ -16,8 +16,7 @@ export type RunKind = 'plan' | 'apply' | 'destroy';
 /**
  * Lifecycle status of a {@link RunRecord}, derived (never stored ad hoc) via
  * {@link deriveRunStatus}. Also the hash key of the `status-index` GSI on the
- * `${project_name}-runs` DynamoDB table (schema originally defined by the
- * app's original, now retired IaC tool), so callers can list all runs in a
+ * `${project_name}-runs` DynamoDB table, so callers can list all runs in a
  * given status ordered by `startedAt` without scanning the table. There is
  * no `pending` status — a {@link RunRecord} is only persisted once the
  * operation has finished.
@@ -28,8 +27,7 @@ export type RunStatus = 'success' | 'failed' | 'aborted';
  * A single row in the DynamoDB run-history table (`${project_name}-runs`,
  * `pk = "RUN"`, `sk = ` {@link buildRunSk}). Records one plan/apply/destroy
  * invocation (see {@link RunKind}'s doc for the retained subcommand
- * vocabulary) driven through the management app's apply-history view —
- * schema originally defined by the app's original, retired IaC tool.
+ * vocabulary) driven through the management app's apply-history view.
  */
 export interface RunRecord {
   /** Sort key: `<startedAt>#<runId>` — see {@link buildRunSk}. */
