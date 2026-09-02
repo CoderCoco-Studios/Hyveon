@@ -436,9 +436,11 @@ export function useLogTail(target: string, api: LogTailApi): UseLogTailResult {
    * which would open an unbridged temporal gap in the displayed log stream.
    *
    * @remarks
-   * When the newest-visible line has a `timestamp` (backfilled at least
-   * once), the cursor is that timestamp and `excludeEventIds` is every line
-   * sharing that `eventId` (mirroring {@link LogsService.fetchAcrossStreams}'s
+   * When the newest-visible line has a `timestamp` — set on any line that
+   * came from a backend page, including the initial snapshot fetch, not
+   * only a backfilled one — the cursor is that timestamp and
+   * `excludeEventIds` is the `eventId` of every visible line at that same
+   * boundary timestamp (mirroring {@link LogsService.fetchAcrossStreams}'s
    * multiset exclusion). Otherwise it falls back to {@link liveInterruptedAtRef}
    * with an empty exclude list.
    *

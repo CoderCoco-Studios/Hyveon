@@ -5,10 +5,13 @@
  * an in-app route, and the app routes via `HashRouter`, which only
  * re-renders on the native `hashchange` event. Setting `location.hash`
  * directly fires that event — but setting it to its *current* value does
- * not, so each `gotoElectron()`/two-step `goto()` below first resets the
- * hash to `/` (or another route) before setting the real target, guaranteeing
- * a `hashchange` fires even when the target route matches where the app
- * already is.
+ * not, so each two-step `goto()` below first resets the hash to `/` (or
+ * another route) before setting the real target, guaranteeing a
+ * `hashchange` fires even when the target route matches where the app
+ * already is. `DashboardPage.gotoElectron()` is the exception: the
+ * dashboard is always the app's initial route, so it sets the hash to `/`
+ * once and relies on clicking "Refresh all" — not a `hashchange` — to force
+ * the re-fetch.
  */
 export { AppLayout } from './AppLayout.js';
 export { gotoHashRoute } from './hashRoute.js';
