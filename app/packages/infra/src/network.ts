@@ -49,19 +49,16 @@ export interface DefineNetworkArgs {
 const PUBLIC_SUBNET_COUNT = 2;
 
 /**
- * Pure re-implementation of the legacy infrastructure-as-code tool's
- * built-in `cidrsubnet` function (`cidrsubnet(prefix, newbits, netnum)`) for
- * IPv4 CIDR blocks — reproduces the legacy tool's
- * `cidrsubnet(var.vpc_cidr, 8, count.index)` used to derive each public
- * subnet's CIDR from the VPC's CIDR block. Pulumi has no built-in
- * equivalent. `vpcCidr` flows into this program as a plain captured string
- * (`DeploymentConfig`, not `pulumi.Config`), so this runs synchronously in
- * plain JS rather than through `pulumi.Output.apply`.
+ * Derives each public subnet's CIDR from the VPC's CIDR block — Pulumi has
+ * no built-in `cidrsubnet`-style function. `vpcCidr` flows in as a plain
+ * captured string, so this runs synchronously in plain JS. Only handles
+ * well-formed IPv4 CIDR blocks whose host bits are already zero (true of
+ * every `vpcCidr` the app's config validation accepts).
  *
- * Only handles well-formed IPv4 CIDR blocks whose host bits are already
- * zero (true of every `vpcCidr` the app's config validation accepts, and of
- * the legacy tool's own default `"10.0.0.0/16"`) — the same assumption the
- * HCL's `cidrsubnet` call relies on.
+ * The derivation must stay byte-identical across changes — every public
+ * subnet's CIDR is recomputed from this function on every apply, and a
+ * changed result replaces (destroys + recreates) every subnet, taking its
+ * EFS mount target with it.
  *
  * @param baseCidr - The base IPv4 CIDR block (e.g. `"10.0.0.0/16"`).
  * @param newBits - Additional network bits to carve out (e.g. `8` turns a

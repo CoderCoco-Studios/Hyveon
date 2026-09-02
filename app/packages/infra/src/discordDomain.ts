@@ -11,20 +11,13 @@
  *     → Lambda Function URL (HTTPS origin)
  * ```
  *
- * ## No conditionality gate
- *
- * This whole resource set is unconditional — always declared on every
- * deploy, with no `DeploymentConfig` field that disables it.
- *
- * ## Certificate has a single domain, so validation needs only one record
- *
- * The certificate covers only `discord.{hostedZoneName}` — no subject
- * alternative names — so ACM's `domainValidationOptions` always has exactly
- * one entry. {@link DiscordDomainResources.certificateValidationRecord}
- * indexes `certificate.domainValidationOptions[0]` directly rather than
- * mapping over the array, which is the standard Pulumi pattern for a
- * single-domain DNS-validated certificate. If this certificate ever gained
- * additional domains, this would need to become a `for_each`-style mapping.
+ * This resource set is unconditional — always declared, no `DeploymentConfig`
+ * field disables it. The three Route 53 records it declares
+ * ({@link DiscordDomainResources.certificateValidationRecord},
+ * {@link DiscordDomainResources.aliasRecord}, {@link DiscordDomainResources.aliasRecordAaaa})
+ * are static infrastructure for this one fixed domain — never per-game,
+ * never written by any Lambda — so they do not violate `route53.ts`'s
+ * "no DNS record resources" invariant (see that file's doc).
  *
  * ## us-east-1 provider — ACM certificate + its validation ONLY
  *
@@ -34,31 +27,12 @@
  * {@link DefineDiscordDomainArgs.usEast1Provider} is threaded ONLY into
  * {@link DiscordDomainResources.certificate} and
  * {@link DiscordDomainResources.certificateValidation}; every other resource
- * below — the validation record, the CloudFront distribution (a global-edge
- * service whose control-plane API can be called from any region), and the
- * two alias records — uses {@link DefineDiscordDomainArgs.provider} (the
- * regional default).
+ * below uses {@link DefineDiscordDomainArgs.provider} (the regional default).
  *
- * ## Certificate replacement needs no explicit Pulumi option
- *
- * Pulumi's default replacement behavior already creates a replacement
- * resource before deleting the original (`deleteBeforeReplace` defaults to
- * `false`), so no `CustomResourceOptions` entry is needed on the certificate
- * to get create-before-destroy semantics.
- *
- * ## These three Route 53 records do NOT violate the "no per-game DNS records" invariant
- *
- * CLAUDE.md's invariant ("DNS records are Lambda-managed, never
- * infra-program-managed") is about *per-game* records (`{game}.{hostedZoneName}`),
- * written exclusively by the update-dns Lambda at runtime (`UPSERT` on
- * `RUNNING`, `DELETE` on `STOPPED`) — a Pulumi-owned record for the same name
- * would fight those writes on every `pulumi up`/refresh. The three records
- * this file declares ({@link DiscordDomainResources.certificateValidationRecord},
- * {@link DiscordDomainResources.aliasRecord},
- * {@link DiscordDomainResources.aliasRecordAaaa}) are static infrastructure
- * for the Discord interactions custom domain — fixed at
- * `discord.{hostedZoneName}`, never per-game, never written by any Lambda —
- * so nothing forbids Pulumi from owning them.
+ * The certificate covers only `discord.{hostedZoneName}` — no subject
+ * alternative names — so ACM's `domainValidationOptions` always has exactly
+ * one entry; {@link DiscordDomainResources.certificateValidationRecord}
+ * indexes it directly rather than mapping over the array.
  */
 
 import * as aws from '@pulumi/aws';

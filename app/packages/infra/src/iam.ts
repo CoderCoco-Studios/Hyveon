@@ -1,36 +1,9 @@
 /**
  * IAM roles and inline policies — the ECS task-execution role and its
  * managed-policy attachment, plus every per-Lambda role/policy pair
- * (watchdog, followup, interactions, DNS-updater, per-game EFS-seeder).
- * Every IAM role and inline policy this package needs lives here, even
- * though the resources they grant access to (the EFS filesystem, the Lambda
- * functions themselves, the DynamoDB table, the Secrets Manager secret, the
- * Route 53 hosted-zone lookup) are declared elsewhere — see
- * {@link DefineIamPoliciesArgs}'s doc for how those forward references are
- * threaded.
- *
- * Six roles, five inline policies, one managed-policy attachment, plus a
- * seventh role/policy pair conditional on at least one game declaring a
- * `healthCheck`:
- *
- * | HCL address | This file |
- * | --- | --- |
- * | `aws_iam_role.ecs_task_execution` | {@link IamRoleResources.ecsTaskExecutionRole} |
- * | `aws_iam_role_policy_attachment.ecs_task_execution` | {@link IamRoleResources.ecsTaskExecutionPolicyAttachment} |
- * | `aws_iam_role.watchdog_lambda` | {@link IamRoleResources.watchdogLambdaRole} |
- * | `aws_iam_role_policy.watchdog_lambda` | {@link IamPolicyResources.watchdogLambdaPolicy} |
- * | `aws_iam_role.followup_lambda` | {@link IamRoleResources.followupLambdaRole} |
- * | `aws_iam_role_policy.followup_lambda` | {@link IamPolicyResources.followupLambdaPolicy} |
- * | `aws_iam_role.interactions_lambda` | {@link IamRoleResources.interactionsLambdaRole} |
- * | `aws_iam_role_policy.interactions_lambda` | {@link IamPolicyResources.interactionsLambdaPolicy} |
- * | `aws_iam_role.dns_updater_lambda` | {@link IamRoleResources.dnsUpdaterLambdaRole} |
- * | `aws_iam_role_policy.dns_updater_lambda` | {@link IamPolicyResources.dnsUpdaterLambdaPolicy} |
- * | `aws_iam_role.efs_seeder` (`for_each`) | {@link IamRoleResources.efsSeederRoles} |
- * | `aws_iam_role_policy.efs_seeder` (`for_each`) | {@link IamPolicyResources.efsSeederPolicies} |
- * | *(no HCL analogue — added post-migration)* | {@link IamRoleResources.fileBrowserSchedulerRole} |
- * | *(no HCL analogue — added post-migration)* | {@link IamPolicyResources.fileBrowserSchedulerPolicy} |
- * | *(no HCL analogue — post-migration; conditional)* | {@link IamRoleResources.healthCheckLambdaRole} |
- * | *(no HCL analogue — post-migration; conditional)* | {@link IamPolicyResources.healthCheckLambdaPolicy} |
+ * (watchdog, followup, interactions, DNS-updater, health-check, per-game
+ * EFS-seeder). See `docs/docs/components/infra.md` for the full resource
+ * inventory.
  *
  * ## Why this is two functions, not one
  *
@@ -41,16 +14,12 @@
  * (to grant it `lambda:InvokeFunction`) — no single call, run once, can
  * satisfy both directions.
  *
- * Splitting into {@link defineIamRoles} (the six roles + the managed-policy
- * attachment — needs nothing from any later step) and
- * {@link defineIamPolicies} (the five inline policies — needs the roles
- * back, plus every deferred ARN) resolves this: `defineIamRoles()` →
- * `defineLambdas()` (using `roles.followupLambdaRole.arn` etc.) →
- * `defineIamPolicies()` (using the roles plus the now-real
- * `followupLambdaArn` from the Lambda step, and the DynamoDB/EFS/Secrets/
- * Route53 ARNs `dynamodb.ts`/`efs.ts`/`secrets.ts`/`route53.ts` supply).
- * `program.ts`'s `defineAll` calls both functions in exactly this order —
- * see its file doc for the full call sequence across every resource area.
+ * Splitting into {@link defineIamRoles} (needs nothing from any later step)
+ * and {@link defineIamPolicies} (needs the roles back, plus every deferred
+ * ARN) resolves this: `defineIamRoles()` → `defineLambdas()` (using
+ * `roles.followupLambdaRole.arn` etc.) → `defineIamPolicies()` (using the
+ * roles plus the now-real `followupLambdaArn`). `program.ts`'s `defineAll`
+ * calls both functions in exactly this order.
  */
 
 import * as aws from '@pulumi/aws';

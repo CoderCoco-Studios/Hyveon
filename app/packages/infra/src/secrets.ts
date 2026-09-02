@@ -1,86 +1,31 @@
 /**
- * Secrets Manager secrets for the Discord bot token and application public
- * key. The two `aws_secretsmanager_secret_version` resources are part of
- * this package's "imperative escapes" inventory, but are implemented HERE,
- * alongside the secrets they version, rather than in `escapes.ts` (see that
- * file's doc for the rest of the escapes inventory).
- *
- * | HCL address | This file |
- * | --- | --- |
- * | `aws_secretsmanager_secret.discord_bot_token` | {@link SecretsResources.discordBotTokenSecret} |
- * | `aws_secretsmanager_secret_version.discord_bot_token` | {@link SecretsResources.discordBotTokenSecretVersion} |
- * | `aws_secretsmanager_secret.discord_public_key` | {@link SecretsResources.discordPublicKeySecret} |
- * | `aws_secretsmanager_secret_version.discord_public_key` | {@link SecretsResources.discordPublicKeySecretVersion} |
- * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecret} |
- * | *(no HCL analogue — added post-migration, see below)* | {@link SecretsResources.fileBrowserCredentialSecretVersion} |
- *
- * ## The FileBrowser credential secret — one shared secret, not per-game
- *
- * `FileManagerService` (`@hyveon/desktop-main`) writes a fresh bcrypt hash to
- * {@link SecretsResources.fileBrowserCredentialSecret} on every FileBrowser
- * helper launch, for whichever game's helper was just started — the plaintext
- * credential is generated app-side, shown to the operator once in the
- * `files.start` IPC response, and never itself stored. A SINGLE secret is
- * declared (not one per game, the way `efs.ts`'s access points are) because
- * the credential is ephemeral and rotates on every launch regardless of which
- * game the helper is for; a per-game secret would only add N recurring
- * Secrets Manager line items ($0.40/month each) for a value nothing ever
- * needs to read back across launches. Same create-only-placeholder pattern as
- * the two Discord secrets above, for the same reason: this program cannot
- * accept secret material as an input.
+ * Secrets Manager secrets for the Discord bot token, application public key,
+ * and the FileBrowser helper's per-launch credential. The two Discord secret
+ * versions are this package's only "imperative escape" implemented outside
+ * `escapes.ts` — see that file's doc for the rest of the inventory.
  *
  * ## SPEC-CRITICAL: no secret material enters the stack
  *
- * `pulumi-infra-program`'s "No secret material enters the stack" requirement
- * (openspec) forbids this program from accepting a real credential value as
- * input. `DeploymentConfig` (`@hyveon/shared`) already dropped
- * `discord_bot_token`/`discord_public_key` (see that file's file-level doc,
- * "It intentionally excludes every secret input") — so {@link DefineSecretsArgs}
- * has no such field to accept, and every version below is created with the
- * literal string {@link PLACEHOLDER_SECRET_VALUE} unconditionally, unlike the
- * HCL's `var.discord_bot_token != "" ? var.discord_bot_token : "placeholder"`
- * ternary (which could never take its non-placeholder branch once the
- * variable itself is gone). The app's existing `DiscordConfigService` writes
- * the real values directly to Secrets Manager over the AWS SDK — this
- * program only ever creates the initial placeholder version.
+ * This program never accepts a real credential value as input —
+ * `DeploymentConfig` (`@hyveon/shared`) has no such field. Every secret
+ * version below is created with the literal placeholder
+ * {@link PLACEHOLDER_SECRET_VALUE}; the app's `DiscordConfigService` writes
+ * real values directly to Secrets Manager over the AWS SDK afterward.
  *
  * ## Create-only secret versions (`ignoreChanges: ['secretString']`)
  *
- * Reproduces the HCL's `lifecycle { ignore_changes = [secret_string] }`: the
- * version's value is written once, on creation, and thereafter excluded from
- * this program's reconciliation — a later `pulumi up` computes no diff for
- * `secretString` regardless of what value is live in Secrets Manager. Without
- * this, a re-deploy after the operator configures real Discord credentials
- * through the app would silently revert them back to
- * {@link PLACEHOLDER_SECRET_VALUE} and break the bot (the exact regression
- * `pulumi-infra-program`'s "Re-deploying does not overwrite configured
- * secrets" scenario guards against).
+ * Every version's value is written once, on creation, and excluded from
+ * this program's reconciliation thereafter — a later `pulumi up` computes no
+ * diff for `secretString` regardless of the live value. Without this, a
+ * re-deploy after the operator configures real Discord credentials would
+ * silently revert them back to the placeholder and break the bot.
  *
- * {@link secretResourceOptions}`.forVersion` is factored out as its own
- * exported **object method** (not a bare function) specifically so a test
- * can verify it twofold: (1) that calling it returns the right options, and
- * (2) — the part a bare exported function cannot support — that
- * {@link defineSecrets} actually calls it at each `new aws.secretsmanager.SecretVersion(...)`
- * call site, via `vi.spyOn(secretResourceOptions, 'forVersion')`. Pulumi's
- * mock test harness (`testing/pulumiMocks.ts`) does not expose
- * `ignoreChanges` (or any other `CustomResourceOptions` field) to a
- * `newResource` mock callback — confirmed by reading `@pulumi/pulumi`'s
- * `runtime/mocks.d.ts`, whose `MockResourceArgs` carries only
- * `type`/`name`/`inputs`/`provider`/`custom`/`id` — so there is no way to
- * assert "this constructed resource carries `ignoreChanges: ['secretString']`"
- * by inspecting a recorded resource the way every other test in this package
- * does. A test that only calls `secretResourceOptions.forVersion(provider)`
- * directly and checks its return value would NOT catch a future edit that
- * quietly swaps a `SecretVersion` call site back to the plain `{ provider }`
- * options in scope — the spy closes exactly that gap, by asserting the
- * function object `defineSecrets` actually calls, not a same-named copy the
- * test constructs independently. The engine-level guarantee this option
- * requests — that a real `pulumi up` computes no diff for the value Secrets
- * Manager actually holds — is real Pulumi-engine behavior with no local mock
- * equivalent, and is only ever exercised at a real deploy
- * (`pulumi-infra-program`'s "Preservation is covered by a test" scenario's
- * fuller integration-level case belongs to an integration test surface, not
- * this unit-test package).
+ * ## The FileBrowser credential secret — one shared secret, not per-game
+ *
+ * A single secret (not one per game) because the credential is ephemeral and
+ * rotates on every FileBrowser helper launch regardless of which game the
+ * helper is for — a per-game secret would only add recurring cost for a
+ * value nothing ever reads back across launches.
  */
 
 import * as aws from '@pulumi/aws';

@@ -1,56 +1,35 @@
 /**
- * DynamoDB tables — ported from the legacy infrastructure-as-code tool's
- * audit-store resource area (`aws_dynamodb_table.audit`) and Discord-store
- * resource area (`aws_dynamodb_table.discord`).
+ * DynamoDB tables this package manages: the Discord serverless backing store
+ * and the audit-log table. See `docs/docs/components/infra.md` for the full
+ * resource inventory.
  *
- * | Table | This file |
- * | --- | --- |
- * | `aws_dynamodb_table.discord` | {@link DynamoDbResources.discordTable} |
- * | `aws_dynamodb_table.audit` | {@link DynamoDbResources.auditTable} |
+ * ## Canonical: the runs table is not declared here
  *
- * `aws_dynamodb_table.runs` (the legacy tool's runs-store resource area) is
- * deliberately NOT ported here: `RunRecordService`'s approve/apply gates require this
- * table to exist on the very FIRST plan/apply cycle of a fresh install,
- * before any Pulumi apply has ever succeeded — a table this program
- * provisions can't be relied on that early (see
- * `PulumiService.getStackOutputs`'s "empty outputs degrades to null" doc).
- * It is instead created via the AWS SDK directly at
- * first-run-wizard bootstrap time (`BootstrapService.ensureRunsTable`,
- * `@hyveon/desktop-main`), mirroring how CLAUDE.md's own invariants already
- * treat DNS records as "Lambda-managed, never infra-program-managed" for the
- * same reason — a resource whose lifecycle genuinely can't wait on this
- * program's own apply. Its schema below is preserved as documentation of
- * what `ensureRunsTable` must match exactly; this file declares no resource
- * for it. `program.ts`'s `runsTableName` stack output is computed directly
- * from `DeploymentConfig` (via `@hyveon/shared`'s `resolveRunsTableName`)
- * rather than read off a resource here.
+ * The runs table is deliberately NOT provisioned by this program.
+ * `RunRecordService`'s approve/apply gates require it to exist on the very
+ * FIRST plan/apply cycle of a fresh install, before any Pulumi apply has
+ * ever succeeded — a table this program provisions can't be relied on that
+ * early. It is instead created via the AWS SDK directly at first-run-wizard
+ * bootstrap time (`BootstrapService.ensureRunsTable`, `@hyveon/desktop-main`)
+ * — the same reasoning CLAUDE.md applies to DNS records ("Lambda-managed,
+ * never infra-program-managed"). `program.ts`'s `runsTableName` stack output
+ * is computed directly from `DeploymentConfig` (`@hyveon/shared`'s
+ * `resolveRunsTableName`) rather than read off a resource here. Every other
+ * mention of this invariant links back to this section or to
+ * `docs/docs/components/infra.md#the-runs-table-invariant`.
  *
- * Confirmed safe to remove from Pulumi management: the runs table has
- * exactly one consumer anywhere in this package — its resolved `.name`,
- * previously fed into the `runsTableName` stack output — no IAM policy or
- * other resource ever referenced its ARN (contrast `discordTable.arn`, which
- * `iam.ts` grants to three Lambda roles).
- *
- * The Discord table's two seed rows (`aws_dynamodb_table_item.discord_base_config`/
- * `discord_config_seed`) are NOT declared here — they live in `escapes.ts`,
- * which takes {@link DynamoDbResources.discordTable} as an input rather than
- * constructing its own table. See that file's doc for the full "imperative
- * escapes" inventory.
- *
- * `discordApplicationId`/`baseAllowedGuilds`/`baseAdminUserIds`/`baseAdminRoleIds`
- * (all consumed by `escapes.ts`, not this file) never touch table
- * *definitions* — only table *content* — which is exactly why they're absent
- * from {@link DefineDynamoDbArgs}.
- *
- * ## Runs table schema (for `BootstrapService.ensureRunsTable` parity only)
+ * ### Runs table schema (for `BootstrapService.ensureRunsTable` parity only)
  *
  * `billingMode: 'PAY_PER_REQUEST'`, hash key `pk` (S) + range key `sk` (S),
  * one GSI `status-index` (hash `status` S, range `startedAt` S, projection
  * `ALL`), point-in-time recovery enabled, tag `Name: <resolved table name>`
  * plus `Project: hyveon` (this program's `defaultTags` provider setting
- * applies `Project: hyveon` to every Pulumi-managed resource automatically —
- * an SDK-created table outside Pulumi needs that tag applied explicitly to
- * stay tagged identically).
+ * applies `Project: hyveon` automatically to Pulumi-managed resources — an
+ * SDK-created table outside Pulumi needs that tag applied explicitly).
+ *
+ * The Discord table's two seed rows are declared in `escapes.ts`, which
+ * takes {@link DynamoDbResources.discordTable} as an input rather than
+ * constructing its own table.
  */
 
 import * as aws from '@pulumi/aws';
@@ -93,8 +72,8 @@ export interface DefineDynamoDbArgs {
  * Used for the audit table only — the runs table's identical-shaped
  * resolution now lives in `@hyveon/shared`'s `resolveRunsTableName`, since
  * `BootstrapService.ensureRunsTable` (`@hyveon/desktop-main`) must compute
- * that exact value too, outside this package (see this file's doc, "why
- * `aws_dynamodb_table.runs` is deliberately not ported here").
+ * that exact value too, outside this package (see this file's doc, "the
+ * runs table is not declared here").
  *
  * @param overrideName - The configured override (`""` when unset).
  * @param projectName - The project name the computed default is built from.
