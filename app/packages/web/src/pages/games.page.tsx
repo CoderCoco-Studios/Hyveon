@@ -30,7 +30,7 @@ function formatPorts(entry: GameListEntry): string {
  *     columns render as em dashes since there's no declared entry to read.
  *
  * Each row links to `/games/:name` for the deeper read-only detail view
- * still to be implemented.
+ * ({@link GameDetailPage}).
  *
  * The self-contained {@link AddGameWizard} is mounted twice: as a
  * persistent header action next to the heading, and as an empty-state CTA
