@@ -24,6 +24,8 @@ export class OptimisticLockError extends Error {
   readonly currentEtag?: string;
 
   /**
+   * Constructs the error for a failed optimistic-concurrency write.
+   *
    * @param expectedEtag - The etag the caller expected to still be current.
    * @param currentEtag - The etag actually stored remotely, if known.
    * @param message - Optional human-readable message; defaults to a message
@@ -57,6 +59,8 @@ export class RunLockHeldError extends Error {
   readonly lock: RunLock;
 
   /**
+   * Constructs the error for a run that could not acquire the apply lock.
+   *
    * @param lock - The lock currently held by another in-flight run.
    * @param message - Optional human-readable message; defaults to a message
    *   derived from the lock's initiator and kind.

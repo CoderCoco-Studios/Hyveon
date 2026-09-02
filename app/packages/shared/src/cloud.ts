@@ -166,6 +166,8 @@ export class RemoteFileConflictError extends Error {
   readonly ifMatch?: string;
 
   /**
+   * Constructs the conflict error for a failed optimistic-concurrency write.
+   *
    * @param path - The store-relative path of the file that failed the
    *   conflict check.
    * @param message - Optional human-readable message; defaults to a message

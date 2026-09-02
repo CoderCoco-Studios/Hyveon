@@ -45,43 +45,9 @@ import type {
  * union silently drifting out of sync between two independently
  * hand-maintained copies. Do not "fix" this back to duplication.
  *
- * `DeploymentConfigDiff` (`@hyveon/shared/src/deploymentConfig.ts`) joins
- * this re-exported group for the same reason: it's a pure data shape with no
- * `@pulumi/pulumi`/Node dependency to isolate the renderer from, so
- * re-exporting rather than hand-duplicating its fields here avoids the same
- * kind of drift risk.
- *
- * `TopLevelDeploymentSettings` (`@hyveon/shared/src/deploymentConfig.ts`) and
- * `DeploymentSettingsGetResult`/`DeploymentSettingsWriteResult`/
- * `UpdateDeploymentSettingsPayload` (`@hyveon/shared/src/deploymentSettingsWrite.ts`)
- * join this group for the same reason — they back the Settings page's
- * deployment-settings editor and are all pure data shapes with no
- * `@pulumi/pulumi`/Node dependency to isolate the renderer from.
- *
- * `PulumiEngineVersionResult` (`@hyveon/shared/src/pulumiVersion.ts`) joins
- * this group for the same reason — it backs Settings' Cloud Setup version
- * row and is a pure `{ resolvedVersion: string | null }` data shape with
- * nothing to isolate the renderer from.
- *
- * `RendererConsoleLevel`/`RendererLogEntry` (`@hyveon/shared/src/types.ts`)
- * join this group for the same reason — they back the console-forwarding
- * IPC payload and are pure data shapes with nothing to isolate the renderer
- * from. `desktop-main`'s `diagnostics.controller.ts` imports the same pair
- * from `@hyveon/shared` rather than declaring its own copy.
- *
- * `RunLock` (`@hyveon/shared/src/runs.ts`) joins this group for the same
- * reason — it backs {@link IacPlanAck.runLock} (the durable apply-lock
- * recovery flow) and is a pure data shape with nothing to isolate the
- * renderer from.
- *
- * `ExportDiagnosticsBundleResult` (`@hyveon/shared/src/diagnosticsBundle.ts`)
- * joins this group for the same reason — it backs `diagnostics.exportBundle`'s
- * result and is a pure data shape with nothing to isolate the renderer from.
- *
- * `ManualUpdateCheckResult` (`@hyveon/shared/src/autoUpdateSetting.ts`) joins
- * this group for the same reason — it backs the on-demand update-check
- * button in Settings' Updates section and is a pure data shape with nothing
- * to isolate the renderer from.
+ * Every other type below joins this re-exported group for the same reason: each is a pure data
+ * shape with no `@pulumi/pulumi`/Node dependency to isolate the renderer from, so re-exporting
+ * avoids the same drift risk as hand-duplicating its fields here.
  */
 export type {
   AutoUpdateSettingGetResult,
@@ -995,49 +961,24 @@ export interface IacStaleLockInfo {
 
 /**
  * Immediate acknowledgement the `iac.plan` IPC channel resolves with.
- * `started: true` means a `runId` was minted and the run was kicked off in
- * the background — the streamed progress/final result are delivered
- * separately over the `iac.plan.chunk` / `iac.plan.end` side channels,
- * tagged with this same `runId`, but **nothing in this preload currently
- * listens on those side channels** — this ack and the ALREADY-bridged
- * `iac.runs.get`/`iac.runs.list` channels (see
- * {@link IacRunRecord.changeSummary}/{@link RunHistoryRecord.changeSummary})
- * are the only paths a caller has to a plan's structured result today.
- * `started: false` means the submission was rejected before any run was
- * attempted (no `runId` is present): `error` is a human-readable description
- * of why, `conflict` additionally names the already-running operation
- * (`preview` / `up` / `destroy` / `rollback`) when the rejection was
- * specifically because the shared workspace was busy, and `staleLock`
- * additionally carries holder/age evidence when the rejection was an
- * unrecognized Pulumi backend lock conflict — see
- * {@link IacStaleLockInfo}. `apply`/`destroy` (both resolve this same
- * ack shape) can hit this `staleLock` case too: `PulumiUnrecognizedLockError`
- * is only ever detected once the underlying operation has already settled,
- * so it surfaces here whenever that happens before the generator's first
- * chunk would otherwise have been queued (the common case in practice, since
- * a lock conflict is detected at the very start of `stack.up()`/
- * `stack.destroy()`, before typical output exists). If the conflict is
- * instead detected after real output has already streamed, the main process
- * still records `staleLock` — on `iac.controller.ts`'s internal
- * `IacApplyEndMessage`/`IacDestroyEndMessage` — but **this
- * preload has no listener on the `iac.apply.end`/`iac.destroy.end` side
- * channels** (see `IacPlanEndMessage`'s doc comment in
- * `iac.controller.ts`, "nothing subscribes to this channel yet"), so that
- * variant does not currently reach the renderer through this bridge.
+ * `started: true` means a `runId` was minted and the run was kicked off in the background — the
+ * streamed progress/final result are delivered separately over the `iac.plan.chunk`/`iac.plan.end`
+ * side channels, tagged with this same `runId`; this preload does not currently listen on those
+ * (or on `iac.apply.end`/`iac.destroy.end`), so this ack plus the bridged `iac.runs.get`/
+ * `iac.runs.list` channels are the only paths to a plan's structured result today.
  *
- * `runLock` is present instead of `staleLock` when the rejection was
- * specifically a `RunLockHeldError` — the durable apply lock
- * (`RunService`/`RunLockService`) is already held by another run, as
- * opposed to `staleLock`'s unrecognized Pulumi *backend* lock. Only
- * `apply`/`destroy` can hit this case; `plan` never acquires the durable
- * lock, so its own rejections never carry `runLock`. Clearing it is a
- * separate write path on the `iac.runs.lock.clear` channel (see
- * {@link HyveonIacRunsApi.lock}), gated on the operator explicitly
- * confirming the lock is not a genuinely active run elsewhere.
+ * `started: false` means the submission was rejected before any run was attempted (no `runId`):
+ * `error` is a human-readable description; `conflict` names the already-running operation
+ * (`preview`/`up`/`destroy`/`rollback`) when the workspace was busy; `staleLock` carries
+ * holder/age evidence ({@link IacStaleLockInfo}) for an unrecognized Pulumi backend lock conflict
+ * (`apply`/`destroy` only); `runLock` is present instead when the rejection was a
+ * `RunLockHeldError` — the durable apply lock (`RunService`/`RunLockService`) already held by
+ * another run, as opposed to `staleLock`'s Pulumi backend lock. Only `apply`/`destroy` can hit
+ * either case; `plan` never acquires the durable lock. Clearing `runLock` is a separate write path
+ * on `iac.runs.lock.clear` (see {@link HyveonIacRunsApi.lock}).
  *
- * Mirrors `IacPlanAck` in
- * `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file
- * is the source of truth; keep this copy in sync with it.
+ * Mirrors `IacPlanAck` in `@hyveon/desktop-main/src/controllers/iac.controller.ts` — that file is
+ * the source of truth; keep this copy in sync with it.
  */
 export interface IacPlanAck {
   started: boolean;
