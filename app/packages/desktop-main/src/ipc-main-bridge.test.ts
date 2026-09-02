@@ -3,9 +3,7 @@ import type { MessageHandler } from '@nestjs/microservices';
 import { throwError } from 'rxjs';
 import { BridgedElectronIPCTransport, registerIpcMainBridges, SELF_BRIDGED_PATTERNS } from './ipc-main-bridge.js';
 
-// ---------------------------------------------------------------------------
 // Hoisted mock state — must be declared before any vi.mock() factory runs.
-// ---------------------------------------------------------------------------
 
 /**
  * Captures every `ipcMain.handle` / `ipcMain.removeHandler` call so tests can
@@ -29,9 +27,7 @@ vi.mock('./logger.js', () => ({
   logger: { error: mockLoggerError },
 }));
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Builds a `BridgedElectronIPCTransport` whose `messagePatternHandlers` map
@@ -50,9 +46,7 @@ function makeTransport(patterns: string[]): {
   return { transport, handlers };
 }
 
-// ---------------------------------------------------------------------------
 // Suite
-// ---------------------------------------------------------------------------
 
 describe('registerIpcMainBridges', () => {
   // registerIpcMainBridges only wires the bridge when running inside a real
