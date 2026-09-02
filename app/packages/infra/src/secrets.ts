@@ -1,8 +1,8 @@
 /**
  * Secrets Manager secrets for the Discord bot token, application public key,
- * and the FileBrowser helper's per-launch credential. The two Discord secret
- * versions are this package's only "imperative escape" implemented outside
- * `escapes.ts` — see that file's doc for the rest of the inventory.
+ * and the FileBrowser helper's per-launch credential. All three secret
+ * versions are "imperative escapes" implemented outside `escapes.ts` — see
+ * that file's doc for the rest of the inventory.
  *
  * ## SPEC-CRITICAL: no secret material enters the stack
  *

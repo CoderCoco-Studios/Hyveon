@@ -356,8 +356,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     ? new aws.ec2.SecurityGroup(
         `${projectName}-efs-seeder-sg`,
         {
-          // `-v2-`: forces replacement to drop the old open-egress rule —
-          // keep this suffix, see this file's doc.
+          // `-v2-`: keep this suffix — see this file's doc.
           namePrefix: `${projectName}-efs-seeder-sg-v2-`,
           description: 'EFS seeder Lambdas — outbound NFS to EFS only',
           vpcId,
@@ -406,8 +405,7 @@ export function defineSecurityGroups(args: DefineSecurityGroupsArgs): SecurityGr
     opts,
   );
 
-  // No inline egress — see this file's doc. Declared here, after `efsSg`
-  // exists, since it needs `efsSg.id` as its `sourceSecurityGroupId`.
+  // No inline egress — see this file's doc; declared here since it needs `efsSg.id`.
   const efsSeederEgressRule = efsSeederSg
     ? new aws.ec2.SecurityGroupRule(
         `${projectName}-efs-seeder-egress`,

@@ -1,9 +1,9 @@
 /**
- * The six Lambda functions (interactions, followup, watchdog, dns-updater,
- * health-check, and per-game EFS-seeder), their log groups, permissions, the
- * interactions Function URL, and the watchdog/dns-updater EventBridge
- * rule/target pairs. See `docs/docs/components/infra.md` for the full
- * resource inventory.
+ * The five shared Lambda functions (interactions, followup, watchdog,
+ * dns-updater, health-check) plus one EFS-seeder function per configured
+ * game, their log groups, permissions, the interactions Function URL, and
+ * the watchdog/dns-updater EventBridge rule/target pairs. See
+ * `docs/docs/components/infra.md` for the full resource inventory.
  *
  * `aws_lambda_invocation.efs_seeder`-equivalent work (the file-seed write
  * trigger) is NOT in this file — `escapes.ts`'s `defineEfsSeederInvocations`

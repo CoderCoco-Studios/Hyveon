@@ -3,8 +3,9 @@
  * beyond pure declarative management — seeding a mutable DynamoDB row, or
  * invoking a deployed Lambda as a one-shot build step. Declares the two
  * conditional Discord table rows and the per-game EFS-seeder invocation; the
- * Discord secret versions are a third instance, implemented in `secrets.ts`
- * alongside the secrets they version.
+ * three create-only secret versions (two Discord, one FileBrowser) are
+ * further instances, implemented in `secrets.ts` alongside the secrets they
+ * version.
  *
  * `discordConfigSeedItem` carries `ignoreChanges: ['item']` so the
  * management app's own writes to the `CONFIG#discord` row are never reverted
