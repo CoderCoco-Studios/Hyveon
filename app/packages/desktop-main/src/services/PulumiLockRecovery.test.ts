@@ -13,7 +13,7 @@
  * pruned after a bounded age, and evidence used to justify a reclaim must
  * be consumed (cleared) rather than reusable.
  */
-import { describe, it, expect, vi, beforeEach, afterEach, test } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'node:module';
 
 const { loggerMock } = vi.hoisted(() => ({
@@ -442,11 +442,8 @@ describe('classifyStackLockConflict — absence of in-flight activity is not evi
 });
 
 describe('classifyStackLockConflict — "in-app busy" is not this module\'s concern', () => {
-  // An in-app-concurrent request never reaches this module: `iac.controller.ts`'s
-  // pre-flight guard (`PulumiService.getOperationInFlight()`) refuses the
-  // second call before any SDK invocation happens, so there is no error shape
-  // to construct here.
-  test.todo('in-app-busy requests never reach classifyStackLockConflict — refused by the workspace guard first');
+  // The controller's pre-flight guard refuses in-app-concurrent requests before any SDK invocation, so they never reach this module.
+  it.todo('should never reach classifyStackLockConflict for in-app-busy requests refused by the workspace guard');
 });
 
 describe('formatLockAge', () => {
