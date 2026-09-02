@@ -444,10 +444,8 @@ export const DEMO_IAC_APPLY_CHUNKS: IacRunChunk[] = [
 
 /**
  * Streamed `iac.stack.initialize` phase events — the fourth first-run-wizard
- * step and Settings' Reconfigure flow both drive this to completion (task
- * 10.3 replaced the fifth-step pre-migration `init` step this constant used
- * to model with a fourth-step Pulumi stack-initialization step reporting
- * three coarse phases instead of scrolling log lines).
+ * step and Settings' Reconfigure flow both drive this to completion, reporting
+ * three coarse phases instead of scrolling log lines.
  */
 export const DEMO_STACK_INIT_EVENTS: StackInitPhaseEvent[] = [
   { phase: 'engine', status: 'start' },

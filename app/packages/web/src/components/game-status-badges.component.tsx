@@ -10,7 +10,7 @@ export interface GameStatusDrift {
 /**
  * Props for {@link GameStatusBadges} — the `declared` / `deployed` flags and
  * optional `drift` finding off a `GameListEntry` (`@hyveon/shared`, merged by
- * `mergeGameLists` — see issue #92).
+ * `mergeGameLists`).
  */
 export interface GameStatusBadgesProps {
   /** True when this game has an entry in the declared `gameServers` map. */
@@ -23,10 +23,10 @@ export interface GameStatusBadgesProps {
 
 /**
  * Renders the drift indicator for a single game row on the Settings →
- * Games panel (issue #93) and the game-detail page: one chip summarizing
+ * Games panel and the game-detail page: one chip summarizing
  * whether the game is declared in the deployment config, deployed to
  * tfstate, and whether its declared config has drifted from what's deployed
- * (issue #94's `DriftService`) — so operators can spot drift at a glance.
+ * (via `DriftService`) — so operators can spot drift at a glance.
  *
  * - declared && deployed, no config_drift → "In sync" (success)
  * - declared && deployed, drift.kind === 'config_drift' → "Config drift" (warning),
